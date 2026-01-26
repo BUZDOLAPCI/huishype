@@ -64,11 +64,13 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
         env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
           JWT_SECRET: test-jwt-secret
           JWT_REFRESH_SECRET: test-jwt-refresh-secret
           GOOGLE_CLIENT_ID: test-google-client-id
           APPLE_CLIENT_ID: test-apple-client-id
           COOKIE_SECRET: test-cookie-secret
+          NODE_ENV: test
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
