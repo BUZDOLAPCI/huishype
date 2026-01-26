@@ -140,10 +140,11 @@ export function PriceGuessSlider({
   // Initial price - prefer user's existing guess, then WOZ, then middle of range
   const initialPrice = userGuess ?? wozValue ?? 350000;
   const [guessedPrice, setGuessedPrice] = useState(initialPrice);
-  const [sliderWidth, setSliderWidth] = useState(300);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
 
-  // Animation values
+  // Animation values - use shared value for slider width for proper animated style updates
+  const sliderWidthShared = useSharedValue(300);
+  const [sliderWidth, setSliderWidth] = useState(300);
   const thumbPosition = useSharedValue(priceToPosition(initialPrice));
   const thumbScale = useSharedValue(1);
   const thumbPulse = useSharedValue(1);
@@ -237,7 +238,9 @@ export function PriceGuessSlider({
 
   // Handle slider layout to get width
   const handleSliderLayout = (event: LayoutChangeEvent) => {
-    setSliderWidth(event.nativeEvent.layout.width);
+    const newWidth = event.nativeEvent.layout.width;
+    setSliderWidth(newWidth);
+    sliderWidthShared.value = newWidth;
   };
 
   // Pan gesture for dragging the thumb
@@ -270,19 +273,25 @@ export function PriceGuessSlider({
   // Combined gestures
   const composedGestures = Gesture.Simultaneous(panGesture, tapGesture);
 
-  // Thumb animated styles
-  const thumbAnimatedStyle = useAnimatedStyle(() => ({
-    left: `${thumbPosition.value * 100}%`,
-    transform: [
-      { translateX: -16 },
-      { scale: thumbScale.value * thumbPulse.value },
-    ],
-  }));
+  // Thumb animated styles - use pixel positioning for web compatibility
+  const thumbAnimatedStyle = useAnimatedStyle(() => {
+    const leftPx = thumbPosition.value * sliderWidthShared.value;
+    return {
+      left: leftPx,
+      transform: [
+        { translateX: -16 },
+        { scale: thumbScale.value * thumbPulse.value },
+      ],
+    };
+  });
 
-  // Track fill animated style
-  const fillAnimatedStyle = useAnimatedStyle(() => ({
-    width: `${thumbPosition.value * 100}%`,
-  }));
+  // Track fill animated style - use pixel width for web compatibility
+  const fillAnimatedStyle = useAnimatedStyle(() => {
+    const widthPx = thumbPosition.value * sliderWidthShared.value;
+    return {
+      width: widthPx,
+    };
+  });
 
   // Price display animated style
   const priceAnimatedStyle = useAnimatedStyle(() => ({
@@ -386,27 +395,50 @@ export function PriceGuessSlider({
             />
           )}
 
-          {/* Slider track */}
+          {/* Slider track container - overflow visible for thumb */}
           <GestureDetector gesture={composedGestures}>
             <View
-              className={`h-3 rounded-full ${disabled ? 'bg-gray-200' : 'bg-gray-200'}`}
+              className="rounded-full"
+              style={{
+                overflow: 'visible',
+                position: 'relative',
+                height: 12,
+                backgroundColor: '#E5E7EB', // gray-200
+              }}
             >
               {/* Fill */}
               <Animated.View
-                className={`h-full rounded-full ${disabled ? 'bg-gray-300' : 'bg-primary-500'}`}
-                style={fillAnimatedStyle}
+                className="rounded-full"
+                style={[
+                  fillAnimatedStyle,
+                  {
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    height: 12,
+                    backgroundColor: disabled ? '#D1D5DB' : '#3B82F6', // gray-300 or primary-500
+                  }
+                ]}
               />
 
               {/* Thumb */}
               <Animated.View
-                className={`absolute w-8 h-8 rounded-full -top-2.5 shadow-lg ${
-                  disabled
-                    ? 'bg-gray-400'
-                    : isNearWOZ
-                    ? 'bg-purple-500'
-                    : 'bg-primary-600'
-                }`}
-                style={thumbAnimatedStyle}
+                className="rounded-full shadow-lg"
+                style={[
+                  thumbAnimatedStyle,
+                  {
+                    position: 'absolute',
+                    top: -10,
+                    width: 32,
+                    height: 32,
+                    zIndex: 10,
+                    backgroundColor: disabled
+                      ? '#9CA3AF'  // gray-400
+                      : isNearWOZ
+                        ? '#8B5CF6' // purple-500
+                        : '#2563EB', // primary-600
+                  },
+                ]}
                 testID="slider-thumb"
               >
                 <View className="flex-1 items-center justify-center">
@@ -452,17 +484,27 @@ export function PriceGuessSlider({
           testID="submit-guess-button"
         >
           <Animated.View
-            className={`py-3.5 rounded-xl items-center flex-row justify-center ${
+            className={`rounded-xl items-center flex-row justify-center ${
               disabled || isSubmitting
                 ? 'bg-gray-200'
                 : 'bg-primary-600 active:bg-primary-700'
             }`}
-            style={submitAnimatedStyle}
+            style={[
+              submitAnimatedStyle,
+              {
+                paddingVertical: 14,
+                backgroundColor: disabled || isSubmitting ? '#E5E7EB' : '#2563EB',
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+              },
+            ]}
           >
             {isSubmitting ? (
-              <View className="flex-row items-center">
+              <View className="flex-row items-center" style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="hourglass-outline" size={20} color="#9CA3AF" />
-                <Text className="text-gray-500 font-semibold text-base ml-2">
+                <Text className="text-gray-500 font-semibold text-base ml-2" style={{ color: '#6B7280', fontWeight: '600', fontSize: 16, marginLeft: 8 }}>
                   Submitting...
                 </Text>
               </View>
@@ -471,6 +513,11 @@ export function PriceGuessSlider({
                 className={`font-semibold text-base ${
                   disabled ? 'text-gray-400' : 'text-white'
                 }`}
+                style={{
+                  color: disabled ? '#9CA3AF' : '#FFFFFF',
+                  fontWeight: '600',
+                  fontSize: 16,
+                }}
               >
                 Submit Guess
               </Text>

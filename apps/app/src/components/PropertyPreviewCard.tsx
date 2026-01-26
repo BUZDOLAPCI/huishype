@@ -47,6 +47,7 @@ export function PropertyPreviewCard({
     <Pressable
       onPress={onPress}
       className="bg-white rounded-xl shadow-lg p-4 min-w-[280px] max-w-[320px]"
+      testID="property-preview-card"
     >
       {/* Header with address and activity indicator */}
       <View className="flex-row items-start justify-between mb-2">

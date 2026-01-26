@@ -32,6 +32,7 @@ export interface PropertyBottomSheetProps {
   onFavorite?: (propertyId: string) => void;
   onGuessPress?: (propertyId: string) => void;
   onCommentPress?: (propertyId: string) => void;
+  onAuthRequired?: () => void;
 }
 
 export interface PropertyBottomSheetRef {
@@ -65,6 +66,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onFavorite,
       onGuessPress,
       onCommentPress,
+      onAuthRequired,
     },
     ref
   ) {
@@ -173,6 +175,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
                 <CommentsSection
                   property={propertyDetails}
                   onAddComment={() => onCommentPress?.(propertyDetails.id)}
+                  onAuthRequired={onAuthRequired}
                 />
 
                 {/* Property Details */}

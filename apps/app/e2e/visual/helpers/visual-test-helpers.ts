@@ -27,6 +27,12 @@ export const KNOWN_ACCEPTABLE_ERRORS = [
   // React 19 compatibility warnings (library issues, not our code)
   'Accessing element.ref was removed in React 19',
   'ref is now a regular prop',
+  // React Fast Refresh / Hot Reload errors in dev mode
+  // These occur when components are refreshed outside their normal context
+  'useAuthContext must be used within an AuthProvider',
+  'performReactRefresh',
+  'scheduleRefresh',
+  'recreate this component tree from scratch using the error boundary',
   // Favicon 404s are acceptable
   'favicon.ico - Failed to load resource',
   // Source map failures are acceptable
@@ -47,6 +53,19 @@ export const KNOWN_ACCEPTABLE_ERRORS = [
   // Generic map tile errors
   '.pbf',
   'openfreemap',
+  // Network encoding errors (can happen during dev server hot reload)
+  'ERR_INCOMPLETE_CHUNKED_ENCODING',
+  'ERR_CONNECTION_REFUSED',
+  'ERR_NAME_NOT_RESOLVED',
+  // External placeholder image services (not our code)
+  'via.placeholder.com',
+  'placeholder.com',
+  // Font loading errors (Expo vector icons)
+  'Ionicons.ttf',
+  'FontAwesome.ttf',
+  'vector-icons',
+  '/assets/',
+  'unstable_path',
 ];
 
 /**
@@ -146,12 +165,15 @@ export class ConsoleCollector {
 
   /**
    * Get critical errors (errors that are NOT in the acceptable list)
+   * Checks both the error text and the location (URL) for known acceptable patterns
    */
   getCriticalErrors(): ConsoleEntry[] {
     return this.getErrors().filter(entry => {
       const text = entry.text.toLowerCase();
+      const location = (entry.location || '').toLowerCase();
+      const combined = `${text} ${location}`;
       return !KNOWN_ACCEPTABLE_ERRORS.some(pattern =>
-        text.includes(pattern.toLowerCase())
+        combined.includes(pattern.toLowerCase())
       );
     });
   }

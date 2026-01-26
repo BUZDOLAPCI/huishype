@@ -6,32 +6,62 @@ import { PriceGuessSlider, CommentList } from '@/src/components';
 import { useProperty } from '@/src/hooks/useProperties';
 
 // Mock comments data - will be replaced with API data in Task #5
+// Uses karma levels matching the expectation requirements:
+// - Newbie (0-10): Gray
+// - Regular (11-50): Green
+// - Trusted (51-100): Blue
+// - Expert (101-500): Purple
+// - Legend (500+): Amber/gold
 const MOCK_COMMENTS = [
   {
     id: '1',
-    author: 'HousingEnthusiast',
-    authorKarma: 1250,
+    author: 'Jan de Vries',
+    authorKarma: 2500, // Legend - gold badge
     content: 'This is way overpriced for this area. The WOZ value tells the real story.',
-    likes: 23,
+    likes: 45,
     createdAt: '2h ago',
     replies: [
       {
         id: '1-1',
-        author: 'LocalResident',
-        authorKarma: 450,
-        content: '@HousingEnthusiast I disagree, the renovations add significant value',
-        likes: 8,
+        author: 'Maria Bakker',
+        authorKarma: 85, // Trusted - blue badge
+        content: '@JandeVries I disagree, the renovations add significant value',
+        likes: 12,
         createdAt: '1h ago',
+      },
+      {
+        id: '1-2',
+        author: 'Sophie Meijer',
+        authorKarma: 5200, // Legend - gold badge
+        content: '@MariaBakker Agreed, but the location premium is also justified here.',
+        likes: 8,
+        createdAt: '45m ago',
       },
     ],
   },
   {
     id: '2',
-    author: 'RealEstateWatcher',
-    authorKarma: 890,
+    author: 'Pieter Jansen',
+    authorKarma: 125, // Expert - purple badge
     content: 'Great location though. Close to everything you need.',
-    likes: 15,
+    likes: 23,
     createdAt: '4h ago',
+  },
+  {
+    id: '3',
+    author: 'Lisa van Berg',
+    authorKarma: 35, // Regular - green badge
+    content: 'Does anyone know if the basement has flooding issues? Seen some reports for this area.',
+    likes: 7,
+    createdAt: '6h ago',
+  },
+  {
+    id: '4',
+    author: 'New User',
+    authorKarma: 5, // Newbie - gray badge
+    content: 'Just moved to this neighborhood. It is a great area for families!',
+    likes: 3,
+    createdAt: '8h ago',
   },
 ];
 

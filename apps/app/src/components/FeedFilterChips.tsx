@@ -13,6 +13,7 @@ const FILTER_CHIPS: FilterChip[] = [
   { key: 'new', label: 'New', icon: 'star' },
   { key: 'trending', label: 'Trending', icon: 'fire' },
   { key: 'price_mismatch', label: 'Price Mismatch', icon: 'exchange' },
+  { key: 'polarizing', label: 'Polarizing', icon: 'bolt' },
 ];
 
 interface FeedFilterChipsProps {

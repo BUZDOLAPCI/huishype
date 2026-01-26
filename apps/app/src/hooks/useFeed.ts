@@ -8,7 +8,7 @@ import type { FeedType, PropertySummary } from '@huishype/shared';
 import { API_URL } from '../utils/api';
 
 // Feed filter types
-export type FeedFilter = 'all' | 'new' | 'trending' | 'price_mismatch';
+export type FeedFilter = 'all' | 'new' | 'trending' | 'price_mismatch' | 'polarizing';
 
 // Property response from API (matches backend schema)
 interface PropertyApiResponse {
@@ -159,6 +159,14 @@ async function fetchFeedProperties(
     case 'price_mismatch':
       // Filter to only properties with WOZ value (potential price mismatches)
       properties = properties.filter((p) => p.wozValue !== null);
+      break;
+    case 'polarizing':
+      // Sort by highest engagement (comments + guesses combined)
+      // Polarizing properties have high engagement suggesting mixed opinions
+      properties = properties.sort(
+        (a, b) =>
+          b.commentCount + b.guessCount - (a.commentCount + a.guessCount)
+      );
       break;
     default:
       // 'all' - no additional filtering

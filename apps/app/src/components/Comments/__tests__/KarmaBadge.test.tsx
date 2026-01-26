@@ -22,14 +22,14 @@ describe('KarmaBadge', () => {
       expect(getKarmaConfig(100).label).toBe('Trusted');
     });
 
-    it('returns Expert for karma 101-500', () => {
+    it('returns Expert for karma 101-499', () => {
       expect(getKarmaConfig(101).label).toBe('Expert');
       expect(getKarmaConfig(300).label).toBe('Expert');
-      expect(getKarmaConfig(500).label).toBe('Expert');
+      expect(getKarmaConfig(499).label).toBe('Expert');
     });
 
-    it('returns Legend for karma over 500', () => {
-      expect(getKarmaConfig(501).label).toBe('Legend');
+    it('returns Legend for karma 500 and over', () => {
+      expect(getKarmaConfig(500).label).toBe('Legend');
       expect(getKarmaConfig(1000).label).toBe('Legend');
       expect(getKarmaConfig(10000).label).toBe('Legend');
     });

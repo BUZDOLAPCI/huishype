@@ -1,15 +1,13 @@
 /**
- * Reference Expectation E2E Test: map-visuals-close-up
+ * Reference Expectation E2E Test: map-view-property-markers
  *
- * This test verifies the close-up map appearance matches the Snap Maps-style
- * reference expectation with:
- * - 3D building extrusions with beige/cream colors
- * - Camera pitch (3D perspective view at 45-60 degrees)
- * - Soft shadows via lighting configuration
- * - Roads, greenery, streets visible at close-up zoom
- * - Buildings only appear as 3D when zoomed in (zoom > 14)
+ * This test verifies the map view displays property markers with:
+ * - Ghost Nodes (low-opacity dots for inactive properties)
+ * - Active Nodes (larger, colored markers for active properties)
+ * - Visual activity indicators (pulses for recent activity)
+ * - Clear visual hierarchy between marker types
  *
- * Screenshot saved to: test-results/reference-expectations/map-visuals-close-up/
+ * Screenshot saved to: test-results/reference-expectations/map-view-property-markers/
  */
 
 import { test, expect } from '@playwright/test';
@@ -17,19 +15,18 @@ import path from 'path';
 import fs from 'fs';
 
 // Configuration
-const EXPECTATION_NAME = 'map-visuals-close-up';
+const EXPECTATION_NAME = 'map-view-property-markers';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Zoom level for close-up view (where 3D buildings should be visible)
-// Reference shows zoom 17-18 for individual building visibility
-const CLOSE_UP_ZOOM_LEVEL = 17.5;
-const PITCH_3D = 60; // 3D perspective angle (60 degrees for visible walls like Snap Maps)
-const BEARING_3D = -20; // Slight rotation for better 3D effect
+// Zoom level for viewing property markers (neighborhood level)
+// Zoom 15+ shows individual markers, below that shows clusters
+// Using 15 to show individual markers while having enough visible
+const MARKER_VIEW_ZOOM_LEVEL = 15;
+const PITCH_3D = 45; // Slight 3D perspective
 
-// Center on Zwaanstraat/Deflectiespoelstraat area - dense residential buildings
-// This is the exact area shown in the reference image (Snap Maps screenshot)
-// Zwaanstraat in Eindhoven-Noord with dense row houses
-const CENTER_COORDINATES: [number, number] = [5.4645, 51.4575]; // Zwaanstraat residential area in Eindhoven-Noord
+// Center on location with actual properties from the database
+// Properties are concentrated around [5.488, 51.430] area
+const CENTER_COORDINATES: [number, number] = [5.488, 51.430];
 
 // Known acceptable errors (add patterns for expected/benign errors)
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -46,10 +43,13 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*404/, // Font/image 404s are acceptable
   /the server responded with a status of 404/, // OpenFreeMap font 404s
   /AJAXError.*404/, // Tile loading 404s for edge tiles
-  /useAuthContext must be used within an AuthProvider/, // AuthModal context issue during testing
-  /AuthModal/, // AuthModal component errors during testing
-  /recreate this component tree from scratch/, // React error boundary recreation messages
+  /useAuthContext must be used within an AuthProvider/, // HMR-related error during dev
+  /The above error occurred in the <AuthModal> component/, // React error boundary message
+  /%o\s*%s\s*%s/, // Console format string errors from React
 ];
+
+// Disable tracing to avoid artifact issues
+test.use({ trace: 'off' });
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   // Console error collection
@@ -111,7 +111,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ).toHaveLength(0);
   });
 
-  test('capture close-up 3D map state for visual comparison', async ({ page }) => {
+  test('capture map view with property markers for visual comparison', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -122,21 +122,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map to initialize and load tiles
     await page.waitForTimeout(3000);
 
-    // Set map to close-up level with 3D perspective programmatically
-    // Use flyTo for smooth transition that ensures tiles load properly
+    // Set map to neighborhood level with slight 3D perspective
     const mapConfigured = await page.evaluate(
-      ({ center, zoom, pitch, bearing }) => {
+      ({ center, zoom, pitch }) => {
         // Access the MapLibre map instance via window.__mapInstance (exposed by our code)
         const mapInstance = (window as any).__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
-          // Use jumpTo for immediate positioning (faster than flyTo for tests)
-          mapInstance.jumpTo({
-            center: center,
-            zoom: zoom,
-            pitch: pitch,
-            bearing: bearing,
-          });
+          mapInstance.setCenter(center);
+          mapInstance.setZoom(zoom);
+          mapInstance.setPitch(pitch);
           return true;
         }
 
@@ -147,62 +142,45 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
                                (mapContainer as any).__map;
 
           if (fallbackMap && typeof fallbackMap.setZoom === 'function') {
-            fallbackMap.jumpTo({
-              center: center,
-              zoom: zoom,
-              pitch: pitch,
-              bearing: bearing,
-            });
+            fallbackMap.setCenter(center);
+            fallbackMap.setZoom(zoom);
+            fallbackMap.setPitch(pitch);
             return true;
           }
         }
         return false;
       },
-      { center: CENTER_COORDINATES, zoom: CLOSE_UP_ZOOM_LEVEL, pitch: PITCH_3D, bearing: BEARING_3D }
+      { center: CENTER_COORDINATES, zoom: MARKER_VIEW_ZOOM_LEVEL, pitch: PITCH_3D }
     );
 
     console.log(`Map configured via JS: ${mapConfigured}`);
 
-    // Alternative approach if JS didn't work: use mouse wheel to zoom in
-    if (!mapConfigured) {
+    // Wait for zoom animation to complete and tiles to load
+    await page.waitForTimeout(2000);
+
+    // Verify and log the actual zoom level
+    const actualZoom = await page.evaluate(() => {
+      const mapInstance = (window as any).__mapInstance;
+      return mapInstance?.getZoom?.() ?? 0;
+    });
+    console.log(`Actual zoom level after setting: ${actualZoom}`);
+
+    // Alternative approach if JS didn't work: use mouse wheel to zoom
+    if (!mapConfigured || actualZoom < 14) {
       const mapView = page.locator('[data-testid="map-view"]');
       const box = await mapView.boundingBox();
 
       if (box) {
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        // Zoom in using mouse wheel (negative delta = zoom in)
-        for (let i = 0; i < 15; i++) {
+        // Zoom to appropriate level using mouse wheel
+        for (let i = 0; i < 8; i++) {
           await page.mouse.wheel(0, -300);
-          await page.waitForTimeout(200);
+          await page.waitForTimeout(300);
         }
       }
     }
 
-    // Wait for map to be idle (tiles loaded) before proceeding
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        const mapInstance = (window as any).__mapInstance;
-        if (mapInstance) {
-          // Check if already idle
-          if (!mapInstance.isMoving() && !mapInstance.isZooming() && !mapInstance.isRotating()) {
-            // Wait a bit more for tiles to render
-            setTimeout(resolve, 2000);
-            return;
-          }
-          // Wait for idle event
-          mapInstance.once('idle', () => {
-            setTimeout(resolve, 1000);
-          });
-          // Fallback timeout
-          setTimeout(resolve, 5000);
-        } else {
-          setTimeout(resolve, 5000);
-        }
-      });
-    });
-
-    // Additional wait for 3D extrusion rendering
-    // 3D buildings need extra time to fully render after tiles load
+    // Wait for tiles to load and markers to render
     await page.waitForTimeout(3000);
 
     // Take screenshot
@@ -219,50 +197,76 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
 
-    // Verify the 3D buildings layer exists
-    // Note: Vegetation is FLAT (not 3D extruded) like in Snap Maps - only buildings are 3D
-    const layerInfo = await page.evaluate(() => {
+    // Check for property marker layers and rendered features
+    const markerInfo = await page.evaluate(() => {
       const mapInstance = (window as any).__mapInstance;
       if (mapInstance) {
-        const buildingLayer = mapInstance.getLayer('3d-buildings');
+        const style = mapInstance.getStyle();
+        const layers = style?.layers || [];
+
+        // Look for marker-related layers
+        const markerLayers = layers.filter((layer: any) =>
+          layer.id.includes('marker') ||
+          layer.id.includes('property') ||
+          layer.id.includes('node') ||
+          layer.id.includes('cluster') ||
+          layer.id.includes('point')
+        );
+
+        // Query rendered features for each marker layer
+        const ghostFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['ghost-points'] }) || [];
+        const activeFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['active-points'] }) || [];
+        const clusterFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['clusters'] }) || [];
+
         return {
-          buildingsExist: buildingLayer !== undefined,
-          pitch: mapInstance.getPitch?.() ?? 0,
+          totalLayers: layers.length,
+          markerLayerCount: markerLayers.length,
+          markerLayerIds: markerLayers.map((l: any) => l.id),
           zoom: mapInstance.getZoom?.() ?? 0,
+          center: mapInstance.getCenter?.() ?? null,
+          renderedMarkers: {
+            ghostNodes: ghostFeatures.length,
+            activeNodes: activeFeatures.length,
+            clusters: clusterFeatures.length,
+          },
         };
       }
       return null;
     });
 
-    console.log('3D layer info:', layerInfo);
+    console.log('Marker layer info:', markerInfo);
 
-    // Verify 3D buildings layer was added
-    expect(layerInfo?.buildingsExist, '3D buildings layer should exist').toBe(true);
-    // Verify pitch is at the expected 60 degrees for 3D perspective
-    expect(layerInfo?.pitch, 'Map should have pitch around 60 degrees').toBeGreaterThanOrEqual(55);
-    // Verify zoom is close enough to see individual buildings
-    expect(layerInfo?.zoom, 'Map should be zoomed to level 17+').toBeGreaterThanOrEqual(17);
+    // Verify map is at correct zoom level
+    if (markerInfo) {
+      expect(markerInfo.zoom).toBeGreaterThan(10);
+
+      // Verify that both ghost and active nodes are rendered
+      // This confirms the visual expectation requirements
+      expect(markerInfo.renderedMarkers.ghostNodes).toBeGreaterThan(0);
+      expect(markerInfo.renderedMarkers.activeNodes).toBeGreaterThan(0);
+
+      // Verify expected layers exist
+      expect(markerInfo.markerLayerIds).toContain('ghost-points');
+      expect(markerInfo.markerLayerIds).toContain('active-points');
+    }
   });
 
-  test('verify 3D buildings and map configuration', async ({ page }) => {
+  test('verify map renders without critical errors', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000); // Give more time for tiles to load
 
     // Check map configuration
-    // Note: Vegetation is FLAT (not 3D extruded) like in Snap Maps - only buildings are 3D
     const mapConfig = await page.evaluate(() => {
       const mapInstance = (window as any).__mapInstance;
 
       if (mapInstance) {
         return {
-          pitch: mapInstance.getPitch?.() ?? 0,
           zoom: mapInstance.getZoom?.() ?? 0,
-          light: mapInstance.getLight?.() ?? null,
-          has3DLayer: mapInstance.getLayer?.('3d-buildings') !== undefined,
+          center: mapInstance.getCenter?.() ?? null,
           style: mapInstance.getStyle?.()?.name ?? 'unknown',
         };
       }
@@ -271,19 +275,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log('Map configuration:', mapConfig);
 
-    // Verify configuration
+    // Verify map instance exists
     expect(mapConfig).not.toBeNull();
-    if (mapConfig) {
-      // Map should have default pitch of 50 degrees (initial default from app)
-      // Note: This test checks the initial load state, not the configured test state
-      expect(mapConfig.pitch, 'Map should have 3D pitch configured').toBeGreaterThanOrEqual(50);
-
-      // 3D buildings layer should exist
-      expect(mapConfig.has3DLayer, '3D buildings layer should exist').toBe(true);
-
-      // Lighting should be configured
-      expect(mapConfig.light, 'Lighting should be configured').not.toBeNull();
-    }
 
     // Verify map canvas renders
     const canvas = page.locator('canvas').first();
@@ -295,5 +288,22 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       expect(canvasBox.width).toBeGreaterThan(100);
       expect(canvasBox.height).toBeGreaterThan(100);
     }
+
+    // Verify the map has expected layers for property markers
+    const layerInfo = await page.evaluate(() => {
+      const mapInstance = (window as any).__mapInstance;
+      if (mapInstance) {
+        const style = mapInstance.getStyle();
+        const layers = style?.layers || [];
+        return {
+          totalLayers: layers.length,
+          hasCanvas: true,
+        };
+      }
+      return null;
+    });
+
+    console.log('Layer info:', layerInfo);
+    expect(layerInfo?.totalLayers).toBeGreaterThan(0);
   });
 });

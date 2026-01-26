@@ -18,32 +18,32 @@ interface KarmaConfig {
  * - 0-10: "Newbie" - gray
  * - 11-50: "Regular" - green
  * - 51-100: "Trusted" - blue
- * - 101-500: "Expert" - purple
- * - 500+: "Legend" - gold/orange
+ * - 101-499: "Expert" - purple
+ * - 500+: "Legend" - gold/amber
  */
 export function getKarmaConfig(karma: number): KarmaConfig {
-  if (karma > 500) {
+  if (karma >= 500) {
     return {
       label: 'Legend',
       bgColor: 'bg-amber-100',
       textColor: 'text-amber-700',
     };
   }
-  if (karma > 100) {
+  if (karma >= 101) {
     return {
       label: 'Expert',
       bgColor: 'bg-purple-100',
       textColor: 'text-purple-700',
     };
   }
-  if (karma > 50) {
+  if (karma >= 51) {
     return {
       label: 'Trusted',
       bgColor: 'bg-blue-100',
       textColor: 'text-blue-700',
     };
   }
-  if (karma > 10) {
+  if (karma >= 11) {
     return {
       label: 'Regular',
       bgColor: 'bg-green-100',

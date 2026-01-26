@@ -3,9 +3,19 @@ import { Text, View, ActivityIndicator } from 'react-native';
 import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, SymbolLayer } from '@rnmapbox/maps';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 
-import { PropertyPreviewCard, PropertyBottomSheet } from '@/src/components';
+import { PropertyPreviewCard, PropertyBottomSheet, ClusterPreviewCard } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useAllProperties, type Property } from '@/src/hooks/useProperties';
+
+// ShapeSource type for accessing cluster methods
+type ShapeSourceRef = {
+  getClusterExpansionZoom: (clusterId: number) => Promise<number>;
+  getClusterLeaves: (
+    clusterId: number,
+    limit: number,
+    offset: number
+  ) => Promise<GeoJSON.Feature[]>;
+};
 
 // Configure MapLibre (no Mapbox token needed for MapLibre)
 Mapbox.setAccessToken(null);
@@ -87,8 +97,14 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
 
 export default function MapScreen() {
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
+  const shapeSourceRef = useRef<ShapeSourceRef | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+
+  // Cluster preview state
+  const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
+  const [currentClusterIndex, setCurrentClusterIndex] = useState(0);
+  const [isClusterPreview, setIsClusterPreview] = useState(false);
 
   // Fetch properties from API
   const { data: propertiesData, isLoading, error, refetch } = useAllProperties();
@@ -99,20 +115,75 @@ export default function MapScreen() {
     return propertiesToGeoJSON(propertiesData.data);
   }, [propertiesData?.data]);
 
-  // Handle property marker press
+  // Handle property marker press - handles both individual properties and clusters
   const handleMarkerPress = useCallback(
-    (event: OnPressEvent) => {
+    async (event: OnPressEvent) => {
       if (!event.features?.length || !propertiesData?.data) return;
 
       const feature = event.features[0];
-      const propertyId = (feature.properties?.id as string) || (feature.id as string);
 
-      // Find the full property data
-      const property = propertiesData.data.find((p) => p.id === propertyId);
+      // Check if this is a cluster (has point_count property)
+      const isCluster = feature.properties?.cluster === true || feature.properties?.point_count;
 
-      if (property) {
-        setSelectedProperty(property);
-        setShowPreview(true);
+      if (isCluster) {
+        // Handle cluster click - show paginated preview
+        const clusterId = feature.properties?.cluster_id as number;
+        const pointCount = (feature.properties?.point_count as number) || 10;
+
+        if (!shapeSourceRef.current) return;
+
+        try {
+          // Get all properties in this cluster
+          const clusterFeatures = await shapeSourceRef.current.getClusterLeaves(
+            clusterId,
+            pointCount,
+            0
+          );
+
+          if (!clusterFeatures || clusterFeatures.length === 0) {
+            // No leaves found, try zooming in
+            const zoom = await shapeSourceRef.current.getClusterExpansionZoom(clusterId);
+            // Note: We would need a camera ref to zoom, for now just return
+            console.log('Would zoom to level:', zoom);
+            return;
+          }
+
+          // Map cluster features to Property objects
+          const props = clusterFeatures
+            .map((f) => {
+              const propertyId =
+                (f.properties?.id as string) || (f.id as string | number)?.toString();
+              return propertiesData.data.find((p) => p.id === propertyId);
+            })
+            .filter((p): p is Property => p !== undefined);
+
+          if (props.length > 1) {
+            // Show cluster preview for multiple properties
+            setClusterProperties(props);
+            setCurrentClusterIndex(0);
+            setIsClusterPreview(true);
+            setShowPreview(false); // Close single property preview if open
+          } else if (props.length === 1) {
+            // Single property in cluster - show regular preview
+            setSelectedProperty(props[0]);
+            setShowPreview(true);
+            setIsClusterPreview(false);
+          }
+        } catch (error) {
+          console.error('Error getting cluster leaves:', error);
+        }
+      } else {
+        // Handle individual property click
+        const propertyId = (feature.properties?.id as string) || (feature.id as string);
+
+        // Find the full property data
+        const property = propertiesData.data.find((p) => p.id === propertyId);
+
+        if (property) {
+          setSelectedProperty(property);
+          setShowPreview(true);
+          setIsClusterPreview(false);
+        }
       }
     },
     [propertiesData?.data]
@@ -128,6 +199,26 @@ export default function MapScreen() {
   const handleSheetClose = useCallback(() => {
     setSelectedProperty(null);
     setShowPreview(false);
+    setIsClusterPreview(false);
+  }, []);
+
+  // Handle cluster preview navigation
+  const handleClusterIndexChange = useCallback((index: number) => {
+    setCurrentClusterIndex(index);
+  }, []);
+
+  // Handle cluster preview close
+  const handleClusterClose = useCallback(() => {
+    setIsClusterPreview(false);
+    setClusterProperties([]);
+    setCurrentClusterIndex(0);
+  }, []);
+
+  // Handle property selection from cluster preview
+  const handleClusterPropertyPress = useCallback((property: Property) => {
+    setSelectedProperty(property);
+    setIsClusterPreview(false);
+    bottomSheetRef.current?.snapToIndex(0);
   }, []);
 
   // Handle quick actions from preview card
@@ -179,7 +270,10 @@ export default function MapScreen() {
     if (showPreview) {
       setShowPreview(false);
     }
-  }, [showPreview]);
+    if (isClusterPreview) {
+      setIsClusterPreview(false);
+    }
+  }, [showPreview, isClusterPreview]);
 
   // Loading state
   if (isLoading) {
@@ -234,6 +328,9 @@ export default function MapScreen() {
           {geoJSON && (
             <ShapeSource
               id="properties"
+              ref={(ref) => {
+                shapeSourceRef.current = ref as unknown as ShapeSourceRef;
+              }}
               shape={geoJSON}
               cluster={true}
               clusterRadius={50}
@@ -330,8 +427,8 @@ export default function MapScreen() {
           </Text>
         </View>
 
-        {/* Property Preview Card (floating) */}
-        {showPreview && selectedProperty && (
+        {/* Property Preview Card (floating) - single property */}
+        {showPreview && selectedProperty && !isClusterPreview && (
           <View className="absolute bottom-4 left-4 right-4">
             <PropertyPreviewCard
               property={{
@@ -347,6 +444,19 @@ export default function MapScreen() {
               onLike={handleLike}
               onComment={handleComment}
               onGuess={handleGuess}
+            />
+          </View>
+        )}
+
+        {/* Cluster Preview Card (floating) - multiple properties */}
+        {isClusterPreview && clusterProperties.length > 0 && (
+          <View className="absolute bottom-4 left-4 right-4">
+            <ClusterPreviewCard
+              properties={clusterProperties}
+              currentIndex={currentClusterIndex}
+              onIndexChange={handleClusterIndexChange}
+              onClose={handleClusterClose}
+              onPropertyPress={handleClusterPropertyPress}
             />
           </View>
         )}

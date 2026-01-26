@@ -12,6 +12,21 @@ export interface ClusterPreviewCardProps {
 }
 
 /**
+ * Parse a display address from the raw address field.
+ * Handles BAG-style addresses like "BAG Pand 0772100009376482"
+ * by generating a readable placeholder.
+ */
+function formatDisplayAddress(address: string, bagId: string | null): string {
+  // If address starts with "BAG" or "BAG-Pand", generate a friendly placeholder
+  if (address.startsWith('BAG ') || address.startsWith('BAG-Pand')) {
+    // Use last 4 digits of BAG ID as a "house number" for visual distinction
+    const shortId = bagId ? bagId.slice(-4) : '0000';
+    return `Property #${shortId}`;
+  }
+  return address;
+}
+
+/**
  * ClusterPreviewCard displays a paginated view of properties in a cluster.
  * Shows "X of Y" navigation with left/right arrows and swipe gesture support.
  * Similar to Funda's clustered listing preview UI.
@@ -100,13 +115,19 @@ export function ClusterPreviewCard({
 
   // Format price for display
   const formatPrice = (value: number | null | undefined): string => {
-    if (value === null || value === undefined) return 'N/A';
+    if (value === null || value === undefined) return 'Price unavailable';
     return `\u20AC${value.toLocaleString('nl-NL')}`;
   };
 
+  // Format the display address
+  const displayAddress = formatDisplayAddress(
+    currentProperty.address,
+    currentProperty.bagIdentificatie
+  );
+
   return (
     <View style={styles.container} testID="cluster-preview-card">
-      {/* Navigation Header */}
+      {/* Navigation Header - Layout: [<] [X of Y] [>] [X] all in a row */}
       <View style={styles.header}>
         {/* Left Arrow */}
         <Pressable
@@ -147,10 +168,7 @@ export function ClusterPreviewCard({
           />
         </Pressable>
 
-        {/* Spacer */}
-        <View style={styles.headerSpacer} />
-
-        {/* Close Button */}
+        {/* Close Button - directly adjacent to navigation arrows */}
         <Pressable
           onPress={onClose}
           style={styles.closeButton}
@@ -176,7 +194,7 @@ export function ClusterPreviewCard({
           <View style={styles.propertyInfo}>
             {/* Address */}
             <Text style={styles.address} numberOfLines={1}>
-              {currentProperty.address}
+              {displayAddress}
             </Text>
             <Text style={styles.cityPostal}>
               {currentProperty.postalCode ? `${currentProperty.postalCode} ` : ''}
@@ -265,9 +283,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
-  },
-  headerSpacer: {
-    flex: 1,
   },
   closeButton: {
     backgroundColor: '#F97316', // Orange like Funda

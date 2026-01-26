@@ -3,7 +3,7 @@ import { Text, View, ActivityIndicator, Pressable, Dimensions } from 'react-nati
 import maplibregl from 'maplibre-gl';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 
-import { PropertyPreviewCard, PropertyBottomSheet, ClusterPreviewCard } from '@/src/components';
+import { PropertyPreviewCard, PropertyBottomSheet, ClusterPreviewCard, AuthModal } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useAllProperties, type Property } from '@/src/hooks/useProperties';
 
@@ -19,15 +19,45 @@ const DEFAULT_BEARING = 0; // Map rotation
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/bright';
 
 // 3D Buildings configuration - matches reference (Snap Maps style)
+// Buildings should be very light - almost white with subtle cream tint
 const BUILDINGS_3D_CONFIG = {
   minZoom: 14, // Only show 3D buildings when zoomed in
   colors: {
-    base: '#F5EEE5', // Light cream/off-white base color (warmer, lighter)
-    highlight: '#FAF6F0', // Even lighter for taller buildings
+    base: '#FFFFFF', // Pure white base color (Snap Maps style)
+    highlight: '#FFFFFF', // Pure white for taller buildings
+    walls: '#F8F8F5', // Very subtle warm tint for wall sides
   },
-  opacity: 0.92,
+  opacity: 1.0, // Full opacity for clean white buildings
   // Height multiplier to make buildings more prominent
   heightMultiplier: 1.0,
+};
+
+// Vegetation configuration - Snap Maps style
+// TODO: trees should be scattered as 3d assets to match snap maps style
+const VEGETATION_CONFIG = {
+  minZoom: 14, // Only enhance vegetation colors when zoomed in
+  colors: {
+    forest: '#4CAF50', // Bright green for forests/woods (like Snap Maps)
+    park: '#66BB6A', // Medium green for parks
+    grass: '#C8E6C9', // Very light green for grass areas
+    tree: '#43A047', // Tree canopy color (bright green)
+    treeTrunk: '#8D6E63', // Brown for tree trunks
+  },
+  // NO heights yet - TODO: vegetation should be with 3d assets as well
+
+// Enhanced grass/park colors for base map styling
+// These should be bright and vibrant to match Snap Maps aesthetic
+const ENHANCED_GREEN_COLORS = {
+  park: '#D4F5D4', // Bright light green for parks (more vibrant)
+  grass: '#E2F5E2', // Very light soft green for grass areas
+  forest: '#A8D8A8', // Medium green for forests (flat layer)
+};
+
+// Light ground/base colors - should be warm cream/beige, not gray
+const ENHANCED_BASE_COLORS = {
+  ground: '#F5F3EF', // Warm cream background
+  road: '#FFFFFF', // Pure white roads
+  water: '#B8D4E8', // Light blue for water
 };
 
 /**
@@ -40,30 +70,41 @@ function add3DBuildingsLayer(map: maplibregl.Map) {
   // OpenFreeMap Bright style uses 'openmaptiles' as source with 'building' layer
   const sourceId = 'openmaptiles';
 
-  // First, find and remove any existing building fill layers to avoid conflicts
+  // First, find and remove any existing building layers to avoid conflicts
   // We want our 3D buildings to be the primary representation
+  // This includes both flat (fill) and 3D (fill-extrusion) building layers from the base style
   const existingLayers = map.getStyle()?.layers || [];
   existingLayers.forEach((layer) => {
-    if (
+    const isBuilding =
       layer.id.includes('building') &&
-      layer.type === 'fill' &&
       'source-layer' in layer &&
-      layer['source-layer'] === 'building'
-    ) {
-      // Make existing flat building layers invisible at high zoom
-      // This prevents visual conflicts with our 3D extrusions
-      try {
-        map.setPaintProperty(layer.id, 'fill-opacity', [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          BUILDINGS_3D_CONFIG.minZoom,
-          1,
-          BUILDINGS_3D_CONFIG.minZoom + 0.5,
-          0,
-        ]);
-      } catch {
-        // Layer might not support this property, ignore
+      layer['source-layer'] === 'building';
+
+    if (isBuilding) {
+      if (layer.type === 'fill') {
+        // Make existing flat building layers invisible at high zoom
+        // This prevents visual conflicts with our 3D extrusions
+        try {
+          map.setPaintProperty(layer.id, 'fill-opacity', [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            BUILDINGS_3D_CONFIG.minZoom,
+            1,
+            BUILDINGS_3D_CONFIG.minZoom + 0.5,
+            0,
+          ]);
+        } catch {
+          // Layer might not support this property, ignore
+        }
+      } else if (layer.type === 'fill-extrusion') {
+        // Remove existing 3D building layers from base style
+        // They may have different colors (e.g., green) that conflict with our white buildings
+        try {
+          map.removeLayer(layer.id);
+        } catch {
+          // Layer might not exist, ignore
+        }
       }
     }
   });
@@ -83,16 +124,9 @@ function add3DBuildingsLayer(map: maplibregl.Map) {
       minzoom: BUILDINGS_3D_CONFIG.minZoom,
       filter: ['!=', ['get', 'hide_3d'], true], // Exclude underground structures
       paint: {
-        // Building color - beige/cream matching reference
-        'fill-extrusion-color': [
-          'interpolate',
-          ['linear'],
-          ['get', 'render_height'],
-          0,
-          BUILDINGS_3D_CONFIG.colors.base,
-          50,
-          BUILDINGS_3D_CONFIG.colors.highlight,
-        ],
+        // Building color - PURE WHITE matching Snap Maps reference
+        // All buildings should be white/off-white regardless of height
+        'fill-extrusion-color': BUILDINGS_3D_CONFIG.colors.base,
         // Building height - use render_height from OpenStreetMap data
         // Interpolate from flat at zoom 14 to full height at zoom 16
         'fill-extrusion-height': [
@@ -115,7 +149,7 @@ function add3DBuildingsLayer(map: maplibregl.Map) {
           BUILDINGS_3D_CONFIG.minZoom + 1,
           ['coalesce', ['get', 'render_min_height'], 0],
         ],
-        // Opacity - slightly transparent for softer look
+        // Full opacity for clean, bright white buildings
         'fill-extrusion-opacity': [
           'interpolate',
           ['linear'],
@@ -125,10 +159,231 @@ function add3DBuildingsLayer(map: maplibregl.Map) {
           BUILDINGS_3D_CONFIG.minZoom + 0.5,
           BUILDINGS_3D_CONFIG.opacity,
         ],
+        // Disable vertical gradient for uniform white color (no darkening at base)
+        'fill-extrusion-vertical-gradient': false,
       },
     },
     labelLayerId
   );
+}
+
+/**
+ * Enhance vegetation colors for Snap Maps style)
+ * Only individual tree symbols are rendered as 3D-looking icons
+ * This function enhances flat vegetation colors without adding 3D extrusion
+ */
+function enhanceVegetationColors(map: maplibregl.Map) {
+  const existingLayers = map.getStyle()?.layers || [];
+
+  // Enhance existing flat vegetation layers with more vibrant colors
+  // These stay FLAT - no 3D extrusion like Snap Maps
+  existingLayers.forEach((layer) => {
+    if (layer.type === 'fill') {
+      // Enhance park colors - keep flat, just make color more vibrant
+      if (layer.id === 'park' || layer.id.includes('park')) {
+        try {
+          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.park);
+        } catch {
+          // Layer might not support this property
+        }
+      }
+      // Enhance grass colors - keep flat
+      if (layer.id.includes('grass') || layer.id === 'landcover-grass') {
+        try {
+          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.grass);
+        } catch {
+          // Layer might not support this property
+        }
+      }
+      // Enhance forest/wood colors - keep flat (no 3D extrusion)
+      if (layer.id.includes('wood') || layer.id.includes('forest')) {
+        try {
+          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.forest);
+          // Keep full opacity for flat vegetation (no 3D layer to show through)
+        } catch {
+          // Layer might not support this property
+        }
+      }
+    }
+  });
+
+  // In Snap Maps style, only buildings are 3D extruded
+  // Vegetation is flat with stylized tree symbols (added separately)
+}
+
+/**
+ * Create a stylized tree icon as an image for use in symbol layers
+ * Returns an ImageData object that can be added to the map
+ */
+function createTreeIcon(size: number = 64): ImageData {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  // Clear canvas
+  ctx.clearRect(0, 0, size, size);
+
+  const centerX = size / 2;
+  const trunkWidth = size * 0.08;
+  const trunkHeight = size * 0.2;
+  const canopyRadius = size * 0.35;
+
+  // Draw tree trunk (brown)
+  ctx.fillStyle = VEGETATION_CONFIG.colors.treeTrunk;
+  ctx.fillRect(
+    centerX - trunkWidth / 2,
+    size - trunkHeight - 2,
+    trunkWidth,
+    trunkHeight
+  );
+
+  // Draw tree canopy (green circle with gradient for 3D effect)
+  const gradient = ctx.createRadialGradient(
+    centerX - canopyRadius * 0.3,
+    size * 0.35 - canopyRadius * 0.3,
+    0,
+    centerX,
+    size * 0.35,
+    canopyRadius
+  );
+  gradient.addColorStop(0, '#6BCB6B'); // Lighter green highlight
+  gradient.addColorStop(0.5, VEGETATION_CONFIG.colors.tree);
+  gradient.addColorStop(1, '#3D8B40'); // Darker green shadow
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(centerX, size * 0.35, canopyRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Add subtle outline for definition
+  ctx.strokeStyle = '#357A38';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
+/**
+ * Add stylized 3D tree symbols to the map
+ * Uses POI data from OpenStreetMap for tree locations
+ * Trees appear as round canopy icons like in Snap Maps
+ */
+function add3DTreeSymbols(map: maplibregl.Map) {
+  const sourceId = 'openmaptiles';
+
+  // Create and add the tree icon image
+  const treeIcon = createTreeIcon(64);
+  if (!map.hasImage('tree-icon')) {
+    map.addImage('tree-icon', treeIcon, { pixelRatio: 2 });
+  }
+
+  // Find label layer to insert trees before (so they appear below text)
+  const existingLayers = map.getStyle()?.layers || [];
+  const labelLayerId = existingLayers.find(
+    (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
+  )?.id;
+
+  // Add tree symbol layer for POI features related to parks/gardens
+  // These appear as round canopy icons at park entrances and points of interest
+  map.addLayer(
+    {
+      id: '3d-tree-symbols',
+      source: sourceId,
+      'source-layer': 'poi',
+      type: 'symbol',
+      minzoom: 14, // Show at zoom 14+ to match buildings
+      filter: [
+        'any',
+        ['==', ['get', 'class'], 'park'],
+        ['==', ['get', 'class'], 'garden'],
+        ['==', ['get', 'subclass'], 'tree'],
+        ['==', ['get', 'subclass'], 'park'],
+        ['==', ['get', 'subclass'], 'garden'],
+        ['==', ['get', 'subclass'], 'nature_reserve'],
+      ],
+      layout: {
+        'icon-image': 'tree-icon',
+        'icon-size': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0.4,
+          16,
+          0.6,
+          18,
+          0.8,
+        ],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true, // Allow trees to overlap with other symbols
+        'symbol-placement': 'point',
+      },
+      paint: {
+        'icon-opacity': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0.8,
+          16,
+          1.0,
+        ],
+      },
+    },
+    labelLayerId
+  );
+
+  // Add additional trees along park boundaries using landcover polygons
+  // This creates a pattern of trees within green spaces like in Snap Maps
+  // Using fill-pattern would be ideal but requires sprite setup
+  // Instead, we enhance the 3D vegetation with more visible tree-like appearance
+
+  // Also add scattered trees in park areas using the park polygons
+  // This creates the effect of trees throughout green spaces
+  // We'll generate pseudo-random tree positions within park bounds
+}
+
+/**
+ * Enhance base map colors for brighter, warmer appearance
+ * Adjusts background, road, and other base layer colors
+ */
+function enhanceBaseMapColors(map: maplibregl.Map) {
+  const existingLayers = map.getStyle()?.layers || [];
+
+  existingLayers.forEach((layer) => {
+    try {
+      // Enhance background/land colors to warm cream
+      if (layer.id === 'background' || layer.id.includes('background')) {
+        if (layer.type === 'background') {
+          map.setPaintProperty(layer.id, 'background-color', ENHANCED_BASE_COLORS.ground);
+        }
+      }
+
+      // Make landuse areas lighter
+      if (layer.id.includes('landuse') && layer.type === 'fill') {
+        // Lighten residential areas
+        if (layer.id.includes('residential')) {
+          map.setPaintProperty(layer.id, 'fill-color', '#F8F6F2');
+        }
+      }
+
+      // Keep roads white/very light
+      if (layer.type === 'line' && (layer.id.includes('road') || layer.id.includes('street'))) {
+        // Only modify road casing, not the main road color
+        if (layer.id.includes('casing')) {
+          map.setPaintProperty(layer.id, 'line-color', '#E8E6E2');
+        }
+      }
+
+      // Brighten water slightly
+      if (layer.id.includes('water') && layer.type === 'fill') {
+        map.setPaintProperty(layer.id, 'fill-color', ENHANCED_BASE_COLORS.water);
+      }
+    } catch {
+      // Layer might not support this property, ignore
+    }
+  });
 }
 
 // Inject maplibre-gl CSS for web (Metro doesn't properly handle @import in global.css)
@@ -207,6 +462,10 @@ export default function MapScreen() {
   const [currentClusterIndex, setCurrentClusterIndex] = useState(0);
   const [isClusterPreview, setIsClusterPreview] = useState(false);
 
+  // Auth modal state
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMessage, setAuthMessage] = useState('Sign in to continue');
+
   // Fetch properties from API
   const { data: propertiesData, isLoading, error, refetch } = useAllProperties();
 
@@ -235,22 +494,47 @@ export default function MapScreen() {
       (window as unknown as { __mapInstance: maplibregl.Map }).__mapInstance = map;
     }
 
+    // Expose bottom sheet ref for testing
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef = bottomSheetRef;
+    }
+
+    // Expose auth modal trigger for testing
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __triggerAuthModal: (message?: string) => void }).__triggerAuthModal = (message?: string) => {
+        setAuthMessage(message || 'Sign in to continue');
+        setShowAuthModal(true);
+      };
+    }
+
     map.on('load', () => {
       setMapLoaded(true);
 
-      // Configure lighting for pronounced soft shadows (Snap Maps style)
-      // Using 'map' anchor for consistent directional shadows
-      // Warm white light with higher intensity for visible shadow contrast
+      // Configure lighting for bright, cheerful daytime appearance (Snap Maps style)
+      // Using 'viewport' anchor for consistent lighting regardless of map rotation
+      // Balanced settings: bright overall with subtle shadows for depth
       map.setLight({
-        anchor: 'map',
-        color: '#FFF8F0', // Warm white light
-        intensity: 0.6, // Higher intensity for more pronounced shadows
-        position: [1.15, 210, 30], // Lower sun angle for longer, softer shadows
+        anchor: 'viewport',
+        color: '#FFFFFF', // Pure white light for clean, bright appearance
+        intensity: 0.3, // Low-medium intensity for mostly flat lighting with subtle shadows
+        position: [1.15, 210, 45], // Medium sun angle for soft shadows on one side
       });
+
+      // Enhance base map colors for brighter, warmer appearance
+      // This lightens the ground, roads, and other base layers
+      enhanceBaseMapColors(map);
+
+      // Enhance vegetation colors (flat, not 3D extruded like Snap Maps)
+      // In Snap Maps, only buildings are 3D - vegetation stays flat
+      enhanceVegetationColors(map);
 
       // Add 3D building layer (fill-extrusion)
       // This layer renders buildings with height data from OpenStreetMap
       add3DBuildingsLayer(map);
+
+      // Add stylized 3D tree symbols (round canopy icons)
+      // These appear at close zoom levels like in Snap Maps
+      add3DTreeSymbols(map);
 
       // Trigger resize after map loads to ensure proper dimensions
       setTimeout(() => {
@@ -585,6 +869,23 @@ export default function MapScreen() {
     // TODO: Open comments section
   }, []);
 
+  // Handle auth required - show auth modal
+  const handleAuthRequired = useCallback((message?: string) => {
+    setAuthMessage(message || 'Sign in to continue');
+    setShowAuthModal(true);
+  }, []);
+
+  // Handle auth modal close
+  const handleAuthModalClose = useCallback(() => {
+    setShowAuthModal(false);
+  }, []);
+
+  // Handle auth success
+  const handleAuthSuccess = useCallback(() => {
+    setShowAuthModal(false);
+    // After successful auth, the user can retry their action
+  }, []);
+
   // Get activity score for selected property
   const getSelectedPropertyActivityScore = (): number => {
     if (!selectedProperty || !geoJSON) return 0;
@@ -687,6 +988,15 @@ export default function MapScreen() {
         onFavorite={handleFavorite}
         onGuessPress={handleGuessPress}
         onCommentPress={handleCommentPress}
+        onAuthRequired={() => handleAuthRequired('Sign in to post your comment')}
+      />
+
+      {/* Auth Modal */}
+      <AuthModal
+        visible={showAuthModal}
+        onClose={handleAuthModalClose}
+        message={authMessage}
+        onSuccess={handleAuthSuccess}
       />
     </View>
   );

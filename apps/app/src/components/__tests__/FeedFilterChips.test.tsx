@@ -22,6 +22,7 @@ describe('FeedFilterChips', () => {
     expect(getByText('New')).toBeTruthy();
     expect(getByText('Trending')).toBeTruthy();
     expect(getByText('Price Mismatch')).toBeTruthy();
+    expect(getByText('Polarizing')).toBeTruthy();
   });
 
   it('calls onFilterChange when a chip is pressed', () => {
@@ -43,6 +44,9 @@ describe('FeedFilterChips', () => {
 
     fireEvent.press(getByTestId('filter-chip-price_mismatch'));
     expect(mockOnFilterChange).toHaveBeenCalledWith('price_mismatch');
+
+    fireEvent.press(getByTestId('filter-chip-polarizing'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('polarizing');
   });
 
   it('renders with trending filter active', () => {
