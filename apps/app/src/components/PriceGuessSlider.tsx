@@ -390,7 +390,6 @@ export function PriceGuessSlider({
           <GestureDetector gesture={composedGestures}>
             <View
               className={`h-3 rounded-full ${disabled ? 'bg-gray-200' : 'bg-gray-200'}`}
-              style={{ touchAction: 'none' }}
             >
               {/* Fill */}
               <Animated.View
