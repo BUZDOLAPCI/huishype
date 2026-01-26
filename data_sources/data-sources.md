@@ -15,14 +15,22 @@ The full BAG Geopackage (https://service.pdok.nl/lv/bag/atom/bag.xml) is already
 
 ### Database Seeding
 
-The seed script reads directly from the BAG GeoPackage and populates the PostgreSQL database with all Netherlands properties.
+The seed script reads directly from the BAG GeoPackage and populates the PostgreSQL database.
 
-**Command:**
+**Quick Start (Development):**
 ```bash
 cd services/api && pnpm run db:seed
 ```
 
+By default, seeds **Eindhoven area only** (~240K properties, ~2 min) for faster development cycles.
+
+**Full Netherlands:**
+```bash
+cd services/api && pnpm run db:seed -- --full
+```
+
 **Options:**
+- `--full` or `--netherlands` - Seed complete Netherlands (11.3M properties)
 - `--limit N` - Limit to N properties (for testing)
 - `--offset N` - Start from offset N
 - `--skip-demolished` - Skip properties with demolished status
@@ -30,16 +38,24 @@ cd services/api && pnpm run db:seed
 - `--dry-run` - Don't insert into database
 
 **Performance:**
-- Extraction phase: ~1 minute (one-time ogr2ogr centroid extraction)
-- Address loading: ~3 minutes (9.8M verblijfsobjecten into memory)
-- Processing rate: ~4,800 properties/second
-- Full seed (11M properties): ~45 minutes total
+
+| Mode | Extraction | Address Loading | Processing | Total |
+|------|------------|-----------------|------------|-------|
+| Eindhoven (default) | ~10 sec | ~3 min | ~50 sec | ~2 min |
+| Full Netherlands | ~1 min | ~3 min | ~40 min | ~45 min |
 
 **How it works:**
-1. Uses `ogr2ogr` to extract pand centroids to a temp SQLite database (708MB)
+1. Uses `ogr2ogr` to extract pand centroids to a temp SQLite database
+   - Eindhoven mode: Applies spatial filter (20km radius from city center)
+   - Full mode: Extracts all 11.3M records (708MB temp file)
 2. Loads all verblijfsobject addresses into memory for fast lookup
 3. Reads centroids from temp database, transforms RD New coordinates to WGS84
 4. Batch inserts into PostgreSQL with upsert semantics
+
+**Spatial Filter (Eindhoven mode):**
+- Center: Eindhoven (51.4416, 5.4697 WGS84)
+- RD New bounding box: X=140000-180000, Y=363000-403000
+- Radius: ~20km from city center
 
 ### Sandbox Fixture (Legacy)
 

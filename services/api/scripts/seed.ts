@@ -16,6 +16,16 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Eindhoven area spatial filter (20km radius from city center)
+// Eindhoven center in RD New: approximately X=160000, Y=383000
+// Bounding box: 20km in each direction
+const EINDHOVEN_BOUNDS_RD = {
+  minX: 140000,
+  minY: 363000,
+  maxX: 180000,
+  maxY: 403000,
+};
+
 // Define coordinate systems
 // RD New (Amersfoort / RD New) - Dutch national grid
 const RD_NEW = '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9999079 +x_0=155000 +y_0=463000 +ellps=bessel +towgs84=565.417,50.3319,465.552,-0.398957,0.343988,-1.8774,4.0725 +units=m +no_defs';
@@ -118,10 +128,17 @@ function formatElapsedTime(ms: number): string {
 /**
  * Extract pand centroids using ogr2ogr to a temporary SQLite database
  * This is much faster than querying ogrinfo for each batch
+ *
+ * @param eindhovenOnly - If true, only extract properties within ~20km of Eindhoven center
  */
-function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolished: boolean): void {
+function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolished: boolean, eindhovenOnly: boolean): void {
   console.log('\nExtracting pand centroids using ogr2ogr...');
-  console.log('This may take several minutes for 11M+ records...');
+
+  if (eindhovenOnly) {
+    console.log('Filtering to Eindhoven area (~20km radius, ~240K properties)...');
+  } else {
+    console.log('This may take several minutes for 11M+ records...');
+  }
 
   // Remove existing temp file
   if (existsSync(tempDbPath)) {
@@ -129,10 +146,21 @@ function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolishe
   }
 
   // Build SQL query for centroid extraction
-  let whereClause = '';
+  const whereConditions: string[] = [];
+
   if (skipDemolished) {
-    whereClause = "WHERE status NOT LIKE '%gesloopt%' AND status NOT LIKE '%demolished%'";
+    whereConditions.push("status NOT LIKE '%gesloopt%' AND status NOT LIKE '%demolished%'");
   }
+
+  // Add spatial filter for Eindhoven area if requested
+  if (eindhovenOnly) {
+    const { minX, minY, maxX, maxY } = EINDHOVEN_BOUNDS_RD;
+    whereConditions.push(
+      `ST_X(ST_Centroid(geom)) BETWEEN ${minX} AND ${maxX} AND ST_Y(ST_Centroid(geom)) BETWEEN ${minY} AND ${maxY}`
+    );
+  }
+
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
   // Use ogr2ogr to extract centroids to a SQLite database
   // The -nlt NONE flag tells ogr2ogr to not write geometry (we just need the centroid coords)
@@ -160,8 +188,6 @@ async function seed() {
   console.log('='.repeat(60));
   console.log('Netherlands BAG Database Seed');
   console.log('='.repeat(60));
-  console.log('Source: bag-light.gpkg (full Netherlands BAG data)');
-  console.log('');
 
   // Parse command line arguments
   const args = process.argv.slice(2);
@@ -172,6 +198,22 @@ async function seed() {
   const skipDemolished = args.includes('--skip-demolished');
   const dryRun = args.includes('--dry-run');
   const skipExtract = args.includes('--skip-extract');
+
+  // Geographic scope: Eindhoven area (default for dev) vs full Netherlands
+  // Use --full or --netherlands for complete dataset
+  const fullNetherlands = args.includes('--full') || args.includes('--netherlands');
+  const eindhovenOnly = !fullNetherlands;
+
+  if (eindhovenOnly) {
+    console.log('Mode: EINDHOVEN AREA (development default)');
+    console.log('  ~20km radius from city center, ~240K properties');
+    console.log('  Use --full or --netherlands for complete dataset');
+  } else {
+    console.log('Mode: FULL NETHERLANDS');
+    console.log('  Complete dataset: 11.3M properties');
+  }
+  console.log('Source: bag-light.gpkg');
+  console.log('');
 
   if (limit) {
     console.log(`Limiting to ${limit.toLocaleString()} properties`);
@@ -191,13 +233,16 @@ async function seed() {
 
   // Paths
   const bagPath = resolve(__dirname, '../../../data_sources/bag-light.gpkg');
-  const tempDbPath = resolve(__dirname, '../../../data_sources/pand_centroids_temp.sqlite');
+  // Use different temp files for Eindhoven vs full Netherlands to allow reuse
+  const tempDbPath = eindhovenOnly
+    ? resolve(__dirname, '../../../data_sources/pand_centroids_eindhoven_temp.sqlite')
+    : resolve(__dirname, '../../../data_sources/pand_centroids_temp.sqlite');
 
   console.log(`\nBAG GeoPackage: ${bagPath}`);
 
   // Step 1: Extract pand centroids to temp SQLite (unless skipped)
   if (!skipExtract) {
-    extractPandCentroids(bagPath, tempDbPath, skipDemolished);
+    extractPandCentroids(bagPath, tempDbPath, skipDemolished, eindhovenOnly);
   }
 
   // Open both databases

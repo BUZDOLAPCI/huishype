@@ -22,6 +22,46 @@ There is a `data_sources/` folder containing the locally available data like the
 
 Refer to the `data_sources/data-sources.md` for more information
 
+## Database Seeding
+
+The seed script populates the PostgreSQL database with property data from the BAG GeoPackage.
+
+### Quick Start (Development)
+
+```bash
+cd services/api && pnpm run db:seed
+```
+
+By default, seeds **Eindhoven area only** (~240K properties, ~2 min) for faster development cycles.
+
+### Seeding Options
+
+| Mode | Command | Properties | Time |
+|------|---------|------------|------|
+| **Eindhoven (default)** | `pnpm run db:seed` | ~240K | ~2 min |
+| **Full Netherlands** | `pnpm run db:seed -- --full` | 11.3M | ~45 min |
+
+**Additional flags:**
+- `--limit N` - Limit to N properties (for testing)
+- `--offset N` - Start from offset N
+- `--skip-demolished` - Skip properties with demolished status
+- `--skip-extract` - Skip ogr2ogr extraction (reuse existing temp database)
+- `--dry-run` - Don't insert into database
+
+### When to Use Each Mode
+
+**Eindhoven area (default):**
+- Day-to-day development and testing
+- Quick iteration on features
+- CI/CD pipelines
+- Testing data display and interactions
+
+**Full Netherlands (`--full`):**
+- Production deployment preparation
+- Performance testing at scale
+- Testing country-wide features
+- Final verification before release
+
 ## Permissions
 
 | Scope | Permission |
