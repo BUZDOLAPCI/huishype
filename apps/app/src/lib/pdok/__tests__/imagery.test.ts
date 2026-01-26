@@ -30,13 +30,13 @@ describe('PDOK Imagery Utility', () => {
     });
 
     it('should convert Eindhoven coordinates correctly', () => {
-      // Tegenbosch 16, Eindhoven: 51.461516, 5.419762 (WGS84)
-      // Expected RD: 157189.018, 385806.139
-      const [x, y] = convertToRDNew(51.461516, 5.419762);
+      // L-shaped house from reference image: 51.46103902337281, 5.418135001687793 (WGS84)
+      // Expected RD: 157076, 385753
+      const [x, y] = convertToRDNew(51.46103902337281, 5.418135001687793);
 
       // Should match the expected RD coordinates closely
-      expect(x).toBeCloseTo(157189.018, 0);
-      expect(y).toBeCloseTo(385806.139, 0);
+      expect(x).toBeCloseTo(157076, 0);
+      expect(y).toBeCloseTo(385753, 0);
     });
   });
 

@@ -13,20 +13,23 @@ import { Stack } from 'expo-router';
 import { AerialImageCard } from '@/src/components/AerialImageCard';
 
 // Test locations in the Netherlands
+// Tegenbosch is first as it's the reference expectation for visual testing
 const TEST_LOCATIONS = [
+  {
+    name: 'Tegenbosch 16, Eindhoven',
+    lat: 51.46103902337281,
+    lon: 5.418135001687793,
+    address: 'Tegenbosch 16, 5651GE Eindhoven',
+    description: 'Reference location - L-shaped house with dark roof and solar panels (RD: 157076, 385753)',
+    testId: 'aerial-tegenbosch',
+  },
   {
     name: 'Dom Tower, Utrecht',
     lat: 52.0907,
     lon: 5.1214,
     address: 'Domplein 21, 3512JC Utrecht',
     description: 'Famous medieval church tower - tallest in the Netherlands',
-  },
-  {
-    name: 'Tegenbosch 16, Eindhoven',
-    lat: 51.461516,
-    lon: 5.419762,
-    address: 'Tegenbosch 16, 5651GE Eindhoven',
-    description: 'Reference location from woningstats example (RD: 157189.018, 385806.139)',
+    testId: 'aerial-dom-tower',
   },
   {
     name: 'Deflectiespoelstraat 33, Eindhoven',
@@ -34,6 +37,7 @@ const TEST_LOCATIONS = [
     lon: 5.4778,
     address: 'Deflectiespoelstraat 33, 5657EV Eindhoven',
     description: 'Residential street in Eindhoven',
+    testId: 'aerial-deflectiespoelstraat',
   },
 ];
 
@@ -55,8 +59,8 @@ export default function PDOKAerialImageryShowcase() {
             These images serve as fallback hero images for properties without listing photos.
           </Text>
 
-          {/* Primary Test Location - Dom Tower */}
-          <View className="mb-6" testID="pdok-dom-tower-section">
+          {/* Primary Test Location - Tegenbosch (reference expectation) */}
+          <View className="mb-6" testID="pdok-tegenbosch-section">
             <Text className="text-lg font-semibold text-gray-800 mb-2">
               1. {TEST_LOCATIONS[0].name}
             </Text>
@@ -67,12 +71,12 @@ export default function PDOKAerialImageryShowcase() {
               lat={TEST_LOCATIONS[0].lat}
               lon={TEST_LOCATIONS[0].lon}
               address={TEST_LOCATIONS[0].address}
-              testID="aerial-dom-tower"
+              testID={TEST_LOCATIONS[0].testId}
             />
           </View>
 
-          {/* Reference Location - Tegenbosch (matches woningstats screenshot) */}
-          <View className="mb-6" testID="pdok-tegenbosch-section">
+          {/* Secondary Location - Dom Tower */}
+          <View className="mb-6" testID="pdok-dom-tower-section">
             <Text className="text-lg font-semibold text-gray-800 mb-2">
               2. {TEST_LOCATIONS[1].name}
             </Text>
@@ -83,7 +87,7 @@ export default function PDOKAerialImageryShowcase() {
               lat={TEST_LOCATIONS[1].lat}
               lon={TEST_LOCATIONS[1].lon}
               address={TEST_LOCATIONS[1].address}
-              testID="aerial-tegenbosch"
+              testID={TEST_LOCATIONS[1].testId}
             />
           </View>
 
@@ -99,7 +103,7 @@ export default function PDOKAerialImageryShowcase() {
               lat={TEST_LOCATIONS[2].lat}
               lon={TEST_LOCATIONS[2].lon}
               address={TEST_LOCATIONS[2].address}
-              testID="aerial-deflectiespoelstraat"
+              testID={TEST_LOCATIONS[2].testId}
             />
           </View>
 

@@ -186,22 +186,27 @@ async function getClusteredMVT(
         )
     ),
     -- Filter out ghost nodes for low zoom (only show active properties)
+    -- Also pre-compute snapped geometry to avoid GROUP BY parameter mismatch
     active_properties AS (
-      SELECT *
+      SELECT
+        id,
+        has_listing,
+        activity_score,
+        ST_SnapToGrid(geometry, ${gridSize}) as snapped_geom
       FROM property_activity
       WHERE has_listing = true OR activity_score > 0
     ),
-    -- Cluster using ST_SnapToGrid
+    -- Cluster using pre-computed snapped geometry
     clustered AS (
       SELECT
-        ST_SnapToGrid(geometry, ${gridSize}) as cluster_geom,
+        snapped_geom as cluster_geom,
         COUNT(*) as point_count,
         MAX(CASE WHEN has_listing THEN 1 ELSE 0 END) as has_listing_max,
         SUM(activity_score) as total_activity,
         MAX(activity_score) as max_activity,
         array_agg(id ORDER BY activity_score DESC) as property_ids
       FROM active_properties
-      GROUP BY ST_SnapToGrid(geometry, ${gridSize})
+      GROUP BY snapped_geom
     ),
     -- Prepare MVT layer data
     mvt_data AS (

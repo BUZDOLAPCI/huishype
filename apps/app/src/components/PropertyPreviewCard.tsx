@@ -59,58 +59,111 @@ export function PropertyPreviewCard({
     <AnimatedPressable
       onPress={onPress}
       entering={ZoomIn.springify().damping(15).stiffness(100)}
-      className="bg-white rounded-xl shadow-lg p-3 w-[85%] max-w-[340px] self-center"
+      style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        width: '85%',
+        maxWidth: 340,
+        alignSelf: 'center',
+        // Shadow for iOS
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        // Shadow for Android
+        elevation: 4,
+        // Ensure proper stacking on web
+        position: 'relative',
+        zIndex: 10,
+        // Clip any overflow
+        overflow: 'hidden',
+      }}
       testID="property-preview-card"
     >
-      {/* Top section: Thumbnail + Address/Price */}
-      <View className="flex-row mb-3">
-        {/* Thumbnail image */}
-        <View className="w-16 h-16 rounded-lg bg-gray-200 mr-3 overflow-hidden">
+      {/* Top section: Thumbnail + Address/Price - using inline styles for web compatibility */}
+      <View
+        style={{ flexDirection: 'row', marginBottom: 12, alignItems: 'flex-start' }}
+      >
+        {/* Thumbnail image - fixed size container */}
+        <View
+          style={{
+            width: 64,
+            height: 64,
+            minWidth: 64,
+            minHeight: 64,
+            maxWidth: 64,
+            maxHeight: 64,
+            marginRight: 12,
+            borderRadius: 8,
+            backgroundColor: '#E5E7EB',
+            overflow: 'hidden',
+            flexShrink: 0,
+            flexGrow: 0,
+          }}
+          testID="property-thumbnail-container"
+        >
           {property.thumbnailUrl ? (
             <Image
               source={{ uri: property.thumbnailUrl }}
-              className="w-full h-full"
+              style={{ width: 64, height: 64, maxWidth: 64, maxHeight: 64 }}
               resizeMode="cover"
+              testID="property-thumbnail-image"
             />
           ) : (
-            <View className="w-full h-full items-center justify-center">
+            <View
+              style={{ width: 64, height: 64, alignItems: 'center', justifyContent: 'center' }}
+              testID="property-thumbnail-placeholder"
+            >
               <Ionicons name="home-outline" size={24} color="#9CA3AF" />
             </View>
           )}
         </View>
 
         {/* Address and price info */}
-        <View className="flex-1 justify-center">
-          <View className="flex-row items-center justify-between mb-1">
-            <Text className="text-base font-semibold text-gray-900 flex-1" numberOfLines={1}>
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text
+              style={{ flex: 1, fontSize: 16, fontWeight: '600', color: '#111827' }}
+              numberOfLines={1}
+            >
               {property.address}
             </Text>
             {/* Activity indicator */}
-            <View className="flex-row items-center ml-2">
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
               <Animated.View
                 entering={activityLevel === 'hot' ? FadeInDown.duration(300) : undefined}
-                className={`w-2 h-2 rounded-full ${activityColors[activityLevel]} mr-1`}
-                style={activityLevel === 'hot' ? {
-                  shadowColor: activityPulseColors[activityLevel],
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 4,
-                } : undefined}
+                style={[
+                  { width: 8, height: 8, borderRadius: 4, marginRight: 4 },
+                  activityLevel === 'hot' ? {
+                    backgroundColor: '#EF4444',
+                    shadowColor: activityPulseColors[activityLevel],
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 0.8,
+                    shadowRadius: 4,
+                  } : activityLevel === 'warm' ? {
+                    backgroundColor: '#FB923C',
+                  } : {
+                    backgroundColor: '#D1D5DB',
+                  }
+                ]}
               />
-              <Text className="text-xs text-gray-400">{activityLabels[activityLevel]}</Text>
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>
+                {activityLabels[activityLevel]}
+              </Text>
             </View>
           </View>
-          <Text className="text-sm text-gray-500" numberOfLines={1}>
+          <Text style={{ fontSize: 14, color: '#6B7280' }} numberOfLines={1}>
             {property.city}
             {property.postalCode ? `, ${property.postalCode}` : ''}
           </Text>
           {/* Price display inline */}
           {displayPrice !== undefined && displayPrice !== null && (
-            <View className="flex-row items-baseline mt-1">
-              <Text className="text-lg font-bold text-primary-600">
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 4 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#2563EB' }}>
                 {'\u20AC'}{displayPrice.toLocaleString('nl-NL')}
               </Text>
-              <Text className="text-xs text-gray-400 ml-1">
+              <Text style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 4 }}>
                 {property.fmv ? 'FMV' : property.askingPrice ? 'Ask' : 'WOZ'}
               </Text>
             </View>
@@ -119,42 +172,47 @@ export function PropertyPreviewCard({
       </View>
 
       {/* Quick action buttons - 44px min touch targets */}
-      <View className="flex-row justify-around border-t border-gray-100 pt-2">
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-around',
+          borderTopWidth: 1,
+          borderTopColor: '#F3F4F6',
+          paddingTop: 8,
+        }}
+      >
         <Pressable
           onPress={(e) => {
             e?.stopPropagation?.();
             onLike?.();
           }}
-          className="flex-row items-center px-4 py-2 rounded-lg active:bg-gray-100"
-          style={{ minHeight: 44, minWidth: 44 }}
+          style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="heart-outline" size={20} color="#6B7280" />
-          <Text className="ml-1 text-sm text-gray-600">Like</Text>
+          <Text style={{ marginLeft: 4, fontSize: 14, color: '#4B5563' }}>Like</Text>
         </Pressable>
         <Pressable
           onPress={(e) => {
             e?.stopPropagation?.();
             onComment?.();
           }}
-          className="flex-row items-center px-4 py-2 rounded-lg active:bg-gray-100"
-          style={{ minHeight: 44, minWidth: 44 }}
+          style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="chatbubble-outline" size={20} color="#6B7280" />
-          <Text className="ml-1 text-sm text-gray-600">Comment</Text>
+          <Text style={{ marginLeft: 4, fontSize: 14, color: '#4B5563' }}>Comment</Text>
         </Pressable>
         <Pressable
           onPress={(e) => {
             e?.stopPropagation?.();
             onGuess?.();
           }}
-          className="flex-row items-center px-4 py-2 rounded-lg active:bg-gray-100"
-          style={{ minHeight: 44, minWidth: 44 }}
+          style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="pricetag-outline" size={20} color="#6B7280" />
-          <Text className="ml-1 text-sm text-gray-600">Guess</Text>
+          <Text style={{ marginLeft: 4, fontSize: 14, color: '#4B5563' }}>Guess</Text>
         </Pressable>
       </View>
     </AnimatedPressable>

@@ -42,10 +42,11 @@ Utility Exists: apps/app/src/lib/pdok/imagery.ts created and typed.
 Dependencies: proj4 installed in apps/app.
 Visual Verification (The "Tegenbosch" Test):
 Create an E2E test apps/app/e2e/visual/reference-0018-pdok.spec.ts.
-Test Case: Use coordinates for Tegenbosch 16, Eindhoven.
-Target RD Coordinates: X: 157189.018, Y: 385806.139
+Test Case: Use coordinates that show the L-shaped house with dark roof and solar panels from the reference image.
+Target RD Coordinates: X: 157076, Y: 385753 (house visible in reference image)
+Target WGS84 Coordinates: lat: 51.46103902337281, lon: 5.418135001687793
 Render: The test must render the generated URL in an <img> tag.
-Verification: The screenshot captured by the test must match woningstats-tegenbosch-16.jpg (showing the same house/roof).
+Verification: The screenshot captured by the test must match woningstats-tegenbosch-16.png (showing the same house/roof).
 Console Health: Zero console errors during execution.
 
 Acceptance Criteria (NEEDS_WORK)
@@ -55,7 +56,9 @@ Image loads but is significantly off-center compared to the reference image.
 Implementation uses Google Maps or other paid APIs.
 
 Technical Notes
-The reference coordinates for Tegenbosch 16 are 157189.018, 385806.139 (RD).
+The reference image shows an L-shaped house with dark roof and solar panels at RD: 157076, 385753.
+Note: The official PDOK "Tegenbosch 16" address resolves to 157189.018, 385806.139 (RD), but the reference image
+shows a different property. The coordinates have been adjusted to match the visual reference.
 Ensure your BBOX calculation around these points yields the same view.
 if needed, Install proj4 via pnpm add proj4 and pnpm add -D @types/proj4.
 

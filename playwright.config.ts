@@ -67,8 +67,8 @@ export default defineConfig({
             ...devices['Desktop Chrome'],
             viewport: { width: 1280, height: 720 },
             screenshot: 'on',
-            trace: 'on',
-            video: 'on',
+            trace: 'retain-on-failure', // Changed from 'on' to avoid artifact race conditions
+            video: 'retain-on-failure', // Changed from 'on' to avoid artifact race conditions
           },
           timeout: 60000,
         },

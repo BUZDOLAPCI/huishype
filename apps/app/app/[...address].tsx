@@ -196,7 +196,11 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
 
   // Format the address title like the reference: "Street Number" with "Zip City" below
   const streetWithNumber = `${address.details.street} ${address.details.number}`;
-  const zipWithCity = `${address.details.zip.toUpperCase()} ${address.details.city}`;
+  // Format zip with space: "5651HP" -> "5651 HP" per reference styling
+  const formattedZip = address.details.zip.length === 6
+    ? `${address.details.zip.slice(0, 4)} ${address.details.zip.slice(4).toUpperCase()}`
+    : address.details.zip.toUpperCase();
+  const zipWithCity = `${formattedZip} ${address.details.city}`;
 
   return (
     <ScrollView className="flex-1 bg-white">

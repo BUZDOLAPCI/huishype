@@ -12,6 +12,7 @@ import {
 } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
+import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
 // Get API URL for tile endpoint
 const getApiUrl = (): string => {
@@ -400,6 +401,8 @@ function addPropertyLayers(map: maplibregl.Map) {
       },
       paint: {
         'text-color': '#FFFFFF',
+        'text-halo-color': '#000000',
+        'text-halo-width': 1,
       },
     },
     labelLayerId
@@ -746,12 +749,12 @@ export default function MapScreen() {
 
   const handleComment = useCallback(() => {
     setShowPreview(false);
-    bottomSheetRef.current?.snapToIndex(1);
+    bottomSheetRef.current?.scrollToComments();
   }, []);
 
   const handleGuess = useCallback(() => {
     setShowPreview(false);
-    bottomSheetRef.current?.snapToIndex(0);
+    bottomSheetRef.current?.scrollToGuess();
   }, []);
 
   const handleSave = useCallback((propertyId: string) => {
@@ -823,6 +826,7 @@ export default function MapScreen() {
                 wozValue: selectedProperty.wozValue,
                 activityLevel: getActivityLevel(selectedActivityScore),
                 activityScore: selectedActivityScore,
+                thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
               }}
               onPress={handlePreviewPress}
               onLike={handleLike}

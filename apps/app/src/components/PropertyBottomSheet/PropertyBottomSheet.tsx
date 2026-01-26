@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle } from 'react';
-import { View } from 'react-native';
+import { View, type LayoutChangeEvent, type ScrollView } from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
@@ -40,6 +40,8 @@ export interface PropertyBottomSheetRef {
   collapse: () => void;
   close: () => void;
   snapToIndex: (index: number) => void;
+  scrollToComments: () => void;
+  scrollToGuess: () => void;
 }
 
 // Convert basic Property to PropertyDetailsData with default values
@@ -71,10 +73,36 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     ref
   ) {
     const bottomSheetRef = useRef<BottomSheetLib>(null);
+    const scrollViewRef = useRef<ScrollView>(null);
     const animatedIndex = useSharedValue(-1);
+
+    // Section layout positions
+    const sectionPositions = useRef<{ guess: number; comments: number }>({
+      guess: 0,
+      comments: 0,
+    });
 
     // Snap points: 50% (partial) and 90% (full)
     const snapPoints = useMemo(() => ['50%', '90%'], []);
+
+    // Handle section layout measurement
+    const handleGuessSectionLayout = useCallback((event: LayoutChangeEvent) => {
+      sectionPositions.current.guess = event.nativeEvent.layout.y;
+    }, []);
+
+    const handleCommentsSectionLayout = useCallback((event: LayoutChangeEvent) => {
+      sectionPositions.current.comments = event.nativeEvent.layout.y;
+    }, []);
+
+    // Scroll to section helpers
+    const scrollToSection = useCallback((sectionY: number) => {
+      // Expand to full height first, then scroll
+      bottomSheetRef.current?.snapToIndex(1);
+      // Small delay to let the expansion animation start
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo?.({ y: sectionY, animated: true });
+      }, 300);
+    }, []);
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
@@ -82,6 +110,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       collapse: () => bottomSheetRef.current?.collapse(),
       close: () => bottomSheetRef.current?.close(),
       snapToIndex: (index: number) => bottomSheetRef.current?.snapToIndex(index),
+      scrollToComments: () => scrollToSection(sectionPositions.current.comments),
+      scrollToGuess: () => scrollToSection(sectionPositions.current.guess),
     }));
 
     // Render backdrop
@@ -140,6 +170,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         style={{ zIndex: 1000 }}
       >
         <BottomSheetScrollView
+          ref={scrollViewRef as any}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
@@ -166,17 +197,21 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
                 <ListingLinks property={propertyDetails} />
 
                 {/* Price Guess Section */}
-                <PriceGuessSection
-                  property={propertyDetails}
-                  onGuessPress={() => onGuessPress?.(propertyDetails.id)}
-                />
+                <View onLayout={handleGuessSectionLayout}>
+                  <PriceGuessSection
+                    property={propertyDetails}
+                    onGuessPress={() => onGuessPress?.(propertyDetails.id)}
+                  />
+                </View>
 
                 {/* Comments Section */}
-                <CommentsSection
-                  property={propertyDetails}
-                  onAddComment={() => onCommentPress?.(propertyDetails.id)}
-                  onAuthRequired={onAuthRequired}
-                />
+                <View onLayout={handleCommentsSectionLayout}>
+                  <CommentsSection
+                    property={propertyDetails}
+                    onAddComment={() => onCommentPress?.(propertyDetails.id)}
+                    onAuthRequired={onAuthRequired}
+                  />
+                </View>
 
                 {/* Property Details */}
                 <PropertyDetails property={propertyDetails} />

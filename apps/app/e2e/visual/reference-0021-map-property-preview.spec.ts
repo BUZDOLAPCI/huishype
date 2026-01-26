@@ -12,9 +12,64 @@
  * Screenshot saved to: test-results/reference-expectations/0021-map-property-preview/
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+
+/**
+ * Mock property data with price information for testing
+ * This ensures the preview card displays a price even when the database lacks WOZ data
+ */
+const MOCK_PROPERTY_WITH_PRICE = {
+  id: 'test-property-001',
+  bagIdentificatie: '0772010000123456',
+  address: 'Stratumseind 100',
+  city: 'Eindhoven',
+  postalCode: '5611 ET',
+  geometry: {
+    type: 'Point',
+    coordinates: [5.4697, 51.4416],
+  },
+  bouwjaar: 1985,
+  oppervlakte: 120,
+  status: 'active',
+  wozValue: 425000, // Mock WOZ value for price display
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+};
+
+/**
+ * Setup API route interception to return mock property data with prices
+ */
+async function setupPropertyMocking(page: Page): Promise<void> {
+  // Intercept property detail API calls and inject mock price data
+  await page.route('**/properties/*', async (route: Route) => {
+    const url = route.request().url();
+
+    // Only intercept single property GET requests (not /properties/map or similar)
+    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
+      // Extract the property ID from the URL
+      const propertyId = url.split('/').pop();
+
+      // Return mock data with the actual requested ID but with WOZ value
+      const mockResponse = {
+        ...MOCK_PROPERTY_WITH_PRICE,
+        id: propertyId,
+      };
+
+      console.log(`Mocking property API response for ID: ${propertyId} with WOZ value: ${mockResponse.wozValue}`);
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockResponse),
+      });
+    } else {
+      // Let other requests pass through
+      await route.continue();
+    }
+  });
+}
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -240,6 +295,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     consoleErrors = [];
     consoleWarnings = [];
 
+    // Setup API mocking to return property data with prices
+    await setupPropertyMocking(page);
+
     // Collect console messages
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -333,6 +391,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     previewVisible = await previewCard.isVisible().catch(() => false);
     console.log(`Preview visible after marker click: ${previewVisible}`);
 
+    // Wait additional time for thumbnail image to load from PDOK
+    if (previewVisible) {
+      await page.waitForTimeout(2000);
+    }
+
     // If map.fire didn't work, try direct Playwright clicks on marker positions
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
@@ -380,12 +443,58 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     }
 
-    // Take screenshot capturing the preview card state
+    // Wait for price to be visible (confirms mock data loaded)
+    if (previewVisible) {
+      // Wait for price element with euro symbol to appear
+      try {
+        await page.waitForFunction(
+          () => {
+            const card = document.querySelector('[data-testid="property-preview-card"]');
+            if (!card) return false;
+            const text = card.textContent || '';
+            // Check for euro symbol or formatted price
+            return text.includes('€') || /\d{3}[.,]\d{3}/.test(text);
+          },
+          { timeout: 5000 }
+        );
+        console.log('Price element visible in card');
+      } catch (e) {
+        console.log('Price element not found within timeout - may indicate mock not applied');
+      }
+
+      // Wait a bit more for full render
+      await page.waitForTimeout(1000);
+    }
+
+    // Take full page screenshot
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
       fullPage: false,
     });
     console.log(`Screenshot saved to: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
+
+    // Also take a focused screenshot of just the preview card if visible
+    if (previewVisible) {
+      const cardBox = await previewCard.boundingBox();
+      if (cardBox) {
+        const padding = 10;
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-card-focused.png`,
+          clip: {
+            x: Math.max(0, cardBox.x - padding),
+            y: Math.max(0, cardBox.y - padding),
+            width: cardBox.width + padding * 2,
+            height: cardBox.height + padding * 2,
+          },
+        });
+        console.log(`Card focused screenshot saved to: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-card-focused.png`);
+        console.log(`Card dimensions: ${cardBox.width}x${cardBox.height} at (${cardBox.x}, ${cardBox.y})`);
+      }
+
+      // Log the card content for debugging
+      const cardContent = await previewCard.textContent();
+      console.log(`Card content: ${cardContent}`);
+    }
 
     // Basic assertions
     const errorState = page.locator('text=Failed to load');
@@ -454,10 +563,40 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     if (previewVisible) {
+      // Wait for thumbnail to potentially load (give time for aerial image)
+      await page.waitForTimeout(2000);
+
       // Verify thumbnail area exists (either image or placeholder)
-      const thumbnailArea = page.locator('[data-testid="property-preview-card"] >> nth=0');
-      const hasThumbnail = await thumbnailArea.isVisible();
-      console.log(`Thumbnail area visible: ${hasThumbnail}`);
+      const thumbnailContainer = page.locator('[data-testid="property-thumbnail-container"]');
+      const thumbnailImage = page.locator('[data-testid="property-thumbnail-image"]');
+      const thumbnailPlaceholder = page.locator('[data-testid="property-thumbnail-placeholder"]');
+
+      const hasContainer = await thumbnailContainer.isVisible().catch(() => false);
+      const hasImage = await thumbnailImage.isVisible().catch(() => false);
+      const hasPlaceholder = await thumbnailPlaceholder.isVisible().catch(() => false);
+
+      console.log(`Thumbnail container visible: ${hasContainer}`);
+      console.log(`Thumbnail image visible: ${hasImage}`);
+      console.log(`Thumbnail placeholder visible: ${hasPlaceholder}`);
+
+      // Verify price display - the mock property has wozValue of 425000
+      // Price should be formatted as euro amount (e.g., "425.000" or "425,000")
+      const priceText = page.locator('[data-testid="property-preview-card"]').locator('text=/\\d{3}[.,]\\d{3}/');
+      const hasPrice = await priceText.first().isVisible().catch(() => false);
+      console.log(`Price visible: ${hasPrice}`);
+
+      // Check for WOZ label which indicates price source
+      const wozLabel = page.locator('text=WOZ');
+      const hasWozLabel = await wozLabel.first().isVisible().catch(() => false);
+      console.log(`WOZ label visible: ${hasWozLabel}`);
+
+      // Also check for euro symbol
+      const euroSymbol = page.locator('[data-testid="property-preview-card"]').locator('text=/\u20AC/');
+      const hasEuro = await euroSymbol.first().isVisible().catch(() => false);
+      console.log(`Euro symbol visible: ${hasEuro}`);
+
+      // Verify price is displayed (either via euro symbol or formatted number)
+      expect(hasPrice || hasEuro, 'Price should be visible on preview card (mock property has WOZ value)').toBe(true);
 
       // Verify Like button exists
       const likeButton = page.locator('text=Like');
@@ -477,11 +616,93 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Guess button visible: ${hasGuess}`);
       expect(hasGuess, 'Guess button should be visible').toBe(true);
 
-      // Take screenshot showing all elements
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-elements.png`,
-        fullPage: false,
+      // Log the full card content for debugging
+      const cardContent = await previewCard.textContent();
+      console.log(`Full card content: ${cardContent}`);
+
+      // Debug: Log the inner HTML to see what's actually rendered
+      const innerHTML = await previewCard.evaluate(el => el.innerHTML);
+      console.log(`Card innerHTML length: ${innerHTML.length}`);
+
+      // Debug: Check for overflow clipping
+      const styles = await previewCard.evaluate(el => {
+        const computed = window.getComputedStyle(el);
+        return {
+          overflow: computed.overflow,
+          overflowY: computed.overflowY,
+          height: computed.height,
+          maxHeight: computed.maxHeight,
+          display: computed.display,
+          flexDirection: computed.flexDirection,
+        };
       });
+      console.log(`Card computed styles: ${JSON.stringify(styles)}`);
+
+      // Debug: Get the thumbnail container and image styles
+      const thumbnailDebug = await page.evaluate(() => {
+        const thumb = document.querySelector('[data-testid="property-thumbnail-container"]');
+        if (!thumb) return { found: false };
+        const rect = thumb.getBoundingClientRect();
+        const computed = window.getComputedStyle(thumb);
+
+        // Also check the image inside
+        const img = document.querySelector('[data-testid="property-thumbnail-image"]');
+        let imgInfo = null;
+        if (img) {
+          const imgRect = img.getBoundingClientRect();
+          const imgComputed = window.getComputedStyle(img);
+          imgInfo = {
+            rect: { x: Math.round(imgRect.x), y: Math.round(imgRect.y), w: Math.round(imgRect.width), h: Math.round(imgRect.height) },
+            width: imgComputed.width,
+            height: imgComputed.height,
+          };
+        }
+
+        return {
+          found: true,
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+          flexShrink: computed.flexShrink,
+          flexGrow: computed.flexGrow,
+          width: computed.width,
+          height: computed.height,
+          display: computed.display,
+          overflow: computed.overflow,
+          image: imgInfo,
+        };
+      });
+      console.log(`Thumbnail debug: ${JSON.stringify(thumbnailDebug)}`);
+
+      // Debug: Get the parent row container styles
+      const rowDebug = await page.evaluate(() => {
+        const thumb = document.querySelector('[data-testid="property-thumbnail-container"]');
+        if (!thumb || !thumb.parentElement) return { found: false };
+        const parent = thumb.parentElement;
+        const rect = parent.getBoundingClientRect();
+        const computed = window.getComputedStyle(parent);
+        return {
+          found: true,
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+          flexDirection: computed.flexDirection,
+          display: computed.display,
+        };
+      });
+      console.log(`Row container debug: ${JSON.stringify(rowDebug)}`);
+
+      // Take a clip-based screenshot of just the card (element screenshot has issues)
+      const cardBox = await previewCard.boundingBox();
+      if (cardBox) {
+        const padding = 10;
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-elements.png`,
+          clip: {
+            x: Math.max(0, cardBox.x - padding),
+            y: Math.max(0, cardBox.y - padding),
+            width: cardBox.width + padding * 2,
+            height: cardBox.height + padding * 2,
+          },
+        });
+        console.log(`Card dimensions: ${cardBox.width}x${cardBox.height} at (${cardBox.x}, ${cardBox.y})`);
+      }
     }
 
     expect(previewVisible, 'Preview card should appear when clicking a property marker').toBe(true);
@@ -507,32 +728,144 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(1000);
     previewVisible = await previewCard.isVisible().catch(() => false);
 
-    if (previewVisible) {
-      // Take screenshot before card tap
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-before-card-tap.png`,
-        fullPage: false,
+    // Fallback click attempts if preview not visible
+    if (!previewVisible && clickResult.featureCount > 0) {
+      const markerPositions = await page.evaluate(() => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return [];
+        const canvas = mapInstance.getCanvas();
+        const layers = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        let allFeatures: any[] = [];
+        try {
+          allFeatures = mapInstance.queryRenderedFeatures(
+            [[0, 0], [canvas.width, canvas.height]],
+            { layers }
+          ) || [];
+        } catch (e) { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f: any) => {
+          if (f.geometry?.type === 'Point') {
+            const point = mapInstance.project(f.geometry.coordinates);
+            const rect = canvas.getBoundingClientRect();
+            return { x: rect.left + point.x, y: rect.top + point.y };
+          }
+          return null;
+        }).filter(Boolean);
       });
 
-      // Click on the preview card (not on a button)
-      // Use force:true to bypass pointer event interception
-      await previewCard.click({ force: true });
-      await page.waitForTimeout(1000);
+      for (const pos of markerPositions) {
+        if (!pos) continue;
+        await page.mouse.click(pos.x, pos.y);
+        await page.waitForTimeout(1000);
+        previewVisible = await previewCard.isVisible().catch(() => false);
+        if (previewVisible) break;
+      }
+    }
 
-      // Verify bottom sheet appeared
-      const bottomSheet = page.locator('[data-testid="property-bottom-sheet"]').or(
-        page.locator('text=Property Details').or(
-          page.locator('[role="dialog"]')
+    let bottomSheetContentVisible = false;
+
+    if (previewVisible) {
+      // Wait for property data to load and price to render
+      await page.waitForTimeout(2000);
+
+      // Take clip-based screenshot of the preview card before tap
+      const cardBoxBefore = await previewCard.boundingBox();
+      if (cardBoxBefore) {
+        const padding = 10;
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-before-card-tap.png`,
+          clip: {
+            x: Math.max(0, cardBoxBefore.x - padding),
+            y: Math.max(0, cardBoxBefore.y - padding),
+            width: cardBoxBefore.width + padding * 2,
+            height: cardBoxBefore.height + padding * 2,
+          },
+        });
+      }
+      console.log(`Screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-before-card-tap.png`);
+      console.log(`Preview card content before tap: ${await previewCard.textContent()}`);
+
+      // Get the preview card's bounding box to click in the center (not on buttons)
+      const cardBox = await previewCard.boundingBox();
+      if (cardBox) {
+        // Click in the upper center area of the card (thumbnail/address area, not buttons)
+        const clickX = cardBox.x + cardBox.width / 2;
+        const clickY = cardBox.y + cardBox.height / 3; // Upper third to avoid buttons
+
+        console.log(`Clicking card at (${clickX.toFixed(0)}, ${clickY.toFixed(0)}) to open bottom sheet`);
+        await page.mouse.click(clickX, clickY);
+      } else {
+        // Fallback to force click
+        await previewCard.click({ force: true });
+      }
+
+      // Wait for bottom sheet animation - use longer timeout
+      await page.waitForTimeout(3000);
+
+      // Verify bottom sheet appeared and has content
+      // Look for specific content elements that should be visible in bottom sheet
+      const bottomSheetIndicators = [
+        'text=Details',
+        'text=Comments',
+        'text=Guess the Price',
+        'text=Property Details',
+        'text=Save',
+        'text=Share',
+        'text=bouwjaar',
+        'text=oppervlakte',
+        'text=m\u00B2', // square meters
+      ];
+
+      for (const indicator of bottomSheetIndicators) {
+        const element = page.locator(indicator);
+        const isVisible = await element.first().isVisible().catch(() => false);
+        if (isVisible) {
+          console.log(`Bottom sheet indicator found: ${indicator}`);
+          bottomSheetContentVisible = true;
+          break;
+        }
+      }
+
+      // Also check for bottom sheet backdrop or container
+      const bottomSheetBackdrop = page.locator('[data-testid="property-bottom-sheet"]').or(
+        page.locator('[role="dialog"]').or(
+          page.locator('.bottom-sheet-backdrop')
         )
       );
-      const bottomSheetVisible = await bottomSheet.first().isVisible().catch(() => false);
-      console.log(`Bottom sheet visible after card tap: ${bottomSheetVisible}`);
+      const backdropVisible = await bottomSheetBackdrop.first().isVisible().catch(() => false);
+      console.log(`Bottom sheet backdrop visible: ${backdropVisible}`);
 
-      // Take screenshot after card tap
+      // Check if preview card disappeared (indicating bottom sheet took over)
+      const previewStillVisible = await previewCard.isVisible().catch(() => false);
+      console.log(`Preview card still visible after tap: ${previewStillVisible}`);
+
+      // The bottom sheet should now be showing
+      const sheetOpened = bottomSheetContentVisible || backdropVisible || !previewStillVisible;
+      console.log(`Bottom sheet opened: ${sheetOpened}`);
+
+      // Take full page screenshot to capture both map and bottom sheet
       await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-after-card-tap.png`,
+        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-bottom-sheet-expanded.png`,
         fullPage: false,
       });
+      console.log(`Screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-bottom-sheet-expanded.png`);
+
+      // Take screenshot of just the lower portion where bottom sheet should be
+      const viewport = page.viewportSize();
+      if (viewport) {
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-bottom-sheet-detail.png`,
+          clip: {
+            x: 0,
+            y: viewport.height / 2,
+            width: viewport.width,
+            height: viewport.height / 2,
+          },
+        });
+        console.log(`Bottom sheet detail screenshot saved`);
+      }
+
+      // Assert bottom sheet content is visible after tapping preview card
+      expect(sheetOpened, 'Bottom sheet should open after tapping preview card').toBe(true);
     }
 
     // Verify no page crash

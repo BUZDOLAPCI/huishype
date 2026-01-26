@@ -17,6 +17,7 @@ import {
 } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
+import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
 // Get API URL for tile endpoint
 const getApiUrl = (): string => {
@@ -185,14 +186,12 @@ export default function MapScreen() {
 
   const handleComment = useCallback(() => {
     setShowPreview(false);
-    bottomSheetRef.current?.snapToIndex(1);
-    // TODO: Scroll to comments section
+    bottomSheetRef.current?.scrollToComments();
   }, []);
 
   const handleGuess = useCallback(() => {
     setShowPreview(false);
-    bottomSheetRef.current?.snapToIndex(0);
-    // TODO: Scroll to guess section
+    bottomSheetRef.current?.scrollToGuess();
   }, []);
 
   // Handle bottom sheet actions
@@ -300,6 +299,8 @@ export default function MapScreen() {
                 textField: ['get', 'point_count'],
                 textSize: 14,
                 textColor: '#FFFFFF',
+                textHaloColor: '#000000',
+                textHaloWidth: 1,
                 textAllowOverlap: true,
                 textIgnorePlacement: true,
               }}
@@ -410,6 +411,7 @@ export default function MapScreen() {
                 wozValue: selectedProperty.wozValue,
                 activityLevel: getActivityLevel(selectedActivityScore),
                 activityScore: selectedActivityScore,
+                thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
               }}
               onPress={handlePreviewPress}
               onLike={handleLike}
