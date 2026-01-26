@@ -68,6 +68,7 @@ playwright/.cache/
 # Data sources (too large for repo)
 data_sources/*.gpkg
 data_sources/*.sqlite
+data_sources/*.sqlite-journal
 data_sources/*.zip
 data_sources/*.7z
 
