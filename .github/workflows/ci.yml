@@ -147,8 +147,8 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Build web app
-        run: pnpm --filter @huishype/app build
+      - name: Build all packages and web app
+        run: pnpm turbo run build --filter=@huishype/app
 
       - name: Install serve for static files
         run: npm install -g serve
