@@ -4,7 +4,17 @@ import { render, fireEvent } from '@testing-library/react-native';
 // Mock FontAwesome before importing the component
 jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
 
+// Mock the hooks module
+jest.mock('@/src/hooks', () => ({
+  useReverseGeocode: jest.fn(() => ({
+    data: null,
+    isLoading: false,
+  })),
+  isBagPandPlaceholder: jest.fn((address: string) => address.startsWith('BAG Pand')),
+}));
+
 import { PropertyFeedCard } from '../PropertyFeedCard';
+import { useReverseGeocode, isBagPandPlaceholder } from '@/src/hooks';
 
 describe('PropertyFeedCard', () => {
   const defaultProps = {
@@ -124,5 +134,79 @@ describe('PropertyFeedCard', () => {
 
     // Should show difference vs asking
     expect(getByText(/vs asking/)).toBeTruthy();
+  });
+
+  describe('BAG Pand placeholder resolution', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('does not trigger reverse geocoding for real addresses', () => {
+      (isBagPandPlaceholder as jest.Mock).mockReturnValue(false);
+
+      render(<PropertyFeedCard {...defaultProps} coordinates={{ lat: 52.37, lng: 4.89 }} />);
+
+      // Should not try to resolve a real address
+      expect(useReverseGeocode).toHaveBeenCalledWith(null, null, { enabled: false });
+    });
+
+    it('triggers reverse geocoding for BAG Pand placeholders when coordinates are provided', () => {
+      (isBagPandPlaceholder as jest.Mock).mockReturnValue(true);
+
+      render(
+        <PropertyFeedCard
+          {...defaultProps}
+          address="BAG Pand 0772100001217229"
+          coordinates={{ lat: 51.45, lng: 5.47 }}
+        />
+      );
+
+      // Should attempt to resolve the BAG Pand placeholder
+      expect(useReverseGeocode).toHaveBeenCalledWith(51.45, 5.47, { enabled: true });
+    });
+
+    it('displays resolved address when available', () => {
+      (isBagPandPlaceholder as jest.Mock).mockReturnValue(true);
+      (useReverseGeocode as jest.Mock).mockReturnValue({
+        data: {
+          address: 'Operalaan 15',
+          city: 'Eindhoven',
+          postalCode: '5653 AB',
+        },
+        isLoading: false,
+      });
+
+      const { getByText } = render(
+        <PropertyFeedCard
+          {...defaultProps}
+          address="BAG Pand 0772100001217229"
+          city="Unknown"
+          coordinates={{ lat: 51.45, lng: 5.47 }}
+        />
+      );
+
+      // Should display the resolved address, not the BAG Pand placeholder
+      expect(getByText('Operalaan 15')).toBeTruthy();
+      expect(getByText('Eindhoven, 5653 AB')).toBeTruthy();
+    });
+
+    it('displays original BAG Pand when resolution fails or no coordinates', () => {
+      (isBagPandPlaceholder as jest.Mock).mockReturnValue(true);
+      (useReverseGeocode as jest.Mock).mockReturnValue({
+        data: null,
+        isLoading: false,
+      });
+
+      const { getByText } = render(
+        <PropertyFeedCard
+          {...defaultProps}
+          address="BAG Pand 0772100001217229"
+          city="Eindhoven"
+        />
+      );
+
+      // Should fall back to displaying the original BAG Pand
+      expect(getByText('BAG Pand 0772100001217229')).toBeTruthy();
+    });
   });
 });

@@ -8,8 +8,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   resolveUrlParams,
   searchAddresses,
+  reverseGeocode,
+  isBagPandPlaceholder,
   type AddressUrlParams,
   type ResolvedAddress,
+  type ReverseGeocodedAddress,
 } from '@/src/services/address-resolver';
 
 /**
@@ -19,6 +22,7 @@ export const addressKeys = {
   all: ['addresses'] as const,
   resolve: (params: AddressUrlParams) => [...addressKeys.all, 'resolve', params] as const,
   search: (query: string) => [...addressKeys.all, 'search', query] as const,
+  reverse: (lat: number, lon: number) => [...addressKeys.all, 'reverse', lat, lon] as const,
 };
 
 /**
@@ -75,3 +79,36 @@ export function useAddressSearch(
     retry: 1,
   });
 }
+
+/**
+ * Hook to reverse geocode coordinates to a real address
+ * Useful for resolving BAG Pand placeholders to real Dutch addresses
+ *
+ * @param lat Latitude (WGS84)
+ * @param lon Longitude (WGS84)
+ * @param options Additional options
+ * @returns Query result with reverse geocoded address
+ */
+export function useReverseGeocode(
+  lat: number | null,
+  lon: number | null,
+  options?: {
+    enabled?: boolean;
+    staleTime?: number;
+  }
+) {
+  const hasCoordinates = lat !== null && lon !== null;
+
+  return useQuery({
+    queryKey: hasCoordinates ? addressKeys.reverse(lat!, lon!) : addressKeys.all,
+    queryFn: () => (hasCoordinates ? reverseGeocode(lat!, lon!) : null),
+    enabled: options?.enabled !== false && hasCoordinates,
+    staleTime: options?.staleTime ?? 10 * 60 * 1000, // 10 minutes - addresses don't change often
+    retry: 1,
+    // Don't refetch on window focus - addresses are stable
+    refetchOnWindowFocus: false,
+  });
+}
+
+// Re-export utility function for checking BAG Pand placeholders
+export { isBagPandPlaceholder };

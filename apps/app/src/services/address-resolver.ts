@@ -9,8 +9,9 @@
  * CRITICAL: Uses centroide_ll (WGS84) NOT centroide_rd (RD coordinates)
  */
 
-// PDOK Locatieserver API endpoint
+// PDOK Locatieserver API endpoints
 const PDOK_SEARCH_URL = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free';
+const PDOK_REVERSE_URL = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse';
 
 /**
  * PDOK Locatieserver response types
@@ -260,4 +261,79 @@ export function determineViewType(params: AddressUrlParams): AddressViewType {
   if (!params.zipcode) return 'city';
   if (!params.street || !params.housenumber) return 'postcode';
   return 'property';
+}
+
+/**
+ * Result from reverse geocoding
+ */
+export interface ReverseGeocodedAddress {
+  address: string; // Street name + house number (e.g., "Straatnaam 123")
+  postalCode: string | null;
+  city: string;
+}
+
+/**
+ * Check if an address is a BAG Pand placeholder
+ * These placeholders look like "BAG Pand 0772100001217229"
+ */
+export function isBagPandPlaceholder(address: string): boolean {
+  return /^BAG\s*Pand\s*/i.test(address);
+}
+
+/**
+ * Reverse geocode coordinates to get a real Dutch address
+ * Uses PDOK Locatieserver reverse geocoding API
+ *
+ * @param lat Latitude (WGS84)
+ * @param lon Longitude (WGS84)
+ * @returns ReverseGeocodedAddress or null if not found
+ */
+export async function reverseGeocode(
+  lat: number,
+  lon: number
+): Promise<ReverseGeocodedAddress | null> {
+  try {
+    const searchParams = new URLSearchParams({
+      lat: lat.toString(),
+      lon: lon.toString(),
+      rows: '1',
+      fq: 'type:adres',
+    });
+
+    const response = await fetch(`${PDOK_REVERSE_URL}?${searchParams.toString()}`);
+
+    if (!response.ok) {
+      console.error('PDOK reverse geocoding error:', response.status, response.statusText);
+      return null;
+    }
+
+    const data: PDOKResponse = await response.json();
+
+    if (data.response.numFound === 0 || !data.response.docs.length) {
+      return null;
+    }
+
+    const doc = data.response.docs[0];
+
+    // Format the address: "Straatnaam Huisnummer"
+    let address: string;
+    if (doc.straatnaam && doc.huisnummer) {
+      address = `${doc.straatnaam} ${doc.huisnummer}`;
+    } else if (doc.weergavenaam) {
+      // Use display name as fallback, but extract just the street part
+      const parts = doc.weergavenaam.split(',');
+      address = parts[0].trim();
+    } else {
+      return null;
+    }
+
+    return {
+      address,
+      postalCode: doc.postcode || null,
+      city: doc.woonplaatsnaam || doc.gemeentenaam || '',
+    };
+  } catch (error) {
+    console.error('PDOK reverse geocoding failed:', error);
+    return null;
+  }
 }

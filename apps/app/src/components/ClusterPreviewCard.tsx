@@ -12,17 +12,12 @@ export interface ClusterPreviewCardProps {
 }
 
 /**
- * Parse a display address from the raw address field.
- * Handles BAG-style addresses like "BAG Pand 0772100009376482"
- * by generating a readable placeholder.
+ * Format display address.
+ * Real addresses from PDOK are used directly.
+ * No more BAG Pand placeholder handling needed since seed script
+ * now uses PDOK reverse geocoding for real addresses.
  */
-function formatDisplayAddress(address: string, bagId: string | null): string {
-  // If address starts with "BAG" or "BAG-Pand", generate a friendly placeholder
-  if (address.startsWith('BAG ') || address.startsWith('BAG-Pand')) {
-    // Use last 4 digits of BAG ID as a "house number" for visual distinction
-    const shortId = bagId ? bagId.slice(-4) : '0000';
-    return `Property #${shortId}`;
-  }
+function formatDisplayAddress(address: string): string {
   return address;
 }
 
@@ -119,11 +114,8 @@ export function ClusterPreviewCard({
     return `\u20AC${value.toLocaleString('nl-NL')}`;
   };
 
-  // Format the display address
-  const displayAddress = formatDisplayAddress(
-    currentProperty.address,
-    currentProperty.bagIdentificatie
-  );
+  // Format the display address (now uses real addresses from PDOK)
+  const displayAddress = formatDisplayAddress(currentProperty.address);
 
   return (
     <View style={styles.container} testID="cluster-preview-card">

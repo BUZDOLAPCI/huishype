@@ -1,5 +1,6 @@
 import { Image, Pressable, Text, View } from 'react-native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { useReverseGeocode, isBagPandPlaceholder } from '@/src/hooks';
 
 interface PropertyFeedCardProps {
   id: string;
@@ -17,6 +18,8 @@ interface PropertyFeedCardProps {
   bouwjaar?: number | null;
   oppervlakte?: number | null;
   onPress?: () => void;
+  // Coordinates for runtime address resolution
+  coordinates?: { lat: number; lng: number } | null;
 }
 
 /**
@@ -47,7 +50,24 @@ export function PropertyFeedCard({
   bouwjaar,
   oppervlakte,
   onPress,
+  coordinates,
 }: PropertyFeedCardProps) {
+  // Check if address is a BAG Pand placeholder that needs resolution
+  const needsResolution = isBagPandPlaceholder(address);
+
+  // Use reverse geocoding to resolve BAG Pand placeholders
+  const { data: resolvedAddress, isLoading: isResolvingAddress } = useReverseGeocode(
+    needsResolution && coordinates ? coordinates.lat : null,
+    needsResolution && coordinates ? coordinates.lng : null,
+    { enabled: needsResolution && !!coordinates }
+  );
+
+  // Determine what address/city/postal to display
+  const displayAddress = resolvedAddress?.address || address;
+  const displayCity = resolvedAddress?.city || city;
+  const displayPostalCode = resolvedAddress?.postalCode || postalCode;
+  const isLoadingAddress = needsResolution && isResolvingAddress;
+
   const activityColors = {
     hot: 'bg-red-500',
     warm: 'bg-orange-400',
@@ -109,15 +129,22 @@ export function PropertyFeedCard({
         {/* Address and activity indicator */}
         <View className="flex-row items-start justify-between mb-1">
           <View className="flex-1 mr-2">
-            <Text
-              className="text-lg font-semibold text-gray-900"
-              numberOfLines={1}
-            >
-              {address}
-            </Text>
+            {isLoadingAddress ? (
+              <View className="flex-row items-center">
+                <View className="w-32 h-5 bg-gray-200 rounded animate-pulse" />
+              </View>
+            ) : (
+              <Text
+                className="text-lg font-semibold text-gray-900"
+                numberOfLines={1}
+                testID="property-address"
+              >
+                {displayAddress}
+              </Text>
+            )}
             <Text className="text-sm text-gray-500">
-              {city}
-              {postalCode ? `, ${postalCode}` : ''}
+              {displayCity}
+              {displayPostalCode ? `, ${displayPostalCode}` : ''}
             </Text>
           </View>
           <View

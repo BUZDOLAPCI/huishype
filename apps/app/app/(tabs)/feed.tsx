@@ -70,6 +70,7 @@ export default function FeedScreen() {
         viewCount={item.viewCount}
         bouwjaar={item.bouwjaar}
         oppervlakte={item.oppervlakte}
+        coordinates={item.coordinates}
         onPress={() => handlePropertyPress(item.id)}
       />
     ),

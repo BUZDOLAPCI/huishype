@@ -8,6 +8,8 @@ import {
   normalizeForUrl,
   createAddressUrl,
   determineViewType,
+  reverseGeocode,
+  isBagPandPlaceholder,
   type AddressUrlParams,
   type ResolvedAddress,
 } from '../address-resolver';
@@ -338,6 +340,133 @@ describe('address-resolver', () => {
       const result = await searchAddresses('test query');
       expect(result).toHaveLength(1);
       expect(result[0].bagId).toBe('adr-1');
+    });
+  });
+
+  describe('isBagPandPlaceholder', () => {
+    it('returns true for BAG Pand placeholders', () => {
+      expect(isBagPandPlaceholder('BAG Pand 0772100001217229')).toBe(true);
+      expect(isBagPandPlaceholder('BAGPand 123456789')).toBe(true);
+      expect(isBagPandPlaceholder('bag pand 0772100001217229')).toBe(true);
+    });
+
+    it('returns false for real addresses', () => {
+      expect(isBagPandPlaceholder('Prinsengracht 123')).toBe(false);
+      expect(isBagPandPlaceholder('Van Gogh Straat 42')).toBe(false);
+      expect(isBagPandPlaceholder('Operalaan 15')).toBe(false);
+    });
+
+    it('returns false for empty strings', () => {
+      expect(isBagPandPlaceholder('')).toBe(false);
+    });
+  });
+
+  describe('reverseGeocode', () => {
+    it('calls PDOK reverse API with correct parameters', async () => {
+      const mockResponse = {
+        response: {
+          numFound: 1,
+          start: 0,
+          docs: [
+            {
+              id: 'adr-test123',
+              type: 'adres',
+              weergavenaam: 'Operalaan 15, 5653AB Eindhoven',
+              straatnaam: 'Operalaan',
+              huisnummer: '15',
+              postcode: '5653AB',
+              woonplaatsnaam: 'Eindhoven',
+              gemeentenaam: 'Eindhoven',
+            },
+          ],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await reverseGeocode(51.45, 5.47);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const calledUrl = mockFetch.mock.calls[0][0] as string;
+      expect(calledUrl).toContain('api.pdok.nl');
+      expect(calledUrl).toContain('reverse');
+      expect(calledUrl).toContain('lat=51.45');
+      expect(calledUrl).toContain('lon=5.47');
+      expect(calledUrl).toMatch(/fq=type(%3A|:)adres/i);
+
+      expect(result).toEqual({
+        address: 'Operalaan 15',
+        postalCode: '5653AB',
+        city: 'Eindhoven',
+      });
+    });
+
+    it('returns null for no results', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            response: {
+              numFound: 0,
+              start: 0,
+              docs: [],
+            },
+          }),
+      });
+
+      const result = await reverseGeocode(0, 0);
+      expect(result).toBeNull();
+    });
+
+    it('returns null on API error', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      const result = await reverseGeocode(51.45, 5.47);
+      expect(result).toBeNull();
+    });
+
+    it('handles network errors gracefully', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await reverseGeocode(51.45, 5.47);
+      expect(result).toBeNull();
+    });
+
+    it('uses weergavenaam as fallback when straatnaam/huisnummer missing', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            response: {
+              numFound: 1,
+              start: 0,
+              docs: [
+                {
+                  id: 'adr-test',
+                  type: 'adres',
+                  weergavenaam: 'Kerkstraat 1, 1234AB Amsterdam',
+                  postcode: '1234AB',
+                  woonplaatsnaam: 'Amsterdam',
+                  // Missing straatnaam and huisnummer
+                },
+              ],
+            },
+          }),
+      });
+
+      const result = await reverseGeocode(52.37, 4.89);
+      expect(result).toEqual({
+        address: 'Kerkstraat 1',
+        postalCode: '1234AB',
+        city: 'Amsterdam',
+      });
     });
   });
 });

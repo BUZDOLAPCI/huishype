@@ -6,7 +6,8 @@ module.exports = {
   testMatch: ['**/*.test.ts', '**/*.test.tsx'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@/src/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)$': '<rootDir>/$1',
     // Mock React Native and Expo modules for unit testing
     '^react-native$': '<rootDir>/__mocks__/react-native.js',
     '^expo-font$': '<rootDir>/__mocks__/expo-font.js',
