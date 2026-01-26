@@ -20,7 +20,7 @@ These documents are the source of truth. Pass these information down to all suba
 
 There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
 
-Refer to the `data_sources/local-sources.md` for more information
+Refer to the `data_sources/data-sources.md` for more information
 
 ## Permissions
 
