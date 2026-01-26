@@ -105,14 +105,6 @@ function mapStatus(bagStatus: string | null): 'active' | 'inactive' | 'demolishe
   return 'active';
 }
 
-/**
- * Format a fallback address when address lookup fails
- */
-function generateFallbackAddress(lat: number, lon: number, identificatie: string): string {
-  const latPart = Math.abs(Math.round(lat * 10000) % 100);
-  const lonPart = Math.abs(Math.round(lon * 10000) % 100);
-  return `Straat ${latPart}${lonPart} ${identificatie.slice(-4)}`;
-}
 
 /**
  * Format elapsed time nicely
@@ -320,8 +312,7 @@ async function seed() {
 
     let processedCount = 0;
     let insertedCount = 0;
-    let localLookupCount = 0;
-    let fallbackCount = 0;
+    let skippedNoAddress = 0;
 
     const totalToProcess = limit ? Math.min(limit, totalPands - offset) : totalPands - offset;
 
@@ -339,8 +330,10 @@ async function seed() {
     let currentOffset = offset;
     let propertyBatch: NewProperty[] = [];
 
-    while (processedCount < totalToProcess) {
-      const batchLimit = Math.min(BATCH_SIZE, totalToProcess - processedCount);
+    let totalScannedSoFar = 0;
+
+    while (totalScannedSoFar < totalToProcess) {
+      const batchLimit = Math.min(BATCH_SIZE, totalToProcess - totalScannedSoFar);
 
       const centroidBatch = centroidStmt.all(batchLimit, currentOffset) as PandCentroidRow[];
 
@@ -354,24 +347,19 @@ async function seed() {
           continue;
         }
 
+        // Look up address - skip pands without addresses (utility buildings, garages, sheds, etc.)
+        const addressInfo = addressMap.get(row.identificatie);
+        if (!addressInfo) {
+          skippedNoAddress++;
+          continue;
+        }
+
         // Transform coordinates from RD New to WGS84
         const { lon, lat } = transformToWGS84(row.centroid_x, row.centroid_y);
 
-        // Look up address
-        let address: string;
-        let postalCode: string | null = null;
-        let city = 'Netherlands';
-
-        const addressInfo = addressMap.get(row.identificatie);
-        if (addressInfo) {
-          address = addressInfo.address;
-          postalCode = addressInfo.postalCode;
-          city = addressInfo.city;
-          localLookupCount++;
-        } else {
-          address = generateFallbackAddress(lat, lon, row.identificatie);
-          fallbackCount++;
-        }
+        const address = addressInfo.address;
+        const postalCode = addressInfo.postalCode;
+        const city = addressInfo.city;
 
         const record: NewProperty = {
           bagIdentificatie: row.identificatie,
@@ -415,18 +403,17 @@ async function seed() {
       }
 
       currentOffset += centroidBatch.length;
+      totalScannedSoFar += centroidBatch.length;
 
       // Progress logging
       const elapsed = Date.now() - processStart;
-      const rate = processedCount / (elapsed / 1000);
-      const eta = (totalToProcess - processedCount) / rate;
+      const rate = totalScannedSoFar / (elapsed / 1000);
 
       process.stdout.write(
-        `\r  Progress: ${processedCount.toLocaleString()}/${totalToProcess.toLocaleString()} ` +
-        `(${((processedCount / totalToProcess) * 100).toFixed(1)}%) | ` +
-        `${rate.toFixed(0)}/s | ` +
-        `ETA: ${formatElapsedTime(eta * 1000)} | ` +
-        `Addresses: ${localLookupCount.toLocaleString()} real, ${fallbackCount.toLocaleString()} fallback`
+        `\r  Scanned: ${totalScannedSoFar.toLocaleString()}/${totalToProcess.toLocaleString()} ` +
+        `| Inserted: ${processedCount.toLocaleString()} | ` +
+        `Skipped (no address): ${skippedNoAddress.toLocaleString()} | ` +
+        `${rate.toFixed(0)}/s`
       );
     }
 
@@ -454,18 +441,17 @@ async function seed() {
 
     const totalTime = Date.now() - processStart;
 
+    const totalScanned = processedCount + skippedNoAddress;
+
     console.log('\n');
     console.log('='.repeat(60));
     console.log('Seed Complete');
     console.log('='.repeat(60));
-    console.log(`Total processed: ${processedCount.toLocaleString()} properties`);
-    console.log(`Total inserted/updated: ${insertedCount.toLocaleString()} properties`);
+    console.log(`Total scanned: ${totalScanned.toLocaleString()} pands`);
+    console.log(`Total inserted/updated: ${insertedCount.toLocaleString()} properties with addresses`);
+    console.log(`Skipped (no address): ${skippedNoAddress.toLocaleString()} pands (utility buildings, garages, sheds, etc.)`);
     console.log(`Total time: ${formatElapsedTime(totalTime)}`);
-    console.log(`Average rate: ${(processedCount / (totalTime / 1000)).toFixed(0)} properties/second`);
-    console.log('');
-    console.log('Address Resolution:');
-    console.log(`  - Real BAG addresses: ${localLookupCount.toLocaleString()} (${((localLookupCount / processedCount) * 100).toFixed(1)}%)`);
-    console.log(`  - Generated fallback: ${fallbackCount.toLocaleString()} (${((fallbackCount / processedCount) * 100).toFixed(1)}%)`);
+    console.log(`Average rate: ${(totalScanned / (totalTime / 1000)).toFixed(0)} pands/second`);
 
     if (!dryRun) {
       // Verify insertion
@@ -478,29 +464,15 @@ async function seed() {
       const sampleAddresses = await queryClient`
         SELECT address, postal_code, city
         FROM properties
-        WHERE address NOT LIKE 'Straat%'
         ORDER BY RANDOM()
         LIMIT 5
       `;
       console.log('');
-      console.log('Sample real addresses:');
+      console.log('Sample addresses:');
       sampleAddresses.forEach((row, i) => {
         console.log(`  ${i + 1}. ${row.address}, ${row.postal_code || 'N/A'} ${row.city}`);
       });
 
-      // Address statistics
-      const addressStats = await queryClient`
-        SELECT
-          COUNT(*) FILTER (WHERE address LIKE 'Straat%') as generated_count,
-          COUNT(*) FILTER (WHERE address NOT LIKE 'Straat%') as real_count,
-          COUNT(*) as total
-        FROM properties
-      `;
-      console.log('');
-      console.log('Address breakdown in database:');
-      console.log(`  - Real addresses: ${Number(addressStats[0].real_count).toLocaleString()}`);
-      console.log(`  - Generated fallback: ${Number(addressStats[0].generated_count).toLocaleString()}`);
-      console.log(`  - Total: ${Number(addressStats[0].total).toLocaleString()}`);
 
       // Geographic distribution
       const cityStats = await queryClient`

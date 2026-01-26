@@ -11,7 +11,7 @@ The full BAG Geopackage (https://service.pdok.nl/lv/bag/atom/bag.xml) is already
 - **Total pands (buildings):** 11,310,057
 - **Total verblijfsobjecten (addresses):** 9,883,310
 - **Unique pands with addresses:** 6,531,425 (~58%)
-- **Pands without addresses:** ~4.8M (garages, sheds, utility buildings, etc.)
+- **Pands without addresses:** ~4.8M (garages, sheds, utility buildings, etc.) - **skipped during seeding**
 
 ### Database Seeding
 
@@ -30,12 +30,14 @@ cd services/api && pnpm run db:seed -- --full
 ```
 
 **Options:**
-- `--full` or `--netherlands` - Seed complete Netherlands (11.3M properties)
-- `--limit N` - Limit to N properties (for testing)
+- `--full` or `--netherlands` - Seed complete Netherlands (~6.5M properties with addresses)
+- `--limit N` - Limit to N pands scanned (for testing)
 - `--offset N` - Start from offset N
 - `--skip-demolished` - Skip properties with demolished status
 - `--skip-extract` - Skip ogr2ogr extraction (use existing temp database)
 - `--dry-run` - Don't insert into database
+
+**Note:** Pands without addresses (garages, sheds, utility buildings ~42% of BAG) are automatically skipped.
 
 **Performance:**
 

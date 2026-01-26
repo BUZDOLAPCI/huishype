@@ -32,17 +32,19 @@ The seed script populates the PostgreSQL database with property data from the BA
 cd services/api && pnpm run db:seed
 ```
 
-By default, seeds **Eindhoven area only** (~240K properties, ~2 min) for faster development cycles.
+By default, seeds **Eindhoven area only** (~140K properties with addresses, ~2 min) for faster development cycles.
+
+**Note:** Only pands with real addresses are seeded. Utility buildings, garages, sheds (~42% of BAG) are skipped.
 
 ### Seeding Options
 
-| Mode | Command | Properties | Time |
-|------|---------|------------|------|
-| **Eindhoven (default)** | `pnpm run db:seed` | ~240K | ~2 min |
-| **Full Netherlands** | `pnpm run db:seed -- --full` | 11.3M | ~45 min |
+| Mode | Command | Properties with Addresses | Time |
+|------|---------|---------------------------|------|
+| **Eindhoven (default)** | `pnpm run db:seed` | ~140K | ~2 min |
+| **Full Netherlands** | `pnpm run db:seed -- --full` | ~6.5M | ~45 min |
 
 **Additional flags:**
-- `--limit N` - Limit to N properties (for testing)
+- `--limit N` - Limit to N pands scanned (for testing)
 - `--offset N` - Start from offset N
 - `--skip-demolished` - Skip properties with demolished status
 - `--skip-extract` - Skip ogr2ogr extraction (reuse existing temp database)
