@@ -32,61 +32,85 @@ export default defineConfig({
     video: 'on-first-retry',
   },
   /* Configure projects for major browsers */
-  projects: [
-    // Visual E2E tests - runs against real app, catches real issues
-    {
-      name: 'visual',
-      testDir: './apps/app/e2e/visual',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 720 },
-        screenshot: 'on', // Always capture screenshots
-        trace: 'on', // Always capture trace for debugging
-        video: 'on', // Always capture video
-      },
-      // Visual tests have longer timeout since they test real app behavior
-      timeout: 60000, // 60 seconds per test
-    },
-    // Integration tests (API-only, no web server needed)
-    {
-      name: 'integration',
-      testDir: './apps/app/e2e/integration',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // Web E2E tests
-    {
-      name: 'chromium',
-      testDir: './apps/app/e2e/web',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      testDir: './apps/app/e2e/web',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      testDir: './apps/app/e2e/web',
-      use: { ...devices['Desktop Safari'] },
-    },
-    /* Test against mobile viewports */
-    {
-      name: 'Mobile Chrome',
-      testDir: './apps/app/e2e/web',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'Mobile Safari',
-      testDir: './apps/app/e2e/web',
-      use: { ...devices['iPhone 12'] },
-    },
-  ],
+  projects: process.env.CI
+    ? [
+        // CI: Only run on Chromium to speed up tests
+        {
+          name: 'visual',
+          testDir: './apps/app/e2e/visual',
+          use: {
+            ...devices['Desktop Chrome'],
+            viewport: { width: 1280, height: 720 },
+            screenshot: 'on',
+            trace: 'on-first-retry',
+            video: 'on-first-retry',
+          },
+          timeout: 90000, // 90 seconds per test in CI
+        },
+        {
+          name: 'integration',
+          testDir: './apps/app/e2e/integration',
+          use: { ...devices['Desktop Chrome'] },
+        },
+        {
+          name: 'chromium',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['Desktop Chrome'] },
+        },
+      ]
+    : [
+        // Local: Full browser matrix
+        {
+          name: 'visual',
+          testDir: './apps/app/e2e/visual',
+          use: {
+            ...devices['Desktop Chrome'],
+            viewport: { width: 1280, height: 720 },
+            screenshot: 'on',
+            trace: 'on',
+            video: 'on',
+          },
+          timeout: 60000,
+        },
+        {
+          name: 'integration',
+          testDir: './apps/app/e2e/integration',
+          use: { ...devices['Desktop Chrome'] },
+        },
+        {
+          name: 'chromium',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['Desktop Chrome'] },
+        },
+        {
+          name: 'firefox',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['Desktop Firefox'] },
+        },
+        {
+          name: 'webkit',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['Desktop Safari'] },
+        },
+        {
+          name: 'Mobile Chrome',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['Pixel 5'] },
+        },
+        {
+          name: 'Mobile Safari',
+          testDir: './apps/app/e2e/web',
+          use: { ...devices['iPhone 12'] },
+        },
+      ],
   /* Run local dev server before starting the tests */
   webServer: {
     command: 'pnpm --filter @huishype/app web',
     url: 'http://localhost:8081',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000, // 2 minutes to start the server
+    timeout: process.env.CI ? 300 * 1000 : 120 * 1000, // 5 min CI, 2 min local
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
   /* Output directory for test artifacts */
   outputDir: './test-results/playwright',
