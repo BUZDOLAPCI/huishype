@@ -110,6 +110,17 @@ module.exports = {
   FadeOut: {
     duration: () => FadeOut,
   },
+  FadeInDown: {
+    duration: (value) => FadeInDown,
+  },
+  ZoomIn: {
+    springify: () => ({
+      damping: () => ({
+        stiffness: () => ({}),
+      }),
+    }),
+    duration: () => ZoomIn,
+  },
   SlideInRight: {},
   SlideOutLeft: {},
   Extrapolation: {
@@ -119,6 +130,8 @@ module.exports = {
   },
 };
 
-// Export named properties for FadeIn/FadeOut
+// Export named properties for animations
 const FadeIn = module.exports.FadeIn;
 const FadeOut = module.exports.FadeOut;
+const FadeInDown = module.exports.FadeInDown;
+const ZoomIn = module.exports.ZoomIn;

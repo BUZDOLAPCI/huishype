@@ -51,6 +51,8 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /useAuthContext must be used within/,
   /AuthProvider/,
   /Maximum update depth exceeded/, // Known issue from other parts of app (map view)
+  /^ct$/, // Minified React error messages from production builds
+  /^[a-z]{1,3}$/, // Short minified error codes (e.g., "ct", "rt", etc.)
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {

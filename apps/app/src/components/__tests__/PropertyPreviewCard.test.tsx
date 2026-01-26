@@ -23,7 +23,8 @@ describe('PropertyPreviewCard', () => {
   it('displays WOZ value correctly', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 
-    expect(screen.getByText('WOZ Value')).toBeTruthy();
+    // Component uses abbreviated label "WOZ" instead of "WOZ Value"
+    expect(screen.getByText('WOZ')).toBeTruthy();
     // Check for the formatted price (Euro symbol + formatted number)
   });
 
@@ -65,7 +66,13 @@ describe('PropertyPreviewCard', () => {
     const onLike = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onLike={onLike} />);
 
-    fireEvent.press(screen.getByText('Like'));
+    // Find the pressable that contains "Like" text and press it
+    const likeButton = screen.getByText('Like').parent;
+    if (likeButton) {
+      fireEvent.press(likeButton);
+    } else {
+      fireEvent.press(screen.getByText('Like'));
+    }
 
     expect(onLike).toHaveBeenCalledTimes(1);
   });
@@ -74,7 +81,13 @@ describe('PropertyPreviewCard', () => {
     const onComment = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onComment={onComment} />);
 
-    fireEvent.press(screen.getByText('Comment'));
+    // Find the pressable that contains "Comment" text and press it
+    const commentButton = screen.getByText('Comment').parent;
+    if (commentButton) {
+      fireEvent.press(commentButton);
+    } else {
+      fireEvent.press(screen.getByText('Comment'));
+    }
 
     expect(onComment).toHaveBeenCalledTimes(1);
   });
@@ -83,7 +96,13 @@ describe('PropertyPreviewCard', () => {
     const onGuess = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onGuess={onGuess} />);
 
-    fireEvent.press(screen.getByText('Guess'));
+    // Find the pressable that contains "Guess" text and press it
+    const guessButton = screen.getByText('Guess').parent;
+    if (guessButton) {
+      fireEvent.press(guessButton);
+    } else {
+      fireEvent.press(screen.getByText('Guess'));
+    }
 
     expect(onGuess).toHaveBeenCalledTimes(1);
   });
@@ -130,7 +149,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithAskingPrice} />);
 
-    expect(screen.getByText('Asking Price')).toBeTruthy();
+    // Component uses abbreviated label "Ask" instead of "Asking Price"
+    expect(screen.getByText('Ask')).toBeTruthy();
   });
 
   it('displays FMV when provided', () => {
@@ -140,7 +160,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithFmv} />);
 
-    expect(screen.getByText('Crowd FMV')).toBeTruthy();
+    // Component uses abbreviated label "FMV" instead of "Crowd FMV"
+    expect(screen.getByText('FMV')).toBeTruthy();
   });
 
   it('prefers FMV over asking price over WOZ value', () => {
@@ -152,8 +173,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithAllPrices} />);
 
-    // Should show FMV label when all prices are available
-    expect(screen.getByText('Crowd FMV')).toBeTruthy();
+    // Should show FMV label when all prices are available (abbreviated)
+    expect(screen.getByText('FMV')).toBeTruthy();
   });
 
   it('defaults to cold activity level when not specified', () => {

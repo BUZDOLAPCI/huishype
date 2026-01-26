@@ -1,12 +1,14 @@
 # PDOK Aerial Imagery Integration - Reference Expectation
 
 ## Overview
-We need to implement a utility that generates high-resolution aerial snapshots (luchtfoto's) from the official Dutch PDOK government portal. This will serve as the default "Hero Image" for any property that does not yet have listing photos, user-uploaded photos, or expensive Google Street View calls.
+We need to implement a utility that generates high-resolution aerial snapshots (luchtfoto's) from the official Dutch PDOK government portal. This will serve as the default "Hero Image" for any property that does not yet have listing photos.
+
+**Reference Image:** See `woningstats-tegenbosch-16.jpg`. The output must match this visual style: a high-res top-down view centered on the property.
 
 ## Visual Requirements
-- **Resolution:** 800x600 (Retina ready for mobile cards).
-- **Content:** The image must show a top-down aerial view of the specific house coordinates.
-- **Fallback:** If the API fails, the UI should handle the error gracefully (e.g., show a placeholder icon), but for this expectation, a successful 200 OK image load is required.
+- **Resolution:** 800x600 (Retina ready).
+- **Content:** Top-down aerial view centered exactly on the house coordinates.
+- **Composition:** The implementation should support overlaying a marker pin (like the reference image) to indicate the specific roof/address.
 
 ## Technical Requirements (Critical)
 
@@ -22,39 +24,44 @@ The PDOK WMS service **does not accept** standard Lat/Lon (GPS). It requires the
 The function must return a valid HTTPS URL for the PDOK WMS service.
 - **Base URL:** `https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0`
 - **Layer:** `Actueel_orthoHR` (7.5cm resolution)
-- **BBOX Calculation:** Create a 40x40 meter bounding box centered on the RD coordinates (`x-20`, `y-20`, `x+20`, `y+20`).
+- **Format:** `image/jpeg` or `image/png`
+- **BBOX Calculation:** Create a 40x40 meter bounding box centered on the converted RD coordinates (`x-20`, `y-20`, `x+20`, `y+20`).
 
-## Implementation details
+## Implementation Details
 
-Create a new file `src/lib/pdok/imagery.ts` exporting:
+**Location:** `apps/app/src/lib/pdok/imagery.ts`
 
 ```typescript
-export const getDutchAerialSnapshotUrl = (lat: number, lon: number): string => { ... }
+// Pure utility function
+export const getDutchAerialSnapshotUrl = (lat: number, lon: number, width = 800, height = 600): string => { ... }
+```
 
 Acceptance Criteria (SUFFICIENT)
-Utility Exists: src/lib/pdok/imagery.ts is created and strictly typed.
-Valid URL: The function returns a URL starting with https://service.pdok.nl/....
-Correct Conversion: Passing the coordinates for the Dom Tower in Utrecht (52.0907, 5.1214) results in a URL that, when opened, actually shows the Dom Tower (and not the ocean or a random field).
-Console Health: No console.error regarding projection failures or invalid parameters.
-E2E Test: A simple test case validates that the generated URL returns a 200 status code.
-The feature works in e2e test, and no bugs are perceived
-Also check for seemingly unrelated bugs to this feature that you may encounter
-The implementation is similar to reference-expectations/pdok-aerial-imagery/woningstats-tegenbosch-16.png, with the marker pin
+Utility Exists: apps/app/src/lib/pdok/imagery.ts created and typed.
+
+Dependencies: proj4 installed in apps/app.
+Visual Verification (The "Tegenbosch" Test):
+Create an E2E test apps/app/e2e/visual/reference-0018-pdok.spec.ts.
+Test Case: Use coordinates for Tegenbosch 16, Eindhoven.
+Target RD Coordinates: X: 157189.018, Y: 385806.139
+Render: The test must render the generated URL in an <img> tag.
+Verification: The screenshot captured by the test must match woningstats-tegenbosch-16.jpg (showing the same house/roof).
+Console Health: Zero console errors during execution.
 
 Acceptance Criteria (NEEDS_WORK)
-The URL returns a 400 Bad Request (usually means BBOX or SRS is wrong).
-The image is blank/white (usually means coordinates are in the ocean).
-The implementation relies on Google Maps or other paid APIs.
-The proj4 dependency is missing or not configured correctly.
+URL returns 400 Bad Request.
+Image shows a generic field or ocean (projection error).
+Image loads but is significantly off-center compared to the reference image.
+Implementation uses Google Maps or other paid APIs.
 
-## Possible Optimizations (can be out of scope)
-- Persisting these images to R2 to prevent PDOK rate limiting at scale.
+Technical Notes
+The reference coordinates for Tegenbosch 16 are 157189.018, 385806.139 (RD).
+Ensure your BBOX calculation around these points yields the same view.
+if needed, Install proj4 via pnpm add proj4 and pnpm add -D @types/proj4.
 
 
-Check how woningstats does it for example for deflectiespoelstraat 33:
+Check how woningstats does it for example for "deflectiespoelstraat 33" address:
 <div id="div_img_woning" class="d-flex justify-content-center align-items-center">
                   <img id="img_woning" class="" src="https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0?&amp;service=WMS&amp;request=GetMap&amp;layers=Actueel_orthoHR&amp;styles=&amp;format=image%2Fpng&amp;transparent=true&amp;version=1.1.1&amp;width=720&amp;height=480&amp;srs=EPSG:28992&amp;BBOX=159037.799,384826.388,159082.799,384856.388" style="min-height: 160px;" onerror="load_luchtfoto(image_id=this.id, marker_id=this.nextElementSibling.id, 159060.299, 384841.388)">
                   <i id="img_woning_marker" class="bi bi-geo-alt text-light mb-4" style="position:absolute;font-size:2rem;"></i>
 </div>
-
-Full woningstats html is also saved at 'reference-expectations/pdok-aerial-imagery/woningstats-deflectiespoelstraat-33-html'

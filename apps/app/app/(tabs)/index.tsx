@@ -1,21 +1,30 @@
-import { useRef, useCallback, useState, useMemo } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { Text, View, ActivityIndicator } from 'react-native';
-import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, SymbolLayer } from '@rnmapbox/maps';
-import type { Feature, FeatureCollection, Point } from 'geojson';
+import Mapbox, {
+  MapView,
+  Camera,
+  VectorSource,
+  CircleLayer,
+  SymbolLayer,
+} from '@rnmapbox/maps';
+import type { Feature } from 'geojson';
+import Constants from 'expo-constants';
 
-import { PropertyPreviewCard, PropertyBottomSheet, ClusterPreviewCard } from '@/src/components';
+import {
+  PropertyPreviewCard,
+  PropertyBottomSheet,
+  ClusterPreviewCard,
+} from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
-import { useAllProperties, type Property } from '@/src/hooks/useProperties';
+import { useProperty, type Property } from '@/src/hooks/useProperties';
 
-// ShapeSource type for accessing cluster methods
-type ShapeSourceRef = {
-  getClusterExpansionZoom: (clusterId: number) => Promise<number>;
-  getClusterLeaves: (
-    clusterId: number,
-    limit: number,
-    offset: number
-  ) => Promise<GeoJSON.Feature[]>;
+// Get API URL for tile endpoint
+const getApiUrl = (): string => {
+  const extra = Constants.expoConfig?.extra;
+  return extra?.apiUrl ?? 'http://localhost:3000';
 };
+
+const API_URL = getApiUrl();
 
 // Configure MapLibre (no Mapbox token needed for MapLibre)
 Mapbox.setAccessToken(null);
@@ -24,23 +33,16 @@ Mapbox.setAccessToken(null);
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const DEFAULT_ZOOM = 13;
 
+// Zoom threshold for ghost nodes (matching backend)
+const GHOST_NODE_THRESHOLD_ZOOM = 15;
+
 // OpenFreeMap Positron style - light, minimalist map with proper Dutch coverage
 // Shows roads, water, parks, and city labels at zoomed-out levels
 // Attribution: OpenFreeMap, OpenMapTiles, OpenStreetMap contributors
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 
-// Property GeoJSON properties interface
-interface PropertyGeoJsonProperties {
-  [key: string]: unknown;
-  id: string;
-  address: string;
-  city: string;
-  postalCode: string | null;
-  wozValue: number | null;
-  oppervlakte: number | null;
-  bouwjaar: number | null;
-  activityScore: number;
-}
+// Vector tile URL template
+const TILE_URL = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
 
 // OnPressEvent type from @rnmapbox/maps
 interface OnPressEvent {
@@ -55,39 +57,6 @@ interface OnPressEvent {
   };
 }
 
-// Convert properties to GeoJSON FeatureCollection
-function propertiesToGeoJSON(
-  properties: Property[]
-): FeatureCollection<Point, PropertyGeoJsonProperties> {
-  const features: Feature<Point, PropertyGeoJsonProperties>[] = properties
-    .filter((p) => p.geometry !== null)
-    .map((property) => ({
-      type: 'Feature' as const,
-      id: property.id,
-      geometry: {
-        type: 'Point' as const,
-        coordinates: property.geometry!.coordinates,
-      },
-      properties: {
-        id: property.id,
-        address: property.address,
-        city: property.city,
-        postalCode: property.postalCode,
-        wozValue: property.wozValue,
-        oppervlakte: property.oppervlakte,
-        bouwjaar: property.bouwjaar,
-        // Simulate activity score (0 = ghost, >0 = active)
-        // In production, this would come from the API
-        activityScore: Math.random() > 0.7 ? Math.floor(Math.random() * 100) : 0,
-      },
-    }));
-
-  return {
-    type: 'FeatureCollection',
-    features,
-  };
-}
-
 // Get activity level from score
 function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   if (score >= 50) return 'hot';
@@ -97,96 +66,82 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
 
 export default function MapScreen() {
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
-  const shapeSourceRef = useRef<ShapeSourceRef | null>(null);
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const cameraRef = useRef<Camera>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
+    null
+  );
   const [showPreview, setShowPreview] = useState(false);
+  const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
 
   // Cluster preview state
-  const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
+  const [clusterPropertyIds, setClusterPropertyIds] = useState<string[]>([]);
   const [currentClusterIndex, setCurrentClusterIndex] = useState(0);
   const [isClusterPreview, setIsClusterPreview] = useState(false);
 
-  // Fetch properties from API
-  const { data: propertiesData, isLoading, error, refetch } = useAllProperties();
+  // Activity data for selected property (from vector tile feature)
+  const [selectedActivityScore, setSelectedActivityScore] = useState(0);
+  const [selectedHasListing, setSelectedHasListing] = useState(false);
 
-  // Convert properties to GeoJSON
-  const geoJSON = useMemo(() => {
-    if (!propertiesData?.data) return null;
-    return propertiesToGeoJSON(propertiesData.data);
-  }, [propertiesData?.data]);
+  // Fetch selected property details
+  const { data: selectedProperty, isLoading: propertyLoading } =
+    useProperty(selectedPropertyId);
 
-  // Handle property marker press - handles both individual properties and clusters
-  const handleMarkerPress = useCallback(
-    async (event: OnPressEvent) => {
-      if (!event.features?.length || !propertiesData?.data) return;
+  // Fetch cluster properties (for paginated preview)
+  const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
+
+  // Handle feature press from vector tiles
+  const handleFeaturePress = useCallback(
+    (event: OnPressEvent) => {
+      if (!event.features?.length) return;
 
       const feature = event.features[0];
+      const properties = feature.properties;
 
-      // Check if this is a cluster (has point_count property)
-      const isCluster = feature.properties?.cluster === true || feature.properties?.point_count;
+      if (!properties) return;
+
+      // Check if this is a cluster (has point_count property from backend clustering)
+      const isCluster =
+        properties.point_count !== undefined && properties.point_count > 1;
 
       if (isCluster) {
-        // Handle cluster click - show paginated preview
-        const clusterId = feature.properties?.cluster_id as number;
-        const pointCount = (feature.properties?.point_count as number) || 10;
-
-        if (!shapeSourceRef.current) return;
-
-        try {
-          // Get all properties in this cluster
-          const clusterFeatures = await shapeSourceRef.current.getClusterLeaves(
-            clusterId,
-            pointCount,
-            0
-          );
-
-          if (!clusterFeatures || clusterFeatures.length === 0) {
-            // No leaves found, try zooming in
-            const zoom = await shapeSourceRef.current.getClusterExpansionZoom(clusterId);
-            // Note: We would need a camera ref to zoom, for now just return
-            console.log('Would zoom to level:', zoom);
-            return;
-          }
-
-          // Map cluster features to Property objects
-          const props = clusterFeatures
-            .map((f) => {
-              const propertyId =
-                (f.properties?.id as string) || (f.id as string | number)?.toString();
-              return propertiesData.data.find((p) => p.id === propertyId);
-            })
-            .filter((p): p is Property => p !== undefined);
-
-          if (props.length > 1) {
-            // Show cluster preview for multiple properties
-            setClusterProperties(props);
-            setCurrentClusterIndex(0);
-            setIsClusterPreview(true);
-            setShowPreview(false); // Close single property preview if open
-          } else if (props.length === 1) {
-            // Single property in cluster - show regular preview
-            setSelectedProperty(props[0]);
-            setShowPreview(true);
-            setIsClusterPreview(false);
-          }
-        } catch (error) {
-          console.error('Error getting cluster leaves:', error);
+        // Cluster tap - zoom in to expand
+        // For now, zoom in. In future, could show paginated preview
+        const clusterGeom = feature.geometry;
+        if (clusterGeom && clusterGeom.type === 'Point') {
+          const [lng, lat] = clusterGeom.coordinates as [number, number];
+          const newZoom = Math.min(currentZoom + 2, 18);
+          cameraRef.current?.setCamera({
+            centerCoordinate: [lng, lat],
+            zoomLevel: newZoom,
+            animationDuration: 500,
+          });
         }
       } else {
-        // Handle individual property click
-        const propertyId = (feature.properties?.id as string) || (feature.id as string);
+        // Individual property tap
+        const propertyId = properties.id as string;
+        const activityScore = (properties.activityScore as number) ?? 0;
+        const hasListing = (properties.hasListing as boolean) ?? false;
 
-        // Find the full property data
-        const property = propertiesData.data.find((p) => p.id === propertyId);
-
-        if (property) {
-          setSelectedProperty(property);
+        if (propertyId) {
+          setSelectedPropertyId(propertyId);
+          setSelectedActivityScore(activityScore);
+          setSelectedHasListing(hasListing);
           setShowPreview(true);
           setIsClusterPreview(false);
         }
       }
     },
-    [propertiesData?.data]
+    [currentZoom]
+  );
+
+  // Handle map region change to track zoom level
+  const handleRegionChange = useCallback(
+    (feature: Feature) => {
+      if (feature.properties?.zoomLevel) {
+        setCurrentZoom(feature.properties.zoomLevel as number);
+      }
+    },
+    []
   );
 
   // Handle preview card press (opens full bottom sheet)
@@ -197,7 +152,7 @@ export default function MapScreen() {
 
   // Handle bottom sheet close
   const handleSheetClose = useCallback(() => {
-    setSelectedProperty(null);
+    setSelectedPropertyId(null);
     setShowPreview(false);
     setIsClusterPreview(false);
   }, []);
@@ -210,22 +165,23 @@ export default function MapScreen() {
   // Handle cluster preview close
   const handleClusterClose = useCallback(() => {
     setIsClusterPreview(false);
+    setClusterPropertyIds([]);
     setClusterProperties([]);
     setCurrentClusterIndex(0);
   }, []);
 
   // Handle property selection from cluster preview
   const handleClusterPropertyPress = useCallback((property: Property) => {
-    setSelectedProperty(property);
+    setSelectedPropertyId(property.id);
     setIsClusterPreview(false);
     bottomSheetRef.current?.snapToIndex(0);
   }, []);
 
   // Handle quick actions from preview card
   const handleLike = useCallback(() => {
-    console.log('Like property:', selectedProperty?.id);
+    console.log('Like property:', selectedPropertyId);
     // TODO: Implement like functionality
-  }, [selectedProperty?.id]);
+  }, [selectedPropertyId]);
 
   const handleComment = useCallback(() => {
     setShowPreview(false);
@@ -275,38 +231,6 @@ export default function MapScreen() {
     }
   }, [showPreview, isClusterPreview]);
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <View className="flex-1 bg-gray-100 items-center justify-center">
-        <ActivityIndicator size="large" color="#3B82F6" />
-        <Text className="text-gray-500 mt-4">Loading map...</Text>
-      </View>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <View className="flex-1 bg-gray-100 items-center justify-center px-8">
-        <Text className="text-red-500 text-lg mb-2">Failed to load properties</Text>
-        <Text className="text-gray-500 text-sm text-center mb-4">
-          {error instanceof Error ? error.message : 'An error occurred'}
-        </Text>
-        <Text className="text-primary-600 underline" onPress={() => refetch()}>
-          Try again
-        </Text>
-      </View>
-    );
-  }
-
-  // Get activity score for selected property
-  const getSelectedPropertyActivityScore = (): number => {
-    if (!selectedProperty || !geoJSON) return 0;
-    const feature = geoJSON.features.find((f) => f.id === selectedProperty.id);
-    return feature?.properties?.activityScore ?? 0;
-  };
-
   return (
     <View className="flex-1 bg-gray-100">
       {/* Map View */}
@@ -315,115 +239,162 @@ export default function MapScreen() {
           style={{ flex: 1 }}
           styleURL={STYLE_URL}
           onPress={handleMapPress}
+          onRegionDidChange={handleRegionChange}
           testID="map-view"
         >
           <Camera
+            ref={cameraRef}
             centerCoordinate={EINDHOVEN_CENTER}
             zoomLevel={DEFAULT_ZOOM}
             animationMode="flyTo"
             animationDuration={1000}
           />
 
-          {/* Property markers with clustering */}
-          {geoJSON && (
-            <ShapeSource
-              id="properties"
-              ref={(ref) => {
-                shapeSourceRef.current = ref as unknown as ShapeSourceRef;
+          {/* Vector tile source for properties */}
+          <VectorSource
+            id="properties-source"
+            url={TILE_URL}
+            onPress={handleFeaturePress}
+          >
+            {/* Layer 1: Clusters (Z0-Z14) - only formed from Active Nodes */}
+            <CircleLayer
+              id="clusters"
+              sourceLayerID="properties"
+              minZoomLevel={0}
+              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
+              filter={['>', ['get', 'point_count'], 1]}
+              style={{
+                circleRadius: [
+                  'interpolate',
+                  ['linear'],
+                  ['get', 'point_count'],
+                  2,
+                  18,
+                  10,
+                  24,
+                  50,
+                  32,
+                  100,
+                  40,
+                ],
+                circleColor: [
+                  'case',
+                  ['get', 'has_active_children'],
+                  '#FF5A5F', // Hot cluster (has active properties)
+                  '#51bbd6', // Standard cluster
+                ],
+                circleOpacity: 0.85,
+                circleStrokeWidth: 2,
+                circleStrokeColor: '#FFFFFF',
               }}
-              shape={geoJSON}
-              cluster={true}
-              clusterRadius={50}
-              clusterMaxZoomLevel={14}
-              onPress={handleMarkerPress}
-            >
-              {/* Clustered points */}
-              <CircleLayer
-                id="clusters"
-                filter={['has', 'point_count']}
-                style={{
-                  circleRadius: [
-                    'step',
-                    ['get', 'point_count'],
-                    20, // default size
-                    10,
-                    25, // 10+ points
-                    50,
-                    30, // 50+ points
-                    100,
-                    40, // 100+ points
-                  ],
-                  circleColor: '#3B82F6',
-                  circleOpacity: 0.8,
-                  circleStrokeWidth: 2,
-                  circleStrokeColor: '#FFFFFF',
-                }}
-              />
+            />
 
-              {/* Cluster count labels */}
-              <SymbolLayer
-                id="cluster-count"
-                filter={['has', 'point_count']}
-                style={{
-                  textField: ['get', 'point_count_abbreviated'],
-                  textSize: 14,
-                  textColor: '#FFFFFF',
-                  textAllowOverlap: true,
-                }}
-              />
+            {/* Cluster count labels */}
+            <SymbolLayer
+              id="cluster-count"
+              sourceLayerID="properties"
+              minZoomLevel={0}
+              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
+              filter={['>', ['get', 'point_count'], 1]}
+              style={{
+                textField: ['get', 'point_count'],
+                textSize: 14,
+                textColor: '#FFFFFF',
+                textAllowOverlap: true,
+                textIgnorePlacement: true,
+              }}
+            />
 
-              {/* Ghost nodes (inactive properties) */}
-              <CircleLayer
-                id="ghost-points"
-                filter={['all', ['!', ['has', 'point_count']], ['==', ['get', 'activityScore'], 0]]}
-                style={{
-                  circleRadius: 6,
-                  circleColor: '#94A3B8', // gray-400
-                  circleOpacity: 0.4,
-                  circleStrokeWidth: 1,
-                  circleStrokeColor: '#FFFFFF',
-                  circleStrokeOpacity: 0.5,
-                }}
-              />
+            {/* Single active points at low zoom (point_count = 1 or undefined) */}
+            <CircleLayer
+              id="single-active-points"
+              sourceLayerID="properties"
+              minZoomLevel={0}
+              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
+              filter={[
+                'all',
+                ['any', ['!', ['has', 'point_count']], ['==', ['get', 'point_count'], 1]],
+              ]}
+              style={{
+                circleRadius: [
+                  'interpolate',
+                  ['linear'],
+                  ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0],
+                  0,
+                  8,
+                  50,
+                  12,
+                  100,
+                  16,
+                ],
+                circleColor: [
+                  'case',
+                  ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 50],
+                  '#EF4444', // red-500 (hot)
+                  ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 0],
+                  '#F97316', // orange-500 (warm)
+                  '#3B82F6', // blue-500 (has listing but no activity)
+                ],
+                circleOpacity: 0.9,
+                circleStrokeWidth: 2,
+                circleStrokeColor: '#FFFFFF',
+              }}
+            />
 
-              {/* Active nodes (socially active properties) */}
-              <CircleLayer
-                id="active-points"
-                filter={['all', ['!', ['has', 'point_count']], ['>', ['get', 'activityScore'], 0]]}
-                style={{
-                  circleRadius: [
-                    'interpolate',
-                    ['linear'],
-                    ['get', 'activityScore'],
-                    1,
-                    8, // low activity
-                    50,
-                    12, // medium activity
-                    100,
-                    16, // high activity
-                  ],
-                  circleColor: [
-                    'interpolate',
-                    ['linear'],
-                    ['get', 'activityScore'],
-                    1,
-                    '#F97316', // orange-500 (warm)
-                    50,
-                    '#EF4444', // red-500 (hot)
-                  ],
-                  circleOpacity: 0.9,
-                  circleStrokeWidth: 2,
-                  circleStrokeColor: '#FFFFFF',
-                }}
-              />
-            </ShapeSource>
-          )}
+            {/* Layer 2: Active Nodes (Z15+) - full opacity, larger */}
+            <CircleLayer
+              id="active-nodes"
+              sourceLayerID="properties"
+              minZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
+              filter={['==', ['get', 'is_ghost'], false]}
+              style={{
+                circleRadius: [
+                  'interpolate',
+                  ['linear'],
+                  ['coalesce', ['get', 'activityScore'], 0],
+                  0,
+                  6,
+                  50,
+                  10,
+                  100,
+                  14,
+                ],
+                circleColor: [
+                  'case',
+                  ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
+                  '#EF4444', // red-500 (hot)
+                  ['>', ['coalesce', ['get', 'activityScore'], 0], 0],
+                  '#F97316', // orange-500 (warm)
+                  '#3B82F6', // blue-500 (has listing)
+                ],
+                circleOpacity: 0.9,
+                circleStrokeWidth: 2,
+                circleStrokeColor: '#FFFFFF',
+              }}
+            />
+
+            {/* Layer 3: Ghost Nodes (Z15+) - low opacity, small, unobtrusive */}
+            <CircleLayer
+              id="ghost-nodes"
+              sourceLayerID="properties"
+              minZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
+              filter={['==', ['get', 'is_ghost'], true]}
+              style={{
+                circleRadius: 3,
+                circleColor: '#94A3B8', // gray-400
+                circleOpacity: 0.4,
+                circleStrokeWidth: 1,
+                circleStrokeColor: '#FFFFFF',
+                circleStrokeOpacity: 0.5,
+              }}
+            />
+          </VectorSource>
         </MapView>
 
-        {/* Property count indicator */}
+        {/* Zoom level indicator (for debugging) */}
         <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
           <Text className="text-sm text-gray-700">
-            {propertiesData?.meta?.total ?? 0} properties
+            Zoom: {currentZoom.toFixed(1)}
           </Text>
         </View>
 
@@ -437,14 +408,22 @@ export default function MapScreen() {
                 city: selectedProperty.city,
                 postalCode: selectedProperty.postalCode,
                 wozValue: selectedProperty.wozValue,
-                activityLevel: getActivityLevel(getSelectedPropertyActivityScore()),
-                activityScore: getSelectedPropertyActivityScore(),
+                activityLevel: getActivityLevel(selectedActivityScore),
+                activityScore: selectedActivityScore,
               }}
               onPress={handlePreviewPress}
               onLike={handleLike}
               onComment={handleComment}
               onGuess={handleGuess}
             />
+          </View>
+        )}
+
+        {/* Loading indicator for property fetch */}
+        {showPreview && propertyLoading && !selectedProperty && (
+          <View className="absolute bottom-4 left-4 right-4 bg-white rounded-xl p-4 shadow-lg items-center">
+            <ActivityIndicator size="small" color="#3B82F6" />
+            <Text className="text-gray-500 mt-2">Loading property...</Text>
           </View>
         )}
 
@@ -465,7 +444,7 @@ export default function MapScreen() {
       {/* Property details bottom sheet */}
       <PropertyBottomSheet
         ref={bottomSheetRef}
-        property={selectedProperty}
+        property={selectedProperty ?? null}
         onClose={handleSheetClose}
         onSave={handleSave}
         onShare={handleShare}

@@ -23,10 +23,10 @@ const TEST_LOCATIONS = [
   },
   {
     name: 'Tegenbosch 16, Eindhoven',
-    lat: 51.4375,
-    lon: 5.4875,
+    lat: 51.461516,
+    lon: 5.419762,
     address: 'Tegenbosch 16, 5651GE Eindhoven',
-    description: 'Reference location from woningstats example',
+    description: 'Reference location from woningstats example (RD: 157189.018, 385806.139)',
   },
   {
     name: 'Deflectiespoelstraat 33, Eindhoven',

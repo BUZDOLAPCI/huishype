@@ -42,3 +42,8 @@ export {
   type CommentUser,
   type CommentSortBy,
 } from './useComments';
+export {
+  useResolveAddress,
+  useAddressSearch,
+  addressKeys,
+} from './useAddressResolver';

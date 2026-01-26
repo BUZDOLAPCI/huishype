@@ -30,14 +30,13 @@ describe('PDOK Imagery Utility', () => {
     });
 
     it('should convert Eindhoven coordinates correctly', () => {
-      // Eindhoven (Tegenbosch area): 51.4375, 5.4875 (WGS84)
-      const [x, y] = convertToRDNew(51.4375, 5.4875);
+      // Tegenbosch 16, Eindhoven: 51.461516, 5.419762 (WGS84)
+      // Expected RD: 157189.018, 385806.139
+      const [x, y] = convertToRDNew(51.461516, 5.419762);
 
-      // Should be in Eindhoven region (RD ~165000, ~387000)
-      expect(x).toBeGreaterThan(160000);
-      expect(x).toBeLessThan(170000);
-      expect(y).toBeGreaterThan(380000);
-      expect(y).toBeLessThan(395000);
+      // Should match the expected RD coordinates closely
+      expect(x).toBeCloseTo(157189.018, 0);
+      expect(y).toBeCloseTo(385806.139, 0);
     });
   });
 
