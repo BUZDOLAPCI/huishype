@@ -58,7 +58,7 @@ async function authPlugin(fastify: FastifyInstance) {
         }
 
         request.userId = decoded.userId;
-      } catch (err) {
+      } catch (_err) {
         return reply.status(401).send({
           error: 'UNAUTHORIZED',
           message: 'Authentication required',

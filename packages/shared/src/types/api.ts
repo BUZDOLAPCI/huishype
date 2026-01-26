@@ -178,7 +178,7 @@ export interface GetListingsRequest {
   maxPrice?: number;
 }
 
-export interface GetListingsResponse extends PaginatedResponse<ListingSummary> {}
+export type GetListingsResponse = PaginatedResponse<ListingSummary>;
 
 // ============================================
 // Guess API Types
@@ -290,4 +290,4 @@ export interface GetSavedPropertiesRequest {
   pageSize?: number;
 }
 
-export interface GetSavedPropertiesResponse extends PaginatedResponse<PropertySummary> {}
+export type GetSavedPropertiesResponse = PaginatedResponse<PropertySummary>;
