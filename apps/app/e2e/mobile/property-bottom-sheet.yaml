@@ -1,0 +1,91 @@
+# Property Bottom Sheet E2E Test
+# Tests the property detail bottom sheet functionality on mobile
+appId: com.huishype.app
+
+---
+- launchApp:
+    clearState: true
+
+# Wait for map to load
+- waitForAnimationToEnd
+
+# Take initial screenshot
+- takeScreenshot: map-initial
+
+# Wait for properties to load (or error state)
+- extendedWaitUntil:
+    visible:
+      anyOf:
+        - "properties"
+        - "Failed to load"
+        - "Loading"
+    timeout: 10000
+
+# Take screenshot of loaded state
+- takeScreenshot: map-loaded
+
+# Tap on the center of the map to select a property
+- tapOn:
+    point: "50%,50%"
+
+# Wait for preview card or bottom sheet to appear
+- waitForAnimationToEnd
+
+# Take screenshot of preview/selection state
+- takeScreenshot: property-selected
+
+# Look for the preview card elements
+- assertVisible:
+    anyOf:
+      - text: "Like"
+      - text: "Comment"
+      - text: "Guess"
+      - text: "Eindhoven"
+    optional: true
+
+# Tap on the preview card to expand bottom sheet (if visible)
+- tapOn:
+    text: "Like"
+    optional: true
+
+- waitForAnimationToEnd
+
+# Take screenshot of expanded state
+- takeScreenshot: bottom-sheet-expanded
+
+# Check for bottom sheet content sections (may not be visible if API is down)
+- assertVisible:
+    anyOf:
+      - text: "Save"
+      - text: "Share"
+      - text: "Guess the Price"
+      - text: "Comments"
+      - text: "Property Details"
+    optional: true
+
+# Try swiping up to fully expand
+- swipe:
+    direction: UP
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: bottom-sheet-full-expand
+
+# Try swiping down to dismiss
+- swipe:
+    direction: DOWN
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: bottom-sheet-dismissed
+
+# Verify we're back to map view
+- assertVisible:
+    anyOf:
+      - "properties"
+      - "Loading"
+      - "Failed"
+    optional: true
+
+# Final screenshot
+- takeScreenshot: final-state

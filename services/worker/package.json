@@ -1,0 +1,17 @@
+{
+  "name": "@huishype/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'TODO: Setup worker dev mode'",
+    "build": "tsc",
+    "lint": "eslint .",
+    "test": "echo 'TODO: Setup tests'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

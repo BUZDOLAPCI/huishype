@@ -1,0 +1,30 @@
+{
+  "name": "@huishype/api-client",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "generate": "openapi-typescript ../../services/api/openapi.json -o ./generated/api.ts",
+    "lint": "eslint .",
+    "test": "echo 'TODO: Setup tests'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huishype/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4",
+    "openapi-fetch": "^0.13.5",
+    "typescript": "^5.7.3"
+  }
+}

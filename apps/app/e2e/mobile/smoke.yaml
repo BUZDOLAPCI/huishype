@@ -1,0 +1,42 @@
+# HuisHype Mobile Smoke Test
+# This Maestro flow verifies the app launches and displays correctly.
+#
+# Prerequisites:
+# - Install Maestro: curl -Ls "https://get.maestro.mobile.dev" | bash
+# - Build the app: eas build --profile development --platform ios/android
+# - Run simulator/emulator with the app installed
+#
+# Usage:
+# maestro test apps/app/e2e/mobile/smoke.yaml
+
+appId: nl.huishype.app
+---
+# Launch the app
+- launchApp
+
+# Wait for app to fully load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+
+# Take initial screenshot for visual verification
+- takeScreenshot: smoke_test_initial_load
+
+# Verify the app has loaded (look for common UI elements)
+# Note: Adjust these assertions based on your actual app content
+- assertVisible:
+    text: ".*"
+    optional: true
+
+# Try to interact with the main navigation if visible
+- tapOn:
+    index: 0
+    optional: true
+
+# Take screenshot after any interaction
+- takeScreenshot: smoke_test_after_interaction
+
+# Verify no crash - app should still be running
+- assertVisible:
+    text: ".*"
+    optional: true

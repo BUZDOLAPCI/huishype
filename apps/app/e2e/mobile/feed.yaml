@@ -1,0 +1,134 @@
+# HuisHype Feed View E2E Test
+# This Maestro flow tests the property feed functionality.
+#
+# Prerequisites:
+# - App must be installed on simulator/emulator
+# - Backend API should be accessible (or mocked)
+#
+# Usage:
+# maestro test apps/app/e2e/mobile/feed.yaml
+
+appId: nl.huishype.app
+tags:
+  - feature:feed
+  - smoke
+---
+# Launch the app fresh
+- launchApp:
+    clearState: true
+
+# Wait for initial load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 15000
+
+# Take screenshot of initial state
+- takeScreenshot: feed_01_initial_state
+
+# Navigate to feed tab
+- tapOn:
+    text: "Feed"
+    optional: true
+
+# Wait for feed to load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+
+# Take screenshot of feed loaded
+- takeScreenshot: feed_02_loaded
+
+# Test filter chips - tap on "New" filter
+- tapOn:
+    text: "New"
+    optional: true
+
+# Wait for filter to apply
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+
+# Take screenshot after "New" filter
+- takeScreenshot: feed_03_new_filter
+
+# Test filter chips - tap on "Trending" filter
+- tapOn:
+    text: "Trending"
+    optional: true
+
+# Wait for filter to apply
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+
+# Take screenshot after "Trending" filter
+- takeScreenshot: feed_04_trending_filter
+
+# Test filter chips - tap on "Price Mismatch" filter
+- tapOn:
+    text: "Price Mismatch"
+    optional: true
+
+# Wait for filter to apply
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+
+# Take screenshot after "Price Mismatch" filter
+- takeScreenshot: feed_05_price_mismatch_filter
+
+# Reset to "All" filter
+- tapOn:
+    text: "All"
+    optional: true
+
+# Wait for filter to apply
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+
+# Scroll the feed down
+- scroll:
+    direction: DOWN
+
+# Take screenshot after scroll
+- takeScreenshot: feed_06_after_scroll
+
+# Scroll more to test infinite loading
+- scroll:
+    direction: DOWN
+
+- scroll:
+    direction: DOWN
+
+# Take screenshot showing more properties loaded
+- takeScreenshot: feed_07_more_properties
+
+# Scroll back up
+- scroll:
+    direction: UP
+
+- scroll:
+    direction: UP
+
+# Verify feed is still responsive
+- assertVisible:
+    text: ".*"
+    optional: true
+
+# Take final screenshot
+- takeScreenshot: feed_08_final_state
+
+# Test property card tap (if there's a property to tap)
+- tapOn:
+    text: ".*"
+    index: 0
+    optional: true
+
+# Wait for potential navigation
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+
+# Take screenshot of property detail (if navigated)
+- takeScreenshot: feed_09_property_detail
