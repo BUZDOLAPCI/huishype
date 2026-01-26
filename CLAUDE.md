@@ -232,7 +232,7 @@ Note: If SUFFICIENT, main agent will run full test suite before marking complete
 
 ```
 reference-expectations/
-├── agent-instructions.md          # General instructions
+├── expectations-workflow.md       # General instructions
 ├── map-visuals-close-up/
 │   ├── expectation.md             # What we want
 │   └── close-up-map-visuals.jpeg  # Reference image

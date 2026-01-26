@@ -44,6 +44,7 @@ const VEGETATION_CONFIG = {
     treeTrunk: '#8D6E63', // Brown for tree trunks
   },
   // NO heights yet - TODO: vegetation should be with 3d assets as well
+};
 
 // Enhanced grass/park colors for base map styling
 // These should be bright and vibrant to match Snap Maps aesthetic
