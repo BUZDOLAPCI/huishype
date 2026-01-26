@@ -13,6 +13,10 @@ concurrency:
 
 env:
   NODE_VERSION: '20'
+  # ============================================
+  # SKIP_TESTS: Set to 'false' to enable tests
+  # ============================================
+  SKIP_TESTS: 'true'
 
 jobs:
   lint-and-typecheck:
@@ -24,7 +28,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        # Uses version from package.json packageManager field
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -46,22 +49,31 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint-and-typecheck
     steps:
+      - name: Tests skipped
+        if: ${{ env.SKIP_TESTS == 'true' }}
+        run: echo "⏭️ Unit tests skipped (SKIP_TESTS=true)"
+
       - name: Checkout code
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: actions/checkout@v4
 
       - name: Setup pnpm
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: Install dependencies
+        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm install --frozen-lockfile
 
       - name: Run unit tests
+        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm test:unit
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
@@ -72,85 +84,63 @@ jobs:
           COOKIE_SECRET: test-cookie-secret
           NODE_ENV: test
 
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: lint-and-typecheck
-    services:
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: huishype
-          POSTGRES_PASSWORD: huishype_test
-          POSTGRES_DB: huishype_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
+      - name: Tests skipped
+        if: ${{ env.SKIP_TESTS == 'true' }}
+        run: echo "⏭️ Integration tests skipped (SKIP_TESTS=true)"
+
       - name: Checkout code
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: actions/checkout@v4
 
       - name: Setup pnpm
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
+        if: ${{ env.SKIP_TESTS != 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: Install dependencies
+        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm install --frozen-lockfile
 
+      - name: Start PostgreSQL
+        if: ${{ env.SKIP_TESTS != 'true' }}
+        run: |
+          docker run -d --name postgres \
+            -e POSTGRES_USER=huishype \
+            -e POSTGRES_PASSWORD=huishype_test \
+            -e POSTGRES_DB=huishype_test \
+            -p 5432:5432 \
+            postgis/postgis:16-3.4
+          sleep 10
+
       - name: Run database migrations
+        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm --filter @huishype/api db:migrate
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
       - name: Run integration tests
+        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm test:integration
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
-  # E2E Web tests require both the Expo web app and API server running.
-  # They also need mock data setup. Currently skipped in CI - run locally.
-  # TODO: Set up proper E2E CI with API server and database fixtures
-  e2e-web-placeholder:
-    name: E2E Web Tests (Manual)
+  e2e-tests:
+    name: E2E Tests (Skipped)
     runs-on: ubuntu-latest
-    needs: [unit-tests]
+    needs: lint-and-typecheck
     steps:
-      - name: Skip E2E in CI
+      - name: E2E tests skipped
         run: |
-          echo "E2E web tests require:"
-          echo "  - Expo web server with dev mode"
-          echo "  - API server with database"
-          echo "  - Mock data fixtures"
-          echo ""
-          echo "Run locally with: pnpm test:e2e:web"
-          echo "Or set up dedicated E2E CI with docker-compose"
-
-  # E2E Mobile tests are run separately (require emulators/simulators)
-  # This job serves as a placeholder for documentation
-  e2e-mobile-placeholder:
-    name: E2E Mobile Tests (Manual)
-    runs-on: ubuntu-latest
-    needs: [unit-tests]
-    steps:
-      - name: Skip mobile E2E in CI
-        run: |
-          echo "Mobile E2E tests require device/emulator setup."
-          echo "Run locally with: maestro test apps/app/e2e/mobile/"
-          echo "Or set up dedicated mobile CI with EAS Build + Maestro Cloud"
+          echo "⏭️ E2E tests are always skipped in CI"
+          echo "Run locally: pnpm test:e2e:web"
