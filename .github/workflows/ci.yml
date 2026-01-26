@@ -63,6 +63,12 @@ jobs:
 
       - name: Run unit tests
         run: pnpm test:unit
+        env:
+          JWT_SECRET: test-jwt-secret
+          JWT_REFRESH_SECRET: test-jwt-refresh-secret
+          GOOGLE_CLIENT_ID: test-google-client-id
+          APPLE_CLIENT_ID: test-apple-client-id
+          COOKIE_SECRET: test-cookie-secret
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
@@ -107,7 +113,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run database migrations
-        run: pnpm --filter @huishype/api db:push
+        run: pnpm --filter @huishype/api db:migrate
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
