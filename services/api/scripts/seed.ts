@@ -1,10 +1,13 @@
-import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, unlinkSync } from 'fs';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import Database from 'better-sqlite3';
+import proj4 from 'proj4';
+import { execSync } from 'child_process';
 import { properties, type NewProperty } from '../src/db/schema.js';
 
 // Load environment variables
@@ -13,56 +16,32 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// GeoJSON types
-interface GeoJSONPolygon {
-  type: 'Polygon';
-  coordinates: number[][][];
+// Define coordinate systems
+// RD New (Amersfoort / RD New) - Dutch national grid
+const RD_NEW = '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9999079 +x_0=155000 +y_0=463000 +ellps=bessel +towgs84=565.417,50.3319,465.552,-0.398957,0.343988,-1.8774,4.0725 +units=m +no_defs';
+const WGS84 = 'EPSG:4326';
+
+// Register the projection
+proj4.defs('EPSG:28992', RD_NEW);
+
+// Types for BAG data
+interface VerblijfsobjectRow {
+  pand_identificatie: string;
+  openbare_ruimte_naam: string;
+  huisnummer: number;
+  huisletter: string | null;
+  toevoeging: string | null;
+  postcode: string | null;
+  woonplaats_naam: string;
 }
 
-interface GeoJSONFeature {
-  type: 'Feature';
-  properties: {
-    identificatie: string;
-    bouwjaar?: number;
-    status?: string;
-    oppervlakte_min?: number;
-    oppervlakte_max?: number;
-    gebruiksdoel?: string;
-    aantal_verblijfsobjecten?: number;
-    rdf_seealso?: string;
-  };
-  geometry: GeoJSONPolygon;
-}
-
-interface GeoJSONFeatureCollection {
-  type: 'FeatureCollection';
-  name?: string;
-  crs?: {
-    type: string;
-    properties: { name: string };
-  };
-  features: GeoJSONFeature[];
-}
-
-// Local BAG address data types
-interface BAGAddressFeature {
-  type: 'Feature';
-  properties: {
-    pand_identificatie: string;
-    openbare_ruimte_naam: string;
-    huisnummer: number;
-    huisletter: string | null;
-    toevoeging: string | null;
-    postcode: string;
-    woonplaats_naam: string;
-  };
-  geometry: null;
-}
-
-interface BAGAddressCollection {
-  type: 'FeatureCollection';
-  name?: string;
-  features: BAGAddressFeature[];
+interface PandCentroidRow {
+  identificatie: string;
+  bouwjaar: number | null;
+  status: string | null;
+  oppervlakte_min: number | null;
+  centroid_x: number;
+  centroid_y: number;
 }
 
 // Address info structure
@@ -71,34 +50,6 @@ interface AddressInfo {
   postalCode: string | null;
   city: string;
 }
-
-// PDOK Reverse Geocoding response types (kept for fallback)
-interface PDOKReverseResponse {
-  response: {
-    numFound: number;
-    start: number;
-    docs: PDOKDocument[];
-  };
-}
-
-interface PDOKDocument {
-  id: string;
-  type: string;
-  weergavenaam: string;
-  straatnaam?: string;
-  huisnummer?: string;
-  postcode?: string;
-  woonplaatsnaam?: string;
-  gemeentenaam?: string;
-  provincienaam?: string;
-  centroide_ll?: string;
-}
-
-// Cache for PDOK reverse geocoding results (fallback only)
-const geocodeCache = new Map<string, AddressInfo>();
-
-// Local BAG address lookup map: pand_identificatie -> AddressInfo
-let localAddressMap: Map<string, AddressInfo> | null = null;
 
 /**
  * Format an address from BAG verblijfsobject fields
@@ -121,99 +72,17 @@ function formatBAGAddress(
 }
 
 /**
- * Load local BAG address data from pre-extracted JSON
- * This provides instant address lookup without API calls
+ * Transform RD New coordinates to WGS84
  */
-function loadLocalAddressData(): Map<string, AddressInfo> {
-  const addressMap = new Map<string, AddressInfo>();
-  const addressFilePath = resolve(__dirname, '../../../fixtures/eindhoven-addresses.json');
-
-  if (!existsSync(addressFilePath)) {
-    console.warn(`Local address file not found: ${addressFilePath}`);
-    console.warn('Run: ogr2ogr -f GeoJSON fixtures/eindhoven-addresses.json data_sources/bag-light.gpkg \\');
-    console.warn('  -sql "SELECT pand_identificatie, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam FROM verblijfsobject WHERE woonplaats_naam = \'Eindhoven\'"');
-    return addressMap;
-  }
-
-  console.log(`Loading local BAG address data from: ${addressFilePath}`);
-  const startTime = Date.now();
-
-  try {
-    const fileContent = readFileSync(addressFilePath, 'utf-8');
-    const addressData = JSON.parse(fileContent) as BAGAddressCollection;
-
-    // Build lookup map - use first address for each pand (some pands have multiple verblijfsobjecten)
-    for (const feature of addressData.features) {
-      const props = feature.properties;
-      const pandId = props.pand_identificatie;
-
-      // Skip if we already have an address for this pand
-      if (addressMap.has(pandId)) {
-        continue;
-      }
-
-      const address = formatBAGAddress(
-        props.openbare_ruimte_naam,
-        props.huisnummer,
-        props.huisletter,
-        props.toevoeging
-      );
-
-      addressMap.set(pandId, {
-        address,
-        postalCode: props.postcode || null,
-        city: props.woonplaats_naam || 'Eindhoven',
-      });
-    }
-
-    const loadTime = Date.now() - startTime;
-    console.log(`Loaded ${addressMap.size} unique pand addresses in ${loadTime}ms`);
-    console.log(`(from ${addressData.features.length} verblijfsobject records)`);
-
-    return addressMap;
-  } catch (error) {
-    console.error('Error loading local address data:', error);
-    return addressMap;
-  }
-}
-
-/**
- * Look up address from local BAG data by pand identificatie
- */
-function lookupLocalAddress(pandIdentificatie: string): AddressInfo | null {
-  if (!localAddressMap) {
-    localAddressMap = loadLocalAddressData();
-  }
-  return localAddressMap.get(pandIdentificatie) || null;
-}
-
-/**
- * Calculate the centroid of a polygon
- * Using simple average of all coordinates (sufficient for small polygons)
- */
-function calculateCentroid(polygon: GeoJSONPolygon): { lon: number; lat: number } {
-  const coords = polygon.coordinates[0]; // Outer ring
-  let sumLon = 0;
-  let sumLat = 0;
-
-  // Exclude the last point as it's the same as the first (polygon closure)
-  const numPoints = coords.length - 1;
-
-  for (let i = 0; i < numPoints; i++) {
-    sumLon += coords[i][0];
-    sumLat += coords[i][1];
-  }
-
-  return {
-    lon: sumLon / numPoints,
-    lat: sumLat / numPoints,
-  };
+function transformToWGS84(x: number, y: number): { lon: number; lat: number } {
+  const [lon, lat] = proj4('EPSG:28992', WGS84, [x, y]);
+  return { lon, lat };
 }
 
 /**
  * Map BAG status to our property status enum
  */
-function mapStatus(bagStatus: string | undefined): 'active' | 'inactive' | 'demolished' {
+function mapStatus(bagStatus: string | null): 'active' | 'inactive' | 'demolished' {
   if (!bagStatus) return 'active';
 
   const status = bagStatus.toLowerCase();
@@ -227,102 +96,7 @@ function mapStatus(bagStatus: string | undefined): 'active' | 'inactive' | 'demo
 }
 
 /**
- * Sleep for specified milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Create a cache key from coordinates (rounded to avoid floating point issues)
- */
-function getCacheKey(lat: number, lon: number): string {
-  // Round to 5 decimal places (~1m precision) for caching
-  return `${lat.toFixed(5)},${lon.toFixed(5)}`;
-}
-
-/**
- * Reverse geocode coordinates using PDOK Locatieserver (FALLBACK)
- * Only used when local BAG lookup fails
- */
-async function reverseGeocodePDOK(
-  lat: number,
-  lon: number,
-  retries = 3
-): Promise<AddressInfo | null> {
-  // Check cache first
-  const cacheKey = getCacheKey(lat, lon);
-  const cached = geocodeCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  // PDOK Locatieserver reverse geocoding endpoint
-  const url = new URL('https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse');
-  url.searchParams.set('lat', lat.toString());
-  url.searchParams.set('lon', lon.toString());
-  url.searchParams.set('rows', '1');
-  url.searchParams.set('fq', 'type:adres');
-
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(url.toString(), {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'HuisHype-Seeder/1.0',
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          console.warn(`Rate limited, waiting before retry ${attempt}/${retries}...`);
-          await sleep(2000 * attempt);
-          continue;
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = (await response.json()) as PDOKReverseResponse;
-
-      if (data.response.numFound === 0 || !data.response.docs.length) {
-        return null;
-      }
-
-      const doc = data.response.docs[0];
-
-      let address: string;
-      if (doc.straatnaam && doc.huisnummer) {
-        address = `${doc.straatnaam} ${doc.huisnummer}`;
-      } else if (doc.weergavenaam) {
-        const parts = doc.weergavenaam.split(',');
-        address = parts[0].trim();
-      } else {
-        return null;
-      }
-
-      const result: AddressInfo = {
-        address,
-        postalCode: doc.postcode || null,
-        city: doc.woonplaatsnaam || doc.gemeentenaam || 'Eindhoven',
-      };
-
-      geocodeCache.set(cacheKey, result);
-      return result;
-    } catch (error) {
-      if (attempt === retries) {
-        console.error(`Failed to reverse geocode (${lat}, ${lon}) after ${retries} attempts:`, error);
-        return null;
-      }
-      await sleep(500 * attempt);
-    }
-  }
-
-  return null;
-}
-
-/**
- * Format a fallback address when all lookups fail
- * Uses coordinates to generate a unique but recognizable address
+ * Format a fallback address when address lookup fails
  */
 function generateFallbackAddress(lat: number, lon: number, identificatie: string): string {
   const latPart = Math.abs(Math.round(lat * 10000) % 100);
@@ -330,241 +104,381 @@ function generateFallbackAddress(lat: number, lon: number, identificatie: string
   return `Straat ${latPart}${lonPart} ${identificatie.slice(-4)}`;
 }
 
+/**
+ * Format elapsed time nicely
+ */
+function formatElapsedTime(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = ((ms % 60000) / 1000).toFixed(0);
+  return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Extract pand centroids using ogr2ogr to a temporary SQLite database
+ * This is much faster than querying ogrinfo for each batch
+ */
+function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolished: boolean): void {
+  console.log('\nExtracting pand centroids using ogr2ogr...');
+  console.log('This may take several minutes for 11M+ records...');
+
+  // Remove existing temp file
+  if (existsSync(tempDbPath)) {
+    unlinkSync(tempDbPath);
+  }
+
+  // Build SQL query for centroid extraction
+  let whereClause = '';
+  if (skipDemolished) {
+    whereClause = "WHERE status NOT LIKE '%gesloopt%' AND status NOT LIKE '%demolished%'";
+  }
+
+  // Use ogr2ogr to extract centroids to a SQLite database
+  // The -nlt NONE flag tells ogr2ogr to not write geometry (we just need the centroid coords)
+  const sql = `SELECT identificatie, bouwjaar, status, oppervlakte_min, ST_X(ST_Centroid(geom)) as centroid_x, ST_Y(ST_Centroid(geom)) as centroid_y FROM pand ${whereClause}`;
+
+  const command = `ogr2ogr -f SQLite "${tempDbPath}" "${bagPath}" -sql "${sql}" -nln pand_centroids -dsco SPATIALITE=NO`;
+
+  console.log('Running ogr2ogr extraction...');
+  const startTime = Date.now();
+
+  try {
+    execSync(command, {
+      maxBuffer: 500 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30 * 60 * 1000 // 30 minute timeout
+    });
+    console.log(`Extraction complete in ${formatElapsedTime(Date.now() - startTime)}`);
+  } catch (error) {
+    console.error('Error during ogr2ogr extraction:', error);
+    throw error;
+  }
+}
+
 async function seed() {
-  console.log('Starting database seed with LOCAL BAG address resolution...');
-  console.log('Primary: Local BAG verblijfsobject data');
-  console.log('Fallback: PDOK API (if local lookup fails)\n');
+  console.log('='.repeat(60));
+  console.log('Netherlands BAG Database Seed');
+  console.log('='.repeat(60));
+  console.log('Source: bag-light.gpkg (full Netherlands BAG data)');
+  console.log('');
 
   // Parse command line arguments
   const args = process.argv.slice(2);
   const limitIndex = args.indexOf('--limit');
   const limit = limitIndex !== -1 ? parseInt(args[limitIndex + 1], 10) : undefined;
-  const skipGeocoding = args.includes('--skip-geocoding');
-  const usePDOKOnly = args.includes('--pdok-only');
+  const offsetIndex = args.indexOf('--offset');
+  const offset = offsetIndex !== -1 ? parseInt(args[offsetIndex + 1], 10) : 0;
+  const skipDemolished = args.includes('--skip-demolished');
+  const dryRun = args.includes('--dry-run');
+  const skipExtract = args.includes('--skip-extract');
 
   if (limit) {
-    console.log(`Limiting to ${limit} properties`);
+    console.log(`Limiting to ${limit.toLocaleString()} properties`);
   }
-  if (skipGeocoding) {
-    console.log('Skipping all geocoding (using fallback addresses)');
+  if (offset > 0) {
+    console.log(`Starting from offset ${offset.toLocaleString()}`);
   }
-  if (usePDOKOnly) {
-    console.log('Using PDOK API only (ignoring local data)');
+  if (skipDemolished) {
+    console.log('Skipping demolished properties');
   }
-
-  // Pre-load local address data (unless skipping or using PDOK only)
-  if (!skipGeocoding && !usePDOKOnly) {
-    localAddressMap = loadLocalAddressData();
+  if (dryRun) {
+    console.log('DRY RUN - no database changes will be made');
   }
-
-  // Read the GeoJSON fixture file
-  const fixturePath = resolve(__dirname, '../../../fixtures/eindhoven-sandbox.geojson');
-  console.log(`\nReading fixture file: ${fixturePath}`);
-
-  let geojsonData: GeoJSONFeatureCollection;
-  try {
-    const fileContent = readFileSync(fixturePath, 'utf-8');
-    geojsonData = JSON.parse(fileContent) as GeoJSONFeatureCollection;
-    console.log(`Loaded ${geojsonData.features.length} features from GeoJSON`);
-  } catch (error) {
-    console.error('Error reading fixture file:', error);
-    process.exit(1);
+  if (skipExtract) {
+    console.log('Skipping extraction (using existing temp database)');
   }
 
-  // Apply limit if specified
-  let featuresToProcess = geojsonData.features;
-  if (limit && limit < featuresToProcess.length) {
-    featuresToProcess = featuresToProcess.slice(0, limit);
-    console.log(`Processing first ${limit} features`);
+  // Paths
+  const bagPath = resolve(__dirname, '../../../data_sources/bag-light.gpkg');
+  const tempDbPath = resolve(__dirname, '../../../data_sources/pand_centroids_temp.sqlite');
+
+  console.log(`\nBAG GeoPackage: ${bagPath}`);
+
+  // Step 1: Extract pand centroids to temp SQLite (unless skipped)
+  if (!skipExtract) {
+    extractPandCentroids(bagPath, tempDbPath, skipDemolished);
   }
 
-  // Connect to database
+  // Open both databases
+  console.log('\nOpening databases...');
+  const bagDb = new Database(bagPath, { readonly: true });
+  const tempDb = new Database(tempDbPath, { readonly: true });
+
+  // Count total pands in temp database
+  const countResult = tempDb.prepare('SELECT COUNT(*) as count FROM pand_centroids').get() as { count: number };
+  const totalPands = countResult.count;
+  console.log(`Total pands with centroids: ${totalPands.toLocaleString()}`);
+
+  // Build address lookup map from verblijfsobject
+  console.log('\nBuilding address lookup map from verblijfsobject...');
+  const addressMapStart = Date.now();
+
+  const addressMap = new Map<string, AddressInfo>();
+
+  // Query verblijfsobject in batches to build address map
+  const ADDRESS_BATCH_SIZE = 500000;
+  let addressOffset = 0;
+
+  const addressStmt = bagDb.prepare(`
+    SELECT pand_identificatie, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam
+    FROM verblijfsobject
+    WHERE pand_identificatie IS NOT NULL
+    ORDER BY pand_identificatie
+    LIMIT ? OFFSET ?
+  `);
+
+  while (true) {
+    const addressBatch = addressStmt.all(ADDRESS_BATCH_SIZE, addressOffset) as VerblijfsobjectRow[];
+
+    if (addressBatch.length === 0) break;
+
+    for (const row of addressBatch) {
+      // Only keep first address for each pand
+      if (addressMap.has(row.pand_identificatie)) continue;
+
+      const address = formatBAGAddress(
+        row.openbare_ruimte_naam,
+        row.huisnummer,
+        row.huisletter,
+        row.toevoeging
+      );
+
+      addressMap.set(row.pand_identificatie, {
+        address,
+        postalCode: row.postcode || null,
+        city: row.woonplaats_naam || 'Unknown',
+      });
+    }
+
+    addressOffset += addressBatch.length;
+    process.stdout.write(`\r  Loaded ${addressOffset.toLocaleString()} verblijfsobjecten, ${addressMap.size.toLocaleString()} unique pands`);
+  }
+
+  console.log(`\n  Address map built: ${addressMap.size.toLocaleString()} unique pand addresses in ${formatElapsedTime(Date.now() - addressMapStart)}`);
+
+  // Connect to PostgreSQL database
   const databaseUrl = process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5432/huishype';
-  console.log('Connecting to database...');
+  console.log('\nConnecting to PostgreSQL database...');
 
   const queryClient = postgres(databaseUrl, {
-    max: 1,
+    max: 10, // Use connection pool for parallel inserts
     onnotice: () => {},
   });
 
   const db = drizzle(queryClient);
 
   try {
-    // Process features and resolve addresses
-    const propertyRecords: NewProperty[] = [];
+    // Process pand centroids from temp database
+    const BATCH_SIZE = 50000;
+    const INSERT_BATCH_SIZE = 5000;
+
+    let processedCount = 0;
+    let insertedCount = 0;
     let localLookupCount = 0;
-    let pdokFallbackCount = 0;
     let fallbackCount = 0;
 
-    console.log('\nResolving addresses...');
-    const startTime = Date.now();
+    const totalToProcess = limit ? Math.min(limit, totalPands - offset) : totalPands - offset;
 
-    for (let index = 0; index < featuresToProcess.length; index++) {
-      const feature = featuresToProcess[index];
-      const centroid = calculateCentroid(feature.geometry);
-      const pandId = feature.properties.identificatie;
+    console.log(`\nProcessing ${totalToProcess.toLocaleString()} properties...`);
+    const processStart = Date.now();
 
-      let address: string;
-      let postalCode: string | null = null;
-      let city = 'Eindhoven';
+    // Prepare statement for reading centroids
+    const centroidStmt = tempDb.prepare(`
+      SELECT identificatie, bouwjaar, status, oppervlakte_min, centroid_x, centroid_y
+      FROM pand_centroids
+      ORDER BY identificatie
+      LIMIT ? OFFSET ?
+    `);
 
-      if (!skipGeocoding) {
-        // Strategy 1: Try local BAG lookup first (instant)
-        let addressInfo: AddressInfo | null = null;
+    let currentOffset = offset;
+    let propertyBatch: NewProperty[] = [];
 
-        if (!usePDOKOnly) {
-          addressInfo = lookupLocalAddress(pandId);
-          if (addressInfo) {
-            localLookupCount++;
-          }
+    while (processedCount < totalToProcess) {
+      const batchLimit = Math.min(BATCH_SIZE, totalToProcess - processedCount);
+
+      const centroidBatch = centroidStmt.all(batchLimit, currentOffset) as PandCentroidRow[];
+
+      if (centroidBatch.length === 0) {
+        console.log(`\nNo more records found at offset ${currentOffset}`);
+        break;
+      }
+
+      for (const row of centroidBatch) {
+        if (!row.identificatie || row.centroid_x === null || row.centroid_y === null) {
+          continue;
         }
 
-        // Strategy 2: Fall back to PDOK API if local lookup failed
-        if (!addressInfo && !usePDOKOnly) {
-          // Only use PDOK sparingly - it's slow and rate-limited
-          // For now, we skip PDOK fallback to keep seeding fast
-          // Enable with --pdok-fallback if needed
-          if (args.includes('--pdok-fallback')) {
-            addressInfo = await reverseGeocodePDOK(centroid.lat, centroid.lon);
-            if (addressInfo) {
-              pdokFallbackCount++;
-              // Rate limiting for PDOK
-              if ((pdokFallbackCount + 1) % 5 === 0) {
-                await sleep(150);
-              }
-            }
-          }
-        }
+        // Transform coordinates from RD New to WGS84
+        const { lon, lat } = transformToWGS84(row.centroid_x, row.centroid_y);
 
-        // Use PDOK only mode
-        if (usePDOKOnly) {
-          addressInfo = await reverseGeocodePDOK(centroid.lat, centroid.lon);
-          if (addressInfo) {
-            pdokFallbackCount++;
-            if ((pdokFallbackCount + 1) % 5 === 0) {
-              await sleep(150);
-            }
-          }
-        }
+        // Look up address
+        let address: string;
+        let postalCode: string | null = null;
+        let city = 'Netherlands';
 
+        const addressInfo = addressMap.get(row.identificatie);
         if (addressInfo) {
           address = addressInfo.address;
           postalCode = addressInfo.postalCode;
           city = addressInfo.city;
+          localLookupCount++;
         } else {
-          // Final fallback: generated address
-          address = generateFallbackAddress(centroid.lat, centroid.lon, pandId);
+          address = generateFallbackAddress(lat, lon, row.identificatie);
           fallbackCount++;
         }
-      } else {
-        // Skip all geocoding, use fallback directly
-        address = generateFallbackAddress(centroid.lat, centroid.lon, pandId);
-        fallbackCount++;
+
+        const record: NewProperty = {
+          bagIdentificatie: row.identificatie,
+          address,
+          city,
+          postalCode,
+          geometry: {
+            type: 'Point',
+            coordinates: [lon, lat],
+          },
+          bouwjaar: row.bouwjaar,
+          oppervlakte: row.oppervlakte_min,
+          status: mapStatus(row.status),
+        };
+
+        propertyBatch.push(record);
+        processedCount++;
+
+        // Insert batch when full
+        if (propertyBatch.length >= INSERT_BATCH_SIZE && !dryRun) {
+          await db
+            .insert(properties)
+            .values(propertyBatch)
+            .onConflictDoUpdate({
+              target: properties.bagIdentificatie,
+              set: {
+                address: sql`excluded.address`,
+                postalCode: sql`excluded.postal_code`,
+                city: sql`excluded.city`,
+                geometry: sql`excluded.geometry`,
+                bouwjaar: sql`excluded.bouwjaar`,
+                oppervlakte: sql`excluded.oppervlakte`,
+                status: sql`excluded.status`,
+                updatedAt: sql`NOW()`,
+              },
+            });
+
+          insertedCount += propertyBatch.length;
+          propertyBatch = [];
+        }
       }
 
-      const record: NewProperty = {
-        bagIdentificatie: pandId,
-        address,
-        city,
-        postalCode,
-        geometry: {
-          type: 'Point',
-          coordinates: [centroid.lon, centroid.lat],
-        },
-        bouwjaar: feature.properties.bouwjaar ?? null,
-        oppervlakte: feature.properties.oppervlakte_min ?? null,
-        status: mapStatus(feature.properties.status),
-      };
+      currentOffset += centroidBatch.length;
 
-      propertyRecords.push(record);
+      // Progress logging
+      const elapsed = Date.now() - processStart;
+      const rate = processedCount / (elapsed / 1000);
+      const eta = (totalToProcess - processedCount) / rate;
 
-      // Progress logging (every 10000 for fast local lookups, every 50 for PDOK)
-      const logInterval = usePDOKOnly ? 50 : 10000;
-      if ((index + 1) % logInterval === 0 || index === featuresToProcess.length - 1) {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(
-          `Progress: ${index + 1}/${featuresToProcess.length} (${elapsed}s) | ` +
-            `Local: ${localLookupCount} | PDOK: ${pdokFallbackCount} | Fallback: ${fallbackCount}`
-        );
-      }
+      process.stdout.write(
+        `\r  Progress: ${processedCount.toLocaleString()}/${totalToProcess.toLocaleString()} ` +
+        `(${((processedCount / totalToProcess) * 100).toFixed(1)}%) | ` +
+        `${rate.toFixed(0)}/s | ` +
+        `ETA: ${formatElapsedTime(eta * 1000)} | ` +
+        `Addresses: ${localLookupCount.toLocaleString()} real, ${fallbackCount.toLocaleString()} fallback`
+      );
     }
 
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\nAddress resolution completed in ${totalTime}s`);
-    console.log(`Transformed ${propertyRecords.length} property records`);
-    console.log(`  - Local BAG lookup: ${localLookupCount} (${((localLookupCount / propertyRecords.length) * 100).toFixed(1)}%)`);
-    console.log(`  - PDOK API fallback: ${pdokFallbackCount}`);
-    console.log(`  - Generated fallback: ${fallbackCount}`);
-
-    // Insert in batches
-    const BATCH_SIZE = 1000; // Larger batches for faster insertion
-    let insertedCount = 0;
-
-    console.log('\nInserting into database...');
-    const insertStartTime = Date.now();
-
-    for (let i = 0; i < propertyRecords.length; i += BATCH_SIZE) {
-      const batch = propertyRecords.slice(i, i + BATCH_SIZE);
-
+    // Insert remaining batch
+    if (propertyBatch.length > 0 && !dryRun) {
       await db
         .insert(properties)
-        .values(batch)
+        .values(propertyBatch)
         .onConflictDoUpdate({
           target: properties.bagIdentificatie,
           set: {
             address: sql`excluded.address`,
             postalCode: sql`excluded.postal_code`,
             city: sql`excluded.city`,
+            geometry: sql`excluded.geometry`,
+            bouwjaar: sql`excluded.bouwjaar`,
+            oppervlakte: sql`excluded.oppervlakte`,
+            status: sql`excluded.status`,
             updatedAt: sql`NOW()`,
           },
         });
 
-      insertedCount += batch.length;
-      if ((i + BATCH_SIZE) % 10000 === 0 || insertedCount === propertyRecords.length) {
-        console.log(`Inserted: ${insertedCount}/${propertyRecords.length} records`);
-      }
+      insertedCount += propertyBatch.length;
     }
 
-    const insertTime = ((Date.now() - insertStartTime) / 1000).toFixed(1);
-    console.log(`\nDatabase insertion completed in ${insertTime}s`);
-    console.log(`Total records processed: ${propertyRecords.length}`);
+    const totalTime = Date.now() - processStart;
 
-    // Verify insertion
-    const result = await queryClient`SELECT COUNT(*) as count FROM properties`;
-    console.log(`Total properties in database: ${result[0].count}`);
+    console.log('\n');
+    console.log('='.repeat(60));
+    console.log('Seed Complete');
+    console.log('='.repeat(60));
+    console.log(`Total processed: ${processedCount.toLocaleString()} properties`);
+    console.log(`Total inserted/updated: ${insertedCount.toLocaleString()} properties`);
+    console.log(`Total time: ${formatElapsedTime(totalTime)}`);
+    console.log(`Average rate: ${(processedCount / (totalTime / 1000)).toFixed(0)} properties/second`);
+    console.log('');
+    console.log('Address Resolution:');
+    console.log(`  - Real BAG addresses: ${localLookupCount.toLocaleString()} (${((localLookupCount / processedCount) * 100).toFixed(1)}%)`);
+    console.log(`  - Generated fallback: ${fallbackCount.toLocaleString()} (${((fallbackCount / processedCount) * 100).toFixed(1)}%)`);
 
-    // Show sample addresses
-    const sampleAddresses = await queryClient`
-      SELECT address, postal_code, city
-      FROM properties
-      ORDER BY updated_at DESC
-      LIMIT 5
-    `;
-    console.log('\nSample addresses from database (most recently updated):');
-    sampleAddresses.forEach((row, i) => {
-      console.log(`  ${i + 1}. ${row.address}, ${row.postal_code || 'N/A'} ${row.city}`);
-    });
+    if (!dryRun) {
+      // Verify insertion
+      const result = await queryClient`SELECT COUNT(*) as count FROM properties`;
+      console.log('');
+      console.log('Database Statistics:');
+      console.log(`  Total properties in database: ${Number(result[0].count).toLocaleString()}`);
 
-    // Address statistics
-    const addressStats = await queryClient`
-      SELECT
-        COUNT(*) FILTER (WHERE address LIKE 'BAG%') as bag_placeholder_count,
-        COUNT(*) FILTER (WHERE address LIKE 'Straat%') as generated_count,
-        COUNT(*) FILTER (WHERE address NOT LIKE 'BAG%' AND address NOT LIKE 'Straat%') as real_count,
-        COUNT(*) as total
-      FROM properties
-    `;
-    console.log(`\nAddress statistics:`);
-    console.log(`  - Real BAG addresses: ${addressStats[0].real_count}`);
-    console.log(`  - Generated fallback (Straat...): ${addressStats[0].generated_count}`);
-    console.log(`  - Old BAG Pand placeholders: ${addressStats[0].bag_placeholder_count}`);
-    console.log(`  - Total: ${addressStats[0].total}`);
+      // Show sample addresses
+      const sampleAddresses = await queryClient`
+        SELECT address, postal_code, city
+        FROM properties
+        WHERE address NOT LIKE 'Straat%'
+        ORDER BY RANDOM()
+        LIMIT 5
+      `;
+      console.log('');
+      console.log('Sample real addresses:');
+      sampleAddresses.forEach((row, i) => {
+        console.log(`  ${i + 1}. ${row.address}, ${row.postal_code || 'N/A'} ${row.city}`);
+      });
+
+      // Address statistics
+      const addressStats = await queryClient`
+        SELECT
+          COUNT(*) FILTER (WHERE address LIKE 'Straat%') as generated_count,
+          COUNT(*) FILTER (WHERE address NOT LIKE 'Straat%') as real_count,
+          COUNT(*) as total
+        FROM properties
+      `;
+      console.log('');
+      console.log('Address breakdown in database:');
+      console.log(`  - Real addresses: ${Number(addressStats[0].real_count).toLocaleString()}`);
+      console.log(`  - Generated fallback: ${Number(addressStats[0].generated_count).toLocaleString()}`);
+      console.log(`  - Total: ${Number(addressStats[0].total).toLocaleString()}`);
+
+      // Geographic distribution
+      const cityStats = await queryClient`
+        SELECT city, COUNT(*) as count
+        FROM properties
+        GROUP BY city
+        ORDER BY count DESC
+        LIMIT 10
+      `;
+      console.log('');
+      console.log('Top 10 cities by property count:');
+      cityStats.forEach((row, i) => {
+        console.log(`  ${i + 1}. ${row.city}: ${Number(row.count).toLocaleString()}`);
+      });
+    }
   } catch (error) {
-    console.error('Error during seeding:', error);
+    console.error('\nError during seeding:', error);
     throw error;
   } finally {
+    bagDb.close();
+    tempDb.close();
     await queryClient.end();
-    console.log('\nDatabase connection closed');
+    console.log('\nConnections closed');
   }
 }
 
