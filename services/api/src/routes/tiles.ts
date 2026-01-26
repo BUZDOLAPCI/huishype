@@ -11,10 +11,10 @@ import { sql } from 'drizzle-orm';
  * renders properties based on zoom level and activity.
  *
  * Business Logic:
- * - Z0-Z14: Show only "Active" properties (has listing OR has activity)
+ * - Z0-Z16: Show only "Active" properties (has listing OR has activity)
  *   - Properties are clustered using ST_SnapToGrid for performance
  *   - Ghost nodes (no listing, no activity) are filtered out
- * - Z15+: Show ALL properties including Ghost nodes
+ * - Z17+: Show ALL properties including Ghost nodes
  *   - Individual points returned without clustering
  *
  * Performance:
@@ -31,7 +31,7 @@ const tileParamsSchema = z.object({
 });
 
 // Zoom level threshold for showing ghost nodes
-const GHOST_NODE_THRESHOLD_ZOOM = 15;
+const GHOST_NODE_THRESHOLD_ZOOM = 17;
 
 // Grid cell size in degrees for clustering at different zoom levels
 // Smaller = more clusters, Larger = fewer clusters
@@ -76,8 +76,8 @@ export async function tileRoutes(app: FastifyInstance) {
    * GET /tiles/properties/:z/:x/:y.pbf
    *
    * Returns a Mapbox Vector Tile (MVT) containing property data
-   * - Clustered at low zoom (Z0-Z14)
-   * - Individual points at high zoom (Z15+)
+   * - Clustered at low zoom (Z0-Z16)
+   * - Individual points at high zoom (Z17+)
    */
   typedApp.get(
     '/tiles/properties/:z/:x/:y.pbf',
@@ -86,7 +86,7 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get property vector tile',
         description:
-          'Returns MVT/PBF vector tile with property data. Clustered at Z0-14, individual points at Z15+. Ghost nodes only shown at Z15+.',
+          'Returns MVT/PBF vector tile with property data. Clustered at Z0-16, individual points at Z17+. Ghost nodes only shown at Z17+.',
         params: tileParamsSchema,
         // Response schema is omitted for binary data
         // Content-Type will be application/x-protobuf
@@ -138,7 +138,7 @@ export async function tileRoutes(app: FastifyInstance) {
 }
 
 /**
- * Get clustered points MVT for low zoom levels (Z0-Z14)
+ * Get clustered points MVT for low zoom levels (Z0-Z16)
  * Filters out ghost nodes (no listing, no activity)
  * Uses ST_SnapToGrid for fast clustering
  */
@@ -246,7 +246,7 @@ async function getClusteredMVT(
 }
 
 /**
- * Get individual points MVT for high zoom levels (Z15+)
+ * Get individual points MVT for high zoom levels (Z17+)
  * Includes ALL properties (both active and ghost nodes)
  */
 async function getIndividualPointsMVT(
