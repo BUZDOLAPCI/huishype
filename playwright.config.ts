@@ -104,14 +104,21 @@ export default defineConfig({
         },
       ],
   /* Run local dev server before starting the tests */
-  webServer: {
-    command: 'pnpm --filter @huishype/app web',
-    url: 'http://localhost:8081',
-    reuseExistingServer: !process.env.CI,
-    timeout: process.env.CI ? 300 * 1000 : 120 * 1000, // 5 min CI, 2 min local
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  webServer: process.env.CI
+    ? {
+        // CI: Serve pre-built static files (faster startup)
+        command: `serve ${process.env.E2E_WEB_BUILD_PATH || 'apps/app/dist'} -l 8081`,
+        url: 'http://localhost:8081',
+        reuseExistingServer: false,
+        timeout: 30 * 1000, // 30 seconds for static server
+      }
+    : {
+        // Local: Use Expo dev server for hot reload
+        command: 'pnpm --filter @huishype/app web',
+        url: 'http://localhost:8081',
+        reuseExistingServer: true,
+        timeout: 120 * 1000, // 2 min for dev server
+      },
   /* Output directory for test artifacts */
   outputDir: './test-results/playwright',
 });
