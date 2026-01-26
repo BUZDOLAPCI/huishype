@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -44,7 +44,35 @@ interface GeoJSONFeatureCollection {
   features: GeoJSONFeature[];
 }
 
-// PDOK Reverse Geocoding response types
+// Local BAG address data types
+interface BAGAddressFeature {
+  type: 'Feature';
+  properties: {
+    pand_identificatie: string;
+    openbare_ruimte_naam: string;
+    huisnummer: number;
+    huisletter: string | null;
+    toevoeging: string | null;
+    postcode: string;
+    woonplaats_naam: string;
+  };
+  geometry: null;
+}
+
+interface BAGAddressCollection {
+  type: 'FeatureCollection';
+  name?: string;
+  features: BAGAddressFeature[];
+}
+
+// Address info structure
+interface AddressInfo {
+  address: string;
+  postalCode: string | null;
+  city: string;
+}
+
+// PDOK Reverse Geocoding response types (kept for fallback)
 interface PDOKReverseResponse {
   response: {
     numFound: number;
@@ -66,8 +94,98 @@ interface PDOKDocument {
   centroide_ll?: string;
 }
 
-// Cache for reverse geocoding results to avoid duplicate API calls
-const geocodeCache = new Map<string, { address: string; postalCode: string | null; city: string }>();
+// Cache for PDOK reverse geocoding results (fallback only)
+const geocodeCache = new Map<string, AddressInfo>();
+
+// Local BAG address lookup map: pand_identificatie -> AddressInfo
+let localAddressMap: Map<string, AddressInfo> | null = null;
+
+/**
+ * Format an address from BAG verblijfsobject fields
+ * Format: "Straatnaam 123A-bis"
+ */
+function formatBAGAddress(
+  straatnaam: string,
+  huisnummer: number,
+  huisletter: string | null,
+  toevoeging: string | null
+): string {
+  let address = `${straatnaam} ${huisnummer}`;
+  if (huisletter) {
+    address += huisletter;
+  }
+  if (toevoeging) {
+    address += `-${toevoeging}`;
+  }
+  return address;
+}
+
+/**
+ * Load local BAG address data from pre-extracted JSON
+ * This provides instant address lookup without API calls
+ */
+function loadLocalAddressData(): Map<string, AddressInfo> {
+  const addressMap = new Map<string, AddressInfo>();
+  const addressFilePath = resolve(__dirname, '../../../fixtures/eindhoven-addresses.json');
+
+  if (!existsSync(addressFilePath)) {
+    console.warn(`Local address file not found: ${addressFilePath}`);
+    console.warn('Run: ogr2ogr -f GeoJSON fixtures/eindhoven-addresses.json data_sources/bag-light.gpkg \\');
+    console.warn('  -sql "SELECT pand_identificatie, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam FROM verblijfsobject WHERE woonplaats_naam = \'Eindhoven\'"');
+    return addressMap;
+  }
+
+  console.log(`Loading local BAG address data from: ${addressFilePath}`);
+  const startTime = Date.now();
+
+  try {
+    const fileContent = readFileSync(addressFilePath, 'utf-8');
+    const addressData = JSON.parse(fileContent) as BAGAddressCollection;
+
+    // Build lookup map - use first address for each pand (some pands have multiple verblijfsobjecten)
+    for (const feature of addressData.features) {
+      const props = feature.properties;
+      const pandId = props.pand_identificatie;
+
+      // Skip if we already have an address for this pand
+      if (addressMap.has(pandId)) {
+        continue;
+      }
+
+      const address = formatBAGAddress(
+        props.openbare_ruimte_naam,
+        props.huisnummer,
+        props.huisletter,
+        props.toevoeging
+      );
+
+      addressMap.set(pandId, {
+        address,
+        postalCode: props.postcode || null,
+        city: props.woonplaats_naam || 'Eindhoven',
+      });
+    }
+
+    const loadTime = Date.now() - startTime;
+    console.log(`Loaded ${addressMap.size} unique pand addresses in ${loadTime}ms`);
+    console.log(`(from ${addressData.features.length} verblijfsobject records)`);
+
+    return addressMap;
+  } catch (error) {
+    console.error('Error loading local address data:', error);
+    return addressMap;
+  }
+}
+
+/**
+ * Look up address from local BAG data by pand identificatie
+ */
+function lookupLocalAddress(pandIdentificatie: string): AddressInfo | null {
+  if (!localAddressMap) {
+    localAddressMap = loadLocalAddressData();
+  }
+  return localAddressMap.get(pandIdentificatie) || null;
+}
 
 /**
  * Calculate the centroid of a polygon
@@ -124,14 +242,14 @@ function getCacheKey(lat: number, lon: number): string {
 }
 
 /**
- * Reverse geocode coordinates using PDOK Locatieserver
- * Returns a real Dutch address for the given lat/lon
+ * Reverse geocode coordinates using PDOK Locatieserver (FALLBACK)
+ * Only used when local BAG lookup fails
  */
-async function reverseGeocode(
+async function reverseGeocodePDOK(
   lat: number,
   lon: number,
   retries = 3
-): Promise<{ address: string; postalCode: string | null; city: string } | null> {
+): Promise<AddressInfo | null> {
   // Check cache first
   const cacheKey = getCacheKey(lat, lon);
   const cached = geocodeCache.get(cacheKey);
@@ -140,12 +258,10 @@ async function reverseGeocode(
   }
 
   // PDOK Locatieserver reverse geocoding endpoint
-  // Uses the 'reverse' endpoint which takes lat/lon and returns nearest address
   const url = new URL('https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse');
   url.searchParams.set('lat', lat.toString());
   url.searchParams.set('lon', lon.toString());
   url.searchParams.set('rows', '1');
-  // Request address type only
   url.searchParams.set('fq', 'type:adres');
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -159,7 +275,6 @@ async function reverseGeocode(
 
       if (!response.ok) {
         if (response.status === 429) {
-          // Rate limited, wait longer
           console.warn(`Rate limited, waiting before retry ${attempt}/${retries}...`);
           await sleep(2000 * attempt);
           continue;
@@ -170,41 +285,34 @@ async function reverseGeocode(
       const data = (await response.json()) as PDOKReverseResponse;
 
       if (data.response.numFound === 0 || !data.response.docs.length) {
-        // No address found for these coordinates
         return null;
       }
 
       const doc = data.response.docs[0];
 
-      // Format the address: "Straatnaam Huisnummer"
       let address: string;
       if (doc.straatnaam && doc.huisnummer) {
         address = `${doc.straatnaam} ${doc.huisnummer}`;
       } else if (doc.weergavenaam) {
-        // Use display name as fallback, but extract just the street part
         const parts = doc.weergavenaam.split(',');
         address = parts[0].trim();
       } else {
         return null;
       }
 
-      const result = {
+      const result: AddressInfo = {
         address,
         postalCode: doc.postcode || null,
-        // Use Eindhoven as fallback for this dataset (sandbox data is Eindhoven)
         city: doc.woonplaatsnaam || doc.gemeentenaam || 'Eindhoven',
       };
 
-      // Cache the result
       geocodeCache.set(cacheKey, result);
-
       return result;
     } catch (error) {
       if (attempt === retries) {
         console.error(`Failed to reverse geocode (${lat}, ${lon}) after ${retries} attempts:`, error);
         return null;
       }
-      // Wait before retry
       await sleep(500 * attempt);
     }
   }
@@ -213,37 +321,45 @@ async function reverseGeocode(
 }
 
 /**
- * Format a fallback address when geocoding fails
+ * Format a fallback address when all lookups fail
  * Uses coordinates to generate a unique but recognizable address
  */
 function generateFallbackAddress(lat: number, lon: number, identificatie: string): string {
-  // Generate a street-like name based on coordinates
-  // This ensures properties still have distinct, non-placeholder addresses
   const latPart = Math.abs(Math.round(lat * 10000) % 100);
   const lonPart = Math.abs(Math.round(lon * 10000) % 100);
   return `Straat ${latPart}${lonPart} ${identificatie.slice(-4)}`;
 }
 
 async function seed() {
-  console.log('Starting database seed with real address resolution...');
-  console.log('Using PDOK Locatieserver for reverse geocoding\n');
+  console.log('Starting database seed with LOCAL BAG address resolution...');
+  console.log('Primary: Local BAG verblijfsobject data');
+  console.log('Fallback: PDOK API (if local lookup fails)\n');
 
   // Parse command line arguments
   const args = process.argv.slice(2);
   const limitIndex = args.indexOf('--limit');
   const limit = limitIndex !== -1 ? parseInt(args[limitIndex + 1], 10) : undefined;
   const skipGeocoding = args.includes('--skip-geocoding');
+  const usePDOKOnly = args.includes('--pdok-only');
 
   if (limit) {
     console.log(`Limiting to ${limit} properties`);
   }
   if (skipGeocoding) {
-    console.log('Skipping geocoding (using fallback addresses)');
+    console.log('Skipping all geocoding (using fallback addresses)');
+  }
+  if (usePDOKOnly) {
+    console.log('Using PDOK API only (ignoring local data)');
+  }
+
+  // Pre-load local address data (unless skipping or using PDOK only)
+  if (!skipGeocoding && !usePDOKOnly) {
+    localAddressMap = loadLocalAddressData();
   }
 
   // Read the GeoJSON fixture file
   const fixturePath = resolve(__dirname, '../../../fixtures/eindhoven-sandbox.geojson');
-  console.log(`Reading fixture file: ${fixturePath}`);
+  console.log(`\nReading fixture file: ${fixturePath}`);
 
   let geojsonData: GeoJSONFeatureCollection;
   try {
@@ -268,7 +384,7 @@ async function seed() {
 
   const queryClient = postgres(databaseUrl, {
     max: 1,
-    onnotice: () => {}, // Suppress notices
+    onnotice: () => {},
   });
 
   const db = drizzle(queryClient);
@@ -276,48 +392,78 @@ async function seed() {
   try {
     // Process features and resolve addresses
     const propertyRecords: NewProperty[] = [];
-    let geocodedCount = 0;
+    let localLookupCount = 0;
+    let pdokFallbackCount = 0;
     let fallbackCount = 0;
 
-    console.log('\nResolving addresses from PDOK Locatieserver...');
-    console.log('(This may take a while due to rate limiting)\n');
+    console.log('\nResolving addresses...');
+    const startTime = Date.now();
 
     for (let index = 0; index < featuresToProcess.length; index++) {
       const feature = featuresToProcess[index];
       const centroid = calculateCentroid(feature.geometry);
+      const pandId = feature.properties.identificatie;
 
       let address: string;
       let postalCode: string | null = null;
       let city = 'Eindhoven';
 
       if (!skipGeocoding) {
-        // Try to reverse geocode the address
-        const geocoded = await reverseGeocode(centroid.lat, centroid.lon);
+        // Strategy 1: Try local BAG lookup first (instant)
+        let addressInfo: AddressInfo | null = null;
 
-        if (geocoded) {
-          address = geocoded.address;
-          postalCode = geocoded.postalCode;
-          city = geocoded.city;
-          geocodedCount++;
+        if (!usePDOKOnly) {
+          addressInfo = lookupLocalAddress(pandId);
+          if (addressInfo) {
+            localLookupCount++;
+          }
+        }
+
+        // Strategy 2: Fall back to PDOK API if local lookup failed
+        if (!addressInfo && !usePDOKOnly) {
+          // Only use PDOK sparingly - it's slow and rate-limited
+          // For now, we skip PDOK fallback to keep seeding fast
+          // Enable with --pdok-fallback if needed
+          if (args.includes('--pdok-fallback')) {
+            addressInfo = await reverseGeocodePDOK(centroid.lat, centroid.lon);
+            if (addressInfo) {
+              pdokFallbackCount++;
+              // Rate limiting for PDOK
+              if ((pdokFallbackCount + 1) % 5 === 0) {
+                await sleep(150);
+              }
+            }
+          }
+        }
+
+        // Use PDOK only mode
+        if (usePDOKOnly) {
+          addressInfo = await reverseGeocodePDOK(centroid.lat, centroid.lon);
+          if (addressInfo) {
+            pdokFallbackCount++;
+            if ((pdokFallbackCount + 1) % 5 === 0) {
+              await sleep(150);
+            }
+          }
+        }
+
+        if (addressInfo) {
+          address = addressInfo.address;
+          postalCode = addressInfo.postalCode;
+          city = addressInfo.city;
         } else {
-          // Fallback to a generated address (not "BAG Pand")
-          address = generateFallbackAddress(centroid.lat, centroid.lon, feature.properties.identificatie);
+          // Final fallback: generated address
+          address = generateFallbackAddress(centroid.lat, centroid.lon, pandId);
           fallbackCount++;
         }
-
-        // Rate limiting: wait between API calls
-        // PDOK is free but we should be respectful (100-200ms delay)
-        if ((index + 1) % 5 === 0) {
-          await sleep(150);
-        }
       } else {
-        // Skip geocoding, use fallback directly
-        address = generateFallbackAddress(centroid.lat, centroid.lon, feature.properties.identificatie);
+        // Skip all geocoding, use fallback directly
+        address = generateFallbackAddress(centroid.lat, centroid.lon, pandId);
         fallbackCount++;
       }
 
       const record: NewProperty = {
-        bagIdentificatie: feature.properties.identificatie,
+        bagIdentificatie: pandId,
         address,
         city,
         postalCode,
@@ -332,30 +478,34 @@ async function seed() {
 
       propertyRecords.push(record);
 
-      // Progress logging
-      if ((index + 1) % 50 === 0 || index === featuresToProcess.length - 1) {
+      // Progress logging (every 10000 for fast local lookups, every 50 for PDOK)
+      const logInterval = usePDOKOnly ? 50 : 10000;
+      if ((index + 1) % logInterval === 0 || index === featuresToProcess.length - 1) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(
-          `Progress: ${index + 1}/${featuresToProcess.length} | ` +
-            `Geocoded: ${geocodedCount} | Fallback: ${fallbackCount}`
+          `Progress: ${index + 1}/${featuresToProcess.length} (${elapsed}s) | ` +
+            `Local: ${localLookupCount} | PDOK: ${pdokFallbackCount} | Fallback: ${fallbackCount}`
         );
       }
     }
 
-    console.log(`\nTransformed ${propertyRecords.length} property records`);
-    console.log(`  - Geocoded with real addresses: ${geocodedCount}`);
-    console.log(`  - Using fallback addresses: ${fallbackCount}`);
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\nAddress resolution completed in ${totalTime}s`);
+    console.log(`Transformed ${propertyRecords.length} property records`);
+    console.log(`  - Local BAG lookup: ${localLookupCount} (${((localLookupCount / propertyRecords.length) * 100).toFixed(1)}%)`);
+    console.log(`  - PDOK API fallback: ${pdokFallbackCount}`);
+    console.log(`  - Generated fallback: ${fallbackCount}`);
 
-    // Insert in batches to avoid overwhelming the database
-    const BATCH_SIZE = 50;
+    // Insert in batches
+    const BATCH_SIZE = 1000; // Larger batches for faster insertion
     let insertedCount = 0;
 
     console.log('\nInserting into database...');
+    const insertStartTime = Date.now();
 
     for (let i = 0; i < propertyRecords.length; i += BATCH_SIZE) {
       const batch = propertyRecords.slice(i, i + BATCH_SIZE);
 
-      // Use onConflictDoUpdate to update existing records with real addresses
-      // This replaces "BAG Pand" placeholders with geocoded addresses
       await db
         .insert(properties)
         .values(batch)
@@ -370,17 +520,20 @@ async function seed() {
         });
 
       insertedCount += batch.length;
-      console.log(`Inserted batch ${Math.ceil((i + 1) / BATCH_SIZE)}: ${insertedCount}/${propertyRecords.length} records`);
+      if ((i + BATCH_SIZE) % 10000 === 0 || insertedCount === propertyRecords.length) {
+        console.log(`Inserted: ${insertedCount}/${propertyRecords.length} records`);
+      }
     }
 
-    console.log(`\nSeed completed successfully!`);
+    const insertTime = ((Date.now() - insertStartTime) / 1000).toFixed(1);
+    console.log(`\nDatabase insertion completed in ${insertTime}s`);
     console.log(`Total records processed: ${propertyRecords.length}`);
 
     // Verify insertion
     const result = await queryClient`SELECT COUNT(*) as count FROM properties`;
     console.log(`Total properties in database: ${result[0].count}`);
 
-    // Show sample of updated addresses (sorted by updated_at to see recent changes)
+    // Show sample addresses
     const sampleAddresses = await queryClient`
       SELECT address, postal_code, city
       FROM properties
@@ -392,17 +545,19 @@ async function seed() {
       console.log(`  ${i + 1}. ${row.address}, ${row.postal_code || 'N/A'} ${row.city}`);
     });
 
-    // Count how many have real addresses vs BAG Pand placeholders
+    // Address statistics
     const addressStats = await queryClient`
       SELECT
-        COUNT(*) FILTER (WHERE address LIKE 'BAG%') as placeholder_count,
-        COUNT(*) FILTER (WHERE address NOT LIKE 'BAG%') as real_count,
+        COUNT(*) FILTER (WHERE address LIKE 'BAG%') as bag_placeholder_count,
+        COUNT(*) FILTER (WHERE address LIKE 'Straat%') as generated_count,
+        COUNT(*) FILTER (WHERE address NOT LIKE 'BAG%' AND address NOT LIKE 'Straat%') as real_count,
         COUNT(*) as total
       FROM properties
     `;
     console.log(`\nAddress statistics:`);
-    console.log(`  - Real addresses: ${addressStats[0].real_count}`);
-    console.log(`  - BAG Pand placeholders: ${addressStats[0].placeholder_count}`);
+    console.log(`  - Real BAG addresses: ${addressStats[0].real_count}`);
+    console.log(`  - Generated fallback (Straat...): ${addressStats[0].generated_count}`);
+    console.log(`  - Old BAG Pand placeholders: ${addressStats[0].bag_placeholder_count}`);
     console.log(`  - Total: ${addressStats[0].total}`);
   } catch (error) {
     console.error('Error during seeding:', error);

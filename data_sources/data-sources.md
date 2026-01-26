@@ -45,6 +45,22 @@ style url:
 https://api.pdok.nl/kadaster/brt-achtergrondkaart/ogc/v1/styles?f=json
 
 
+### Local Address Resolution (verblijfsobject)
+The BAG verblijfsobject table contains full address information linked to pand (building) IDs.
+This allows instant local address resolution without slow API calls.
+
+**Pre-extracted Eindhoven addresses:** `fixtures/eindhoven-addresses.json` (36MB, ~147K records)
+
+To regenerate (takes ~2 seconds):
+```bash
+ogr2ogr -f GeoJSON fixtures/eindhoven-addresses.json data_sources/bag-light.gpkg \
+  -sql "SELECT pand_identificatie, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam FROM verblijfsobject WHERE woonplaats_naam = 'Eindhoven'"
+```
+
+**Used by:** `services/api/scripts/seed.ts` - maps pand_identificatie to verblijfsobject addresses.
+
+**Note:** Not all pands have verblijfsobjecten (e.g., garages, sheds). These get generated fallback addresses.
+
 ### Source: PDOK Locatieserver v3
 - **Key API:** `/suggest` (Autocomplete) and `/lookup` (Coordinates).
 - **Usage Rule:** Use this for **all** user searches. Do not use Google Places API for Dutch addresses (Locatieserver is more accurate and free).

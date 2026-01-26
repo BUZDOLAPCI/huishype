@@ -70,5 +70,8 @@ data_sources/*.gpkg
 data_sources/*.zip
 data_sources/*.7z
 
+# Derived address data (regenerate from BAG with ogr2ogr)
+fixtures/eindhoven-addresses.json
+
 # Local environment
 .env
