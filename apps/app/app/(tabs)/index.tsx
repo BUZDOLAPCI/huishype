@@ -148,7 +148,8 @@ export default function MapScreen() {
   // Handle preview card press (opens full bottom sheet)
   const handlePreviewPress = useCallback(() => {
     setShowPreview(false);
-    bottomSheetRef.current?.snapToIndex(0);
+    // Snap to partial (index 1 = 50%) when clicking preview card
+    bottomSheetRef.current?.snapToIndex(1);
   }, []);
 
   // Handle bottom sheet close
@@ -175,7 +176,8 @@ export default function MapScreen() {
   const handleClusterPropertyPress = useCallback((property: Property) => {
     setSelectedPropertyId(property.id);
     setIsClusterPreview(false);
-    bottomSheetRef.current?.snapToIndex(0);
+    // Snap to partial (index 1 = 50%) when selecting from cluster
+    bottomSheetRef.current?.snapToIndex(1);
   }, []);
 
   // Handle quick actions from preview card

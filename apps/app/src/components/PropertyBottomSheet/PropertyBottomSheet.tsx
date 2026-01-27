@@ -82,8 +82,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       comments: 0,
     });
 
-    // Snap points: 50% (partial) and 90% (full)
-    const snapPoints = useMemo(() => ['50%', '90%'], []);
+    // Snap points: 10% (peek), 50% (partial) and 90% (full)
+    // Index 0 = peek (just drag handle visible)
+    // Index 1 = partial (50% height)
+    // Index 2 = full (90% height)
+    const snapPoints = useMemo(() => ['10%', '50%', '90%'], []);
 
     // Handle section layout measurement
     const handleGuessSectionLayout = useCallback((event: LayoutChangeEvent) => {
@@ -96,8 +99,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // Scroll to section helpers
     const scrollToSection = useCallback((sectionY: number) => {
-      // Expand to full height first, then scroll
-      bottomSheetRef.current?.snapToIndex(1);
+      // Expand to full height first (index 2 = 90%), then scroll
+      bottomSheetRef.current?.snapToIndex(2);
       // Small delay to let the expansion animation start
       setTimeout(() => {
         scrollViewRef.current?.scrollTo?.({ y: sectionY, animated: true });
@@ -115,12 +118,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }));
 
     // Render backdrop
+    // Backdrop should only appear when sheet is expanded (index 1 or 2), not at peek (index 0)
     const renderBackdrop = useCallback(
       (props: BottomSheetBackdropProps) => (
         <BottomSheetBackdrop
           {...props}
-          disappearsOnIndex={-1}
-          appearsOnIndex={0}
+          disappearsOnIndex={0}
+          appearsOnIndex={1}
           opacity={0.3}
           pressBehavior="close"
         />
@@ -140,11 +144,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     );
 
     // Animated content opacity based on expand state
+    // Index: -1 = closed, 0 = peek, 1 = partial, 2 = full
+    // Content fades in as sheet expands from peek to partial
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         animatedIndex.value,
-        [-1, 0, 1],
-        [0, 1, 1],
+        [-1, 0, 1, 2],
+        [0, 0.3, 1, 1],
         Extrapolation.CLAMP
       );
       return { opacity };
