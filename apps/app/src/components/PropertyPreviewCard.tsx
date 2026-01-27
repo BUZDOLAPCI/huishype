@@ -68,11 +68,8 @@ export function PropertyPreviewCard({
         borderRadius: 12,
         padding: 12,
         width: '100%',
-        // Shadow for iOS
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
+        // Shadow for all platforms (using boxShadow for web compatibility)
+        boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
         // Shadow for Android
         elevation: 4,
         // Ensure proper stacking on web
@@ -137,10 +134,7 @@ export function PropertyPreviewCard({
                   { width: 8, height: 8, borderRadius: 4, marginRight: 4 },
                   activityLevel === 'hot' ? {
                     backgroundColor: '#EF4444',
-                    shadowColor: activityPulseColors[activityLevel],
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.8,
-                    shadowRadius: 4,
+                    boxShadow: `0px 0px 4px ${activityPulseColors[activityLevel]}cc`,
                   } : activityLevel === 'warm' ? {
                     backgroundColor: '#FB923C',
                   } : {

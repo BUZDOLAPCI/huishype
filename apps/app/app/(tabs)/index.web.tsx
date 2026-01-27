@@ -353,12 +353,12 @@ function addPropertyLayers(map: maplibregl.Map) {
       'source-layer': 'properties',
       minzoom: 0,
       maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['>', ['get', 'point_count'], 1],
+      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
       paint: {
         'circle-radius': [
           'interpolate',
           ['linear'],
-          ['get', 'point_count'],
+          ['coalesce', ['get', 'point_count'], 2],
           2,
           18,
           10,
@@ -391,9 +391,9 @@ function addPropertyLayers(map: maplibregl.Map) {
       'source-layer': 'properties',
       minzoom: 0,
       maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['>', ['get', 'point_count'], 1],
+      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
       layout: {
-        'text-field': ['get', 'point_count'],
+        'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
         'text-size': 14,
         'text-allow-overlap': true,
       },
@@ -417,7 +417,7 @@ function addPropertyLayers(map: maplibregl.Map) {
       maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
       filter: [
         'all',
-        ['any', ['!', ['has', 'point_count']], ['==', ['get', 'point_count'], 1]],
+        ['any', ['!', ['has', 'point_count']], ['==', ['coalesce', ['get', 'point_count'], 0], 1]],
       ],
       paint: {
         'circle-radius': [

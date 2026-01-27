@@ -159,7 +159,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    // @ts-expect-error - RN Web uses style.pointerEvents
     pointerEvents: 'none',
   },
   markerIcon: {

@@ -296,12 +296,12 @@ export default function MapScreen() {
               sourceLayerID="properties"
               minZoomLevel={0}
               maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['>', ['get', 'point_count'], 1]}
+              filter={['>', ['coalesce', ['get', 'point_count'], 0], 1]}
               style={{
                 circleRadius: [
                   'interpolate',
                   ['linear'],
-                  ['get', 'point_count'],
+                  ['coalesce', ['get', 'point_count'], 2],
                   2,
                   18,
                   10,
@@ -313,7 +313,7 @@ export default function MapScreen() {
                 ],
                 circleColor: [
                   'case',
-                  ['get', 'has_active_children'],
+                  ['==', ['get', 'has_active_children'], true],
                   '#FF5A5F', // Hot cluster (has active properties)
                   '#51bbd6', // Standard cluster
                 ],
@@ -329,9 +329,9 @@ export default function MapScreen() {
               sourceLayerID="properties"
               minZoomLevel={0}
               maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['>', ['get', 'point_count'], 1]}
+              filter={['>', ['coalesce', ['get', 'point_count'], 0], 1]}
               style={{
-                textField: ['get', 'point_count'],
+                textField: ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
                 textSize: 14,
                 textColor: '#FFFFFF',
                 textHaloColor: '#000000',
@@ -349,7 +349,7 @@ export default function MapScreen() {
               maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
               filter={[
                 'all',
-                ['any', ['!', ['has', 'point_count']], ['==', ['get', 'point_count'], 1]],
+                ['any', ['!', ['has', 'point_count']], ['==', ['coalesce', ['get', 'point_count'], 0], 1]],
               ]}
               style={{
                 circleRadius: [
