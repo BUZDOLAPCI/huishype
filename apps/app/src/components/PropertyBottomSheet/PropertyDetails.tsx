@@ -63,12 +63,6 @@ export function PropertyDetails({ property }: SectionProps) {
           value={property.oppervlakte ? `${property.oppervlakte} m\u00B2` : null}
         />
 
-        <DetailRow
-          icon="barcode-outline"
-          label="BAG ID"
-          value={property.bagIdentificatie}
-        />
-
         {property.status && (
           <View className="flex-row items-center py-2">
             <View className="w-8 items-center">

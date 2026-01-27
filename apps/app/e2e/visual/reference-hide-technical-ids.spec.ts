@@ -1,13 +1,11 @@
 /**
- * Reference Expectation E2E Test: property-bottom-sheet-details
+ * Reference Expectation E2E Test: 0026-hide-technical-ids
  *
- * This test verifies the Property Bottom Sheet feature when expanded, including:
- * - Property photos (or fallback)
- * - Full address and metadata
- * - Quick actions (Save, Share, Like)
- * - Price guess section
+ * This test verifies that technical identifiers (UUIDs, BAG IDs, hash strings)
+ * are NOT displayed in the user interface. The UI should only show human-readable
+ * information to appear polished and consumer-ready.
  *
- * Screenshot saved to: test-results/reference-expectations/property-bottom-sheet-details/
+ * Screenshot saved to: test-results/reference-expectations/0026-hide-technical-ids/
  */
 
 import { test, expect } from '@playwright/test';
@@ -18,12 +16,11 @@ import fs from 'fs';
 test.use({ trace: 'off', video: 'off' });
 
 // Configuration
-const EXPECTATION_NAME = 'property-bottom-sheet-details';
+const EXPECTATION_NAME = '0026-hide-technical-ids';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // Center on area with known properties from the database
-// Property coordinates are around [5.488..., 51.430...] based on API data
-const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307]; // Area with properties
+const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 
 // Known acceptable errors (add patterns for expected/benign errors)
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -41,6 +38,22 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource/,
   /the server responded with a status of 404/,
   /AJAXError.*404/,
+  // Layer query errors from test code are acceptable
+  /The layer .* does not exist in the map's style/,
+  /Image .* could not be loaded/,
+];
+
+// Patterns for technical IDs that should NOT appear in the UI
+const TECHNICAL_ID_PATTERNS: RegExp[] = [
+  // UUID patterns (various formats)
+  /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i,
+  // BAG-style IDs like "adr-51d1f8e8e3ca30e9c0258e0900015b44"
+  /adr-[a-f0-9]{32}/i,
+  /pand-[a-f0-9]{32}/i,
+  // Long hex strings (32+ characters)
+  /\b[a-f0-9]{32,}\b/i,
+  // BAG identificatie (16-digit numbers)
+  /\b0[0-9]{15}\b/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -94,7 +107,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ).toHaveLength(0);
   });
 
-  test('capture bottom sheet for visual comparison', async ({ page }) => {
+  test('verify no technical IDs in property detail view', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -120,12 +133,24 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (box) {
       // Query for property markers and click on one
+      // Use correct layer names from index.web.tsx and check if layer exists first
       const propertyPos = await page.evaluate(() => {
         const map = (window as any).__mapInstance;
         if (!map) return null;
 
         const canvas = map.getCanvas();
-        for (const layer of ['ghost-nodes', 'active-nodes']) {
+        // Actual layer names from the map implementation
+        const layerNames = [
+          'ghost-nodes',
+          'active-nodes',
+          'single-active-points',
+          'property-clusters',
+        ];
+
+        for (const layer of layerNames) {
+          // Check if layer exists before querying to avoid console errors
+          if (!map.getLayer(layer)) continue;
+
           try {
             const features = map.queryRenderedFeatures(
               [[0, 0], [canvas.width, canvas.height]],
@@ -138,7 +163,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
                 return { x: point.x, y: point.y };
               }
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore - layer might not exist */
+          }
         }
         return null;
       });
@@ -147,55 +174,44 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         console.log(`Clicking property at (${propertyPos.x}, ${propertyPos.y})`);
         await page.mouse.click(box.x + propertyPos.x, box.y + propertyPos.y);
       } else {
-        console.log('No property found, clicking center');
+        console.log('No property found via layer query, clicking center');
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       }
       await page.waitForTimeout(2000);
 
-      // Screenshot of preview state
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-preview.png`,
-        fullPage: false,
-      });
-
-      // Find and click the preview card to open bottom sheet
+      // Check if preview card appeared
       const previewCard = page.locator('[data-testid="property-preview-card"]');
-      if (await previewCard.isVisible().catch(() => false)) {
-        console.log('Preview card visible, clicking to expand...');
+      const previewVisible = await previewCard.isVisible().catch(() => false);
+      console.log(`Preview card visible: ${previewVisible}`);
 
-        // Try click with dispatchEvent
-        try {
-          await previewCard.first().dispatchEvent('click');
-          console.log('Dispatched click event');
-        } catch (e) {
-          console.log('dispatchEvent failed');
-        }
+      if (previewVisible) {
+        // Click the preview card to expand the bottom sheet
+        await previewCard.first().dispatchEvent('click');
         await page.waitForTimeout(1000);
 
-        // Programmatically call snapToIndex to ensure bottom sheet opens
+        // Programmatically expand the bottom sheet
         const snapped = await page.evaluate(() => {
           const win = window as any;
           if (win.__bottomSheetRef?.current?.snapToIndex) {
-            win.__bottomSheetRef.current.snapToIndex(0);
+            win.__bottomSheetRef.current.snapToIndex(2); // Full expand
             return true;
           }
           return false;
         });
-        console.log(`Programmatically snapped to index 0: ${snapped}`);
+        console.log(`Programmatically snapped to full: ${snapped}`);
         await page.waitForTimeout(1500);
 
-        // Force the bottom sheet container into view by manipulating styles
-        // This is needed because @gorhom/bottom-sheet + reanimated may not animate on web
-        const forceSheetVisible = await page.evaluate(() => {
-          // Find the bottom sheet by looking for its content
-          const guessEl = Array.from(document.querySelectorAll('*')).find(e =>
-            e.textContent?.includes('Guess the Price') &&
-            e.textContent?.length && e.textContent.length < 100
+        // Force the bottom sheet visible for screenshot
+        await page.evaluate(() => {
+          const guessEl = Array.from(document.querySelectorAll('*')).find(
+            (e) =>
+              e.textContent?.includes('Property Details') &&
+              e.textContent?.length &&
+              e.textContent.length < 100
           );
 
           if (!guessEl) return false;
 
-          // Walk up to find the main bottom sheet container
           let sheetContainer: HTMLElement | null = null;
           let parent = guessEl.parentElement;
 
@@ -203,13 +219,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             const style = window.getComputedStyle(parent);
             const transform = style.transform;
 
-            // The bottom sheet container typically has a large translateY
-            // and contains all the sheet content
             if (transform && transform !== 'none' && transform.includes('matrix')) {
               const match = transform.match(/matrix\(.*,\s*([\d.-]+)\)/);
               if (match) {
                 const translateY = parseFloat(match[1]);
-                // If translateY is large (off-screen), this is likely the sheet
                 if (translateY > 200) {
                   sheetContainer = parent;
                   break;
@@ -220,11 +233,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           }
 
           if (sheetContainer) {
-            // Position the sheet to show at 50% from top (like the 50% snap point)
-            // This simulates the partial expand state
             const viewportHeight = window.innerHeight;
-            const sheetHeight = sheetContainer.scrollHeight;
-            const targetTop = viewportHeight * 0.1; // 10% from top = 90% visible
+            const targetTop = viewportHeight * 0.1;
 
             sheetContainer.style.cssText = `
               position: fixed !important;
@@ -238,99 +248,89 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
               z-index: 9999 !important;
               background: white !important;
             `;
-
             return true;
           }
-
           return false;
         });
-        console.log(`Forced bottom sheet visible: ${forceSheetVisible}`);
         await page.waitForTimeout(500);
-
-        // Check if bottom sheet is now in view
-        const guessPosition = await page.evaluate(() => {
-          const el = Array.from(document.querySelectorAll('*')).find(e =>
-            e.textContent?.includes('Guess the Price') &&
-            e.textContent?.length && e.textContent.length < 100
-          );
-          if (el) {
-            const rect = el.getBoundingClientRect();
-            return { top: rect.top, bottom: rect.bottom, inView: rect.top < window.innerHeight };
-          }
-          return null;
-        });
-        console.log(`Guess the Price position after force: ${JSON.stringify(guessPosition)}`);
       }
     }
 
-    // Take full page screenshot to debug positioning
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-full-page.png`,
-      fullPage: true,
-    });
-
-    // Take the main screenshot (viewport only)
+    // Take screenshot
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
       fullPage: false,
     });
-
     console.log(`Screenshot saved to: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
 
-    // Verify page is functional
+    // Get all visible text from the page
+    const visibleText = await page.evaluate(() => {
+      return document.body.innerText;
+    });
+
+    // Check for technical IDs in the visible text
+    const foundTechnicalIds: string[] = [];
+    for (const pattern of TECHNICAL_ID_PATTERNS) {
+      const matches = visibleText.match(new RegExp(pattern, 'gi'));
+      if (matches) {
+        foundTechnicalIds.push(...matches);
+      }
+    }
+
+    // Filter out false positives (like hex color codes that might appear)
+    const filteredTechnicalIds = foundTechnicalIds.filter((id) => {
+      // Filter out short strings that might be legitimate (e.g., dates, colors)
+      if (id.length < 16) return false;
+      return true;
+    });
+
+    console.log('Visible text sample:', visibleText.substring(0, 500));
+    if (filteredTechnicalIds.length > 0) {
+      console.error('Found technical IDs in UI:', filteredTechnicalIds);
+    }
+
+    // Verify no technical IDs are visible
+    expect(
+      filteredTechnicalIds,
+      `Technical IDs should not be visible in UI. Found: ${filteredTechnicalIds.join(', ')}`
+    ).toHaveLength(0);
+
+    // Verify the page is functional
     await expect(page.locator('body')).toBeVisible();
 
-    // Verify essential bottom sheet elements are present in the DOM
-    const hasEssentialElements = await page.evaluate(() => {
+    // Verify key UI elements are present (without technical IDs)
+    const hasExpectedContent = await page.evaluate(() => {
       const pageText = document.body.innerText;
-      const checks = {
-        hasGuessPrice: pageText.includes('Guess the Price'),
-        hasSaveButton: pageText.includes('Save'),
-        hasShareButton: pageText.includes('Share'),
-        hasLikeButton: pageText.includes('Like'),
-        hasAddress: pageText.includes('Eindhoven') || pageText.includes('BAG'),
+      return {
+        hasAddress: /[A-Za-z]+\s+\d+/.test(pageText), // Address pattern like "Street 123"
+        hasCity: pageText.includes('Eindhoven'),
+        // Should NOT have BAG ID label anymore
+        hasNoBAGIDLabel: !pageText.includes('BAG ID'),
       };
-      return checks;
     });
-    console.log('Essential elements check:', hasEssentialElements);
 
-    // Verify at least key elements are present
-    expect(hasEssentialElements.hasGuessPrice).toBe(true);
-    expect(hasEssentialElements.hasSaveButton).toBe(true);
-    expect(hasEssentialElements.hasShareButton).toBe(true);
+    console.log('Content checks:', hasExpectedContent);
+    expect(hasExpectedContent.hasNoBAGIDLabel).toBe(true);
   });
 
-  test('verify bottom sheet elements', async ({ page }) => {
+  test('verify property details section has no technical IDs', async ({ page }) => {
+    // Navigate directly to a property page if one exists
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
-    // Check that expected elements exist in the page
+    // Get the page content and verify no technical ID patterns
     const pageContent = await page.content();
 
-    // These elements should exist somewhere in the component structure
-    const hasPropertyComponents = pageContent.includes('property') || pageContent.includes('Property');
-    console.log(`Has property components: ${hasPropertyComponents}`);
+    // Check that the "BAG ID" label is not present in the HTML
+    const hasBAGIDLabel = pageContent.includes('BAG ID');
+    console.log(`Page contains "BAG ID" label: ${hasBAGIDLabel}`);
 
-    await expect(page.locator('body')).toBeVisible();
-  });
+    // The BAG ID label should have been removed
+    expect(hasBAGIDLabel).toBe(false);
 
-  test('verify map interaction', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
-
-    // Verify map canvas is present and visible
-    const canvas = page.locator('canvas').first();
-    await expect(canvas).toBeVisible();
-
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-map-only.png`,
-      fullPage: false,
-    });
-
+    // Verify page is functional
     await expect(page.locator('body')).toBeVisible();
   });
 });

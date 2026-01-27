@@ -339,17 +339,6 @@ export default function PropertyDetailScreen() {
                   <Text className="text-gray-900 text-sm font-medium">{property.oppervlakte} m{'\u00B2'}</Text>
                 </View>
               )}
-              {property.bagIdentificatie && (
-                <View className="flex-row items-center py-2">
-                  <View className="w-8 items-center">
-                    <Ionicons name="barcode-outline" size={16} color="#6B7280" />
-                  </View>
-                  <Text className="flex-1 text-gray-500 text-sm">BAG ID</Text>
-                  <Text className="text-gray-900 text-sm font-medium" numberOfLines={1}>
-                    {property.bagIdentificatie}
-                  </Text>
-                </View>
-              )}
             </View>
           </View>
 

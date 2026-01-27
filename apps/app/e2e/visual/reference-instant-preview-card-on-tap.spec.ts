@@ -71,7 +71,7 @@ async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; fe
     try {
       const ghostFeatures = mapInstance.queryRenderedFeatures(
         [[0, 0], [canvas.width, canvas.height]],
-        { layers: ['ghost-points'] }
+        { layers: ['ghost-nodes'] }
       ) || [];
       allFeatures = allFeatures.concat(ghostFeatures);
     } catch (e) { /* ignore */ }
@@ -79,7 +79,7 @@ async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; fe
     try {
       const activeFeatures = mapInstance.queryRenderedFeatures(
         [[0, 0], [canvas.width, canvas.height]],
-        { layers: ['active-points'] }
+        { layers: ['active-nodes'] }
       ) || [];
       allFeatures = allFeatures.concat(activeFeatures);
     } catch (e) { /* ignore */ }
@@ -89,7 +89,7 @@ async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; fe
       try {
         const clusterFeatures = mapInstance.queryRenderedFeatures(
           [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['clusters'] }
+          { layers: ['property-clusters'] }
         ) || [];
         allFeatures = allFeatures.concat(clusterFeatures);
       } catch (e) { /* ignore */ }
@@ -171,9 +171,9 @@ async function waitForMapReady(page: Page): Promise<void> {
       if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
 
       // Check if property layers exist
-      const hasGhostLayer = mapInstance.getLayer('ghost-points');
-      const hasActiveLayer = mapInstance.getLayer('active-points');
-      const hasClusters = mapInstance.getLayer('clusters');
+      const hasGhostLayer = mapInstance.getLayer('ghost-nodes');
+      const hasActiveLayer = mapInstance.getLayer('active-nodes');
+      const hasClusters = mapInstance.getLayer('property-clusters');
 
       if (!hasGhostLayer && !hasActiveLayer && !hasClusters) return false;
 
@@ -185,7 +185,7 @@ async function waitForMapReady(page: Page): Promise<void> {
       try {
         const features = mapInstance.queryRenderedFeatures(
           [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['ghost-points', 'active-points', 'clusters'].filter(l => mapInstance.getLayer(l)) }
+          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'].filter(l => mapInstance.getLayer(l)) }
         );
         featureCount = features?.length || 0;
       } catch (e) {
@@ -332,14 +332,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = (window as any).__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-points', 'active-points', 'clusters'],
+          layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
         });
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           markerCount: features?.length ?? 0,
-          hasGhostLayer: !!mapInstance.getLayer('ghost-points'),
-          hasActiveLayer: !!mapInstance.getLayer('active-points'),
+          hasGhostLayer: !!mapInstance.getLayer('ghost-nodes'),
+          hasActiveLayer: !!mapInstance.getLayer('active-nodes'),
         };
       }
       return null;
@@ -370,7 +370,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         try {
           const ghostFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-points'] }
+            { layers: ['ghost-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
         } catch (e) { /* ignore */ }
@@ -378,7 +378,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['active-points'] }
+            { layers: ['active-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
         } catch (e) { /* ignore */ }
@@ -386,7 +386,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         try {
           const clusterFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['clusters'] }
+            { layers: ['property-clusters'] }
           ) || [];
           allFeatures = allFeatures.concat(clusterFeatures);
         } catch (e) { /* ignore */ }
@@ -459,7 +459,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = (window as any).__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-points', 'active-points', 'clusters'],
+          layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
         });
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
@@ -517,7 +517,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         try {
           const ghostFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-points'] }
+            { layers: ['ghost-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
         } catch (e) { /* ignore */ }
@@ -525,7 +525,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['active-points'] }
+            { layers: ['active-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
         } catch (e) { /* ignore */ }

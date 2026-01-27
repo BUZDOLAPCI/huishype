@@ -1,12 +1,74 @@
-import { Image, ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
+import { getDutchAerialSnapshotUrl } from '../../lib/pdok/imagery';
 
-// Placeholder image for properties without photos
-const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/400x300/E5E7EB/9CA3AF?text=No+Photo';
+// Import the placeholder image as a static asset
+const placeholderImage = require('../../../assets/images/property-placeholder.png');
+
+interface SatelliteImageWithPinProps {
+  lat: number;
+  lon: number;
+}
+
+/**
+ * SatelliteImageWithPin - Displays aerial imagery with a centered location pin
+ * Similar to the AerialImageCard but optimized for PropertyHeader
+ */
+function SatelliteImageWithPin({ lat, lon }: SatelliteImageWithPinProps) {
+  const [error, setError] = useState(false);
+
+  // Generate the PDOK aerial imagery URL
+  const imageUrl = getDutchAerialSnapshotUrl(lat, lon, 800, 600, 45);
+
+  // If error, show the styled placeholder
+  if (error) {
+    return (
+      <View style={styles.imageContainer} testID="property-header-placeholder">
+        <Image
+          source={placeholderImage}
+          style={styles.placeholderImage}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.imageContainer} testID="property-header-satellite">
+      {/* Aerial image from PDOK */}
+      <Image
+        source={{ uri: imageUrl }}
+        style={styles.aerialImage}
+        resizeMode="cover"
+        onError={() => setError(true)}
+        testID="property-header-aerial-image"
+      />
+
+      {/* Centered marker pin - white pin with shadow for visibility */}
+      <View style={styles.markerContainer} testID="property-header-marker">
+        <View style={styles.markerShadow}>
+          <Ionicons
+            name="location-sharp"
+            size={48}
+            color="#ffffff"
+            style={styles.markerIcon}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export function PropertyHeader({ property }: SectionProps) {
-  const photos = property.photos?.length ? property.photos : [PLACEHOLDER_IMAGE];
+  const hasPhotos = property.photos && property.photos.length > 0;
+
+  // Extract coordinates from geometry
+  const coordinates = property.geometry?.coordinates;
+  const hasCoordinates = coordinates && coordinates.length === 2;
+  const lon = hasCoordinates ? coordinates[0] : null;
+  const lat = hasCoordinates ? coordinates[1] : null;
 
   const activityColors = {
     hot: 'bg-red-500',
@@ -16,28 +78,48 @@ export function PropertyHeader({ property }: SectionProps) {
 
   return (
     <View>
-      {/* Photo Carousel */}
+      {/* Photo/Satellite Carousel */}
       <ScrollView
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         className="h-48"
+        testID="property-header-carousel"
       >
-        {photos.map((photo, index) => (
-          <View key={index} className="w-screen h-48 px-4">
-            <Image
-              source={{ uri: photo }}
-              className="w-full h-full rounded-xl bg-gray-200"
-              resizeMode="cover"
-            />
+        {hasPhotos ? (
+          // Show actual property photos if available
+          property.photos!.map((photo, index) => (
+            <View key={index} className="w-screen h-48 px-4">
+              <Image
+                source={{ uri: photo }}
+                className="w-full h-full rounded-xl bg-gray-200"
+                resizeMode="cover"
+              />
+            </View>
+          ))
+        ) : (
+          // Show satellite imagery with pin overlay
+          <View className="w-screen h-48 px-4">
+            {hasCoordinates && lat !== null && lon !== null ? (
+              <SatelliteImageWithPin lat={lat} lon={lon} />
+            ) : (
+              // Fallback to placeholder if no coordinates
+              <View style={styles.imageContainer} testID="property-header-no-coords-placeholder">
+                <Image
+                  source={placeholderImage}
+                  style={styles.placeholderImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
           </View>
-        ))}
+        )}
       </ScrollView>
 
-      {/* Photo count indicator */}
-      {photos.length > 1 && (
+      {/* Photo count indicator - only show if multiple photos */}
+      {hasPhotos && property.photos!.length > 1 && (
         <View className="absolute top-2 right-6 bg-black/50 px-2 py-1 rounded-full">
-          <Text className="text-white text-xs">{photos.length} photos</Text>
+          <Text className="text-white text-xs">{property.photos!.length} photos</Text>
         </View>
       )}
 
@@ -86,3 +168,43 @@ export function PropertyHeader({ property }: SectionProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  imageContainer: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#F9FAFB', // Light gray background
+  },
+  aerialImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  placeholderImage: {
+    width: '100%',
+    height: '100%',
+  },
+  markerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  markerShadow: {
+    // Shadow for better visibility on aerial imagery
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerIcon: {
+    // Offset the icon slightly up so the pin tip points to the center
+    marginBottom: 24,
+  },
+});

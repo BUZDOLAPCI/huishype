@@ -191,8 +191,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const layerInfo = await page.evaluate(() => {
       const mapInstance = (window as any).__mapInstance;
       if (mapInstance) {
-        const ghostLayer = mapInstance.getLayer('ghost-points');
-        const activeLayer = mapInstance.getLayer('active-points');
+        const ghostLayer = mapInstance.getLayer('ghost-nodes');
+        const activeLayer = mapInstance.getLayer('active-nodes');
         const zoom = mapInstance.getZoom?.() ?? 0;
 
         return {
@@ -224,7 +224,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForFunction(
       () => {
         const mapInstance = (window as any).__mapInstance;
-        return mapInstance?.getLayer?.('ghost-points') !== undefined;
+        return mapInstance?.getLayer?.('ghost-nodes') !== undefined;
       },
       { timeout: 15000 }
     );
@@ -235,20 +235,20 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = (window as any).__mapInstance;
 
       if (mapInstance) {
-        const ghostLayer = mapInstance.getLayer('ghost-points');
-        const activeLayer = mapInstance.getLayer('active-points');
+        const ghostLayer = mapInstance.getLayer('ghost-nodes');
+        const activeLayer = mapInstance.getLayer('active-nodes');
 
         // Get paint properties
         const ghostPaint = ghostLayer ? {
-          radius: mapInstance.getPaintProperty('ghost-points', 'circle-radius'),
-          color: mapInstance.getPaintProperty('ghost-points', 'circle-color'),
-          opacity: mapInstance.getPaintProperty('ghost-points', 'circle-opacity'),
+          radius: mapInstance.getPaintProperty('ghost-nodes', 'circle-radius'),
+          color: mapInstance.getPaintProperty('ghost-nodes', 'circle-color'),
+          opacity: mapInstance.getPaintProperty('ghost-nodes', 'circle-opacity'),
         } : null;
 
         const activePaint = activeLayer ? {
-          radius: mapInstance.getPaintProperty('active-points', 'circle-radius'),
-          color: mapInstance.getPaintProperty('active-points', 'circle-color'),
-          opacity: mapInstance.getPaintProperty('active-points', 'circle-opacity'),
+          radius: mapInstance.getPaintProperty('active-nodes', 'circle-radius'),
+          color: mapInstance.getPaintProperty('active-nodes', 'circle-color'),
+          opacity: mapInstance.getPaintProperty('active-nodes', 'circle-opacity'),
         } : null;
 
         return {
@@ -322,13 +322,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       // Query rendered features for both layers
       const ghostFeatures = mapInstance.queryRenderedFeatures?.(undefined, {
-        layers: ['ghost-points'],
+        layers: ['ghost-nodes'],
       }) || [];
       const activeFeatures = mapInstance.queryRenderedFeatures?.(undefined, {
-        layers: ['active-points'],
+        layers: ['active-nodes'],
       }) || [];
       const clusterFeatures = mapInstance.queryRenderedFeatures?.(undefined, {
-        layers: ['clusters'],
+        layers: ['property-clusters'],
       }) || [];
 
       return {

@@ -112,7 +112,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
           // Check clusters
           const clusterFeatures = mapInstance.queryRenderedFeatures(undefined, {
-            layers: ['clusters'],
+            layers: ['property-clusters'],
           }) || [];
 
           return {
@@ -144,7 +144,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
           // Query for property markers in the current view
           const features = mapInstance.queryRenderedFeatures(undefined, {
-            layers: ['ghost-points', 'active-points'],
+            layers: ['ghost-nodes', 'active-nodes'],
           }) || [];
 
           console.log(`Found ${features.length} property markers`);
@@ -216,7 +216,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             if (!mapInstance) return null;
 
             const features = mapInstance.queryRenderedFeatures(undefined, {
-              layers: ['ghost-points', 'active-points'],
+              layers: ['ghost-nodes', 'active-nodes'],
             });
 
             if (features && features.length > 0) {
@@ -361,7 +361,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!mapInstance) return false;
 
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-points', 'active-points'],
+          layers: ['ghost-nodes', 'active-nodes'],
         }) || [];
 
         if (features.length > 0) {

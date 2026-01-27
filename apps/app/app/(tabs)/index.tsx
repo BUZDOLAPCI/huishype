@@ -73,6 +73,7 @@ export default function MapScreen() {
   );
   const [showPreview, setShowPreview] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   // Cluster preview state
   const [clusterPropertyIds, setClusterPropertyIds] = useState<string[]>([]);
@@ -272,6 +273,7 @@ export default function MapScreen() {
           styleURL={STYLE_URL}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
+          onDidFinishLoadingMap={() => setMapLoaded(true)}
           testID="map-view"
         >
           <Camera
@@ -424,6 +426,17 @@ export default function MapScreen() {
             />
           </VectorSource>
         </MapView>
+
+        {/* Map Loading Indicator */}
+        {!mapLoaded && (
+          <View
+            className="absolute inset-0 items-center justify-center bg-gray-100"
+            testID="map-loading-indicator"
+          >
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text className="text-gray-600 mt-3 text-base">Loading map...</Text>
+          </View>
+        )}
 
         {/* Zoom level indicator (for debugging) */}
         <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">

@@ -214,9 +214,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         );
 
         // Query rendered features for each marker layer
-        const ghostFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['ghost-points'] }) || [];
-        const activeFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['active-points'] }) || [];
-        const clusterFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['clusters'] }) || [];
+        const ghostFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['ghost-nodes'] }) || [];
+        const activeFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['active-nodes'] }) || [];
+        const clusterFeatures = mapInstance.queryRenderedFeatures?.(undefined, { layers: ['property-clusters'] }) || [];
 
         return {
           totalLayers: layers.length,
@@ -246,8 +246,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       expect(markerInfo.renderedMarkers.activeNodes).toBeGreaterThan(0);
 
       // Verify expected layers exist
-      expect(markerInfo.markerLayerIds).toContain('ghost-points');
-      expect(markerInfo.markerLayerIds).toContain('active-points');
+      expect(markerInfo.markerLayerIds).toContain('ghost-nodes');
+      expect(markerInfo.markerLayerIds).toContain('active-nodes');
     }
   });
 

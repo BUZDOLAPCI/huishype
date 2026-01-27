@@ -522,6 +522,14 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
   const style = document.createElement('style');
   style.id = PULSING_CSS_ID;
   style.textContent = `
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
     @keyframes pulse-ring {
       0% {
         transform: scale(1);
@@ -1393,6 +1401,33 @@ export default function MapScreen() {
           }}
           data-testid="map-view"
         />
+
+        {/* Map Loading Indicator */}
+        {!mapLoaded && (
+          <View
+            className="absolute inset-0 items-center justify-center bg-gray-100"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 10,
+              transition: 'opacity 0.3s ease-out',
+            }}
+            testID="map-loading-indicator"
+          >
+            <View className="items-center">
+              <View
+                className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"
+                style={{
+                  animation: 'spin 1s linear infinite',
+                }}
+              />
+              <Text className="text-gray-600 mt-3 text-base">Loading map...</Text>
+            </View>
+          </View>
+        )}
 
         {/* Zoom level indicator */}
         <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">

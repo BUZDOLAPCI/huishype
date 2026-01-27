@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle } from 'react';
+import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle, useState, useEffect } from 'react';
 import { View, type LayoutChangeEvent, type ScrollView } from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
@@ -79,6 +79,17 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const scrollViewRef = useRef<ScrollView>(null);
     const animatedIndex = useSharedValue(-1);
 
+    // Track whether sheet should be mounted (only when we have a property)
+    // This prevents the handle indicator from being visible when no property is selected
+    const [isSheetMounted, setIsSheetMounted] = useState(false);
+
+    // Mount sheet when property is provided, unmount when closed
+    useEffect(() => {
+      if (property) {
+        setIsSheetMounted(true);
+      }
+    }, [property]);
+
     // Section layout positions
     const sectionPositions = useRef<{ guess: number; comments: number }>({
       guess: 0,
@@ -143,6 +154,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         // Notify parent of index change for preview card persistence logic
         onSheetChange?.(index);
         if (index === -1) {
+          // Unmount sheet when fully closed to prevent handle from being visible
+          setIsSheetMounted(false);
           onClose?.();
         }
       },
@@ -151,12 +164,12 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // Animated content opacity based on expand state
     // Index: -1 = closed, 0 = peek, 1 = partial, 2 = full
-    // Content fades in as sheet expands from peek to partial
+    // Content is fully visible at all open states
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         animatedIndex.value,
         [-1, 0, 1, 2],
-        [0, 0.3, 1, 1],
+        [0, 1, 1, 1],
         Extrapolation.CLAMP
       );
       return { opacity };
@@ -165,13 +178,16 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // Convert property to detailed format
     const propertyDetails = property ? toPropertyDetails(property) : null;
 
-    // Determine initial index based on whether we have a property
-    const initialIndex = property ? 0 : -1;
+    // Don't render the sheet at all if it's not mounted
+    // This completely hides the handle indicator when no property is selected
+    if (!isSheetMounted) {
+      return null;
+    }
 
     return (
       <BottomSheetLib
         ref={bottomSheetRef}
-        index={initialIndex}
+        index={0}
         snapPoints={snapPoints}
         enablePanDownToClose
         enableDynamicSizing={false}

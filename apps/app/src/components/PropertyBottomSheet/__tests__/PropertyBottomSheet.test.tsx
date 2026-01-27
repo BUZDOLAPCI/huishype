@@ -241,7 +241,8 @@ describe('PropertyBottomSheet', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
 
     expect(screen.getByText('Property Details')).toBeTruthy();
-    expect(screen.getByText('BAG ID')).toBeTruthy();
+    // Technical IDs like BAG ID are hidden per reference expectation 0026
+    expect(screen.getByText('Year Built')).toBeTruthy();
   });
 
   it('shows loading skeleton when isLoading is true', async () => {
