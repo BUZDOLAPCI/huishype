@@ -83,6 +83,10 @@ export default function MapScreen() {
   const [selectedActivityScore, setSelectedActivityScore] = useState(0);
   const [selectedHasListing, setSelectedHasListing] = useState(false);
 
+  // Track bottom sheet index for preview card persistence logic
+  // -1 = closed, 0 = peek, 1 = partial, 2 = full
+  const sheetIndexRef = useRef(-1);
+
   // Fetch selected property details
   const { data: selectedProperty, isLoading: propertyLoading } =
     useProperty(selectedPropertyId);
@@ -146,17 +150,35 @@ export default function MapScreen() {
   );
 
   // Handle preview card press (opens full bottom sheet)
+  // CRITICAL: Preview card should STAY OPEN when clicked - only expand the sheet
   const handlePreviewPress = useCallback(() => {
-    setShowPreview(false);
-    // Snap to partial (index 1 = 50%) when clicking preview card
+    // Do NOT close preview - just expand the bottom sheet
+    // Preview card persists until user explicitly dismisses it
     bottomSheetRef.current?.snapToIndex(1);
   }, []);
 
-  // Handle bottom sheet close
+  // Handle bottom sheet index changes for preview card persistence logic
+  const handleSheetIndexChange = useCallback((index: number) => {
+    sheetIndexRef.current = index;
+  }, []);
+
+  // Handle bottom sheet close - called when sheet index changes to -1 (fully closed)
+  // CRITICAL: Per expectation 0023, preview card should STAY OPEN when sheet is dismissed
+  // The preview only closes when user explicitly taps empty map background while sheet is in peek/closed state
+  // Dismissing the sheet via backdrop should NOT close the preview
   const handleSheetClose = useCallback(() => {
-    setSelectedPropertyId(null);
-    setShowPreview(false);
+    // This is called from PropertyBottomSheet onChange when index === -1
+    // Sheet has been dismissed (e.g., via backdrop tap or swipe down)
+    // BUT we do NOT close the preview card here - user intention is to "return to map view"
+    // not to deselect the property. Preview card remains visible showing the selected property.
+    // The preview will only close when user taps on empty map background (handled in handleMapPress)
+
+    // We also don't clear selectedPropertyId here - the property remains selected
+    // Only close cluster preview since that doesn't have the same persistence rules
     setIsClusterPreview(false);
+    // Don't clear the rest - preview should persist
+    // setSelectedPropertyId(null);  // DON'T do this
+    // setShowPreview(false);        // DON'T do this
   }, []);
 
   // Handle cluster preview navigation
@@ -187,12 +209,12 @@ export default function MapScreen() {
   }, [selectedPropertyId]);
 
   const handleComment = useCallback(() => {
-    setShowPreview(false);
+    // Preview card stays open - user can still see the property while commenting
     bottomSheetRef.current?.scrollToComments();
   }, []);
 
   const handleGuess = useCallback(() => {
-    setShowPreview(false);
+    // Preview card stays open - user can still see the property while guessing
     bottomSheetRef.current?.scrollToGuess();
   }, []);
 
@@ -222,14 +244,23 @@ export default function MapScreen() {
     // TODO: Open comments section
   }, []);
 
-  // Close preview when tapping elsewhere
+  // Close preview when tapping elsewhere on the map
+  // CRITICAL: Only close preview when bottom sheet is NOT expanded
+  // If sheet is expanded (index > 0), tapping map should close sheet but preserve preview
   const handleMapPress = useCallback(() => {
-    if (showPreview) {
-      setShowPreview(false);
+    // Check if bottom sheet is expanded (index > 0 means partial or full)
+    const currentSheetIndex = sheetIndexRef.current;
+    if (currentSheetIndex <= 0) {
+      // Sheet is in peek (0) or closed (-1) state - safe to close preview
+      if (showPreview) {
+        setShowPreview(false);
+      }
+      if (isClusterPreview) {
+        setIsClusterPreview(false);
+      }
     }
-    if (isClusterPreview) {
-      setIsClusterPreview(false);
-    }
+    // If sheet is expanded (1 or 2), don't close preview
+    // The backdrop/sheet will handle closing itself
   }, [showPreview, isClusterPreview]);
 
   return (
@@ -450,6 +481,7 @@ export default function MapScreen() {
         ref={bottomSheetRef}
         property={selectedProperty ?? null}
         onClose={handleSheetClose}
+        onSheetChange={handleSheetIndexChange}
         onSave={handleSave}
         onShare={handleShare}
         onFavorite={handleFavorite}

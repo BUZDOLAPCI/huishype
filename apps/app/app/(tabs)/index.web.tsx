@@ -898,6 +898,11 @@ export default function MapScreen() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
 
+  // Gesture tracking refs to prevent preview card from closing during map gestures
+  const isDragging = useRef(false);
+  const isZooming = useRef(false);
+  const isRotating = useRef(false);
+
   // Selected property coordinate for positioning the preview card
   const [selectedCoordinate, setSelectedCoordinate] = useState<[number, number] | null>(null);
 
@@ -913,6 +918,10 @@ export default function MapScreen() {
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMessage, setAuthMessage] = useState('Sign in to continue');
+
+  // Track bottom sheet index for preview card persistence logic
+  // -1 = closed, 0 = peek, 1 = partial, 2 = full
+  const sheetIndexRef = useRef<number>(-1);
 
   // Fetch selected property details
   const { data: selectedProperty, isLoading: propertyLoading } =
@@ -983,6 +992,33 @@ export default function MapScreen() {
       setCurrentZoom(map.getZoom());
     });
 
+    // Track map gestures to prevent preview card from closing during pan/zoom/rotate
+    map.on('dragstart', () => {
+      isDragging.current = true;
+    });
+    map.on('dragend', () => {
+      // Small delay to prevent the click event that follows dragend from closing the preview
+      setTimeout(() => {
+        isDragging.current = false;
+      }, 100);
+    });
+    map.on('zoomstart', () => {
+      isZooming.current = true;
+    });
+    map.on('zoomend', () => {
+      setTimeout(() => {
+        isZooming.current = false;
+      }, 100);
+    });
+    map.on('rotatestart', () => {
+      isRotating.current = true;
+    });
+    map.on('rotateend', () => {
+      setTimeout(() => {
+        isRotating.current = false;
+      }, 100);
+    });
+
     // Handle click on property points
     const handlePropertyClick = (
       e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
@@ -1031,8 +1067,16 @@ export default function MapScreen() {
       }
     };
 
-    // Handle map click to close preview
+    // Handle map click to close preview - only on true background taps
+    // CRITICAL: Preview card should only close when:
+    // 1. User taps on empty map background AND
+    // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
     map.on('click', (e) => {
+      // Don't close preview if a gesture just ended (pan, zoom, or rotate)
+      if (isDragging.current || isZooming.current || isRotating.current) {
+        return;
+      }
+
       // Only query layers that exist to avoid MapLibre errors
       const layerIds = [
         'property-clusters',
@@ -1048,9 +1092,22 @@ export default function MapScreen() {
         layers: layerIds,
       });
 
+      // Only close preview on true empty background tap (no features at click point)
+      // AND only if bottom sheet is NOT expanded (peek or closed state)
       if (features.length === 0) {
-        setShowPreview(false);
-        setIsClusterPreview(false);
+        // Check if bottom sheet is expanded (index > 0 means partial or full)
+        // If expanded, don't close preview - user intent is to dismiss sheet, not deselect property
+        // Use window global as backup since closure might not capture ref updates
+        const currentSheetIndex = typeof window !== 'undefined' && (window as unknown as { __sheetIndex?: number }).__sheetIndex !== undefined
+          ? (window as unknown as { __sheetIndex: number }).__sheetIndex
+          : sheetIndexRef.current;
+        if (currentSheetIndex <= 0) {
+          // Sheet is in peek (0) or closed (-1) state - safe to close preview
+          setShowPreview(false);
+          setIsClusterPreview(false);
+        }
+        // If sheet is expanded (1 or 2), the backdrop click will close the sheet
+        // but we DON'T close the preview card - it should persist
       }
     });
 
@@ -1090,12 +1147,33 @@ export default function MapScreen() {
     };
   }, []);
 
-  // Handle bottom sheet close
+  // Handle bottom sheet index changes for preview card persistence logic
+  const handleSheetIndexChange = useCallback((index: number) => {
+    sheetIndexRef.current = index;
+    // Expose for testing
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __sheetIndex: number }).__sheetIndex = index;
+    }
+  }, []);
+
+  // Handle bottom sheet close - called when sheet index changes to -1 (fully closed)
+  // CRITICAL: Per expectation 0023, preview card should STAY OPEN when sheet is dismissed
+  // The preview only closes when user explicitly taps empty map background while sheet is in peek/closed state
+  // Dismissing the sheet via backdrop should NOT close the preview
   const handleSheetClose = useCallback(() => {
-    setSelectedPropertyId(null);
-    setShowPreview(false);
+    // This is called from PropertyBottomSheet onChange when index === -1
+    // Sheet has been dismissed (e.g., via backdrop tap or swipe down)
+    // BUT we do NOT close the preview card here - user intention is to "return to map view"
+    // not to deselect the property. Preview card remains visible showing the selected property.
+    // The preview will only close when user taps on empty map background (handled in map click handler)
+
+    // We also don't clear selectedPropertyId here - the property remains selected
+    // Only close cluster preview since that doesn't have the same persistence rules
     setIsClusterPreview(false);
-    setSelectedCoordinate(null);
+    // Don't clear selectedCoordinate - we want the marker/popup to stay visible
+    // setSelectedPropertyId(null);  // DON'T do this
+    // setShowPreview(false);        // DON'T do this
+    // setSelectedCoordinate(null);  // DON'T do this
   }, []);
 
   // Handle cluster preview navigation
@@ -1236,13 +1314,14 @@ export default function MapScreen() {
       const popupElement = popup.getElement();
       if (popupElement) {
         // Handle card body click (opens bottom sheet)
+        // CRITICAL: Preview card should STAY OPEN when clicked - only expand the sheet
         const cardElement = popupElement.querySelector('.property-preview-card');
         if (cardElement) {
           cardElement.addEventListener('click', (e) => {
             // Don't trigger if clicking on a button
             if ((e.target as HTMLElement).closest('.preview-action-btn')) return;
-            setShowPreview(false);
-            // Snap to partial (index 1 = 50%) when clicking card body
+            // Do NOT close preview - just expand the bottom sheet
+            // Preview card persists until user explicitly dismisses it
             bottomSheetRef.current?.snapToIndex(1);
           });
         }
@@ -1261,14 +1340,14 @@ export default function MapScreen() {
         if (commentBtn) {
           commentBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            setShowPreview(false);
+            // Preview card stays open - user can still see the property while commenting
             bottomSheetRef.current?.scrollToComments();
           });
         }
         if (guessBtn) {
           guessBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            setShowPreview(false);
+            // Preview card stays open - user can still see the property while guessing
             bottomSheetRef.current?.scrollToGuess();
           });
         }
@@ -1342,6 +1421,7 @@ export default function MapScreen() {
         ref={bottomSheetRef}
         property={selectedProperty ?? null}
         onClose={handleSheetClose}
+        onSheetChange={handleSheetIndexChange}
         onSave={handleSave}
         onShare={handleShare}
         onFavorite={handleFavorite}

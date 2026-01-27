@@ -27,6 +27,7 @@ export interface PropertyBottomSheetProps {
   property: Property | null;
   isLoading?: boolean;
   onClose?: () => void;
+  onSheetChange?: (index: number) => void;
   onSave?: (propertyId: string) => void;
   onShare?: (propertyId: string) => void;
   onFavorite?: (propertyId: string) => void;
@@ -42,6 +43,7 @@ export interface PropertyBottomSheetRef {
   snapToIndex: (index: number) => void;
   scrollToComments: () => void;
   scrollToGuess: () => void;
+  getCurrentIndex: () => number;
 }
 
 // Convert basic Property to PropertyDetailsData with default values
@@ -63,6 +65,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       property,
       isLoading = false,
       onClose,
+      onSheetChange,
       onSave,
       onShare,
       onFavorite,
@@ -115,6 +118,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       snapToIndex: (index: number) => bottomSheetRef.current?.snapToIndex(index),
       scrollToComments: () => scrollToSection(sectionPositions.current.comments),
       scrollToGuess: () => scrollToSection(sectionPositions.current.guess),
+      getCurrentIndex: () => animatedIndex.value,
     }));
 
     // Render backdrop
@@ -136,11 +140,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const handleSheetChange = useCallback(
       (index: number) => {
         animatedIndex.value = index;
+        // Notify parent of index change for preview card persistence logic
+        onSheetChange?.(index);
         if (index === -1) {
           onClose?.();
         }
       },
-      [animatedIndex, onClose]
+      [animatedIndex, onClose, onSheetChange]
     );
 
     // Animated content opacity based on expand state
