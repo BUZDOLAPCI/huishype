@@ -79,9 +79,10 @@ const EXPECTATION_NAME = '0021-map-property-preview';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // Center on location with actual properties from the database
-// Properties are concentrated around [5.488, 51.430] area
-const CENTER_COORDINATES: [number, number] = [5.488, 51.430];
-const ZOOM_LEVEL = 15; // Zoom level where individual markers are visible (not clustered)
+// Eindhoven properties are concentrated around [5.47-5.50, 51.40-51.44] area
+// Using a coordinate closer to actual seeded data
+const CENTER_COORDINATES: [number, number] = [5.746, 51.400]; // Asten area where seeded data exists
+const ZOOM_LEVEL = 17; // Zoom level 17+ shows all nodes including ghosts (no listing/activity filter)
 
 // Known acceptable errors (add patterns for expected/benign errors)
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -615,6 +616,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const hasGuess = await guessButton.first().isVisible().catch(() => false);
       console.log(`Guess button visible: ${hasGuess}`);
       expect(hasGuess, 'Guess button should be visible').toBe(true);
+
+      // Verify arrow element exists (either pointing up or down depending on card position)
+      const arrowDown = page.locator('[data-testid="property-preview-arrow"].property-preview-arrow');
+      const arrowUp = page.locator('[data-testid="property-preview-arrow"].property-preview-arrow-up');
+      const hasArrowDown = await arrowDown.isVisible().catch(() => false);
+      const hasArrowUp = await arrowUp.isVisible().catch(() => false);
+      const hasArrow = hasArrowDown || hasArrowUp;
+      console.log(`Arrow visible: ${hasArrow} (down: ${hasArrowDown}, up: ${hasArrowUp})`);
+      expect(hasArrow, 'Preview card should have a visible arrow pointing to the marker').toBe(true);
+
+      // Verify selected marker with pulsing animation exists
+      const selectedMarker = page.locator('[data-testid="selected-marker"]');
+      const hasSelectedMarker = await selectedMarker.isVisible().catch(() => false);
+      console.log(`Selected marker with pulsing animation visible: ${hasSelectedMarker}`);
+      expect(hasSelectedMarker, 'Selected marker should be visible with pulsing animation').toBe(true);
 
       // Log the full card content for debugging
       const cardContent = await previewCard.textContent();

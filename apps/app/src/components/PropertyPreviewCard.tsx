@@ -1,4 +1,4 @@
-import { Pressable, Text, View, Image } from 'react-native';
+import { Pressable, Text, View, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 
@@ -21,6 +21,8 @@ interface PropertyPreviewCardProps {
   onComment?: () => void;
   onGuess?: () => void;
   onPress?: () => void;
+  /** Whether to show the speech bubble arrow pointing downwards */
+  showArrow?: boolean;
 }
 
 // Animated Pressable component for spring animation
@@ -32,6 +34,7 @@ export function PropertyPreviewCard({
   onComment,
   onGuess,
   onPress,
+  showArrow = false,
 }: PropertyPreviewCardProps) {
   const displayPrice = property.fmv ?? property.askingPrice ?? property.wozValue;
   const activityLevel = property.activityLevel ?? 'cold';
@@ -55,7 +58,8 @@ export function PropertyPreviewCard({
     cold: '#D1D5DB',
   };
 
-  return (
+  // Wrapper view to allow arrow to overflow
+  const cardContent = (
     <AnimatedPressable
       onPress={onPress}
       entering={ZoomIn.springify().damping(15).stiffness(100)}
@@ -63,9 +67,7 @@ export function PropertyPreviewCard({
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
         padding: 12,
-        width: '85%',
-        maxWidth: 340,
-        alignSelf: 'center',
+        width: '100%',
         // Shadow for iOS
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
@@ -76,8 +78,6 @@ export function PropertyPreviewCard({
         // Ensure proper stacking on web
         position: 'relative',
         zIndex: 10,
-        // Clip any overflow
-        overflow: 'hidden',
       }}
       testID="property-preview-card"
     >
@@ -216,5 +216,59 @@ export function PropertyPreviewCard({
         </Pressable>
       </View>
     </AnimatedPressable>
+  );
+
+  // If showing arrow, wrap in a container that allows overflow
+  if (showArrow) {
+    return (
+      <View
+        style={{
+          width: '85%',
+          maxWidth: 340,
+          alignSelf: 'center',
+          position: 'relative',
+          // Allow arrow to overflow
+          overflow: 'visible',
+        }}
+        testID="property-preview-wrapper"
+      >
+        {cardContent}
+        {/* Speech bubble arrow pointing down */}
+        <View
+          style={{
+            position: 'absolute',
+            bottom: -10,
+            left: '50%',
+            marginLeft: -10,
+            width: 0,
+            height: 0,
+            borderLeftWidth: 10,
+            borderRightWidth: 10,
+            borderTopWidth: 10,
+            borderLeftColor: 'transparent',
+            borderRightColor: 'transparent',
+            borderTopColor: '#FFFFFF',
+            // Add shadow to arrow on web
+            ...(Platform.OS === 'web' ? {
+              filter: 'drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.1))',
+            } : {}),
+          }}
+          testID="property-preview-arrow"
+        />
+      </View>
+    );
+  }
+
+  // Without arrow, return card with original sizing
+  return (
+    <View
+      style={{
+        width: '85%',
+        maxWidth: 340,
+        alignSelf: 'center',
+      }}
+    >
+      {cardContent}
+    </View>
   );
 }
