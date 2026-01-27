@@ -77,3 +77,4 @@ fixtures/eindhoven-addresses.json
 
 # Local environment
 .env
+fixtures/eindhoven-sandbox.geojson
