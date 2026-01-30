@@ -1,12 +1,15 @@
-import { useRef, useCallback, useState, useEffect } from 'react';
-import { Text, View, ActivityIndicator } from 'react-native';
-import Mapbox, {
+import { useRef, useCallback, useState } from 'react';
+import { Text, View, ActivityIndicator, type NativeSyntheticEvent } from 'react-native';
+import {
   MapView,
   Camera,
   VectorSource,
   CircleLayer,
   SymbolLayer,
-} from '@rnmapbox/maps';
+  type CameraRef,
+  type ViewStateChangeEvent,
+  type PressEventWithFeatures,
+} from '@maplibre/maplibre-react-native';
 import type { Feature } from 'geojson';
 import Constants from 'expo-constants';
 
@@ -27,8 +30,7 @@ const getApiUrl = (): string => {
 
 const API_URL = getApiUrl();
 
-// Configure MapLibre (no Mapbox token needed for MapLibre)
-Mapbox.setAccessToken(null);
+// No access token needed for MapLibre - it's open source
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -45,18 +47,6 @@ const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 // Vector tile URL template
 const TILE_URL = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
 
-// OnPressEvent type from @rnmapbox/maps
-interface OnPressEvent {
-  features: Feature[];
-  coordinates: {
-    latitude: number;
-    longitude: number;
-  };
-  point: {
-    x: number;
-    y: number;
-  };
-}
 
 // Get activity level from score
 function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
@@ -67,7 +57,7 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
 
 export default function MapScreen() {
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
-  const cameraRef = useRef<Camera>(null);
+  const cameraRef = useRef<CameraRef>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     null
   );
@@ -97,10 +87,11 @@ export default function MapScreen() {
 
   // Handle feature press from vector tiles
   const handleFeaturePress = useCallback(
-    (event: OnPressEvent) => {
-      if (!event.features?.length) return;
+    (event: NativeSyntheticEvent<PressEventWithFeatures>) => {
+      const { features } = event.nativeEvent;
+      if (!features?.length) return;
 
-      const feature = event.features[0];
+      const feature = features[0];
       const properties = feature.properties;
 
       if (!properties) return;
@@ -116,10 +107,10 @@ export default function MapScreen() {
         if (clusterGeom && clusterGeom.type === 'Point') {
           const [lng, lat] = clusterGeom.coordinates as [number, number];
           const newZoom = Math.min(currentZoom + 2, 18);
-          cameraRef.current?.setCamera({
-            centerCoordinate: [lng, lat],
-            zoomLevel: newZoom,
-            animationDuration: 500,
+          cameraRef.current?.flyTo({
+            center: [lng, lat],
+            zoom: newZoom,
+            duration: 500,
           });
         }
       } else {
@@ -142,9 +133,10 @@ export default function MapScreen() {
 
   // Handle map region change to track zoom level
   const handleRegionChange = useCallback(
-    (feature: Feature) => {
-      if (feature.properties?.zoomLevel) {
-        setCurrentZoom(feature.properties.zoomLevel as number);
+    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      const { zoom } = event.nativeEvent;
+      if (zoom !== undefined) {
+        setCurrentZoom(zoom);
       }
     },
     []
@@ -270,7 +262,7 @@ export default function MapScreen() {
       <View className="flex-1">
         <MapView
           style={{ flex: 1 }}
-          styleURL={STYLE_URL}
+          mapStyle={STYLE_URL}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
@@ -278,10 +270,10 @@ export default function MapScreen() {
         >
           <Camera
             ref={cameraRef}
-            centerCoordinate={EINDHOVEN_CENTER}
-            zoomLevel={DEFAULT_ZOOM}
-            animationMode="flyTo"
-            animationDuration={1000}
+            initialViewState={{
+              center: EINDHOVEN_CENTER,
+              zoom: DEFAULT_ZOOM,
+            }}
           />
 
           {/* Vector tile source for properties */}

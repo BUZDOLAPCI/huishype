@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "nl.huishype.app"
+      "bundleIdentifier": "nl.huishype.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -34,14 +37,34 @@
     "plugins": [
       "expo-router",
       [
-        "@rnmapbox/maps",
+        "expo-build-properties",
         {
-          "RNMapboxMapsImpl": "maplibre"
+          "android": {
+            "newArchEnabled": true
+          },
+          "ios": {
+            "newArchEnabled": true
+          }
+        }
+      ],
+      [
+        "@maplibre/maplibre-react-native",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "80861095-9b1d-4ef8-ac3e-416ed6ee9391"
+      }
+    },
+    "owner": "caslan"
   }
 }

@@ -18,7 +18,6 @@ module.exports = {
     '^expo-router$': '<rootDir>/__mocks__/expo-router.js',
     '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons.js',
     '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons.js',
-    '^@rnmapbox/maps$': '<rootDir>/__mocks__/@rnmapbox/maps.js',
     '^@gorhom/bottom-sheet$': '<rootDir>/__mocks__/@gorhom/bottom-sheet.js',
     '^react-native-gesture-handler$': '<rootDir>/__mocks__/react-native-gesture-handler.js',
     '^react-native-reanimated$': '<rootDir>/__mocks__/react-native-reanimated.js',
@@ -26,6 +25,7 @@ module.exports = {
     '^react-native-css-interop$': '<rootDir>/__mocks__/react-native-css-interop.js',
     '^react-native-css-interop/(.*)$': '<rootDir>/__mocks__/react-native-css-interop.js',
     '^expo-haptics$': '<rootDir>/__mocks__/expo-haptics.js',
+    '^@maplibre/maplibre-react-native$': '<rootDir>/__mocks__/@maplibre/maplibre-react-native.js',
   },
   // Transform TypeScript and JSX using babel
   // We override babel config to avoid nativewind transformations in tests
