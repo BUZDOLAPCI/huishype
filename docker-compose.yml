@@ -3,7 +3,7 @@ services:
     image: postgis/postgis:16-3.4
     container_name: huishype-postgres
     ports:
-      - "5432:5432"
+      - "5440:5432"
     environment:
       POSTGRES_USER: huishype
       POSTGRES_PASSWORD: huishype_dev
@@ -21,7 +21,7 @@ services:
     image: redis:7-alpine
     container_name: huishype-redis
     ports:
-      - "6379:6379"
+      - "6390:6379"
     volumes:
       - redis_data:/data
     healthcheck:

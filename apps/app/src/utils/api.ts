@@ -5,7 +5,7 @@ const getApiUrl = (): string => {
   // In development, use localhost or configured URL
   // In production, use the actual API URL
   const extra = Constants.expoConfig?.extra;
-  return extra?.apiUrl ?? 'http://localhost:3000';
+  return extra?.apiUrl ?? 'http://localhost:3100';
 };
 
 export const API_URL = getApiUrl();

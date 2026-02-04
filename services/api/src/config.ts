@@ -4,10 +4,10 @@ dotenv.config();
 
 export const config = {
   database: {
-    url: process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5432/huishype',
+    url: process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype',
   },
   server: {
-    port: parseInt(process.env.PORT || '3000', 10),
+    port: parseInt(process.env.PORT || '3100', 10),
     host: process.env.HOST || '0.0.0.0',
   },
   auth: {
