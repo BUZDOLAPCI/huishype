@@ -16,56 +16,23 @@ export const VISUAL_SCREENSHOT_DIR = 'test-results/visual';
 
 /**
  * Known acceptable errors that should not fail tests.
- * Add patterns here for errors that are expected or not our concern.
+ * MINIMAL list - only errors that genuinely cannot be fixed.
  */
 export const KNOWN_ACCEPTABLE_ERRORS = [
-  // ResizeObserver loop errors are benign
+  // Browser quirk - not a real error
   'ResizeObserver loop',
-  'ResizeObserver loop limit exceeded',
-  // React dev mode warnings
-  'Warning: ReactDOM.render is no longer supported',
-  // React 19 compatibility warnings (library issues, not our code)
-  'Accessing element.ref was removed in React 19',
-  'ref is now a regular prop',
-  // React Fast Refresh / Hot Reload errors in dev mode
-  // These occur when components are refreshed outside their normal context
-  'useAuthContext must be used within an AuthProvider',
-  'performReactRefresh',
-  'scheduleRefresh',
-  'recreate this component tree from scratch using the error boundary',
-  // Favicon 404s are acceptable
-  'favicon.ico - Failed to load resource',
-  // Source map failures are acceptable
+  // Dev server artifacts (Metro bundler)
   'sourceMappingURL',
   'Failed to parse source map',
-  // Service worker issues in dev
-  'service-worker.js',
-  // Hot module reload messages
   'Fast Refresh',
   '[HMR]',
-  // WebSocket connection errors in dev
   'WebSocket connection',
-  // Network errors during page unload
+  // Network errors during page navigation/unload
   'net::ERR_ABORTED',
-  // Map tile font loading errors (external resource)
-  'tiles.openfreemap.org/fonts',
-  'Failed to load resource: the server responded with a status of 404',
-  // Generic map tile errors
+  // MapLibre tile 404s for empty areas (external, uncontrollable)
+  'AJAXError',
   '.pbf',
-  'openfreemap',
-  // Network encoding errors (can happen during dev server hot reload)
-  'ERR_INCOMPLETE_CHUNKED_ENCODING',
-  'ERR_CONNECTION_REFUSED',
-  'ERR_NAME_NOT_RESOLVED',
-  // External placeholder image services (not our code)
-  'via.placeholder.com',
-  'placeholder.com',
-  // Font loading errors (Expo vector icons)
-  'Ionicons.ttf',
-  'FontAwesome.ttf',
-  'vector-icons',
-  '/assets/',
-  'unstable_path',
+  'tiles.openfreemap.org',
 ];
 
 /**
@@ -506,8 +473,8 @@ export class PageValidator {
       // Network might not go idle if there are websockets, that's ok
     });
 
-    // Additional wait for React/RN to hydrate
-    await this.page.waitForTimeout(1000);
+    // Wait for React/RN to hydrate - check for any visible content
+    await this.page.waitForSelector('body *:visible', { timeout: 10000 }).catch(() => {});
   }
 
   /**
@@ -635,4 +602,41 @@ export class VisualTestContext {
  */
 export function createVisualTestContext(page: Page, testName: string): VisualTestContext {
   return new VisualTestContext(page, testName);
+}
+
+/**
+ * Wait for the MapLibre map instance to have its style loaded.
+ * Polls `window.__mapInstance.isStyleLoaded()` until it returns true.
+ *
+ * @param page  Playwright Page
+ * @param timeout  Maximum time to wait in ms (default 45000)
+ */
+export async function waitForMapStyleLoaded(page: Page, timeout: number = 45000): Promise<void> {
+  await page.waitForFunction(
+    () => { const m = (window as any).__mapInstance; return m && m.isStyleLoaded(); },
+    { timeout, polling: 500 }
+  );
+}
+
+/**
+ * Wait for the MapLibre map to be fully idle (style loaded + all tiles rendered).
+ * If tiles are already loaded it resolves immediately; otherwise it listens for
+ * the `idle` event with a safety timeout.
+ *
+ * @param page     Playwright Page
+ * @param timeout  Safety timeout inside the browser for the idle event (default 15000)
+ */
+export async function waitForMapIdle(page: Page, timeout: number = 15000): Promise<void> {
+  await page.evaluate((t) => {
+    return new Promise<void>((resolve) => {
+      const m = (window as any).__mapInstance;
+      if (!m) { resolve(); return; }
+      if (m.areTilesLoaded && m.areTilesLoaded() && m.isStyleLoaded()) { resolve(); }
+      else {
+        const h = () => { m.off('idle', h); resolve(); };
+        m.on('idle', h);
+        setTimeout(() => { m.off('idle', h); resolve(); }, t);
+      }
+    });
+  }, timeout);
 }

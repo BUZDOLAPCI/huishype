@@ -13,6 +13,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -25,22 +26,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 // Property coordinates are around [5.488..., 51.430...] based on API data
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307]; // Area with properties
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /Failed to load resource/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -99,7 +93,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Configure map to area with properties
     await page.evaluate(
@@ -112,7 +106,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES }
     );
-    await page.waitForTimeout(4000);
+    // Wait for map to be idle after zoom
+    await waitForMapIdle(page);
 
     // Find and click on a property marker
     const mapCanvas = page.locator('canvas').first();

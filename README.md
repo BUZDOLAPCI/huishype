@@ -66,6 +66,6 @@ packages/mocks/     # MSW mock handlers
 Copy `.env.example` to `.env` in `services/api/`:
 
 ```
-DATABASE_URL=postgresql://huishype:huishype_dev@localhost:5432/huishype
-PORT=3000
+DATABASE_URL=postgresql://huishype:huishype_dev@localhost:5440/huishype
+PORT=3100
 ```

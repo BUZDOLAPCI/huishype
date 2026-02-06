@@ -18,10 +18,15 @@ import fs from 'fs';
 const EXPECTATION_NAME = '{EXPECTATION_NAME}'; // e.g., 'map-visuals-close-up'
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
+  /ResizeObserver loop/,
+  /sourceMappingURL/,
+  /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
+  /WebSocket connection/,
+  /net::ERR_ABORTED/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {

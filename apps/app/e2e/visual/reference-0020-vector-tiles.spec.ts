@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 
 // Configuration
 const EXPECTATION_NAME = '0020-backend-vector-tile-clustering';
@@ -29,37 +30,17 @@ const ZOOMED_OUT_LEVEL = 10; // City view - should show only active clusters
 const ZOOMED_IN_LEVEL = 16; // Street view - should show all nodes including ghosts
 
 // API base URL (assume running locally for tests)
-const API_URL = 'http://localhost:3000';
+const API_URL = 'http://localhost:3100';
 
-// Known acceptable errors
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/,
-  /fonts.*\.pbf/,
-  /Unable to load glyph/,
-  /AJAXError.*404/,
-  // Tile loading errors during initial render are acceptable
-  /tiles.*\.pbf.*Failed/,
-  /properties.*\.pbf/,
-  // Minified error messages (React 19 ref warning in production build)
-  /^ct$/,
-  /^[a-z]{1,3}$/,
-  // MapLibre image loading warnings (not errors)
-  /Image .* could not be loaded/,
-  // HTML srcset parsing errors (from thumbnail images with invalid URLs)
-  /Error while parsing the 'srcset' attribute/,
-  // Tile 500 errors from API (backend may not be running)
-  /tiles.*500/,
-  /AJAXError.*500/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -184,7 +165,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map container to be ready
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to zoomed-out level
     const mapConfigured = await page.evaluate(
@@ -204,8 +185,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     expect(mapConfigured).toBe(true);
 
-    // Wait for tiles to load
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Take screenshot
     await page.screenshot({
@@ -236,7 +217,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to zoomed-in level
     const mapConfigured = await page.evaluate(
@@ -256,8 +237,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     expect(mapConfigured).toBe(true);
 
-    // Wait for tiles to load
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Take screenshot
     await page.screenshot({
@@ -282,42 +263,53 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
 
-    // Check if vector tile source is configured
-    const hasVectorSource = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) return false;
-
-      // Check for properties source
-      const source = mapInstance.getSource('properties-source');
-      return source !== undefined && source.type === 'vector';
-    });
+    // Poll for the vector tile source to be added (it's added asynchronously in the map 'load' event)
+    const hasVectorSource = await page.waitForFunction(
+      () => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        const source = mapInstance.getSource('properties-source');
+        if (!source) return false;
+        // Check type via serialize() for reliability, fall back to direct property
+        const serialized = typeof source.serialize === 'function' ? source.serialize() : null;
+        const sourceType = serialized?.type ?? source.type;
+        return sourceType === 'vector';
+      },
+      { timeout: 15000 }
+    ).then(() => true).catch(() => false);
 
     expect(hasVectorSource, 'Vector tile source should be configured').toBe(true);
 
-    // Check if property layers exist
-    // Note: Layers are defined in the React component and should exist regardless of data loading
-    const layerCheckResult = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) return { hasLayers: false, missingLayers: [], allLayers: [] };
+    // Poll for property layers to be added (they're added together with the source in the load event)
+    const layerCheckResult = await page.waitForFunction(
+      () => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return null;
 
-      const expectedLayers = [
-        'property-clusters',
-        'single-active-points',
-        'active-nodes',
-        'ghost-nodes',
-      ];
+        const expectedLayers = [
+          'property-clusters',
+          'single-active-points',
+          'active-nodes',
+          'ghost-nodes',
+        ];
 
-      const allLayers = mapInstance.getStyle()?.layers?.map((l: any) => l.id) || [];
-      const missingLayers = expectedLayers.filter((layerId) => !mapInstance.getLayer(layerId));
+        const allLayers = mapInstance.getStyle()?.layers?.map((l: any) => l.id) || [];
+        const missingLayers = expectedLayers.filter((layerId: string) => !mapInstance.getLayer(layerId));
 
-      return {
-        hasLayers: missingLayers.length === 0,
-        missingLayers,
-        allLayers,
-      };
-    });
+        if (missingLayers.length > 0) return null; // Keep polling
+        return {
+          hasLayers: true,
+          missingLayers: [] as string[],
+          allLayers,
+        };
+      },
+      { timeout: 15000 }
+    ).then((handle) => handle.jsonValue()).catch(() => ({
+      hasLayers: false,
+      missingLayers: ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'],
+      allLayers: [] as string[],
+    }));
 
     if (!layerCheckResult.hasLayers) {
       console.log('Missing layers:', layerCheckResult.missingLayers);
@@ -334,7 +326,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Check ghost layer visibility at low zoom (Z10)
     const ghostLayerLowZoom = await page.evaluate(
@@ -395,7 +387,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set to default zoom level
     await page.evaluate(
@@ -411,7 +403,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       { center: EINDHOVEN_CENTER, zoom: 13 }
     );
 
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Take main screenshot
     await page.screenshot({

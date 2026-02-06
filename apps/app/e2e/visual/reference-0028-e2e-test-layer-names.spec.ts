@@ -35,22 +35,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 // Center on area with known properties from the database
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 
-// Known acceptable errors
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /Failed to load resource/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -106,7 +99,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+
+    // Wait for the map instance and property layers to be available
+    await page.waitForFunction(
+      (layerNames) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        // Verify all expected property layers are added
+        return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
+      },
+      [...ALL_PROPERTY_LAYERS, MAP_LAYER_NAMES.CLUSTER_COUNT],
+      { timeout: 30000, polling: 500 }
+    );
 
     // Configure map to low zoom (where clusters are visible)
     const LOW_ZOOM = 13;
@@ -120,7 +124,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: LOW_ZOOM }
     );
-    await page.waitForTimeout(4000);
+
+    // Wait for the map to settle at the new zoom/center
+    await page.waitForFunction(
+      (expectedZoom) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
+      },
+      LOW_ZOOM,
+      { timeout: 15000, polling: 500 }
+    );
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
@@ -169,7 +183,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+
+    // Wait for the map instance and property layers to be available
+    await page.waitForFunction(
+      (layerNames) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
+      },
+      [...ALL_PROPERTY_LAYERS, MAP_LAYER_NAMES.CLUSTER_COUNT],
+      { timeout: 30000, polling: 500 }
+    );
 
     // Configure map to high zoom (where ghost/active nodes are visible)
     const HIGH_ZOOM = 17;
@@ -183,7 +207,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: HIGH_ZOOM }
     );
-    await page.waitForTimeout(4000);
+
+    // Wait for the map to settle at the new zoom/center
+    await page.waitForFunction(
+      (expectedZoom) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
+      },
+      HIGH_ZOOM,
+      { timeout: 15000, polling: 500 }
+    );
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
@@ -232,7 +266,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+
+    // Wait for the map instance and property layers to be available
+    await page.waitForFunction(
+      (layerNames) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
+      },
+      [...ALL_PROPERTY_LAYERS, MAP_LAYER_NAMES.CLUSTER_COUNT],
+      { timeout: 30000, polling: 500 }
+    );
 
     // Configure map to high zoom
     await page.evaluate(
@@ -245,7 +289,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES }
     );
-    await page.waitForTimeout(4000);
+
+    // Wait for the map to settle at zoom 17
+    await page.waitForFunction(
+      () => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return Math.abs(mapInstance.getZoom() - 17) < 0.5 && !mapInstance.isMoving();
+      },
+      undefined,
+      { timeout: 15000, polling: 500 }
+    );
 
     // Query features from all property layers (should not produce errors)
     const queryResult = await page.evaluate((layerNames) => {
@@ -301,7 +355,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+
+    // Wait for the map instance and all property layers to be available (polling, no fixed timeout)
+    await page.waitForFunction(
+      (layerNames) => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
+      },
+      [...ALL_PROPERTY_LAYERS, MAP_LAYER_NAMES.CLUSTER_COUNT],
+      { timeout: 30000, polling: 500 }
+    );
 
     // Get all property-related layers from the map
     const actualLayers = await page.evaluate(() => {

@@ -14,6 +14,8 @@ import { test, expect } from '@playwright/test';
 import {
   createVisualTestContext,
   VisualTestContext,
+  waitForMapStyleLoaded,
+  waitForMapIdle,
 } from './helpers/visual-test-helpers';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -66,8 +68,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Ignore network idle timeout if websocket keeps connection open
     });
 
-    // Wait for React to hydrate and map to initialize
-    await page.waitForTimeout(8000);
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     // Find the map canvas
     const mapCanvas = page.locator('canvas').first();
@@ -93,8 +95,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL_FOR_POINTS }
         );
 
-        // Wait for tiles and property points to load
-        await page.waitForTimeout(5000);
+        // Wait for map to be idle after zoom and features to render
+        await waitForMapIdle(page);
 
         // Get map state info for debugging
         const mapStateInfo = await page.evaluate(() => {
@@ -332,11 +334,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ctx.start();
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForTimeout(8000);
+    await page.waitForLoadState('networkidle');
+
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     const mapCanvas = page.locator('canvas').first();
-    await mapCanvas.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+    await mapCanvas.waitFor({ state: 'visible', timeout: 30000 });
     const box = await mapCanvas.boundingBox();
 
     if (box) {
@@ -353,7 +357,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL_FOR_POINTS }
       );
 
-      await page.waitForTimeout(4000);
+      // Wait for map to be idle after zoom
+      await waitForMapIdle(page);
 
       // Click on a property marker using map's fire() method
       const markerClicked = await page.evaluate(() => {

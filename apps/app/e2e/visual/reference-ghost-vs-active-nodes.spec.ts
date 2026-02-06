@@ -13,6 +13,7 @@
 
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
 
 // Configuration
@@ -27,26 +28,15 @@ const DEFAULT_PITCH = 30; // Slight 3D perspective for visual appeal
 // Properties are concentrated around [5.486-5.49, 51.43-51.432]
 const CENTER_COORDINATES: [number, number] = [5.488, 51.431];
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_INCOMPLETE_CHUNKED_ENCODING/,
-  /Failed to load resource.*404/,
-  /Failed to load resource.*net::ERR/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  /useAuthContext must be used within an AuthProvider/,
-  /The above error occurred in the <AuthModal> component/,
-  /%o\s*%s\s*%s/,
 ];
 
 // Disable tracing to avoid artifact issues
@@ -120,8 +110,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map container to be ready
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-    // Wait for map to initialize and load tiles
-    await page.waitForTimeout(3000);
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     // Set map to unclustered zoom level with flat view for clear node visibility
     const mapConfigured = await page.evaluate(
@@ -170,8 +160,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     }
 
-    // Wait for tiles and property points to load
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Take screenshot
     await page.screenshot({
@@ -218,7 +208,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Wait for property layers to be added (requires API data to load)
     await page.waitForFunction(
@@ -297,7 +287,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Zoom to unclustered level
     await page.evaluate(
@@ -312,8 +302,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       { center: CENTER_COORDINATES, zoom: UNCLUSTERED_ZOOM_LEVEL, pitch: DEFAULT_PITCH }
     );
 
-    // Wait for map to settle and data to render
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Query for visible features in both layers
     const featureInfo = await page.evaluate(() => {

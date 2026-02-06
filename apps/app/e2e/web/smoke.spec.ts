@@ -2,28 +2,47 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Smoke tests for HuisHype web application.
- * These tests verify that the app loads and basic functionality works.
+ * These tests verify that the app loads and renders its core structural elements.
+ *
+ * Note: Expo dev server does NOT set document.title, so we assert on DOM content only.
  */
 test.describe('HuisHype Web - Smoke Tests', () => {
-  test('should load the homepage', async ({ page }) => {
+  test('should load the homepage with app shell', async ({ page }) => {
     await page.goto('/');
-
-    // Wait for the page to load
     await page.waitForLoadState('networkidle');
 
-    // Verify the page loaded by checking the title or a key element
-    await expect(page).toHaveTitle(/HuisHype|Expo/);
+    // The map container with data-testid="map-view" must be present
+    const mapView = page.locator('[data-testid="map-view"]');
+    await expect(mapView).toBeVisible();
+
+    // The MapLibre canvas should be rendered inside the map container
+    const mapCanvas = mapView.locator('canvas');
+    await expect(mapCanvas).toBeVisible();
   });
 
-  test('should display the main navigation', async ({ page }) => {
+  test('should display the tab navigation with Map and Feed tabs', async ({ page }) => {
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
 
-    // Wait for navigation to be visible
-    await page.waitForLoadState('domcontentloaded');
+    // Tab bar should contain "Map" and "Feed" tab labels
+    await expect(page.getByRole('link', { name: /Map/i }).or(page.getByText('Map'))).toBeVisible();
+    await expect(page.getByRole('link', { name: /Feed/i }).or(page.getByText('Feed'))).toBeVisible();
+  });
 
-    // Check that the page has rendered (not a blank page)
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+  test('should display the HuisHype header', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // The header title "HuisHype" should be visible (set via headerTitle in _layout.tsx)
+    await expect(page.getByText('HuisHype')).toBeVisible();
+  });
+
+  test('should show the zoom level indicator', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // The zoom indicator shows "Zoom: <number>" and is always rendered
+    await expect(page.getByText(/Zoom:\s*\d/)).toBeVisible();
   });
 
   test('should not have any console errors on load', async ({ page }) => {
@@ -63,11 +82,16 @@ test.describe('HuisHype Web - Smoke Tests', () => {
     await page.setViewportSize({ width: 375, height: 667 });
 
     await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForLoadState('networkidle');
 
-    // Verify the page renders correctly on mobile
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    // Map view and canvas should still render on mobile
+    const mapView = page.locator('[data-testid="map-view"]');
+    await expect(mapView).toBeVisible();
+    await expect(mapView.locator('canvas')).toBeVisible();
+
+    // Tab navigation should still be accessible on mobile
+    await expect(page.getByText('Map')).toBeVisible();
+    await expect(page.getByText('Feed')).toBeVisible();
   });
 
   test('should load critical assets', async ({ page }) => {
@@ -97,17 +121,28 @@ test.describe('HuisHype Web - Smoke Tests', () => {
 });
 
 test.describe('HuisHype Web - Basic Navigation', () => {
-  test('should handle navigation without crashing', async ({ page }) => {
+  test('should navigate to Feed tab and back', async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForLoadState('networkidle');
 
-    // Try to find and click any navigation element
-    const navLinks = page.locator('a, button').first();
+    // Verify we start on the Map tab (map canvas visible)
+    await expect(page.locator('[data-testid="map-view"]')).toBeVisible();
 
-    if (await navLinks.isVisible()) {
-      // Just verify we can interact with elements
-      await expect(navLinks).toBeEnabled();
-    }
+    // Click the Feed tab
+    const feedTab = page.getByRole('link', { name: /Feed/i }).or(page.getByText('Feed'));
+    await feedTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Feed header should now be visible
+    await expect(page.getByText('Feed')).toBeVisible();
+
+    // Navigate back to Map
+    const mapTab = page.getByRole('link', { name: /Map/i }).or(page.getByText('Map'));
+    await mapTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Map canvas should be visible again
+    await expect(page.locator('[data-testid="map-view"]')).toBeVisible();
   });
 
   test('should handle 404 pages gracefully', async ({ page }) => {
@@ -116,7 +151,10 @@ test.describe('HuisHype Web - Basic Navigation', () => {
     // The page should still render something (either 404 page or redirect)
     await page.waitForLoadState('domcontentloaded');
 
+    // At minimum the body should have content (not a blank white page)
     const body = page.locator('body');
     await expect(body).toBeVisible();
+    const bodyText = await body.textContent();
+    expect(bodyText?.trim().length).toBeGreaterThan(0);
   });
 });

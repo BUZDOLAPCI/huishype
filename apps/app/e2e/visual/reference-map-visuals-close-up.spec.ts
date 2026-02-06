@@ -14,6 +14,7 @@
 
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
 
 // Configuration
@@ -31,24 +32,15 @@ const BEARING_3D = -20; // Slight rotation for better 3D effect
 // Zwaanstraat in Eindhoven-Noord with dense row houses
 const CENTER_COORDINATES: [number, number] = [5.4645, 51.4575]; // Zwaanstraat residential area in Eindhoven-Noord
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/, // Font/image 404s are acceptable
-  /the server responded with a status of 404/, // OpenFreeMap font 404s
-  /AJAXError.*404/, // Tile loading 404s for edge tiles
-  /useAuthContext must be used within an AuthProvider/, // AuthModal context issue during testing
-  /AuthModal/, // AuthModal component errors during testing
-  /recreate this component tree from scratch/, // React error boundary recreation messages
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -119,8 +111,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map container to be ready
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-    // Wait for map to initialize and load tiles
-    await page.waitForTimeout(3000);
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     // Set map to close-up level with 3D perspective programmatically
     // Use flyTo for smooth transition that ensures tiles load properly
@@ -202,8 +194,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     });
 
     // Additional wait for 3D extrusion rendering
-    // 3D buildings need extra time to fully render after tiles load
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle (3D buildings and tiles fully rendered)
+    await waitForMapIdle(page);
 
     // Take screenshot
     await page.screenshot({
@@ -250,7 +242,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+
+    // Wait for map instance to be fully loaded with style and layers
+    await page.waitForFunction(
+      () => {
+        const mapInstance = (window as any).__mapInstance;
+        if (!mapInstance) return false;
+        if (!mapInstance.isStyleLoaded || !mapInstance.isStyleLoaded()) return false;
+        // 3D buildings layer is added in the map's 'load' event handler
+        return mapInstance.getLayer('3d-buildings') !== undefined;
+      },
+      { timeout: 30000 }
+    );
+
+    // Additional settle time for rendering
+    await page.waitForTimeout(2000);
 
     // Check map configuration
     // Note: Vegetation is FLAT (not 3D extruded) like in Snap Maps - only buildings are 3D

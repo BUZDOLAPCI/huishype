@@ -3,6 +3,7 @@ import {
   createVisualTestContext,
   VisualTestContext,
   VISUAL_SCREENSHOT_DIR,
+  waitForMapStyleLoaded,
 } from './helpers/visual-test-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,7 +21,7 @@ import * as path from 'path';
  * real issues like import errors, API mismatches, and runtime failures.
  */
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
 // Ensure screenshot directory exists
 test.beforeAll(async () => {
@@ -138,8 +139,8 @@ test.describe('HuisHype Visual E2E Tests', () => {
       await page.goto('/');
       await ctx.validator.waitForReady();
 
-      // Wait for potential map loading
-      await page.waitForTimeout(3000);
+      // Wait for map instance to be ready
+      await waitForMapStyleLoaded(page, 30000);
 
       // Take screenshot
       await ctx.screenshots.capture('map-view');
@@ -175,8 +176,8 @@ test.describe('HuisHype Visual E2E Tests', () => {
       // Try to capture loading state quickly
       await ctx.screenshots.capture('initial-state');
 
-      // Wait for content to load
-      await page.waitForTimeout(5000);
+      // Wait for map to be ready (or timeout gracefully)
+      await waitForMapStyleLoaded(page, 30000);
 
       // Screenshot after content should load
       await ctx.screenshots.capture('after-loading');
@@ -199,7 +200,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       // It's okay to still be loading if no errors
       if (stillLoading) {
-        console.log('Warning: Page appears to still be in loading state after 5 seconds');
+        console.log('Warning: Page appears to still be in loading state');
       }
 
       ctx.assertNoCriticalErrors();
@@ -211,7 +212,9 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(3000);
+
+      // Wait for map instance to be ready
+      await waitForMapStyleLoaded(page, 30000);
 
       // Look for map canvas
       const isMapVisible = await ctx.validator.isMapVisible();
@@ -265,8 +268,8 @@ test.describe('HuisHype Visual E2E Tests', () => {
       await page.goto('/');
       await ctx.validator.waitForReady();
 
-      // Wait for API calls to complete
-      await page.waitForTimeout(5000);
+      // Wait for map and API data to load
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('properties-loaded');
 
@@ -313,7 +316,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
       // Now load the page and verify it can display this data
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(3000);
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('properties-data');
 
@@ -345,7 +348,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
       // If API is down, the app should handle it gracefully
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(5000);
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('api-state');
 
@@ -376,7 +379,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(3000);
+      await waitForMapStyleLoaded(page, 30000);
 
       // Find map canvas
       const mapCanvas = page.locator('canvas').first();
@@ -416,7 +419,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(3000);
+      await waitForMapStyleLoaded(page, 30000);
 
       const mapCanvas = page.locator('canvas').first();
       const isMapVisible = await mapCanvas.isVisible().catch(() => false);
@@ -456,7 +459,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(5000);
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('map-with-markers');
 
@@ -515,8 +518,8 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await ctx.screenshots.capture('step-1-loaded');
 
-      // Wait and observe
-      await page.waitForTimeout(3000);
+      // Wait for map to settle
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('step-2-settled');
 
@@ -549,7 +552,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await page.goto('/');
       await ctx.validator.waitForReady();
-      await page.waitForTimeout(5000);
+      await waitForMapStyleLoaded(page, 30000);
 
       await ctx.screenshots.capture('final-state');
 
@@ -601,7 +604,7 @@ test.describe('Critical Integration Checks', () => {
 
     await ctx.screenshots.capture('dom-ready');
 
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page, 30000);
     logEvent('settled');
 
     await ctx.screenshots.capture('settled');
@@ -621,12 +624,12 @@ test.describe('Critical Integration Checks', () => {
 
     await page.goto('/');
 
-    // Wait a full 10 seconds
-    await page.waitForTimeout(10000);
+    // Wait for map to fully load and settle
+    await waitForMapStyleLoaded(page, 30000);
 
-    await ctx.screenshots.capture('after-10-seconds');
+    await ctx.screenshots.capture('after-load');
 
-    // After 10 seconds, app should be fully loaded
+    // After loading, app should be fully loaded
     const { hasError, errorText } = await ctx.validator.hasVisibleErrors();
 
     if (hasError) {

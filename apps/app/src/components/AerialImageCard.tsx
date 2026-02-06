@@ -46,11 +46,6 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
 
   const imageUrl = getDutchAerialSnapshotUrl(lat, lon, width, height, boxSizeMeters);
 
-  const handleLoadStart = () => {
-    setLoading(true);
-    setError(false);
-  };
-
   const handleLoadEnd = () => {
     setLoading(false);
   };
@@ -69,7 +64,6 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
           source={{ uri: imageUrl }}
           style={styles.aerialImage}
           resizeMode="cover"
-          onLoadStart={handleLoadStart}
           onLoadEnd={handleLoadEnd}
           onError={handleError}
           testID={`${testID}-image`}

@@ -13,6 +13,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import * as path from 'path';
+import { waitForMapIdle } from './helpers/visual-test-helpers';
 import * as fs from 'fs';
 
 // Disable tracing to avoid trace file issues
@@ -25,28 +26,21 @@ test.setTimeout(120000);
 const EXPECTATION_NAME = 'quick-action-buttons-on-preview';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Map view configuration - use coordinates where actual properties exist
-// Properties are concentrated around [5.488, 51.430] area
-const CENTER_COORDINATES: [number, number] = [5.488, 51.430];
-const ZOOM_LEVEL = 15; // Zoom level where individual markers are visible (not clustered)
+// Map view configuration - use Eindhoven center where properties and listings exist
+// The backend API returns individual points (with is_ghost) only at z17+
+// At z15-z16 there's a gap between frontend layers and backend clustering
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
+const ZOOM_LEVEL = 17; // Zoom level where individual markers are visible (API returns individual points at z17+)
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /Failed to load resource.*404/,
-  /Failed to load resource/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
 ];
 
 /**
@@ -161,10 +155,7 @@ async function waitForMapReady(page: Page): Promise<void> {
     console.log('Loading indicator not found or already hidden');
   });
 
-  // Wait for map to fully initialize
-  await page.waitForTimeout(3000);
-
-  // Wait for properties to be rendered on the map and have features
+  // Wait for map to fully initialize, style to load, layers to exist, and features to render
   await page.waitForFunction(
     () => {
       const mapInstance = (window as any).__mapInstance;
@@ -194,15 +185,15 @@ async function waitForMapReady(page: Page): Promise<void> {
 
       return featureCount > 0;
     },
-    { timeout: 45000 }
+    { timeout: 45000, polling: 500 }
   );
 
-  // Additional wait for tiles and features to render
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle (all tiles fully rendered)
+  await waitForMapIdle(page, 10000);
 }
 
 /**
- * Helper function to zoom the map programmatically
+ * Helper function to zoom the map programmatically and wait for features to render
  */
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<boolean> {
   const result = await page.evaluate(
@@ -220,33 +211,32 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
     { center, zoom }
   );
 
-  // Wait for the zoom to take effect and tiles to load
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle after zoom (all tiles loaded)
+  await waitForMapIdle(page);
 
-  // Wait for the map to be idle (all tiles loaded)
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
+  // Wait for property features to actually be rendered after zoom
+  await page.waitForFunction(
+    () => {
       const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) {
-        resolve();
-        return;
-      }
+      if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
+      const canvas = mapInstance.getCanvas();
+      if (!canvas) return false;
 
-      if (mapInstance.areTilesLoaded()) {
-        resolve();
-      } else {
-        const handler = () => {
-          mapInstance.off('idle', handler);
-          resolve();
-        };
-        mapInstance.on('idle', handler);
-        // Timeout fallback
-        setTimeout(() => {
-          mapInstance.off('idle', handler);
-          resolve();
-        }, 5000);
-      }
-    });
+      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        .filter(l => mapInstance.getLayer(l));
+      if (layerIds.length === 0) return false;
+
+      try {
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: layerIds }
+        );
+        return (features?.length || 0) > 0;
+      } catch { return false; }
+    },
+    { timeout: 30000, polling: 500 }
+  ).catch(() => {
+    console.log('Warning: Timed out waiting for property features after zoom');
   });
 
   return result;
@@ -489,12 +479,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         expect(buttonsLayout.areHorizontal, 'Buttons should be arranged horizontally').toBe(true);
       }
 
-      // Verify border separator exists
+      // Verify border separator exists (the preview-actions div has border-top CSS)
       const hasBorderSeparator = await page.evaluate(() => {
         const card = document.querySelector('[data-testid="property-preview-card"]');
         if (!card) return false;
-        const borderElement = card.querySelector('.border-t');
-        return borderElement !== null;
+        // Check for .border-t (Tailwind) or .preview-actions (which has border-top in CSS)
+        const borderElement = card.querySelector('.border-t') || card.querySelector('.preview-actions');
+        if (!borderElement) return false;
+        // Verify it actually has a visible border-top
+        const style = window.getComputedStyle(borderElement);
+        return style.borderTopWidth !== '0px' && style.borderTopStyle !== 'none';
       });
       console.log(`Has border separator: ${hasBorderSeparator}`);
       expect(hasBorderSeparator, 'Should have border separator between info and actions').toBe(true);

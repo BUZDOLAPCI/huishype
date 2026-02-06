@@ -1,9 +1,9 @@
 # HuisHype Feed View E2E Test
-# This Maestro flow tests the property feed functionality.
+# Tests the property feed: filter chips, scrolling, property cards, and card details.
 #
 # Prerequisites:
-# - App must be installed on simulator/emulator
-# - Backend API should be accessible (or mocked)
+# - App installed on emulator, Metro dev server running
+# - Backend API accessible at localhost:3100
 #
 # Usage:
 # maestro test apps/app/e2e/mobile/feed.yaml
@@ -13,122 +13,217 @@ tags:
   - feature:feed
   - smoke
 ---
-# Launch the app fresh
-- launchApp:
-    clearState: true
+# Launch the app
+- launchApp
 
-# Wait for initial load
+# Handle Expo Dev Client server picker if shown
+- tapOn:
+    text: ".*10.0.2.2:8081.*"
+    optional: true
+
+# Wait for app to load
 - extendedWaitUntil:
-    visible: ".*"
+    visible: "HuisHype"
+    timeout: 60000
+
+# Dismiss Expo developer menu if it appears
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    point: "50%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+# Navigate to Feed tab
+- tapOn: "Feed"
+
+# Wait for feed to load - filter chips should be visible
+- extendedWaitUntil:
+    visible: "All"
     timeout: 15000
 
-# Take screenshot of initial state
-- takeScreenshot: feed_01_initial_state
+- assertVisible: "New"
+- assertVisible: "Trending"
+- assertVisible: "Price Mismatch"
 
-# Navigate to feed tab
-- tapOn:
-    text: "Feed"
+- takeScreenshot: maestro-screenshots/feed_01_loaded_with_filters
+
+# Verify property cards are displayed
+# Look for price indicators (Euro symbol or price text)
+# With seeded data, property cards with prices should always render on the "All" filter
+- assertVisible:
+    text: ".*\\u20AC.*"
+
+# Look for WOZ Value label on cards (conditional on property having WOZ data)
+- assertVisible:
+    text: "WOZ Value"
     optional: true
 
-# Wait for feed to load
+# Look for activity stats on cards (comments, guesses)
+# Every property card always renders the guesses count (e.g. "0 guesses")
+- assertVisible:
+    text: ".*guesses.*"
+
+- takeScreenshot: maestro-screenshots/feed_02_property_cards_visible
+
+# Test "All" filter (should be default)
+- tapOn: "All"
 - extendedWaitUntil:
-    visible: ".*"
-    timeout: 10000
-
-# Take screenshot of feed loaded
-- takeScreenshot: feed_02_loaded
-
-# Test filter chips - tap on "New" filter
-- tapOn:
-    text: "New"
-    optional: true
-
-# Wait for filter to apply
-- extendedWaitUntil:
-    visible: ".*"
+    visible: "All"
     timeout: 5000
+- takeScreenshot: maestro-screenshots/feed_03_all_filter
 
-# Take screenshot after "New" filter
-- takeScreenshot: feed_03_new_filter
+# Test "New" filter
+- tapOn: "New"
+- extendedWaitUntil:
+    visible: "New"
+    timeout: 5000
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/feed_04_new_filter
 
-# Test filter chips - tap on "Trending" filter
-- tapOn:
+# Verify property cards are still shown after filter change
+- assertVisible:
+    text: ".*\\u20AC.*"
+    optional: true
+
+# Test "Trending" filter
+- tapOn: "Trending"
+- extendedWaitUntil:
+    visible: "Trending"
+    timeout: 5000
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/feed_05_trending_filter
+
+# Look for "Trending" badge on cards (hot activity level)
+- assertVisible:
     text: "Trending"
     optional: true
 
-# Wait for filter to apply
+# Test "Price Mismatch" filter
+- tapOn: "Price Mismatch"
 - extendedWaitUntil:
-    visible: ".*"
+    visible: "Price Mismatch"
     timeout: 5000
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/feed_06_price_mismatch_filter
 
-# Take screenshot after "Trending" filter
-- takeScreenshot: feed_04_trending_filter
-
-# Test filter chips - tap on "Price Mismatch" filter
-- tapOn:
-    text: "Price Mismatch"
+# Look for price comparison text on cards
+- assertVisible:
+    text: ".*vs asking.*"
     optional: true
-
-# Wait for filter to apply
-- extendedWaitUntil:
-    visible: ".*"
-    timeout: 5000
-
-# Take screenshot after "Price Mismatch" filter
-- takeScreenshot: feed_05_price_mismatch_filter
 
 # Reset to "All" filter
-- tapOn:
-    text: "All"
-    optional: true
-
-# Wait for filter to apply
+- tapOn: "All"
 - extendedWaitUntil:
-    visible: ".*"
+    visible: "All"
     timeout: 5000
+- waitForAnimationToEnd
 
-# Scroll the feed down
-- scroll:
-    direction: DOWN
+# Scroll down to load more properties
+- scroll
+- takeScreenshot: maestro-screenshots/feed_07_after_first_scroll
 
-# Take screenshot after scroll
-- takeScreenshot: feed_06_after_scroll
-
-# Scroll more to test infinite loading
-- scroll:
-    direction: DOWN
-
-- scroll:
-    direction: DOWN
-
-# Take screenshot showing more properties loaded
-- takeScreenshot: feed_07_more_properties
-
-# Scroll back up
-- scroll:
-    direction: UP
-
-- scroll:
-    direction: UP
-
-# Verify feed is still responsive
+# Look for more property cards after scroll (should still be visible with "All" filter)
 - assertVisible:
-    text: ".*"
+    text: ".*\\u20AC.*"
+
+# Continue scrolling to test infinite scroll/pagination
+- scroll
+- takeScreenshot: maestro-screenshots/feed_08_after_second_scroll
+
+- scroll
+- takeScreenshot: maestro-screenshots/feed_09_after_third_scroll
+
+# Look for "No image available" placeholder (some properties may not have images)
+- assertVisible:
+    text: "No image available"
     optional: true
 
-# Take final screenshot
-- takeScreenshot: feed_08_final_state
+# Look for property details like year built or surface area
+- assertVisible:
+    text: ".*m\\u00B2.*"
+    optional: true
 
-# Test property card tap (if there's a property to tap)
+- takeScreenshot: maestro-screenshots/feed_10_property_details
+
+# Scroll back to top
+- swipe:
+    direction: DOWN
+    duration: 500
+- swipe:
+    direction: DOWN
+    duration: 500
+- swipe:
+    direction: DOWN
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/feed_11_scrolled_back_top
+
+# Tap on a property card to view details
+# The first card should be near the top after scrolling back
 - tapOn:
-    text: ".*"
-    index: 0
+    point: "50%,40%"
     optional: true
 
-# Wait for potential navigation
-- extendedWaitUntil:
-    visible: ".*"
-    timeout: 5000
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/feed_12_tapped_card
 
-# Take screenshot of property detail (if navigated)
-- takeScreenshot: feed_09_property_detail
+# If property detail screen appeared, verify it has property details
+- assertVisible:
+    text: "Property Details"
+    optional: true
+
+- assertVisible:
+    text: ".*Guess.*"
+    optional: true
+
+- assertVisible:
+    text: "Save"
+    optional: true
+
+- assertVisible:
+    text: "Share"
+    optional: true
+
+- assertVisible:
+    text: "Like"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/feed_13_property_detail_view
+
+# Close the property details screen by pressing back button
+# Android back gesture is more reliable than tapping the X
+- pressKey: back
+
+- waitForAnimationToEnd
+
+# Wait for feed to be visible again
+- extendedWaitUntil:
+    visible: "All"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/feed_14_back_to_feed
+
+# Switch to Map tab to verify navigation still works
+- tapOn: "Map"
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/feed_15_switched_to_map
+
+# Switch back to Feed tab
+- tapOn: "Feed"
+- extendedWaitUntil:
+    visible: "All"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/feed_16_back_to_feed
+
+# Final verification that app is stable
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+- takeScreenshot: maestro-screenshots/feed_17_final_state

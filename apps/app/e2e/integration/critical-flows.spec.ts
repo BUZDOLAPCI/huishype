@@ -14,11 +14,11 @@ import { test, expect } from '@playwright/test';
  *
  * IMPORTANT: These tests require:
  * 1. Docker services running (postgres, redis)
- * 2. API server running on port 3000
+ * 2. API server running on port 3100
  * 3. Web app running on port 8081
  */
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
 test.describe('Critical Flows - Full Stack Integration', () => {
   test.describe('API Health & Connectivity', () => {
@@ -228,7 +228,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       // Verify API calls went to the correct URL (not a mock)
       const validApiCalls = apiCalls.filter((url) =>
-        url.includes('localhost:3000') || url.includes(API_BASE_URL)
+        url.includes('localhost:3100') || url.includes(API_BASE_URL)
       );
       expect(validApiCalls.length).toBeGreaterThan(0);
     });

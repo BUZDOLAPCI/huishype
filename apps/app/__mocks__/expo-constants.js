@@ -4,12 +4,12 @@ module.exports = {
   default: {
     expoConfig: {
       extra: {
-        apiUrl: 'http://localhost:3000',
+        apiUrl: 'http://localhost:3100',
       },
     },
     manifest: {
       extra: {
-        apiUrl: 'http://localhost:3000',
+        apiUrl: 'http://localhost:3100',
       },
     },
   },

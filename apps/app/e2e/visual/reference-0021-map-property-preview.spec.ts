@@ -14,6 +14,7 @@
 
 import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
 
 /**
@@ -84,35 +85,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.746, 51.400]; // Asten area where seeded data exists
 const ZOOM_LEVEL = 17; // Zoom level 17+ shows all nodes including ghosts (no listing/activity filter)
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /Failed to load resource.*404/,
-  /Failed to load resource/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  // Minified library errors (2-3 char error codes)
-  /^[a-z]{1,3}$/i,
-  // MapLibre/Mapbox errors
-  /maplibre|mapbox/i,
-  // Expo/React Native web errors
-  /pointerEvents is deprecated/,
-  /shadow\* style props are deprecated/,
-  // PDOK tile errors
-  /pdok\.nl/,
-  /tiles/,
-  // OpenFreeMap errors
-  /openfreemap/,
 ];
 
 // Increase test timeout for this visual test
@@ -212,20 +193,11 @@ async function waitForMapReady(page: Page): Promise<void> {
   // Wait for map view element
   await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-  // Wait for map to fully initialize
-  await page.waitForTimeout(3000);
+  // Wait for map instance to be available and style loaded
+  await waitForMapStyleLoaded(page);
 
-  // Wait for map instance to be available
-  await page.waitForFunction(
-    () => {
-      const mapInstance = (window as any).__mapInstance;
-      return mapInstance && typeof mapInstance.setZoom === 'function';
-    },
-    { timeout: 30000 }
-  );
-
-  // Additional wait for tiles to load
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle (all tiles fully rendered)
+  await waitForMapIdle(page, 10000);
 }
 
 /**
@@ -247,32 +219,29 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
     { center, zoom }
   );
 
-  // Wait for the zoom to take effect and tiles to load
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle after zoom (all tiles loaded)
+  await waitForMapIdle(page);
 
-  // Wait for the map to be idle (all tiles loaded)
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) {
-        resolve();
-        return;
-      }
-
-      if (mapInstance.areTilesLoaded()) {
-        resolve();
-      } else {
-        const handler = () => {
-          mapInstance.off('idle', handler);
-          resolve();
-        };
-        mapInstance.on('idle', handler);
-        setTimeout(() => {
-          mapInstance.off('idle', handler);
-          resolve();
-        }, 5000);
-      }
-    });
+  // Wait for property features to be rendered
+  await page.waitForFunction(
+    () => {
+      const m = (window as any).__mapInstance;
+      if (!m || !m.isStyleLoaded()) return false;
+      const canvas = m.getCanvas();
+      if (!canvas) return false;
+      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        .filter((l: string) => m.getLayer(l));
+      if (layerIds.length === 0) return false;
+      try {
+        const features = m.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]], { layers: layerIds }
+        );
+        return (features?.length || 0) > 0;
+      } catch { return false; }
+    },
+    { timeout: 30000, polling: 500 }
+  ).catch(() => {
+    console.log('Warning: Timed out waiting for property features after zoom');
   });
 
   return result;

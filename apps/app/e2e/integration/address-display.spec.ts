@@ -8,7 +8,7 @@
  *
  * Prerequisites:
  * 1. Docker services running (postgres, redis)
- * 2. API server running on port 3000 with seeded data
+ * 2. API server running on port 3100 with seeded data
  * 3. Web app running on port 8081
  * 4. Database seeded with real addresses (not "BAG Pand..." placeholders)
  */
@@ -20,7 +20,7 @@ import fs from 'fs';
 // Configuration
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
 // Bounding box for area with real addresses (seeded via PDOK Locatieserver)
 // This area contains properties with real street names like "Opera", "Nabucco", "Ella Fitzgeraldlaan"
@@ -34,44 +34,15 @@ const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
 // Real Dutch addresses look like: "Straatnaam 123" or similar
 const REAL_ADDRESS_PATTERN = /^[A-Za-zÀ-ÿ\s'-]+\s+\d+[A-Za-z]?$/;
 
-// Known acceptable console errors (same as visual tests)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
   /ResizeObserver loop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
-  /useAuthContext must be used within an AuthProvider/,
-  /performReactRefresh/,
-  /scheduleRefresh/,
-  /recreate this component tree from scratch/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
-  /service-worker\.js/,
   /Fast Refresh/,
   /\[HMR\]/,
   /WebSocket connection/,
-  /net::ERR_/,
-  /tiles\.openfreemap\.org/,
-  /\.pbf/,
-  /openfreemap/,
-  /ERR_INCOMPLETE_CHUNKED_ENCODING/,
-  /ERR_CONNECTION_REFUSED/,
-  /ERR_NAME_NOT_RESOLVED/,
-  /via\.placeholder\.com/,
-  /placeholder\.com/,
-  /Ionicons\.ttf/,
-  /FontAwesome\.ttf/,
-  /vector-icons/,
-  /\/assets\//,
-  /unstable_path/,
-  // Context/Provider errors during hot reload
-  /^ct$/,
-  /Context/i,
-  /Provider/i,
-  // Short error codes from React dev mode
-  /^[a-z]{1,3}$/i,
+  /net::ERR_ABORTED/,
 ];
 
 test.describe('Address Display - Non-Mocked Integration Tests', () => {

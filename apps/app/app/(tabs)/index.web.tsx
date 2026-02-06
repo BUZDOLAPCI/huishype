@@ -1,7 +1,6 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { Text, View } from 'react-native';
 import maplibregl from 'maplibre-gl';
-import Constants from 'expo-constants';
 
 import {
   PropertyBottomSheet,
@@ -11,14 +10,7 @@ import {
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
-
-// Get API URL for tile endpoint
-const getApiUrl = (): string => {
-  const extra = Constants.expoConfig?.extra;
-  return extra?.apiUrl ?? 'http://localhost:3000';
-};
-
-const API_URL = getApiUrl();
+import { API_URL } from '@/src/utils/api';
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -26,26 +18,8 @@ const DEFAULT_ZOOM = 13;
 const DEFAULT_PITCH = 50; // 3D perspective angle
 const DEFAULT_BEARING = 0;
 
-// Zoom threshold for ghost nodes (matching backend)
-const GHOST_NODE_THRESHOLD_ZOOM = 15;
-
-// OpenFreeMap Bright style - warm, detailed map with building data for 3D extrusions
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/bright';
-
-// Vector tile URL template
-const TILE_URL = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
-
-// 3D Buildings configuration
-const BUILDINGS_3D_CONFIG = {
-  minZoom: 14,
-  colors: {
-    base: '#FFFFFF',
-    highlight: '#FFFFFF',
-    walls: '#F8F8F5',
-  },
-  opacity: 1.0,
-  heightMultiplier: 1.0,
-};
+// Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
+const STYLE_URL = `${API_URL}/tiles/style.json`;
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -70,96 +44,6 @@ const ENHANCED_BASE_COLORS = {
   road: '#FFFFFF',
   water: '#B8D4E8',
 };
-
-/**
- * Add 3D buildings layer
- */
-function add3DBuildingsLayer(map: maplibregl.Map) {
-  const sourceId = 'openmaptiles';
-  const existingLayers = map.getStyle()?.layers || [];
-
-  existingLayers.forEach((layer) => {
-    const isBuilding =
-      layer.id.includes('building') &&
-      'source-layer' in layer &&
-      layer['source-layer'] === 'building';
-
-    if (isBuilding) {
-      if (layer.type === 'fill') {
-        try {
-          map.setPaintProperty(layer.id, 'fill-opacity', [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            BUILDINGS_3D_CONFIG.minZoom,
-            1,
-            BUILDINGS_3D_CONFIG.minZoom + 0.5,
-            0,
-          ]);
-        } catch {
-          // Ignore
-        }
-      } else if (layer.type === 'fill-extrusion') {
-        try {
-          map.removeLayer(layer.id);
-        } catch {
-          // Ignore
-        }
-      }
-    }
-  });
-
-  const labelLayerId = existingLayers.find(
-    (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
-  )?.id;
-
-  map.addLayer(
-    {
-      id: '3d-buildings',
-      source: sourceId,
-      'source-layer': 'building',
-      type: 'fill-extrusion',
-      minzoom: BUILDINGS_3D_CONFIG.minZoom,
-      filter: ['!=', ['get', 'hide_3d'], true],
-      paint: {
-        'fill-extrusion-color': BUILDINGS_3D_CONFIG.colors.base,
-        'fill-extrusion-height': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          BUILDINGS_3D_CONFIG.minZoom,
-          0,
-          BUILDINGS_3D_CONFIG.minZoom + 1,
-          [
-            '*',
-            ['coalesce', ['get', 'render_height'], 10],
-            BUILDINGS_3D_CONFIG.heightMultiplier,
-          ],
-        ],
-        'fill-extrusion-base': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          BUILDINGS_3D_CONFIG.minZoom,
-          0,
-          BUILDINGS_3D_CONFIG.minZoom + 1,
-          ['coalesce', ['get', 'render_min_height'], 0],
-        ],
-        'fill-extrusion-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          BUILDINGS_3D_CONFIG.minZoom,
-          0,
-          BUILDINGS_3D_CONFIG.minZoom + 0.5,
-          BUILDINGS_3D_CONFIG.opacity,
-        ],
-        'fill-extrusion-vertical-gradient': false,
-      },
-    },
-    labelLayerId
-  );
-}
 
 /**
  * Enhance vegetation colors
@@ -322,188 +206,6 @@ function enhanceBaseMapColors(map: maplibregl.Map) {
       // Ignore
     }
   });
-}
-
-/**
- * Add vector tile property layers
- */
-function addPropertyLayers(map: maplibregl.Map) {
-  // Add vector tile source for properties
-  if (!map.getSource('properties-source')) {
-    map.addSource('properties-source', {
-      type: 'vector',
-      tiles: [TILE_URL],
-      minzoom: 0,
-      maxzoom: 22,
-    });
-  }
-
-  // Find label layer to insert before
-  const existingLayers = map.getStyle()?.layers || [];
-  const labelLayerId = existingLayers.find(
-    (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
-  )?.id;
-
-  // Layer 1: Clusters (Z0-Z14)
-  map.addLayer(
-    {
-      id: 'property-clusters',
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: 0,
-      maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
-      paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['coalesce', ['get', 'point_count'], 2],
-          2,
-          18,
-          10,
-          24,
-          50,
-          32,
-          100,
-          40,
-        ],
-        'circle-color': [
-          'case',
-          ['==', ['get', 'has_active_children'], true],
-          '#FF5A5F', // Hot cluster
-          '#51bbd6', // Standard cluster
-        ],
-        'circle-opacity': 0.85,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
-      },
-    },
-    labelLayerId
-  );
-
-  // Cluster count labels
-  map.addLayer(
-    {
-      id: 'cluster-count',
-      type: 'symbol',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: 0,
-      maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
-      layout: {
-        'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-size': 14,
-        'text-allow-overlap': true,
-      },
-      paint: {
-        'text-color': '#FFFFFF',
-        'text-halo-color': '#000000',
-        'text-halo-width': 1,
-      },
-    },
-    labelLayerId
-  );
-
-  // Single active points at low zoom
-  map.addLayer(
-    {
-      id: 'single-active-points',
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: 0,
-      maxzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: [
-        'all',
-        ['any', ['!', ['has', 'point_count']], ['==', ['coalesce', ['get', 'point_count'], 0], 1]],
-      ],
-      paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0],
-          0,
-          8,
-          50,
-          12,
-          100,
-          16,
-        ],
-        'circle-color': [
-          'case',
-          ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 50],
-          '#EF4444', // red-500 (hot)
-          ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 0],
-          '#F97316', // orange-500 (warm)
-          '#3B82F6', // blue-500
-        ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
-      },
-    },
-    labelLayerId
-  );
-
-  // Active Nodes (Z15+)
-  map.addLayer(
-    {
-      id: 'active-nodes',
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['==', ['get', 'is_ghost'], false],
-      paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['coalesce', ['get', 'activityScore'], 0],
-          0,
-          6,
-          50,
-          10,
-          100,
-          14,
-        ],
-        'circle-color': [
-          'case',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
-          '#EF4444',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 0],
-          '#F97316',
-          '#3B82F6',
-        ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
-      },
-    },
-    labelLayerId
-  );
-
-  // Ghost Nodes (Z15+)
-  map.addLayer(
-    {
-      id: 'ghost-nodes',
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_THRESHOLD_ZOOM,
-      filter: ['==', ['get', 'is_ghost'], true],
-      paint: {
-        'circle-radius': 3,
-        'circle-color': '#94A3B8',
-        'circle-opacity': 0.4,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-opacity': 0.5,
-      },
-    },
-    labelLayerId
-  );
 }
 
 // Inject maplibre-gl CSS for web
@@ -939,219 +641,318 @@ export default function MapScreen() {
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: STYLE_URL,
-      center: EINDHOVEN_CENTER,
-      zoom: DEFAULT_ZOOM,
-      pitch: DEFAULT_PITCH,
-      bearing: DEFAULT_BEARING,
-      maxPitch: 70,
-    });
+    let cancelled = false;
 
-    // Expose map instance for testing
-    if (typeof window !== 'undefined') {
-      (window as unknown as { __mapInstance: maplibregl.Map }).__mapInstance = map;
-    }
+    // Fetch the merged style from our API (which already includes property layers,
+    // 3D buildings, and self-hosted font glyphs). Then apply sprite patching on top
+    // to strip/fix layers that reference missing POI icons.
+    async function initMap() {
+      let style: maplibregl.StyleSpecification | string = STYLE_URL;
+      try {
+        const res = await fetch(STYLE_URL);
+        const styleJson = await res.json();
 
-    // Expose bottom sheet ref for testing
-    if (typeof window !== 'undefined') {
-      (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef =
-        bottomSheetRef;
-    }
+        // Apply sprite patching — strip or fix layers that reference missing POI
+        // icons (office, gate, swimming_pool, bollard, etc.).
+        if (styleJson.sprite) {
+          try {
+            const spriteUrl = typeof styleJson.sprite === 'string'
+              ? styleJson.sprite
+              : styleJson.sprite[0]?.url ?? styleJson.sprite[0];
+            const spriteRes = await fetch(`${spriteUrl}@2x.json`);
+            if (spriteRes.ok) {
+              const spriteManifest: Record<string, unknown> = await spriteRes.json();
+              const availableSprites = new Set(Object.keys(spriteManifest));
 
-    // Expose auth modal trigger for testing
-    if (typeof window !== 'undefined') {
-      (
-        window as unknown as { __triggerAuthModal: (message?: string) => void }
-      ).__triggerAuthModal = (message?: string) => {
-        setAuthMessage(message || 'Sign in to continue');
-        setShowAuthModal(true);
-      };
-    }
+              // MapLibre expression keywords — not sprite names
+              const expressionKeywords = new Set([
+                'match', 'case', 'coalesce', 'concat', 'get', 'has', 'in',
+                'literal', 'step', 'interpolate', 'linear', 'exponential',
+                'zoom', 'let', 'var', 'all', 'any', 'none', '!', '==', '!=',
+                '>', '<', '>=', '<=', 'to-string', 'to-number', 'to-boolean',
+                'typeof', 'string', 'number', 'boolean', 'image', 'format',
+                'number-format', 'at', 'length', 'slice', 'index-of',
+              ]);
 
-    map.on('load', () => {
-      setMapLoaded(true);
+              // Detect if an icon-image expression is data-driven (resolves to
+              // feature property values at runtime, e.g. ["get", "class"]).
+              const isDataDriven = (expr: unknown): boolean => {
+                if (!Array.isArray(expr)) return false;
+                const op = expr[0];
+                if (op === 'get' || op === 'to-string') return true;
+                // Recurse into sub-expressions (match outputs, concat args, etc.)
+                return expr.some((child: unknown) => Array.isArray(child) && isDataDriven(child));
+              };
 
-      // Configure lighting
-      map.setLight({
-        anchor: 'viewport',
-        color: '#FFFFFF',
-        intensity: 0.3,
-        position: [1.15, 210, 45],
+              styleJson.layers = styleJson.layers.map((layer: Record<string, unknown>) => {
+                if (layer.type !== 'symbol') return layer;
+                const layout = layer.layout as Record<string, unknown> | undefined;
+                if (!layout) return layer;
+                const iconImage = layout['icon-image'];
+                if (!iconImage) return layer;
+
+                // Case 1: Plain string icon-image — drop layer if sprite missing
+                if (typeof iconImage === 'string') {
+                  return availableSprites.has(iconImage) ? layer : null;
+                }
+
+                // Case 2: Expression-based icon-image
+                if (Array.isArray(iconImage)) {
+                  if (isDataDriven(iconImage)) {
+                    layout['icon-image'] = ['coalesce', ['image', iconImage], ''];
+                    return layer;
+                  }
+
+                  // Static expression — extract literal sprite references
+                  const spriteRefs: string[] = [];
+                  const walk = (node: unknown) => {
+                    if (typeof node === 'string' && !expressionKeywords.has(node)) {
+                      spriteRefs.push(node);
+                    } else if (Array.isArray(node)) {
+                      node.forEach(walk);
+                    }
+                  };
+                  walk(iconImage);
+
+                  // If ALL referenced sprites are missing, drop the layer
+                  if (spriteRefs.length > 0 && spriteRefs.every((ref) => !availableSprites.has(ref))) {
+                    return null;
+                  }
+                }
+
+                return layer;
+              }).filter(Boolean);
+            }
+          } catch {
+            // If sprite fetch fails, keep all layers — MapLibre handles missing
+            // sprites gracefully with just console warnings.
+          }
+        }
+
+        style = styleJson;
+      } catch {
+        // If fetch fails, fall back to the URL and let MapLibre handle it
+        style = STYLE_URL;
+      }
+
+      if (cancelled || !mapContainerRef.current) return;
+
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style,
+        center: EINDHOVEN_CENTER,
+        zoom: DEFAULT_ZOOM,
+        pitch: DEFAULT_PITCH,
+        bearing: DEFAULT_BEARING,
+        maxPitch: 70,
       });
 
-      // Enhance base map
-      enhanceBaseMapColors(map);
-      enhanceVegetationColors(map);
-      add3DBuildingsLayer(map);
-      add3DTreeSymbols(map);
+      // Expose map instance for testing
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __mapInstance: maplibregl.Map }).__mapInstance = map;
+      }
 
-      // Add property layers from vector tiles
-      addPropertyLayers(map);
+      // Expose bottom sheet ref for testing
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef =
+          bottomSheetRef;
+      }
 
-      setTimeout(() => {
-        map.resize();
-      }, 100);
-    });
+      // Expose auth modal trigger for testing
+      if (typeof window !== 'undefined') {
+        (
+          window as unknown as { __triggerAuthModal: (message?: string) => void }
+        ).__triggerAuthModal = (message?: string) => {
+          setAuthMessage(message || 'Sign in to continue');
+          setShowAuthModal(true);
+        };
+      }
 
-    // Track zoom level
-    map.on('zoom', () => {
-      setCurrentZoom(map.getZoom());
-    });
+      map.on('load', () => {
+        setMapLoaded(true);
 
-    // Track map gestures to prevent preview card from closing during pan/zoom/rotate
-    map.on('dragstart', () => {
-      isDragging.current = true;
-    });
-    map.on('dragend', () => {
-      // Small delay to prevent the click event that follows dragend from closing the preview
-      setTimeout(() => {
-        isDragging.current = false;
-      }, 100);
-    });
-    map.on('zoomstart', () => {
-      isZooming.current = true;
-    });
-    map.on('zoomend', () => {
-      setTimeout(() => {
-        isZooming.current = false;
-      }, 100);
-    });
-    map.on('rotatestart', () => {
-      isRotating.current = true;
-    });
-    map.on('rotateend', () => {
-      setTimeout(() => {
-        isRotating.current = false;
-      }, 100);
-    });
+        // Configure lighting
+        map.setLight({
+          anchor: 'viewport',
+          color: '#FFFFFF',
+          intensity: 0.3,
+          position: [1.15, 210, 45],
+        });
 
-    // Handle click on property points
-    const handlePropertyClick = (
-      e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
-    ) => {
-      if (!e.features?.length) return;
+        // Enhance base map colors (imperative overrides on top of server-provided style)
+        enhanceBaseMapColors(map);
+        enhanceVegetationColors(map);
+        add3DTreeSymbols(map);
+        // NOTE: 3D buildings and property layers are already provided by /tiles/style.json
 
-      const feature = e.features[0];
-      const properties = feature.properties;
+        setTimeout(() => {
+          map.resize();
+        }, 100);
+      });
 
-      if (!properties) return;
+      // Track zoom level
+      map.on('zoom', () => {
+        setCurrentZoom(map.getZoom());
+      });
 
-      // Check if cluster
-      const isCluster =
-        properties.point_count !== undefined && properties.point_count > 1;
+      // Track map gestures to prevent preview card from closing during pan/zoom/rotate
+      map.on('dragstart', () => {
+        isDragging.current = true;
+      });
+      map.on('dragend', () => {
+        // Small delay to prevent the click event that follows dragend from closing the preview
+        setTimeout(() => {
+          isDragging.current = false;
+        }, 100);
+      });
+      map.on('zoomstart', () => {
+        isZooming.current = true;
+      });
+      map.on('zoomend', () => {
+        setTimeout(() => {
+          isZooming.current = false;
+        }, 100);
+      });
+      map.on('rotatestart', () => {
+        isRotating.current = true;
+      });
+      map.on('rotateend', () => {
+        setTimeout(() => {
+          isRotating.current = false;
+        }, 100);
+      });
 
-      if (isCluster) {
-        // Zoom in on cluster
-        const geom = feature.geometry;
-        if (geom.type === 'Point') {
-          const newZoom = Math.min(map.getZoom() + 2, 18);
-          map.easeTo({
-            center: geom.coordinates as [number, number],
-            zoom: newZoom,
-          });
-        }
-      } else {
-        // Individual property
-        const propertyId = properties.id as string;
-        const activityScore = (properties.activityScore as number) ?? 0;
-        const hasListing = (properties.hasListing as boolean) ?? false;
+      // Handle click on property points
+      const handlePropertyClick = (
+        e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
+      ) => {
+        if (!e.features?.length) return;
 
-        if (propertyId) {
-          // Get the coordinate from the feature geometry
+        const feature = e.features[0];
+        const properties = feature.properties;
+
+        if (!properties) return;
+
+        // Check if cluster
+        const isCluster =
+          properties.point_count !== undefined && properties.point_count > 1;
+
+        if (isCluster) {
+          // Zoom in on cluster
           const geom = feature.geometry;
           if (geom.type === 'Point') {
-            const coord = geom.coordinates as [number, number];
-            setSelectedCoordinate(coord);
+            const newZoom = Math.min(map.getZoom() + 2, 18);
+            map.easeTo({
+              center: geom.coordinates as [number, number],
+              zoom: newZoom,
+            });
           }
+        } else {
+          // Individual property
+          const propertyId = properties.id as string;
+          const activityScore = (properties.activityScore as number) ?? 0;
+          const hasListing = (properties.hasListing as boolean) ?? false;
 
-          setSelectedPropertyId(propertyId);
-          setSelectedActivityScore(activityScore);
-          setSelectedHasListing(hasListing);
-          setShowPreview(true);
-          setIsClusterPreview(false);
+          if (propertyId) {
+            // Get the coordinate from the feature geometry
+            const geom = feature.geometry;
+            if (geom.type === 'Point') {
+              const coord = geom.coordinates as [number, number];
+              setSelectedCoordinate(coord);
+            }
+
+            setSelectedPropertyId(propertyId);
+            setSelectedActivityScore(activityScore);
+            setSelectedHasListing(hasListing);
+            setShowPreview(true);
+            setIsClusterPreview(false);
+          }
         }
-      }
-    };
+      };
 
-    // Handle map click to close preview - only on true background taps
-    // CRITICAL: Preview card should only close when:
-    // 1. User taps on empty map background AND
-    // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
-    map.on('click', (e) => {
-      // Don't close preview if a gesture just ended (pan, zoom, or rotate)
-      if (isDragging.current || isZooming.current || isRotating.current) {
-        return;
-      }
-
-      // Only query layers that exist to avoid MapLibre errors
-      const layerIds = [
-        'property-clusters',
-        'single-active-points',
-        'active-nodes',
-        'ghost-nodes',
-      ].filter((layerId) => map.getLayer(layerId));
-
-      // If no layers exist yet, don't query
-      if (layerIds.length === 0) return;
-
-      const features = map.queryRenderedFeatures(e.point, {
-        layers: layerIds,
-      });
-
-      // Only close preview on true empty background tap (no features at click point)
-      // AND only if bottom sheet is NOT expanded (peek or closed state)
-      if (features.length === 0) {
-        // Check if bottom sheet is expanded (index > 0 means partial or full)
-        // If expanded, don't close preview - user intent is to dismiss sheet, not deselect property
-        // Use window global as backup since closure might not capture ref updates
-        const currentSheetIndex = typeof window !== 'undefined' && (window as unknown as { __sheetIndex?: number }).__sheetIndex !== undefined
-          ? (window as unknown as { __sheetIndex: number }).__sheetIndex
-          : sheetIndexRef.current;
-        if (currentSheetIndex <= 0) {
-          // Sheet is in peek (0) or closed (-1) state - safe to close preview
-          setShowPreview(false);
-          setIsClusterPreview(false);
+      // Handle map click to close preview - only on true background taps
+      // CRITICAL: Preview card should only close when:
+      // 1. User taps on empty map background AND
+      // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
+      map.on('click', (e) => {
+        // Don't close preview if a gesture just ended (pan, zoom, or rotate)
+        if (isDragging.current || isZooming.current || isRotating.current) {
+          return;
         }
-        // If sheet is expanded (1 or 2), the backdrop click will close the sheet
-        // but we DON'T close the preview card - it should persist
-      }
-    });
 
-    // Wait for layers to be added
-    map.on('sourcedata', () => {
-      // Attach click handlers once source is loaded
-      const propertyLayers = [
-        'property-clusters',
-        'single-active-points',
-        'active-nodes',
-        'ghost-nodes',
-      ];
+        // Only query layers that exist to avoid MapLibre errors
+        const layerIds = [
+          'property-clusters',
+          'single-active-points',
+          'active-nodes',
+          'ghost-nodes',
+        ].filter((layerId) => map.getLayer(layerId));
 
-      propertyLayers.forEach((layerId) => {
-        if (map.getLayer(layerId)) {
-          // Remove existing handlers
-          map.off('click', layerId, handlePropertyClick);
-          // Add click handler
-          map.on('click', layerId, handlePropertyClick);
+        // If no layers exist yet, don't query
+        if (layerIds.length === 0) return;
 
-          // Cursor style
-          map.on('mouseenter', layerId, () => {
-            map.getCanvas().style.cursor = 'pointer';
-          });
-          map.on('mouseleave', layerId, () => {
-            map.getCanvas().style.cursor = '';
-          });
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: layerIds,
+        });
+
+        // Only close preview on true empty background tap (no features at click point)
+        // AND only if bottom sheet is NOT expanded (peek or closed state)
+        if (features.length === 0) {
+          // Check if bottom sheet is expanded (index > 0 means partial or full)
+          // If expanded, don't close preview - user intent is to dismiss sheet, not deselect property
+          // Use window global as backup since closure might not capture ref updates
+          const currentSheetIndex = typeof window !== 'undefined' && (window as unknown as { __sheetIndex?: number }).__sheetIndex !== undefined
+            ? (window as unknown as { __sheetIndex: number }).__sheetIndex
+            : sheetIndexRef.current;
+          if (currentSheetIndex <= 0) {
+            // Sheet is in peek (0) or closed (-1) state - safe to close preview
+            setShowPreview(false);
+            setIsClusterPreview(false);
+          }
+          // If sheet is expanded (1 or 2), the backdrop click will close the sheet
+          // but we DON'T close the preview card - it should persist
         }
       });
-    });
 
-    mapRef.current = map;
+      // Wait for layers to be added
+      map.on('sourcedata', () => {
+        // Attach click handlers once source is loaded
+        const propertyLayers = [
+          'property-clusters',
+          'single-active-points',
+          'active-nodes',
+          'ghost-nodes',
+        ];
+
+        propertyLayers.forEach((layerId) => {
+          if (map.getLayer(layerId)) {
+            // Remove existing handlers
+            map.off('click', layerId, handlePropertyClick);
+            // Add click handler
+            map.on('click', layerId, handlePropertyClick);
+
+            // Cursor style
+            map.on('mouseenter', layerId, () => {
+              map.getCanvas().style.cursor = 'pointer';
+            });
+            map.on('mouseleave', layerId, () => {
+              map.getCanvas().style.cursor = '';
+            });
+          }
+        });
+      });
+
+      mapRef.current = map;
+    }
+
+    initMap();
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      cancelled = true;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
   }, []);
 

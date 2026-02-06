@@ -1,91 +1,270 @@
 # Property Bottom Sheet E2E Test
-# Tests the property detail bottom sheet functionality on mobile
-appId: com.huishype.app
+# Tests tapping a property on the map and interacting with the bottom sheet.
+# Includes preview card verification, partial and full expansion, and comments section.
+#
+# Strategy: First zoom in to z17+ where individual property markers are visible,
+# then tap on markers to show preview cards and bottom sheets.
+#
+# Prerequisites:
+# - App installed on emulator, Metro dev server running
+# - Backend API accessible with seeded data
+#
+# Usage:
+# maestro test apps/app/e2e/mobile/property-bottom-sheet.yaml
 
+appId: nl.huishype.app
+tags:
+  - feature:bottom-sheet
+  - feature:preview-card
 ---
-- launchApp:
-    clearState: true
+# Launch the app
+- launchApp
 
-# Wait for map to load
-- waitForAnimationToEnd
-
-# Take initial screenshot
-- takeScreenshot: map-initial
-
-# Wait for properties to load (or error state)
-- extendedWaitUntil:
-    visible:
-      anyOf:
-        - "properties"
-        - "Failed to load"
-        - "Loading"
-    timeout: 10000
-
-# Take screenshot of loaded state
-- takeScreenshot: map-loaded
-
-# Tap on the center of the map to select a property
+# Handle Expo Dev Client server picker if shown
 - tapOn:
-    point: "50%,50%"
-
-# Wait for preview card or bottom sheet to appear
-- waitForAnimationToEnd
-
-# Take screenshot of preview/selection state
-- takeScreenshot: property-selected
-
-# Look for the preview card elements
-- assertVisible:
-    anyOf:
-      - text: "Like"
-      - text: "Comment"
-      - text: "Guess"
-      - text: "Eindhoven"
+    text: ".*10.0.2.2:8081.*"
     optional: true
 
-# Tap on the preview card to expand bottom sheet (if visible)
+# Wait for app to fully load
+- extendedWaitUntil:
+    visible: "HuisHype"
+    timeout: 60000
+
+# Dismiss Expo developer menu if it appears
 - tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    point: "50%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+# Wait for map to render (zoom indicator confirms map is ready)
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 20000
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_01_map_loaded
+
+# First, zoom in to z17 where individual property markers are visible
+# At z13 (default), only clusters show and tapping them zooms in rather than showing preview
+# We need z15+ for individual markers
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+
+# Now at z17, individual markers should be visible
+# At Eindhoven center, there should be properties at z17
+# DON'T pan - stay at the zoomed center where properties exist
+- takeScreenshot: maestro-screenshots/bottom_sheet_02_zoomed_to_z17
+
+# Zoom in one more level to get denser property markers
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_03_zoomed_to_z18
+
+# Try tapping across the screen to find property markers
+# At z18 with Eindhoven center, there should be property markers visible
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_04_after_center_tap
+
+# Try multiple tap locations to hit a marker
+- tapOn:
+    point: "30%,40%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "70%,40%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "30%,60%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "70%,60%"
+    optional: true
+- waitForAnimationToEnd
+
+# Try corners
+- tapOn:
+    point: "20%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "80%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "20%,70%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "80%,70%"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_05_after_multi_tap
+
+# Check if preview card appeared with action buttons
+# These should appear when a property is selected
+- assertVisible:
     text: "Like"
     optional: true
 
-- waitForAnimationToEnd
-
-# Take screenshot of expanded state
-- takeScreenshot: bottom-sheet-expanded
-
-# Check for bottom sheet content sections (may not be visible if API is down)
 - assertVisible:
-    anyOf:
-      - text: "Save"
-      - text: "Share"
-      - text: "Guess the Price"
-      - text: "Comments"
-      - text: "Property Details"
+    text: "Comment"
     optional: true
 
-# Try swiping up to fully expand
+- assertVisible:
+    text: "Guess"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_06_preview_card_check
+
+# If a preview card is showing, tap on the card area to expand bottom sheet
+# The preview card should be in the bottom portion of the screen
+- tapOn:
+    point: "50%,75%"
+    optional: true
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_07_after_card_tap
+
+# Swipe up from bottom to partially expand the bottom sheet
+# This should reveal more property details
 - swipe:
-    direction: UP
+    start: "50%,90%"
+    end: "50%,50%"
     duration: 500
 
 - waitForAnimationToEnd
-- takeScreenshot: bottom-sheet-full-expand
+- takeScreenshot: maestro-screenshots/bottom_sheet_08_partial_expand
 
-# Try swiping down to dismiss
+# Look for elements that should appear in the partially expanded sheet
+# Property price information should be visible
+- assertVisible:
+    text: ".*WOZ.*"
+    optional: true
+
+- assertVisible:
+    text: ".*Value.*"
+    optional: true
+
+# Look for quick action buttons in the bottom sheet
+- assertVisible:
+    text: "Save"
+    optional: true
+
+- assertVisible:
+    text: "Share"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_09_partial_expand_details
+
+# Swipe up again to fully expand the bottom sheet
 - swipe:
-    direction: DOWN
+    start: "50%,70%"
+    end: "50%,20%"
     duration: 500
 
 - waitForAnimationToEnd
-- takeScreenshot: bottom-sheet-dismissed
+- takeScreenshot: maestro-screenshots/bottom_sheet_10_full_expand
 
-# Verify we're back to map view
+# In fully expanded state, look for Comments section
 - assertVisible:
-    anyOf:
-      - "properties"
-      - "Loading"
-      - "Failed"
+    text: "Comments"
     optional: true
 
-# Final screenshot
-- takeScreenshot: final-state
+# Look for the sort toggle in comments section
+- assertVisible:
+    text: "Recent"
+    optional: true
+
+- assertVisible:
+    text: "Popular"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_11_comments_visible
+
+# Scroll down within the bottom sheet to see more content
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_12_scrolled_content
+
+# Look for comment input area
+- assertVisible:
+    text: ".*thoughts.*"
+    optional: true
+
+- assertVisible:
+    text: ".*comment.*"
+    optional: true
+
+# Look for Price Guess section
+- assertVisible:
+    text: ".*Guess.*"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_13_more_sections
+
+# Scroll back up
+- swipe:
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 300
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_14_scrolled_back
+
+# Swipe down to collapse back to partial expand
+- swipe:
+    start: "50%,30%"
+    end: "50%,60%"
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/bottom_sheet_15_collapsed_partial
+
+# Swipe down again to dismiss the bottom sheet
+- swipe:
+    start: "50%,50%"
+    end: "50%,90%"
+    duration: 500
+
+- waitForAnimationToEnd
+
+# Verify we're back to the map view
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_16_dismissed
+
+# Verify tab bar is still accessible
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+- takeScreenshot: maestro-screenshots/bottom_sheet_17_final_state

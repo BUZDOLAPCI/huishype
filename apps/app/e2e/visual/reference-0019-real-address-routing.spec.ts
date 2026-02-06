@@ -18,46 +18,15 @@ import fs from 'fs';
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Known acceptable errors
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
   /ResizeObserver loop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
-  /useAuthContext must be used within an AuthProvider/,
-  /performReactRefresh/,
-  /scheduleRefresh/,
-  /recreate this component tree from scratch/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
-  /service-worker\.js/,
   /Fast Refresh/,
   /\[HMR\]/,
   /WebSocket connection/,
-  /net::ERR_/,
-  /tiles\.openfreemap\.org/,
-  /\.pbf/,
-  /openfreemap/,
-  /ERR_INCOMPLETE_CHUNKED_ENCODING/,
-  /ERR_CONNECTION_REFUSED/,
-  /ERR_NAME_NOT_RESOLVED/,
-  /via\.placeholder\.com/,
-  /placeholder\.com/,
-  /Ionicons\.ttf/,
-  /FontAwesome\.ttf/,
-  /vector-icons/,
-  /\/assets\//,
-  /unstable_path/,
-  // PDOK API mocking may cause some network errors in test environment
-  /api\.pdok\.nl/,
-  // React Context/Provider errors during hot reload
-  /^ct$/,
-  /Context/i,
-  /Provider/i,
-  // Short error codes from React dev mode
-  /^[a-z]{1,3}$/i,
+  /net::ERR_ABORTED/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {

@@ -2,6 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import {
   createVisualTestContext,
   VisualTestContext,
+  waitForMapStyleLoaded,
 } from './helpers/visual-test-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -99,8 +100,8 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     await page.goto('/');
     await ctx.validator.waitForReady();
 
-    // Wait for map and data to load
-    await page.waitForTimeout(5000);
+    // Wait for map to be ready
+    await waitForMapStyleLoaded(page);
 
     // Find the map canvas
     const mapCanvas = page.locator('canvas').first();
@@ -276,7 +277,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
 
     await page.goto('/');
     await ctx.validator.waitForReady();
-    await page.waitForTimeout(5000);
+    await waitForMapStyleLoaded(page);
 
     const mapCanvas = page.locator('canvas').first();
     const box = await mapCanvas.boundingBox();
@@ -349,7 +350,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
 
     await page.goto('/');
     await ctx.validator.waitForReady();
-    await page.waitForTimeout(5000);
+    await waitForMapStyleLoaded(page);
 
     const mapCanvas = page.locator('canvas').first();
     const box = await mapCanvas.boundingBox();

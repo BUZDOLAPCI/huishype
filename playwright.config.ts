@@ -3,7 +3,13 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright E2E test configuration for HuisHype web app.
  * See https://playwright.dev/docs/test-configuration
+ *
+ * NOTE: The Expo dev server compiles the Metro bundle on first request,
+ * which can take 30-60+ seconds. All web/integration projects use a
+ * 60s timeout to accommodate this. A global setup project warms the
+ * bundle before any browser tests run.
  */
+
 export default defineConfig({
   testDir: './apps/app/e2e',
   /* Run tests in files in parallel */
@@ -30,7 +36,13 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     /* Capture video on failure */
     video: 'on-first-retry',
+    /* Navigation timeout - Expo dev server can be slow on first load */
+    navigationTimeout: 45_000,
+    /* Action timeout */
+    actionTimeout: 15_000,
   },
+  /* Global timeout for all tests - Metro bundler's first compile is slow */
+  timeout: 60_000,
   /* Configure projects for major browsers */
   projects: process.env.CI
     ? [
@@ -45,7 +57,6 @@ export default defineConfig({
             trace: 'on-first-retry',
             video: 'on-first-retry',
           },
-          timeout: 90000, // 90 seconds per test in CI
         },
         {
           name: 'integration',
@@ -70,7 +81,6 @@ export default defineConfig({
             trace: 'retain-on-failure', // Changed from 'on' to avoid artifact race conditions
             video: 'retain-on-failure', // Changed from 'on' to avoid artifact race conditions
           },
-          timeout: 60000,
         },
         {
           name: 'integration',

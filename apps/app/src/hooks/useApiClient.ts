@@ -6,9 +6,9 @@
 import { useMemo, useCallback } from 'react';
 import { createApiClient, type HuisHypeApiClient } from '@huishype/api-client';
 import { useAuthContext } from '../providers/AuthProvider';
+import { API_URL } from '../utils/api';
 
-// API base URL from environment
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = API_URL;
 
 /**
  * Hook that returns a configured API client with auth token support

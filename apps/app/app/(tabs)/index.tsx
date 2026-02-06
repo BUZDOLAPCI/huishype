@@ -1,18 +1,17 @@
-import { useRef, useCallback, useState } from 'react';
-import { Text, View, ActivityIndicator, type NativeSyntheticEvent } from 'react-native';
+import { useRef, useCallback, useState, useEffect } from 'react';
+import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
 import {
   MapView,
   Camera,
-  VectorSource,
-  CircleLayer,
-  SymbolLayer,
+  LogManager,
   type CameraRef,
+  type MapViewRef,
   type ViewStateChangeEvent,
-  type PressEventWithFeatures,
+  type PressEvent,
 } from '@maplibre/maplibre-react-native';
-import type { Feature } from 'geojson';
-import Constants from 'expo-constants';
 
+// Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
+LogManager.setLogLevel('warn');
 import {
   PropertyPreviewCard,
   PropertyBottomSheet,
@@ -22,31 +21,74 @@ import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
-// Get API URL for tile endpoint
-const getApiUrl = (): string => {
-  const extra = Constants.expoConfig?.extra;
-  return extra?.apiUrl ?? 'http://localhost:3000';
-};
-
-const API_URL = getApiUrl();
+import { API_URL } from '@/src/utils/api';
 
 // No access token needed for MapLibre - it's open source
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const DEFAULT_ZOOM = 13;
+const DEFAULT_PITCH = 50; // 3D perspective angle for buildings
 
-// Zoom threshold for ghost nodes (matching backend)
-const GHOST_NODE_THRESHOLD_ZOOM = 15;
+// Style URL — served by our API, single source of truth for all map layers
+const STYLE_URL = `${API_URL}/tiles/style.json`;
 
-// OpenFreeMap Positron style - light, minimalist map with proper Dutch coverage
-// Shows roads, water, parks, and city labels at zoomed-out levels
-// Attribution: OpenFreeMap, OpenMapTiles, OpenStreetMap contributors
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
+/**
+ * Hook to fetch the merged MapLibre style from the API.
+ * The API's /tiles/style.json already contains:
+ *   - OpenFreeMap base style
+ *   - Property vector tile source + layers (with activity-score styling)
+ *   - 3D buildings layer
+ *   - Self-hosted font glyphs
+ *
+ * We fetch it as a JS object (not URL string) because maplibre-react-native
+ * alpha on Android only reliably renders custom vector sources when passed
+ * as inline style objects.
+ */
+function useMergedMapStyle(): object | null {
+  const [mergedStyle, setMergedStyle] = useState<object | null>(null);
 
-// Vector tile URL template
-const TILE_URL = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
+  useEffect(() => {
+    let cancelled = false;
+    fetch(STYLE_URL)
+      .then(r => r.json())
+      .then((styleJson: Record<string, unknown>) => {
+        if (cancelled) return;
+        console.log('[HuisHype] Fetched merged style from API, layers=',
+          (styleJson.layers as Array<unknown>)?.length);
+        setMergedStyle(styleJson);
+      })
+      .catch(e => {
+        console.error('[HuisHype] Failed to fetch merged style:', e.message);
+        // Fallback: minimal style with just our tiles (no base map)
+        const tileUrl = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
+        setMergedStyle({
+          version: 8,
+          sources: {
+            'properties-source': {
+              type: 'vector',
+              tiles: [tileUrl],
+              minzoom: 0,
+              maxzoom: 22,
+            },
+          },
+          layers: [
+            { id: 'background', type: 'background', paint: { 'background-color': '#e0e0e0' } },
+            {
+              id: 'property-circles',
+              type: 'circle',
+              source: 'properties-source',
+              'source-layer': 'properties',
+              paint: { 'circle-radius': 10, 'circle-color': '#FF5A5F', 'circle-opacity': 0.9 },
+            },
+          ],
+        });
+      });
+    return () => { cancelled = true; };
+  }, []);
 
+  return mergedStyle;
+}
 
 // Get activity level from score
 function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
@@ -56,7 +98,11 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
 }
 
 export default function MapScreen() {
+  const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
+  // Merged style as JS object (base map + property vector tiles)
+  const mergedStyle = useMergedMapStyle();
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
+  const mapViewRef = useRef<MapViewRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     null
@@ -64,6 +110,16 @@ export default function MapScreen() {
   const [showPreview, setShowPreview] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [mapLoaded, setMapLoaded] = useState(false);
+
+  // Timeout fallback: dismiss loading overlay after 10s even if onDidFinishLoadingMap doesn't fire
+  useEffect(() => {
+    if (mapLoaded) return;
+    const timeout = setTimeout(() => {
+      console.warn('Map loading timeout - dismissing overlay');
+      setMapLoaded(true);
+    }, 10000);
+    return () => clearTimeout(timeout);
+  }, [mapLoaded]);
 
   // Cluster preview state
   const [clusterPropertyIds, setClusterPropertyIds] = useState<string[]>([]);
@@ -85,24 +141,19 @@ export default function MapScreen() {
   // Fetch cluster properties (for paginated preview)
   const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
 
-  // Handle feature press from vector tiles
+  // Handle feature press - queries rendered features from style layers via MapView
+  // TODO: Re-implement using mapViewRef.queryRenderedFeatures() once tiles render
   const handleFeaturePress = useCallback(
-    (event: NativeSyntheticEvent<PressEventWithFeatures>) => {
-      const { features } = event.nativeEvent;
-      if (!features?.length) return;
-
+    async (features: GeoJSON.Feature[]) => {
+      if (!features.length) return;
       const feature = features[0];
       const properties = feature.properties;
-
       if (!properties) return;
 
-      // Check if this is a cluster (has point_count property from backend clustering)
       const isCluster =
         properties.point_count !== undefined && properties.point_count > 1;
 
       if (isCluster) {
-        // Cluster tap - zoom in to expand
-        // For now, zoom in. In future, could show paginated preview
         const clusterGeom = feature.geometry;
         if (clusterGeom && clusterGeom.type === 'Point') {
           const [lng, lat] = clusterGeom.coordinates as [number, number];
@@ -114,7 +165,6 @@ export default function MapScreen() {
           });
         }
       } else {
-        // Individual property tap
         const propertyId = properties.id as string;
         const activityScore = (properties.activityScore as number) ?? 0;
         const hasListing = (properties.hasListing as boolean) ?? false;
@@ -237,35 +287,104 @@ export default function MapScreen() {
     // TODO: Open comments section
   }, []);
 
-  // Close preview when tapping elsewhere on the map
+  // Property layer IDs to query for features (matching server's /tiles/style.json)
+  const propertyLayerIds = [
+    'property-clusters',
+    'single-active-points',
+    'active-nodes',
+    'ghost-nodes',
+  ];
+
+  // Handle map press - query features at tap point, or close preview if tapping empty area
   // CRITICAL: Only close preview when bottom sheet is NOT expanded
   // If sheet is expanded (index > 0), tapping map should close sheet but preserve preview
-  const handleMapPress = useCallback(() => {
-    // Check if bottom sheet is expanded (index > 0 means partial or full)
-    const currentSheetIndex = sheetIndexRef.current;
-    if (currentSheetIndex <= 0) {
-      // Sheet is in peek (0) or closed (-1) state - safe to close preview
-      if (showPreview) {
-        setShowPreview(false);
+  const handleMapPress = useCallback(
+    async (event: NativeSyntheticEvent<PressEvent>) => {
+      const { point } = event.nativeEvent;
+      // PixelPoint is a tuple [x, y], not an object
+      const pixelPoint: [number, number] = [point[0], point[1]];
+
+      // Query rendered features at the tap point
+      // Note: queryRenderedFeatures in maplibre-react-native alpha may not reliably
+      // find features from custom vector tile sources. This is a known limitation.
+      if (mapViewRef.current) {
+        try {
+          const features = await mapViewRef.current.queryRenderedFeatures(
+            pixelPoint,
+            { layers: propertyLayerIds }
+          );
+
+          if (features && features.length > 0) {
+            // Found a property/cluster - handle the feature press
+            handleFeaturePress(features);
+            return;
+          }
+        } catch (error) {
+          console.warn('[HuisHype] Error querying features:', error);
+        }
       }
-      if (isClusterPreview) {
-        setIsClusterPreview(false);
+
+      // No features at tap point - check if we should close preview
+      const currentSheetIndex = sheetIndexRef.current;
+      if (currentSheetIndex <= 0) {
+        // Sheet is in peek (0) or closed (-1) state - safe to close preview
+        if (showPreview) {
+          setShowPreview(false);
+        }
+        if (isClusterPreview) {
+          setIsClusterPreview(false);
+        }
       }
+      // If sheet is expanded (1 or 2), don't close preview
+      // The backdrop/sheet will handle closing itself
+    },
+    [showPreview, isClusterPreview, handleFeaturePress]
+  );
+
+  // Zoom control handlers
+  const handleZoomIn = useCallback(async () => {
+    const newZoom = Math.min(currentZoom + 1, 20);
+    const center = await mapViewRef.current?.getCenter();
+    if (center) {
+      cameraRef.current?.flyTo({
+        center,
+        zoom: newZoom,
+        duration: 300,
+      });
     }
-    // If sheet is expanded (1 or 2), don't close preview
-    // The backdrop/sheet will handle closing itself
-  }, [showPreview, isClusterPreview]);
+  }, [currentZoom]);
+
+  const handleZoomOut = useCallback(async () => {
+    const newZoom = Math.max(currentZoom - 1, 0);
+    const center = await mapViewRef.current?.getCenter();
+    if (center) {
+      cameraRef.current?.flyTo({
+        center,
+        zoom: newZoom,
+        duration: 300,
+      });
+    }
+  }, [currentZoom]);
 
   return (
-    <View className="flex-1 bg-gray-100">
+    <View style={{ flex: 1 }} className="bg-gray-100">
       {/* Map View */}
-      <View className="flex-1">
+      <View style={{ flex: 1 }} onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setContentSize({ width, height });
+      }}>
+        {contentSize.width > 0 && mergedStyle && (
         <MapView
-          style={{ flex: 1 }}
-          mapStyle={STYLE_URL}
+          ref={mapViewRef}
+          style={{ position: 'absolute', width: contentSize.width, height: contentSize.height }}
+          mapStyle={mergedStyle}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
+          onDidFailLoadingMap={() => {
+            console.error('Map failed to load');
+            setMapLoaded(true); // Dismiss overlay so user can still see error state
+          }}
           testID="map-view"
         >
           <Camera
@@ -273,168 +392,75 @@ export default function MapScreen() {
             initialViewState={{
               center: EINDHOVEN_CENTER,
               zoom: DEFAULT_ZOOM,
+              pitch: DEFAULT_PITCH,
             }}
           />
-
-          {/* Vector tile source for properties */}
-          <VectorSource
-            id="properties-source"
-            url={TILE_URL}
-            onPress={handleFeaturePress}
-          >
-            {/* Layer 1: Clusters (Z0-Z14) - only formed from Active Nodes */}
-            <CircleLayer
-              id="clusters"
-              sourceLayerID="properties"
-              minZoomLevel={0}
-              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['>', ['coalesce', ['get', 'point_count'], 0], 1]}
-              style={{
-                circleRadius: [
-                  'interpolate',
-                  ['linear'],
-                  ['coalesce', ['get', 'point_count'], 2],
-                  2,
-                  18,
-                  10,
-                  24,
-                  50,
-                  32,
-                  100,
-                  40,
-                ],
-                circleColor: [
-                  'case',
-                  ['==', ['get', 'has_active_children'], true],
-                  '#FF5A5F', // Hot cluster (has active properties)
-                  '#51bbd6', // Standard cluster
-                ],
-                circleOpacity: 0.85,
-                circleStrokeWidth: 2,
-                circleStrokeColor: '#FFFFFF',
-              }}
-            />
-
-            {/* Cluster count labels */}
-            <SymbolLayer
-              id="cluster-count"
-              sourceLayerID="properties"
-              minZoomLevel={0}
-              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['>', ['coalesce', ['get', 'point_count'], 0], 1]}
-              style={{
-                textField: ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-                textSize: 14,
-                textColor: '#FFFFFF',
-                textHaloColor: '#000000',
-                textHaloWidth: 1,
-                textAllowOverlap: true,
-                textIgnorePlacement: true,
-              }}
-            />
-
-            {/* Single active points at low zoom (point_count = 1 or undefined) */}
-            <CircleLayer
-              id="single-active-points"
-              sourceLayerID="properties"
-              minZoomLevel={0}
-              maxZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={[
-                'all',
-                ['any', ['!', ['has', 'point_count']], ['==', ['coalesce', ['get', 'point_count'], 0], 1]],
-              ]}
-              style={{
-                circleRadius: [
-                  'interpolate',
-                  ['linear'],
-                  ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0],
-                  0,
-                  8,
-                  50,
-                  12,
-                  100,
-                  16,
-                ],
-                circleColor: [
-                  'case',
-                  ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 50],
-                  '#EF4444', // red-500 (hot)
-                  ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 0],
-                  '#F97316', // orange-500 (warm)
-                  '#3B82F6', // blue-500 (has listing but no activity)
-                ],
-                circleOpacity: 0.9,
-                circleStrokeWidth: 2,
-                circleStrokeColor: '#FFFFFF',
-              }}
-            />
-
-            {/* Layer 2: Active Nodes (Z15+) - full opacity, larger */}
-            <CircleLayer
-              id="active-nodes"
-              sourceLayerID="properties"
-              minZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['==', ['get', 'is_ghost'], false]}
-              style={{
-                circleRadius: [
-                  'interpolate',
-                  ['linear'],
-                  ['coalesce', ['get', 'activityScore'], 0],
-                  0,
-                  6,
-                  50,
-                  10,
-                  100,
-                  14,
-                ],
-                circleColor: [
-                  'case',
-                  ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
-                  '#EF4444', // red-500 (hot)
-                  ['>', ['coalesce', ['get', 'activityScore'], 0], 0],
-                  '#F97316', // orange-500 (warm)
-                  '#3B82F6', // blue-500 (has listing)
-                ],
-                circleOpacity: 0.9,
-                circleStrokeWidth: 2,
-                circleStrokeColor: '#FFFFFF',
-              }}
-            />
-
-            {/* Layer 3: Ghost Nodes (Z15+) - low opacity, small, unobtrusive */}
-            <CircleLayer
-              id="ghost-nodes"
-              sourceLayerID="properties"
-              minZoomLevel={GHOST_NODE_THRESHOLD_ZOOM}
-              filter={['==', ['get', 'is_ghost'], true]}
-              style={{
-                circleRadius: 3,
-                circleColor: '#94A3B8', // gray-400
-                circleOpacity: 0.4,
-                circleStrokeWidth: 1,
-                circleStrokeColor: '#FFFFFF',
-                circleStrokeOpacity: 0.5,
-              }}
-            />
-          </VectorSource>
         </MapView>
+        )}
 
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
-            className="absolute inset-0 items-center justify-center bg-gray-100"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' }}
             testID="map-loading-indicator"
           >
             <ActivityIndicator size="large" color="#3B82F6" />
-            <Text className="text-gray-600 mt-3 text-base">Loading map...</Text>
+            <Text style={{ color: '#4B5563', marginTop: 12, fontSize: 16 }}>Loading map...</Text>
           </View>
         )}
 
         {/* Zoom level indicator (for debugging) */}
-        <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
-          <Text className="text-sm text-gray-700">
+        <View style={{ position: 'absolute', top: 16, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
+          <Text style={{ fontSize: 12, color: '#374151' }}>
             Zoom: {currentZoom.toFixed(1)}
           </Text>
+        </View>
+
+        {/* Zoom controls */}
+        <View style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          borderRadius: 12,
+          overflow: 'hidden',
+          backgroundColor: '#FFFFFF',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 6,
+          elevation: 5,
+        }}>
+          <Pressable
+            testID="zoom-in-button"
+            onPress={handleZoomIn}
+            style={({ pressed }) => ({
+              width: 48,
+              height: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: pressed ? '#F3F4F6' : '#FFFFFF',
+            })}
+            accessibilityLabel="Zoom in"
+            accessibilityRole="button"
+          >
+            <Text style={{ fontSize: 22, fontWeight: '300', color: '#1F2937', lineHeight: 24 }}>+</Text>
+          </Pressable>
+          <View style={{ height: 1, backgroundColor: '#E5E7EB', marginHorizontal: 8 }} />
+          <Pressable
+            testID="zoom-out-button"
+            onPress={handleZoomOut}
+            style={({ pressed }) => ({
+              width: 48,
+              height: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: pressed ? '#F3F4F6' : '#FFFFFF',
+            })}
+            accessibilityLabel="Zoom out"
+            accessibilityRole="button"
+          >
+            <Text style={{ fontSize: 22, fontWeight: '300', color: '#1F2937', lineHeight: 24 }}>{'\u2212'}</Text>
+          </Pressable>
         </View>
 
         {/* Property Preview Card (floating) - single property */}

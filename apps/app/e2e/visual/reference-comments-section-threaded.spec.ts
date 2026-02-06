@@ -26,31 +26,17 @@ const EXPECTATION_NAME = 'comments-section-threaded';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // API base URL
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = 'http://localhost:3100';
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  /net::ERR_CONNECTION_RESET/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /net::ERR_FAILED/,
-  // AuthProvider context errors (occurs during initial render before provider mounts)
-  /useAuthContext must be used within an AuthProvider/,
-  // Error boundary recoverable errors
-  /The above error occurred in the/,
-  /React will try to recreate this component tree/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -136,12 +122,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto(`/property/${propertyId}`);
     await page.waitForLoadState('networkidle');
 
-    // Wait for page content to load (API may be slow)
-    await page.waitForTimeout(4000);
-
     // Wait for loading state to disappear
     const loadingIndicator = page.locator('text=Loading property...');
-    await loadingIndicator.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    await loadingIndicator.waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {
       console.log('Loading indicator still visible after timeout');
     });
 

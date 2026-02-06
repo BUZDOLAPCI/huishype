@@ -7,7 +7,6 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('Property Bottom Sheet', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the map view
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     // Wait for the map and data to load

@@ -35,32 +35,15 @@ const DOM_TOWER_COORDS = {
   lon: 5.1214,
 };
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  /Invalid UUID/,
-  /status of 400/,
-  /Failed to fetch property/,
-  /net::ERR_CONNECTION_RESET/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /net::ERR_FAILED/,
-  /useAuthContext must be used within/,
-  /AuthProvider/,
-  /Maximum update depth exceeded/, // Known issue from other parts of app (map view)
-  /^ct$/, // Minified React error messages from production builds
-  /^[a-z]{1,3}$/, // Short minified error codes (e.g., "ct", "rt", etc.)
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -183,8 +166,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the showcase page to render
     await page.waitForSelector('[data-testid="pdok-aerial-imagery-showcase"]', { timeout: 30000 });
 
-    // Wait for images to load (PDOK can be slow)
-    await page.waitForTimeout(5000);
+    // Wait for aerial images to load
+    await page.waitForFunction(
+      () => {
+        const images = document.querySelectorAll('img');
+        if (images.length === 0) return false;
+        return Array.from(images).some(img => img.complete && img.naturalHeight > 0);
+      },
+      { timeout: 30000, polling: 500 }
+    ).catch(() => {});
 
     // Verify aerial image components are present - focus on Tegenbosch (reference expectation)
     const tegenboschCard = page.locator('[data-testid="aerial-tegenbosch"]');

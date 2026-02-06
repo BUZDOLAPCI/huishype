@@ -21,21 +21,15 @@ import fs from 'fs';
 const EXPECTATION_NAME = 'feed-view-property-cards';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/, // Font/image 404s are acceptable
-  /the server responded with a status of 404/, // OpenFreeMap font 404s
-  /AJAXError.*404/, // Tile loading 404s for edge tiles
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {

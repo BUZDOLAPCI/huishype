@@ -38,34 +38,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const CLOSE_ZOOM = 16; // Close enough to see individual properties
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  /net::ERR_CONNECTION_RESET/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /net::ERR_FAILED/,
-  // AuthProvider context errors (occurs during initial render before provider mounts)
-  /useAuthContext must be used within an AuthProvider/,
-  // Error boundary recoverable errors
-  /The above error occurred in the/,
-  /React will try to recreate this component tree/,
-  // Auth-related expected errors (mock backend not available)
-  /fetch.*auth/i,
-  /Authentication failed/,
-  /Network request failed/,
-  /localhost:3000/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {

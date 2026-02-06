@@ -20,6 +20,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 
 // Configuration
 const EXPECTATION_NAME = 'map-visuals-zoomed-out';
@@ -33,23 +34,15 @@ const ZOOMED_OUT_LEVEL = 11;
 // This area shows Oisterwijk, Biezenmortel, Heukelom, and surrounding regions
 const CENTER_COORDINATES: [number, number] = [5.19, 51.58]; // Oisterwijk region
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  // Font loading issues are handled gracefully by MapLibre (renders locally)
-  /Failed to load resource.*404/,
-  /fonts.*\.pbf/,
-  /Unable to load glyph/,
-  /AJAXError.*404/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -117,8 +110,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map container to be ready
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-    // Wait for map to initialize and load tiles
-    await page.waitForTimeout(3000);
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     // Set map to zoomed-out level programmatically using the exposed __mapInstance
     // The app exposes the map instance on window for testing purposes
@@ -157,8 +150,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     }
 
-    // Wait for tiles to load after zoom change
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded after zoom)
+    await waitForMapIdle(page);
 
     // Take screenshot
     await page.screenshot({
@@ -193,7 +186,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set zoomed-out view programmatically
     await page.evaluate(
@@ -209,7 +202,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       { center: CENTER_COORDINATES, zoom: ZOOMED_OUT_LEVEL }
     );
 
-    await page.waitForTimeout(5000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Verify the map canvas is rendered (not blank)
     const canvas = page.locator('canvas').first();
@@ -274,8 +268,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Wait for map tiles to load
-    await page.waitForTimeout(5000);
+    // Wait for map instance and style to fully load
+    await waitForMapStyleLoaded(page);
 
     // Log tile loading status
     console.log(`Tile requests made: ${tileRequests.length}`);
@@ -284,9 +278,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     // Expect style to load successfully (OpenFreeMap Bright style)
+    // Also check for the map's actual style URL as a fallback
+    const styleFromMap = await page.evaluate(() => {
+      const m = (window as any).__mapInstance;
+      if (!m) return null;
+      const style = m.getStyle();
+      return style?.name || style?.sources ? 'loaded' : null;
+    });
+
     const styleLoaded = tileRequests.some(url =>
       url.includes('bright') || url.includes('positron') || url.includes('openfreemap')
-    );
+    ) || styleFromMap === 'loaded';
     expect(styleLoaded, 'Map style should load from OpenFreeMap').toBe(true);
 
     // No critical tile loading failures

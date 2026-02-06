@@ -78,3 +78,10 @@ fixtures/eindhoven-addresses.json
 # Local environment
 .env
 fixtures/eindhoven-sandbox.geojson
+
+# Maestro test artifacts
+maestro-screenshots/
+maestro-results.xml
+
+# Claude agent working directory
+.claudegram/

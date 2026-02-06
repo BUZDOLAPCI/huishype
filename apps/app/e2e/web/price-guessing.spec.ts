@@ -1,17 +1,61 @@
 import { test, expect } from '@playwright/test';
 
 /**
+ * Helper: wait for the map canvas to be rendered and have non-zero dimensions.
+ * Replaces arbitrary waitForTimeout(3000) calls after page load.
+ */
+async function waitForMapReady(page: import('@playwright/test').Page, timeout = 15000): Promise<void> {
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('canvas');
+    return canvas && canvas.offsetHeight > 0 && canvas.offsetWidth > 0;
+  }, { timeout }).catch(() => {
+    // Map may not render (e.g. API down) - proceed anyway
+  });
+}
+
+/**
+ * Helper: after clicking the map, wait for a preview card / bottom sheet
+ * element to appear. Polls for common indicators: a white background card,
+ * text containing "Eindhoven", or any element with a bottom-sheet-like role.
+ */
+async function waitForPreviewCard(page: import('@playwright/test').Page, timeout = 5000): Promise<void> {
+  await page.waitForFunction(() => {
+    // Check for preview card indicators
+    const bgWhite = document.querySelector('[class*="bg-white"]');
+    const addressText = Array.from(document.querySelectorAll('*')).find(
+      el => el.textContent?.includes('Eindhoven') && el.clientHeight > 0
+    );
+    return !!(bgWhite || addressText);
+  }, { timeout }).catch(() => {
+    // Preview may not appear if click didn't hit a property marker
+  });
+}
+
+/**
+ * Helper: after clicking a preview card to expand, wait for the bottom
+ * sheet to finish its expansion animation by polling for increased content height.
+ */
+async function waitForBottomSheetExpand(page: import('@playwright/test').Page, timeout = 5000): Promise<void> {
+  await page.waitForFunction(() => {
+    // Look for expanded bottom sheet content (scrollable area with substantial height)
+    const panels = Array.from(document.querySelectorAll('[class*="bg-white"]'));
+    return panels.some(panel => panel.scrollHeight > 200 && panel.clientHeight > 150);
+  }, { timeout }).catch(() => {
+    // Expansion may not happen if no property was selected
+  });
+}
+
+/**
  * E2E tests for the Price Guessing feature.
  * These tests verify the core engagement mechanic of HuisHype -
  * allowing users to submit price guesses for properties.
  */
 test.describe('Price Guessing Feature', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the map view
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    // Wait for the map to load
-    await page.waitForTimeout(3000);
+    // Wait for the map canvas to render
+    await waitForMapReady(page);
   });
 
   test('should display price guess section in property bottom sheet', async ({ page }) => {
@@ -24,13 +68,13 @@ test.describe('Price Guessing Feature', () => {
       if (box) {
         // Click to show property
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
 
         // Try to expand the bottom sheet
         const previewArea = page.locator('[class*="bg-white"]').first();
         if (await previewArea.isVisible().catch(() => false)) {
           await previewArea.click();
-          await page.waitForTimeout(1000);
+          await waitForBottomSheetExpand(page);
         }
       }
     }
@@ -51,8 +95,8 @@ test.describe('Price Guessing Feature', () => {
   });
 
   test('should display price slider with WOZ marker', async ({ page }) => {
-    // Wait for data to load
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     // Click on map to select property
     const mapCanvas = page.locator('canvas').first();
@@ -60,13 +104,13 @@ test.describe('Price Guessing Feature', () => {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
 
         // Try clicking to expand bottom sheet
         const previewArea = page.locator('text=Eindhoven');
         if (await previewArea.first().isVisible().catch(() => false)) {
           await previewArea.first().click();
-          await page.waitForTimeout(1000);
+          await waitForBottomSheetExpand(page);
         }
       }
     }
@@ -92,15 +136,15 @@ test.describe('Price Guessing Feature', () => {
   });
 
   test('should display quick adjustment buttons', async ({ page }) => {
-    // Wait and click to show property
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     const mapCanvas = page.locator('canvas').first();
     if (await mapCanvas.isVisible().catch(() => false)) {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
       }
     }
 
@@ -128,15 +172,15 @@ test.describe('Price Guessing Feature', () => {
   });
 
   test('should display submit guess button', async ({ page }) => {
-    // Wait and click to show property
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     const mapCanvas = page.locator('canvas').first();
     if (await mapCanvas.isVisible().catch(() => false)) {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
       }
     }
 
@@ -157,21 +201,21 @@ test.describe('Price Guessing Feature', () => {
   });
 
   test('should show login prompt for unauthenticated users', async ({ page }) => {
-    // Wait and click to show property
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     const mapCanvas = page.locator('canvas').first();
     if (await mapCanvas.isVisible().catch(() => false)) {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
 
         // Try to expand bottom sheet
         const previewArea = page.locator('text=Eindhoven');
         if (await previewArea.first().isVisible().catch(() => false)) {
           await previewArea.first().click();
-          await page.waitForTimeout(1000);
+          await waitForBottomSheetExpand(page);
         }
       }
     }
@@ -199,7 +243,8 @@ test.describe('Price Guessing - Mobile View', () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
+    // Wait for the map canvas to render
+    await waitForMapReady(page);
   });
 
   test('should display price guess section correctly on mobile', async ({ page }) => {
@@ -209,7 +254,7 @@ test.describe('Price Guessing - Mobile View', () => {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
       }
     }
 
@@ -224,8 +269,8 @@ test.describe('Price Guessing - Mobile View', () => {
   });
 
   test('should allow slider interaction on touch devices', async ({ page }) => {
-    // Wait for content
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     // Click to show property
     const mapCanvas = page.locator('canvas').first();
@@ -233,7 +278,7 @@ test.describe('Price Guessing - Mobile View', () => {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
       }
     }
 
@@ -252,7 +297,8 @@ test.describe('FMV Visualization', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
+    // Wait for the map canvas to render
+    await waitForMapReady(page);
   });
 
   test('should display crowd estimate when available', async ({ page }) => {
@@ -262,13 +308,13 @@ test.describe('FMV Visualization', () => {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
 
         // Try to expand bottom sheet
         const previewArea = page.locator('[class*="bg-white"]').first();
         if (await previewArea.isVisible().catch(() => false)) {
           await previewArea.click();
-          await page.waitForTimeout(1000);
+          await waitForBottomSheetExpand(page);
         }
       }
     }
@@ -290,15 +336,15 @@ test.describe('FMV Visualization', () => {
   });
 
   test('should display confidence indicator', async ({ page }) => {
-    // Wait and interact
-    await page.waitForTimeout(3000);
+    // Wait for map canvas to be ready
+    await waitForMapReady(page);
 
     const mapCanvas = page.locator('canvas').first();
     if (await mapCanvas.isVisible().catch(() => false)) {
       const box = await mapCanvas.boundingBox();
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(1500);
+        await waitForPreviewCard(page);
       }
     }
 

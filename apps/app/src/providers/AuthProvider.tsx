@@ -18,6 +18,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import type { User } from '@huishype/shared';
+import { API_URL } from '../utils/api';
 
 // Complete auth session for web
 WebBrowser.maybeCompleteAuthSession();
@@ -28,8 +29,7 @@ const REFRESH_TOKEN_KEY = 'huishype_refresh_token';
 const USER_KEY = 'huishype_user';
 const TOKEN_EXPIRY_KEY = 'huishype_token_expiry';
 
-// API base URL - should come from environment
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = API_URL;
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
@@ -491,7 +491,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 }
 
 /**
- * Hook to access auth context
+ * Hook to access auth context.
+ *
+ * Throws if called outside the AuthProvider tree. The AuthProvider wraps
+ * the entire app in _layout.tsx, so this should never happen during
+ * normal operation. If you see this error during HMR / Fast Refresh,
+ * it is a transient dev-server artifact and can be safely ignored.
  */
 export function useAuthContext(): AuthContextValue {
   const context = useContext(AuthContext);

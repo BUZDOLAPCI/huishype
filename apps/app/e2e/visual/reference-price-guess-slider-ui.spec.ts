@@ -23,27 +23,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 // Center on Eindhoven (properties with data)
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  // Auth context error during error boundary recovery
-  /useAuthContext must be used within an AuthProvider/,
-  /The above error occurred in the <AuthModal> component/,
-  // Network errors during page load/hot reload
-  /ERR_INCOMPLETE_CHUNKED_ENCODING/,
-  /ERR_CONNECTION_REFUSED/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -108,7 +96,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('capture price guess slider UI for visual comparison', async ({ page }) => {
     // First, fetch a property ID directly from the API
-    const apiBaseUrl = 'http://localhost:3000'; // API server
+    const apiBaseUrl = 'http://localhost:3100'; // API server
     let propertyId: string | null = null;
 
     try {
@@ -342,7 +330,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('verify price guess slider UI elements', async ({ page }) => {
     // Fetch a property with WOZ value from the API
-    const apiBaseUrl = 'http://localhost:3000';
+    const apiBaseUrl = 'http://localhost:3100';
     let propertyId: string | null = null;
     let propertyWozValue: number | null = null;
 

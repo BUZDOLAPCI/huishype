@@ -13,6 +13,7 @@
 import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 
 /**
  * Mock property data with price information for testing
@@ -74,30 +75,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.746, 51.400];
 const ZOOM_LEVEL = 17;
 
-// Known acceptable errors
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/,
-  /Failed to load resource.*404/,
-  /Failed to load resource/,
-  /the server responded with a status of 404/,
-  /AJAXError.*404/,
-  /^[a-z]{1,3}$/i,
-  /maplibre|mapbox/i,
-  /pointerEvents is deprecated/,
-  /shadow\* style props are deprecated/,
-  /pdok\.nl/,
-  /tiles/,
-  /openfreemap/,
 ];
 
 // Increase test timeout
@@ -187,17 +173,12 @@ async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; fe
  */
 async function waitForMapReady(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-  await page.waitForTimeout(3000);
 
-  await page.waitForFunction(
-    () => {
-      const mapInstance = (window as any).__mapInstance;
-      return mapInstance && typeof mapInstance.setZoom === 'function';
-    },
-    { timeout: 30000 }
-  );
+  // Wait for map instance to be available and style loaded
+  await waitForMapStyleLoaded(page);
 
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle (all tiles fully rendered)
+  await waitForMapIdle(page, 10000);
 }
 
 /**
@@ -219,31 +200,8 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
     { center, zoom }
   );
 
-  await page.waitForTimeout(2000);
-
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) {
-        resolve();
-        return;
-      }
-
-      if (mapInstance.areTilesLoaded()) {
-        resolve();
-      } else {
-        const handler = () => {
-          mapInstance.off('idle', handler);
-          resolve();
-        };
-        mapInstance.on('idle', handler);
-        setTimeout(() => {
-          mapInstance.off('idle', handler);
-          resolve();
-        }, 5000);
-      }
-    });
-  });
+  // Wait for map to be idle after zoom (all tiles loaded)
+  await waitForMapIdle(page);
 
   return result;
 }

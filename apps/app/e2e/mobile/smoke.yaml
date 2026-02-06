@@ -1,10 +1,11 @@
 # HuisHype Mobile Smoke Test
-# This Maestro flow verifies the app launches and displays correctly.
+# Verifies the app launches, connects to Metro, and renders the map.
 #
 # Prerequisites:
 # - Install Maestro: curl -Ls "https://get.maestro.mobile.dev" | bash
-# - Build the app: eas build --profile development --platform ios/android
-# - Run simulator/emulator with the app installed
+# - Build the app: eas build --profile development --platform android
+# - Run emulator with the app installed
+# - Start Metro: cd apps/app && npx expo start
 #
 # Usage:
 # maestro test apps/app/e2e/mobile/smoke.yaml
@@ -14,29 +15,60 @@ appId: nl.huishype.app
 # Launch the app
 - launchApp
 
-# Wait for app to fully load
+# Handle Expo Dev Client: tap server picker if shown (skipped if auto-connected)
+- tapOn:
+    text: ".*10.0.2.2:8081.*"
+    optional: true
+
+# Wait for the app to fully load (header appears behind dev menu too)
 - extendedWaitUntil:
-    visible: ".*"
+    visible: "HuisHype"
+    timeout: 60000
+
+# Dismiss Expo developer menu onboarding popup if it appears
+# The X close button is in the top-right of the bottom sheet popup
+- tapOn:
+    text: "×"
+    optional: true
+
+# Also try tapping on the map area to dismiss any remaining overlay
+- tapOn:
+    point: "50%,30%"
+    optional: true
+
+# Wait a moment for any dismissal animation
+- waitForAnimationToEnd
+
+# Verify the tab bar is visible
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+# Take screenshot showing the app loaded
+- takeScreenshot: maestro-screenshots/smoke_test_app_loaded
+
+# Verify the map loaded (zoom indicator appears once map renders)
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 15000
+
+- takeScreenshot: maestro-screenshots/smoke_test_map_rendered
+
+# Switch to Feed tab
+- tapOn: "Feed"
+
+# Verify feed screen loads (filter chips visible)
+- extendedWaitUntil:
+    visible: "All"
+    timeout: 15000
+
+- assertVisible: "Feed"
+- takeScreenshot: maestro-screenshots/smoke_test_feed_loaded
+
+# Switch back to Map tab
+- tapOn: "Map"
+
+- extendedWaitUntil:
+    visible: "Zoom.*"
     timeout: 10000
 
-# Take initial screenshot for visual verification
-- takeScreenshot: smoke_test_initial_load
-
-# Verify the app has loaded (look for common UI elements)
-# Note: Adjust these assertions based on your actual app content
-- assertVisible:
-    text: ".*"
-    optional: true
-
-# Try to interact with the main navigation if visible
-- tapOn:
-    index: 0
-    optional: true
-
-# Take screenshot after any interaction
-- takeScreenshot: smoke_test_after_interaction
-
-# Verify no crash - app should still be running
-- assertVisible:
-    text: ".*"
-    optional: true
+- takeScreenshot: maestro-screenshots/smoke_test_back_to_map

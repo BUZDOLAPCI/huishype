@@ -6,7 +6,6 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('HuisHype Map View', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the map tab (home page)
     await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
@@ -15,8 +14,6 @@ test.describe('HuisHype Map View', () => {
     // Wait for the map to load
     await page.waitForSelector('[data-testid="map-view"], .maplibregl-map, canvas', {
       timeout: 10000,
-    }).catch(() => {
-      // Map might not have testID on web, check for loading state instead
     });
 
     // Take a screenshot for visual verification
@@ -40,27 +37,43 @@ test.describe('HuisHype Map View', () => {
     await expect(body).toBeVisible();
   });
 
-  test('should display property count indicator', async ({ page }) => {
-    // Wait for either the property count or loading state
-    await page.waitForTimeout(2000);
+  test('should load vector tile source and property layers', async ({ page }) => {
+    // Wait for the MapLibre map style to fully load (includes property layers from /tiles/style.json)
+    await page.waitForFunction(
+      () => {
+        const m = (window as any).__mapInstance;
+        return m && m.isStyleLoaded();
+      },
+      { timeout: 45000, polling: 500 }
+    );
 
-    // Take a screenshot
+    // Verify the properties-source vector tile source is registered
+    const hasSource = await page.evaluate(() => {
+      const m = (window as any).__mapInstance;
+      return !!m.getSource('properties-source');
+    });
+    expect(hasSource).toBe(true);
+
+    // Verify at least one property layer exists
+    const propertyLayerNames = [
+      'property-clusters',
+      'cluster-count',
+      'single-active-points',
+      'active-nodes',
+      'ghost-nodes',
+    ];
+    const loadedLayers: string[] = await page.evaluate((layerNames: string[]) => {
+      const m = (window as any).__mapInstance;
+      return layerNames.filter((name: string) => !!m.getLayer(name));
+    }, propertyLayerNames);
+
+    expect(loadedLayers.length).toBeGreaterThan(0);
+
+    // Take a screenshot for visual verification
     await page.screenshot({
-      path: 'test-results/map-property-count.png',
+      path: 'test-results/map-property-layers.png',
       fullPage: true,
     });
-
-    // Check for property count indicator or loading/error state
-    const propertyCount = page.locator('text=/\\d+ properties/');
-    const loadingText = page.locator('text=Loading map...');
-    const errorText = page.locator('text=Failed to load properties');
-
-    const hasPropertyCount = await propertyCount.isVisible().catch(() => false);
-    const isLoading = await loadingText.isVisible().catch(() => false);
-    const hasError = await errorText.isVisible().catch(() => false);
-
-    // At least one of these states should be true
-    expect(hasPropertyCount || isLoading || hasError).toBeTruthy();
   });
 
   test('should handle error state gracefully', async ({ page }) => {

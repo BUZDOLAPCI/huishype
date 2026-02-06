@@ -13,6 +13,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapIdle } from './helpers/visual-test-helpers';
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -21,28 +22,21 @@ test.use({ trace: 'off', video: 'off' });
 const EXPECTATION_NAME = 'instant-preview-card-on-tap';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Center on location with actual properties from the database
-// Properties are concentrated around [5.488, 51.430] area (not Eindhoven city center)
-const CENTER_COORDINATES: [number, number] = [5.488, 51.430];
-const ZOOM_LEVEL = 15; // Zoom level where individual markers are visible (not clustered)
+// Center on Eindhoven area where properties and listings exist
+// The backend API returns individual points (with is_ghost) only at z17+
+// At z15-z16 there's a gap between frontend layers and backend clustering
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
+const ZOOM_LEVEL = 17; // Zoom level where individual markers are visible (API returns individual points at z17+)
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /net::ERR_EMPTY_RESPONSE/, // Network hiccups during HMR/reload
-  /Failed to load resource.*404/, // Font/image 404s are acceptable
-  /Failed to load resource/, // General resource loading errors
-  /the server responded with a status of 404/, // OpenFreeMap font 404s
-  /AJAXError.*404/, // Tile loading 404s for edge tiles
 ];
 
 // Increase test timeout for this visual test
@@ -161,10 +155,7 @@ async function waitForMapReady(page: Page): Promise<void> {
     console.log('Loading indicator not found or already hidden');
   });
 
-  // Wait for map to fully initialize
-  await page.waitForTimeout(3000);
-
-  // Wait for properties to be rendered on the map and have features
+  // Wait for map to fully initialize, style to load, layers to exist, and features to render
   await page.waitForFunction(
     () => {
       const mapInstance = (window as any).__mapInstance;
@@ -194,15 +185,15 @@ async function waitForMapReady(page: Page): Promise<void> {
 
       return featureCount > 0;
     },
-    { timeout: 45000 }
+    { timeout: 45000, polling: 500 }
   );
 
-  // Additional wait for tiles and features to render
-  await page.waitForTimeout(2000);
+  // Wait for map to be idle (all tiles fully rendered)
+  await waitForMapIdle(page, 10000);
 }
 
 /**
- * Helper function to zoom the map programmatically
+ * Helper function to zoom the map programmatically and wait for features to render
  */
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<boolean> {
   const result = await page.evaluate(
@@ -220,33 +211,32 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
     { center, zoom }
   );
 
-  // Wait for the zoom to take effect and tiles to load
-  await page.waitForTimeout(2000);
+  // Wait for zoom to take effect: map idle (all tiles loaded) + features rendered
+  await waitForMapIdle(page);
 
-  // Wait for the map to be idle (all tiles loaded)
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
+  // Wait for property features to actually be rendered after zoom
+  await page.waitForFunction(
+    () => {
       const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) {
-        resolve();
-        return;
-      }
+      if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
+      const canvas = mapInstance.getCanvas();
+      if (!canvas) return false;
 
-      if (mapInstance.areTilesLoaded()) {
-        resolve();
-      } else {
-        const handler = () => {
-          mapInstance.off('idle', handler);
-          resolve();
-        };
-        mapInstance.on('idle', handler);
-        // Timeout fallback
-        setTimeout(() => {
-          mapInstance.off('idle', handler);
-          resolve();
-        }, 5000);
-      }
-    });
+      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        .filter(l => mapInstance.getLayer(l));
+      if (layerIds.length === 0) return false;
+
+      try {
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: layerIds }
+        );
+        return (features?.length || 0) > 0;
+      } catch { return false; }
+    },
+    { timeout: 30000, polling: 500 }
+  ).catch(() => {
+    console.log('Warning: Timed out waiting for property features after zoom');
   });
 
   return result;
@@ -324,9 +314,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const zoomSuccess = await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
     console.log(`Map zoom configured: ${zoomSuccess}`);
 
-    // Wait for tiles to load after zoom
-    await page.waitForTimeout(2000);
-
     // Get map state for debugging
     let mapState = await page.evaluate(() => {
       const mapInstance = (window as any).__mapInstance;
@@ -354,7 +341,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const clickResult = await clickOnPropertyMarker(page);
     console.log(`Marker click attempt: success=${clickResult.success}, features=${clickResult.featureCount}`);
 
-    await page.waitForTimeout(800);
+    // Wait for preview card to appear (poll instead of fixed timeout)
+    await previewCard.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
     previewVisible = await previewCard.isVisible().catch(() => false);
     console.log(`Preview visible after marker click: ${previewVisible}`);
 
@@ -502,7 +490,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const clickResult = await clickOnPropertyMarker(page);
     console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
 
-    await page.waitForTimeout(800);
+    // Wait for preview card to appear (poll instead of fixed timeout)
+    await previewCard.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
     previewVisible = await previewCard.isVisible().catch(() => false);
 
     // If map.fire didn't work, try direct Playwright clicks on marker positions
@@ -602,7 +591,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Zoom to appropriate level
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
-    await page.waitForTimeout(2000);
 
     // Find and click on a property marker
     const previewCard = page.locator('[data-testid="property-preview-card"]');
@@ -612,8 +600,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const clickResult = await clickOnPropertyMarker(page);
     console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
 
-    await page.waitForTimeout(800);
+    // Wait for preview card to appear (poll instead of fixed timeout)
     previewVisible = await previewCard.isVisible().catch(() => false);
+    if (!previewVisible) {
+      await previewCard.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      previewVisible = await previewCard.isVisible().catch(() => false);
+    }
 
     if (previewVisible) {
       // Test Like button click (should not cause errors)

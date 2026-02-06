@@ -6,7 +6,6 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('HuisHype Web - Feed View', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the feed tab
     await page.goto('/');
     await page.waitForLoadState('networkidle');
   });

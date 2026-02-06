@@ -13,6 +13,7 @@
 
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
 
 // Disable tracing for this test to avoid trace file issues
@@ -27,24 +28,15 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4305]; // Area with properties
 const ZOOM_LEVEL = 17; // Very close zoom to see individual (non-clustered) properties
 
-// Known acceptable errors (add patterns for expected/benign errors)
+// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /Download the React DevTools/,
-  /React does not recognize the .* prop/,
-  /Accessing element\.ref was removed in React 19/,
-  /ref is now a regular prop/,
   /ResizeObserver loop/,
-  /favicon\.ico/,
   /sourceMappingURL/,
   /Failed to parse source map/,
+  /Fast Refresh/,
+  /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
-  /Failed to load resource.*404/, // Font/image 404s are acceptable
-  /the server responded with a status of 404/, // OpenFreeMap font 404s
-  /AJAXError.*404/, // Tile loading 404s for edge tiles
-  /layer.*does not exist in the map's style/i, // Querying layers before they're loaded
-  /net::ERR_NAME_NOT_RESOLVED/, // DNS resolution errors for external resources
-  /Failed to load resource.*net::ERR/, // General network errors for external resources
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -115,8 +107,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map container to be ready
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-    // Wait for map to initialize and load tiles
-    await page.waitForTimeout(3000);
+    // Wait for map instance and style to load
+    await waitForMapStyleLoaded(page);
 
     // Set map to appropriate zoom level programmatically
     const mapConfigured = await page.evaluate(
@@ -148,8 +140,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log(`Map configured via JS: ${mapConfigured}`);
 
-    // Wait for tiles and data to load
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle (tiles loaded)
+    await waitForMapIdle(page);
 
     // Wait for property layers to be created (they're added after API data loads)
     let layersReady = false;
@@ -257,8 +249,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = (window as any).__mapInstance;
         if (!mapInstance) return null;
 
-        const ghostFeatures = mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || [];
-        const activeFeatures = mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || [];
+        // Check that layers exist before querying to avoid MapLibre console errors
+        const style = mapInstance.getStyle();
+        const layerIds = (style?.layers || []).map((l: any) => l.id);
+        const ghostFeatures = layerIds.includes('ghost-nodes')
+          ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
+          : [];
+        const activeFeatures = layerIds.includes('active-nodes')
+          ? mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || []
+          : [];
         const allFeatures = [...ghostFeatures, ...activeFeatures];
 
         if (allFeatures.length === 0) return null;
@@ -440,7 +439,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to appropriate zoom level
     await page.evaluate(
@@ -453,7 +452,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL }
     );
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle after zoom
+    await waitForMapIdle(page);
 
     // Wait for property layers to be created
     let layersReady = false;
@@ -657,7 +657,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to appropriate zoom level
     await page.evaluate(
@@ -670,7 +670,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL }
     );
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle after zoom
+    await waitForMapIdle(page);
 
     // Wait for property layers to be created
     let layersReady = false;
@@ -858,7 +859,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to appropriate zoom level
     await page.evaluate(
@@ -871,7 +872,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL }
     );
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle after zoom
+    await waitForMapIdle(page);
 
     // Wait for property layers to be created
     let layersReady = false;
@@ -1115,7 +1117,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Wait for map to load
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await waitForMapStyleLoaded(page);
 
     // Set map to appropriate zoom level
     await page.evaluate(
@@ -1128,7 +1130,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       },
       { center: CENTER_COORDINATES, zoom: ZOOM_LEVEL }
     );
-    await page.waitForTimeout(3000);
+    // Wait for map to be idle after zoom
+    await waitForMapIdle(page);
 
     // Wait for property layers to be created
     let layersReady = false;
