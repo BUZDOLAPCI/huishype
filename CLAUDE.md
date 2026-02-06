@@ -16,6 +16,14 @@ All design decisions and specifications are in `agent-rules/`. **Consult these b
 
 These documents are the source of truth. Pass these information down to all subagents so they have a vision of the big picture.
 
+## MapLibre React Native
+
+Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Architecture** (Fabric + TurboModules) enabled. The v11 alpha line is actively migrating components to Fabric native components. Key implications:
+
+- Layers are Fabric native components (as of alpha.40+)
+- Map commands (queryRenderedFeatures, etc.) use TurboModules (JSI-based, not old bridge)
+- Component renames in alpha.44+: `MapView` → `Map`, `ShapeSource` → `GeoJSONSource`, `sourceID` → `source` etc.
+
 ## Data Sources
 
 There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
