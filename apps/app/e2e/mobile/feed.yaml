@@ -50,10 +50,9 @@ tags:
 - takeScreenshot: maestro-screenshots/feed_01_loaded_with_filters
 
 # Verify property cards are displayed
-# Look for price indicators (Euro symbol or price text)
-# With seeded data, property cards with prices should always render on the "All" filter
+# Look for property details (guesses count is always present on every card)
 - assertVisible:
-    text: ".*\\u20AC.*"
+    text: ".*guesses.*"
 
 # Look for WOZ Value label on cards (conditional on property having WOZ data)
 - assertVisible:
@@ -84,7 +83,7 @@ tags:
 
 # Verify property cards are still shown after filter change
 - assertVisible:
-    text: ".*\\u20AC.*"
+    text: ".*guesses.*"
     optional: true
 
 # Test "Trending" filter
@@ -126,7 +125,7 @@ tags:
 
 # Look for more property cards after scroll (should still be visible with "All" filter)
 - assertVisible:
-    text: ".*\\u20AC.*"
+    text: ".*guesses.*"
 
 # Continue scrolling to test infinite scroll/pagination
 - scroll

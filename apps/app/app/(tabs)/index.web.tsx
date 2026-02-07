@@ -644,92 +644,13 @@ export default function MapScreen() {
     let cancelled = false;
 
     // Fetch the merged style from our API (which already includes property layers,
-    // 3D buildings, and self-hosted font glyphs). Then apply sprite patching on top
-    // to strip/fix layers that reference missing POI icons.
+    // 3D buildings, self-hosted font glyphs, self-hosted sprites, and pre-filtered
+    // layers with missing sprite references removed).
     async function initMap() {
       let style: maplibregl.StyleSpecification | string = STYLE_URL;
       try {
         const res = await fetch(STYLE_URL);
-        const styleJson = await res.json();
-
-        // Apply sprite patching — strip or fix layers that reference missing POI
-        // icons (office, gate, swimming_pool, bollard, etc.).
-        if (styleJson.sprite) {
-          try {
-            const spriteUrl = typeof styleJson.sprite === 'string'
-              ? styleJson.sprite
-              : styleJson.sprite[0]?.url ?? styleJson.sprite[0];
-            const spriteRes = await fetch(`${spriteUrl}@2x.json`);
-            if (spriteRes.ok) {
-              const spriteManifest: Record<string, unknown> = await spriteRes.json();
-              const availableSprites = new Set(Object.keys(spriteManifest));
-
-              // MapLibre expression keywords — not sprite names
-              const expressionKeywords = new Set([
-                'match', 'case', 'coalesce', 'concat', 'get', 'has', 'in',
-                'literal', 'step', 'interpolate', 'linear', 'exponential',
-                'zoom', 'let', 'var', 'all', 'any', 'none', '!', '==', '!=',
-                '>', '<', '>=', '<=', 'to-string', 'to-number', 'to-boolean',
-                'typeof', 'string', 'number', 'boolean', 'image', 'format',
-                'number-format', 'at', 'length', 'slice', 'index-of',
-              ]);
-
-              // Detect if an icon-image expression is data-driven (resolves to
-              // feature property values at runtime, e.g. ["get", "class"]).
-              const isDataDriven = (expr: unknown): boolean => {
-                if (!Array.isArray(expr)) return false;
-                const op = expr[0];
-                if (op === 'get' || op === 'to-string') return true;
-                // Recurse into sub-expressions (match outputs, concat args, etc.)
-                return expr.some((child: unknown) => Array.isArray(child) && isDataDriven(child));
-              };
-
-              styleJson.layers = styleJson.layers.map((layer: Record<string, unknown>) => {
-                if (layer.type !== 'symbol') return layer;
-                const layout = layer.layout as Record<string, unknown> | undefined;
-                if (!layout) return layer;
-                const iconImage = layout['icon-image'];
-                if (!iconImage) return layer;
-
-                // Case 1: Plain string icon-image — drop layer if sprite missing
-                if (typeof iconImage === 'string') {
-                  return availableSprites.has(iconImage) ? layer : null;
-                }
-
-                // Case 2: Expression-based icon-image
-                if (Array.isArray(iconImage)) {
-                  if (isDataDriven(iconImage)) {
-                    layout['icon-image'] = ['coalesce', ['image', iconImage], ''];
-                    return layer;
-                  }
-
-                  // Static expression — extract literal sprite references
-                  const spriteRefs: string[] = [];
-                  const walk = (node: unknown) => {
-                    if (typeof node === 'string' && !expressionKeywords.has(node)) {
-                      spriteRefs.push(node);
-                    } else if (Array.isArray(node)) {
-                      node.forEach(walk);
-                    }
-                  };
-                  walk(iconImage);
-
-                  // If ALL referenced sprites are missing, drop the layer
-                  if (spriteRefs.length > 0 && spriteRefs.every((ref) => !availableSprites.has(ref))) {
-                    return null;
-                  }
-                }
-
-                return layer;
-              }).filter(Boolean);
-            }
-          } catch {
-            // If sprite fetch fails, keep all layers — MapLibre handles missing
-            // sprites gracefully with just console warnings.
-          }
-        }
-
-        style = styleJson;
+        style = await res.json();
       } catch {
         // If fetch fails, fall back to the URL and let MapLibre handle it
         style = STYLE_URL;

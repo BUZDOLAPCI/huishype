@@ -82,6 +82,53 @@ export async function apiFetch<T>(
   return response.json();
 }
 
+// --- Nearby property lookup (imperative, not a hook) ---
+
+export interface NearbyProperty {
+  id: string;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  wozValue: number | null;
+  hasListing: boolean;
+  activityScore: number;
+  distanceMeters: number;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
+}
+
+/** Maximum distance (meters) to consider a nearby result as a valid tap target. */
+const NEARBY_MAX_DISTANCE_M = 50;
+
+/**
+ * Fetch the closest property to a given coordinate.
+ * Returns null if nothing is found within the distance threshold.
+ *
+ * This is an imperative async function (NOT a hook) — call it from tap
+ * handlers only. It exists as a fallback for native Android where
+ * queryRenderedFeatures doesn't reliably find custom vector tile features.
+ */
+export async function fetchNearbyProperty(
+  lon: number,
+  lat: number,
+  zoom: number,
+): Promise<NearbyProperty | null> {
+  try {
+    const results = await apiFetch<NearbyProperty[]>(
+      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}&limit=1`,
+    );
+
+    if (!results || results.length === 0) return null;
+
+    const closest = results[0];
+    if (closest.distanceMeters > NEARBY_MAX_DISTANCE_M) return null;
+
+    return closest;
+  } catch (err) {
+    console.warn('[HuisHype] fetchNearbyProperty failed:', err);
+    return null;
+  }
+}
+
 // Convenience methods
 export const api = {
   get: <T>(endpoint: string, options?: RequestInit) =>

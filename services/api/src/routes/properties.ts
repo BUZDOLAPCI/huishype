@@ -56,6 +56,36 @@ const propertyParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+// Schema for /properties/nearby endpoint
+const nearbyQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  zoom: z.coerce.number().min(0).max(22).default(17),
+  limit: z.coerce.number().int().min(1).max(20).default(5),
+});
+
+const nearbyPropertySchema = z.object({
+  id: z.string().uuid(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  wozValue: z.number().nullable(),
+  hasListing: z.boolean(),
+  activityScore: z.number(),
+  distanceMeters: z.number(),
+  geometry: coordinateSchema.nullable(),
+});
+
+const nearbyResponseSchema = z.array(nearbyPropertySchema);
+
+/**
+ * Compute search radius in degrees from a zoom level.
+ * At z17 this is ~26m, at z18 ~13m, etc.
+ */
+function zoomToRadiusDegrees(zoom: number): number {
+  return 25 * (360 / Math.pow(2, zoom) / 256);
+}
+
 export async function propertyRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
@@ -147,6 +177,104 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
+  // GET /properties/nearby - Find nearest properties to a coordinate (KNN)
+  // Used as a fallback for native map taps when queryRenderedFeatures fails
+  typedApp.get(
+    '/properties/nearby',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Find nearby properties',
+        description:
+          'Find the nearest properties to a given coordinate using PostGIS KNN. ' +
+          'The search radius is derived from the zoom level. ' +
+          'Used as a fallback for native map tap when queryRenderedFeatures is unreliable.',
+        querystring: nearbyQuerySchema,
+        response: {
+          200: nearbyResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { lon, lat, zoom, limit } = request.query;
+      const radiusDeg = zoomToRadiusDegrees(zoom);
+
+      // PostGIS KNN query:
+      // 1. ST_DWithin pre-filters to a bounding-box for index usage
+      // 2. <-> operator orders by distance (KNN index scan)
+      // 3. Joins with listings, comments, price_guesses for activity data
+      const rows = await db.execute<{
+        id: string;
+        address: string;
+        city: string;
+        postal_code: string | null;
+        woz_value: number | null;
+        has_listing: boolean;
+        activity_score: number;
+        distance_meters: number;
+        lon: number;
+        lat: number;
+      }>(sql`
+        SELECT
+          p.id,
+          p.address,
+          p.city,
+          p.postal_code,
+          p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          (COALESCE(cc.cnt, 0) + COALESCE(gc.cnt, 0))::int AS activity_score,
+          ST_Distance(
+            p.geometry::geography,
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
+          ) AS distance_meters,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat
+        FROM properties p
+        LEFT JOIN LATERAL (
+          SELECT id FROM listings
+          WHERE property_id = p.id AND is_active = true
+          LIMIT 1
+        ) l ON true
+        LEFT JOIN (
+          SELECT property_id, COUNT(*)::int AS cnt
+          FROM comments
+          GROUP BY property_id
+        ) cc ON cc.property_id = p.id
+        LEFT JOIN (
+          SELECT property_id, COUNT(*)::int AS cnt
+          FROM price_guesses
+          GROUP BY property_id
+        ) gc ON gc.property_id = p.id
+        WHERE p.geometry IS NOT NULL
+          AND p.status = 'active'
+          AND ST_DWithin(
+            p.geometry,
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+            ${radiusDeg}
+          )
+        ORDER BY p.geometry <-> ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+        LIMIT ${limit}
+      `);
+
+      const results = Array.from(rows).map((r) => ({
+        id: r.id,
+        address: r.address,
+        city: r.city,
+        postalCode: r.postal_code,
+        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        hasListing: r.has_listing,
+        activityScore: Number(r.activity_score),
+        distanceMeters: Number(r.distance_meters),
+        geometry:
+          r.lon != null && r.lat != null
+            ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+            : null,
+      }));
+
+      return reply.send(results);
+    }
+  );
+
   // GET /properties/:id - Get a single property by ID
   typedApp.get(
     '/properties/:id',
@@ -195,3 +323,5 @@ export async function propertyRoutes(app: FastifyInstance) {
 export type PropertyListQuery = z.infer<typeof propertyListQuerySchema>;
 export type PropertyListResponse = z.infer<typeof propertyListResponseSchema>;
 export type PropertyResponse = z.infer<typeof propertySchema>;
+export type NearbyProperty = z.infer<typeof nearbyPropertySchema>;
+export type NearbyResponse = z.infer<typeof nearbyResponseSchema>;

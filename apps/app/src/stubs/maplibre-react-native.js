@@ -8,7 +8,9 @@
 const EmptyComponent = () => null;
 
 module.exports = {
-  MapView: EmptyComponent,
+  // alpha.44+ renamed MapView to Map
+  Map: EmptyComponent,
+  MapView: EmptyComponent, // legacy alias for compatibility
   Camera: EmptyComponent,
   VectorSource: EmptyComponent,
   CircleLayer: EmptyComponent,
@@ -17,7 +19,8 @@ module.exports = {
   LineLayer: EmptyComponent,
   RasterSource: EmptyComponent,
   RasterLayer: EmptyComponent,
-  ShapeSource: EmptyComponent,
+  GeoJSONSource: EmptyComponent,
+  ShapeSource: EmptyComponent, // legacy alias for compatibility
   Images: EmptyComponent,
   UserLocation: EmptyComponent,
   LogManager: { setLogLevel: () => {} },

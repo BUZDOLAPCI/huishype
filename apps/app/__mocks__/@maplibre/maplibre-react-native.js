@@ -1,10 +1,13 @@
 // Mock for @maplibre/maplibre-react-native
 const React = require('react');
 
-// Mock MapView component
-const MapView = React.forwardRef(({ children, ...props }, ref) => {
-  return React.createElement('MapView', { ...props, ref }, children);
+// Mock Map component (renamed from MapView in alpha.44)
+const Map = React.forwardRef(({ children, ...props }, ref) => {
+  return React.createElement('Map', { ...props, ref }, children);
 });
+
+// Legacy alias
+const MapView = Map;
 
 // Mock Camera component
 const Camera = React.forwardRef(({ children, ...props }, ref) => {
@@ -172,7 +175,8 @@ const Animated = {
 module.exports = {
   __esModule: true,
   // Components
-  MapView,
+  Map,
+  MapView, // legacy alias
   Camera,
   VectorSource,
   GeoJSONSource,

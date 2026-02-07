@@ -132,9 +132,9 @@ tags:
 
 - takeScreenshot: maestro-screenshots/ghost_nodes_11_final_state
 
-# Test zoom out works
+# Test zoom out works (button uses Unicode MINUS SIGN U+2212, not hyphen)
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 
 # Verify zoom indicator shows lower zoom

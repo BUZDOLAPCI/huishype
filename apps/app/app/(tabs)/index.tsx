@@ -1,11 +1,11 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
 import {
-  MapView,
+  Map,
   Camera,
   LogManager,
   type CameraRef,
-  type MapViewRef,
+  type MapRef,
   type ViewStateChangeEvent,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
@@ -21,7 +21,7 @@ import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
-import { API_URL } from '@/src/utils/api';
+import { API_URL, fetchNearbyProperty } from '@/src/utils/api';
 
 // No access token needed for MapLibre - it's open source
 
@@ -102,7 +102,7 @@ export default function MapScreen() {
   // Merged style as JS object (base map + property vector tiles)
   const mergedStyle = useMergedMapStyle();
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
-  const mapViewRef = useRef<MapViewRef>(null);
+  const mapRef = useRef<MapRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     null
@@ -141,8 +141,8 @@ export default function MapScreen() {
   // Fetch cluster properties (for paginated preview)
   const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
 
-  // Handle feature press - queries rendered features from style layers via MapView
-  // TODO: Re-implement using mapViewRef.queryRenderedFeatures() once tiles render
+  // Handle feature press - queries rendered features from style layers via Map
+  // TODO: Re-implement using mapRef.queryRenderedFeatures() once tiles render
   const handleFeaturePress = useCallback(
     async (features: GeoJSON.Feature[]) => {
       if (!features.length) return;
@@ -300,16 +300,17 @@ export default function MapScreen() {
   // If sheet is expanded (index > 0), tapping map should close sheet but preserve preview
   const handleMapPress = useCallback(
     async (event: NativeSyntheticEvent<PressEvent>) => {
-      const { point } = event.nativeEvent;
+      const { point, lngLat } = event.nativeEvent;
       // PixelPoint is a tuple [x, y], not an object
       const pixelPoint: [number, number] = [point[0], point[1]];
 
       // Query rendered features at the tap point
       // Note: queryRenderedFeatures in maplibre-react-native alpha may not reliably
       // find features from custom vector tile sources. This is a known limitation.
-      if (mapViewRef.current) {
+      let foundFeature = false;
+      if (mapRef.current) {
         try {
-          const features = await mapViewRef.current.queryRenderedFeatures(
+          const features = await mapRef.current.queryRenderedFeatures(
             pixelPoint,
             { layers: propertyLayerIds }
           );
@@ -321,6 +322,26 @@ export default function MapScreen() {
           }
         } catch (error) {
           console.warn('[HuisHype] Error querying features:', error);
+        }
+      }
+
+      // Fallback: use /properties/nearby API endpoint (native only).
+      // queryRenderedFeatures doesn't reliably find features from custom
+      // vector tile sources on Android — this is a MapLibre Native C++ bug.
+      if (!foundFeature && lngLat) {
+        const [lng, lat] = lngLat;
+        try {
+          const nearby = await fetchNearbyProperty(lng, lat, currentZoom);
+          if (nearby) {
+            setSelectedPropertyId(nearby.id);
+            setSelectedActivityScore(nearby.activityScore);
+            setSelectedHasListing(nearby.hasListing);
+            setShowPreview(true);
+            setIsClusterPreview(false);
+            return;
+          }
+        } catch (err) {
+          console.warn('[HuisHype] Nearby fallback failed:', err);
         }
       }
 
@@ -338,13 +359,13 @@ export default function MapScreen() {
       // If sheet is expanded (1 or 2), don't close preview
       // The backdrop/sheet will handle closing itself
     },
-    [showPreview, isClusterPreview, handleFeaturePress]
+    [showPreview, isClusterPreview, handleFeaturePress, currentZoom]
   );
 
   // Zoom control handlers
   const handleZoomIn = useCallback(async () => {
     const newZoom = Math.min(currentZoom + 1, 20);
-    const center = await mapViewRef.current?.getCenter();
+    const center = await mapRef.current?.getCenter();
     if (center) {
       cameraRef.current?.flyTo({
         center,
@@ -356,7 +377,7 @@ export default function MapScreen() {
 
   const handleZoomOut = useCallback(async () => {
     const newZoom = Math.max(currentZoom - 1, 0);
-    const center = await mapViewRef.current?.getCenter();
+    const center = await mapRef.current?.getCenter();
     if (center) {
       cameraRef.current?.flyTo({
         center,
@@ -374,8 +395,8 @@ export default function MapScreen() {
         setContentSize({ width, height });
       }}>
         {contentSize.width > 0 && mergedStyle && (
-        <MapView
-          ref={mapViewRef}
+        <Map
+          ref={mapRef}
           style={{ position: 'absolute', width: contentSize.width, height: contentSize.height }}
           mapStyle={mergedStyle}
           onPress={handleMapPress}
@@ -395,7 +416,7 @@ export default function MapScreen() {
               pitch: DEFAULT_PITCH,
             }}
           />
-        </MapView>
+        </Map>
         )}
 
         {/* Map Loading Indicator */}

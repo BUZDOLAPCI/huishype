@@ -125,18 +125,15 @@ tags:
 - takeScreenshot: maestro-screenshots/bottom_sheet_05_after_multi_tap
 
 # Check if preview card appeared with action buttons
-# These should appear when a property is selected
+# These should appear when a property is selected (nearby-property fallback makes this reliable)
 - assertVisible:
     text: "Like"
-    optional: true
 
 - assertVisible:
     text: "Comment"
-    optional: true
 
 - assertVisible:
     text: "Guess"
-    optional: true
 
 - takeScreenshot: maestro-screenshots/bottom_sheet_06_preview_card_check
 
@@ -172,11 +169,9 @@ tags:
 # Look for quick action buttons in the bottom sheet
 - assertVisible:
     text: "Save"
-    optional: true
 
 - assertVisible:
     text: "Share"
-    optional: true
 
 - takeScreenshot: maestro-screenshots/bottom_sheet_09_partial_expand_details
 
@@ -192,7 +187,6 @@ tags:
 # In fully expanded state, look for Comments section
 - assertVisible:
     text: "Comments"
-    optional: true
 
 # Look for the sort toggle in comments section
 - assertVisible:
@@ -217,16 +211,13 @@ tags:
 # Look for comment input area
 - assertVisible:
     text: ".*thoughts.*"
-    optional: true
 
 - assertVisible:
     text: ".*comment.*"
-    optional: true
 
 # Look for Price Guess section
 - assertVisible:
     text: ".*Guess.*"
-    optional: true
 
 - takeScreenshot: maestro-screenshots/bottom_sheet_13_more_sections
 

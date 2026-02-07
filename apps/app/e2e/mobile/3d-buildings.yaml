@@ -87,22 +87,22 @@ tags:
 
 # Zoom out to verify transition back to 2D
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 - takeScreenshot: maestro-screenshots/3d_buildings_08_zoomed_back_to_z14
 
 # Continue zooming out to z13 (below 3D threshold)
 - tapOn:
-    text: "-"
+    id: "zoom-out-button"
 - waitForAnimationToEnd
 - takeScreenshot: maestro-screenshots/3d_buildings_09_zoomed_back_to_z13
 

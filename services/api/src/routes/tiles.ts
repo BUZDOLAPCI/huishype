@@ -101,6 +101,103 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 // fonts/ lives at services/api/fonts/ — two levels up from src/routes/
 const FONTS_DIR = join(__dirname, '..', '..', 'fonts');
+// sprites/ lives at services/api/sprites/ — two levels up from src/routes/
+const SPRITES_DIR = join(__dirname, '..', '..', 'sprites');
+
+// Sprite file params schema
+const spriteParamsSchema = z.object({
+  filename: z.string().regex(/^ofm(@2x)?\.(json|png)$/),
+});
+
+// --- Sprite manifest + layer filtering ---
+
+// Cached sprite manifest (loaded once from local file)
+let cachedSpriteManifest: Set<string> | null = null;
+
+/**
+ * Load the @2x sprite manifest from disk and cache the set of available sprite names.
+ */
+async function getSpriteManifest(): Promise<Set<string>> {
+  if (cachedSpriteManifest) return cachedSpriteManifest;
+  const manifestPath = join(SPRITES_DIR, 'ofm@2x.json');
+  const data = await readFile(manifestPath, 'utf-8');
+  const manifest = JSON.parse(data) as Record<string, unknown>;
+  cachedSpriteManifest = new Set(Object.keys(manifest));
+  return cachedSpriteManifest;
+}
+
+// MapLibre expression keywords — not sprite names
+const EXPRESSION_KEYWORDS = new Set([
+  'match', 'case', 'coalesce', 'concat', 'get', 'has', 'in',
+  'literal', 'step', 'interpolate', 'linear', 'exponential',
+  'zoom', 'let', 'var', 'all', 'any', 'none', '!', '==', '!=',
+  '>', '<', '>=', '<=', 'to-string', 'to-number', 'to-boolean',
+  'typeof', 'string', 'number', 'boolean', 'image', 'format',
+  'number-format', 'at', 'length', 'slice', 'index-of',
+]);
+
+/**
+ * Detect if an icon-image expression is data-driven (resolves to
+ * feature property values at runtime, e.g. ["get", "class"]).
+ */
+function isDataDriven(expr: unknown): boolean {
+  if (!Array.isArray(expr)) return false;
+  const op = expr[0];
+  if (op === 'get' || op === 'to-string') return true;
+  return expr.some((child: unknown) => Array.isArray(child) && isDataDriven(child));
+}
+
+/**
+ * Filter/patch layers that reference missing sprites.
+ * - Plain string icon-image: drop layer if sprite missing
+ * - Data-driven expression: wrap with ['coalesce', ['image', expr], '']
+ * - Static expression: drop layer if ALL referenced sprites are missing
+ */
+function filterLayersForMissingSprites(
+  layers: Array<Record<string, unknown>>,
+  availableSprites: Set<string>
+): Array<Record<string, unknown>> {
+  return layers
+    .map((layer) => {
+      if (layer.type !== 'symbol') return layer;
+      const layout = layer.layout as Record<string, unknown> | undefined;
+      if (!layout) return layer;
+      const iconImage = layout['icon-image'];
+      if (!iconImage) return layer;
+
+      // Case 1: Plain string icon-image — drop layer if sprite missing
+      if (typeof iconImage === 'string') {
+        return availableSprites.has(iconImage) ? layer : null;
+      }
+
+      // Case 2: Expression-based icon-image
+      if (Array.isArray(iconImage)) {
+        if (isDataDriven(iconImage)) {
+          layout['icon-image'] = ['coalesce', ['image', iconImage], ''];
+          return layer;
+        }
+
+        // Static expression — extract literal sprite references
+        const spriteRefs: string[] = [];
+        const walk = (node: unknown) => {
+          if (typeof node === 'string' && !EXPRESSION_KEYWORDS.has(node)) {
+            spriteRefs.push(node);
+          } else if (Array.isArray(node)) {
+            node.forEach(walk);
+          }
+        };
+        walk(iconImage);
+
+        // If ALL referenced sprites are missing, drop the layer
+        if (spriteRefs.length > 0 && spriteRefs.every((ref) => !availableSprites.has(ref))) {
+          return null;
+        }
+      }
+
+      return layer;
+    })
+    .filter(Boolean) as Array<Record<string, unknown>>;
+}
 
 /**
  * Build the property layers array for the merged style.
@@ -344,6 +441,40 @@ export async function tileRoutes(app: FastifyInstance) {
   );
 
   /**
+   * GET /sprites/:filename
+   *
+   * Serves self-hosted sprite files for MapLibre icon rendering.
+   * Only serves files matching ofm*.json and ofm*.png patterns.
+   */
+  typedApp.get(
+    '/sprites/:filename',
+    {
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get sprite file',
+        description: 'Returns a sprite JSON manifest or PNG atlas.',
+        params: spriteParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const { filename } = request.params;
+
+      const filePath = join(SPRITES_DIR, filename);
+      const contentType = filename.endsWith('.json') ? 'application/json' : 'image/png';
+
+      try {
+        const data = await readFile(filePath);
+        return reply
+          .header('Content-Type', contentType)
+          .header('Cache-Control', 'public, max-age=604800, immutable')
+          .send(data);
+      } catch {
+        return reply.status(404).send({ error: 'Sprite file not found' });
+      }
+    }
+  );
+
+  /**
    * GET /tiles/style.json
    *
    * Returns a MapLibre style JSON that merges the OpenFreeMap Positron base style
@@ -370,6 +501,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const baseUrl = `${protocol}://${host}`;
       const tileUrl = `${baseUrl}/tiles/properties/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
+      const spriteUrl = `${baseUrl}/sprites/ofm`;
 
       // Check cache (60s TTL)
       const now = Date.now();
@@ -381,6 +513,7 @@ export async function tileRoutes(app: FastifyInstance) {
         const propSource = sources['properties-source'] as Record<string, unknown>;
         propSource.tiles = [tileUrl];
         style.glyphs = glyphsUrl;
+        style.sprite = spriteUrl;
         return reply
           .header('Cache-Control', 'public, max-age=60')
           .send(style);
@@ -396,6 +529,9 @@ export async function tileRoutes(app: FastifyInstance) {
 
         // Override glyphs URL to use self-hosted fonts
         baseStyle.glyphs = glyphsUrl;
+
+        // Override sprite URL to use self-hosted sprites
+        baseStyle.sprite = spriteUrl;
 
         // Add property vector tile source
         sources['properties-source'] = {
@@ -447,7 +583,17 @@ export async function tileRoutes(app: FastifyInstance) {
         // Add property layers on top
         layers.push(...buildPropertyLayers());
 
-        const merged = { ...baseStyle, sources, layers };
+        // Filter/patch layers that reference missing sprites.
+        // This runs once per cache miss — the sprite manifest is cached in memory.
+        let filteredLayers = layers;
+        try {
+          const availableSprites = await getSpriteManifest();
+          filteredLayers = filterLayersForMissingSprites(layers, availableSprites);
+        } catch (spriteErr) {
+          app.log.warn(spriteErr, 'Failed to load sprite manifest for layer filtering — keeping all layers');
+        }
+
+        const merged = { ...baseStyle, sources, layers: filteredLayers };
         cachedStyle = { data: merged, fetchedAt: now };
 
         return reply
