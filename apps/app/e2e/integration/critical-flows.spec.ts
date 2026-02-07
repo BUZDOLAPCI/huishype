@@ -226,9 +226,10 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       // Verify API calls were made
       expect(apiCalls.length).toBeGreaterThan(0);
 
-      // Verify API calls went to the correct URL (not a mock)
+      // Verify API calls went to a real API (not a mock)
+      // Match any host on port 3100 (localhost, LAN IP, etc.)
       const validApiCalls = apiCalls.filter((url) =>
-        url.includes('localhost:3100') || url.includes(API_BASE_URL)
+        url.includes(':3100/') || url.includes(API_BASE_URL)
       );
       expect(validApiCalls.length).toBeGreaterThan(0);
     });

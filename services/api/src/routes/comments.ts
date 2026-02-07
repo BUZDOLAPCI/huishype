@@ -201,7 +201,7 @@ export async function commentRoutes(app: FastifyInstance) {
             )::int as like_count
           FROM comments c
           INNER JOIN users u ON c.user_id = u.id
-          WHERE c.parent_id = ANY(${commentIds})
+          WHERE c.parent_id IN (${sql.join(commentIds.map(id => sql`${id}`), sql`, `)})
           ORDER BY c.created_at ASC
         `);
 

@@ -1,0 +1,207 @@
+# Comment Post E2E Test
+# Tests the comment interaction within the property bottom sheet.
+# Navigates to a property, expands the bottom sheet, scrolls to Comments section,
+# and verifies comment area, sort toggle, and auth gate for posting.
+#
+# Prerequisites:
+# - App installed on emulator, Metro dev server running
+# - Backend API accessible with seeded data
+#
+# Usage:
+# maestro test apps/app/e2e/mobile/comment-post.yaml
+
+appId: nl.huishype.app
+tags:
+  - feature:comments
+  - feature:auth-gate
+---
+# Launch the app
+- launchApp
+
+# Handle Expo Dev Client server picker if shown
+- tapOn:
+    text: ".*10.0.2.2:8081.*"
+    optional: true
+
+# Wait for app to fully load
+- extendedWaitUntil:
+    visible: "HuisHype"
+    timeout: 60000
+
+# Dismiss Expo developer menu if it appears
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    point: "50%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+# Wait for map to render
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 20000
+
+- takeScreenshot: maestro-screenshots/comment_post_01_map_loaded
+
+# Zoom in to z17+ where individual property markers are visible
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+
+# One more zoom to z18 for denser markers
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/comment_post_02_zoomed_to_z18
+
+# Tap multiple screen positions to select a property
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "30%,40%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "70%,60%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "40%,30%"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    point: "60%,70%"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/comment_post_03_after_taps
+
+# Verify preview card appeared with Comment button
+- assertVisible:
+    text: "Comment"
+
+- takeScreenshot: maestro-screenshots/comment_post_04_preview_card_visible
+
+# Tap Comment button on preview card to scroll to comments section
+- tapOn:
+    text: "Comment"
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/comment_post_05_after_comment_tap
+
+# Swipe up to partially expand the bottom sheet
+- swipe:
+    start: "50%,90%"
+    end: "50%,50%"
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/comment_post_06_partial_expand
+
+# Swipe up again to fully expand
+- swipe:
+    start: "50%,50%"
+    end: "50%,15%"
+    duration: 500
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/comment_post_07_full_expand
+
+# Look for the Comments section header
+- assertVisible:
+    text: "Comments"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/comment_post_08_comments_header
+
+# Look for sort toggle buttons
+- assertVisible:
+    text: "Recent"
+    optional: true
+
+- assertVisible:
+    text: "Popular"
+    optional: true
+
+# Scroll down within the sheet to see comment input area
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/comment_post_09_scrolled_to_comments
+
+# Look for comment input placeholder text (auth gate for unauthenticated user)
+- assertVisible:
+    text: ".*Log in to comment.*"
+    optional: true
+
+- assertVisible:
+    text: ".*thoughts.*"
+    optional: true
+
+# Look for empty state message
+- assertVisible:
+    text: "No comments yet"
+    optional: true
+
+- assertVisible:
+    text: ".*first.*"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/comment_post_10_comment_input_area
+
+# Scroll more to see full comments area
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+
+- waitForAnimationToEnd
+- takeScreenshot: maestro-screenshots/comment_post_11_more_comments_area
+
+# Scroll back up
+- swipe:
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 300
+
+- waitForAnimationToEnd
+
+# Dismiss the bottom sheet
+- swipe:
+    start: "50%,30%"
+    end: "50%,95%"
+    duration: 500
+
+- waitForAnimationToEnd
+
+# Verify we're back to the map
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/comment_post_12_back_to_map
+
+# Verify app is still functional
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+- takeScreenshot: maestro-screenshots/comment_post_13_final_state

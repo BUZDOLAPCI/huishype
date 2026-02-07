@@ -181,8 +181,12 @@ Artifacts always captured:
 - **Backend integration tests**
   - `services/api/test/integration/**/*.test.ts`
   - (runs against Docker Postgres + migrations + seeds)
-- **Web E2E (Playwright)**
-  - `apps/app/e2e/web/**/*.spec.ts`
+- **Web E2E — User Flows (Playwright)**
+  - `apps/app/e2e/flows/**/*.spec.ts`
+- **Web E2E — Visual Reference Tests (Playwright)**
+  - `apps/app/e2e/visual/**/*.spec.ts`
+- **Web E2E — Integration Tests (Playwright)**
+  - `apps/app/e2e/integration/**/*.spec.ts`
 - **Mobile E2E (Maestro)**
   - `apps/app/e2e/mobile/**/*.yaml`
   - (Maestro uses YAML flow files, not TypeScript)
@@ -212,3 +216,31 @@ A change is "done" only if:
 - integration tests added/updated when API/DB touched
 - at least one E2E added/updated for the feature
 - `test:all` passes locally (or CI)
+
+---
+
+## Agent Test Decision Tree
+
+When deciding which tests to run after a change:
+
+| Change Type | Tests to Run |
+|------------|-------------|
+| Pure logic change (hooks, utils) | `pnpm test:unit` |
+| API route/endpoint change | `pnpm test:unit` + `pnpm test:integration` |
+| UI component change | `pnpm test:unit` + `pnpm test:e2e:flows` |
+| Map/tile rendering change | `pnpm test:e2e:visual` + `pnpm test:e2e:flows` |
+| Mobile-specific change | `pnpm test:e2e:mobile` (Maestro) |
+| Cross-cutting or unsure | `pnpm test:all` |
+| Before marking any task done | `pnpm test:all` + verify Maestro if mobile touched |
+
+### Quick Reference Commands
+```
+pnpm test:unit              # App + API unit tests (Vitest)
+pnpm test:integration       # API integration tests (real DB)
+pnpm test:e2e:web          # All Playwright tests (visual + integration + flows)
+pnpm test:e2e:flows        # User flow E2E tests only
+pnpm test:e2e:visual       # Visual reference tests only
+pnpm test:e2e:integration  # Critical flow integration tests only
+pnpm test:e2e:mobile       # Maestro mobile tests (requires emulator)
+pnpm test:all              # Unit + all Playwright E2E
+```

@@ -103,11 +103,8 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     expect(data.data).toBeDefined();
     expect(Array.isArray(data.data)).toBe(true);
 
-    // Skip test if no properties in database
-    if (data.data.length === 0) {
-      test.skip();
-      return;
-    }
+    // Database should be seeded with properties in this area
+    expect(data.data.length, 'Expected properties in database within bbox').toBeGreaterThan(0);
 
     // Check each property's address
     const invalidAddresses: string[] = [];
@@ -201,16 +198,10 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // First, get a property from the API (using bbox to get a property with real address)
     const apiResponse = await request.get(`${API_BASE_URL}/properties?limit=1&bbox=${REAL_ADDRESS_BBOX}`);
 
-    if (!apiResponse.ok()) {
-      test.skip();
-      return;
-    }
+    expect(apiResponse.ok(), 'API should return OK for properties query').toBe(true);
 
     const apiData = await apiResponse.json();
-    if (!apiData.data || apiData.data.length === 0) {
-      test.skip();
-      return;
-    }
+    expect(apiData.data?.length, 'Expected properties in database within bbox').toBeGreaterThan(0);
 
     const property = apiData.data[0];
     const propertyId = property.id;
@@ -255,20 +246,14 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Try to click feed tab
+    // Click feed tab - the app has a "Feed" tab in the bottom tab bar
     const feedTab = page
       .getByRole('tab', { name: /feed/i })
       .or(page.locator('[data-testid="feed-tab"]'))
+      .or(page.locator('a[href*="feed"], [role="link"][href*="feed"]'))
       .or(page.locator('text=Feed'));
 
-    const isFeedVisible = await feedTab.first().isVisible().catch(() => false);
-
-    if (!isFeedVisible) {
-      console.log('Feed tab not available, skipping feed test');
-      test.skip();
-      return;
-    }
-
+    await expect(feedTab.first()).toBeVisible({ timeout: 10000 });
     await feedTab.first().click();
     await page.waitForTimeout(3000);
 
@@ -297,16 +282,9 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
-    // Try to interact with map to open a cluster preview
-    // This depends on the map having clickable markers
-    const mapContainer = page.locator('[data-testid="map-container"]').or(page.locator('#map'));
-    const isMapVisible = await mapContainer.first().isVisible().catch(() => false);
-
-    if (!isMapVisible) {
-      console.log('Map container not found, skipping cluster preview test');
-      test.skip();
-      return;
-    }
+    // Wait for map to be visible
+    const mapContainer = page.locator('[data-testid="map-view"]');
+    await expect(mapContainer.first()).toBeVisible({ timeout: 30000 });
 
     // Look for any visible cluster preview
     const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');

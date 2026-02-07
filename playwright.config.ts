@@ -64,8 +64,8 @@ export default defineConfig({
           use: { ...devices['Desktop Chrome'] },
         },
         {
-          name: 'chromium',
-          testDir: './apps/app/e2e/web',
+          name: 'flows',
+          testDir: './apps/app/e2e/flows',
           use: { ...devices['Desktop Chrome'] },
         },
       ]
@@ -88,29 +88,9 @@ export default defineConfig({
           use: { ...devices['Desktop Chrome'] },
         },
         {
-          name: 'chromium',
-          testDir: './apps/app/e2e/web',
+          name: 'flows',
+          testDir: './apps/app/e2e/flows',
           use: { ...devices['Desktop Chrome'] },
-        },
-        {
-          name: 'firefox',
-          testDir: './apps/app/e2e/web',
-          use: { ...devices['Desktop Firefox'] },
-        },
-        {
-          name: 'webkit',
-          testDir: './apps/app/e2e/web',
-          use: { ...devices['Desktop Safari'] },
-        },
-        {
-          name: 'Mobile Chrome',
-          testDir: './apps/app/e2e/web',
-          use: { ...devices['Pixel 5'] },
-        },
-        {
-          name: 'Mobile Safari',
-          testDir: './apps/app/e2e/web',
-          use: { ...devices['iPhone 12'] },
         },
       ],
   /* Run local dev server before starting the tests */

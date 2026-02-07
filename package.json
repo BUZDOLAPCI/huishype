@@ -12,6 +12,9 @@
     "test:unit": "turbo run test",
     "test:integration": "turbo run test:integration",
     "test:e2e:web": "playwright test",
+    "test:e2e:flows": "playwright test --project=flows",
+    "test:e2e:visual": "playwright test --project=visual",
+    "test:e2e:integration": "playwright test --project=integration",
     "test:e2e:mobile": "echo 'Run: maestro test apps/app/e2e/mobile/'",
     "test:all": "pnpm test:unit && pnpm test:e2e:web"
   },

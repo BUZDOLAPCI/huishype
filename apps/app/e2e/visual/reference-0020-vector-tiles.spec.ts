@@ -27,7 +27,7 @@ const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
 // Zoom levels for testing
 const ZOOMED_OUT_LEVEL = 10; // City view - should show only active clusters
-const ZOOMED_IN_LEVEL = 16; // Street view - should show all nodes including ghosts
+const ZOOMED_IN_LEVEL = 17; // Street view - must be >= 17 (GHOST_NODE_FRONTEND_ZOOM) to show ghost nodes
 
 // API base URL (assume running locally for tests)
 const API_URL = 'http://localhost:3100';
@@ -105,25 +105,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const x = 4208; // Approximate tile for Eindhoven at z13
     const y = 2686;
 
-    let response;
-    try {
-      response = await request.get(
-        `${API_URL}/tiles/properties/${z}/${x}/${y}.pbf`,
-        { timeout: 5000 }
-      );
-    } catch (error) {
-      // Skip this test if API is not available
-      console.log('API not available, skipping direct endpoint test');
-      test.skip();
-      return;
-    }
+    const response = await request.get(
+      `${API_URL}/tiles/properties/${z}/${x}/${y}.pbf`,
+      { timeout: 5000 }
+    );
 
-    // If API returns 404 or 500, skip (API might not be running or endpoint not deployed)
-    if (response.status() === 404 || response.status() === 500) {
-      console.log(`Tile endpoint returned ${response.status()}, skipping (API may not be properly configured)`);
-      test.skip();
-      return;
-    }
+    // API should be running and endpoint should exist
+    expect(response.status(), 'Tile endpoint should not return 404 or 500').not.toBe(404);
+    expect(response.status(), 'Tile endpoint should not return 500').not.toBe(500);
 
     // Should return 200 or 204 (empty tile)
     expect([200, 204]).toContain(response.status());
