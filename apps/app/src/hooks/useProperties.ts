@@ -33,7 +33,6 @@ export interface PropertyListResponse {
 }
 
 export interface PropertyDetails extends Property {
-  listingUrl?: string;
   askingPrice?: number;
   fmv?: number;
   fmvConfidence?: 'low' | 'medium' | 'high';

@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle, useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, type LayoutChangeEvent, type ScrollView } from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
@@ -13,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import type { Property } from '../../hooks/useProperties';
+import { useListings } from '../../hooks/useListings';
 import type { PropertyDetailsData } from './types';
 import { PropertyHeader } from './PropertyHeader';
 import { PriceSection } from './PriceSection';
@@ -21,6 +23,7 @@ import { PriceGuessSection } from './PriceGuessSection';
 import { CommentsSection } from './CommentsSection';
 import { PropertyDetails } from './PropertyDetails';
 import { ListingLinks } from './ListingLinks';
+import { ListingSubmissionSheet } from './ListingSubmissionSheet';
 import { LoadingSkeleton } from './LoadingSkeleton';
 
 export interface PropertyBottomSheetProps {
@@ -78,6 +81,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const bottomSheetRef = useRef<BottomSheetLib>(null);
     const scrollViewRef = useRef<ScrollView>(null);
     const animatedIndex = useSharedValue(-1);
+    const queryClient = useQueryClient();
+
+    // Listing submission modal state
+    const [showSubmission, setShowSubmission] = useState(false);
+
+    // Fetch listings for the current property
+    const { data: listings = [] } = useListings(property?.id ?? null);
 
     // Track whether sheet should be mounted (only when we have a property)
     // This prevents the handle indicator from being visible when no property is selected
@@ -185,6 +195,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }
 
     return (
+      <>
       <BottomSheetLib
         ref={bottomSheetRef}
         index={0}
@@ -222,7 +233,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
                 />
 
                 {/* Listing Links (if available) */}
-                <ListingLinks property={propertyDetails} />
+                <ListingLinks
+                  listings={listings}
+                  onAddListing={() => setShowSubmission(true)}
+                />
 
                 {/* Price Guess Section */}
                 <View onLayout={handleGuessSectionLayout}>
@@ -248,6 +262,19 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           </Animated.View>
         </BottomSheetScrollView>
       </BottomSheetLib>
+      {property && (
+        <ListingSubmissionSheet
+          propertyId={property.id}
+          visible={showSubmission}
+          onClose={() => setShowSubmission(false)}
+          onSubmitted={() => {
+            setShowSubmission(false);
+            queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
+          }}
+          onAuthRequired={onAuthRequired}
+        />
+      )}
+    </>
     );
   }
 );

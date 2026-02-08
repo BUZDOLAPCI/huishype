@@ -34,51 +34,34 @@ const WGS84 = 'EPSG:4326';
 // Register the projection
 proj4.defs('EPSG:28992', RD_NEW);
 
-// Types for BAG data
-interface VerblijfsobjectRow {
-  pand_identificatie: string;
-  openbare_ruimte_naam: string;
-  huisnummer: number;
+// Row type for extracted VBO data from temp SQLite
+interface VboExtractRow {
+  identificatie: string;
+  oppervlakte: number | null;
+  bouwjaar: number | null;
+  status: string | null;
+  openbare_ruimte_naam: string | null;
+  huisnummer: number | null;
   huisletter: string | null;
   toevoeging: string | null;
   postcode: string | null;
-  woonplaats_naam: string;
-}
-
-interface PandCentroidRow {
-  identificatie: string;
-  bouwjaar: number | null;
-  status: string | null;
-  oppervlakte_min: number | null;
-  centroid_x: number;
-  centroid_y: number;
-}
-
-// Address info structure
-interface AddressInfo {
-  address: string;
-  postalCode: string | null;
-  city: string;
+  woonplaats_naam: string | null;
+  x: number;
+  y: number;
 }
 
 /**
- * Format an address from BAG verblijfsobject fields
- * Format: "Straatnaam 123A-bis"
+ * Format house number addition from BAG huisletter and toevoeging fields
+ * Examples: "A", "B-1", "BIS", null
  */
-function formatBAGAddress(
-  straatnaam: string,
-  huisnummer: number,
+function formatHouseNumberAddition(
   huisletter: string | null,
   toevoeging: string | null
-): string {
-  let address = `${straatnaam} ${huisnummer}`;
-  if (huisletter) {
-    address += huisletter;
-  }
-  if (toevoeging) {
-    address += `-${toevoeging}`;
-  }
-  return address;
+): string | null {
+  let addition = '';
+  if (huisletter) addition += huisletter;
+  if (toevoeging) addition += (addition ? '-' : '') + toevoeging;
+  return addition ? addition.toUpperCase() : null;
 }
 
 /**
@@ -90,16 +73,16 @@ function transformToWGS84(x: number, y: number): { lon: number; lat: number } {
 }
 
 /**
- * Map BAG status to our property status enum
+ * Map BAG VBO status to our property status enum
  */
 function mapStatus(bagStatus: string | null): 'active' | 'inactive' | 'demolished' {
   if (!bagStatus) return 'active';
 
   const status = bagStatus.toLowerCase();
-  if (status.includes('gesloopt') || status.includes('demolished')) {
+  if (status.includes('ingetrokken')) {
     return 'demolished';
   }
-  if (status.includes('niet') || status.includes('buiten')) {
+  if (status.includes('buiten gebruik')) {
     return 'inactive';
   }
   return 'active';
@@ -118,18 +101,18 @@ function formatElapsedTime(ms: number): string {
 }
 
 /**
- * Extract pand centroids using ogr2ogr to a temporary SQLite database
- * This is much faster than querying ogrinfo for each batch
+ * Extract verblijfsobjecten using ogr2ogr to a temporary SQLite database.
+ * Each VBO is a dwelling unit with its own address, geometry, and oppervlakte.
  *
- * @param eindhovenOnly - If true, only extract properties within ~20km of Eindhoven center
+ * @param eindhovenOnly - If true, only extract VBOs within ~20km of Eindhoven center
  */
-function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolished: boolean, eindhovenOnly: boolean): void {
-  console.log('\nExtracting pand centroids using ogr2ogr...');
+function extractVerblijfsobjecten(bagPath: string, tempDbPath: string, skipDemolished: boolean, eindhovenOnly: boolean): void {
+  console.log('\nExtracting verblijfsobjecten using ogr2ogr...');
 
   if (eindhovenOnly) {
-    console.log('Filtering to Eindhoven area (~20km radius, ~240K properties)...');
+    console.log('Filtering to Eindhoven area (~20km radius)...');
   } else {
-    console.log('This may take several minutes for 11M+ records...');
+    console.log('This may take several minutes for 9.8M+ records...');
   }
 
   // Remove existing temp file
@@ -137,28 +120,30 @@ function extractPandCentroids(bagPath: string, tempDbPath: string, skipDemolishe
     unlinkSync(tempDbPath);
   }
 
-  // Build SQL query for centroid extraction
+  // Build WHERE conditions
   const whereConditions: string[] = [];
 
+  // Only include VBOs with valid addresses
+  whereConditions.push('huisnummer IS NOT NULL AND openbare_ruimte_naam IS NOT NULL');
+
   if (skipDemolished) {
-    whereConditions.push("status NOT LIKE '%gesloopt%' AND status NOT LIKE '%demolished%'");
+    whereConditions.push("status NOT LIKE '%ingetrokken%'");
   }
 
-  // Add spatial filter for Eindhoven area if requested
+  // Spatial filter using VBO's own geometry
   if (eindhovenOnly) {
     const { minX, minY, maxX, maxY } = EINDHOVEN_BOUNDS_RD;
     whereConditions.push(
-      `ST_X(ST_Centroid(geom)) BETWEEN ${minX} AND ${maxX} AND ST_Y(ST_Centroid(geom)) BETWEEN ${minY} AND ${maxY}`
+      `ST_X(geom) BETWEEN ${minX} AND ${maxX} AND ST_Y(geom) BETWEEN ${minY} AND ${maxY}`
     );
   }
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-  // Use ogr2ogr to extract centroids to a SQLite database
-  // The -nlt NONE flag tells ogr2ogr to not write geometry (we just need the centroid coords)
-  const sql = `SELECT identificatie, bouwjaar, status, oppervlakte_min, ST_X(ST_Centroid(geom)) as centroid_x, ST_Y(ST_Centroid(geom)) as centroid_y FROM pand ${whereClause}`;
+  // Extract VBO data including coordinates
+  const sqlQuery = `SELECT identificatie, oppervlakte, bouwjaar, status, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam, ST_X(geom) as x, ST_Y(geom) as y FROM verblijfsobject ${whereClause}`;
 
-  const command = `ogr2ogr -f SQLite "${tempDbPath}" "${bagPath}" -sql "${sql}" -nln pand_centroids -dsco SPATIALITE=NO`;
+  const command = `ogr2ogr -f SQLite "${tempDbPath}" "${bagPath}" -sql "${sqlQuery}" -nln vbo_extract -dsco SPATIALITE=NO`;
 
   console.log('Running ogr2ogr extraction...');
   const startTime = Date.now();
@@ -198,13 +183,13 @@ async function seed() {
 
   if (eindhovenOnly) {
     console.log('Mode: EINDHOVEN AREA (development default)');
-    console.log('  ~20km radius from city center, ~240K properties');
+    console.log('  ~20km radius from city center');
     console.log('  Use --full or --netherlands for complete dataset');
   } else {
     console.log('Mode: FULL NETHERLANDS');
-    console.log('  Complete dataset: 11.3M properties');
+    console.log('  Complete dataset: ~9.8M verblijfsobjecten');
   }
-  console.log('Source: bag-light.gpkg');
+  console.log('Source: bag-light.gpkg (verblijfsobject layer)');
   console.log('');
 
   if (limit) {
@@ -214,7 +199,7 @@ async function seed() {
     console.log(`Starting from offset ${offset.toLocaleString()}`);
   }
   if (skipDemolished) {
-    console.log('Skipping demolished properties');
+    console.log('Skipping withdrawn/demolished VBOs');
   }
   if (dryRun) {
     console.log('DRY RUN - no database changes will be made');
@@ -227,143 +212,109 @@ async function seed() {
   const bagPath = resolve(__dirname, '../../../data_sources/bag-light.gpkg');
   // Use different temp files for Eindhoven vs full Netherlands to allow reuse
   const tempDbPath = eindhovenOnly
-    ? resolve(__dirname, '../../../data_sources/pand_centroids_eindhoven_temp.sqlite')
-    : resolve(__dirname, '../../../data_sources/pand_centroids_temp.sqlite');
+    ? resolve(__dirname, '../../../data_sources/vbo_eindhoven_temp.sqlite')
+    : resolve(__dirname, '../../../data_sources/vbo_temp.sqlite');
 
   console.log(`\nBAG GeoPackage: ${bagPath}`);
 
-  // Step 1: Extract pand centroids to temp SQLite (unless skipped)
+  // Step 1: Extract VBOs to temp SQLite (unless skipped)
   if (!skipExtract) {
-    extractPandCentroids(bagPath, tempDbPath, skipDemolished, eindhovenOnly);
+    extractVerblijfsobjecten(bagPath, tempDbPath, skipDemolished, eindhovenOnly);
   }
 
-  // Open both databases
-  console.log('\nOpening databases...');
-  const bagDb = new Database(bagPath, { readonly: true });
+  // Open temp database
+  console.log('\nOpening temp database...');
   const tempDb = new Database(tempDbPath, { readonly: true });
 
-  // Count total pands in temp database
-  const countResult = tempDb.prepare('SELECT COUNT(*) as count FROM pand_centroids').get() as { count: number };
-  const totalPands = countResult.count;
-  console.log(`Total pands with centroids: ${totalPands.toLocaleString()}`);
-
-  // Build address lookup map from verblijfsobject
-  console.log('\nBuilding address lookup map from verblijfsobject...');
-  const addressMapStart = Date.now();
-
-  const addressMap = new Map<string, AddressInfo>();
-
-  // Query verblijfsobject in batches to build address map
-  const ADDRESS_BATCH_SIZE = 500000;
-  let addressOffset = 0;
-
-  const addressStmt = bagDb.prepare(`
-    SELECT pand_identificatie, openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam
-    FROM verblijfsobject
-    WHERE pand_identificatie IS NOT NULL
-    ORDER BY pand_identificatie
-    LIMIT ? OFFSET ?
-  `);
-
-  while (true) {
-    const addressBatch = addressStmt.all(ADDRESS_BATCH_SIZE, addressOffset) as VerblijfsobjectRow[];
-
-    if (addressBatch.length === 0) break;
-
-    for (const row of addressBatch) {
-      // Only keep first address for each pand
-      if (addressMap.has(row.pand_identificatie)) continue;
-
-      const address = formatBAGAddress(
-        row.openbare_ruimte_naam,
-        row.huisnummer,
-        row.huisletter,
-        row.toevoeging
-      );
-
-      addressMap.set(row.pand_identificatie, {
-        address,
-        postalCode: row.postcode || null,
-        city: row.woonplaats_naam || 'Unknown',
-      });
-    }
-
-    addressOffset += addressBatch.length;
-    process.stdout.write(`\r  Loaded ${addressOffset.toLocaleString()} verblijfsobjecten, ${addressMap.size.toLocaleString()} unique pands`);
-  }
-
-  console.log(`\n  Address map built: ${addressMap.size.toLocaleString()} unique pand addresses in ${formatElapsedTime(Date.now() - addressMapStart)}`);
+  // Count total VBOs
+  const countResult = tempDb.prepare('SELECT COUNT(*) as count FROM vbo_extract').get() as { count: number };
+  const totalVbos = countResult.count;
+  console.log(`Total VBOs extracted: ${totalVbos.toLocaleString()}`);
 
   // Connect to PostgreSQL database
   const databaseUrl = process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype';
   console.log('\nConnecting to PostgreSQL database...');
 
   const queryClient = postgres(databaseUrl, {
-    max: 10, // Use connection pool for parallel inserts
+    max: 10,
     onnotice: () => {},
   });
 
   const db = drizzle(queryClient);
 
   try {
-    // Process pand centroids from temp database
     const BATCH_SIZE = 50000;
     const INSERT_BATCH_SIZE = 5000;
 
     let processedCount = 0;
-    let insertedCount = 0;
-    let skippedNoAddress = 0;
+    let skippedDuplicateAddress = 0;
+    let skippedNoPostalCode = 0;
 
-    const totalToProcess = limit ? Math.min(limit, totalPands - offset) : totalPands - offset;
+    // Track seen addresses to avoid unique constraint violations
+    const seenAddresses = new Set<string>();
 
-    console.log(`\nProcessing ${totalToProcess.toLocaleString()} properties...`);
+    const totalToProcess = limit ? Math.min(limit, totalVbos - offset) : totalVbos - offset;
+
+    console.log(`\nProcessing ${totalToProcess.toLocaleString()} VBOs...`);
     const processStart = Date.now();
 
-    // Prepare statement for reading centroids
-    const centroidStmt = tempDb.prepare(`
-      SELECT identificatie, bouwjaar, status, oppervlakte_min, centroid_x, centroid_y
-      FROM pand_centroids
+    // Prepare statement for reading VBOs
+    const vboStmt = tempDb.prepare(`
+      SELECT identificatie, oppervlakte, bouwjaar, status,
+             openbare_ruimte_naam, huisnummer, huisletter, toevoeging, postcode, woonplaats_naam,
+             x, y
+      FROM vbo_extract
       ORDER BY identificatie
       LIMIT ? OFFSET ?
     `);
 
     let currentOffset = offset;
     let propertyBatch: NewProperty[] = [];
-
     let totalScannedSoFar = 0;
 
     while (totalScannedSoFar < totalToProcess) {
       const batchLimit = Math.min(BATCH_SIZE, totalToProcess - totalScannedSoFar);
 
-      const centroidBatch = centroidStmt.all(batchLimit, currentOffset) as PandCentroidRow[];
+      const vboBatch = vboStmt.all(batchLimit, currentOffset) as VboExtractRow[];
 
-      if (centroidBatch.length === 0) {
+      if (vboBatch.length === 0) {
         console.log(`\nNo more records found at offset ${currentOffset}`);
         break;
       }
 
-      for (const row of centroidBatch) {
-        if (!row.identificatie || row.centroid_x === null || row.centroid_y === null) {
+      for (const row of vboBatch) {
+        if (!row.identificatie || row.x === null || row.y === null) {
           continue;
         }
 
-        // Look up address - skip pands without addresses (utility buildings, garages, sheds, etc.)
-        const addressInfo = addressMap.get(row.identificatie);
-        if (!addressInfo) {
-          skippedNoAddress++;
+        // Format address fields
+        const street = row.openbare_ruimte_naam?.trim();
+        const houseNumber = row.huisnummer;
+        const houseNumberAddition = formatHouseNumberAddition(row.huisletter, row.toevoeging);
+        const postalCode = row.postcode ? row.postcode.replace(/\s/g, '').toUpperCase() : null;
+        const city = row.woonplaats_naam || 'Unknown';
+
+        if (!street || houseNumber == null || !postalCode) {
+          if (!postalCode && street && houseNumber != null) skippedNoPostalCode++;
           continue;
         }
+
+        // Deduplicate by address
+        const addressKey = `${postalCode}|${houseNumber}|${houseNumberAddition || ''}`;
+        if (seenAddresses.has(addressKey)) {
+          skippedDuplicateAddress++;
+          continue;
+        }
+        seenAddresses.add(addressKey);
 
         // Transform coordinates from RD New to WGS84
-        const { lon, lat } = transformToWGS84(row.centroid_x, row.centroid_y);
-
-        const address = addressInfo.address;
-        const postalCode = addressInfo.postalCode;
-        const city = addressInfo.city;
+        const { lon, lat } = transformToWGS84(row.x, row.y);
 
         const record: NewProperty = {
           bagIdentificatie: row.identificatie,
-          address,
+          street,
+          houseNumber,
+          houseNumberAddition,
           city,
           postalCode,
           geometry: {
@@ -371,7 +322,7 @@ async function seed() {
             coordinates: [lon, lat],
           },
           bouwjaar: row.bouwjaar,
-          oppervlakte: row.oppervlakte_min,
+          oppervlakte: row.oppervlakte,
           status: mapStatus(row.status),
         };
 
@@ -386,7 +337,9 @@ async function seed() {
             .onConflictDoUpdate({
               target: properties.bagIdentificatie,
               set: {
-                address: sql`excluded.address`,
+                street: sql`excluded.street`,
+                houseNumber: sql`excluded.house_number`,
+                houseNumberAddition: sql`excluded.house_number_addition`,
                 postalCode: sql`excluded.postal_code`,
                 city: sql`excluded.city`,
                 geometry: sql`excluded.geometry`,
@@ -397,13 +350,12 @@ async function seed() {
               },
             });
 
-          insertedCount += propertyBatch.length;
           propertyBatch = [];
         }
       }
 
-      currentOffset += centroidBatch.length;
-      totalScannedSoFar += centroidBatch.length;
+      currentOffset += vboBatch.length;
+      totalScannedSoFar += vboBatch.length;
 
       // Progress logging
       const elapsed = Date.now() - processStart;
@@ -412,7 +364,7 @@ async function seed() {
       process.stdout.write(
         `\r  Scanned: ${totalScannedSoFar.toLocaleString()}/${totalToProcess.toLocaleString()} ` +
         `| Inserted: ${processedCount.toLocaleString()} | ` +
-        `Skipped (no address): ${skippedNoAddress.toLocaleString()} | ` +
+        `Skipped (dup addr): ${skippedDuplicateAddress.toLocaleString()} | ` +
         `${rate.toFixed(0)}/s`
       );
     }
@@ -425,7 +377,9 @@ async function seed() {
         .onConflictDoUpdate({
           target: properties.bagIdentificatie,
           set: {
-            address: sql`excluded.address`,
+            street: sql`excluded.street`,
+            houseNumber: sql`excluded.house_number`,
+            houseNumberAddition: sql`excluded.house_number_addition`,
             postalCode: sql`excluded.postal_code`,
             city: sql`excluded.city`,
             geometry: sql`excluded.geometry`,
@@ -435,23 +389,20 @@ async function seed() {
             updatedAt: sql`NOW()`,
           },
         });
-
-      insertedCount += propertyBatch.length;
     }
 
     const totalTime = Date.now() - processStart;
-
-    const totalScanned = processedCount + skippedNoAddress;
 
     console.log('\n');
     console.log('='.repeat(60));
     console.log('Seed Complete');
     console.log('='.repeat(60));
-    console.log(`Total scanned: ${totalScanned.toLocaleString()} pands`);
-    console.log(`Total inserted/updated: ${insertedCount.toLocaleString()} properties with addresses`);
-    console.log(`Skipped (no address): ${skippedNoAddress.toLocaleString()} pands (utility buildings, garages, sheds, etc.)`);
+    console.log(`Total scanned: ${totalScannedSoFar.toLocaleString()} VBOs`);
+    console.log(`Total inserted/updated: ${processedCount.toLocaleString()} properties`);
+    console.log(`Skipped (duplicate address): ${skippedDuplicateAddress.toLocaleString()} VBOs`);
+    console.log(`Skipped (no postal code): ${skippedNoPostalCode.toLocaleString()} VBOs`);
     console.log(`Total time: ${formatElapsedTime(totalTime)}`);
-    console.log(`Average rate: ${(totalScanned / (totalTime / 1000)).toFixed(0)} pands/second`);
+    console.log(`Average rate: ${(totalScannedSoFar / (totalTime / 1000)).toFixed(0)} VBOs/second`);
 
     if (!dryRun) {
       // Verify insertion
@@ -462,7 +413,7 @@ async function seed() {
 
       // Show sample addresses
       const sampleAddresses = await queryClient`
-        SELECT address, postal_code, city
+        SELECT street, house_number, house_number_addition, postal_code, city
         FROM properties
         ORDER BY RANDOM()
         LIMIT 5
@@ -470,7 +421,8 @@ async function seed() {
       console.log('');
       console.log('Sample addresses:');
       sampleAddresses.forEach((row, i) => {
-        console.log(`  ${i + 1}. ${row.address}, ${row.postal_code || 'N/A'} ${row.city}`);
+        const addition = row.house_number_addition ? row.house_number_addition : '';
+        console.log(`  ${i + 1}. ${row.street} ${row.house_number}${addition}, ${row.postal_code || 'N/A'} ${row.city}`);
       });
 
 
@@ -492,7 +444,6 @@ async function seed() {
     console.error('\nError during seeding:', error);
     throw error;
   } finally {
-    bagDb.close();
     tempDb.close();
     await queryClient.end();
     console.log('\nConnections closed');

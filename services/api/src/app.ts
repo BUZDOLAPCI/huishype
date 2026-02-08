@@ -14,6 +14,7 @@ import { guessRoutes } from './routes/guesses.js';
 import { commentRoutes } from './routes/comments.js';
 import { reactionRoutes } from './routes/reactions.js';
 import { tileRoutes } from './routes/tiles.js';
+import { listingRoutes } from './routes/listings.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -55,6 +56,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(commentRoutes);
   await app.register(reactionRoutes);
   await app.register(tileRoutes);
+  await app.register(listingRoutes);
 
   // Add global error handler
   app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {

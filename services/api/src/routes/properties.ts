@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties } from '../db/index.js';
-import { eq, sql, and, gte, lte } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { formatDisplayAddress } from '../utils/address.js';
+
+const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || COALESCE(p.house_number_addition, '') || ', ' || p.postal_code || ' ' || p.city`;
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -13,7 +16,10 @@ const coordinateSchema = z.object({
 const propertySchema = z.object({
   id: z.string().uuid(),
   bagIdentificatie: z.string().nullable(),
-  address: z.string(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(), // computed display string
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
@@ -21,6 +27,10 @@ const propertySchema = z.object({
   oppervlakte: z.number().nullable().describe('Surface area in m2'),
   status: z.enum(['active', 'inactive', 'demolished']),
   wozValue: z.number().nullable().describe('Official government valuation'),
+  hasListing: z.boolean(),
+  askingPrice: z.number().nullable(),
+  commentCount: z.number(),
+  guessCount: z.number(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -52,6 +62,24 @@ const propertyListResponseSchema = z.object({
   }),
 });
 
+const propertyDetailSchema = z.object({
+  id: z.string().uuid(),
+  bagIdentificatie: z.string().nullable(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  geometry: coordinateSchema.nullable(),
+  bouwjaar: z.number().nullable().describe('Construction year'),
+  oppervlakte: z.number().nullable().describe('Surface area in m2'),
+  status: z.enum(['active', 'inactive', 'demolished']),
+  wozValue: z.number().nullable().describe('Official government valuation'),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
 const propertyParamsSchema = z.object({
   id: z.string().uuid(),
 });
@@ -66,7 +94,10 @@ const nearbyQuerySchema = z.object({
 
 const nearbyPropertySchema = z.object({
   id: z.string().uuid(),
-  address: z.string(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(), // computed display string
   city: z.string(),
   postalCode: z.string().nullable(),
   wozValue: z.number().nullable(),
@@ -107,19 +138,19 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { page, limit, city, minPrice, maxPrice, bbox, lat, lon, radius } = request.query;
       const offset = (page - 1) * limit;
 
-      // Build where conditions
-      const conditions = [];
+      // Build WHERE conditions dynamically using raw SQL fragments
+      const conditions: ReturnType<typeof sql>[] = [];
 
       if (city) {
-        conditions.push(eq(properties.city, city));
+        conditions.push(sql`p.city = ${city}`);
       }
 
       if (minPrice !== undefined) {
-        conditions.push(gte(properties.wozValue, minPrice));
+        conditions.push(sql`p.woz_value >= ${minPrice}`);
       }
 
       if (maxPrice !== undefined) {
-        conditions.push(lte(properties.wozValue, maxPrice));
+        conditions.push(sql`p.woz_value <= ${maxPrice}`);
       }
 
       // Bounding box query (requires PostGIS)
@@ -127,7 +158,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
         if (minLon && minLat && maxLon && maxLat) {
           conditions.push(
-            sql`ST_Within(${properties.geometry}, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326))`
+            sql`ST_Within(p.geometry, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326))`
           );
         }
       }
@@ -136,37 +167,116 @@ export async function propertyRoutes(app: FastifyInstance) {
       if (lat !== undefined && lon !== undefined) {
         conditions.push(
           sql`ST_DWithin(
-            ${properties.geometry}::geography,
+            p.geometry::geography,
             ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
             ${radius}
           )`
         );
       }
 
-      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const whereFragment = conditions.length > 0
+        ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+        : sql``;
 
-      // Get total count
-      const countResult = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(properties)
-        .where(whereClause);
-      const total = countResult[0]?.count ?? 0;
+      // Get total count with same filters
+      const countRows = await db.execute<{ cnt: number }>(sql`
+        SELECT COUNT(*)::int AS cnt
+        FROM properties p
+        ${whereFragment}
+      `);
+      const total = Array.from(countRows)[0]?.cnt ?? 0;
 
-      // Get paginated results
-      const results = await db
-        .select()
-        .from(properties)
-        .where(whereClause)
-        .limit(limit)
-        .offset(offset)
-        .orderBy(properties.createdAt);
+      // Get paginated results with listing, comment, and guess data
+      const rows = await db.execute<{
+        id: string;
+        bag_identificatie: string | null;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        address: string;
+        city: string;
+        postal_code: string | null;
+        lon: number | null;
+        lat: number | null;
+        bouwjaar: number | null;
+        oppervlakte: number | null;
+        status: string;
+        woz_value: number | null;
+        has_listing: boolean;
+        asking_price: number | null;
+        comment_count: number;
+        guess_count: number;
+        created_at: string;
+        updated_at: string;
+      }>(sql`
+        SELECT
+          p.id,
+          p.bag_identificatie,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
+          p.city,
+          p.postal_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          p.bouwjaar,
+          p.oppervlakte,
+          p.status,
+          p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          l.asking_price,
+          COALESCE(cc.cnt, 0)::int AS comment_count,
+          COALESCE(gc.cnt, 0)::int AS guess_count,
+          p.created_at,
+          p.updated_at
+        FROM properties p
+        LEFT JOIN LATERAL (
+          SELECT id, asking_price FROM listings
+          WHERE property_id = p.id AND status = 'active'
+          ORDER BY created_at DESC LIMIT 1
+        ) l ON true
+        LEFT JOIN (
+          SELECT property_id, COUNT(*)::int AS cnt
+          FROM comments GROUP BY property_id
+        ) cc ON cc.property_id = p.id
+        LEFT JOIN (
+          SELECT property_id, COUNT(*)::int AS cnt
+          FROM price_guesses GROUP BY property_id
+        ) gc ON gc.property_id = p.id
+        ${whereFragment}
+        ORDER BY p.created_at
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `);
+
+      const results = Array.from(rows).map((r) => ({
+        id: r.id,
+        bagIdentificatie: r.bag_identificatie,
+        street: r.street,
+        houseNumber: r.house_number,
+        houseNumberAddition: r.house_number_addition,
+        address: r.address,
+        city: r.city,
+        postalCode: r.postal_code,
+        geometry:
+          r.lon != null && r.lat != null
+            ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+            : null,
+        bouwjaar: r.bouwjaar != null ? Number(r.bouwjaar) : null,
+        oppervlakte: r.oppervlakte != null ? Number(r.oppervlakte) : null,
+        status: r.status as 'active' | 'inactive' | 'demolished',
+        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        hasListing: r.has_listing,
+        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        commentCount: Number(r.comment_count),
+        guessCount: Number(r.guess_count),
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
+      }));
 
       return reply.send({
-        data: results.map((p) => ({
-          ...p,
-          createdAt: p.createdAt.toISOString(),
-          updatedAt: p.updatedAt.toISOString(),
-        })),
+        data: results,
         meta: {
           page,
           limit,
@@ -205,6 +315,9 @@ export async function propertyRoutes(app: FastifyInstance) {
       // 3. Joins with listings, comments, price_guesses for activity data
       const rows = await db.execute<{
         id: string;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
         address: string;
         city: string;
         postal_code: string | null;
@@ -217,7 +330,10 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
-          p.address,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           p.woz_value,
@@ -232,7 +348,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         FROM properties p
         LEFT JOIN LATERAL (
           SELECT id FROM listings
-          WHERE property_id = p.id AND is_active = true
+          WHERE property_id = p.id AND status = 'active'
           LIMIT 1
         ) l ON true
         LEFT JOIN (
@@ -258,6 +374,9 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const results = Array.from(rows).map((r) => ({
         id: r.id,
+        street: r.street,
+        houseNumber: r.house_number,
+        houseNumberAddition: r.house_number_addition,
         address: r.address,
         city: r.city,
         postalCode: r.postal_code,
@@ -285,7 +404,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         description: 'Get detailed information about a specific property',
         params: propertyParamsSchema,
         response: {
-          200: propertySchema,
+          200: propertyDetailSchema,
           404: z.object({
             error: z.string(),
             message: z.string(),
@@ -312,6 +431,13 @@ export async function propertyRoutes(app: FastifyInstance) {
       const property = result[0];
       return reply.send({
         ...property,
+        address: formatDisplayAddress({
+          street: property.street,
+          houseNumber: property.houseNumber,
+          houseNumberAddition: property.houseNumberAddition,
+          postalCode: property.postalCode,
+          city: property.city,
+        }),
         createdAt: property.createdAt.toISOString(),
         updatedAt: property.updatedAt.toISOString(),
       });

@@ -14,7 +14,10 @@ export type FeedFilter = 'all' | 'new' | 'trending' | 'price_mismatch' | 'polari
 interface PropertyApiResponse {
   id: string;
   bagIdentificatie: string | null;
-  address: string;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
+  address: string; // computed display string from backend
   city: string;
   postalCode: string | null;
   geometry: {
@@ -25,6 +28,10 @@ interface PropertyApiResponse {
   oppervlakte: number | null;
   status: 'active' | 'inactive' | 'demolished';
   wozValue: number | null;
+  hasListing: boolean;
+  askingPrice: number | null;
+  commentCount: number;
+  guessCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,6 +93,11 @@ function transformProperty(property: PropertyApiResponse): FeedProperty {
     activityLevel = 'warm';
   }
 
+  // Properties with active listings are at least "warm"
+  if (property.hasListing && activityLevel === 'cold') {
+    activityLevel = 'warm';
+  }
+
   return {
     id: property.id,
     address: property.address,
@@ -98,13 +110,13 @@ function transformProperty(property: PropertyApiResponse): FeedProperty {
         }
       : null,
     wozValue: property.wozValue,
-    askingPrice: undefined, // Will be populated when listings are integrated
+    askingPrice: property.askingPrice ?? undefined,
     fmvValue: undefined, // Will be populated when FMV is calculated
     activityLevel,
     photoUrl: `https://picsum.photos/seed/${property.id}/400/300`, // Placeholder images
-    commentCount: Math.floor(Math.random() * 50), // Placeholder - will come from API
-    guessCount: Math.floor(Math.random() * 30), // Placeholder - will come from API
-    viewCount: Math.floor(Math.random() * 200), // Placeholder - will come from API
+    commentCount: property.commentCount,
+    guessCount: property.guessCount,
+    viewCount: 0, // No view tracking exists yet
     bouwjaar: property.bouwjaar,
     oppervlakte: property.oppervlakte,
     createdAt: property.createdAt,

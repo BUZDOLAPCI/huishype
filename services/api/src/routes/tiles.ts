@@ -734,7 +734,7 @@ async function getClusteredMVT(
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
         COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score
       FROM properties p
-      LEFT JOIN listings l ON l.property_id = p.id AND l.is_active = true
+      LEFT JOIN listings l ON l.property_id = p.id AND l.status = 'active'
       LEFT JOIN (
         SELECT property_id, COUNT(*) as cnt
         FROM comments
@@ -831,7 +831,7 @@ async function getIndividualPointsMVT(
       SELECT
         p.id,
         p.geometry,
-        p.address,
+        p.street || ' ' || p.house_number || COALESCE(p.house_number_addition, '') AS address,
         p.city,
         p.postal_code,
         p.woz_value,
@@ -840,7 +840,7 @@ async function getIndividualPointsMVT(
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
         COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score
       FROM properties p
-      LEFT JOIN listings l ON l.property_id = p.id AND l.is_active = true
+      LEFT JOIN listings l ON l.property_id = p.id AND l.status = 'active'
       LEFT JOIN (
         SELECT property_id, COUNT(*) as cnt
         FROM comments

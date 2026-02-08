@@ -1,8 +1,6 @@
 import type { Property } from '../../hooks/useProperties';
 
 export interface PropertyDetailsData extends Property {
-  listingUrl?: string;
-  listingSource?: 'funda' | 'pararius' | 'other';
   askingPrice?: number;
   fmv?: number;
   fmvConfidence?: 'low' | 'medium' | 'high';

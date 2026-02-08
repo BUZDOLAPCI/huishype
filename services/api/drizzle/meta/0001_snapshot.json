@@ -1,5 +1,5 @@
 {
-  "id": "f8eb95e5-1f09-47b3-9051-666c42bc1977",
+  "id": "46112caf-4479-438a-9e33-ea8f837abc72",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -198,12 +198,67 @@
           "primaryKey": false,
           "notNull": false
         },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
+        "status": {
+          "name": "status",
+          "type": "listing_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": "'active'"
+        },
+        "mirror_listing_id": {
+          "name": "mirror_listing_id",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_type": {
+          "name": "price_type",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "living_area_m2": {
+          "name": "living_area_m2",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "num_rooms": {
+          "name": "num_rooms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "energy_label": {
+          "name": "energy_label",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "submitted_by": {
+          "name": "submitted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mirror_first_seen_at": {
+          "name": "mirror_first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mirror_last_changed_at": {
+          "name": "mirror_last_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mirror_last_seen_at": {
+          "name": "mirror_last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -236,17 +291,91 @@
           "method": "btree",
           "with": {}
         },
-        "listings_is_active_idx": {
-          "name": "listings_is_active_idx",
+        "listings_source_url_idx": {
+          "name": "listings_source_url_idx",
           "columns": [
             {
-              "expression": "is_active",
+              "expression": "source_url",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "listings_mirror_dedup_idx": {
+          "name": "listings_mirror_dedup_idx",
+          "columns": [
+            {
+              "expression": "source_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "mirror_listing_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "mirror_listing_id IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "listings_source_status_idx": {
+          "name": "listings_source_status_idx",
+          "columns": [
+            {
+              "expression": "source_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "listings_mirror_last_changed_idx": {
+          "name": "listings_mirror_last_changed_idx",
+          "columns": [
+            {
+              "expression": "mirror_last_changed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "listings_mirror_last_seen_idx": {
+          "name": "listings_mirror_last_seen_idx",
+          "columns": [
+            {
+              "expression": "mirror_last_seen_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "status = 'active'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -264,6 +393,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "listings_submitted_by_users_id_fk": {
+          "name": "listings_submitted_by_users_id_fk",
+          "tableFrom": "listings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "submitted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -404,6 +546,166 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.price_history": {
+      "name": "price_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "listing_id": {
+          "name": "listing_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price": {
+          "name": "price",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "price_date": {
+          "name": "price_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "price_history_property_date_idx": {
+          "name": "price_history_property_date_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "price_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "price_history_dedup_idx": {
+          "name": "price_history_dedup_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "price_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "price",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "price_history_listing_idx": {
+          "name": "price_history_listing_idx",
+          "columns": [
+            {
+              "expression": "listing_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "price_history_property_id_properties_id_fk": {
+          "name": "price_history_property_id_properties_id_fk",
+          "tableFrom": "price_history",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "price_history_listing_id_listings_id_fk": {
+          "name": "price_history_listing_id_listings_id_fk",
+          "tableFrom": "price_history",
+          "tableTo": "listings",
+          "columnsFrom": [
+            "listing_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.properties": {
       "name": "properties",
       "schema": "",
@@ -421,11 +723,23 @@
           "primaryKey": false,
           "notNull": false
         },
-        "address": {
-          "name": "address",
+        "street": {
+          "name": "street",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
+        },
+        "house_number": {
+          "name": "house_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "house_number_addition": {
+          "name": "house_number_addition",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
         },
         "city": {
           "name": "city",
@@ -528,6 +842,33 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "properties_address_unique_idx": {
+          "name": "properties_address_unique_idx",
+          "columns": [
+            {
+              "expression": "postal_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "house_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "house_number_addition",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -966,6 +1307,16 @@
         "funda",
         "pararius",
         "other"
+      ]
+    },
+    "public.listing_status": {
+      "name": "listing_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "sold",
+        "rented",
+        "withdrawn"
       ]
     },
     "public.property_status": {

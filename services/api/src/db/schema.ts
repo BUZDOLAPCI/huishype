@@ -6,13 +6,13 @@ import {
   integer,
   bigint,
   timestamp,
-  boolean,
+  date,
   index,
   uniqueIndex,
   pgEnum,
   customType,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 /**
  * Parse WKB (Well-Known Binary) hex string from PostGIS into coordinates.
@@ -106,6 +106,7 @@ export const reactionTypeEnum = pgEnum('reaction_type', ['like', 'love', 'wow', 
 export const targetTypeEnum = pgEnum('target_type', ['property', 'comment']);
 export const listingSourceEnum = pgEnum('listing_source', ['funda', 'pararius', 'other']);
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive', 'demolished']);
+export const listingStatusEnum = pgEnum('listing_status', ['active', 'sold', 'rented', 'withdrawn']);
 
 // Users table
 export const users = pgTable(
@@ -137,9 +138,11 @@ export const properties = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     bagIdentificatie: varchar('bag_identificatie', { length: 50 }).unique(), // BAG ID
-    address: varchar('address', { length: 255 }).notNull(),
+    street: varchar('street', { length: 255 }).notNull(),
+    houseNumber: integer('house_number').notNull(),
+    houseNumberAddition: varchar('house_number_addition', { length: 20 }),
     city: varchar('city', { length: 100 }).notNull(),
-    postalCode: varchar('postal_code', { length: 10 }),
+    postalCode: varchar('postal_code', { length: 10 }).notNull(),
     geometry: geometry('geometry'),
     bouwjaar: integer('bouwjaar'), // Construction year
     oppervlakte: integer('oppervlakte'), // Surface area in m2
@@ -152,6 +155,7 @@ export const properties = pgTable(
     uniqueIndex('properties_bag_id_idx').on(table.bagIdentificatie),
     index('properties_city_idx').on(table.city),
     index('properties_postal_code_idx').on(table.postalCode),
+    uniqueIndex('properties_address_unique_idx').on(table.postalCode, table.houseNumber, table.houseNumberAddition),
     // PostGIS spatial index would be created via raw SQL migration
   ]
 );
@@ -169,13 +173,46 @@ export const listings = pgTable(
     askingPrice: bigint('asking_price', { mode: 'number' }),
     thumbnailUrl: text('thumbnail_url'),
     ogTitle: text('og_title'), // Open Graph title
-    isActive: boolean('is_active').notNull().default(true),
+    status: listingStatusEnum('status').notNull().default('active'),
+    mirrorListingId: varchar('mirror_listing_id', { length: 50 }),
+    priceType: varchar('price_type', { length: 10 }), // 'sale' or 'rent'
+    livingAreaM2: integer('living_area_m2'),
+    numRooms: integer('num_rooms'),
+    energyLabel: varchar('energy_label', { length: 10 }),
+    submittedBy: uuid('submitted_by').references(() => users.id, { onDelete: 'set null' }), // NULL = system/mirror ingested
+    mirrorFirstSeenAt: timestamp('mirror_first_seen_at', { withTimezone: true }),
+    mirrorLastChangedAt: timestamp('mirror_last_changed_at', { withTimezone: true }),
+    mirrorLastSeenAt: timestamp('mirror_last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('listings_property_id_idx').on(table.propertyId),
-    index('listings_is_active_idx').on(table.isActive),
+    uniqueIndex('listings_source_url_idx').on(table.sourceUrl), // URL dedup
+    uniqueIndex('listings_mirror_dedup_idx').on(table.sourceName, table.mirrorListingId).where(sql`mirror_listing_id IS NOT NULL`),
+    index('listings_source_status_idx').on(table.sourceName, table.status), // watermark + staleness
+    index('listings_mirror_last_changed_idx').on(table.mirrorLastChangedAt), // watermark query
+    index('listings_mirror_last_seen_idx').on(table.mirrorLastSeenAt).where(sql`status = 'active'`),
+  ]
+);
+
+// Price History table
+export const priceHistory = pgTable(
+  'price_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id').notNull().references(() => properties.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').references(() => listings.id, { onDelete: 'set null' }),
+    price: bigint('price', { mode: 'number' }).notNull(), // whole euros
+    priceDate: date('price_date', { mode: 'string' }).notNull(),
+    eventType: varchar('event_type', { length: 20 }).notNull(), // asking_price / sold / rented / price_change
+    source: varchar('source', { length: 20 }).notNull(), // funda / pararius / observed / woz
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('price_history_property_date_idx').on(table.propertyId, table.priceDate),
+    uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
+    index('price_history_listing_idx').on(table.listingId),
   ]
 );
 
@@ -272,6 +309,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   comments: many(comments),
   reactions: many(reactions),
   savedProperties: many(savedProperties),
+  listings: many(listings),
 }));
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
@@ -279,12 +317,28 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   priceGuesses: many(priceGuesses),
   comments: many(comments),
   savedProperties: many(savedProperties),
+  priceHistory: many(priceHistory),
 }));
 
 export const listingsRelations = relations(listings, ({ one }) => ({
   property: one(properties, {
     fields: [listings.propertyId],
     references: [properties.id],
+  }),
+  submittedByUser: one(users, {
+    fields: [listings.submittedBy],
+    references: [users.id],
+  }),
+}));
+
+export const priceHistoryRelations = relations(priceHistory, ({ one }) => ({
+  property: one(properties, {
+    fields: [priceHistory.propertyId],
+    references: [properties.id],
+  }),
+  listing: one(listings, {
+    fields: [priceHistory.listingId],
+    references: [listings.id],
   }),
 }));
 
@@ -357,3 +411,6 @@ export type NewReaction = typeof reactions.$inferInsert;
 
 export type SavedProperty = typeof savedProperties.$inferSelect;
 export type NewSavedProperty = typeof savedProperties.$inferInsert;
+
+export type PriceHistory = typeof priceHistory.$inferSelect;
+export type NewPriceHistory = typeof priceHistory.$inferInsert;
