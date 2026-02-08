@@ -32,45 +32,54 @@ Refer to the `data_sources/data-sources.md` for more information
 
 ## Database Seeding
 
-The seed script populates the PostgreSQL database with property data from the BAG GeoPackage.
+The seed scripts populate the PostgreSQL database with property data from the BAG GeoPackage and listings from the Funda/Pararius mirror databases.
 
-### Quick Start (Development)
+### Quick Start
 
 ```bash
-cd services/api && pnpm run db:seed
+cd services/api
+
+# Full reset: drop DB, migrate, seed properties + listings
+pnpm run db:reset
+
+# Or run steps individually:
+pnpm run db:migrate          # Create/update tables
+pnpm run db:seed             # Seed BAG properties (~9.6M, ~7.5 min)
+pnpm run db:seed-listings    # Seed listings from mirrors (~144K, ~1.3 min)
 ```
 
-By default, seeds **Eindhoven area only** (~140K properties with addresses, ~2 min) for faster development cycles.
+### Performance
 
-**Note:** Only pands with real addresses are seeded. Utility buildings, garages, sheds (~42% of BAG) are skipped.
+| Step | Records | Time |
+|------|---------|------|
+| BAG property seed | ~9.6M | ~7.5 min |
+| Listing seed | ~144K listings | ~1.3 min |
+| **Total db:reset** | | **~9 min** (with `--skip-extract`: skip ogr2ogr) |
+| **Total db:reset (full)** | | **~14 min** (includes ogr2ogr extraction) |
 
-### Seeding Options
+### Seed Flags
 
-| Mode | Command | Properties with Addresses | Time |
-|------|---------|---------------------------|------|
-| **Eindhoven (default)** | `pnpm run db:seed` | ~140K | ~2 min |
-| **Full Netherlands** | `pnpm run db:seed -- --full` | ~6.5M | ~45 min |
+**db:seed (BAG properties):**
+- `--skip-extract` — Reuse existing CSV (skip ogr2ogr extraction)
+- `--limit N` — Limit properties inserted
+- `--offset N` — Start from offset N
+- `--skip-demolished` — Skip demolished/withdrawn properties
+- `--dry-run` — Don't modify database
 
-**Additional flags:**
-- `--limit N` - Limit to N pands scanned (for testing)
-- `--offset N` - Start from offset N
-- `--skip-demolished` - Skip properties with demolished status
-- `--skip-extract` - Skip ogr2ogr extraction (reuse existing temp database)
-- `--dry-run` - Don't insert into database
+**db:seed-listings:**
+- `--source funda|pararius|both` — Filter by listing source (default: both)
+- `--dry-run` — Don't modify database
 
-### When to Use Each Mode
+**db:reset:**
+- `--skip-extract` — Forward to db:seed (skip ogr2ogr extraction)
 
-**Eindhoven area (default):**
-- Day-to-day development and testing
-- Quick iteration on features
-- CI/CD pipelines
-- Testing data display and interactions
+### How It Works
 
-**Full Netherlands (`--full`):**
-- Production deployment preparation
-- Performance testing at scale
-- Testing country-wide features
-- Final verification before release
+**BAG Seed Pipeline:** `ogr2ogr (with -t_srs EPSG:4326) → CSV → PostgreSQL COPY into staging → INSERT INTO properties SELECT DISTINCT ON ... ON CONFLICT`
+
+**Listing Seed:** Preloads all 6.5M property addresses into memory Map for O(1) lookups, batch INSERT listings + price_history, PostGIS spatial fallback for edge cases.
+
+Both seeds are upsert-safe and can be re-run on a populated database (e.g., to refresh BAG data yearly without destroying user data).
 
 ## Permissions
 
