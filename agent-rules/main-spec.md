@@ -197,7 +197,9 @@ Tapping the preview card (or a "More" arrow button) slides up a **bottom sheet**
 - Full FMV visualization with distribution curve
 - Comment feed (scrollable)
 - Activity timeline
-- "Save" and "Share" and "Add to Favorite" actions
+- **Like** (heart icon, red) — express interest / upvote (same action as preview card Like)
+- **Save** (bookmark icon, blue) — save property for later
+- **Share** — share property link
 
 **Bottom Sheet Behavior:**
 - Partial expand (half screen) shows key info + quick actions
