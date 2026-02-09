@@ -732,10 +732,11 @@ async function seedListings() {
         console.log(`  \u2713 Spatial fallback: ${spatialResults.size} matched, ${unmatchedBuffer.length - spatialResults.size} skipped`);
       }
 
-      // Flush remaining listing buffer
-      if (listingBuffer.length > 0 && !DRY_RUN) {
+      // Flush remaining listing buffer (in BATCH_SIZE chunks to avoid parameter limit)
+      while (listingBuffer.length > 0 && !DRY_RUN) {
+        const chunk = listingBuffer.splice(0, BATCH_SIZE);
         try {
-          const result = await batchInsertListings(mainDb, listingBuffer);
+          const result = await batchInsertListings(mainDb, chunk);
           totalInserted += result.inserted;
           totalDuplicates += result.duplicates;
           sourceStats.duplicates += result.duplicates;
