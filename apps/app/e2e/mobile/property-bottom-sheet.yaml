@@ -184,6 +184,15 @@ tags:
 - waitForAnimationToEnd
 - takeScreenshot: maestro-screenshots/bottom_sheet_10_full_expand
 
+# Scroll down within the fully expanded sheet to reveal Comments section
+# (ListingLinks section added above Comments pushes it below initial viewport)
+- swipe:
+    start: "50%,60%"
+    end: "50%,30%"
+    duration: 300
+
+- waitForAnimationToEnd
+
 # In fully expanded state, look for Comments section
 - assertVisible:
     text: "Comments"

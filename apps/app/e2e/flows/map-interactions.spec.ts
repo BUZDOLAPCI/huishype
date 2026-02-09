@@ -277,11 +277,17 @@ test.describe('Map Interactions', () => {
 
     // Start somewhere else (Amsterdam area)
     await setMapView(page, [4.9, 52.37], 12);
-    await page.waitForTimeout(2000);
+
+    // Register request listener BEFORE panning so we capture tile requests
+    const tileRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/tiles/')) {
+        tileRequests.push(req.url());
+      }
+    });
 
     // Pan to Eindhoven
     await setMapView(page, EINDHOVEN_CENTER, 15);
-    await page.waitForTimeout(5000);
 
     // Verify we are centered on Eindhoven
     const center = await page.evaluate(() => {
@@ -298,20 +304,14 @@ test.describe('Map Interactions', () => {
       expect(center.lat).toBeCloseTo(EINDHOVEN_CENTER[1], 0);
     }
 
-    // Check that tiles API was called for this area
-    const tileRequests: string[] = [];
-    page.on('request', (req) => {
-      if (req.url().includes('/tiles/')) {
-        tileRequests.push(req.url());
-      }
-    });
-
-    // Trigger a small zoom change to force tile loading
-    await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      if (map) map.setZoom(map.getZoom() + 0.1);
-    });
-    await page.waitForTimeout(3000);
+    // Wait for map to finish loading tiles
+    await page.waitForFunction(
+      () => {
+        const map = (window as any).__mapInstance;
+        return map?.loaded() ?? false;
+      },
+      { timeout: 10000 }
+    );
 
     // Map should be loaded
     const isLoaded = await page.evaluate(() => {
