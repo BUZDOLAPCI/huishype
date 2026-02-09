@@ -156,6 +156,7 @@ export const properties = pgTable(
     index('properties_city_idx').on(table.city),
     index('properties_postal_code_idx').on(table.postalCode),
     uniqueIndex('properties_address_unique_idx').on(table.postalCode, table.houseNumber, table.houseNumberAddition),
+    index('properties_created_at_idx').on(table.createdAt),
     // PostGIS spatial index would be created via raw SQL migration
   ]
 );

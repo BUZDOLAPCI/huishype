@@ -138,6 +138,7 @@ CREATE UNIQUE INDEX "properties_bag_id_idx" ON "properties" USING btree ("bag_id
 CREATE INDEX "properties_city_idx" ON "properties" USING btree ("city");--> statement-breakpoint
 CREATE INDEX "properties_postal_code_idx" ON "properties" USING btree ("postal_code");--> statement-breakpoint
 CREATE UNIQUE INDEX "properties_address_unique_idx" ON "properties" USING btree ("postal_code","house_number","house_number_addition");--> statement-breakpoint
+CREATE INDEX "properties_created_at_idx" ON "properties" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "reactions_target_idx" ON "reactions" USING btree ("target_type","target_id");--> statement-breakpoint
 CREATE INDEX "reactions_user_id_idx" ON "reactions" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "reactions_user_target_idx" ON "reactions" USING btree ("user_id","target_type","target_id");--> statement-breakpoint

@@ -165,8 +165,9 @@ async function waitForMapReady(page: Page): Promise<void> {
       const hasGhostLayer = mapInstance.getLayer('ghost-nodes');
       const hasActiveLayer = mapInstance.getLayer('active-nodes');
       const hasClusters = mapInstance.getLayer('property-clusters');
+      const hasSingleActive = mapInstance.getLayer('single-active-points');
 
-      if (!hasGhostLayer && !hasActiveLayer && !hasClusters) return false;
+      if (!hasGhostLayer && !hasActiveLayer && !hasClusters && !hasSingleActive) return false;
 
       // Also check that there are actually features rendered
       const canvas = mapInstance.getCanvas();
@@ -176,7 +177,7 @@ async function waitForMapReady(page: Page): Promise<void> {
       try {
         const features = mapInstance.queryRenderedFeatures(
           [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'].filter(l => mapInstance.getLayer(l)) }
+          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points'].filter(l => mapInstance.getLayer(l)) }
         );
         featureCount = features?.length || 0;
       } catch (e) {

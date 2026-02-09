@@ -226,8 +226,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.woz_value,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          COALESCE(cc.cnt, 0)::int AS comment_count,
-          COALESCE(gc.cnt, 0)::int AS guess_count,
+          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
           p.created_at,
           p.updated_at
         FROM properties p
@@ -236,14 +236,6 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM comments GROUP BY property_id
-        ) cc ON cc.property_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM price_guesses GROUP BY property_id
-        ) gc ON gc.property_id = p.id
         ${whereFragment}
         ORDER BY p.created_at
         LIMIT ${limit}
@@ -309,9 +301,9 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { lon, lat, zoom, limit } = request.query;
       const radiusDeg = zoomToRadiusDegrees(zoom);
 
-      // PostGIS KNN query:
-      // 1. ST_DWithin pre-filters to a bounding-box for index usage
-      // 2. <-> operator orders by distance (KNN index scan)
+      // PostGIS nearby query:
+      // 1. ST_DWithin pre-filters to a bounding-box for GiST index usage
+      // 2. ST_Distance(geography) orders by geodesic distance (matches returned distanceMeters)
       // 3. Joins with listings, comments, price_guesses for activity data
       const rows = await db.execute<{
         id: string;
@@ -338,7 +330,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           p.woz_value,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          (COALESCE(cc.cnt, 0) + COALESCE(gc.cnt, 0))::int AS activity_score,
+          ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
           ST_Distance(
             p.geometry::geography,
             ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -351,16 +343,6 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           LIMIT 1
         ) l ON true
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM comments
-          GROUP BY property_id
-        ) cc ON cc.property_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM price_guesses
-          GROUP BY property_id
-        ) gc ON gc.property_id = p.id
         WHERE p.geometry IS NOT NULL
           AND p.status = 'active'
           AND ST_DWithin(
@@ -368,7 +350,7 @@ export async function propertyRoutes(app: FastifyInstance) {
             ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
             ${radiusDeg}
           )
-        ORDER BY p.geometry <-> ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+        ORDER BY distance_meters
         LIMIT ${limit}
       `);
 
