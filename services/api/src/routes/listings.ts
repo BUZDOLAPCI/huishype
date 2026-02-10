@@ -113,8 +113,8 @@ const ingestListingSchema = z.object({
     houseNumber: z.union([z.string(), z.number()]),
     houseNumberAddition: z.string().nullable().optional(),
     city: z.string().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
   }),
   priceHistory: z.array(z.object({
     price: z.number(),
@@ -177,49 +177,11 @@ function isValidApiKey(apiKey: string | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Staleness detection
-// ---------------------------------------------------------------------------
-
-/**
- * Mark mirror-sourced listings as withdrawn if they haven't been seen in the
- * mirror for more than 7 days.  Runs once on startup (after a short delay)
- * and then every 24 hours.
- */
-async function runStalenessCheck(): Promise<void> {
-  try {
-    const result = await db.execute(sql`
-      UPDATE listings
-      SET status = 'withdrawn', updated_at = NOW()
-      WHERE status = 'active'
-        AND mirror_listing_id IS NOT NULL
-        AND mirror_last_seen_at < NOW() - INTERVAL '7 days'
-    `);
-    // postgres-js returns an array whose length is the affected row count
-    const count = Array.isArray(result) ? result.length : 0;
-    console.log(`[staleness] ${count} listing(s) marked as withdrawn`);
-  } catch (err) {
-    console.error('[staleness] check failed:', err);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Route plugin
 // ---------------------------------------------------------------------------
 
 export async function listingRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
-
-  // Start staleness detection timer (runs daily)
-  const STALENESS_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-  const stalenessTimer = setInterval(runStalenessCheck, STALENESS_INTERVAL_MS);
-  // Run once on startup after a short delay (10 s)
-  const startupTimer = setTimeout(runStalenessCheck, 10_000);
-
-  // Ensure timers are cleaned up when the server shuts down
-  app.addHook('onClose', () => {
-    clearInterval(stalenessTimer);
-    clearTimeout(startupTimer);
-  });
 
   // Register rate limiting plugin (scoped to this route plugin)
   await app.register(rateLimit, {
