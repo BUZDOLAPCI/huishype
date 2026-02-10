@@ -77,8 +77,8 @@ Agents must be able to verify changes locally + in CI with:
   - **Faster setup:** much less CI flakiness and configuration overhead
   - **No deep native integration required:** works with any app build
 - **Build:** `expo run:android` dev builds for emulator
-- **Structure:** 1 orchestrator (`full-flow.yaml`) + 7 sub-flows in `flows/` dir
-- **Coverage:** app smoke, feed, search+navigate, bottom sheet, login, auth interactions, cleanup
+- **Structure:** 1 orchestrator (`full-flow.yaml`) + 8 sub-flows in `flows/` dir
+- **Coverage:** app smoke, feed, search+navigate, bottom sheet, login, auth interactions, cleanup, cluster-preview
 - **Run from:** monorepo root, not `apps/app`
 
 ### Feature test rule (enforce "every feature has E2E")

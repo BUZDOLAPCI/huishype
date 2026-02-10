@@ -27,7 +27,7 @@ pnpm run db:reset
 # Or run steps individually:
 pnpm run db:migrate          # Create/update tables
 pnpm run db:seed             # Seed BAG properties (~6.5M, ~5-8 min)
-pnpm run db:seed-listings    # Seed listings from mirrors (~15K, ~30s)
+pnpm run db:seed-listings    # Seed listings from mirrors (~144K, ~1.3 min)
 ```
 
 **Options (db:seed):**
@@ -44,7 +44,7 @@ pnpm run db:seed-listings    # Seed listings from mirrors (~15K, ~30s)
 | Step | Records | Time |
 |------|---------|------|
 | BAG property seed | ~6.5M | ~5-8 min |
-| Listing seed | ~15K listings + ~29K price history | ~30 sec |
+| Listing seed | ~144K listings | ~1.3 min |
 | **Total db:reset** | | **~6-9 min** |
 
 **How it works:**
@@ -63,7 +63,7 @@ Both seeds are upsert-safe and can be re-run on a populated database.
 - **Documentation:** [https://docs.3dbag.nl/en/](https://docs.3dbag.nl/en/)
 - **Local Source Files:**
   - `data_sources/3dbag_nl.gpkg.zip` (19.6 GB) (The file is compressed as Seek-Optimized ZIP, see the documentation on how to access it without decompressing)
-  - `data_sources/3dbag_nl.gpkg` (111.6 GB) (unzipped file in case needed. Beware, this is a very large file.)
+  - `data_sources/3dbag_nl.gpkg` (~104 GB) (unzipped file in case needed. Beware, this is a very large file.)
 
 BRT Achtergrondkaart (OGC API)
 https://api.pdok.nl/kadaster/brt-achtergrondkaart/ogc/v1

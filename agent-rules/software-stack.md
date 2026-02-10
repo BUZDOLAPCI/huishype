@@ -25,7 +25,7 @@ Ship the same product codebase to:
 - **Build & release:** **EAS Build + EAS Submit** (store packaging & signing)
 
 ### Maps (core UX decision)
-- **Map client library:** **@rnmapbox/maps (v10+)** — NOT react-native-maps (which wraps Apple Maps/Google Maps and limits styling)
+- **Map client library:** **@maplibre/maplibre-react-native (v11 alpha)** — NOT react-native-maps (which wraps Apple Maps/Google Maps and limits styling)
 - **Map rendering engine:** **MapLibre GL** (open-source fork of Mapbox GL) — free, industry standard, compatible with vector tiles
 - **Preview UI:**  Use React Three Fiber (standard for React ecosystem) instead of raw Expo Three.
 
@@ -86,7 +86,7 @@ Ship the same product codebase to:
 - **Asset format:** **GLB/GLTF** (Must use Draco compression to minimize file size).
 - **Asset delivery:** Cloudflare R2 + CDN
 - **Client rendering (Map View):** 
-    Implementation: Pass GLB URL + Coordinates to @rnmapbox/maps ModelLayer (or SymbolLayer with icon-image for low-end devices).
+    Implementation: Pass GLB URL + Coordinates to @maplibre/maplibre-react-native ModelLayer (or SymbolLayer with icon-image for low-end devices).
 
     Why: Ensures perfect synchronization with map movement and proper depth/occlusion with other 3D buildings.
 - **Asset management:**
@@ -116,7 +116,7 @@ Ship the same product codebase to:
 
 ## "Hard to change later" decisions (locked)
 1. **Expo/RN** as the cross-platform UI foundation
-2. **MapLibre GL + @rnmapbox/maps** as the map engine (with self-hosted tiles)
+2. **MapLibre GL + @maplibre/maplibre-react-native** as the map engine (with self-hosted tiles)
 3. **Postgres + PostGIS** as the system of record for all geospatial + social data (including server-side clustering)
 4. **Fastify + OpenAPI contract-first** as the interface boundary between client and backend
 5. **Apple/Google-first auth** and the long-lived user/handle model

@@ -18,18 +18,24 @@ pnpm install
 # Start database (Postgres + Redis)
 docker compose up -d
 
-# Seed the database with test data (500 Eindhoven properties)
-pnpm --filter @huishype/api db:push
+# Set up the database (migrate schema + seed properties and listings)
+pnpm --filter @huishype/api db:migrate
 pnpm --filter @huishype/api db:seed
+pnpm --filter @huishype/api db:seed-listings
 
-# Start the API server
+# Or do a full reset (drop DB, migrate, seed everything):
+# pnpm --filter @huishype/api db:reset
+
+# Start the API server (runs on port 3100)
 pnpm --filter @huishype/api dev
 
-# In another terminal, start the app
+# In another terminal, start the app (Expo web dev server on port 8081)
 pnpm --filter @huishype/app dev
 ```
 
 Open [http://localhost:8081](http://localhost:8081) for web, or use Expo Go for mobile.
+
+> **Note:** The API runs on port **3100** (non-default) and the Expo web dev server on port **8081**. See `services/api/.env.example` for configuration.
 
 ## Project Structure
 
@@ -56,7 +62,7 @@ packages/mocks/     # MSW mock handlers
 ## Tech Stack
 
 - **App**: React Native + Expo + NativeWind + TanStack Query
-- **Maps**: MapLibre GL via @rnmapbox/maps
+- **Maps**: MapLibre GL via @maplibre/maplibre-react-native
 - **API**: Fastify + Drizzle ORM + OpenAPI
 - **Database**: PostgreSQL + PostGIS
 - **Cache**: Redis
