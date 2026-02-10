@@ -111,11 +111,6 @@ export function useSubmitComment(propertyId: string) {
         'Content-Type': 'application/json',
       };
 
-      // Add user ID header (temporary until JWT auth is fully implemented)
-      if (user?.id) {
-        headers['x-user-id'] = user.id;
-      }
-
       if (accessToken) {
         headers['Authorization'] = `Bearer ${accessToken}`;
       }
@@ -164,10 +159,6 @@ export function useLikeComment(propertyId: string) {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-
-      if (user?.id) {
-        headers['x-user-id'] = user.id;
-      }
 
       if (accessToken) {
         headers['Authorization'] = `Bearer ${accessToken}`;
@@ -266,11 +257,11 @@ export function useLikeComment(propertyId: string) {
  */
 export async function checkCommentLiked(
   commentId: string,
-  userId?: string
+  accessToken?: string
 ): Promise<{ liked: boolean; likeCount: number }> {
   const headers: Record<string, string> = {};
-  if (userId) {
-    headers['x-user-id'] = userId;
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
   const response = await fetch(`${API_URL}/comments/${commentId}/like`, {

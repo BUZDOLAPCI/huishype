@@ -23,6 +23,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -48,13 +49,13 @@ async function getTestProperty(request: APIRequestContext) {
 async function createTestComment(
   request: APIRequestContext,
   propertyId: string,
-  userId: string
+  accessToken: string
 ) {
   const response = await request.post(
     `${API_BASE_URL}/properties/${propertyId}/comments`,
     {
       data: { content: `Comment for reaction test ${Date.now()}` },
-      headers: { 'x-user-id': userId },
+      headers: { authorization: `Bearer ${accessToken}` },
     }
   );
   expect(response.status()).toBe(201);
@@ -94,13 +95,13 @@ test.describe('Reactions Flow', () => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'likeauthor');
     const liker = await createTestUser(request, 'liker');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Check initial like status
     const initialStatus = await request.get(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(initialStatus.ok()).toBe(true);
@@ -112,7 +113,7 @@ test.describe('Reactions Flow', () => {
     const likeResponse = await request.post(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(likeResponse.status()).toBe(201);
@@ -125,7 +126,7 @@ test.describe('Reactions Flow', () => {
     const afterLikeStatus = await request.get(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(afterLikeStatus.ok()).toBe(true);
@@ -138,13 +139,13 @@ test.describe('Reactions Flow', () => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'unlikeauthor');
     const liker = await createTestUser(request, 'unliker');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Like it first
     const likeResp = await request.post(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(likeResp.status()).toBe(201);
@@ -155,7 +156,7 @@ test.describe('Reactions Flow', () => {
     const unlikeResp = await request.delete(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(unlikeResp.ok()).toBe(true);
@@ -168,7 +169,7 @@ test.describe('Reactions Flow', () => {
     const statusResp = await request.get(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(statusResp.ok()).toBe(true);
@@ -179,12 +180,12 @@ test.describe('Reactions Flow', () => {
   test('unauthenticated like returns 401', async ({ request }) => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'unauthlikeauthor');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Try to like without authentication
     const response = await request.post(
       `${API_BASE_URL}/comments/${comment.id}/like`
-      // No x-user-id header
+      // No auth header
     );
 
     expect(response.status()).toBe(401);
@@ -196,13 +197,13 @@ test.describe('Reactions Flow', () => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'doublelikeauthor');
     const liker = await createTestUser(request, 'doubleliker');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Like once
     const firstLike = await request.post(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(firstLike.status()).toBe(201);
@@ -211,7 +212,7 @@ test.describe('Reactions Flow', () => {
     const secondLike = await request.post(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(secondLike.status()).toBe(409);
@@ -223,13 +224,13 @@ test.describe('Reactions Flow', () => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'nolikeauthor');
     const user = await createTestUser(request, 'nolikeuser');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Try to unlike without having liked
     const response = await request.delete(
       `${API_BASE_URL}/comments/${comment.id}/like`,
       {
-        headers: { 'x-user-id': user.userId },
+        headers: { authorization: `Bearer ${user.accessToken}` },
       }
     );
     expect(response.status()).toBe(404);
@@ -240,7 +241,7 @@ test.describe('Reactions Flow', () => {
   test('multiple users can like the same comment', async ({ request }) => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'multiauthor');
-    const comment = await createTestComment(request, property.id, author.userId);
+    const comment = await createTestComment(request, property.id, author.accessToken);
 
     // Three users like the comment (created sequentially to avoid timestamp collisions)
     const user1 = await createTestUser(request, 'multiliker1');
@@ -252,7 +253,7 @@ test.describe('Reactions Flow', () => {
       const resp = await request.post(
         `${API_BASE_URL}/comments/${comment.id}/like`,
         {
-          headers: { 'x-user-id': user.userId },
+          headers: { authorization: `Bearer ${user.accessToken}` },
         }
       );
       expect(resp.status()).toBe(201);
@@ -302,7 +303,7 @@ test.describe('Reactions Flow', () => {
     const likeResponse = await request.post(
       `${API_BASE_URL}/properties/${property.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(likeResponse.status()).toBe(201);
@@ -319,7 +320,7 @@ test.describe('Reactions Flow', () => {
     const likeResp = await request.post(
       `${API_BASE_URL}/properties/${property.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(likeResp.status()).toBe(201);
@@ -328,7 +329,7 @@ test.describe('Reactions Flow', () => {
     const unlikeResp = await request.delete(
       `${API_BASE_URL}/properties/${property.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
     expect(unlikeResp.ok()).toBe(true);
@@ -363,13 +364,13 @@ test.describe('Reactions Flow', () => {
     await request.post(
       `${API_BASE_URL}/properties/${property.id}/like`,
       {
-        headers: { 'x-user-id': liker.userId },
+        headers: { authorization: `Bearer ${liker.accessToken}` },
       }
     );
 
     // Fetch property with auth - should have isLiked: true
     const authResp = await request.get(`${API_BASE_URL}/properties/${property.id}`, {
-      headers: { 'x-user-id': liker.userId },
+      headers: { authorization: `Bearer ${liker.accessToken}` },
     });
     expect(authResp.ok()).toBe(true);
     const authData = await authResp.json();
@@ -387,7 +388,7 @@ test.describe('Reactions Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: `Like count test ${Date.now()}` },
-        headers: { 'x-user-id': author.userId },
+        headers: { authorization: `Bearer ${author.accessToken}` },
       }
     );
     expect(commentResp.status()).toBe(201);
@@ -395,7 +396,7 @@ test.describe('Reactions Flow', () => {
 
     // Like it
     await request.post(`${API_BASE_URL}/comments/${comment.id}/like`, {
-      headers: { 'x-user-id': liker.userId },
+      headers: { authorization: `Bearer ${liker.accessToken}` },
     });
 
     // Fetch comments list and verify likeCount

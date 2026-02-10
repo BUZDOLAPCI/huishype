@@ -29,6 +29,7 @@ export const KNOWN_ACCEPTABLE_ERRORS = [
   'WebSocket connection',
   // Network errors during page navigation/unload
   'net::ERR_ABORTED',
+  'net::ERR_NAME_NOT_RESOLVED',
   // MapLibre tile 404s for empty areas (external, uncontrollable)
   'AJAXError',
   '.pbf',

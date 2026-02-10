@@ -14,7 +14,9 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import type { Property } from '../../hooks/useProperties';
+import { useProperty } from '../../hooks/useProperties';
 import { useListings } from '../../hooks/useListings';
+import { usePropertyView } from '../../hooks/usePropertyView';
 import type { PropertyDetailsData } from './types';
 import { PropertyHeader } from './PropertyHeader';
 import { PriceSection } from './PriceSection';
@@ -51,19 +53,20 @@ export interface PropertyBottomSheetRef {
   getCurrentIndex: () => number;
 }
 
-// Convert basic Property to PropertyDetailsData with default values
+// Convert basic Property to PropertyDetailsData, merging enriched API data when available
 function toPropertyDetails(
   property: Property,
+  enriched?: Record<string, unknown> | null,
   overrides?: { isLiked?: boolean; isSaved?: boolean }
 ): PropertyDetailsData {
   return {
     ...property,
-    activityLevel: 'cold',
-    commentCount: 0,
-    guessCount: 0,
-    viewCount: 0,
-    isSaved: overrides?.isSaved ?? false,
-    isLiked: overrides?.isLiked ?? false,
+    activityLevel: (enriched?.activityLevel as 'hot' | 'warm' | 'cold') ?? 'cold',
+    commentCount: (enriched?.commentCount as number) ?? 0,
+    guessCount: (enriched?.guessCount as number) ?? 0,
+    viewCount: (enriched?.viewCount as number) ?? 0,
+    isSaved: overrides?.isSaved ?? (enriched?.isSaved as boolean) ?? false,
+    isLiked: overrides?.isLiked ?? (enriched?.isLiked as boolean) ?? false,
   };
 }
 
@@ -92,6 +95,17 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // Listing submission modal state
     const [showSubmission, setShowSubmission] = useState(false);
+
+    // Fetch enriched property details (viewCount, activityLevel, etc.)
+    const { data: enrichedProperty } = useProperty(property?.id ?? null);
+
+    // Record view when property is opened
+    const { recordPropertyView } = usePropertyView();
+    useEffect(() => {
+      if (property?.id) {
+        recordPropertyView(property.id);
+      }
+    }, [property?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Fetch listings for the current property
     const { data: listings = [] } = useListings(property?.id ?? null);
@@ -192,9 +206,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       return { opacity };
     });
 
-    // Convert property to detailed format
+    // Convert property to detailed format, merging enriched API data
     const propertyDetails = property
-      ? toPropertyDetails(property, { isLiked: isLikedProp, isSaved: isSavedProp })
+      ? toPropertyDetails(property, enrichedProperty, { isLiked: isLikedProp, isSaved: isSavedProp })
       : null;
 
     // Don't render the sheet at all if it's not mounted

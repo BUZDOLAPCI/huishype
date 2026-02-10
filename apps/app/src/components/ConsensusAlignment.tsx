@@ -9,9 +9,12 @@ import Animated, {
   withSequence,
   withTiming,
   interpolate,
-  runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+
+import type { PriceGuess } from '../hooks/usePriceGuess';
+
+const MIN_GUESSES_FOR_CONSENSUS = 3;
 
 export interface ConsensusAlignmentProps {
   userGuess: number;
@@ -19,19 +22,31 @@ export interface ConsensusAlignmentProps {
   percentileRank?: number;
   topPredictorsAgreement?: number;
   guessCount: number;
+  guesses?: PriceGuess[];
   isVisible?: boolean;
   testID?: string;
 }
 
-// Calculate alignment percentage (mock - in production this would come from backend)
-function calculateAlignmentPercentage(userGuess: number, crowdEstimate: number): number {
-  const difference = Math.abs(userGuess - crowdEstimate);
-  const percentDiff = (difference / crowdEstimate) * 100;
+/**
+ * Calculate what % of other guessers are within ±10% of the user's guess.
+ * Returns a number 0-100.
+ */
+export function calculateAlignmentPercentage(userGuess: number, guesses: PriceGuess[], userId?: string): number {
+  // Exclude the user's own guess
+  const otherGuesses = userId
+    ? guesses.filter(g => g.userId !== userId)
+    : guesses;
 
-  if (percentDiff <= 5) return 85 + Math.random() * 15; // 85-100%
-  if (percentDiff <= 10) return 70 + Math.random() * 15; // 70-85%
-  if (percentDiff <= 20) return 50 + Math.random() * 15; // 50-65%
-  return 30 + Math.random() * 15; // 30-45%
+  if (otherGuesses.length === 0) return 0;
+
+  const lowerBound = userGuess * 0.9;
+  const upperBound = userGuess * 1.1;
+
+  const withinRange = otherGuesses.filter(
+    g => g.guessedPrice >= lowerBound && g.guessedPrice <= upperBound
+  );
+
+  return (withinRange.length / otherGuesses.length) * 100;
 }
 
 // Get alignment category and styling
@@ -102,6 +117,7 @@ export function ConsensusAlignment({
   percentileRank,
   topPredictorsAgreement,
   guessCount,
+  guesses,
   isVisible = true,
   testID = 'consensus-alignment',
 }: ConsensusAlignmentProps) {
@@ -158,9 +174,17 @@ export function ConsensusAlignment({
     return null;
   }
 
-  const alignmentPercentage = topPredictorsAgreement ?? calculateAlignmentPercentage(userGuess, crowdEstimate);
+  const hasEnoughGuesses = guessCount >= MIN_GUESSES_FOR_CONSENSUS;
+
+  // Calculate real alignment from guesses array, or fall back to topPredictorsAgreement
+  const alignmentPercentage = topPredictorsAgreement
+    ?? (guesses && guesses.length > 0
+      ? calculateAlignmentPercentage(userGuess, guesses)
+      : 0);
   const alignmentInfo = getAlignmentInfo(userGuess, crowdEstimate);
-  const message = generateMessage(userGuess, crowdEstimate, alignmentPercentage);
+  const message = hasEnoughGuesses
+    ? generateMessage(userGuess, crowdEstimate, alignmentPercentage)
+    : 'Not enough data for consensus';
 
   return (
     <Animated.View
@@ -198,7 +222,7 @@ export function ConsensusAlignment({
           </View>
 
           {/* Visual representation */}
-          {alignmentInfo.category !== 'different' && (
+          {hasEnoughGuesses && alignmentInfo.category !== 'different' && (
             <View className="flex-row items-center mt-3">
               <View className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                 <View
@@ -215,7 +239,7 @@ export function ConsensusAlignment({
           )}
 
           {/* Price comparison for "different" category */}
-          {alignmentInfo.category === 'different' && (
+          {hasEnoughGuesses && alignmentInfo.category === 'different' && (
             <View className="flex-row items-center justify-between mt-3 bg-white/50 rounded-lg p-2">
               <View className="items-center">
                 <Text className="text-xs text-gray-400">Your guess</Text>

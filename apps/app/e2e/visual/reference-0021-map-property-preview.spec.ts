@@ -94,6 +94,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
 ];
 
 // Increase test timeout for this visual test

@@ -36,6 +36,7 @@ export async function reactionRoutes(app: FastifyInstance) {
   typedApp.get(
     '/comments/:id/like',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['reactions'],
         summary: 'Check if comment is liked',
@@ -48,7 +49,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: commentId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
+      const userId = request.userId;
 
       // Get like count
       const countResult = await db
@@ -89,6 +90,7 @@ export async function reactionRoutes(app: FastifyInstance) {
   typedApp.post(
     '/comments/:id/like',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['reactions'],
         summary: 'Like a comment',
@@ -103,14 +105,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: commentId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to like comments.',
-        });
-      }
+      const userId = request.userId!;
 
       // Check if already liked
       const existingReaction = await db
@@ -166,6 +161,7 @@ export async function reactionRoutes(app: FastifyInstance) {
   typedApp.delete(
     '/comments/:id/like',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['reactions'],
         summary: 'Unlike a comment',
@@ -180,14 +176,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: commentId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to unlike comments.',
-        });
-      }
+      const userId = request.userId!;
 
       // Find the existing reaction
       const existingReaction = await db
@@ -240,6 +229,7 @@ export async function reactionRoutes(app: FastifyInstance) {
   typedApp.post(
     '/properties/:id/like',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['reactions'],
         summary: 'Like a property',
@@ -255,14 +245,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: propertyId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to like properties.',
-        });
-      }
+      const userId = request.userId!;
 
       // Verify property exists (no FK constraint on reactions.target_id)
       const propertyExists = await db
@@ -337,6 +320,7 @@ export async function reactionRoutes(app: FastifyInstance) {
   typedApp.delete(
     '/properties/:id/like',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['reactions'],
         summary: 'Unlike a property',
@@ -351,14 +335,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: propertyId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to unlike properties.',
-        });
-      }
+      const userId = request.userId!;
 
       // Atomic DELETE + COUNT using CTE — returns deleted_count and remaining like_count
       // Note: The main SELECT still sees the rows in the same snapshot, so we subtract

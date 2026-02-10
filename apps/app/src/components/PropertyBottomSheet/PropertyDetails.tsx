@@ -46,12 +46,6 @@ export function PropertyDetails({ property }: SectionProps) {
 
       <View className="bg-gray-50 rounded-xl p-3">
         <DetailRow
-          icon="location-outline"
-          label="Full Address"
-          value={`${property.address}, ${property.postalCode ?? ''} ${property.city}`}
-        />
-
-        <DetailRow
           icon="calendar-outline"
           label="Year Built"
           value={property.bouwjaar}
@@ -78,17 +72,31 @@ export function PropertyDetails({ property }: SectionProps) {
 
       {/* Activity Stats */}
       <View className="flex-row justify-around mt-4 pt-4 border-t border-gray-100">
+        {property.viewCount > 0 && (
+          <View className="items-center">
+            <Text className="text-lg font-bold text-gray-900">{property.viewCount}</Text>
+            <Text className="text-xs text-gray-400">{property.viewCount === 1 ? 'View' : 'Views'}</Text>
+          </View>
+        )}
         <View className="items-center">
-          <Text className="text-lg font-bold text-gray-900">{property.viewCount}</Text>
-          <Text className="text-xs text-gray-400">Views</Text>
+          {property.guessCount > 0 ? (
+            <>
+              <Text className="text-lg font-bold text-gray-900">{property.guessCount}</Text>
+              <Text className="text-xs text-gray-400">{property.guessCount === 1 ? 'Guess' : 'Guesses'}</Text>
+            </>
+          ) : (
+            <Text className="text-xs text-gray-400">Be the first to guess</Text>
+          )}
         </View>
         <View className="items-center">
-          <Text className="text-lg font-bold text-gray-900">{property.guessCount}</Text>
-          <Text className="text-xs text-gray-400">Guesses</Text>
-        </View>
-        <View className="items-center">
-          <Text className="text-lg font-bold text-gray-900">{property.commentCount}</Text>
-          <Text className="text-xs text-gray-400">Comments</Text>
+          {property.commentCount > 0 ? (
+            <>
+              <Text className="text-lg font-bold text-gray-900">{property.commentCount}</Text>
+              <Text className="text-xs text-gray-400">{property.commentCount === 1 ? 'Comment' : 'Comments'}</Text>
+            </>
+          ) : (
+            <Text className="text-xs text-gray-400">Start the conversation</Text>
+          )}
         </View>
       </View>
     </View>

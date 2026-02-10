@@ -209,7 +209,7 @@ function filterLayersForMissingSprites(
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
   return [
-    // Cluster circles (Z0-Z16)
+    // Cluster circles (Z0-Z16) — step-based color by cluster size
     {
       id: 'property-clusters',
       type: 'circle',
@@ -219,20 +219,29 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
       paint: {
         'circle-radius': [
-          'interpolate', ['linear'], ['coalesce', ['get', 'point_count'], 2],
-          2, 18, 10, 24, 50, 32, 100, 40,
+          'step', ['coalesce', ['get', 'point_count'], 2],
+          16,   // default (2-9)
+          10, 22,   // 10-49
+          50, 28,   // 50-99
+          100, 36,  // 100+
         ],
         'circle-color': [
-          'case',
-          ['==', ['get', 'has_active_children'], true], '#FF5A5F',
-          '#51bbd6',
+          'step', ['coalesce', ['get', 'point_count'], 2],
+          '#3B82F6',  // blue-500: small clusters (2-9)
+          10, '#F59E0B',  // amber-500: medium clusters (10-49)
+          50, '#EF4444',  // red-500: large clusters (50-99)
+          100, '#DC2626', // red-600: very large (100+)
         ],
-        'circle-opacity': 0.85,
-        'circle-stroke-width': 2,
+        'circle-opacity': 0.9,
+        'circle-stroke-width': [
+          'step', ['coalesce', ['get', 'point_count'], 2],
+          2,      // default
+          50, 3,  // larger stroke for big clusters
+        ],
         'circle-stroke-color': '#FFFFFF',
       },
     },
-    // Cluster count labels
+    // Cluster count labels — scaled text size by cluster size
     {
       id: 'cluster-count',
       type: 'symbol',
@@ -243,13 +252,19 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
         'text-font': ['Noto Sans Regular'],
-        'text-size': 14,
+        'text-size': [
+          'step', ['coalesce', ['get', 'point_count'], 2],
+          12,      // default (2-9)
+          10, 13,  // 10-49
+          50, 14,  // 50-99
+          100, 16, // 100+
+        ],
         'text-allow-overlap': true,
         'text-ignore-placement': true,
       },
       paint: {
         'text-color': '#FFFFFF',
-        'text-halo-color': '#000000',
+        'text-halo-color': 'rgba(0, 0, 0, 0.25)',
         'text-halo-width': 1,
       },
     },
@@ -836,7 +851,11 @@ async function getIndividualPointsMVT(
       SELECT
         p.id,
         p.geometry,
-        p.street || ' ' || p.house_number || COALESCE(p.house_number_addition, '') AS address,
+        p.street || ' ' || p.house_number || CASE
+          WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
+          WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
+          ELSE '-' || p.house_number_addition
+        END AS address,
         p.city,
         p.postal_code,
         p.woz_value,

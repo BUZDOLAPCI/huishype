@@ -33,11 +33,21 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
   const [showResults, setShowResults] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<TextInput>(null);
+  // When true, the next inputValue change won't trigger a new search.
+  // Used after selecting a result to prevent the dropdown from reopening.
+  const suppressDebounce = useRef(false);
 
   // Debounce the search query
   useEffect(() => {
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
+    }
+
+    // Skip debounce when inputValue was set programmatically (e.g. after result selection)
+    if (suppressDebounce.current) {
+      suppressDebounce.current = false;
+      return;
     }
 
     if (inputValue.length >= 2) {
@@ -64,7 +74,9 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
   const handleResultPress = useCallback(
     async (address: ResolvedAddress) => {
       setShowResults(false);
+      suppressDebounce.current = true;
       setInputValue(address.formattedAddress);
+      inputRef.current?.blur();
       setIsResolving(true);
 
       try {
@@ -107,6 +119,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
 
   // Clear search
   const handleClear = useCallback(() => {
+    suppressDebounce.current = true;
     setInputValue('');
     setDebouncedQuery('');
     setShowResults(false);
@@ -143,6 +156,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
         <Ionicons name="search" size={18} color="#9CA3AF" style={{ marginRight: 8 }} />
 
         <TextInput
+          ref={inputRef}
           testID="search-bar-input"
           style={{
             flex: 1,

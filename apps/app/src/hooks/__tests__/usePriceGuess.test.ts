@@ -5,7 +5,6 @@ import type { PropsWithChildren } from 'react';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
-  getFMVConfidence,
   formatCooldownRemaining,
   guessKeys,
 } from '../usePriceGuess';
@@ -52,23 +51,33 @@ describe('guessKeys', () => {
   });
 });
 
-describe('getFMVConfidence', () => {
-  it('returns low confidence for less than 3 guesses', () => {
-    expect(getFMVConfidence(0)).toBe('low');
-    expect(getFMVConfidence(1)).toBe('low');
-    expect(getFMVConfidence(2)).toBe('low');
-  });
+describe('FMV confidence from API', () => {
+  it('returns confidence from API response', async () => {
+    const mockResponse = {
+      data: [],
+      meta: { page: 1, limit: 100, total: 0, totalPages: 1 },
+      fmv: {
+        fmv: null,
+        confidence: 'low' as const,
+        guessCount: 0,
+        distribution: null,
+        wozValue: null,
+        askingPrice: null,
+        divergence: null,
+      },
+    };
 
-  it('returns medium confidence for 3-9 guesses', () => {
-    expect(getFMVConfidence(3)).toBe('medium');
-    expect(getFMVConfidence(5)).toBe('medium');
-    expect(getFMVConfidence(9)).toBe('medium');
-  });
+    mockApi.get.mockResolvedValueOnce(mockResponse);
 
-  it('returns high confidence for 10+ guesses', () => {
-    expect(getFMVConfidence(10)).toBe('high');
-    expect(getFMVConfidence(50)).toBe('high');
-    expect(getFMVConfidence(100)).toBe('high');
+    const { result } = renderHook(() => useFetchPriceGuess('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.fmv.confidence).toBe('low');
   });
 });
 
@@ -139,11 +148,14 @@ describe('useFetchPriceGuess', () => {
         },
       ],
       meta: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      stats: {
-        averageGuess: 350000,
-        medianGuess: 350000,
-        totalGuesses: 1,
-        estimatedFMV: 350000,
+      fmv: {
+        fmv: 350000,
+        confidence: 'low',
+        guessCount: 1,
+        distribution: null,
+        wozValue: null,
+        askingPrice: null,
+        divergence: null,
       },
     };
 
@@ -158,7 +170,7 @@ describe('useFetchPriceGuess', () => {
     });
 
     expect(mockApi.get).toHaveBeenCalledWith('/properties/property-123/guesses?limit=100');
-    expect(result.current.data?.stats.totalGuesses).toBe(1);
+    expect(result.current.data?.fmv.guessCount).toBe(1);
   });
 
   it('identifies user guess when userId matches', async () => {
@@ -174,11 +186,14 @@ describe('useFetchPriceGuess', () => {
         },
       ],
       meta: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      stats: {
-        averageGuess: 350000,
-        medianGuess: 350000,
-        totalGuesses: 1,
-        estimatedFMV: 350000,
+      fmv: {
+        fmv: 350000,
+        confidence: 'low',
+        guessCount: 1,
+        distribution: null,
+        wozValue: null,
+        askingPrice: null,
+        divergence: null,
       },
     };
 
@@ -197,7 +212,17 @@ describe('useFetchPriceGuess', () => {
     expect(result.current.data?.userGuess?.userId).toBe('user-456');
   });
 
-  it('calculates distribution from guesses', async () => {
+  it('returns distribution from API fmv response', async () => {
+    const mockDistribution = {
+      p10: 310000,
+      p25: 325000,
+      p50: 350000,
+      p75: 375000,
+      p90: 390000,
+      min: 300000,
+      max: 400000,
+    };
+
     const mockResponse = {
       data: [
         { id: 'g1', propertyId: 'p1', userId: 'u1', guessedPrice: 300000, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
@@ -205,11 +230,14 @@ describe('useFetchPriceGuess', () => {
         { id: 'g3', propertyId: 'p1', userId: 'u3', guessedPrice: 400000, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
       ],
       meta: { page: 1, limit: 100, total: 3, totalPages: 1 },
-      stats: {
-        averageGuess: 350000,
-        medianGuess: 350000,
-        totalGuesses: 3,
-        estimatedFMV: 350000,
+      fmv: {
+        fmv: 350000,
+        confidence: 'medium',
+        guessCount: 3,
+        distribution: mockDistribution,
+        wozValue: null,
+        askingPrice: null,
+        divergence: null,
       },
     };
 
@@ -223,11 +251,7 @@ describe('useFetchPriceGuess', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(result.current.data?.distribution).toEqual({
-      min: 300000,
-      max: 400000,
-      median: 350000,
-    });
+    expect(result.current.data?.fmv.distribution).toEqual(mockDistribution);
   });
 });
 

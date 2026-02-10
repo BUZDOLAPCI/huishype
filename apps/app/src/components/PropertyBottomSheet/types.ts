@@ -1,9 +1,8 @@
-import type { Property } from '../../hooks/useProperties';
+import type { Property, PropertyFmvData } from '../../hooks/useProperties';
 
 export interface PropertyDetailsData extends Property {
   askingPrice?: number;
-  fmv?: number;
-  fmvConfidence?: 'low' | 'medium' | 'high';
+  fmv?: PropertyFmvData;
   activityLevel: 'hot' | 'warm' | 'cold';
   commentCount: number;
   guessCount: number;

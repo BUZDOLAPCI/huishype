@@ -56,11 +56,8 @@ export function ListingSubmissionSheet({
     if (accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
-    if (user?.id) {
-      headers['x-user-id'] = user.id;
-    }
     return headers;
-  }, [accessToken, user?.id]);
+  }, [accessToken]);
 
   const reset = useCallback(() => {
     setUrl('');

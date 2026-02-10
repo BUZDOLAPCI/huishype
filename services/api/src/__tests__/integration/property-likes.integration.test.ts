@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 describe('Property like routes', () => {
   let app: FastifyInstance;
   let userId: string;
+  let accessToken: string;
   let propertyId: string;
   const testUserIds: string[] = [];
 
@@ -29,6 +30,7 @@ describe('Property like routes', () => {
     });
     const loginBody = JSON.parse(loginResp.body);
     userId = loginBody.session.user.id;
+    accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
     // Get a real property
@@ -73,7 +75,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -97,7 +99,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(201);
@@ -111,7 +113,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${fakeId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(404);
@@ -123,7 +125,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(409);
@@ -137,7 +139,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -174,7 +176,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/properties/${propertyId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -187,7 +189,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/properties/${propertyId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(404);
@@ -201,7 +203,7 @@ describe('Property like routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);

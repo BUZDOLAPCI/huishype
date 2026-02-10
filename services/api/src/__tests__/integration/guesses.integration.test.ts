@@ -14,6 +14,7 @@ import { eq, and } from 'drizzle-orm';
 describe('Guess routes', () => {
   let app: FastifyInstance;
   let userId: string;
+  let accessToken: string;
   let propertyId: string;
   const testUserIds: string[] = [];
 
@@ -29,6 +30,7 @@ describe('Guess routes', () => {
     });
     const loginBody = JSON.parse(loginResp.body);
     userId = loginBody.session.user.id;
+    accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
     // Get a real property
@@ -69,7 +71,7 @@ describe('Guess routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${fakeId}/guesses`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { guessedPrice: 300000 },
       });
       expect(response.statusCode).toBe(404);
@@ -79,7 +81,7 @@ describe('Guess routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/guesses`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { guessedPrice: 350000 },
       });
 
@@ -98,7 +100,7 @@ describe('Guess routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/guesses`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { guessedPrice: 400000 },
       });
 
@@ -111,7 +113,7 @@ describe('Guess routes', () => {
   });
 
   describe('GET /properties/:id/guesses', () => {
-    it('should return guesses with stats', async () => {
+    it('should return guesses with fmv data', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}/guesses`,
@@ -122,17 +124,17 @@ describe('Guess routes', () => {
 
       expect(body).toHaveProperty('data');
       expect(body).toHaveProperty('meta');
-      expect(body).toHaveProperty('stats');
+      expect(body).toHaveProperty('fmv');
       expect(Array.isArray(body.data)).toBe(true);
 
-      // We submitted at least 1 guess
-      expect(body.stats.totalGuesses).toBeGreaterThanOrEqual(1);
+      // FMV section should contain guess count
+      expect(body.fmv).toHaveProperty('guessCount');
+      expect(body.fmv.guessCount).toBeGreaterThanOrEqual(1);
 
-      if (body.stats.totalGuesses > 0) {
-        expect(body.stats.averageGuess).not.toBeNull();
-        expect(body.stats.medianGuess).not.toBeNull();
-        expect(typeof body.stats.averageGuess).toBe('number');
-        expect(typeof body.stats.medianGuess).toBe('number');
+      if (body.fmv.guessCount >= 3) {
+        // With enough guesses, FMV should be calculated
+        expect(body.fmv.fmv).not.toBeNull();
+        expect(typeof body.fmv.fmv).toBe('number');
       }
 
       // Check each guess has user info

@@ -75,7 +75,7 @@ export function PropertyFeedCard({
   };
 
   const activityLabels = {
-    hot: 'Trending',
+    hot: 'Hot',
     warm: 'Active',
     cold: '',
   };
@@ -117,11 +117,13 @@ export function PropertyFeedCard({
           </View>
         )}
 
-        {/* View count overlay */}
-        <View className="absolute bottom-3 right-3 bg-black/60 px-2 py-1 rounded-md flex-row items-center">
-          <FontAwesome name="eye" size={12} color="white" />
-          <Text className="text-white text-xs ml-1">{viewCount}</Text>
-        </View>
+        {/* View count overlay - only show when there are views */}
+        {viewCount > 0 && (
+          <View className="absolute bottom-3 right-3 bg-black/60 px-2 py-1 rounded-md flex-row items-center">
+            <FontAwesome name="eye" size={12} color="white" />
+            <Text className="text-white text-xs ml-1">{viewCount}</Text>
+          </View>
+        )}
       </View>
 
       {/* Content section */}
@@ -234,19 +236,25 @@ export function PropertyFeedCard({
         {/* Activity stats */}
         <View className="flex-row justify-between pt-3 border-t border-gray-100">
           <View className="flex-row items-center">
-            <FontAwesome name="comments-o" size={14} color="#6B7280" />
-            <Text className="text-sm text-gray-500 ml-1">{commentCount}</Text>
-          </View>
-          <View className="flex-row items-center">
-            <FontAwesome name="bar-chart" size={14} color="#6B7280" />
-            <Text className="text-sm text-gray-500 ml-1">
-              {guessCount} guesses
+            <FontAwesome name="comments-o" size={14} color={commentCount > 0 ? '#6B7280' : '#9CA3AF'} />
+            <Text className={`text-sm ml-1 ${commentCount > 0 ? 'text-gray-500' : 'text-gray-400'}`}>
+              {commentCount > 0 ? commentCount : 'Start the conversation'}
             </Text>
           </View>
           <View className="flex-row items-center">
-            <FontAwesome name="eye" size={14} color="#6B7280" />
-            <Text className="text-sm text-gray-500 ml-1">{viewCount}</Text>
+            <FontAwesome name="bar-chart" size={14} color={guessCount > 0 ? '#6B7280' : '#9CA3AF'} />
+            <Text className={`text-sm ml-1 ${guessCount > 0 ? 'text-gray-500' : 'text-gray-400'}`}>
+              {guessCount > 0
+                ? `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'}`
+                : 'Be the first to guess'}
+            </Text>
           </View>
+          {viewCount > 0 && (
+            <View className="flex-row items-center">
+              <FontAwesome name="eye" size={14} color="#6B7280" />
+              <Text className="text-sm text-gray-500 ml-1">{viewCount}</Text>
+            </View>
+          )}
         </View>
       </View>
     </Pressable>

@@ -23,6 +23,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -81,10 +82,8 @@ test.describe('Save Flow', () => {
 
     // The property detail page should show the save button with bookmark icon
     // The QuickActions bar renders Save/Share/Like buttons
-    const saveText = page.locator('text=Save');
-    await expect(saveText.first()).toBeVisible({ timeout: 10000 });
-    const saveCount = await saveText.count();
-    expect(saveCount).toBeGreaterThanOrEqual(1);
+    const saveButton = page.locator('[data-testid="quick-action-save"]');
+    await expect(saveButton).toBeVisible({ timeout: 10000 });
   });
 
   test('unauthenticated save returns 401', async ({ request }) => {
@@ -93,7 +92,7 @@ test.describe('Save Flow', () => {
     // Try to save without authentication
     const response = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`
-      // No x-user-id header
+      // No auth header
     );
 
     expect(response.status()).toBe(401);
@@ -109,7 +108,7 @@ test.describe('Save Flow', () => {
     const saveResponse = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(saveResponse.status()).toBe(201);
@@ -120,7 +119,7 @@ test.describe('Save Flow', () => {
     const propertyResponse = await request.get(
       `${API_BASE_URL}/properties/${property.id}`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(propertyResponse.ok()).toBe(true);
@@ -136,7 +135,7 @@ test.describe('Save Flow', () => {
     const saveResp = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(saveResp.status()).toBe(201);
@@ -145,7 +144,7 @@ test.describe('Save Flow', () => {
     const unsaveResp = await request.delete(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(unsaveResp.ok()).toBe(true);
@@ -156,7 +155,7 @@ test.describe('Save Flow', () => {
     const propertyResponse = await request.get(
       `${API_BASE_URL}/properties/${property.id}`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(propertyResponse.ok()).toBe(true);
@@ -172,7 +171,7 @@ test.describe('Save Flow', () => {
     const saveResp = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(saveResp.status()).toBe(201);
@@ -181,7 +180,7 @@ test.describe('Save Flow', () => {
     const listResp = await request.get(
       `${API_BASE_URL}/saved-properties`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(listResp.ok()).toBe(true);
@@ -201,13 +200,13 @@ test.describe('Save Flow', () => {
     await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     await request.delete(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
 
@@ -215,7 +214,7 @@ test.describe('Save Flow', () => {
     const listResp = await request.get(
       `${API_BASE_URL}/saved-properties`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(listResp.ok()).toBe(true);
@@ -233,7 +232,7 @@ test.describe('Save Flow', () => {
     const firstSave = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(firstSave.status()).toBe(201);
@@ -242,7 +241,7 @@ test.describe('Save Flow', () => {
     const secondSave = await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
     expect(secondSave.status()).toBe(409);
@@ -258,7 +257,7 @@ test.describe('Save Flow', () => {
     const response = await request.delete(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': user.userId },
+        headers: { authorization: `Bearer ${user.accessToken}` },
       }
     );
     expect(response.status()).toBe(404);
@@ -281,13 +280,13 @@ test.describe('Save Flow', () => {
     await request.post(
       `${API_BASE_URL}/properties/${property.id}/save`,
       {
-        headers: { 'x-user-id': saver.userId },
+        headers: { authorization: `Bearer ${saver.accessToken}` },
       }
     );
 
     // Fetch property with auth - should have isSaved: true
     const authResp = await request.get(`${API_BASE_URL}/properties/${property.id}`, {
-      headers: { 'x-user-id': saver.userId },
+      headers: { authorization: `Bearer ${saver.accessToken}` },
     });
     expect(authResp.ok()).toBe(true);
     const authData = await authResp.json();

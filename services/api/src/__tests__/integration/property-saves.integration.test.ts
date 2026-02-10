@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 describe('Property save routes', () => {
   let app: FastifyInstance;
   let userId: string;
+  let accessToken: string;
   let propertyId: string;
   let propertyId2: string;
   const testUserIds: string[] = [];
@@ -30,6 +31,7 @@ describe('Property save routes', () => {
     });
     const loginBody = JSON.parse(loginResp.body);
     userId = loginBody.session.user.id;
+    accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
     // Get two real properties for testing
@@ -71,7 +73,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(201);
@@ -84,7 +86,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${fakeId}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(404);
@@ -96,7 +98,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(409);
@@ -110,7 +112,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -146,7 +148,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: '/saved-properties',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -170,13 +172,13 @@ describe('Property save routes', () => {
       await app.inject({
         method: 'POST',
         url: `/properties/${propertyId2}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       const response = await app.inject({
         method: 'GET',
         url: '/saved-properties',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -197,7 +199,7 @@ describe('Property save routes', () => {
       const page1 = await app.inject({
         method: 'GET',
         url: '/saved-properties?limit=1&offset=0',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
       const body1 = JSON.parse(page1.body);
       expect(body1.data.length).toBe(1);
@@ -207,7 +209,7 @@ describe('Property save routes', () => {
       const page2 = await app.inject({
         method: 'GET',
         url: '/saved-properties?limit=1&offset=1',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
       const body2 = JSON.parse(page2.body);
       expect(body2.data.length).toBe(1);
@@ -217,7 +219,7 @@ describe('Property save routes', () => {
       const page3 = await app.inject({
         method: 'GET',
         url: '/saved-properties?limit=1&offset=2',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
       const body3 = JSON.parse(page3.body);
       expect(body3.data.length).toBe(0);
@@ -239,7 +241,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/properties/${propertyId}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -251,7 +253,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/properties/${propertyId}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(404);
@@ -265,7 +267,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -279,7 +281,7 @@ describe('Property save routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: '/saved-properties',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -296,13 +298,13 @@ describe('Property save routes', () => {
       await app.inject({
         method: 'DELETE',
         url: `/properties/${propertyId2}/save`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       const response = await app.inject({
         method: 'GET',
         url: '/saved-properties',
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);

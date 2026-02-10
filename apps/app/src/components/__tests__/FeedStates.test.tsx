@@ -68,10 +68,10 @@ describe('FeedEmptyState', () => {
     expect(getByText('No properties to show.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "new" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="new" />);
+  it('shows filter-specific message for "recent" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="recent" />);
 
-    expect(getByText('No new properties found. Check back later!')).toBeTruthy();
+    expect(getByText('No recent properties found. Check back later!')).toBeTruthy();
   });
 
   it('shows filter-specific message for "trending" filter', () => {
@@ -80,8 +80,14 @@ describe('FeedEmptyState', () => {
     expect(getByText('No trending properties at the moment.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "price_mismatch" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="price_mismatch" />);
+  it('shows filter-specific message for "controversial" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="controversial" />);
+
+    expect(getByText('No controversial properties found yet. Submit guesses to get started!')).toBeTruthy();
+  });
+
+  it('shows filter-specific message for "price-mismatch" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="price-mismatch" />);
 
     expect(getByText('No properties with price mismatches found.')).toBeTruthy();
   });

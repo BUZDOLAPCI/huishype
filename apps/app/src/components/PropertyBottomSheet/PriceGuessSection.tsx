@@ -17,8 +17,8 @@ import { ConsensusAlignment } from '../ConsensusAlignment';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
-  getFMVConfidence,
   formatCooldownRemaining,
+  type FmvResponse,
 } from '../../hooks/usePriceGuess';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -169,18 +169,17 @@ export function PriceGuessSection({
     [isAuthenticated, property.id, submitGuess, refetch, onLoginRequired]
   );
 
-  // Build FMV data from stats
+  // Build FMV data from API response — pass through real distribution
   const fmvData: FMVData | null =
-    guessData?.stats.estimatedFMV && guessData.stats.totalGuesses > 0
+    guessData?.fmv && guessData.fmv.fmv !== null && guessData.fmv.guessCount > 0
       ? {
-          value: guessData.stats.estimatedFMV,
-          confidence: getFMVConfidence(guessData.stats.totalGuesses),
-          guessCount: guessData.stats.totalGuesses,
-          distribution: guessData.distribution ?? {
-            min: guessData.stats.estimatedFMV * 0.8,
-            max: guessData.stats.estimatedFMV * 1.2,
-            median: guessData.stats.medianGuess ?? guessData.stats.estimatedFMV,
-          },
+          value: guessData.fmv.fmv,
+          confidence: guessData.fmv.confidence,
+          guessCount: guessData.fmv.guessCount,
+          distribution: guessData.fmv.distribution,
+          wozValue: guessData.fmv.wozValue,
+          askingPrice: guessData.fmv.askingPrice,
+          divergence: guessData.fmv.divergence,
         }
       : null;
 
@@ -240,14 +239,15 @@ export function PriceGuessSection({
         </View>
       )}
 
-      {/* Consensus Alignment (after submission) */}
-      {showSuccess && submittedPrice && fmvData && (
+      {/* Consensus Alignment (after submission or when user has existing guess) */}
+      {fmvData && (showSuccess && submittedPrice || hasExistingGuess && guessData?.userGuess) && (
         <View className="mb-4">
           <ConsensusAlignment
-            userGuess={submittedPrice}
-            crowdEstimate={fmvData.value}
+            userGuess={submittedPrice ?? guessData!.userGuess!.guessedPrice}
+            crowdEstimate={fmvData.value!}
             guessCount={fmvData.guessCount}
-            isVisible={showSuccess}
+            guesses={guessData?.guesses}
+            isVisible
             testID="consensus-alignment"
           />
         </View>
@@ -258,7 +258,7 @@ export function PriceGuessSection({
         propertyId={property.id}
         wozValue={property.wozValue ?? undefined}
         askingPrice={property.askingPrice}
-        currentFMV={fmvData?.value}
+        currentFMV={fmvData?.value ?? undefined}
         userGuess={guessData?.userGuess?.guessedPrice}
         onGuessSubmit={handleGuessSubmit}
         disabled={isInCooldown || !isAuthenticated}

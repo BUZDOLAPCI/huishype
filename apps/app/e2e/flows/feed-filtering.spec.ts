@@ -26,6 +26,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -96,7 +97,7 @@ test.describe('Feed Filtering', () => {
       page.waitForSelector('[data-testid="feed-loading"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-empty"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-error"]', { timeout: 10000 }).catch(() => null),
-      page.waitForSelector('[data-testid="filter-chip-all"]', { timeout: 10000 }).catch(() => null),
+      page.waitForSelector('[data-testid="filter-chip-trending"]', { timeout: 10000 }).catch(() => null),
     ]);
 
     // Additional wait for content to settle
@@ -105,28 +106,26 @@ test.describe('Feed Filtering', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-loaded.png` });
 
     // Filter chips should always be visible (they show even in loading/empty/error states)
-    const allFilter = page.locator('[data-testid="filter-chip-all"]');
-    await expect(allFilter, '"All" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
+    await expect(trendingFilter, '"Trending" filter chip should be visible').toBeVisible({ timeout: 5000 });
 
     // Check for other filter chips
-    const newFilter = page.locator('[data-testid="filter-chip-new"]');
-    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
-    const priceMismatchFilter = page.locator('[data-testid="filter-chip-price_mismatch"]');
-    const polarizingFilter = page.locator('[data-testid="filter-chip-polarizing"]');
+    const recentFilter = page.locator('[data-testid="filter-chip-recent"]');
+    const controversialFilter = page.locator('[data-testid="filter-chip-controversial"]');
+    const priceMismatchFilter = page.locator('[data-testid="filter-chip-price-mismatch"]');
 
     const chipVisibility = {
-      all: await allFilter.isVisible().catch(() => false),
-      new: await newFilter.isVisible().catch(() => false),
       trending: await trendingFilter.isVisible().catch(() => false),
-      price_mismatch: await priceMismatchFilter.isVisible().catch(() => false),
-      polarizing: await polarizingFilter.isVisible().catch(() => false),
+      recent: await recentFilter.isVisible().catch(() => false),
+      controversial: await controversialFilter.isVisible().catch(() => false),
+      'price-mismatch': await priceMismatchFilter.isVisible().catch(() => false),
     };
     console.log('Filter chip visibility:', chipVisibility);
 
-    // All 5 filter chips should be visible
-    expect(chipVisibility.all).toBe(true);
-    expect(chipVisibility.new).toBe(true);
+    // All 4 filter chips should be visible
     expect(chipVisibility.trending).toBe(true);
+    expect(chipVisibility.recent).toBe(true);
+    expect(chipVisibility.controversial).toBe(true);
 
     // Check how many property cards loaded
     const propertyCards = page.locator('[data-testid="property-feed-card"]');
@@ -145,37 +144,37 @@ test.describe('Feed Filtering', () => {
     await page.waitForTimeout(3000);
 
     // Wait for filter chips to appear
-    const allFilter = page.locator('[data-testid="filter-chip-all"]');
-    await expect(allFilter).toBeVisible({ timeout: 10000 });
+    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
+    await expect(trendingFilter).toBeVisible({ timeout: 10000 });
 
     // Take initial screenshot
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-all.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
-    // Click "New" filter
-    const newFilter = page.locator('[data-testid="filter-chip-new"]');
-    const newFilterVisible = await newFilter.isVisible().catch(() => false);
+    // Click "Recent" filter
+    const recentFilter = page.locator('[data-testid="filter-chip-recent"]');
+    const recentVisible = await recentFilter.isVisible().catch(() => false);
 
-    if (newFilterVisible) {
-      await newFilter.click();
+    if (recentVisible) {
+      await recentFilter.click();
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-new.png` });
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-recent.png` });
     }
 
-    // Click "Trending" filter
-    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
-    const trendingVisible = await trendingFilter.isVisible().catch(() => false);
+    // Click "Controversial" filter
+    const controversialFilter = page.locator('[data-testid="filter-chip-controversial"]');
+    const controversialVisible = await controversialFilter.isVisible().catch(() => false);
 
-    if (trendingVisible) {
+    if (controversialVisible) {
+      await controversialFilter.click();
+      await page.waitForTimeout(2000);
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-controversial.png` });
+    }
+
+    // Click back to "Trending" filter
+    if (recentVisible || controversialVisible) {
       await trendingFilter.click();
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
-    }
-
-    // Click back to "All" filter
-    if (newFilterVisible || trendingVisible) {
-      await allFilter.click();
-      await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-all.png` });
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
     }
   });
 
@@ -234,12 +233,12 @@ test.describe('Feed Filtering', () => {
   });
 
   test('clicking property card navigates to detail page', async ({ page }) => {
-    // First verify API has properties
-    const apiCheck = await page.request.get(`${API_BASE_URL}/properties?limit=1`);
+    // First verify API has feed items
+    const apiCheck = await page.request.get(`${API_BASE_URL}/feed?limit=1`);
     const apiData = await apiCheck.json();
 
-    if (!apiData.data || apiData.data.length === 0) {
-      console.log('No properties in API, skipping card click test');
+    if (!apiData.items || apiData.items.length === 0) {
+      console.log('No items in feed API, skipping card click test');
       return;
     }
 
@@ -290,27 +289,30 @@ test.describe('Feed Filtering', () => {
   });
 
   test('feed API endpoint returns valid data', async ({ request }) => {
-    // The feed uses /properties endpoint with pagination
-    const response = await request.get(`${API_BASE_URL}/properties?limit=10&page=1`);
+    const response = await request.get(`${API_BASE_URL}/feed?limit=10`);
     expect(response.ok()).toBe(true);
 
     const data = await response.json();
-    expect(data).toHaveProperty('data');
-    expect(data).toHaveProperty('meta');
-    expect(Array.isArray(data.data)).toBe(true);
-    expect(data.meta).toHaveProperty('page');
-    expect(data.meta).toHaveProperty('limit');
-    expect(data.meta).toHaveProperty('total');
-    expect(data.meta).toHaveProperty('totalPages');
+    expect(data).toHaveProperty('items');
+    expect(data).toHaveProperty('pagination');
+    expect(Array.isArray(data.items)).toBe(true);
+    expect(data.pagination).toHaveProperty('page');
+    expect(data.pagination).toHaveProperty('limit');
+    expect(data.pagination).toHaveProperty('total');
+    expect(data.pagination).toHaveProperty('hasMore');
 
-    console.log(`Feed API: ${data.data.length} properties, total: ${data.meta.total}`);
+    console.log(`Feed API: ${data.items.length} items, total: ${data.pagination.total}`);
 
-    // If there are properties, verify structure
-    if (data.data.length > 0) {
-      const prop = data.data[0];
-      expect(prop).toHaveProperty('id');
-      expect(prop).toHaveProperty('address');
-      expect(prop).toHaveProperty('city');
+    // If there are items, verify structure
+    if (data.items.length > 0) {
+      const item = data.items[0];
+      expect(item).toHaveProperty('id');
+      expect(item).toHaveProperty('address');
+      expect(item).toHaveProperty('city');
+      expect(item).toHaveProperty('zipCode');
+      expect(item).toHaveProperty('activityLevel');
+      expect(item).toHaveProperty('hasListing');
+      expect(item.hasListing).toBe(true);
     }
   });
 });

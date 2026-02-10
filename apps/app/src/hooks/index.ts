@@ -24,10 +24,11 @@ export {
   useFetchPriceGuess,
   useSubmitGuess,
   guessKeys,
-  getFMVConfidence,
   formatCooldownRemaining,
   type PriceGuess,
-  type GuessStats,
+  type FmvResponse,
+  type FmvDistribution,
+  type FmvConfidence,
   type PriceGuessData,
   type SubmitGuessParams,
   type SubmitGuessResponse,
@@ -61,8 +62,24 @@ export {
   type UsePropertySaveReturn,
 } from './usePropertySave';
 export {
+  useSavedProperties,
+  savedPropertyKeys,
+} from './useSavedProperties';
+export {
   useClusterPreview,
   LARGE_CLUSTER_THRESHOLD,
   type UseClusterPreviewReturn,
   type UseClusterPreviewOptions,
 } from './useClusterPreview';
+export {
+  usePublicProfile,
+  useMyProfile,
+  useUpdateProfile,
+  useMyGuesses,
+  userKeys,
+  type PublicProfile,
+  type MyProfile,
+  type KarmaRank,
+  type GuessHistoryItem,
+  type GuessHistoryResponse,
+} from './useUserProfile';

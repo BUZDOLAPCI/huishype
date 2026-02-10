@@ -62,15 +62,19 @@ function PriceComparisonBar({
 }
 
 export function PriceSection({ property }: SectionProps) {
-  const { wozValue, askingPrice, fmv, fmvConfidence, guessCount } = property;
+  const { wozValue, askingPrice, fmv: fmvData, guessCount } = property;
+  const fmv = fmvData?.fmv ?? undefined;
+  const fmvConfidence = fmvData?.confidence;
 
-  const confidenceLabels = {
+  const confidenceLabels: Record<string, string> = {
+    none: 'No data yet',
     low: 'Low confidence',
     medium: 'Medium confidence',
     high: 'High confidence',
   };
 
-  const confidenceColors = {
+  const confidenceColors: Record<string, string> = {
+    none: 'text-gray-400',
     low: 'text-red-500',
     medium: 'text-yellow-600',
     high: 'text-green-500',
@@ -117,7 +121,7 @@ export function PriceSection({ property }: SectionProps) {
             </Text>
             {fmvConfidence && (
               <Text className={`text-xs ${confidenceColors[fmvConfidence]}`}>
-                {confidenceLabels[fmvConfidence]} ({guessCount} guesses)
+                {confidenceLabels[fmvConfidence]} ({guessCount} {guessCount === 1 ? 'guess' : 'guesses'})
               </Text>
             )}
           </View>

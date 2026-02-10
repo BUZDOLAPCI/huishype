@@ -19,11 +19,24 @@ export interface PriceGuess {
   user?: GuessUser;
 }
 
-export interface GuessStats {
-  averageGuess: number | null;
-  medianGuess: number | null;
-  totalGuesses: number;
-  estimatedFMV: number | null;
+export interface FmvDistribution {
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  min: number;
+  max: number;
+}
+
+export interface FmvResponse {
+  fmv: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  guessCount: number;
+  distribution: FmvDistribution | null;
+  wozValue: number | null;
+  askingPrice: number | null;
+  divergence: number | null;
 }
 
 export interface GuessListResponse {
@@ -34,19 +47,14 @@ export interface GuessListResponse {
     total: number;
     totalPages: number;
   };
-  stats: GuessStats;
+  fmv: FmvResponse;
 }
 
 export interface PriceGuessData {
   userGuess: PriceGuess | null;
-  stats: GuessStats;
+  fmv: FmvResponse;
   canEdit: boolean;
   cooldownEndsAt: string | null;
-  distribution: {
-    min: number;
-    max: number;
-    median: number;
-  } | null;
   guesses: PriceGuess[];
 }
 
@@ -82,21 +90,6 @@ export const guessKeys = {
 // Cooldown period in milliseconds (5 days)
 const COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
 
-// Helper to calculate distribution from guesses
-function calculateDistribution(guesses: PriceGuess[]): { min: number; max: number; median: number } | null {
-  if (guesses.length === 0) return null;
-
-  const prices = guesses.map(g => g.guessedPrice).sort((a, b) => a - b);
-  const min = prices[0];
-  const max = prices[prices.length - 1];
-  const mid = Math.floor(prices.length / 2);
-  const median = prices.length % 2 === 0
-    ? (prices[mid - 1] + prices[mid]) / 2
-    : prices[mid];
-
-  return { min, max, median };
-}
-
 // Helper to check if cooldown has passed
 function canEditGuess(guess: PriceGuess): boolean {
   const updatedAt = new Date(guess.updatedAt).getTime();
@@ -123,15 +116,17 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
       if (!propertyId) {
         return {
           userGuess: null,
-          stats: {
-            averageGuess: null,
-            medianGuess: null,
-            totalGuesses: 0,
-            estimatedFMV: null,
+          fmv: {
+            fmv: null,
+            confidence: 'none',
+            guessCount: 0,
+            distribution: null,
+            wozValue: null,
+            askingPrice: null,
+            divergence: null,
           },
           canEdit: true,
           cooldownEndsAt: null,
-          distribution: null,
           guesses: [],
         };
       }
@@ -140,15 +135,12 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
         `/properties/${propertyId}/guesses?limit=100`
       );
 
-      const { data: guesses, stats } = response;
+      const { data: guesses, fmv } = response;
 
       // Find user's guess if userId is provided
       const userGuess = userId
         ? guesses.find(g => g.userId === userId) ?? null
         : null;
-
-      // Calculate distribution from all guesses
-      const distribution = calculateDistribution(guesses);
 
       // Check cooldown status
       const canEdit = userGuess ? canEditGuess(userGuess) : true;
@@ -156,10 +148,9 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
 
       return {
         userGuess,
-        stats,
+        fmv,
         canEdit,
         cooldownEndsAt,
-        distribution,
         guesses,
       };
     },
@@ -200,15 +191,6 @@ export function useSubmitGuess() {
       console.error('Submit guess error:', error);
     },
   });
-}
-
-/**
- * Helper hook to get FMV confidence level based on guess count
- */
-export function getFMVConfidence(guessCount: number): 'low' | 'medium' | 'high' {
-  if (guessCount < 3) return 'low';
-  if (guessCount < 10) return 'medium';
-  return 'high';
 }
 
 /**

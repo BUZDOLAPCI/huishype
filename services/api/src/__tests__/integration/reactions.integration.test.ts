@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 describe('Reaction routes', () => {
   let app: FastifyInstance;
   let userId: string;
+  let accessToken: string;
   let commentId: string;
   let propertyId: string;
   const testUserIds: string[] = [];
@@ -31,6 +32,7 @@ describe('Reaction routes', () => {
     });
     const loginBody = JSON.parse(loginResp.body);
     userId = loginBody.session.user.id;
+    accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
     // Get a real property
@@ -46,7 +48,7 @@ describe('Reaction routes', () => {
     const commentResp = await app.inject({
       method: 'POST',
       url: `/properties/${propertyId}/comments`,
-      headers: { 'x-user-id': userId },
+      headers: { authorization: `Bearer ${accessToken}` },
       payload: { content: 'Comment for reaction tests' },
     });
     const commentBody = JSON.parse(commentResp.body);
@@ -80,7 +82,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -114,7 +116,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(201);
@@ -128,7 +130,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -141,7 +143,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(409);
@@ -163,7 +165,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -176,7 +178,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'GET',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
@@ -189,7 +191,7 @@ describe('Reaction routes', () => {
       const response = await app.inject({
         method: 'DELETE',
         url: `/comments/${commentId}/like`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
       });
 
       expect(response.statusCode).toBe(404);

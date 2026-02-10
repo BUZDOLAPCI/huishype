@@ -4,8 +4,16 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
 import { sql, eq, and } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
+import { calculateActivityLevel } from './views.js';
+import { calculateFmvForProperty } from '../services/fmv.js';
 
-const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || COALESCE(p.house_number_addition, '') || ', ' || p.postal_code || ' ' || p.city`;
+// Dutch address formatting: single-letter additions concatenate directly ("13A"),
+// all other additions use a hyphen separator ("105-1", "13-BIS").
+const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || CASE
+  WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
+  WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
+  ELSE '-' || p.house_number_addition
+END || ', ' || p.postal_code || ' ' || p.city`;
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -62,6 +70,26 @@ const propertyListResponseSchema = z.object({
   }),
 });
 
+const fmvDistributionSchema = z.object({
+  p10: z.number(),
+  p25: z.number(),
+  p50: z.number(),
+  p75: z.number(),
+  p90: z.number(),
+  min: z.number(),
+  max: z.number(),
+});
+
+const fmvSchema = z.object({
+  fmv: z.number().nullable(),
+  confidence: z.enum(['none', 'low', 'medium', 'high']),
+  guessCount: z.number(),
+  distribution: fmvDistributionSchema.nullable(),
+  wozValue: z.number().nullable(),
+  askingPrice: z.number().nullable(),
+  divergence: z.number().nullable(),
+});
+
 const propertyDetailSchema = z.object({
   id: z.string().uuid(),
   bagIdentificatie: z.string().nullable(),
@@ -76,9 +104,17 @@ const propertyDetailSchema = z.object({
   oppervlakte: z.number().nullable().describe('Surface area in m2'),
   status: z.enum(['active', 'inactive', 'demolished']),
   wozValue: z.number().nullable().describe('Official government valuation'),
+  hasListing: z.boolean().describe('Whether property has an active listing'),
+  askingPrice: z.number().nullable().describe('Active listing asking price'),
   likeCount: z.number().describe('Total number of likes on this property'),
   isLiked: z.boolean().describe('Whether the current user has liked this property'),
   isSaved: z.boolean().describe('Whether the current user has saved this property'),
+  viewCount: z.number().describe('Total view count'),
+  uniqueViewers: z.number().describe('Unique viewers count'),
+  commentCount: z.number().describe('Total comments'),
+  guessCount: z.number().describe('Total price guesses'),
+  activityLevel: z.enum(['hot', 'warm', 'cold']).describe('Activity level based on views, comments, and guesses'),
+  fmv: fmvSchema.describe('Fair Market Value calculation'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -665,6 +701,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.get(
     '/properties/:id',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['properties'],
         summary: 'Get property by ID',
@@ -681,7 +718,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
+      const userId = request.userId;
 
       // Use a placeholder UUID for unauthenticated requests (will never match)
       const effectiveUserId = userId || '00000000-0000-4000-a000-000000000000';
@@ -692,6 +729,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         street: string;
         house_number: number;
         house_number_addition: string | null;
+        address: string;
         city: string;
         postal_code: string | null;
         lon: number | null;
@@ -700,9 +738,16 @@ export async function propertyRoutes(app: FastifyInstance) {
         oppervlakte: number | null;
         status: string;
         woz_value: number | null;
+        has_listing: boolean;
+        asking_price: number | null;
         like_count: number;
         is_liked: boolean;
         is_saved: boolean;
+        view_count: number;
+        unique_viewers: number;
+        recent_views: number;
+        comment_count: number;
+        guess_count: number;
         created_at: string;
         updated_at: string;
       }>(sql`
@@ -712,6 +757,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.street,
           p.house_number,
           p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           ST_X(p.geometry) AS lon,
@@ -720,12 +766,24 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.oppervlakte,
           p.status,
           p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          l.asking_price,
           (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
           EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
           EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
+          (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id) AS view_count,
+          (SELECT COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int FROM property_views WHERE property_id=p.id) AS unique_viewers,
+          (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id AND viewed_at > NOW() - INTERVAL '7 days') AS recent_views,
+          (SELECT COUNT(*)::int FROM comments WHERE property_id=p.id) AS comment_count,
+          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id=p.id) AS guess_count,
           p.created_at,
           p.updated_at
         FROM properties p
+        LEFT JOIN LATERAL (
+          SELECT id, asking_price FROM listings
+          WHERE property_id = p.id AND status = 'active'
+          ORDER BY created_at DESC LIMIT 1
+        ) l ON true
         WHERE p.id = ${id}
         LIMIT 1
       `);
@@ -739,6 +797,15 @@ export async function propertyRoutes(app: FastifyInstance) {
       }
 
       const r = result[0];
+      const viewCount = Number(r.view_count);
+      const uniqueViewers = Number(r.unique_viewers);
+      const commentCount = Number(r.comment_count);
+      const guessCount = Number(r.guess_count);
+      const recentViews = Number(r.recent_views);
+
+      // Calculate FMV with karma-weighting and WOZ anchoring
+      const fmvResult = await calculateFmvForProperty(id);
+
       return reply.send({
         ...mapPropertyRow(r),
         // Override address with formatted display address
@@ -749,9 +816,17 @@ export async function propertyRoutes(app: FastifyInstance) {
           postalCode: r.postal_code,
           city: r.city,
         }),
+        hasListing: r.has_listing,
+        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         likeCount: Number(r.like_count),
         isLiked: r.is_liked,
         isSaved: r.is_saved,
+        viewCount,
+        uniqueViewers,
+        commentCount,
+        guessCount,
+        activityLevel: calculateActivityLevel(recentViews, commentCount, guessCount),
+        fmv: fmvResult,
       });
     }
   );
@@ -760,6 +835,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.post(
     '/properties/:id/save',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['properties'],
         summary: 'Save a property',
@@ -775,14 +851,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: propertyId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to save properties.',
-        });
-      }
+      const userId = request.userId!;
 
       // Verify property exists
       const propertyExists = await db
@@ -848,6 +917,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.delete(
     '/properties/:id/save',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['properties'],
         summary: 'Unsave a property',
@@ -862,14 +932,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: propertyId } = request.params;
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to unsave properties.',
-        });
-      }
+      const userId = request.userId!;
 
       // Find the existing saved entry
       const existing = await db
@@ -902,6 +965,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.get(
     '/saved-properties',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['properties'],
         summary: 'List saved properties',
@@ -914,14 +978,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const userId = request.headers['x-user-id'] as string | undefined;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to view saved properties.',
-        });
-      }
+      const userId = request.userId!;
 
       const { limit, offset } = request.query;
 

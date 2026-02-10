@@ -1,6 +1,6 @@
 {
-  "id": "46112caf-4479-438a-9e33-ea8f837abc72",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "0e3ee5ba-ede7-4713-a8cc-9a119ba2f504",
+  "prevId": "46112caf-4479-438a-9e33-ea8f837abc72",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -443,6 +443,13 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "is_meme_guess": {
+          "name": "is_meme_guess",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -904,6 +911,142 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.property_views": {
+      "name": "property_views",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "viewed_at": {
+          "name": "viewed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "property_views_property_user_idx": {
+          "name": "property_views_property_user_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_views_property_session_idx": {
+          "name": "property_views_property_session_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_views_property_viewed_at_idx": {
+          "name": "property_views_property_viewed_at_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "viewed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "property_views_property_id_properties_id_fk": {
+          "name": "property_views_property_id_properties_id_fk",
+          "tableFrom": "property_views",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "property_views_user_id_users_id_fk": {
+          "name": "property_views_user_id_users_id_fk",
+          "tableFrom": "property_views",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.reactions": {
       "name": "reactions",
       "schema": "",
@@ -1199,6 +1342,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "last_display_name_change_at": {
+          "name": "last_display_name_change_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

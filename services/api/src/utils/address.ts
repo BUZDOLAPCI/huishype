@@ -198,6 +198,22 @@ export function normalizeSourceUrl(url: string): string {
 }
 
 /**
+ * Format a house-number addition with the correct Dutch separator.
+ *
+ * Dutch convention:
+ *   - Single letter additions are concatenated directly: "13A", "105B"
+ *   - Everything else (numeric, multi-char) uses a hyphen: "105-1", "13-BIS"
+ *   - Empty/null additions return an empty string
+ */
+export function formatAddition(addition: string | null | undefined): string {
+  if (!addition) return "";
+  // Single uppercase letter → no separator (e.g. "A" → "A")
+  if (/^[A-Z]$/.test(addition)) return addition;
+  // Everything else → hyphen separator (e.g. "1" → "-1", "BIS" → "-BIS")
+  return `-${addition}`;
+}
+
+/**
  * Produce a human-readable one-line address string.
  *
  * Format: "Street HouseNumber[Addition], PostalCode City"
@@ -207,12 +223,16 @@ export function normalizeSourceUrl(url: string): string {
  *     postalCode: "5658DP", city: "Eindhoven" }
  *   -> "Reehorst 13A, 5658DP Eindhoven"
  *
+ *   { street: "De Ruijterkade", houseNumber: 105, houseNumberAddition: "1",
+ *     postalCode: "1011AB", city: "Amsterdam" }
+ *   -> "De Ruijterkade 105-1, 1011AB Amsterdam"
+ *
  *   { street: "Keizersgracht", houseNumber: 100, houseNumberAddition: null,
  *     postalCode: "1015AA", city: "Amsterdam" }
  *   -> "Keizersgracht 100, 1015AA Amsterdam"
  */
 export function formatDisplayAddress(addr: CanonicalAddress): string {
-  const addition = addr.houseNumberAddition ?? "";
+  const addition = formatAddition(addr.houseNumberAddition);
   const streetPart = addr.street
     ? `${addr.street} ${addr.houseNumber}${addition}`
     : `${addr.houseNumber}${addition}`;

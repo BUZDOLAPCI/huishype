@@ -15,38 +15,34 @@ describe('FeedFilterChips', () => {
 
   it('renders all filter options', () => {
     const { getByText } = render(
-      <FeedFilterChips activeFilter="all" onFilterChange={mockOnFilterChange} />
+      <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    expect(getByText('All')).toBeTruthy();
-    expect(getByText('New')).toBeTruthy();
     expect(getByText('Trending')).toBeTruthy();
+    expect(getByText('Recent')).toBeTruthy();
+    expect(getByText('Controversial')).toBeTruthy();
     expect(getByText('Price Mismatch')).toBeTruthy();
-    expect(getByText('Polarizing')).toBeTruthy();
   });
 
   it('calls onFilterChange when a chip is pressed', () => {
     const { getByTestId } = render(
-      <FeedFilterChips activeFilter="all" onFilterChange={mockOnFilterChange} />
+      <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-trending'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('trending');
+    fireEvent.press(getByTestId('filter-chip-recent'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('recent');
   });
 
   it('calls onFilterChange with correct filter value', () => {
     const { getByTestId } = render(
-      <FeedFilterChips activeFilter="all" onFilterChange={mockOnFilterChange} />
+      <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-new'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('new');
+    fireEvent.press(getByTestId('filter-chip-controversial'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('controversial');
 
-    fireEvent.press(getByTestId('filter-chip-price_mismatch'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('price_mismatch');
-
-    fireEvent.press(getByTestId('filter-chip-polarizing'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('polarizing');
+    fireEvent.press(getByTestId('filter-chip-price-mismatch'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('price-mismatch');
   });
 
   it('renders with trending filter active', () => {

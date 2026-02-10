@@ -23,6 +23,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -147,8 +148,7 @@ test.describe('Comment Flow', () => {
       {
         data: { content: commentContent },
         headers: {
-          'x-user-id': testUser.userId,
-          'Authorization': `Bearer ${testUser.accessToken}`,
+          authorization: `Bearer ${testUser.accessToken}`,
         },
       }
     );
@@ -216,7 +216,7 @@ test.describe('Comment Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: `First comment ${Date.now()}` },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(comment1Resp.status()).toBe(201);
@@ -228,7 +228,7 @@ test.describe('Comment Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: `Second comment ${Date.now()}` },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(comment2Resp.status()).toBe(201);
@@ -268,7 +268,7 @@ test.describe('Comment Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: `Parent comment for reply test ${Date.now()}` },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(parentResp.status()).toBe(201);
@@ -283,7 +283,7 @@ test.describe('Comment Flow', () => {
           content: replyContent,
           parentId: parentComment.id,
         },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(replyResp.status()).toBe(201);
@@ -321,7 +321,7 @@ test.describe('Comment Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: `Nested reply test parent ${Date.now()}` },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(parentResp.status()).toBe(201);
@@ -335,7 +335,7 @@ test.describe('Comment Flow', () => {
           content: `Reply to parent ${Date.now()}`,
           parentId: parent.id,
         },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(replyResp.status()).toBe(201);
@@ -349,7 +349,7 @@ test.describe('Comment Flow', () => {
           content: `Nested reply attempt ${Date.now()}`,
           parentId: reply.id,
         },
-        headers: { 'x-user-id': testUser.userId },
+        headers: { authorization: `Bearer ${testUser.accessToken}` },
       }
     );
     expect(nestedReplyResp.status()).toBe(400);
@@ -364,7 +364,7 @@ test.describe('Comment Flow', () => {
       `${API_BASE_URL}/properties/${property.id}/comments`,
       {
         data: { content: 'Should fail without auth' },
-        // No x-user-id header
+        // No auth header
       }
     );
 

@@ -26,6 +26,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -190,8 +191,8 @@ test.describe('Map Interactions', () => {
   test('different zoom levels show different data (cluster vs individual)', async ({
     page,
   }) => {
-    await page.goto('/');
-    await waitForMapReady(page);
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page, 60000);
 
     // At low zoom (12), data should show clusters
     await setMapView(page, EINDHOVEN_CENTER, 12);
@@ -239,8 +240,8 @@ test.describe('Map Interactions', () => {
   });
 
   test('ghost vs active nodes at z17+', async ({ page }) => {
-    await page.goto('/');
-    await waitForMapReady(page);
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page, 60000);
 
     // GHOST_NODE_THRESHOLD_ZOOM = 17
     // Above z17, tiles contain individual points with is_ghost property

@@ -31,12 +31,12 @@ export interface EnrichedProperty extends Property {
   isSaved?: boolean;
 }
 
-async function likeProperty(propertyId: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+async function likeProperty(propertyId: string, accessToken: string): Promise<{ liked: boolean; likeCount: number }> {
   const response = await fetch(`${API_URL}/properties/${propertyId}/like`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': userId,
+      'Authorization': `Bearer ${accessToken}`,
     },
   });
 
@@ -48,12 +48,12 @@ async function likeProperty(propertyId: string, userId: string): Promise<{ liked
   return response.json();
 }
 
-async function unlikeProperty(propertyId: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+async function unlikeProperty(propertyId: string, accessToken: string): Promise<{ liked: boolean; likeCount: number }> {
   const response = await fetch(`${API_URL}/properties/${propertyId}/like`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': userId,
+      'Authorization': `Bearer ${accessToken}`,
     },
   });
 
@@ -70,7 +70,7 @@ export function usePropertyLike({
   onAuthRequired,
 }: UsePropertyLikeOptions): UsePropertyLikeReturn {
   const queryClient = useQueryClient();
-  const { user } = useAuthContext();
+  const { user, accessToken } = useAuthContext();
 
   // Subscribe to the property detail query cache reactively
   const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
@@ -85,8 +85,8 @@ export function usePropertyLike({
 
   // Like mutation
   const likeMutation = useMutation({
-    mutationFn: ({ propId, userId }: { propId: string; userId: string }) =>
-      likeProperty(propId, userId),
+    mutationFn: ({ propId, token }: { propId: string; token: string }) =>
+      likeProperty(propId, token),
     onMutate: async ({ propId }) => {
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
@@ -116,8 +116,8 @@ export function usePropertyLike({
 
   // Unlike mutation
   const unlikeMutation = useMutation({
-    mutationFn: ({ propId, userId }: { propId: string; userId: string }) =>
-      unlikeProperty(propId, userId),
+    mutationFn: ({ propId, token }: { propId: string; token: string }) =>
+      unlikeProperty(propId, token),
     onMutate: async ({ propId }) => {
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
@@ -149,17 +149,17 @@ export function usePropertyLike({
     if (!propertyId) return;
 
     // Auth gate
-    if (!user) {
+    if (!user || !accessToken) {
       onAuthRequired?.();
       return;
     }
 
     if (isLiked) {
-      unlikeMutation.mutate({ propId: propertyId, userId: user.id });
+      unlikeMutation.mutate({ propId: propertyId, token: accessToken });
     } else {
-      likeMutation.mutate({ propId: propertyId, userId: user.id });
+      likeMutation.mutate({ propId: propertyId, token: accessToken });
     }
-  }, [propertyId, user, isLiked, onAuthRequired, likeMutation, unlikeMutation]);
+  }, [propertyId, user, accessToken, isLiked, onAuthRequired, likeMutation, unlikeMutation]);
 
   return {
     isLiked,

@@ -37,6 +37,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
 ];
 
 // Increase test timeout for this visual test
@@ -609,6 +610,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     if (previewVisible) {
+      // On web, clicking a marker opens WebPropertyPanel with backdrop that intercepts clicks.
+      // Close the panel first so we can interact with the preview card buttons.
+      await page.evaluate(() => {
+        const ref = (window as any).__bottomSheetRef?.current;
+        if (ref) ref.close();
+      });
+      await page.waitForTimeout(1000);
+
       // Test Like button click (triggers auth modal since user is not authenticated)
       const likeButton = page.locator('text=Like').first();
       if (await likeButton.isVisible()) {

@@ -5,21 +5,21 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  withSpring,
   withDelay,
   interpolate,
   Easing,
 } from 'react-native-reanimated';
 
+import type { FmvDistribution } from '../hooks/usePriceGuess';
+
 export interface FMVData {
-  value: number;
-  confidence: 'low' | 'medium' | 'high';
+  value: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
   guessCount: number;
-  distribution: {
-    min: number;
-    max: number;
-    median: number;
-  };
+  distribution: FmvDistribution | null;
+  wozValue?: number | null;
+  askingPrice?: number | null;
+  divergence?: number | null;
 }
 
 export interface FMVVisualizationProps {
@@ -37,33 +37,50 @@ function formatPrice(price: number): string {
 }
 
 // Get confidence badge color and text
-function getConfidenceInfo(confidence: 'low' | 'medium' | 'high', guessCount: number): {
+function getConfidenceInfo(confidence: 'none' | 'low' | 'medium' | 'high', guessCount: number): {
   bgColor: string;
   textColor: string;
   text: string;
+  label: string;
   icon: keyof typeof Ionicons.glyphMap;
+  iconHex: string;
 } {
   switch (confidence) {
+    case 'none':
+      return {
+        bgColor: 'bg-gray-100',
+        textColor: 'text-gray-500',
+        text: 'No guesses yet',
+        label: 'None',
+        icon: 'help-circle-outline',
+        iconHex: '#6B7280',
+      };
     case 'low':
       return {
         bgColor: 'bg-yellow-100',
         textColor: 'text-yellow-700',
-        text: `Low confidence - only ${guessCount} guess${guessCount === 1 ? '' : 'es'}`,
+        text: `Low confidence \u2013 only ${guessCount} guess${guessCount === 1 ? '' : 'es'}`,
+        label: 'Low',
         icon: 'alert-circle-outline',
+        iconHex: '#B45309',
       };
     case 'medium':
       return {
         bgColor: 'bg-blue-100',
         textColor: 'text-blue-700',
         text: 'Building consensus',
+        label: 'Medium',
         icon: 'trending-up-outline',
+        iconHex: '#1D4ED8',
       };
     case 'high':
       return {
         bgColor: 'bg-green-100',
         textColor: 'text-green-700',
         text: 'Strong consensus',
+        label: 'High',
         icon: 'checkmark-circle-outline',
+        iconHex: '#15803D',
       };
   }
 }
@@ -107,51 +124,11 @@ function NoDataState() {
   );
 }
 
-// Distribution marker component
-function Marker({
-  position,
-  color,
-  label,
-  isAbove,
-}: {
-  position: number;
-  color: string;
-  label: string;
-  isAbove: boolean;
-}) {
-  const animatedPosition = useSharedValue(0);
-
-  useEffect(() => {
-    animatedPosition.value = withDelay(200, withSpring(position, { damping: 15 }));
-  }, [position, animatedPosition]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    left: `${animatedPosition.value}%`,
-  }));
-
-  return (
-    <Animated.View
-      className={`absolute ${isAbove ? '-top-6' : '-bottom-6'}`}
-      style={[animatedStyle, { transform: [{ translateX: -12 }] }]}
-    >
-      <View className="items-center">
-        {isAbove && (
-          <Text className={`text-xs font-medium ${color} mb-0.5`}>{label}</Text>
-        )}
-        <View className={`w-0.5 h-3 ${color.replace('text-', 'bg-')}`} />
-        {!isAbove && (
-          <Text className={`text-xs font-medium ${color} mt-0.5`}>{label}</Text>
-        )}
-      </View>
-    </Animated.View>
-  );
-}
-
 export function FMVVisualization({
   fmv,
   userGuess,
-  askingPrice,
-  wozValue,
+  askingPrice: askingPriceProp,
+  wozValue: wozValueProp,
   isLoading = false,
   testID = 'fmv-visualization',
 }: FMVVisualizationProps) {
@@ -160,15 +137,11 @@ export function FMVVisualization({
   const valueOpacity = useSharedValue(0);
 
   useEffect(() => {
-    if (fmv) {
+    if (fmv && fmv.value) {
       barWidth.value = withTiming(100, { duration: 800, easing: Easing.out(Easing.cubic) });
       valueOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
     }
   }, [fmv, barWidth, valueOpacity]);
-
-  const barAnimatedStyle = useAnimatedStyle(() => ({
-    width: `${barWidth.value}%`,
-  }));
 
   const valueAnimatedStyle = useAnimatedStyle(() => ({
     opacity: valueOpacity.value,
@@ -183,12 +156,24 @@ export function FMVVisualization({
     return <LoadingSkeleton />;
   }
 
-  if (!fmv) {
+  // Show no-data when null, no confidence, or no FMV value
+  if (!fmv || fmv.confidence === 'none' || fmv.value === null) {
     return <NoDataState />;
   }
 
   const confidenceInfo = getConfidenceInfo(fmv.confidence, fmv.guessCount);
-  const { min, max, median } = fmv.distribution;
+  const dist = fmv.distribution;
+
+  // Use props or FMV-embedded values for asking price and WOZ
+  const askingPrice = askingPriceProp ?? fmv.askingPrice ?? undefined;
+  const wozValue = wozValueProp ?? fmv.wozValue ?? undefined;
+
+  // Use backend divergence or calculate from asking price
+  const divergence = fmv.divergence ?? (
+    askingPrice && fmv.value
+      ? Math.round(((fmv.value - askingPrice) / askingPrice) * 100)
+      : null
+  );
 
   // Calculate comparison percentages
   const askingPriceDiff = askingPrice
@@ -212,11 +197,10 @@ export function FMVVisualization({
           <Ionicons
             name={confidenceInfo.icon}
             size={14}
-            color={confidenceInfo.textColor.includes('yellow') ? '#B45309' :
-                   confidenceInfo.textColor.includes('blue') ? '#1D4ED8' : '#15803D'}
+            color={confidenceInfo.iconHex}
           />
           <Text className={`text-xs font-medium ml-1 ${confidenceInfo.textColor}`}>
-            {fmv.confidence === 'low' ? 'Low' : fmv.confidence === 'medium' ? 'Medium' : 'High'}
+            {confidenceInfo.label}
           </Text>
         </View>
       </View>
@@ -231,67 +215,113 @@ export function FMVVisualization({
         </Text>
       </Animated.View>
 
-      {/* Distribution Bar */}
-      <View className="mb-8">
-        <View className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
-          <Animated.View
-            className="h-full bg-gradient-to-r from-blue-300 to-primary-500 rounded-full"
-            style={barAnimatedStyle}
-          />
-
-          {/* Median marker (center indicator) */}
-          <View
-            className="absolute top-0 bottom-0 w-1 bg-primary-700"
-            style={{ left: `${getPositionOnBar(median, min, max)}%`, transform: [{ translateX: -2 }] }}
-          />
-        </View>
-
-        {/* Min/Max labels */}
-        <View className="flex-row justify-between mt-1">
-          <Text className="text-xs text-gray-400">{formatPrice(min)}</Text>
-          <Text className="text-xs text-gray-400">{formatPrice(max)}</Text>
-        </View>
-
-        {/* Markers */}
-        <View className="relative h-8 mt-2">
-          {/* Median marker */}
-          <View
-            className="absolute"
-            style={{ left: `${getPositionOnBar(median, min, max)}%`, transform: [{ translateX: -16 }] }}
-          >
-            <Text className="text-xs font-medium text-primary-600">Median</Text>
+      {/* Percentile Distribution Bar */}
+      {dist && (
+        <View className="mb-6">
+          {/* Full range bar (p10 to p90) */}
+          <View className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
+            {/* P10-P90 range (light fill) */}
+            <View
+              className="absolute top-0 bottom-0 bg-blue-100 rounded-full"
+              style={{
+                left: `${getPositionOnBar(dist.p10, dist.min, dist.max)}%`,
+                right: `${100 - getPositionOnBar(dist.p90, dist.min, dist.max)}%`,
+              }}
+            />
+            {/* P25-P75 IQR (darker fill) */}
+            <View
+              className="absolute top-0 bottom-0 bg-blue-300 rounded-full"
+              style={{
+                left: `${getPositionOnBar(dist.p25, dist.min, dist.max)}%`,
+                right: `${100 - getPositionOnBar(dist.p75, dist.min, dist.max)}%`,
+              }}
+            />
+            {/* Median marker (P50) */}
+            <View
+              className="absolute top-0 bottom-0 w-0.5 bg-primary-700"
+              style={{
+                left: `${getPositionOnBar(dist.p50, dist.min, dist.max)}%`,
+                transform: [{ translateX: -1 }],
+              }}
+            />
           </View>
 
-          {/* User guess marker */}
-          {userGuess && (
-            <View
-              className="absolute -top-2"
-              style={{ left: `${getPositionOnBar(userGuess, min, max)}%`, transform: [{ translateX: -8 }] }}
-            >
-              <View className="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-sm" />
-              <Text className="text-xs font-medium text-green-600 mt-0.5">You</Text>
-            </View>
-          )}
+          {/* Min/Max labels */}
+          <View className="flex-row justify-between mt-1">
+            <Text className="text-xs text-gray-400">{formatPrice(dist.min)}</Text>
+            <Text className="text-xs text-gray-400">{formatPrice(dist.max)}</Text>
+          </View>
 
-          {/* Asking price marker */}
-          {askingPrice && (
-            <View
-              className="absolute -top-2"
-              style={{
-                left: `${getPositionOnBar(askingPrice, min, max)}%`,
-                transform: [{ translateX: -8 }]
-              }}
-            >
-              <View className="w-4 h-4 bg-orange-500 rounded-full border-2 border-white shadow-sm" />
-              <Text className="text-xs font-medium text-orange-600 mt-0.5">Ask</Text>
+          {/* Percentile legend */}
+          <View className="flex-row items-center justify-center mt-2 gap-3">
+            <View className="flex-row items-center">
+              <View className="w-3 h-2 bg-blue-100 rounded-sm mr-1" />
+              <Text className="text-xs text-gray-400">P10-P90</Text>
             </View>
-          )}
+            <View className="flex-row items-center">
+              <View className="w-3 h-2 bg-blue-300 rounded-sm mr-1" />
+              <Text className="text-xs text-gray-400">P25-P75</Text>
+            </View>
+            <View className="flex-row items-center">
+              <View className="w-2 h-2 bg-primary-700 rounded-sm mr-1" />
+              <Text className="text-xs text-gray-400">Median</Text>
+            </View>
+          </View>
+
+          {/* Markers row */}
+          <View className="relative h-8 mt-2">
+            {/* User guess marker */}
+            {userGuess && (
+              <View
+                className="absolute -top-1"
+                style={{
+                  left: `${getPositionOnBar(userGuess, dist.min, dist.max)}%`,
+                  transform: [{ translateX: -8 }],
+                }}
+              >
+                <View className="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-sm" />
+                <Text className="text-xs font-medium text-green-600 mt-0.5">You</Text>
+              </View>
+            )}
+
+            {/* Asking price marker */}
+            {askingPrice && (
+              <View
+                className="absolute -top-1"
+                style={{
+                  left: `${getPositionOnBar(askingPrice, dist.min, dist.max)}%`,
+                  transform: [{ translateX: -8 }],
+                }}
+              >
+                <View className="w-4 h-4 bg-orange-500 rounded-full border-2 border-white shadow-sm" />
+                <Text className="text-xs font-medium text-orange-600 mt-0.5">Ask</Text>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Comparisons */}
       <View className="space-y-2">
-        {askingPriceDiff !== null && (
+        {/* Divergence from asking price */}
+        {divergence !== null && askingPrice && (
+          <View className="flex-row items-center">
+            <Ionicons
+              name={divergence > 0 ? 'trending-up' : divergence < 0 ? 'trending-down' : 'remove'}
+              size={14}
+              color={divergence > 0 ? '#22C55E' : divergence < 0 ? '#EF4444' : '#6B7280'}
+            />
+            <Text className="text-sm text-gray-600 ml-1">
+              {divergence > 0
+                ? `Crowd thinks it\u2019s worth ${Math.abs(divergence)}% more than asking`
+                : divergence < 0
+                ? `Asking price is ${Math.abs(divergence)}% above crowd estimate`
+                : 'Asking price matches crowd estimate'}
+            </Text>
+          </View>
+        )}
+
+        {askingPriceDiff !== null && !divergence && (
           <View className="flex-row items-center">
             <Ionicons
               name={askingPriceDiff > 0 ? 'arrow-up' : 'arrow-down'}

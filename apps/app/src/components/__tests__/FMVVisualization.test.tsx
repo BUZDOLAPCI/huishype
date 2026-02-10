@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
-import { FMVVisualization, type FMVData } from '../FMVVisualization';
+import { FMVVisualization } from '../FMVVisualization';
+import type { FMVData } from '../FMVVisualization';
 
 // Mocks are configured in jest.config.js
 
@@ -10,9 +11,13 @@ describe('FMVVisualization', () => {
     confidence: 'medium',
     guessCount: 7,
     distribution: {
+      p10: 290000,
+      p25: 310000,
+      p50: 345000,
+      p75: 380000,
+      p90: 410000,
       min: 280000,
       max: 420000,
-      median: 345000,
     },
   };
 
@@ -34,6 +39,19 @@ describe('FMVVisualization', () => {
 
     expect(screen.getByTestId('fmv-no-data')).toBeTruthy();
     expect(screen.getByText(/Not enough data/)).toBeTruthy();
+  });
+
+  it('shows no data state when confidence is none', () => {
+    const noneFmv: FMVData = {
+      value: null,
+      confidence: 'none',
+      guessCount: 0,
+      distribution: null,
+    };
+
+    render(<FMVVisualization fmv={noneFmv} />);
+
+    expect(screen.getByTestId('fmv-no-data')).toBeTruthy();
   });
 
   it('displays FMV value in Dutch locale format', () => {
@@ -91,11 +109,11 @@ describe('FMVVisualization', () => {
     expect(screen.getByText(/7 guesses/)).toBeTruthy();
   });
 
-  it('shows comparison when asking price is provided', () => {
+  it('shows divergence when asking price provided via props', () => {
     render(<FMVVisualization fmv={mockFMV} askingPrice={400000} />);
 
-    expect(screen.getByText(/Asking price is/)).toBeTruthy();
-    expect(screen.getByText(/crowd estimate/)).toBeTruthy();
+    // Should show comparison text about asking price vs crowd estimate
+    expect(screen.getByText(/above|below|matches/)).toBeTruthy();
   });
 
   it('shows user guess comparison when provided', () => {
@@ -117,6 +135,18 @@ describe('FMVVisualization', () => {
     expect(screen.getByTestId('custom-fmv')).toBeTruthy();
   });
 
+  it('shows divergence from embedded FMV data', () => {
+    const fmvWithDivergence: FMVData = {
+      ...mockFMV,
+      askingPrice: 400000,
+      divergence: -12.5,
+    };
+
+    render(<FMVVisualization fmv={fmvWithDivergence} />);
+
+    expect(screen.getByText(/above crowd estimate/)).toBeTruthy();
+  });
+
   it('handles asking price above estimate', () => {
     render(<FMVVisualization fmv={mockFMV} askingPrice={420000} />);
 
@@ -126,7 +156,7 @@ describe('FMVVisualization', () => {
   it('handles asking price below estimate', () => {
     render(<FMVVisualization fmv={mockFMV} askingPrice={300000} />);
 
-    expect(screen.getByText(/below/)).toBeTruthy();
+    expect(screen.getByText(/more than asking/)).toBeTruthy();
   });
 });
 
@@ -137,9 +167,13 @@ describe('FMVVisualization - Edge Cases', () => {
       confidence: 'low',
       guessCount: 1,
       distribution: {
+        p10: 300000,
+        p25: 300000,
+        p50: 300000,
+        p75: 300000,
+        p90: 300000,
         min: 300000,
         max: 300000,
-        median: 300000,
       },
     };
 
@@ -155,9 +189,13 @@ describe('FMVVisualization - Edge Cases', () => {
       confidence: 'low',
       guessCount: 1,
       distribution: {
+        p10: 350000,
+        p25: 350000,
+        p50: 350000,
+        p75: 350000,
+        p90: 350000,
         min: 350000,
         max: 350000,
-        median: 350000,
       },
     };
 
@@ -172,14 +210,45 @@ describe('FMVVisualization - Edge Cases', () => {
       confidence: 'high',
       guessCount: 10,
       distribution: {
+        p10: 310000,
+        p25: 330000,
+        p50: 350000,
+        p75: 370000,
+        p90: 390000,
         min: 300000,
         max: 400000,
-        median: 350000,
       },
     };
 
     render(<FMVVisualization fmv={fmv} userGuess={350000} />);
 
     expect(screen.getByText(/aligned with/)).toBeTruthy();
+  });
+
+  it('handles null distribution gracefully', () => {
+    const noDistFmv: FMVData = {
+      value: 300000,
+      confidence: 'low',
+      guessCount: 1,
+      distribution: null,
+    };
+
+    render(<FMVVisualization fmv={noDistFmv} />);
+
+    expect(screen.getByTestId('fmv-visualization')).toBeTruthy();
+    expect(screen.getByTestId('fmv-value')).toBeTruthy();
+  });
+
+  it('handles null value as no data', () => {
+    const nullValueFmv: FMVData = {
+      value: null,
+      confidence: 'low',
+      guessCount: 0,
+      distribution: null,
+    };
+
+    render(<FMVVisualization fmv={nullValueFmv} />);
+
+    expect(screen.getByTestId('fmv-no-data')).toBeTruthy();
   });
 });

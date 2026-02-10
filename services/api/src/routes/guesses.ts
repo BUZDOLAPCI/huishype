@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, priceGuesses, properties, users } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
+import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
+import { calculateFmvForProperty, type FmvResult } from '../services/fmv.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -15,11 +17,16 @@ const priceGuessSchema = z.object({
 });
 
 const priceGuessWithUserSchema = priceGuessSchema.extend({
+  isMemeGuess: z.boolean(),
   user: z.object({
     id: z.string().uuid(),
     username: z.string(),
     displayName: z.string().nullable(),
     karma: z.number(),
+    karmaRank: z.object({
+      title: z.string(),
+      level: z.number(),
+    }),
   }),
 });
 
@@ -36,6 +43,26 @@ const guessListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+const fmvDistributionSchema = z.object({
+  p10: z.number(),
+  p25: z.number(),
+  p50: z.number(),
+  p75: z.number(),
+  p90: z.number(),
+  min: z.number(),
+  max: z.number(),
+});
+
+const fmvSchema = z.object({
+  fmv: z.number().nullable(),
+  confidence: z.enum(['none', 'low', 'medium', 'high']),
+  guessCount: z.number(),
+  distribution: fmvDistributionSchema.nullable(),
+  wozValue: z.number().nullable(),
+  askingPrice: z.number().nullable(),
+  divergence: z.number().nullable(),
+});
+
 const guessListResponseSchema = z.object({
   data: z.array(priceGuessWithUserSchema),
   meta: z.object({
@@ -44,13 +71,7 @@ const guessListResponseSchema = z.object({
     total: z.number(),
     totalPages: z.number(),
   }),
-  stats: z.object({
-    averageGuess: z.number().nullable(),
-    medianGuess: z.number().nullable(),
-    totalGuesses: z.number(),
-    // Weighted FMV will be more sophisticated in production
-    estimatedFMV: z.number().nullable(),
-  }),
+  fmv: fmvSchema,
 });
 
 // Cooldown period in milliseconds (5 days)
@@ -122,17 +143,8 @@ export async function guessRoutes(app: FastifyInstance) {
         .offset(offset)
         .orderBy(priceGuesses.createdAt);
 
-      // Calculate statistics
-      const statsResult = await db
-        .select({
-          average: sql<number>`AVG(guessed_price)::numeric`,
-          median: sql<number>`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY guessed_price)::numeric`,
-          count: sql<number>`COUNT(*)::int`,
-        })
-        .from(priceGuesses)
-        .where(eq(priceGuesses.propertyId, propertyId));
-
-      const stats = statsResult[0];
+      // Calculate FMV using karma-weighted algorithm with WOZ anchoring
+      const fmvResult = await calculateFmvForProperty(propertyId);
 
       return reply.send({
         data: results.map(({ guess, user }) => ({
@@ -140,9 +152,13 @@ export async function guessRoutes(app: FastifyInstance) {
           propertyId: guess.propertyId,
           userId: guess.userId,
           guessedPrice: Number(guess.guessedPrice),
+          isMemeGuess: guess.isMemeGuess,
           createdAt: guess.createdAt.toISOString(),
           updatedAt: guess.updatedAt.toISOString(),
-          user,
+          user: {
+            ...user,
+            karmaRank: getKarmaRank(user.karma),
+          },
         })),
         meta: {
           page,
@@ -150,13 +166,7 @@ export async function guessRoutes(app: FastifyInstance) {
           total,
           totalPages: Math.ceil(total / limit),
         },
-        stats: {
-          averageGuess: stats?.average ? Number(stats.average) : null,
-          medianGuess: stats?.median ? Number(stats.median) : null,
-          totalGuesses: stats?.count ?? 0,
-          // Simple FMV estimation - in production this would be karma-weighted
-          estimatedFMV: stats?.median ? Number(stats.median) : null,
-        },
+        fmv: fmvResult,
       });
     }
   );
@@ -165,6 +175,7 @@ export async function guessRoutes(app: FastifyInstance) {
   typedApp.post(
     '/properties/:id/guesses',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['guesses'],
         summary: 'Submit a price guess',
@@ -198,30 +209,23 @@ export async function guessRoutes(app: FastifyInstance) {
       const { id: propertyId } = request.params;
       const { guessedPrice } = request.body;
 
-      // TODO: Get userId from authenticated session
-      // For now, require userId in headers (placeholder for auth)
-      const userId = request.headers['x-user-id'] as string;
+      const userId = request.userId!;
 
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required. Please log in to submit a guess.',
-        });
-      }
-
-      // Check if property exists
-      const propertyExists = await db
-        .select({ id: properties.id })
+      // Check if property exists and get WOZ value for meme guess detection
+      const propertyResult = await db
+        .select({ id: properties.id, wozValue: properties.wozValue })
         .from(properties)
         .where(eq(properties.id, propertyId))
         .limit(1);
 
-      if (propertyExists.length === 0) {
+      if (propertyResult.length === 0) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
         });
       }
+
+      const isMeme = checkMemeGuess(guessedPrice, propertyResult[0].wozValue);
 
       // Check for existing guess
       const existingGuess = await db
@@ -249,6 +253,7 @@ export async function guessRoutes(app: FastifyInstance) {
           .update(priceGuesses)
           .set({
             guessedPrice,
+            isMemeGuess: isMeme,
             updatedAt: new Date(),
           })
           .where(eq(priceGuesses.id, guess.id))
@@ -273,6 +278,7 @@ export async function guessRoutes(app: FastifyInstance) {
           propertyId,
           userId,
           guessedPrice,
+          isMemeGuess: isMeme,
         })
         .returning();
 

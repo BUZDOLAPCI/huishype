@@ -130,7 +130,6 @@ jest.mock('../../../hooks/usePriceGuess', () => ({
     isError: false,
     error: null,
   }),
-  getFMVConfidence: () => 'medium',
 }));
 
 const mockProperty: Property = {
@@ -285,16 +284,16 @@ describe('PropertyBottomSheet sections', () => {
   it('renders activity level indicator', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
 
-    // Default activity level is 'cold'
-    expect(screen.getByText('cold')).toBeTruthy();
+    // Default activity level is 'cold', displayed as 'Quiet'
+    expect(screen.getByText('Quiet')).toBeTruthy();
   });
 
-  it('shows views, guesses, and comments counts in PropertyDetails', () => {
+  it('shows CTA text when counts are zero in PropertyDetails', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
 
-    expect(screen.getByText('Views')).toBeTruthy();
-    expect(screen.getByText('Guesses')).toBeTruthy();
-    // Comments label appears in CommentsSection header
+    // With zero counts, CTAs are shown instead of count labels
+    expect(screen.getByText('Be the first to guess')).toBeTruthy();
+    expect(screen.getByText('Start the conversation')).toBeTruthy();
   });
 });
 

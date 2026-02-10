@@ -18,8 +18,27 @@ type CommentRow = {
   user_profile_photo_url: string | null;
   user_karma: number;
   like_count: number;
+  comment_score?: number;
   [key: string]: unknown;
 };
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+const SEVEN_DAYS_MS = 7 * ONE_DAY_MS;
+
+/** Calculate recency bonus for TikTok-style comment sorting */
+export function calculateRecencyBonus(createdAt: Date, now: Date = new Date()): number {
+  const ageMs = now.getTime() - createdAt.getTime();
+  if (ageMs < ONE_HOUR_MS) return 10;
+  if (ageMs < ONE_DAY_MS) return 5;
+  if (ageMs < SEVEN_DAYS_MS) return 2;
+  return 0;
+}
+
+/** Calculate hybrid comment score: (likeCount * 2) + recencyBonus */
+export function calculateCommentScore(likeCount: number, createdAt: Date, now: Date = new Date()): number {
+  return likeCount * 2 + calculateRecencyBonus(createdAt, now);
+}
 
 // Schema definitions
 const commentUserSchema = z.object({
@@ -144,35 +163,69 @@ export async function commentRoutes(app: FastifyInstance) {
       const total = countResult[0]?.count ?? 0;
 
       // Get top-level comments with user info and like count
-      const orderClause = sort === 'popular'
-        ? sql`like_count DESC, c.created_at DESC`
-        : sql`c.created_at DESC`;
-
-      const topLevelComments = await db.execute<CommentRow>(sql`
-        SELECT
-          c.id,
-          c.property_id,
-          c.user_id,
-          c.parent_id,
-          c.content,
-          c.created_at,
-          c.updated_at,
-          u.username as user_username,
-          u.display_name as user_display_name,
-          u.profile_photo_url as user_profile_photo_url,
-          u.karma as user_karma,
-          COALESCE(
-            (SELECT COUNT(*) FROM reactions r
-             WHERE r.target_type = 'comment' AND r.target_id = c.id AND r.reaction_type = 'like'),
-            0
-          )::int as like_count
-        FROM comments c
-        INNER JOIN users u ON c.user_id = u.id
-        WHERE c.property_id = ${propertyId} AND c.parent_id IS NULL
-        ORDER BY ${orderClause}
-        LIMIT ${limit}
-        OFFSET ${offset}
-      `);
+      // For 'popular' sort: hybrid score = (like_count * 2) + recency_bonus
+      // Recency bonus: <1hr: +10, <24hr: +5, <7days: +2, older: 0
+      const topLevelComments = sort === 'popular'
+        ? await db.execute<CommentRow>(sql`
+            SELECT *, (
+              like_count * 2 + CASE
+                WHEN created_at > NOW() - INTERVAL '1 hour' THEN 10
+                WHEN created_at > NOW() - INTERVAL '24 hours' THEN 5
+                WHEN created_at > NOW() - INTERVAL '7 days' THEN 2
+                ELSE 0
+              END
+            ) as comment_score
+            FROM (
+              SELECT
+                c.id,
+                c.property_id,
+                c.user_id,
+                c.parent_id,
+                c.content,
+                c.created_at,
+                c.updated_at,
+                u.username as user_username,
+                u.display_name as user_display_name,
+                u.profile_photo_url as user_profile_photo_url,
+                u.karma as user_karma,
+                COALESCE(
+                  (SELECT COUNT(*) FROM reactions r
+                   WHERE r.target_type = 'comment' AND r.target_id = c.id AND r.reaction_type = 'like'),
+                  0
+                )::int as like_count
+              FROM comments c
+              INNER JOIN users u ON c.user_id = u.id
+              WHERE c.property_id = ${propertyId} AND c.parent_id IS NULL
+            ) sub
+            ORDER BY comment_score DESC, created_at DESC
+            LIMIT ${limit}
+            OFFSET ${offset}
+          `)
+        : await db.execute<CommentRow>(sql`
+            SELECT
+              c.id,
+              c.property_id,
+              c.user_id,
+              c.parent_id,
+              c.content,
+              c.created_at,
+              c.updated_at,
+              u.username as user_username,
+              u.display_name as user_display_name,
+              u.profile_photo_url as user_profile_photo_url,
+              u.karma as user_karma,
+              COALESCE(
+                (SELECT COUNT(*) FROM reactions r
+                 WHERE r.target_type = 'comment' AND r.target_id = c.id AND r.reaction_type = 'like'),
+                0
+              )::int as like_count
+            FROM comments c
+            INNER JOIN users u ON c.user_id = u.id
+            WHERE c.property_id = ${propertyId} AND c.parent_id IS NULL
+            ORDER BY c.created_at DESC
+            LIMIT ${limit}
+            OFFSET ${offset}
+          `);
 
       // Convert to array for easier manipulation
       const commentsArray = Array.from(topLevelComments) as CommentRow[];
@@ -237,6 +290,7 @@ export async function commentRoutes(app: FastifyInstance) {
   typedApp.post(
     '/properties/:id/comments',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['comments'],
         summary: 'Add a comment',
@@ -266,15 +320,7 @@ export async function commentRoutes(app: FastifyInstance) {
       const { id: propertyId } = request.params;
       const { content, parentId } = request.body;
 
-      // TODO: Get userId from authenticated session
-      const userId = request.headers['x-user-id'] as string;
-
-      if (!userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required. Please log in to comment.',
-        });
-      }
+      const userId = request.userId!;
 
       // Check if property exists
       const propertyExists = await db

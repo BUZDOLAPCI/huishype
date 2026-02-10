@@ -13,7 +13,7 @@ import {
 import { useInfiniteFeed, type FeedFilter, type FeedProperty } from '@/src/hooks';
 
 export default function FeedScreen() {
-  const [activeFilter, setActiveFilter] = useState<FeedFilter>('all');
+  const [activeFilter, setActiveFilter] = useState<FeedFilter>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const {

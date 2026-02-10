@@ -76,6 +76,18 @@ export function PropertyHeader({ property }: SectionProps) {
     cold: 'bg-gray-300',
   };
 
+  const activityLabels = {
+    hot: 'Hot',
+    warm: 'Active',
+    cold: 'Quiet',
+  };
+
+  const activityDescriptions = {
+    hot: 'Lots of activity this week',
+    warm: 'Some recent activity',
+    cold: 'No recent activity',
+  };
+
   return (
     <View>
       {/* Photo/Satellite Carousel */}
@@ -119,7 +131,7 @@ export function PropertyHeader({ property }: SectionProps) {
       {/* Photo count indicator - only show if multiple photos */}
       {hasPhotos && property.photos!.length > 1 && (
         <View className="absolute top-2 right-6 bg-black/50 px-2 py-1 rounded-full">
-          <Text className="text-white text-xs">{property.photos!.length} photos</Text>
+          <Text className="text-white text-xs">{property.photos!.length} {property.photos!.length === 1 ? 'photo' : 'photos'}</Text>
         </View>
       )}
 
@@ -136,10 +148,13 @@ export function PropertyHeader({ property }: SectionProps) {
             </Text>
           </View>
 
-          {/* Activity indicator */}
-          <View className="flex-row items-center bg-gray-50 px-3 py-1.5 rounded-full">
-            <View className={`w-2 h-2 rounded-full ${activityColors[property.activityLevel]} mr-1.5`} />
-            <Text className="text-xs text-gray-600 capitalize">{property.activityLevel}</Text>
+          {/* Activity indicator with description */}
+          <View className="items-end">
+            <View className="flex-row items-center bg-gray-50 px-3 py-1.5 rounded-full">
+              <View className={`w-2 h-2 rounded-full ${activityColors[property.activityLevel]} mr-1.5`} />
+              <Text className="text-xs text-gray-600">{activityLabels[property.activityLevel]}</Text>
+            </View>
+            <Text className="text-[10px] text-gray-400 mt-0.5 mr-1">{activityDescriptions[property.activityLevel]}</Text>
           </View>
         </View>
 
@@ -160,7 +175,7 @@ export function PropertyHeader({ property }: SectionProps) {
           {property.viewCount > 0 && (
             <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
               <Ionicons name="eye-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">{property.viewCount} views</Text>
+              <Text className="text-sm text-gray-600 ml-1">{property.viewCount} {property.viewCount === 1 ? 'view' : 'views'}</Text>
             </View>
           )}
         </View>

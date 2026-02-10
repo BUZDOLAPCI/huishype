@@ -3,12 +3,11 @@ import { Text, View } from 'react-native';
 import maplibregl from 'maplibre-gl';
 
 import {
-  PropertyBottomSheet,
   ClusterPreviewCard,
   AuthModal,
   SearchBar,
 } from '@/src/components';
-import type { PropertyBottomSheetRef } from '@/src/components';
+import { WebPropertyPanel, type WebPropertyPanelRef } from '@/src/components/WebPropertyPanel';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
@@ -534,6 +533,7 @@ function createPreviewCardHTML(
     city: string;
     postalCode?: string | null;
     wozValue?: number | null;
+    askingPrice?: number | null;
     thumbnailUrl?: string | null;
   },
   activityScore: number,
@@ -542,18 +542,31 @@ function createPreviewCardHTML(
 ): string {
   const activityLevel = getActivityLevel(activityScore);
   const activityLabel = getActivityLabel(activityLevel);
-  const displayPrice = property.wozValue;
 
   const thumbnailHtml = property.thumbnailUrl
     ? `<img src="${property.thumbnailUrl}" alt="Property thumbnail" />`
     : HOME_ICON;
 
-  const priceHtml = displayPrice !== undefined && displayPrice !== null
-    ? `<div class="preview-price-row">
-        <span class="preview-price">\u20AC${displayPrice.toLocaleString('nl-NL')}</span>
+  // Show asking price if available (active listing), otherwise WOZ
+  let priceHtml = '';
+  if (property.askingPrice) {
+    priceHtml = `<div class="preview-price-row">
+        <span class="preview-price">\u20AC${property.askingPrice.toLocaleString('nl-NL')}</span>
+        <span class="preview-price-label">Asking</span>
+      </div>`;
+    // Also show WOZ as secondary if both exist
+    if (property.wozValue) {
+      priceHtml += `<div class="preview-price-row" style="margin-top: 2px;">
+        <span style="font-size: 13px; color: #6B7280;">\u20AC${property.wozValue.toLocaleString('nl-NL')}</span>
         <span class="preview-price-label">WOZ</span>
-      </div>`
-    : '';
+      </div>`;
+    }
+  } else if (property.wozValue) {
+    priceHtml = `<div class="preview-price-row">
+        <span class="preview-price">\u20AC${property.wozValue.toLocaleString('nl-NL')}</span>
+        <span class="preview-price-label">WOZ</span>
+      </div>`;
+  }
 
   // Arrow pointing up (card below marker) or down (card above marker)
   const arrowClass = arrowPointsUp ? 'property-preview-arrow-up' : 'property-preview-arrow';
@@ -607,7 +620,7 @@ function createPreviewCardHTML(
 export default function MapScreen() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
+  const bottomSheetRef = useRef<WebPropertyPanelRef>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
@@ -619,6 +632,12 @@ export default function MapScreen() {
   const isDragging = useRef(false);
   const isZooming = useRef(false);
   const isRotating = useRef(false);
+
+  // Flag to prevent general click handler from overriding layer-specific click handler
+  // In MapLibre, layer-specific handlers fire before general handlers for the same click event.
+  // Without this flag, the general handler's queryRenderedFeatures may return empty (hit-test tolerance)
+  // causing it to close the preview that was just opened by the layer handler.
+  const propertyClickHandled = useRef(false);
 
   // Selected property coordinate for positioning the preview card
   const [selectedCoordinate, setSelectedCoordinate] = useState<[number, number] | null>(null);
@@ -697,6 +716,9 @@ export default function MapScreen() {
         bearing: DEFAULT_BEARING,
         maxPitch: 70,
       });
+
+      // Add zoom controls (no compass)
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
       // Expose map instance for testing
       if (typeof window !== 'undefined') {
@@ -779,6 +801,9 @@ export default function MapScreen() {
       ) => {
         if (!e.features?.length) return;
 
+        // Mark click as handled so the general click handler doesn't override our state
+        propertyClickHandled.current = true;
+
         const feature = e.features[0];
         const properties = feature.properties;
 
@@ -809,10 +834,17 @@ export default function MapScreen() {
             }
           }
         } else {
-          // Individual property
-          const propertyId = properties.id as string;
-          const activityScore = (properties.activityScore as number) ?? 0;
-          const hasListing = (properties.hasListing as boolean) ?? false;
+          // Individual property — at z>=17, features have `id` directly.
+          // At z<17, single-point clusters (point_count=1) from the
+          // `single-active-points` layer only have `property_ids`.
+          const propertyId =
+            (properties.id as string) ||
+            (properties.property_ids as string | undefined)?.split(',')[0];
+          // z17+ tiles use activityScore/hasListing; z0-z16 clustered tiles use max_activity/has_active_children
+          const activityScore = (properties.activityScore as number) ??
+            (properties.max_activity as number) ?? 0;
+          const hasListing = (properties.hasListing as boolean) ??
+            (properties.has_active_children as boolean) ?? false;
 
           if (propertyId) {
             // Get the coordinate from the feature geometry
@@ -827,6 +859,8 @@ export default function MapScreen() {
             setSelectedHasListing(hasListing);
             setShowPreview(true);
             closeClusterPreview();
+            // Open the side panel directly on marker click
+            bottomSheetRef.current?.snapToIndex(1);
           }
         }
       };
@@ -836,6 +870,12 @@ export default function MapScreen() {
       // 1. User taps on empty map background AND
       // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
       map.on('click', (e) => {
+        // If a layer-specific handler already processed this click, skip
+        if (propertyClickHandled.current) {
+          propertyClickHandled.current = false;
+          return;
+        }
+
         // Don't close preview if a gesture just ended (pan, zoom, or rotate)
         if (isDragging.current || isZooming.current || isRotating.current) {
           return;
@@ -884,6 +924,7 @@ export default function MapScreen() {
       };
 
       // Wait for layers to be added
+      let layerHandlersAttached = new Set<string>();
       map.on('sourcedata', () => {
         // Attach click handlers once source is loaded
         const propertyLayers = [
@@ -895,6 +936,9 @@ export default function MapScreen() {
 
         propertyLayers.forEach((layerId) => {
           if (map.getLayer(layerId)) {
+            if (!layerHandlersAttached.has(layerId)) {
+              layerHandlersAttached.add(layerId);
+            }
             // Remove existing handlers before re-adding
             map.off('click', layerId, handlePropertyClick);
             map.off('mouseenter', layerId, handleMouseEnter);
@@ -1082,6 +1126,7 @@ export default function MapScreen() {
           city: selectedProperty.city,
           postalCode: selectedProperty.postalCode,
           wozValue: selectedProperty.wozValue,
+          askingPrice: selectedProperty.askingPrice,
           thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
         },
         selectedActivityScore,
@@ -1218,10 +1263,12 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
         />
 
-        {/* Zoom level indicator */}
-        <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
-          <Text className="text-sm text-gray-700">Zoom: {currentZoom.toFixed(1)}</Text>
-        </View>
+        {/* Zoom level indicator (dev only) */}
+        {__DEV__ && (
+          <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
+            <Text className="text-sm text-gray-700">Zoom: {currentZoom.toFixed(1)}</Text>
+          </View>
+        )}
 
         {/* Property Preview Card is rendered as a MapLibre popup in the useEffect above */}
         {/* The popup is geo-anchored and floats above the selected property marker */}
@@ -1240,8 +1287,8 @@ export default function MapScreen() {
         )}
       </View>
 
-      {/* Property details bottom sheet */}
-      <PropertyBottomSheet
+      {/* Property details side panel (web-native replacement for RN bottom sheet) */}
+      <WebPropertyPanel
         ref={bottomSheetRef}
         property={selectedProperty ?? null}
         isLiked={isLiked}

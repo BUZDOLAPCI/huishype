@@ -11,11 +11,13 @@ interface FeedEmptyStateProps {
 export function FeedEmptyState({ filter }: FeedEmptyStateProps) {
   const getMessage = () => {
     switch (filter) {
-      case 'new':
-        return 'No new properties found. Check back later!';
+      case 'recent':
+        return 'No recent properties found. Check back later!';
       case 'trending':
         return 'No trending properties at the moment.';
-      case 'price_mismatch':
+      case 'controversial':
+        return 'No controversial properties found yet. Submit guesses to get started!';
+      case 'price-mismatch':
         return 'No properties with price mismatches found.';
       default:
         return 'No properties to show.';

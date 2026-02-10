@@ -24,12 +24,12 @@ export interface UsePropertySaveReturn {
   isLoading: boolean;
 }
 
-async function saveProperty(propertyId: string, userId: string): Promise<{ saved: boolean }> {
+async function saveProperty(propertyId: string, accessToken: string): Promise<{ saved: boolean }> {
   const response = await fetch(`${API_URL}/properties/${propertyId}/save`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': userId,
+      'Authorization': `Bearer ${accessToken}`,
     },
   });
 
@@ -41,12 +41,12 @@ async function saveProperty(propertyId: string, userId: string): Promise<{ saved
   return response.json();
 }
 
-async function unsaveProperty(propertyId: string, userId: string): Promise<{ saved: boolean }> {
+async function unsaveProperty(propertyId: string, accessToken: string): Promise<{ saved: boolean }> {
   const response = await fetch(`${API_URL}/properties/${propertyId}/save`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': userId,
+      'Authorization': `Bearer ${accessToken}`,
     },
   });
 
@@ -63,7 +63,7 @@ export function usePropertySave({
   onAuthRequired,
 }: UsePropertySaveOptions): UsePropertySaveReturn {
   const queryClient = useQueryClient();
-  const { user } = useAuthContext();
+  const { user, accessToken } = useAuthContext();
 
   // Subscribe to the property detail query cache reactively
   const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
@@ -77,8 +77,8 @@ export function usePropertySave({
 
   // Save mutation
   const saveMutation = useMutation({
-    mutationFn: ({ propId, userId }: { propId: string; userId: string }) =>
-      saveProperty(propId, userId),
+    mutationFn: ({ propId, token }: { propId: string; token: string }) =>
+      saveProperty(propId, token),
     onMutate: async ({ propId }) => {
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
@@ -107,8 +107,8 @@ export function usePropertySave({
 
   // Unsave mutation
   const unsaveMutation = useMutation({
-    mutationFn: ({ propId, userId }: { propId: string; userId: string }) =>
-      unsaveProperty(propId, userId),
+    mutationFn: ({ propId, token }: { propId: string; token: string }) =>
+      unsaveProperty(propId, token),
     onMutate: async ({ propId }) => {
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
@@ -139,17 +139,17 @@ export function usePropertySave({
     if (!propertyId) return;
 
     // Auth gate
-    if (!user) {
+    if (!user || !accessToken) {
       onAuthRequired?.();
       return;
     }
 
     if (isSaved) {
-      unsaveMutation.mutate({ propId: propertyId, userId: user.id });
+      unsaveMutation.mutate({ propId: propertyId, token: accessToken });
     } else {
-      saveMutation.mutate({ propId: propertyId, userId: user.id });
+      saveMutation.mutate({ propId: propertyId, token: accessToken });
     }
-  }, [propertyId, user, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
+  }, [propertyId, user, accessToken, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
 
   return {
     isSaved,

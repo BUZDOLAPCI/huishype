@@ -47,10 +47,16 @@ export function PropertyPreviewCard({
     cold: 'bg-gray-300',
   };
 
-  const activityLabels = {
+  const activityLabels: Record<string, string> = {
     hot: 'Hot',
     warm: 'Active',
     cold: 'Quiet',
+  };
+
+  const activityDescriptions: Record<string, string> = {
+    hot: 'Lots of activity',
+    warm: 'Some activity',
+    cold: 'No recent activity',
   };
 
   // Activity pulsing indicator colors for hot properties
@@ -144,7 +150,7 @@ export function PropertyPreviewCard({
                   }
                 ]}
               />
-              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }} title={activityDescriptions[activityLevel]}>
                 {activityLabels[activityLevel]}
               </Text>
             </View>

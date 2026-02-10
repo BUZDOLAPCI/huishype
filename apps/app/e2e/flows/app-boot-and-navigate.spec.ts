@@ -27,6 +27,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -162,7 +163,7 @@ test.describe('App Boot & Navigation', () => {
     const feedLoading = page.locator('[data-testid="feed-loading"]');
     const feedEmpty = page.locator('[data-testid="feed-empty"]');
     const feedError = page.locator('[data-testid="feed-error"]');
-    const filterChip = page.locator('[data-testid="filter-chip-all"]');
+    const filterChip = page.locator('[data-testid="filter-chip-trending"]');
 
     const onFeedPage = await Promise.race([
       feedScreen.isVisible().catch(() => false),

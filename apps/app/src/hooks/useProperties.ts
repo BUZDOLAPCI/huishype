@@ -18,6 +18,8 @@ export interface Property {
   oppervlakte: number | null;
   status: 'active' | 'inactive' | 'demolished';
   wozValue: number | null;
+  hasListing?: boolean;
+  askingPrice?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -32,14 +34,35 @@ export interface PropertyListResponse {
   };
 }
 
+export interface PropertyFmvData {
+  fmv: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  guessCount: number;
+  distribution: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+    min: number;
+    max: number;
+  } | null;
+  wozValue: number | null;
+  askingPrice: number | null;
+  divergence: number | null;
+}
+
 export interface PropertyDetails extends Property {
   askingPrice?: number;
-  fmv?: number;
-  fmvConfidence?: 'low' | 'medium' | 'high';
+  fmv?: PropertyFmvData;
   activityLevel: 'hot' | 'warm' | 'cold';
   commentCount: number;
   guessCount: number;
   viewCount: number;
+  uniqueViewers: number;
+  likeCount?: number;
+  isLiked?: boolean;
+  isSaved?: boolean;
 }
 
 // Query params for fetching properties
@@ -75,9 +98,9 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   return api.get<PropertyListResponse>(endpoint);
 };
 
-const fetchPropertyById = async (id: string): Promise<Property | null> => {
+const fetchPropertyById = async (id: string): Promise<PropertyDetails | null> => {
   try {
-    return await api.get<Property>(`/properties/${id}`);
+    return await api.get<PropertyDetails>(`/properties/${id}`);
   } catch (error) {
     console.error('Failed to fetch property:', error);
     return null;

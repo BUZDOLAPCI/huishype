@@ -501,12 +501,14 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
         />
 
-        {/* Zoom level indicator (for debugging) */}
-        <View style={{ position: 'absolute', top: 16, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
-          <Text style={{ fontSize: 12, color: '#374151' }}>
-            Zoom: {currentZoom.toFixed(1)}
-          </Text>
-        </View>
+        {/* Zoom level indicator (dev only) */}
+        {__DEV__ && (
+          <View style={{ position: 'absolute', top: 16, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
+            <Text style={{ fontSize: 12, color: '#374151' }}>
+              Zoom: {currentZoom.toFixed(1)}
+            </Text>
+          </View>
+        )}
 
         {/* Zoom controls */}
         <View style={{

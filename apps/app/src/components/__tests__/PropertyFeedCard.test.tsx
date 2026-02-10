@@ -10,7 +10,7 @@ jest.mock('@/src/hooks', () => ({
     data: null,
     isLoading: false,
   })),
-  isBagPandPlaceholder: jest.fn((address: string) => address.startsWith('BAG Pand')),
+  isBagPandPlaceholder: jest.fn((address) => address.startsWith('BAG Pand')),
 }));
 
 import { PropertyFeedCard } from '../PropertyFeedCard';
@@ -60,12 +60,12 @@ describe('PropertyFeedCard', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
-  it('shows "Trending" badge for hot activity', () => {
+  it('shows "Hot" badge for hot activity', () => {
     const { getByText } = render(
       <PropertyFeedCard {...defaultProps} activityLevel="hot" />
     );
 
-    expect(getByText('Trending')).toBeTruthy();
+    expect(getByText('Hot')).toBeTruthy();
   });
 
   it('shows "Active" badge for warm activity', () => {
@@ -81,8 +81,43 @@ describe('PropertyFeedCard', () => {
       <PropertyFeedCard {...defaultProps} activityLevel="cold" />
     );
 
-    expect(queryByText('Trending')).toBeNull();
+    expect(queryByText('Hot')).toBeNull();
     expect(queryByText('Active')).toBeNull();
+  });
+
+  describe('empty metrics CTAs', () => {
+    it('shows "Start the conversation" when commentCount is 0', () => {
+      const { getByText } = render(
+        <PropertyFeedCard {...defaultProps} commentCount={0} />
+      );
+      expect(getByText('Start the conversation')).toBeTruthy();
+    });
+
+    it('shows "Be the first to guess" when guessCount is 0', () => {
+      const { getByText } = render(
+        <PropertyFeedCard {...defaultProps} guessCount={0} />
+      );
+      expect(getByText('Be the first to guess')).toBeTruthy();
+    });
+
+    it('hides view count when viewCount is 0', () => {
+      const { getByText, queryByText } = render(
+        <PropertyFeedCard {...defaultProps} viewCount={0} />
+      );
+      // View count should not appear in overlay or bottom stats
+      expect(queryByText('0')).toBeNull();
+      // Other metrics still visible
+      expect(getByText('15')).toBeTruthy(); // commentCount
+      expect(getByText('10 guesses')).toBeTruthy(); // guessCount
+    });
+
+    it('shows real counts when metrics are non-zero', () => {
+      const { getByText, getAllByText } = render(<PropertyFeedCard {...defaultProps} />);
+
+      expect(getByText('15')).toBeTruthy(); // commentCount
+      expect(getByText('10 guesses')).toBeTruthy(); // guessCount
+      expect(getAllByText('100').length).toBeGreaterThanOrEqual(1); // viewCount (in overlay + bottom stats)
+    });
   });
 
   it('renders placeholder when no image URL provided', () => {

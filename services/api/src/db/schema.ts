@@ -5,6 +5,7 @@ import {
   text,
   integer,
   bigint,
+  boolean,
   timestamp,
   date,
   index,
@@ -121,6 +122,7 @@ export const users = pgTable(
     profilePhotoUrl: text('profile_photo_url'),
     karma: integer('karma').notNull().default(0),
     internalKarma: integer('internal_karma').notNull().default(0), // Can go negative for tracking bad actors
+    lastDisplayNameChangeAt: timestamp('last_display_name_change_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -229,6 +231,7 @@ export const priceGuesses = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     guessedPrice: bigint('guessed_price', { mode: 'number' }).notNull(),
+    isMemeGuess: boolean('is_meme_guess').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -285,6 +288,25 @@ export const reactions = pgTable(
   ]
 );
 
+// Property Views table (for tracking interest signals)
+export const propertyViews = pgTable(
+  'property_views',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }), // null for anonymous
+    sessionId: text('session_id'), // for anonymous dedup
+    viewedAt: timestamp('viewed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('property_views_property_user_idx').on(table.propertyId, table.userId),
+    index('property_views_property_session_idx').on(table.propertyId, table.sessionId),
+    index('property_views_property_viewed_at_idx').on(table.propertyId, table.viewedAt),
+  ]
+);
+
 // Saved Properties table
 export const savedProperties = pgTable(
   'saved_properties',
@@ -311,6 +333,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   reactions: many(reactions),
   savedProperties: many(savedProperties),
   listings: many(listings),
+  propertyViews: many(propertyViews),
 }));
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
@@ -319,6 +342,7 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   comments: many(comments),
   savedProperties: many(savedProperties),
   priceHistory: many(priceHistory),
+  propertyViews: many(propertyViews),
 }));
 
 export const listingsRelations = relations(listings, ({ one }) => ({
@@ -391,6 +415,17 @@ export const savedPropertiesRelations = relations(savedProperties, ({ one }) => 
   }),
 }));
 
+export const propertyViewsRelations = relations(propertyViews, ({ one }) => ({
+  property: one(properties, {
+    fields: [propertyViews.propertyId],
+    references: [properties.id],
+  }),
+  user: one(users, {
+    fields: [propertyViews.userId],
+    references: [users.id],
+  }),
+}));
+
 // Export types for use in the application
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -415,3 +450,6 @@ export type NewSavedProperty = typeof savedProperties.$inferInsert;
 
 export type PriceHistory = typeof priceHistory.$inferSelect;
 export type NewPriceHistory = typeof priceHistory.$inferInsert;
+
+export type PropertyView = typeof propertyViews.$inferSelect;
+export type NewPropertyView = typeof propertyViews.$inferInsert;

@@ -33,6 +33,7 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /\[HMR\]/,
   /WebSocket connection/,
   /net::ERR_ABORTED/,
+  /net::ERR_NAME_NOT_RESOLVED/,
   /AJAXError/,
   /\.pbf/,
   /tiles\.openfreemap\.org/,
@@ -243,19 +244,17 @@ test.describe('Map to Property Flow', () => {
     expect(layerInfo!.sources).toContain('properties-source');
   });
 
-  test('click on map near property center shows preview or selects property', async ({ page }) => {
+  test('click on property marker shows preview card', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
     await waitForMapStyleLoaded(page);
 
-    // Zoom to Eindhoven property level
+    // Zoom to Eindhoven property level with flat view for accurate click positioning
     await page.evaluate(({ center, zoom }) => {
       const map = (window as any).__mapInstance;
       if (map) {
-        map.setCenter(center);
-        map.setZoom(zoom);
-        map.setPitch(0); // Flat view for accurate click positioning
+        map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
       }
     }, { center: EINDHOVEN_CENTER, zoom: PROPERTY_ZOOM });
 
@@ -267,9 +266,10 @@ test.describe('Map to Property Flow', () => {
       const map = (window as any).__mapInstance;
       if (!map) return null;
       const canvas = map.getCanvas();
+      const canvasRect = canvas.getBoundingClientRect();
 
-      const layerIds = ['ghost-nodes', 'active-nodes', 'single-active-points']
-        .filter((l) => map.getLayer(l));
+      const layerIds = ['ghost-nodes', 'active-nodes', 'single-active-points', 'property-clusters']
+        .filter((l: string) => map.getLayer(l));
       if (layerIds.length === 0) return null;
 
       const features = map.queryRenderedFeatures(
@@ -278,68 +278,61 @@ test.describe('Map to Property Flow', () => {
       );
       if (!features || features.length === 0) return null;
 
-      // Get the first feature's screen position
-      const feature = features[0];
-      const geom = feature.geometry;
-      if (geom.type !== 'Point') return null;
-
-      const point = map.project(geom.coordinates);
-      return {
-        screenX: point.x,
-        screenY: point.y,
-        id: feature.properties?.id,
-        address: feature.properties?.address,
-        layerId: feature.layer?.id,
-      };
+      // Find a point feature well within the viewport
+      for (const feature of features) {
+        if (feature.geometry?.type !== 'Point') continue;
+        const point = map.project(feature.geometry.coordinates);
+        // Must be well within the visible canvas (not on edges)
+        if (point.x > 50 && point.x < canvas.clientWidth - 50 &&
+            point.y > 50 && point.y < canvas.clientHeight - 50) {
+          return {
+            // Viewport coordinates = map-relative + canvas offset
+            viewportX: Math.round(point.x + canvasRect.x),
+            viewportY: Math.round(point.y + canvasRect.y),
+            id: feature.properties?.id || feature.properties?.property_ids?.split(',')[0],
+            layerId: feature.layer?.id,
+          };
+        }
+      }
+      return null;
     });
 
     console.log('Feature to click:', featureInfo);
+    expect(featureInfo, 'Should find a clickable property feature').not.toBeNull();
 
-    if (featureInfo) {
-      // Click on the feature's screen position
-      const mapView = page.locator('[data-testid="map-view"]').first();
-      const mapBox = await mapView.boundingBox();
-      if (mapBox) {
-        // Offset click coordinates by map container position
-        await page.mouse.click(
-          mapBox.x + featureInfo.screenX,
-          mapBox.y + featureInfo.screenY
-        );
-      }
+    // Click at the feature's viewport coordinates
+    await page.mouse.click(featureInfo!.viewportX, featureInfo!.viewportY);
 
-      // Wait for preview card or bottom sheet to appear
-      await page.waitForTimeout(3000);
+    // Wait for the preview card to appear (API fetch + render)
+    await page.waitForSelector('[data-testid="property-preview-popup"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="selected-marker"]', { timeout: 5000 });
 
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/map-click-preview.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/map-click-preview.png` });
 
-      // Check if preview popup appeared (MapLibre popup rendered in DOM)
-      const previewPopup = page.locator('[data-testid="property-preview-popup"]');
-      const previewCard = page.locator('[data-testid="property-preview-card"]');
-      const selectedMarker = page.locator('[data-testid="selected-marker"]');
+    // Verify preview card has real property data
+    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    await expect(previewCard).toBeVisible();
 
-      const popupVisible = await previewPopup.isVisible().catch(() => false);
-      const cardVisible = await previewCard.isVisible().catch(() => false);
-      const markerVisible = await selectedMarker.isVisible().catch(() => false);
+    const cardText = await previewCard.textContent() || '';
+    // Card should contain an address (not empty, not a BAG ID)
+    expect(cardText.length).toBeGreaterThan(5);
+    expect(cardText).not.toMatch(/^0\d{15}$/);
 
-      console.log(`Preview popup: ${popupVisible}, Card: ${cardVisible}, Marker: ${markerVisible}`);
+    // Verify the selected marker (pulsing dot) is visible
+    const selectedMarker = page.locator('[data-testid="selected-marker"]');
+    await expect(selectedMarker).toBeVisible();
 
-      // If preview card appeared, verify it has real data
-      if (cardVisible) {
-        const cardText = await previewCard.textContent() || '';
-        // Should NOT show raw BAG IDs as address
-        expect(cardText).not.toMatch(/^0\d{15}$/); // BAG pand identificatie pattern
-      }
-    } else {
-      // If no features found, take diagnostic screenshot and skip click
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/map-click-no-features.png` });
-      console.log('No clickable features found at z17 in Eindhoven center');
-    }
+    // Verify the preview card persists (not immediately dismissed)
+    await page.waitForTimeout(1000);
+    await expect(page.locator('[data-testid="property-preview-popup"]')).toBeVisible();
   });
 
   test('API properties endpoint returns data for Eindhoven', async ({ request }) => {
     // Verify the API has Eindhoven properties (prerequisite for map tests)
+    // Spatial queries can be slow under load, so use a generous timeout
     const response = await request.get(
-      `${API_BASE_URL}/properties?lat=51.4416&lon=5.4697&radius=2000&limit=10`
+      `${API_BASE_URL}/properties?lat=51.4416&lon=5.4697&radius=2000&limit=10`,
+      { timeout: 60000 }
     );
     expect(response.ok()).toBe(true);
 

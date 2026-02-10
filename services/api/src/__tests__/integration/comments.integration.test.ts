@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 describe('Comment routes', () => {
   let app: FastifyInstance;
   let userId: string;
+  let accessToken: string;
   let propertyId: string;
   const createdCommentIds: string[] = [];
   const testUserIds: string[] = [];
@@ -30,6 +31,7 @@ describe('Comment routes', () => {
     });
     const loginBody = JSON.parse(loginResp.body);
     userId = loginBody.session.user.id;
+    accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
     // Fetch a real property ID from DB
@@ -67,7 +69,7 @@ describe('Comment routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Integration test comment' },
       });
 
@@ -100,7 +102,7 @@ describe('Comment routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${fakeId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Comment on fake property' },
       });
       expect(response.statusCode).toBe(404);
@@ -111,7 +113,7 @@ describe('Comment routes', () => {
       const topResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Parent comment for reply test' },
       });
       const topBody = JSON.parse(topResp.body);
@@ -121,7 +123,7 @@ describe('Comment routes', () => {
       const replyResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           content: 'This is a reply',
           parentId: topBody.id,
@@ -141,7 +143,7 @@ describe('Comment routes', () => {
       const topResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Top-level for nesting test' },
       });
       const topBody = JSON.parse(topResp.body);
@@ -151,7 +153,7 @@ describe('Comment routes', () => {
       const replyResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Reply level 1', parentId: topBody.id },
       });
       const replyBody = JSON.parse(replyResp.body);
@@ -161,7 +163,7 @@ describe('Comment routes', () => {
       const nestedResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Nested reply attempt', parentId: replyBody.id },
       });
       expect(nestedResp.statusCode).toBe(400);
@@ -242,7 +244,7 @@ describe('Comment routes', () => {
       const parentResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Parent for replies test GET' },
       });
       const parentBody = JSON.parse(parentResp.body);
@@ -252,7 +254,7 @@ describe('Comment routes', () => {
       const replyResp = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
-        headers: { 'x-user-id': userId },
+        headers: { authorization: `Bearer ${accessToken}` },
         payload: { content: 'Reply for replies test GET', parentId: parentBody.id },
       });
       const replyBody = JSON.parse(replyResp.body);
