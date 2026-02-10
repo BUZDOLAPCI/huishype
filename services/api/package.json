@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "lint": "eslint .",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
-    "test:integration": "echo 'TODO: Setup integration tests'",
+    "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathPattern='__tests__/integration'",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

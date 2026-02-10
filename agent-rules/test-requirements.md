@@ -76,8 +76,10 @@ Agents must be able to verify changes locally + in CI with:
   - **Simple YAML tests:** easier to write, read, and maintain; AI agents can generate/read tests easily
   - **Faster setup:** much less CI flakiness and configuration overhead
   - **No deep native integration required:** works with any app build
-- **Build:** EAS-generated dev builds for simulator/emulator
-- **Coverage:** same flows as web + mobile-specific permissions (location, notifications, camera)
+- **Build:** `expo run:android` dev builds for emulator
+- **Structure:** 1 orchestrator (`full-flow.yaml`) + 7 sub-flows in `flows/` dir
+- **Coverage:** app smoke, feed, search+navigate, bottom sheet, login, auth interactions, cleanup
+- **Run from:** monorepo root, not `apps/app`
 
 ### Feature test rule (enforce "every feature has E2E")
 For each user story/feature, add at least:
@@ -136,7 +138,7 @@ Minimum pipeline stages:
 2. **Unit tests** (app + backend)
 3. **Integration tests** (backend + DB)
 4. **E2E web** (Playwright)
-5. **E2E mobile** (Maestro iOS + Android)
+5. **E2E mobile** (Maestro Android — `maestro test apps/app/e2e/mobile/full-flow.yaml`)
 
 Artifacts always captured:
 - logs, screenshots, traces, videos, coverage reports
@@ -153,7 +155,7 @@ Artifacts always captured:
 - `test:unit` — app + backend
 - `test:integration` — backend with DB
 - `test:e2e:web` — Playwright
-- `test:e2e:ios` / `test:e2e:android` — Maestro
+- `test:e2e:mobile` — Maestro (requires running emulator)
 - `test:all` — runs the full stack (or a CI-equivalent subset locally)
 
 ---
@@ -179,8 +181,8 @@ Artifacts always captured:
   - `services/*/src/**/__tests__/*`
   - `services/*/src/**/*.test.ts`
 - **Backend integration tests**
-  - `services/api/test/integration/**/*.test.ts`
-  - (runs against Docker Postgres + migrations + seeds)
+  - `services/api/src/__tests__/integration/*.integration.test.ts`
+  - (runs against real Postgres/PostGIS DB on port 5440 with migrations + seeds)
 - **Web E2E — User Flows (Playwright)**
   - `apps/app/e2e/flows/**/*.spec.ts`
 - **Web E2E — Visual Reference Tests (Playwright)**
@@ -229,18 +231,18 @@ When deciding which tests to run after a change:
 | API route/endpoint change | `pnpm test:unit` + `pnpm test:integration` |
 | UI component change | `pnpm test:unit` + `pnpm test:e2e:flows` |
 | Map/tile rendering change | `pnpm test:e2e:visual` + `pnpm test:e2e:flows` |
-| Mobile-specific change | `pnpm test:e2e:mobile` (Maestro) |
+| Mobile-specific change | `maestro test apps/app/e2e/mobile/full-flow.yaml` (requires emulator) |
 | Cross-cutting or unsure | `pnpm test:all` |
-| Before marking any task done | `pnpm test:all` + verify Maestro if mobile touched |
+| Before marking any task done | `pnpm test:all` + `maestro test apps/app/e2e/mobile/full-flow.yaml` if mobile touched |
 
 ### Quick Reference Commands
 ```
-pnpm test:unit              # App + API unit tests (Vitest)
-pnpm test:integration       # API integration tests (real DB)
+pnpm test:unit              # App + API unit tests (Jest)
+pnpm test:integration       # API integration tests (runs via turbo → API jest)
 pnpm test:e2e:web          # All Playwright tests (visual + integration + flows)
 pnpm test:e2e:flows        # User flow E2E tests only
 pnpm test:e2e:visual       # Visual reference tests only
 pnpm test:e2e:integration  # Critical flow integration tests only
-pnpm test:e2e:mobile       # Maestro mobile tests (requires emulator)
+pnpm test:e2e:mobile       # Maestro mobile tests — run directly: maestro test apps/app/e2e/mobile/full-flow.yaml
 pnpm test:all              # Unit + all Playwright E2E
 ```
