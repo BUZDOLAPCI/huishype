@@ -169,6 +169,42 @@ export async function resolveProperty(
   }
 }
 
+// --- Batch property lookup (imperative, not a hook) ---
+
+/** Shape returned by GET /properties/batch */
+export interface BatchProperty {
+  id: string;
+  bagIdentificatie: string | null;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  bouwjaar: number | null;
+  oppervlakte: number | null;
+  status: string;
+  wozValue: number | null;
+  hasListing: boolean;
+  askingPrice: number | null;
+  commentCount: number;
+  guessCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Fetch multiple properties by their IDs.
+ * The API preserves input order and caps at 50 IDs per request.
+ */
+export async function fetchBatchProperties(
+  ids: string[],
+): Promise<BatchProperty[]> {
+  if (ids.length === 0) return [];
+  const result = await apiFetch<BatchProperty[]>(
+    `/properties/batch?ids=${ids.join(',')}`,
+  );
+  return result;
+}
+
 // Convenience methods
 export const api = {
   get: <T>(endpoint: string, options?: RequestInit) =>

@@ -24,6 +24,7 @@ import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
+import { useClusterPreview, LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
 import { API_URL, fetchNearbyProperty, type PropertyResolveResult } from '@/src/utils/api';
@@ -126,10 +127,22 @@ export default function MapScreen() {
     return () => clearTimeout(timeout);
   }, [mapLoaded]);
 
-  // Cluster preview state
-  const [clusterPropertyIds, setClusterPropertyIds] = useState<string[]>([]);
-  const [currentClusterIndex, setCurrentClusterIndex] = useState(0);
-  const [isClusterPreview, setIsClusterPreview] = useState(false);
+  // Cluster preview (shared hook — batch-fetches properties and manages navigation)
+  const handleClusterPropertySelect = useCallback((property: Property) => {
+    setSelectedPropertyId(property.id);
+    // Snap to partial (index 1 = 50%) when selecting from cluster
+    bottomSheetRef.current?.snapToIndex(1);
+  }, []);
+
+  const {
+    clusterProperties,
+    currentClusterIndex,
+    isClusterPreview,
+    openClusterPreview,
+    closeClusterPreview,
+    setCurrentClusterIndex: handleClusterIndexChange,
+    handleClusterPropertyPress,
+  } = useClusterPreview({ onPropertySelect: handleClusterPropertySelect });
 
   // Activity data for selected property (from vector tile feature)
   const [selectedActivityScore, setSelectedActivityScore] = useState(0);
@@ -159,8 +172,6 @@ export default function MapScreen() {
     onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
   });
 
-  // Fetch cluster properties (for paginated preview)
-  const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
 
   // Handle feature press - queries rendered features from style layers via Map
   // TODO: Re-implement using mapRef.queryRenderedFeatures() once tiles render
@@ -175,15 +186,25 @@ export default function MapScreen() {
         properties.point_count !== undefined && properties.point_count > 1;
 
       if (isCluster) {
+        const pointCount = (properties.point_count as number) ?? 0;
+        const propertyIdsStr = properties.property_ids as string | undefined;
         const clusterGeom = feature.geometry;
-        if (clusterGeom && clusterGeom.type === 'Point') {
-          const [lng, lat] = clusterGeom.coordinates as [number, number];
-          const newZoom = Math.min(currentZoom + 2, 18);
-          cameraRef.current?.flyTo({
-            center: [lng, lat],
-            zoom: newZoom,
-            duration: 500,
-          });
+
+        if (pointCount > LARGE_CLUSTER_THRESHOLD || !propertyIdsStr) {
+          // Large cluster or missing IDs — zoom in
+          if (clusterGeom && clusterGeom.type === 'Point') {
+            const [lng, lat] = clusterGeom.coordinates as [number, number];
+            const newZoom = Math.min(currentZoom + 2, 18);
+            cameraRef.current?.flyTo({
+              center: [lng, lat],
+              zoom: newZoom,
+              duration: 500,
+            });
+          }
+        } else {
+          // Small cluster — show paginated preview
+          const ids = propertyIdsStr.split(',');
+          openClusterPreview(ids);
         }
       } else {
         const propertyId = properties.id as string;
@@ -195,11 +216,11 @@ export default function MapScreen() {
           setSelectedActivityScore(activityScore);
           setSelectedHasListing(hasListing);
           setShowPreview(true);
-          setIsClusterPreview(false);
+          closeClusterPreview();
         }
       }
     },
-    [currentZoom]
+    [currentZoom, openClusterPreview, closeClusterPreview]
   );
 
   // Handle map region change to track zoom level
@@ -239,32 +260,12 @@ export default function MapScreen() {
 
     // We also don't clear selectedPropertyId here - the property remains selected
     // Only close cluster preview since that doesn't have the same persistence rules
-    setIsClusterPreview(false);
+    closeClusterPreview();
     // Don't clear the rest - preview should persist
     // setSelectedPropertyId(null);  // DON'T do this
     // setShowPreview(false);        // DON'T do this
-  }, []);
+  }, [closeClusterPreview]);
 
-  // Handle cluster preview navigation
-  const handleClusterIndexChange = useCallback((index: number) => {
-    setCurrentClusterIndex(index);
-  }, []);
-
-  // Handle cluster preview close
-  const handleClusterClose = useCallback(() => {
-    setIsClusterPreview(false);
-    setClusterPropertyIds([]);
-    setClusterProperties([]);
-    setCurrentClusterIndex(0);
-  }, []);
-
-  // Handle property selection from cluster preview
-  const handleClusterPropertyPress = useCallback((property: Property) => {
-    setSelectedPropertyId(property.id);
-    setIsClusterPreview(false);
-    // Snap to partial (index 1 = 50%) when selecting from cluster
-    bottomSheetRef.current?.snapToIndex(1);
-  }, []);
 
   // Handle quick actions from preview card
   const handleComment = useCallback(() => {
@@ -317,8 +318,8 @@ export default function MapScreen() {
     bottomSheetRef.current?.close();
     setSelectedPropertyId(null);
     setShowPreview(false);
-    setIsClusterPreview(false);
-  }, []);
+    closeClusterPreview();
+  }, [closeClusterPreview]);
 
   const handleAuthModalClose = useCallback(() => {
     setShowAuthModal(false);
@@ -378,7 +379,7 @@ export default function MapScreen() {
             setSelectedActivityScore(nearby.activityScore);
             setSelectedHasListing(nearby.hasListing);
             setShowPreview(true);
-            setIsClusterPreview(false);
+            closeClusterPreview();
             return;
           }
         } catch (err) {
@@ -394,13 +395,13 @@ export default function MapScreen() {
           setShowPreview(false);
         }
         if (isClusterPreview) {
-          setIsClusterPreview(false);
+          closeClusterPreview();
         }
       }
       // If sheet is expanded (1 or 2), don't close preview
       // The backdrop/sheet will handle closing itself
     },
-    [showPreview, isClusterPreview, handleFeaturePress, currentZoom]
+    [showPreview, isClusterPreview, handleFeaturePress, closeClusterPreview, currentZoom]
   );
 
   // Zoom control handlers
@@ -416,8 +417,8 @@ export default function MapScreen() {
     setSelectedActivityScore(0); // Will be updated when property data loads
     setSelectedHasListing(property.hasListing);
     setShowPreview(true);
-    setIsClusterPreview(false);
-  }, []);
+    closeClusterPreview();
+  }, [closeClusterPreview]);
 
   const handleLocationResolved = useCallback((coordinates: { lon: number; lat: number }, _address: string) => {
     cameraRef.current?.flyTo({
@@ -592,7 +593,7 @@ export default function MapScreen() {
               properties={clusterProperties}
               currentIndex={currentClusterIndex}
               onIndexChange={handleClusterIndexChange}
-              onClose={handleClusterClose}
+              onClose={closeClusterPreview}
               onPropertyPress={handleClusterPropertyPress}
             />
           </View>

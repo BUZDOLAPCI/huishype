@@ -757,6 +757,7 @@ async function getClusteredMVT(
     active_properties AS (
       SELECT
         id,
+        geometry,
         has_listing,
         activity_score,
         ST_SnapToGrid(geometry, ${gridSize}) as snapped_geom
@@ -766,8 +767,12 @@ async function getClusteredMVT(
     -- Cluster using pre-computed snapped geometry
     clustered AS (
       SELECT
-        snapped_geom as cluster_geom,
+        snapped_geom,
         COUNT(*) as point_count,
+        CASE WHEN COUNT(*) = 1
+          THEN (array_agg(geometry))[1]
+          ELSE ST_Centroid(ST_Collect(geometry))
+        END as display_geom,
         MAX(CASE WHEN has_listing THEN 1 ELSE 0 END) as has_listing_max,
         SUM(activity_score) as total_activity,
         MAX(activity_score) as max_activity,
@@ -779,7 +784,7 @@ async function getClusteredMVT(
     mvt_data AS (
       SELECT
         ST_AsMVTGeom(
-          cluster_geom,
+          display_geom,
           ST_MakeEnvelope(${bbox.minLon}, ${bbox.minLat}, ${bbox.maxLon}, ${bbox.maxLat}, 4326),
           4096,
           256,
@@ -789,9 +794,9 @@ async function getClusteredMVT(
         has_listing_max > 0 as has_active_children,
         total_activity,
         max_activity,
-        property_ids[1] as first_property_id
+        array_to_string(property_ids, ',') as property_ids
       FROM clustered
-      WHERE cluster_geom IS NOT NULL
+      WHERE display_geom IS NOT NULL
     )
     SELECT ST_AsMVT(mvt_data.*, 'properties', 4096, 'geom') as mvt
     FROM mvt_data

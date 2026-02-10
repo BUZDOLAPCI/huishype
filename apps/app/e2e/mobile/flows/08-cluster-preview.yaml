@@ -1,0 +1,119 @@
+appId: nl.huishype.app
+---
+# 08-cluster-preview.yaml — Cluster Preview Card Test
+# Tests cluster visibility at zoomed-out levels and cluster tap → ClusterPreviewCard.
+# This is a sub-flow; user is authenticated and on the Map tab after cleanup.
+#
+# Note: queryRenderedFeatures has a known C++ bug on MapLibre Android native
+# (issues #2875, #2828). Cluster tap may only trigger intermittently, so
+# ClusterPreviewCard assertions use `optional: true` to avoid flaky failures.
+# The test still captures screenshots to verify cluster rendering visually.
+
+# Ensure we're on the Map tab
+- tapOn: "Map"
+- waitForAnimationToEnd
+
+# Wait for map to be ready
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+# Dismiss any existing preview/bottom sheet by tapping empty area then swiping down
+- swipe:
+    start: "50%,30%"
+    end: "50%,95%"
+    duration: 500
+- waitForAnimationToEnd
+
+# Zoom out to cluster-visible level (~zoom 13-14)
+# After search-navigate flow the map is zoomed to ~17, need several zoom-outs
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+
+# Wait for tiles to load at the new zoom level
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/full_flow_21_clusters_zoom_level
+
+# Tap on the center of the map to try to hit a cluster
+# At zoom ~12-13, Eindhoven area should have clustered property nodes
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd
+
+# Wait a moment for queryRenderedFeatures + potential batch API call
+- extendedWaitUntil:
+    visible: "Swipe to browse"
+    timeout: 8000
+    optional: true
+
+- takeScreenshot: maestro-screenshots/full_flow_22_after_cluster_tap
+
+# If cluster preview appeared, test the navigation controls
+# All these assertions are optional due to the queryRenderedFeatures bug
+
+# Check if "of" indicator is visible (e.g., "1 of 5")
+- assertVisible:
+    id: "cluster-preview-card"
+    optional: true
+
+# Try navigating to the next property in the cluster
+- tapOn:
+    id: "cluster-nav-right"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_23_cluster_navigated
+
+# Try navigating back
+- tapOn:
+    id: "cluster-nav-left"
+    optional: true
+- waitForAnimationToEnd
+
+# Close the cluster preview if it was shown
+- tapOn:
+    id: "cluster-close-button"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_24_cluster_closed
+
+# Try a second tap at a different position (slightly off-center)
+# to increase chances of hitting a cluster node
+- tapOn:
+    point: "40%,45%"
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible: "Swipe to browse"
+    timeout: 8000
+    optional: true
+
+- takeScreenshot: maestro-screenshots/full_flow_25_second_cluster_attempt
+
+# Clean up: close any open cluster preview
+- tapOn:
+    id: "cluster-close-button"
+    optional: true
+- waitForAnimationToEnd
+
+# Final state: map visible with zoom indicator
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000

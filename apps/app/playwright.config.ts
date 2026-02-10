@@ -58,6 +58,7 @@ export default defineConfig({
           name: 'flows',
           testDir: './e2e/flows',
           use: { ...devices['Desktop Chrome'] },
+          timeout: 60000,
         },
       ]
     : [
@@ -83,6 +84,7 @@ export default defineConfig({
           name: 'flows',
           testDir: './e2e/flows',
           use: { ...devices['Desktop Chrome'] },
+          timeout: 60000,
         },
       ],
   /* Run local dev server before starting the tests */

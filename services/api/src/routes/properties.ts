@@ -565,6 +565,102 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
+  // GET /properties/batch - Fetch multiple properties by IDs
+  const batchQuerySchema = z.object({
+    ids: z.string().transform((val) => val.split(',')).pipe(
+      z.array(z.string().uuid()).min(1).max(50)
+    ),
+  });
+
+  typedApp.get(
+    '/properties/batch',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Batch fetch properties',
+        description: 'Fetch multiple properties by their IDs (comma-separated, max 50). Returns properties in the same order as the input IDs.',
+        querystring: batchQuerySchema,
+        response: {
+          200: z.array(propertySchema),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { ids } = request.query;
+
+      const rows = await db.execute<{
+        id: string;
+        bag_identificatie: string | null;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        address: string;
+        city: string;
+        postal_code: string | null;
+        lon: number | null;
+        lat: number | null;
+        bouwjaar: number | null;
+        oppervlakte: number | null;
+        status: string;
+        woz_value: number | null;
+        has_listing: boolean;
+        asking_price: number | null;
+        comment_count: number;
+        guess_count: number;
+        created_at: string;
+        updated_at: string;
+      }>(sql`
+        SELECT
+          p.id,
+          p.bag_identificatie,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
+          p.city,
+          p.postal_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          p.bouwjaar,
+          p.oppervlakte,
+          p.status,
+          p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          l.asking_price,
+          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          p.created_at,
+          p.updated_at
+        FROM properties p
+        LEFT JOIN LATERAL (
+          SELECT id, asking_price FROM listings
+          WHERE property_id = p.id AND status = 'active'
+          ORDER BY created_at DESC LIMIT 1
+        ) l ON true
+        WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+      `);
+
+      // Build a Map for O(1) lookup, then return in input order
+      const rowMap = new Map<string, (typeof results)[0]>();
+      const results = Array.from(rows).map((r) => ({
+        ...mapPropertyRow(r),
+        hasListing: r.has_listing,
+        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        commentCount: Number(r.comment_count),
+        guessCount: Number(r.guess_count),
+      }));
+      for (const item of results) {
+        rowMap.set(item.id, item);
+      }
+
+      const ordered = ids
+        .map((id) => rowMap.get(id))
+        .filter((item): item is NonNullable<typeof item> => item != null);
+
+      return reply.send(ordered);
+    }
+  );
+
   // GET /properties/:id - Get a single property by ID
   typedApp.get(
     '/properties/:id',
