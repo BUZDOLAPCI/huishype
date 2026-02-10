@@ -16,12 +16,17 @@ import {
   PropertyPreviewCard,
   PropertyBottomSheet,
   ClusterPreviewCard,
+  AuthModal,
+  SearchBar,
+  BottomSheetErrorBoundary,
 } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
+import { usePropertyLike } from '@/src/hooks/usePropertyLike';
+import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
-import { API_URL, fetchNearbyProperty } from '@/src/utils/api';
+import { API_URL, fetchNearbyProperty, type PropertyResolveResult } from '@/src/utils/api';
 
 // No access token needed for MapLibre - it's open source
 
@@ -130,6 +135,10 @@ export default function MapScreen() {
   const [selectedActivityScore, setSelectedActivityScore] = useState(0);
   const [selectedHasListing, setSelectedHasListing] = useState(false);
 
+  // Auth modal state
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMessage, setAuthMessage] = useState('Sign in to continue');
+
   // Track bottom sheet index for preview card persistence logic
   // -1 = closed, 0 = peek, 1 = partial, 2 = full
   const sheetIndexRef = useRef(-1);
@@ -137,6 +146,18 @@ export default function MapScreen() {
   // Fetch selected property details
   const { data: selectedProperty, isLoading: propertyLoading } =
     useProperty(selectedPropertyId);
+
+  // Property like hook
+  const { isLiked, toggleLike } = usePropertyLike({
+    propertyId: selectedPropertyId,
+    onAuthRequired: () => handleAuthRequired('Sign in to like this property'),
+  });
+
+  // Property save hook
+  const { isSaved, toggleSave } = usePropertySave({
+    propertyId: selectedPropertyId,
+    onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
+  });
 
   // Fetch cluster properties (for paginated preview)
   const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
@@ -246,11 +267,6 @@ export default function MapScreen() {
   }, []);
 
   // Handle quick actions from preview card
-  const handleLike = useCallback(() => {
-    console.log('Like property:', selectedPropertyId);
-    // TODO: Implement like functionality
-  }, [selectedPropertyId]);
-
   const handleComment = useCallback(() => {
     // Preview card stays open - user can still see the property while commenting
     bottomSheetRef.current?.scrollToComments();
@@ -262,20 +278,18 @@ export default function MapScreen() {
   }, []);
 
   // Handle bottom sheet actions
-  const handleSave = useCallback((propertyId: string) => {
-    console.log('Save property:', propertyId);
-    // TODO: Implement save functionality
-  }, []);
+  const handleSave = useCallback((_propertyId?: string) => {
+    toggleSave();
+  }, [toggleSave]);
 
   const handleShare = useCallback((propertyId: string) => {
     console.log('Share property:', propertyId);
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleFavorite = useCallback((propertyId: string) => {
-    console.log('Favorite property:', propertyId);
-    // TODO: Implement favorite functionality
-  }, []);
+  const handleLike = useCallback((_propertyId?: string) => {
+    toggleLike();
+  }, [toggleLike]);
 
   const handleGuessPress = useCallback((propertyId: string) => {
     console.log('Open guess for property:', propertyId);
@@ -285,6 +299,33 @@ export default function MapScreen() {
   const handleCommentPress = useCallback((propertyId: string) => {
     console.log('Open comments for property:', propertyId);
     // TODO: Open comments section
+  }, []);
+
+  // Auth handlers
+  // Show the auth modal without dismissing the property/bottom sheet.
+  // The user might cancel — we don't want to lose the selected property.
+  const handleAuthRequired = useCallback((message?: string) => {
+    setAuthMessage(message || 'Sign in to continue');
+    setShowAuthModal(true);
+  }, []);
+
+  // Called by AuthModal right before the user actually signs in (clicked a
+  // sign-in button, not cancel). Dismiss the PropertyBottomSheet BEFORE the
+  // auth state change to prevent the Reanimated/GestureDetector crash in
+  // PriceGuessSlider ("Couldn't find a navigation context").
+  const handleAuthStarting = useCallback(() => {
+    bottomSheetRef.current?.close();
+    setSelectedPropertyId(null);
+    setShowPreview(false);
+    setIsClusterPreview(false);
+  }, []);
+
+  const handleAuthModalClose = useCallback(() => {
+    setShowAuthModal(false);
+  }, []);
+
+  const handleAuthSuccess = useCallback(() => {
+    setShowAuthModal(false);
   }, []);
 
   // Property layer IDs to query for features (matching server's /tiles/style.json)
@@ -363,6 +404,29 @@ export default function MapScreen() {
   );
 
   // Zoom control handlers
+  // Search bar callbacks
+  const handlePropertyResolved = useCallback((property: PropertyResolveResult) => {
+    const { lon, lat } = property.coordinates;
+    cameraRef.current?.flyTo({
+      center: [lon, lat],
+      zoom: 17,
+      duration: 1000,
+    });
+    setSelectedPropertyId(property.id);
+    setSelectedActivityScore(0); // Will be updated when property data loads
+    setSelectedHasListing(property.hasListing);
+    setShowPreview(true);
+    setIsClusterPreview(false);
+  }, []);
+
+  const handleLocationResolved = useCallback((coordinates: { lon: number; lat: number }, _address: string) => {
+    cameraRef.current?.flyTo({
+      center: [coordinates.lon, coordinates.lat],
+      zoom: 17,
+      duration: 1000,
+    });
+  }, []);
+
   const handleZoomIn = useCallback(async () => {
     const newZoom = Math.min(currentZoom + 1, 20);
     const center = await mapRef.current?.getCenter();
@@ -429,6 +493,12 @@ export default function MapScreen() {
             <Text style={{ color: '#4B5563', marginTop: 12, fontSize: 16 }}>Loading map...</Text>
           </View>
         )}
+
+        {/* Search Bar */}
+        <SearchBar
+          onPropertyResolved={handlePropertyResolved}
+          onLocationResolved={handleLocationResolved}
+        />
 
         {/* Zoom level indicator (for debugging) */}
         <View style={{ position: 'absolute', top: 16, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
@@ -498,6 +568,7 @@ export default function MapScreen() {
                 activityScore: selectedActivityScore,
                 thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
               }}
+              isLiked={isLiked}
               onPress={handlePreviewPress}
               onLike={handleLike}
               onComment={handleComment}
@@ -529,16 +600,30 @@ export default function MapScreen() {
       </View>
 
       {/* Property details bottom sheet */}
-      <PropertyBottomSheet
-        ref={bottomSheetRef}
-        property={selectedProperty ?? null}
-        onClose={handleSheetClose}
-        onSheetChange={handleSheetIndexChange}
-        onSave={handleSave}
-        onShare={handleShare}
-        onFavorite={handleFavorite}
-        onGuessPress={handleGuessPress}
-        onCommentPress={handleCommentPress}
+      <BottomSheetErrorBoundary>
+        <PropertyBottomSheet
+          ref={bottomSheetRef}
+          property={selectedProperty ?? null}
+          isLiked={isLiked}
+          isSaved={isSaved}
+          onClose={handleSheetClose}
+          onSheetChange={handleSheetIndexChange}
+          onSave={handleSave}
+          onShare={handleShare}
+          onLike={handleLike}
+          onGuessPress={handleGuessPress}
+          onCommentPress={handleCommentPress}
+          onAuthRequired={() => handleAuthRequired('Sign in to continue')}
+        />
+      </BottomSheetErrorBoundary>
+
+      {/* Auth Modal */}
+      <AuthModal
+        visible={showAuthModal}
+        onClose={handleAuthModalClose}
+        message={authMessage}
+        onSuccess={handleAuthSuccess}
+        onAuthStarting={handleAuthStarting}
       />
     </View>
   );

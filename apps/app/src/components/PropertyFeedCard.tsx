@@ -19,7 +19,7 @@ interface PropertyFeedCardProps {
   oppervlakte?: number | null;
   onPress?: () => void;
   // Coordinates for runtime address resolution
-  coordinates?: { lat: number; lng: number } | null;
+  coordinates?: { lat: number; lon: number } | null;
 }
 
 /**
@@ -58,7 +58,7 @@ export function PropertyFeedCard({
   // Use reverse geocoding to resolve BAG Pand placeholders
   const { data: resolvedAddress, isLoading: isResolvingAddress } = useReverseGeocode(
     needsResolution && coordinates ? coordinates.lat : null,
-    needsResolution && coordinates ? coordinates.lng : null,
+    needsResolution && coordinates ? coordinates.lon : null,
     { enabled: needsResolution && !!coordinates }
   );
 

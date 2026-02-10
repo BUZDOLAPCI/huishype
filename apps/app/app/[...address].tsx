@@ -14,6 +14,7 @@ import { ScrollView, Text, View, Pressable, ActivityIndicator, Share } from 'rea
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { formatPrice } from '@huishype/shared';
 
 import { PriceGuessSlider, CommentList } from '@/src/components';
 import {
@@ -53,10 +54,6 @@ const MOCK_COMMENTS = [
     createdAt: '4h ago',
   },
 ];
-
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL')}`;
-}
 
 /**
  * Parse the catch-all address segments into structured params
@@ -190,8 +187,8 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
     console.log('Save property:', address.bagId);
   };
 
-  const handleFavorite = () => {
-    console.log('Favorite property:', address.bagId);
+  const handleLike = () => {
+    console.log('Like property:', address.bagId);
   };
 
   // Format the address title like the reference: "Street Number" with "Zip City" below
@@ -261,7 +258,7 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
             <Ionicons name="share-outline" size={22} color="#6B7280" />
             <Text className="ml-2 text-gray-600">Share</Text>
           </Pressable>
-          <Pressable onPress={handleFavorite} className="flex-row items-center px-4 py-2">
+          <Pressable onPress={handleLike} className="flex-row items-center px-4 py-2">
             <Ionicons name="heart-outline" size={22} color="#6B7280" />
             <Text className="ml-2 text-gray-600">Like</Text>
           </Pressable>

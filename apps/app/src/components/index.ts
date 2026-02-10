@@ -1,4 +1,5 @@
 export { AuthModal } from './AuthModal';
+export { BottomSheetErrorBoundary } from './BottomSheetErrorBoundary';
 export { BottomSheet } from './BottomSheet';
 export { CommentList } from './CommentList';
 export { ConsensusAlignment } from './ConsensusAlignment';
@@ -17,6 +18,10 @@ export { PropertyCard } from './PropertyCard';
 export { PropertyFeedCard } from './PropertyFeedCard';
 export { PropertyMarker } from './PropertyMarker';
 export { PropertyPreviewCard } from './PropertyPreviewCard';
+export { SearchBar } from './SearchBar';
+export type { SearchBarProps } from './SearchBar';
+export { SearchResults } from './SearchResults';
+export type { SearchResultsProps } from './SearchResults';
 export type { PropertyPreviewData } from './PropertyPreviewCard';
 export { ClusterPreviewCard } from './ClusterPreviewCard';
 export type { ClusterPreviewCardProps } from './ClusterPreviewCard';

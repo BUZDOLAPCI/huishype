@@ -7,7 +7,6 @@
  */
 export type ReactionType =
   | 'like' // General interest/upvote
-  | 'save' // Save to favorites
   | 'share'; // Share action (tracked)
 
 /**
@@ -38,24 +37,6 @@ export interface UserPropertyReactions {
   hasSaved: boolean;
   likedAt?: string;
   savedAt?: string;
-}
-
-/**
- * Toggle reaction request
- */
-export interface ToggleReactionRequest {
-  propertyId: string;
-  type: ReactionType;
-}
-
-/**
- * Toggle reaction response
- */
-export interface ToggleReactionResponse {
-  /** Whether the reaction is now active */
-  isActive: boolean;
-  /** Updated counts */
-  counts: ReactionCounts;
 }
 
 /**

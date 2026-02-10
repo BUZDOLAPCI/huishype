@@ -1,0 +1,51 @@
+appId: nl.huishype.app
+---
+# 03-search-navigate.yaml — Search for Fixture Property
+# Uses the search bar to navigate to a deterministic fixture property
+# (Beeldbuisring 41, Eindhoven) seeded by the test fixture script.
+# This is a sub-flow; app is on the Map tab.
+#
+# Note: 3D buildings and ghost node verification are covered by
+# Playwright visual tests (e2e/visual/), not Maestro.
+
+# Tap on the search bar input
+- tapOn:
+    id: "search-bar-input"
+- waitForAnimationToEnd
+
+# Type the fixture address
+- inputText: "Beeldbuisring 41 Eindhoven"
+
+# Wait for PDOK search results to appear (network call + debounce)
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring 41.*"
+    timeout: 15000
+
+- takeScreenshot: maestro-screenshots/full_flow_04_search_results
+
+# Tap the matching search result
+- tapOn:
+    id: "search-result-item"
+- waitForAnimationToEnd
+
+# Wait for camera fly-to animation to complete
+- waitForAnimationToEnd
+
+# Dismiss the search results overlay by pressing back
+- pressKey: back
+- waitForAnimationToEnd
+
+# Assert preview card appears with the address text
+# The property resolve endpoint maps this to a local property
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring.*"
+    timeout: 10000
+
+- takeScreenshot: maestro-screenshots/full_flow_05_property_selected
+
+# Verify preview card action buttons are visible
+- assertVisible: "Like"
+- assertVisible: "Comment"
+- assertVisible: "Guess"
+
+- takeScreenshot: maestro-screenshots/full_flow_06_map_at_property

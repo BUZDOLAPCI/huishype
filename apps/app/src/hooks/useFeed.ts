@@ -52,7 +52,7 @@ export interface FeedProperty {
   address: string;
   city: string;
   postalCode: string | null;
-  coordinates: { lat: number; lng: number } | null;
+  coordinates: { lat: number; lon: number } | null;
   wozValue: number | null;
   askingPrice?: number;
   fmvValue?: number;
@@ -105,7 +105,7 @@ function transformProperty(property: PropertyApiResponse): FeedProperty {
     postalCode: property.postalCode,
     coordinates: property.geometry
       ? {
-          lng: property.geometry.coordinates[0],
+          lon: property.geometry.coordinates[0],
           lat: property.geometry.coordinates[1],
         }
       : null,

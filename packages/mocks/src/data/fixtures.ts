@@ -119,7 +119,7 @@ export const mockProperties: Property[] = [
     houseNumber: '263',
     city: 'Amsterdam',
     postalCode: '1016 GV',
-    coordinates: { lat: 52.3752, lng: 4.8840 },
+    coordinates: { lat: 52.3752, lon: 4.8840 },
     bouwjaar: 1635,
     oppervlakte: 450,
     wozValue: 2850000,
@@ -134,7 +134,7 @@ export const mockProperties: Property[] = [
     houseNumber: '502',
     city: 'Amsterdam',
     postalCode: '1017 CB',
-    coordinates: { lat: 52.3665, lng: 4.8936 },
+    coordinates: { lat: 52.3665, lon: 4.8936 },
     bouwjaar: 1672,
     oppervlakte: 280,
     wozValue: 1950000,
@@ -149,7 +149,7 @@ export const mockProperties: Property[] = [
     houseNumber: '40',
     city: 'Rotterdam',
     postalCode: '3011 AD',
-    coordinates: { lat: 51.9225, lng: 4.4792 },
+    coordinates: { lat: 51.9225, lon: 4.4792 },
     bouwjaar: 2015,
     oppervlakte: 95,
     wozValue: 425000,
@@ -164,7 +164,7 @@ export const mockProperties: Property[] = [
     houseNumber: '102',
     city: 'Den Haag',
     postalCode: '2514 EJ',
-    coordinates: { lat: 52.0843, lng: 4.3126 },
+    coordinates: { lat: 52.0843, lon: 4.3126 },
     bouwjaar: 1760,
     oppervlakte: 520,
     wozValue: 3200000,
@@ -179,7 +179,7 @@ export const mockProperties: Property[] = [
     houseNumber: '150',
     city: 'Utrecht',
     postalCode: '3511 AZ',
-    coordinates: { lat: 52.0907, lng: 5.1214 },
+    coordinates: { lat: 52.0907, lon: 5.1214 },
     bouwjaar: 1890,
     oppervlakte: 120,
     wozValue: 585000,
@@ -513,7 +513,7 @@ export const mockMapProperties: MapProperty[] = mockProperties.map(
 export const mockPropertyClusters: PropertyCluster[] = [
   {
     id: 'cluster-amsterdam',
-    coordinates: { lat: 52.3676, lng: 4.9041 },
+    coordinates: { lat: 52.3676, lon: 4.9041 },
     count: 1250,
     averageActivityLevel: 'hot',
     bounds: {
@@ -525,7 +525,7 @@ export const mockPropertyClusters: PropertyCluster[] = [
   },
   {
     id: 'cluster-rotterdam',
-    coordinates: { lat: 51.9225, lng: 4.4792 },
+    coordinates: { lat: 51.9225, lon: 4.4792 },
     count: 890,
     averageActivityLevel: 'warm',
     bounds: {
@@ -537,7 +537,7 @@ export const mockPropertyClusters: PropertyCluster[] = [
   },
   {
     id: 'cluster-denhaag',
-    coordinates: { lat: 52.0705, lng: 4.3007 },
+    coordinates: { lat: 52.0705, lon: 4.3007 },
     count: 720,
     averageActivityLevel: 'warm',
     bounds: {

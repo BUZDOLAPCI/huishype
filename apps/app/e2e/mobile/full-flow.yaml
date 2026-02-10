@@ -1,0 +1,78 @@
+# HuisHype Consolidated Maestro Test Flow
+# Single app launch that tests the complete user journey:
+#   1. App launch & smoke verification (unauthenticated)
+#   2. Feed browsing & filters
+#   3. Search for a fixture property (deterministic navigation)
+#   4. Bottom sheet exploration & auth gates
+#   5. Dev login
+#   6. Authenticated interactions (comment, guess, like, save)
+#   7. Cleanup & final state
+#
+# Prerequisites:
+# - App installed on emulator, Metro dev server running
+# - Backend API accessible with seeded test fixture data
+#   (run: pnpm --filter api run db:seed-fixture)
+#
+# Usage:
+# maestro test apps/app/e2e/mobile/full-flow.yaml
+
+appId: nl.huishype.app
+---
+# Clear app data to ensure unauthenticated state
+# This removes persisted auth tokens from SecureStore
+- clearState
+
+# Launch the app
+- launchApp
+
+# Handle Expo Dev Client: tap server picker if shown (after clearState, always shown)
+- tapOn:
+    text: ".*10.0.2.2:8081.*"
+    optional: true
+
+# Wait for the app to start loading (shows HuisHype header)
+- extendedWaitUntil:
+    visible: "HuisHype"
+    timeout: 120000
+
+# Dismiss Expo developer menu onboarding popup if it appears
+- tapOn:
+    text: "Continue"
+    optional: true
+- waitForAnimationToEnd
+
+# After onboarding, the Expo developer menu may be open — dismiss with back press
+- pressKey: back
+- waitForAnimationToEnd
+
+# Also try tapping close button (content-desc) as fallback
+- tapOn:
+    text: "\u00d7"
+    optional: true
+
+# Tap on the map area to dismiss any remaining overlay
+- tapOn:
+    point: "50%,30%"
+    optional: true
+
+# Wait for any dismissal animation
+- waitForAnimationToEnd
+
+# Wait for the map to fully load after dismissing overlays
+# After clearState, Metro must recompile the full bundle (cold start) — 2+ min on emulator
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 180000
+
+# === UNAUTHENTICATED PHASES ===
+- runFlow: flows/01-smoke.yaml
+- runFlow: flows/02-feed.yaml
+- runFlow: flows/03-search-navigate.yaml
+- runFlow: flows/04-bottom-sheet.yaml
+
+# === LOGIN ===
+- runFlow: flows/05-login.yaml
+
+# === AUTHENTICATED PHASES ===
+- runFlow: flows/06-auth-interactions.yaml
+- runFlow: flows/07-cleanup.yaml

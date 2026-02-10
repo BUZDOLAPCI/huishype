@@ -8,7 +8,7 @@ import type { Listing, ListingSummary } from './listing';
 import type { User, UserProfile, UserSession } from './user';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess';
 import type { CommentThread, Comment } from './comment';
-import type { ReactionCounts, UserPropertyReactions } from './reaction';
+import type { ReactionCounts } from './reaction';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary, MapProperty, PropertyCluster };
@@ -16,7 +16,7 @@ export type { Listing, ListingSummary };
 export type { User, UserProfile, UserSession };
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
-export type { ReactionCounts, UserPropertyReactions };
+export type { ReactionCounts };
 
 // ============================================
 // Common API Types
@@ -109,26 +109,26 @@ export interface GetUserGuessHistoryResponse {
 // Property API Types
 // ============================================
 
+/**
+ * Response for resolving a Dutch address to a local property.
+ * Used by the search feature: PDOK provides fuzzy address matching,
+ * then the backend resolves the address to our local property.
+ */
+export interface PropertyResolveResponse {
+  id: string;
+  address: string;        // formatted: "Street Number, PostalCode City"
+  postalCode: string;
+  city: string;
+  coordinates: { lon: number; lat: number };
+  hasListing: boolean;
+  wozValue: number | null;
+}
+
 export interface GetPropertyRequest {
   id: string;
 }
 
-export interface GetPropertyResponse {
-  property: PropertyDetail;
-  userReactions?: UserPropertyReactions;
-  userGuess?: PriceGuess;
-}
-
-export interface SearchPropertiesRequest {
-  query: string;
-  city?: string;
-  postalCode?: string;
-  limit?: number;
-}
-
-export interface SearchPropertiesResponse {
-  results: PropertySummary[];
-}
+export type GetPropertyResponse = PropertyDetail;
 
 export interface GetMapPropertiesRequest {
   bounds: {
@@ -243,20 +243,6 @@ export interface DeleteCommentResponse {
 export interface LikeCommentResponse {
   isLiked: boolean;
   likeCount: number;
-}
-
-// ============================================
-// Reaction API Types
-// ============================================
-
-export interface ToggleReactionRequest {
-  propertyId: string;
-  type: 'like' | 'save';
-}
-
-export interface ToggleReactionResponse {
-  isActive: boolean;
-  counts: ReactionCounts;
 }
 
 // ============================================

@@ -50,3 +50,13 @@ export {
   addressKeys,
 } from './useAddressResolver';
 export { useListings, type ListingData } from './useListings';
+export {
+  usePropertyLike,
+  type UsePropertyLikeOptions,
+  type UsePropertyLikeReturn,
+} from './usePropertyLike';
+export {
+  usePropertySave,
+  type UsePropertySaveOptions,
+  type UsePropertySaveReturn,
+} from './usePropertySave';

@@ -11,9 +11,8 @@ import type {
   AuthLoginResponse,
   AuthRefreshRequest,
   AuthRefreshResponse,
+  PropertyResolveResponse,
   GetPropertyResponse,
-  SearchPropertiesRequest,
-  SearchPropertiesResponse,
   GetMapPropertiesRequest,
   GetMapPropertiesResponse,
   SubmitListingRequest,
@@ -27,8 +26,6 @@ import type {
   GetCommentsResponse,
   CreateCommentRequest,
   CreateCommentResponse,
-  ToggleReactionRequest,
-  ToggleReactionResponse,
   GetFeedRequest,
   GetFeedResponse,
   GetSavedPropertiesRequest,
@@ -276,24 +273,27 @@ export class HuisHypeApiClient {
   // ============================================
 
   /**
+   * Resolve a Dutch address to a local property
+   */
+  async resolveProperty(
+    postalCode: string,
+    houseNumber: string,
+    houseNumberAddition?: string
+  ): Promise<PropertyResolveResponse> {
+    return this.request<PropertyResolveResponse>('GET', '/api/v1/properties/resolve', {
+      query: {
+        postalCode,
+        houseNumber,
+        houseNumberAddition,
+      },
+    });
+  }
+
+  /**
    * Get property details
    */
   async getProperty(propertyId: string): Promise<GetPropertyResponse> {
     return this.request<GetPropertyResponse>('GET', `/api/v1/properties/${propertyId}`);
-  }
-
-  /**
-   * Search properties
-   */
-  async searchProperties(request: SearchPropertiesRequest): Promise<SearchPropertiesResponse> {
-    return this.request<SearchPropertiesResponse>('GET', '/api/v1/properties/search', {
-      query: {
-        query: request.query,
-        city: request.city,
-        postalCode: request.postalCode,
-        limit: request.limit,
-      },
-    });
   }
 
   /**
@@ -426,22 +426,6 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Reaction Endpoints
-  // ============================================
-
-  /**
-   * Toggle a reaction on a property (like/save)
-   */
-  async toggleReaction(request: ToggleReactionRequest): Promise<ToggleReactionResponse> {
-    const { propertyId, type } = request;
-    return this.request<ToggleReactionResponse>(
-      'POST',
-      `/api/v1/properties/${propertyId}/reactions/${type}`,
-      { requiresAuth: true }
-    );
-  }
-
-  // ============================================
   // Feed Endpoints
   // ============================================
 
@@ -463,11 +447,51 @@ export class HuisHypeApiClient {
    * Get saved properties
    */
   async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
-    return this.request<GetSavedPropertiesResponse>('GET', '/api/v1/users/me/saved', {
+    return this.request<GetSavedPropertiesResponse>('GET', '/api/v1/saved-properties', {
       query: {
         page: request.page,
         pageSize: request.pageSize,
       },
+      requiresAuth: true,
+    });
+  }
+
+  // ============================================
+  // Like / Save Endpoints
+  // ============================================
+
+  /**
+   * Like a property
+   */
+  async likeProperty(propertyId: string): Promise<void> {
+    return this.request<void>('POST', `/api/v1/properties/${propertyId}/like`, {
+      requiresAuth: true,
+    });
+  }
+
+  /**
+   * Unlike a property
+   */
+  async unlikeProperty(propertyId: string): Promise<void> {
+    return this.request<void>('DELETE', `/api/v1/properties/${propertyId}/like`, {
+      requiresAuth: true,
+    });
+  }
+
+  /**
+   * Save a property
+   */
+  async saveProperty(propertyId: string): Promise<void> {
+    return this.request<void>('POST', `/api/v1/properties/${propertyId}/save`, {
+      requiresAuth: true,
+    });
+  }
+
+  /**
+   * Unsave a property
+   */
+  async unsaveProperty(propertyId: string): Promise<void> {
+    return this.request<void>('DELETE', `/api/v1/properties/${propertyId}/save`, {
       requiresAuth: true,
     });
   }

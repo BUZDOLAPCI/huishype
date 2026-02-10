@@ -17,6 +17,7 @@ export interface PropertyPreviewData {
 
 interface PropertyPreviewCardProps {
   property: PropertyPreviewData;
+  isLiked?: boolean;
   onLike?: () => void;
   onComment?: () => void;
   onGuess?: () => void;
@@ -30,6 +31,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function PropertyPreviewCard({
   property,
+  isLiked = false,
   onLike,
   onComment,
   onGuess,
@@ -183,8 +185,14 @@ export function PropertyPreviewCard({
           style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="heart-outline" size={20} color="#6B7280" />
-          <Text style={{ marginLeft: 4, fontSize: 14, color: '#4B5563' }}>Like</Text>
+          <Ionicons
+            name={isLiked ? 'heart' : 'heart-outline'}
+            size={20}
+            color={isLiked ? '#EF4444' : '#6B7280'}
+          />
+          <Text style={{ marginLeft: 4, fontSize: 14, color: isLiked ? '#EF4444' : '#4B5563' }}>
+            {isLiked ? 'Liked' : 'Like'}
+          </Text>
         </Pressable>
         <Pressable
           onPress={(e) => {

@@ -37,6 +37,9 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /font/i,
 ];
 
+// Disable tracing to avoid artifact issues
+test.use({ trace: 'off' });
+
 /** Wait for the MapLibre GL map instance to be available */
 async function waitForMapReady(page: import('@playwright/test').Page, timeout = 45000) {
   await page.waitForSelector('canvas', { timeout });

@@ -75,8 +75,6 @@ export type {
   ReactionType,
   ReactionCounts,
   UserPropertyReactions,
-  ToggleReactionRequest,
-  ToggleReactionResponse,
   CommentLike,
   ToggleCommentLikeResponse,
 } from './reaction';
@@ -99,10 +97,9 @@ export type {
   UpdateUserProfileResponse,
   GetUserGuessHistoryResponse,
   // Property
+  PropertyResolveResponse,
   GetPropertyRequest,
   GetPropertyResponse,
-  SearchPropertiesRequest,
-  SearchPropertiesResponse,
   GetMapPropertiesRequest,
   GetMapPropertiesResponse,
   // Listing

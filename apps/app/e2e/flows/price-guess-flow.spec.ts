@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { createTestUser } from './helpers/test-user';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -32,20 +33,8 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*\/sprites\//,
 ];
 
-/** Create a test user via the mock Google auth endpoint */
-async function createTestUser(request: APIRequestContext, suffix: string = 'guess') {
-  const unique = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
-  const response = await request.post(`${API_BASE_URL}/auth/google`, {
-    data: { idToken: `mock-google-e2e${suffix}${unique}-gid${unique}` },
-  });
-  expect(response.ok()).toBe(true);
-  const body = await response.json();
-  return {
-    userId: body.session.user.id as string,
-    accessToken: body.session.accessToken as string,
-    username: body.session.user.username as string,
-  };
-}
+// Disable tracing to avoid artifact issues
+test.use({ trace: 'off' });
 
 /** Fetch a real property ID from the API */
 async function getTestProperty(request: APIRequestContext) {
@@ -246,9 +235,10 @@ test.describe('Price Guess Flow', () => {
     expect(guessData.propertyId).toBe(property.id);
     expect(guessData.message).toContain('submitted');
 
-    // Verify the guess appears in the list
+    // Verify the guess appears in the list (use high limit to avoid pagination
+    // issues when many guesses accumulate from repeated test runs)
     const listResponse = await request.get(
-      `${API_BASE_URL}/properties/${property.id}/guesses`
+      `${API_BASE_URL}/properties/${property.id}/guesses?limit=100`
     );
     expect(listResponse.ok()).toBe(true);
     const listData = await listResponse.json();

@@ -1,6 +1,7 @@
 import { ScrollView, Text, View, Pressable, ActivityIndicator, Linking, Share } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { formatPrice } from '@huishype/shared';
 
 import { PriceGuessSlider, CommentList } from '@/src/components';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -65,10 +66,6 @@ const MOCK_COMMENTS = [
   },
 ];
 
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL')}`;
-}
-
 function PropertyDetailSkeleton() {
   return (
     <View className="flex-1 bg-white items-center justify-center">
@@ -130,9 +127,9 @@ export default function PropertyDetailScreen() {
     // TODO: Implement save functionality
   };
 
-  const handleFavorite = () => {
-    console.log('Favorite property:', id);
-    // TODO: Implement favorite functionality
+  const handleLike = () => {
+    console.log('Like property:', id);
+    // TODO: Implement like functionality
   };
 
   if (isLoading) {
@@ -275,7 +272,7 @@ export default function PropertyDetailScreen() {
               <Text className="ml-2 text-gray-600">Share</Text>
             </Pressable>
             <Pressable
-              onPress={handleFavorite}
+              onPress={handleLike}
               className="flex-row items-center px-4 py-2"
             >
               <Ionicons name="heart-outline" size={22} color="#6B7280" />

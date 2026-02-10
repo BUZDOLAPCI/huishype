@@ -79,6 +79,18 @@ RefreshControl.displayName = 'RefreshControl';
 const StyleSheet = {
   create: (styles) => styles,
   flatten: (style) => style,
+  absoluteFill: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+};
+
+const BackHandler = {
+  addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  removeEventListener: jest.fn(),
 };
 
 const Platform = {
@@ -128,4 +140,5 @@ module.exports = {
   KeyboardAvoidingView,
   TextInput,
   Modal,
+  BackHandler,
 };

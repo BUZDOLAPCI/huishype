@@ -203,13 +203,13 @@ describe('PropertyBottomSheet', () => {
     expect(onSave).toHaveBeenCalledWith('test-property-123');
   });
 
-  it('calls onFavorite when Like button is pressed', () => {
-    const onFavorite = jest.fn();
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} onFavorite={onFavorite} />);
+  it('calls onLike when Like button is pressed', () => {
+    const onLike = jest.fn();
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} onLike={onLike} />);
 
     fireEvent.press(screen.getByText('Like'));
 
-    expect(onFavorite).toHaveBeenCalledWith('test-property-123');
+    expect(onLike).toHaveBeenCalledWith('test-property-123');
   });
 
   it('renders price guess section', () => {

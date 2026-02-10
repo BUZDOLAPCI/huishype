@@ -44,7 +44,7 @@ export const priceSchema = z
 /** Coordinates */
 export const coordinatesSchema = z.object({
   lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+  lon: z.number().min(-180).max(180),
 });
 
 /** Map bounds */
@@ -83,13 +83,6 @@ export const updateUserProfileSchema = z.object({
 // ============================================
 
 export const activityLevelSchema = z.enum(['cold', 'warm', 'hot']);
-
-export const searchPropertiesSchema = z.object({
-  query: z.string().min(1).max(200),
-  city: z.string().max(100).optional(),
-  postalCode: postalCodeSchema.optional(),
-  limit: z.number().int().min(1).max(50).default(20),
-});
 
 export const getMapPropertiesSchema = z.object({
   bounds: mapBoundsSchema,
@@ -191,12 +184,7 @@ export const getCommentsSchema = z.object({
 // Reaction Schemas
 // ============================================
 
-export const reactionTypeSchema = z.enum(['like', 'save', 'share']);
-
-export const toggleReactionSchema = z.object({
-  propertyId: idSchema,
-  type: z.enum(['like', 'save']), // share is tracked differently
-});
+export const reactionTypeSchema = z.enum(['like', 'share']);
 
 // ============================================
 // Feed Schemas

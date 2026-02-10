@@ -1,0 +1,36 @@
+appId: nl.huishype.app
+---
+# 01-smoke.yaml — App Launch Verification
+# Verifies the map loaded, tab bar is visible, and zoom controls work.
+# This is a sub-flow; app is already launched by the orchestrator.
+
+# Verify the tab bar is visible
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+# Verify the map loaded (zoom indicator appears once map renders)
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 20000
+
+- takeScreenshot: maestro-screenshots/full_flow_01_app_launched
+
+# Test zoom-in control
+- tapOn:
+    text: "+"
+- waitForAnimationToEnd
+
+# Verify zoom increased (zoom indicator still visible)
+- assertVisible:
+    text: "Zoom.*"
+
+# Test zoom-out control (uses Unicode MINUS SIGN, target by testID)
+- tapOn:
+    id: "zoom-out-button"
+- waitForAnimationToEnd
+
+# Verify zoom indicator still present after zoom out
+- assertVisible:
+    text: "Zoom.*"
+
+- takeScreenshot: maestro-screenshots/full_flow_01_zoom_controls_verified

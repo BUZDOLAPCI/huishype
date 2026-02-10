@@ -32,6 +32,9 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*\/sprites\//,
 ];
 
+// Disable tracing to avoid artifact issues
+test.use({ trace: 'off' });
+
 /** Create a test user via the mock Google auth endpoint */
 async function createTestUser(request: APIRequestContext, suffix: string = 'comment') {
   const unique = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;

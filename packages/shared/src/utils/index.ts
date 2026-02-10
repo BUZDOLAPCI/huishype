@@ -20,7 +20,6 @@ export {
   updateUserProfileSchema,
   // Property
   activityLevelSchema,
-  searchPropertiesSchema,
   getMapPropertiesSchema,
   // Listing
   listingSourceSchema,
@@ -37,7 +36,6 @@ export {
   getCommentsSchema,
   // Reaction
   reactionTypeSchema,
-  toggleReactionSchema,
   // Feed
   feedTypeSchema,
   getFeedSchema,

@@ -144,7 +144,7 @@ describe('PropertyFeedCard', () => {
     it('does not trigger reverse geocoding for real addresses', () => {
       (isBagPandPlaceholder as jest.Mock).mockReturnValue(false);
 
-      render(<PropertyFeedCard {...defaultProps} coordinates={{ lat: 52.37, lng: 4.89 }} />);
+      render(<PropertyFeedCard {...defaultProps} coordinates={{ lat: 52.37, lon: 4.89 }} />);
 
       // Should not try to resolve a real address
       expect(useReverseGeocode).toHaveBeenCalledWith(null, null, { enabled: false });
@@ -157,7 +157,7 @@ describe('PropertyFeedCard', () => {
         <PropertyFeedCard
           {...defaultProps}
           address="BAG Pand 0772100001217229"
-          coordinates={{ lat: 51.45, lng: 5.47 }}
+          coordinates={{ lat: 51.45, lon: 5.47 }}
         />
       );
 
@@ -181,7 +181,7 @@ describe('PropertyFeedCard', () => {
           {...defaultProps}
           address="BAG Pand 0772100001217229"
           city="Unknown"
-          coordinates={{ lat: 51.45, lng: 5.47 }}
+          coordinates={{ lat: 51.45, lon: 5.47 }}
         />
       );
 

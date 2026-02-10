@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, properties } from '../db/index.js';
-import { eq, sql } from 'drizzle-orm';
+import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
+import { sql, eq, and } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
 
 const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || COALESCE(p.house_number_addition, '') || ', ' || p.postal_code || ' ' || p.city`;
@@ -76,12 +76,78 @@ const propertyDetailSchema = z.object({
   oppervlakte: z.number().nullable().describe('Surface area in m2'),
   status: z.enum(['active', 'inactive', 'demolished']),
   wozValue: z.number().nullable().describe('Official government valuation'),
+  likeCount: z.number().describe('Total number of likes on this property'),
+  isLiked: z.boolean().describe('Whether the current user has liked this property'),
+  isSaved: z.boolean().describe('Whether the current user has saved this property'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
 const propertyParamsSchema = z.object({
   id: z.string().uuid(),
+});
+
+const saveResponseSchema = z.object({
+  saved: z.boolean(),
+});
+
+const errorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+const savedPropertySchema = z.object({
+  id: z.string().uuid(),
+  bagIdentificatie: z.string().nullable(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  geometry: coordinateSchema.nullable(),
+  bouwjaar: z.number().nullable(),
+  oppervlakte: z.number().nullable(),
+  status: z.enum(['active', 'inactive', 'demolished']),
+  wozValue: z.number().nullable(),
+  hasListing: z.boolean(),
+  askingPrice: z.number().nullable(),
+  commentCount: z.number(),
+  guessCount: z.number(),
+  savedAt: z.string().datetime(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const savedPropertiesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const savedPropertiesResponseSchema = z.object({
+  data: z.array(savedPropertySchema),
+  total: z.number(),
+  hasMore: z.boolean(),
+});
+
+// Schema for /properties/resolve endpoint
+const resolveQuerySchema = z.object({
+  postalCode: z.string().regex(/^\d{4}\s?[A-Za-z]{2}$/, 'Invalid Dutch postal code format'),
+  houseNumber: z.coerce.number().int().positive(),
+  houseNumberAddition: z.string().optional(),
+});
+
+const resolveResponseSchema = z.object({
+  id: z.string().uuid(),
+  address: z.string(),
+  postalCode: z.string(),
+  city: z.string(),
+  coordinates: z.object({
+    lon: z.number(),
+    lat: z.number(),
+  }),
+  hasListing: z.boolean(),
+  wozValue: z.number().nullable(),
 });
 
 // Schema for /properties/nearby endpoint
@@ -115,6 +181,50 @@ const nearbyResponseSchema = z.array(nearbyPropertySchema);
  */
 function zoomToRadiusDegrees(zoom: number): number {
   return 25 * (360 / Math.pow(2, zoom) / 256);
+}
+
+/**
+ * Map common DB row fields to camelCase response fields.
+ * Used by properties list, property detail, and saved-properties endpoints.
+ */
+function mapPropertyRow(r: {
+  id: string;
+  bag_identificatie: string | null;
+  street: string;
+  house_number: number;
+  house_number_addition: string | null;
+  address: string;
+  city: string;
+  postal_code: string | null;
+  lon: number | null;
+  lat: number | null;
+  bouwjaar: number | null;
+  oppervlakte: number | null;
+  status: string;
+  woz_value: number | null;
+  created_at: string;
+  updated_at: string;
+}) {
+  return {
+    id: r.id,
+    bagIdentificatie: r.bag_identificatie,
+    street: r.street,
+    houseNumber: r.house_number,
+    houseNumberAddition: r.house_number_addition,
+    address: r.address,
+    city: r.city,
+    postalCode: r.postal_code,
+    geometry:
+      r.lon != null && r.lat != null
+        ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+        : null,
+    bouwjaar: r.bouwjaar != null ? Number(r.bouwjaar) : null,
+    oppervlakte: r.oppervlakte != null ? Number(r.oppervlakte) : null,
+    status: r.status as 'active' | 'inactive' | 'demolished',
+    wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+    createdAt: new Date(r.created_at).toISOString(),
+    updatedAt: new Date(r.updated_at).toISOString(),
+  };
 }
 
 export async function propertyRoutes(app: FastifyInstance) {
@@ -243,28 +353,11 @@ export async function propertyRoutes(app: FastifyInstance) {
       `);
 
       const results = Array.from(rows).map((r) => ({
-        id: r.id,
-        bagIdentificatie: r.bag_identificatie,
-        street: r.street,
-        houseNumber: r.house_number,
-        houseNumberAddition: r.house_number_addition,
-        address: r.address,
-        city: r.city,
-        postalCode: r.postal_code,
-        geometry:
-          r.lon != null && r.lat != null
-            ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
-            : null,
-        bouwjaar: r.bouwjaar != null ? Number(r.bouwjaar) : null,
-        oppervlakte: r.oppervlakte != null ? Number(r.oppervlakte) : null,
-        status: r.status as 'active' | 'inactive' | 'demolished',
-        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        ...mapPropertyRow(r),
         hasListing: r.has_listing,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
-        createdAt: new Date(r.created_at).toISOString(),
-        updatedAt: new Date(r.updated_at).toISOString(),
       }));
 
       return reply.send({
@@ -275,6 +368,102 @@ export async function propertyRoutes(app: FastifyInstance) {
           total,
           totalPages: Math.ceil(total / limit),
         },
+      });
+    }
+  );
+
+  // GET /properties/resolve - Resolve a Dutch address to a local property
+  typedApp.get(
+    '/properties/resolve',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Resolve address to property',
+        description:
+          'Resolve a Dutch address (postal code + house number) to a local property UUID and coordinates. ' +
+          'Uses the existing unique index on (postal_code, house_number, house_number_addition).',
+        querystring: resolveQuerySchema,
+        response: {
+          200: resolveResponseSchema,
+          404: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { postalCode, houseNumber, houseNumberAddition } = request.query;
+
+      // Normalize postal code: strip whitespace, uppercase
+      const normalizedPostalCode = postalCode.replace(/\s/g, '').toUpperCase();
+
+      // Normalize addition: trim, uppercase, treat empty as null
+      const normalizedAddition = houseNumberAddition?.trim().toUpperCase() || null;
+
+      // Exact match using the unique index on (postal_code, house_number, house_number_addition)
+      // Note: DB stores empty string '' for no addition (not NULL), so we match both
+      const additionCondition = normalizedAddition
+        ? sql`p.house_number_addition = ${normalizedAddition}`
+        : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
+
+      const rows = await db.execute<{
+        id: string;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        address: string;
+        city: string;
+        postal_code: string;
+        woz_value: number | null;
+        has_listing: boolean;
+        lon: number | null;
+        lat: number | null;
+      }>(sql`
+        SELECT
+          p.id,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
+          p.city,
+          p.postal_code,
+          p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat
+        FROM properties p
+        LEFT JOIN LATERAL (
+          SELECT id FROM listings
+          WHERE property_id = p.id AND status = 'active'
+          LIMIT 1
+        ) l ON true
+        WHERE p.postal_code = ${normalizedPostalCode}
+          AND p.house_number = ${houseNumber}
+          AND ${additionCondition}
+        LIMIT 1
+      `);
+
+      const result = Array.from(rows);
+      if (result.length === 0) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: `No property found for ${normalizedPostalCode} ${houseNumber}${normalizedAddition ?? ''}`,
+        });
+      }
+
+      const r = result[0];
+      return reply.send({
+        id: r.id,
+        address: r.address,
+        postalCode: r.postal_code,
+        city: r.city,
+        coordinates: {
+          lon: r.lon ?? 0,
+          lat: r.lat ?? 0,
+        },
+        hasListing: r.has_listing,
+        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
       });
     }
   );
@@ -396,13 +585,56 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
+      const userId = request.headers['x-user-id'] as string | undefined;
 
-      const result = await db
-        .select()
-        .from(properties)
-        .where(eq(properties.id, id))
-        .limit(1);
+      // Use a placeholder UUID for unauthenticated requests (will never match)
+      const effectiveUserId = userId || '00000000-0000-4000-a000-000000000000';
 
+      const rows = await db.execute<{
+        id: string;
+        bag_identificatie: string | null;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        city: string;
+        postal_code: string | null;
+        lon: number | null;
+        lat: number | null;
+        bouwjaar: number | null;
+        oppervlakte: number | null;
+        status: string;
+        woz_value: number | null;
+        like_count: number;
+        is_liked: boolean;
+        is_saved: boolean;
+        created_at: string;
+        updated_at: string;
+      }>(sql`
+        SELECT
+          p.id,
+          p.bag_identificatie,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          p.city,
+          p.postal_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          p.bouwjaar,
+          p.oppervlakte,
+          p.status,
+          p.woz_value,
+          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
+          EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
+          EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
+          p.created_at,
+          p.updated_at
+        FROM properties p
+        WHERE p.id = ${id}
+        LIMIT 1
+      `);
+
+      const result = Array.from(rows);
       if (result.length === 0) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
@@ -410,19 +642,267 @@ export async function propertyRoutes(app: FastifyInstance) {
         });
       }
 
-      const property = result[0];
+      const r = result[0];
       return reply.send({
-        ...property,
+        ...mapPropertyRow(r),
+        // Override address with formatted display address
         address: formatDisplayAddress({
-          street: property.street,
-          houseNumber: property.houseNumber,
-          houseNumberAddition: property.houseNumberAddition,
-          postalCode: property.postalCode,
-          city: property.city,
+          street: r.street,
+          houseNumber: r.house_number,
+          houseNumberAddition: r.house_number_addition,
+          postalCode: r.postal_code,
+          city: r.city,
         }),
-        createdAt: property.createdAt.toISOString(),
-        updatedAt: property.updatedAt.toISOString(),
+        likeCount: Number(r.like_count),
+        isLiked: r.is_liked,
+        isSaved: r.is_saved,
       });
+    }
+  );
+
+  // POST /properties/:id/save — Save a property
+  typedApp.post(
+    '/properties/:id/save',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Save a property',
+        description: 'Save a property to the user\'s saved list. Returns 409 if already saved.',
+        params: propertyParamsSchema,
+        response: {
+          201: saveResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          409: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id: propertyId } = request.params;
+      const userId = request.headers['x-user-id'] as string | undefined;
+
+      if (!userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required to save properties.',
+        });
+      }
+
+      // Verify property exists
+      const propertyExists = await db
+        .select({ id: propertiesTable.id })
+        .from(propertiesTable)
+        .where(eq(propertiesTable.id, propertyId))
+        .limit(1);
+
+      if (propertyExists.length === 0) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Property not found.',
+        });
+      }
+
+      // Check if already saved
+      const existing = await db
+        .select({ id: savedProperties.id })
+        .from(savedProperties)
+        .where(
+          and(
+            eq(savedProperties.userId, userId),
+            eq(savedProperties.propertyId, propertyId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        return reply.status(409).send({
+          error: 'ALREADY_SAVED',
+          message: 'You have already saved this property.',
+        });
+      }
+
+      // Insert (try-catch for race condition on unique/FK constraint)
+      try {
+        await db.insert(savedProperties).values({
+          userId,
+          propertyId,
+        });
+      } catch (err: unknown) {
+        const pgErr = err as { code?: string };
+        if (pgErr.code === '23505') {
+          return reply.status(409).send({
+            error: 'ALREADY_SAVED',
+            message: 'You have already saved this property.',
+          });
+        }
+        if (pgErr.code === '23503') {
+          return reply.status(404).send({
+            error: 'NOT_FOUND',
+            message: 'Property not found.',
+          });
+        }
+        throw err;
+      }
+
+      return reply.status(201).send({ saved: true });
+    }
+  );
+
+  // DELETE /properties/:id/save — Unsave a property
+  typedApp.delete(
+    '/properties/:id/save',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Unsave a property',
+        description: 'Remove a property from the user\'s saved list. Returns 404 if not saved.',
+        params: propertyParamsSchema,
+        response: {
+          200: saveResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id: propertyId } = request.params;
+      const userId = request.headers['x-user-id'] as string | undefined;
+
+      if (!userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required to unsave properties.',
+        });
+      }
+
+      // Find the existing saved entry
+      const existing = await db
+        .select({ id: savedProperties.id })
+        .from(savedProperties)
+        .where(
+          and(
+            eq(savedProperties.userId, userId),
+            eq(savedProperties.propertyId, propertyId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'You have not saved this property.',
+        });
+      }
+
+      await db
+        .delete(savedProperties)
+        .where(eq(savedProperties.id, existing[0].id));
+
+      return reply.send({ saved: false });
+    }
+  );
+
+  // GET /saved-properties — List user's saved properties (paginated)
+  typedApp.get(
+    '/saved-properties',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'List saved properties',
+        description: 'Get a paginated list of the user\'s saved properties, ordered by most recently saved.',
+        querystring: savedPropertiesQuerySchema,
+        response: {
+          200: savedPropertiesResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.headers['x-user-id'] as string | undefined;
+
+      if (!userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required to view saved properties.',
+        });
+      }
+
+      const { limit, offset } = request.query;
+
+      // Total count for pagination
+      const countRows = await db.execute<{ cnt: number }>(sql`
+        SELECT COUNT(*)::int AS cnt FROM saved_properties WHERE user_id = ${userId}
+      `);
+      const total = Array.from(countRows)[0]?.cnt ?? 0;
+
+      const rows = await db.execute<{
+        id: string;
+        bag_identificatie: string | null;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        address: string;
+        city: string;
+        postal_code: string | null;
+        lon: number | null;
+        lat: number | null;
+        bouwjaar: number | null;
+        oppervlakte: number | null;
+        status: string;
+        woz_value: number | null;
+        has_listing: boolean;
+        asking_price: number | null;
+        comment_count: number;
+        guess_count: number;
+        saved_at: string;
+        created_at: string;
+        updated_at: string;
+      }>(sql`
+        SELECT
+          p.id,
+          p.bag_identificatie,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          ${ADDRESS_SQL} AS address,
+          p.city,
+          p.postal_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          p.bouwjaar,
+          p.oppervlakte,
+          p.status,
+          p.woz_value,
+          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          l.asking_price,
+          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          sp.created_at AS saved_at,
+          p.created_at,
+          p.updated_at
+        FROM saved_properties sp
+        INNER JOIN properties p ON p.id = sp.property_id
+        LEFT JOIN LATERAL (
+          SELECT id, asking_price FROM listings
+          WHERE property_id = p.id AND status = 'active'
+          ORDER BY created_at DESC LIMIT 1
+        ) l ON true
+        WHERE sp.user_id = ${userId}
+        ORDER BY sp.created_at DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `);
+
+      const results = Array.from(rows).map((r) => ({
+        ...mapPropertyRow(r),
+        hasListing: r.has_listing,
+        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        commentCount: Number(r.comment_count),
+        guessCount: Number(r.guess_count),
+        savedAt: new Date(r.saved_at).toISOString(),
+      }));
+
+      return reply.send({ data: results, total, hasMore: offset + limit < total });
     }
   );
 }
@@ -431,5 +911,10 @@ export async function propertyRoutes(app: FastifyInstance) {
 export type PropertyListQuery = z.infer<typeof propertyListQuerySchema>;
 export type PropertyListResponse = z.infer<typeof propertyListResponseSchema>;
 export type PropertyResponse = z.infer<typeof propertySchema>;
+export type ResolveQuery = z.infer<typeof resolveQuerySchema>;
+export type ResolveResponse = z.infer<typeof resolveResponseSchema>;
 export type NearbyProperty = z.infer<typeof nearbyPropertySchema>;
 export type NearbyResponse = z.infer<typeof nearbyResponseSchema>;
+export type SaveResponse = z.infer<typeof saveResponseSchema>;
+export type SavedPropertyResponse = z.infer<typeof savedPropertySchema>;
+export type SavedPropertiesResponse = z.infer<typeof savedPropertiesResponseSchema>;

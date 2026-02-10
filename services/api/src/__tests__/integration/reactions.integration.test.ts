@@ -137,14 +137,14 @@ describe('Reaction routes', () => {
       expect(body.likeCount).toBe(1);
     });
 
-    it('should return 400 when liking again (already liked)', async () => {
+    it('should return 409 when liking again (already liked)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/comments/${commentId}/like`,
         headers: { 'x-user-id': userId },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(409);
       const body = JSON.parse(response.body);
       expect(body.error).toBe('ALREADY_LIKED');
     });

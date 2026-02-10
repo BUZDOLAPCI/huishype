@@ -49,6 +49,7 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  signInWithMockToken: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
@@ -391,6 +392,62 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [storeAuthData]);
 
   /**
+   * Sign in with a mock token (dev/test only).
+   *
+   * Token format: mock-google-{emailPrefix}-{googleId}
+   * The backend splits on '-' and takes parts[2] as email prefix + @gmail.com,
+   * parts[3] as googleId.
+   *
+   * Gated behind __DEV__ — throws in production builds.
+   */
+  const signInWithMockToken = useCallback(
+    async (token: string) => {
+      if (!__DEV__) {
+        throw new Error('signInWithMockToken is only available in development');
+      }
+
+      try {
+        setState((prev) => ({ ...prev, isLoading: true }));
+
+        const response = await fetch(`${API_BASE_URL}/auth/google`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ idToken: token }),
+        });
+
+        if (!response.ok) {
+          const error = (await response.json()) as { message?: string };
+          throw new Error(error.message || 'Mock authentication failed');
+        }
+
+        const data = (await response.json()) as {
+          session: {
+            user: AuthUser;
+            accessToken: string;
+            refreshToken: string;
+            expiresAt: string;
+          };
+          isNewUser: boolean;
+        };
+
+        await storeAuthData(
+          data.session.accessToken,
+          data.session.refreshToken,
+          data.session.user,
+          data.session.expiresAt
+        );
+      } catch (error) {
+        console.error('Mock token sign in failed:', error);
+        setState((prev) => ({ ...prev, isLoading: false }));
+        throw error;
+      }
+    },
+    [storeAuthData]
+  );
+
+  /**
    * Sign out
    */
   const signOut = useCallback(async () => {
@@ -482,6 +539,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     ...state,
     signInWithGoogle,
     signInWithApple,
+    signInWithMockToken,
     signOut,
     refreshAuth,
     getAccessToken,

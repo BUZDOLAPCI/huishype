@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import type { PropertyResolveResponse } from '@huishype/shared';
 
 const DEFAULT_API_PORT = '3100';
 
@@ -125,6 +126,45 @@ export async function fetchNearbyProperty(
     return closest;
   } catch (err) {
     console.warn('[HuisHype] fetchNearbyProperty failed:', err);
+    return null;
+  }
+}
+
+// --- Property resolve (imperative, not a hook) ---
+
+export type PropertyResolveResult = PropertyResolveResponse;
+
+/**
+ * Resolve a Dutch address (postal code + house number) to a local property.
+ * Returns null if the property is not found (404).
+ *
+ * This is an imperative async function (NOT a hook) — call it from search
+ * result tap handlers.
+ */
+export async function resolveProperty(
+  postalCode: string,
+  houseNumber: string,
+  houseNumberAddition?: string,
+): Promise<PropertyResolveResult | null> {
+  try {
+    const params = new URLSearchParams({
+      postalCode,
+      houseNumber,
+    });
+    if (houseNumberAddition) {
+      params.set('houseNumberAddition', houseNumberAddition);
+    }
+
+    const result = await apiFetch<PropertyResolveResult>(
+      `/properties/resolve?${params.toString()}`,
+    );
+    return result;
+  } catch (err) {
+    // 404 means property not found — return null
+    if (err instanceof Error && err.message.includes('404')) {
+      return null;
+    }
+    console.warn('[HuisHype] resolveProperty failed:', err);
     return null;
   }
 }

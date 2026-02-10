@@ -1,12 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, reactions } from '../db/index.js';
+import { db, reactions, properties } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 
 // Schema definitions
 const commentParamsSchema = z.object({
   id: z.string().uuid().describe('Comment ID'),
+});
+
+const propertyParamsSchema = z.object({
+  id: z.string().uuid().describe('Property ID'),
 });
 
 const likeResponseSchema = z.object({
@@ -88,12 +92,12 @@ export async function reactionRoutes(app: FastifyInstance) {
       schema: {
         tags: ['reactions'],
         summary: 'Like a comment',
-        description: 'Add a like reaction to a comment. Returns 400 if already liked.',
+        description: 'Add a like reaction to a comment. Returns 409 if already liked.',
         params: commentParamsSchema,
         response: {
           201: likeCreatedResponseSchema,
-          400: errorResponseSchema,
           401: errorResponseSchema,
+          409: errorResponseSchema,
         },
       },
     },
@@ -123,7 +127,7 @@ export async function reactionRoutes(app: FastifyInstance) {
         .limit(1);
 
       if (existingReaction.length > 0) {
-        return reply.status(400).send({
+        return reply.status(409).send({
           error: 'ALREADY_LIKED',
           message: 'You have already liked this comment.',
         });
@@ -226,6 +230,163 @@ export async function reactionRoutes(app: FastifyInstance) {
 
       return reply.send({
         message: 'Comment unliked successfully',
+        liked: false,
+        likeCount,
+      });
+    }
+  );
+
+  // POST /properties/:id/like - Like a property
+  typedApp.post(
+    '/properties/:id/like',
+    {
+      schema: {
+        tags: ['reactions'],
+        summary: 'Like a property',
+        description: 'Add a like reaction to a property. Returns 409 if already liked.',
+        params: propertyParamsSchema,
+        response: {
+          201: likeResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+          409: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id: propertyId } = request.params;
+      const userId = request.headers['x-user-id'] as string | undefined;
+
+      if (!userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required to like properties.',
+        });
+      }
+
+      // Verify property exists (no FK constraint on reactions.target_id)
+      const propertyExists = await db
+        .select({ id: properties.id })
+        .from(properties)
+        .where(eq(properties.id, propertyId))
+        .limit(1);
+
+      if (propertyExists.length === 0) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Property not found.',
+        });
+      }
+
+      // Check if already liked
+      const existingReaction = await db
+        .select({ id: reactions.id })
+        .from(reactions)
+        .where(
+          and(
+            eq(reactions.targetType, 'property'),
+            eq(reactions.targetId, propertyId),
+            eq(reactions.userId, userId),
+            eq(reactions.reactionType, 'like')
+          )
+        )
+        .limit(1);
+
+      if (existingReaction.length > 0) {
+        return reply.status(409).send({
+          error: 'ALREADY_LIKED',
+          message: 'You have already liked this property.',
+        });
+      }
+
+      // Atomic INSERT + COUNT using CTE (try-catch for race condition on unique constraint)
+      // Note: The main SELECT runs in the same snapshot as the CTE, so it won't see
+      // the newly inserted row. We add 1 to account for the inserted row.
+      let likeCount: number;
+      try {
+        const result = await db.execute<{ like_count: number }>(sql`
+          WITH inserted AS (
+            INSERT INTO reactions (target_type, target_id, user_id, reaction_type)
+            VALUES ('property', ${propertyId}, ${userId}, 'like')
+            RETURNING id
+          )
+          SELECT (count(*)::int + (SELECT count(*)::int FROM inserted)) AS like_count
+          FROM reactions
+          WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
+        `);
+        likeCount = Array.from(result)[0]?.like_count ?? 0;
+      } catch (err: unknown) {
+        const pgErr = err as { code?: string };
+        if (pgErr.code === '23505') {
+          return reply.status(409).send({
+            error: 'ALREADY_LIKED',
+            message: 'You have already liked this property.',
+          });
+        }
+        throw err;
+      }
+
+      return reply.status(201).send({
+        liked: true,
+        likeCount,
+      });
+    }
+  );
+
+  // DELETE /properties/:id/like - Unlike a property
+  typedApp.delete(
+    '/properties/:id/like',
+    {
+      schema: {
+        tags: ['reactions'],
+        summary: 'Unlike a property',
+        description: 'Remove a like reaction from a property. Returns 404 if not previously liked.',
+        params: propertyParamsSchema,
+        response: {
+          200: likeResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id: propertyId } = request.params;
+      const userId = request.headers['x-user-id'] as string | undefined;
+
+      if (!userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required to unlike properties.',
+        });
+      }
+
+      // Atomic DELETE + COUNT using CTE — returns deleted_count and remaining like_count
+      // Note: The main SELECT still sees the rows in the same snapshot, so we subtract
+      // the deleted count to get the accurate remaining count.
+      const result = await db.execute<{ deleted_count: number; like_count: number }>(sql`
+        WITH deleted AS (
+          DELETE FROM reactions
+          WHERE target_type = 'property' AND target_id = ${propertyId} AND user_id = ${userId} AND reaction_type = 'like'
+          RETURNING id
+        )
+        SELECT
+          (SELECT count(*)::int FROM deleted) AS deleted_count,
+          (count(*)::int - (SELECT count(*)::int FROM deleted)) AS like_count
+        FROM reactions
+        WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
+      `);
+      const row = Array.from(result)[0];
+      const deletedCount = row?.deleted_count ?? 0;
+      const likeCount = row?.like_count ?? 0;
+
+      if (deletedCount === 0) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'You have not liked this property.',
+        });
+      }
+
+      return reply.send({
         liked: false,
         likeCount,
       });

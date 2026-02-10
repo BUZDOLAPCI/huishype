@@ -1,0 +1,88 @@
+appId: nl.huishype.app
+---
+# 06-auth-interactions.yaml — Post-Login Interactions
+# After login, the property was deselected (handleAuthStarting clears it).
+# This flow tries to re-open a property and test authenticated interactions.
+#
+# KNOWN LIMITATION: The preview card tap is optional because auth clears the
+# selected property. If the tap fails, the bottom sheet never opens, making all
+# subsequent content assertions unreachable. Maestro has no conditional blocks,
+# so all assertions after the tap must remain optional to avoid false failures.
+# This is acceptable — the unauthenticated flow (04-bottom-sheet) already tests
+# bottom sheet content thoroughly.
+#
+# SAFETY: Never use `tapOn: Input text` patterns here — if the bottom sheet
+# didn't open, Maestro would type into whatever is focused (e.g., the search
+# bar), which covers the screen and breaks subsequent flows.
+
+# Try tapping the preview card (may not exist after auth cleared it)
+- tapOn:
+    id: "property-preview-card"
+    optional: true
+- waitForAnimationToEnd
+
+# Try swiping up to expand bottom sheet (if preview card was found)
+- swipe:
+    start: "50%,70%"
+    end: "50%,20%"
+    duration: 500
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_15_auth_bottom_sheet
+
+# All assertions below are optional — bottom sheet may not be open (see header comment)
+- assertVisible:
+    text: "Save"
+    optional: true
+- assertVisible:
+    text: "Share"
+    optional: true
+
+# Scroll to price guess section
+- swipe:
+    start: "50%,60%"
+    end: "50%,30%"
+    duration: 300
+- waitForAnimationToEnd
+
+- assertVisible:
+    text: "Guess the Price"
+    optional: true
+
+- tapOn:
+    id: "submit-guess-button"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_16_price_guess
+
+# Scroll to comments
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+- waitForAnimationToEnd
+
+- assertVisible:
+    text: "Comments"
+    optional: true
+
+- assertVisible:
+    text: ".*thoughts.*"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/full_flow_17_comment_section
+
+# Scroll back up
+- swipe:
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 300
+- waitForAnimationToEnd
+- swipe:
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 300
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_18_auth_final_state

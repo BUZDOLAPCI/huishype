@@ -1,0 +1,56 @@
+appId: nl.huishype.app
+---
+# 05-login.yaml — Dev Login
+# Triggers auth modal via the Like button on the preview card,
+# then uses the Dev Login button to authenticate.
+# This is a sub-flow; bottom sheet is expanded on the fixture property.
+
+# First, dismiss the bottom sheet to get back to the preview card
+- swipe:
+    start: "50%,30%"
+    end: "50%,95%"
+    duration: 500
+- waitForAnimationToEnd
+
+# If bottom sheet is still partially visible, swipe again
+- swipe:
+    start: "50%,50%"
+    end: "50%,95%"
+    duration: 500
+    optional: true
+- waitForAnimationToEnd
+
+# Verify we're back on the map with the preview card
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring.*"
+    timeout: 10000
+
+# Tap "Like" on the preview card to trigger auth modal (unauthenticated)
+- tapOn: "Like"
+- waitForAnimationToEnd
+
+# Assert auth modal appears with "Sign In" header text
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 15000
+
+# Look for the "Dev Login" button (purple button, only in __DEV__ builds)
+- assertVisible: "Dev Login"
+
+# Tap "Dev Login" button to authenticate
+- tapOn: "Dev Login"
+- waitForAnimationToEnd
+
+# Wait for auth state transition to complete and BottomSheetErrorBoundary to recover
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_13_logged_in
+
+# Verify we're back on the map — preview card should still be visible
+# Use longer timeout to allow for error boundary recovery (500ms) and re-renders
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring.*"
+    timeout: 15000
+
+- takeScreenshot: maestro-screenshots/full_flow_14_post_login_map

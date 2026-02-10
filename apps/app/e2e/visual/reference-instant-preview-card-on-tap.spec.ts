@@ -609,12 +609,25 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     if (previewVisible) {
-      // Test Like button click (should not cause errors)
+      // Test Like button click (triggers auth modal since user is not authenticated)
       const likeButton = page.locator('text=Like').first();
       if (await likeButton.isVisible()) {
         await likeButton.click();
-        console.log('Like button clicked successfully');
+        console.log('Like button clicked - triggers auth modal (unauthenticated)');
         await page.waitForTimeout(500);
+
+        // Dismiss the auth modal that appears by clicking the Close button
+        const closeButton = page.locator('role=button[name="Close"]');
+        if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await closeButton.click();
+          console.log('Auth modal dismissed via Close button');
+          await page.waitForTimeout(500);
+        } else {
+          // Fallback: press Escape to dismiss the modal
+          await page.keyboard.press('Escape');
+          console.log('Auth modal dismissed via Escape');
+          await page.waitForTimeout(500);
+        }
       }
 
       // Test Comment button click (should open bottom sheet)

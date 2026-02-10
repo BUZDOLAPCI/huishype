@@ -8,7 +8,7 @@
  */
 export interface Coordinates {
   lat: number;
-  lng: number;
+  lon: number;
 }
 
 /**
@@ -80,6 +80,12 @@ export interface PropertyDetail extends Property {
   photoSource?: 'listing' | 'user' | 'streetview';
   /** Additional photos */
   photos: PropertyPhoto[];
+  /** Total number of likes on this property */
+  likeCount: number;
+  /** Whether the current user has liked this property (false if unauthenticated) */
+  isLiked: boolean;
+  /** Whether the current user has saved this property (false if unauthenticated) */
+  isSaved: boolean;
 }
 
 /**

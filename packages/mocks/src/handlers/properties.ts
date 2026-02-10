@@ -4,7 +4,6 @@
 
 import { http, HttpResponse } from 'msw';
 import {
-  mockPropertySummaries,
   mockMapProperties,
   mockPropertyClusters,
   getMockProperty,
@@ -12,18 +11,47 @@ import {
 } from '../data/fixtures';
 import { getMockAuthUser } from './auth';
 import type {
-  GetPropertyResponse,
-  SearchPropertiesResponse,
   GetMapPropertiesResponse,
+  PropertyResolveResponse,
 } from '@huishype/shared';
 
 const API_BASE = '/api/v1';
 
 export const propertyHandlers = [
   /**
+   * GET /properties/resolve - Resolve address to property
+   * Must be before :propertyId handler to avoid route collision
+   */
+  http.get(`${API_BASE}/properties/resolve`, ({ request }) => {
+    const url = new URL(request.url);
+    const postalCode = url.searchParams.get('postalCode');
+    const houseNumber = url.searchParams.get('houseNumber');
+
+    if (!postalCode || !houseNumber) {
+      return HttpResponse.json(
+        { code: 'BAD_REQUEST', message: 'postalCode and houseNumber are required' },
+        { status: 400 }
+      );
+    }
+
+    // Return a mock resolved property
+    const response: PropertyResolveResponse = {
+      id: 'a0000000-0000-4000-a000-000000000001',
+      address: `Mockstraat ${houseNumber}, ${postalCode} Amsterdam`,
+      postalCode: postalCode.replace(/\s/g, '').toUpperCase(),
+      city: 'Amsterdam',
+      coordinates: { lon: 4.8952, lat: 52.3702 },
+      hasListing: true,
+      wozValue: 450000,
+    };
+
+    return HttpResponse.json(response);
+  }),
+
+  /**
    * GET /properties/:propertyId - Get property details
    */
-  http.get(`${API_BASE}/properties/:propertyId`, ({ params, request }) => {
+  http.get(`${API_BASE}/properties/:propertyId`, ({ params }) => {
     const { propertyId } = params;
     const property = getMockProperty(propertyId as string);
 
@@ -34,60 +62,9 @@ export const propertyHandlers = [
       );
     }
 
-    // Get user's reactions and guess if authenticated
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
-    const userGuess = authUser
-      ? getMockGuesses(property.id).find((g) => g.userId === authUser.id)
-      : undefined;
-
-    const response: GetPropertyResponse = {
-      property,
-      userReactions: authUser
-        ? {
-            hasLiked: false, // Would come from DB
-            hasSaved: false,
-          }
-        : undefined,
-      userGuess,
-    };
-
-    return HttpResponse.json(response);
-  }),
-
-  /**
-   * GET /properties/search - Search properties
-   */
-  http.get(`${API_BASE}/properties/search`, ({ request }) => {
-    const url = new URL(request.url);
-    const query = url.searchParams.get('query')?.toLowerCase() || '';
-    const city = url.searchParams.get('city')?.toLowerCase();
-    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
-
-    let results = mockPropertySummaries;
-
-    // Filter by query (address)
-    if (query) {
-      results = results.filter(
-        (p) =>
-          p.address.toLowerCase().includes(query) ||
-          p.city.toLowerCase().includes(query) ||
-          p.postalCode.toLowerCase().replace(/\s/g, '').includes(query.replace(/\s/g, ''))
-      );
-    }
-
-    // Filter by city
-    if (city) {
-      results = results.filter((p) => p.city.toLowerCase() === city);
-    }
-
-    // Limit results
-    results = results.slice(0, limit);
-
-    const response: SearchPropertiesResponse = {
-      results,
-    };
-
-    return HttpResponse.json(response);
+    // GetPropertyResponse = PropertyDetail (flat object)
+    // The mock property is already a PropertyDetail, return directly
+    return HttpResponse.json(property);
   }),
 
   /**
@@ -109,12 +86,12 @@ export const propertyHandlers = [
 
     // Filter properties by bounds
     let properties = mockMapProperties.filter((p) => {
-      const { lat, lng } = p.coordinates;
+      const { lat, lon } = p.coordinates;
       return (
         lat >= bounds.south &&
         lat <= bounds.north &&
-        lng >= bounds.west &&
-        lng <= bounds.east
+        lon >= bounds.west &&
+        lon <= bounds.east
       );
     });
 
@@ -151,8 +128,8 @@ export const propertyHandlers = [
               return (
                 c.coordinates.lat >= bounds.south &&
                 c.coordinates.lat <= bounds.north &&
-                c.coordinates.lng >= bounds.west &&
-                c.coordinates.lng <= bounds.east
+                c.coordinates.lon >= bounds.west &&
+                c.coordinates.lon <= bounds.east
               );
             }),
           }

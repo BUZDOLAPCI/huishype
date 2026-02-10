@@ -1,0 +1,88 @@
+appId: nl.huishype.app
+---
+# 02-feed.yaml — Feed Tab
+# Tests feed filters, property cards, scrolling, and card tap navigation.
+# This is a sub-flow; app is on the Map tab.
+
+# Navigate to Feed tab
+- tapOn: "Feed"
+
+# Wait for feed to load - filter chips should be visible
+- extendedWaitUntil:
+    visible: "All"
+    timeout: 30000
+
+# Assert filter chips visible
+- assertVisible: "All"
+- assertVisible: "New"
+- assertVisible: "Trending"
+- assertVisible: "Price Mismatch"
+- assertVisible: "Polarizing"
+
+- takeScreenshot: maestro-screenshots/full_flow_02_feed_filters
+
+# Verify property cards are displayed (guesses count is always present)
+- assertVisible:
+    text: ".*guesses.*"
+
+# Tap "Trending" filter to test filter switching
+- tapOn: "Trending"
+- waitForAnimationToEnd
+
+# Verify cards still render after filter change
+- assertVisible:
+    text: ".*guesses.*"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/full_flow_02_trending_filter
+
+# Reset to "All" filter
+- tapOn: "All"
+- waitForAnimationToEnd
+
+# Scroll down to test pagination
+- scroll
+- takeScreenshot: maestro-screenshots/full_flow_02_scrolled_down
+
+# Scroll back up
+- swipe:
+    direction: DOWN
+    duration: 500
+- swipe:
+    direction: DOWN
+    duration: 500
+- swipe:
+    direction: DOWN
+    duration: 500
+- waitForAnimationToEnd
+
+# Tap on a property card to view details
+- tapOn:
+    point: "50%,40%"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_02_feed_card_tap
+
+# If property detail screen appeared, verify it has elements
+- assertVisible:
+    text: "Save"
+    optional: true
+- assertVisible:
+    text: "Share"
+    optional: true
+
+# Navigate back (Android back button)
+- pressKey: back
+- waitForAnimationToEnd
+
+# Wait for feed to be visible again
+- extendedWaitUntil:
+    visible: "All"
+    timeout: 10000
+
+# Switch back to Map tab
+- tapOn: "Map"
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000

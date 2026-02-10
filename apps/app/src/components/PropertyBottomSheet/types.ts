@@ -10,7 +10,7 @@ export interface PropertyDetailsData extends Property {
   viewCount: number;
   photos?: string[];
   isSaved?: boolean;
-  isFavorite?: boolean;
+  isLiked?: boolean;
 }
 
 export interface SectionProps {

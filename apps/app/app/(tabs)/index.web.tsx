@@ -6,11 +6,14 @@ import {
   PropertyBottomSheet,
   ClusterPreviewCard,
   AuthModal,
+  SearchBar,
 } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
 import { useProperty, type Property } from '@/src/hooks/useProperties';
+import { usePropertyLike } from '@/src/hooks/usePropertyLike';
+import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
-import { API_URL } from '@/src/utils/api';
+import { API_URL, type PropertyResolveResult } from '@/src/utils/api';
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -502,8 +505,11 @@ function getActivityLabel(level: 'hot' | 'warm' | 'cold'): string {
   return labels[level];
 }
 
-// Heart icon SVG
+// Heart icon SVG (outline)
 const HEART_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
+
+// Heart icon SVG (filled, red)
+const HEART_ICON_FILLED = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="#EF4444" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
 
 // Comment icon SVG
 const COMMENT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
@@ -530,7 +536,8 @@ function createPreviewCardHTML(
     thumbnailUrl?: string | null;
   },
   activityScore: number,
-  arrowPointsUp: boolean = false
+  arrowPointsUp: boolean = false,
+  isLiked: boolean = false
 ): string {
   const activityLevel = getActivityLevel(activityScore);
   const activityLabel = getActivityLabel(activityLevel);
@@ -572,8 +579,8 @@ function createPreviewCardHTML(
       </div>
       <div class="preview-actions">
         <button class="preview-action-btn" data-action="like">
-          ${HEART_ICON}
-          <span>Like</span>
+          ${isLiked ? HEART_ICON_FILLED : HEART_ICON}
+          <span style="${isLiked ? 'color: #EF4444;' : ''}">${isLiked ? 'Liked' : 'Like'}</span>
         </button>
         <button class="preview-action-btn" data-action="comment">
           ${COMMENT_ICON}
@@ -601,7 +608,6 @@ export default function MapScreen() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
-  const popupContainerRef = useRef<HTMLDivElement | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -636,6 +642,18 @@ export default function MapScreen() {
   // Fetch selected property details
   const { data: selectedProperty, isLoading: propertyLoading } =
     useProperty(selectedPropertyId);
+
+  // Property like hook
+  const { isLiked, toggleLike } = usePropertyLike({
+    propertyId: selectedPropertyId,
+    onAuthRequired: () => handleAuthRequired('Sign in to like this property'),
+  });
+
+  // Property save hook
+  const { isSaved, toggleSave } = usePropertySave({
+    propertyId: selectedPropertyId,
+    onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
+  });
 
   // Initialize map
   useEffect(() => {
@@ -835,6 +853,14 @@ export default function MapScreen() {
         }
       });
 
+      // Named cursor handlers so they can be properly removed/re-added
+      const handleMouseEnter = () => {
+        map.getCanvas().style.cursor = 'pointer';
+      };
+      const handleMouseLeave = () => {
+        map.getCanvas().style.cursor = '';
+      };
+
       // Wait for layers to be added
       map.on('sourcedata', () => {
         // Attach click handlers once source is loaded
@@ -847,18 +873,14 @@ export default function MapScreen() {
 
         propertyLayers.forEach((layerId) => {
           if (map.getLayer(layerId)) {
-            // Remove existing handlers
+            // Remove existing handlers before re-adding
             map.off('click', layerId, handlePropertyClick);
-            // Add click handler
+            map.off('mouseenter', layerId, handleMouseEnter);
+            map.off('mouseleave', layerId, handleMouseLeave);
+            // Add handlers
             map.on('click', layerId, handlePropertyClick);
-
-            // Cursor style
-            map.on('mouseenter', layerId, () => {
-              map.getCanvas().style.cursor = 'pointer';
-            });
-            map.on('mouseleave', layerId, () => {
-              map.getCanvas().style.cursor = '';
-            });
+            map.on('mouseenter', layerId, handleMouseEnter);
+            map.on('mouseleave', layerId, handleMouseLeave);
           }
         });
       });
@@ -926,17 +948,17 @@ export default function MapScreen() {
     bottomSheetRef.current?.snapToIndex(1);
   }, []);
 
-  const handleSave = useCallback((propertyId: string) => {
-    console.log('Save property:', propertyId);
-  }, []);
+  const handleSave = useCallback((_propertyId?: string) => {
+    toggleSave();
+  }, [toggleSave]);
 
   const handleShare = useCallback((propertyId: string) => {
     console.log('Share property:', propertyId);
   }, []);
 
-  const handleFavorite = useCallback((propertyId: string) => {
-    console.log('Favorite property:', propertyId);
-  }, []);
+  const handleLike = useCallback((_propertyId?: string) => {
+    toggleLike();
+  }, [toggleLike]);
 
   const handleGuessPress = useCallback((propertyId: string) => {
     console.log('Open guess for property:', propertyId);
@@ -958,6 +980,39 @@ export default function MapScreen() {
 
   const handleAuthSuccess = useCallback(() => {
     setShowAuthModal(false);
+  }, []);
+
+  // Search bar callbacks
+  const handlePropertyResolved = useCallback((property: PropertyResolveResult) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const { lon, lat } = property.coordinates;
+    const coord: [number, number] = [lon, lat];
+
+    map.flyTo({
+      center: coord,
+      zoom: 17,
+      duration: 1000,
+    });
+
+    setSelectedCoordinate(coord);
+    setSelectedPropertyId(property.id);
+    setSelectedActivityScore(0);
+    setSelectedHasListing(property.hasListing);
+    setShowPreview(true);
+    setIsClusterPreview(false);
+  }, []);
+
+  const handleLocationResolved = useCallback((coordinates: { lon: number; lat: number }, _address: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    map.flyTo({
+      center: [coordinates.lon, coordinates.lat],
+      zoom: 17,
+      duration: 1000,
+    });
   }, []);
 
   // Manage selected marker with pulsing animation
@@ -1025,7 +1080,8 @@ export default function MapScreen() {
           thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
         },
         selectedActivityScore,
-        shouldShowBelow // Pass flag to flip arrow direction
+        shouldShowBelow, // Pass flag to flip arrow direction
+        isLiked
       );
 
       const popup = new maplibregl.Popup({
@@ -1064,7 +1120,7 @@ export default function MapScreen() {
         if (likeBtn) {
           likeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            console.log('Like property:', selectedProperty.id);
+            toggleLike();
           });
         }
         if (commentBtn) {
@@ -1092,7 +1148,7 @@ export default function MapScreen() {
         popupRef.current = null;
       }
     };
-  }, [selectedCoordinate, showPreview, selectedProperty, isClusterPreview, selectedActivityScore]);
+  }, [selectedCoordinate, showPreview, selectedProperty, isClusterPreview, selectedActivityScore, isLiked, toggleLike]);
 
   // Clear selected coordinate when preview is hidden
   useEffect(() => {
@@ -1151,6 +1207,12 @@ export default function MapScreen() {
           </View>
         )}
 
+        {/* Search Bar */}
+        <SearchBar
+          onPropertyResolved={handlePropertyResolved}
+          onLocationResolved={handleLocationResolved}
+        />
+
         {/* Zoom level indicator */}
         <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
           <Text className="text-sm text-gray-700">Zoom: {currentZoom.toFixed(1)}</Text>
@@ -1177,11 +1239,13 @@ export default function MapScreen() {
       <PropertyBottomSheet
         ref={bottomSheetRef}
         property={selectedProperty ?? null}
+        isLiked={isLiked}
+        isSaved={isSaved}
         onClose={handleSheetClose}
         onSheetChange={handleSheetIndexChange}
         onSave={handleSave}
         onShare={handleShare}
-        onFavorite={handleFavorite}
+        onLike={handleLike}
         onGuessPress={handleGuessPress}
         onCommentPress={handleCommentPress}
         onAuthRequired={() => handleAuthRequired('Sign in to post your comment')}

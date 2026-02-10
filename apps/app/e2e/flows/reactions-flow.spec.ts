@@ -10,6 +10,7 @@
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { createTestUser } from './helpers/test-user';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -31,20 +32,8 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*\/sprites\//,
 ];
 
-/** Create a test user via the mock Google auth endpoint */
-async function createTestUser(request: APIRequestContext, suffix: string = 'reaction') {
-  const unique = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
-  const response = await request.post(`${API_BASE_URL}/auth/google`, {
-    data: { idToken: `mock-google-e2e${suffix}${unique}-gid${unique}` },
-  });
-  expect(response.ok()).toBe(true);
-  const body = await response.json();
-  return {
-    userId: body.session.user.id as string,
-    accessToken: body.session.accessToken as string,
-    username: body.session.user.username as string,
-  };
-}
+// Disable tracing to avoid artifact issues
+test.use({ trace: 'off' });
 
 /** Fetch a real property ID from the API */
 async function getTestProperty(request: APIRequestContext) {
@@ -203,7 +192,7 @@ test.describe('Reactions Flow', () => {
     expect(errorData.error).toBe('UNAUTHORIZED');
   });
 
-  test('double-like returns 400 ALREADY_LIKED', async ({ request }) => {
+  test('double-like returns 409 ALREADY_LIKED', async ({ request }) => {
     const property = await getTestProperty(request);
     const author = await createTestUser(request, 'doublelikeauthor');
     const liker = await createTestUser(request, 'doubleliker');
@@ -225,7 +214,7 @@ test.describe('Reactions Flow', () => {
         headers: { 'x-user-id': liker.userId },
       }
     );
-    expect(secondLike.status()).toBe(400);
+    expect(secondLike.status()).toBe(409);
     const errorData = await secondLike.json();
     expect(errorData.error).toBe('ALREADY_LIKED');
   });
@@ -303,6 +292,89 @@ test.describe('Reactions Flow', () => {
 
     // Page renders without error
     await expect(page.locator('body')).toBeVisible();
+  });
+
+  test('like a property via API and verify count increases', async ({ request }) => {
+    const property = await getTestProperty(request);
+    const liker = await createTestUser(request, 'propliker');
+
+    // Like the property
+    const likeResponse = await request.post(
+      `${API_BASE_URL}/properties/${property.id}/like`,
+      {
+        headers: { 'x-user-id': liker.userId },
+      }
+    );
+    expect(likeResponse.status()).toBe(201);
+    const likeData = await likeResponse.json();
+    expect(likeData.liked).toBe(true);
+    expect(likeData.likeCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('unlike a property via API after liking', async ({ request }) => {
+    const property = await getTestProperty(request);
+    const liker = await createTestUser(request, 'propunliker');
+
+    // Like first
+    const likeResp = await request.post(
+      `${API_BASE_URL}/properties/${property.id}/like`,
+      {
+        headers: { 'x-user-id': liker.userId },
+      }
+    );
+    expect(likeResp.status()).toBe(201);
+
+    // Unlike
+    const unlikeResp = await request.delete(
+      `${API_BASE_URL}/properties/${property.id}/like`,
+      {
+        headers: { 'x-user-id': liker.userId },
+      }
+    );
+    expect(unlikeResp.ok()).toBe(true);
+    const unlikeData = await unlikeResp.json();
+    expect(unlikeData.liked).toBe(false);
+  });
+
+  test('unauthenticated property like returns 401', async ({ request }) => {
+    const property = await getTestProperty(request);
+
+    const response = await request.post(
+      `${API_BASE_URL}/properties/${property.id}/like`
+    );
+    expect(response.status()).toBe(401);
+    const errorData = await response.json();
+    expect(errorData.error).toBe('UNAUTHORIZED');
+  });
+
+  test('GET /properties/:id includes isLiked and likeCount', async ({ request }) => {
+    const property = await getTestProperty(request);
+    const liker = await createTestUser(request, 'propdetailliker');
+
+    // Fetch property without auth - should have isLiked: false
+    const unauthResp = await request.get(`${API_BASE_URL}/properties/${property.id}`);
+    expect(unauthResp.ok()).toBe(true);
+    const unauthData = await unauthResp.json();
+    expect(unauthData).toHaveProperty('likeCount');
+    expect(unauthData).toHaveProperty('isLiked');
+    expect(unauthData.isLiked).toBe(false);
+
+    // Like the property
+    await request.post(
+      `${API_BASE_URL}/properties/${property.id}/like`,
+      {
+        headers: { 'x-user-id': liker.userId },
+      }
+    );
+
+    // Fetch property with auth - should have isLiked: true
+    const authResp = await request.get(`${API_BASE_URL}/properties/${property.id}`, {
+      headers: { 'x-user-id': liker.userId },
+    });
+    expect(authResp.ok()).toBe(true);
+    const authData = await authResp.json();
+    expect(authData.isLiked).toBe(true);
+    expect(authData.likeCount).toBeGreaterThanOrEqual(1);
   });
 
   test('like count reflects in comments list API response', async ({ request }) => {

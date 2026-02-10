@@ -1,0 +1,92 @@
+appId: nl.huishype.app
+---
+# 04-bottom-sheet.yaml — Bottom Sheet Browse + Auth Gates (unauthenticated)
+# Tests the preview card interactions, bottom sheet expansion, and
+# auth gate modals for unauthenticated users.
+# This is a sub-flow; preview card for Beeldbuisring 41 is visible on screen.
+
+# --- Auth gate: Like button on preview card ---
+- tapOn: "Like"
+- waitForAnimationToEnd
+
+# Assert auth modal appears with "Sign In" header text
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 15000
+
+- takeScreenshot: maestro-screenshots/full_flow_07_like_auth_gate
+
+# Dismiss auth modal (Close button — in-view overlay, always accessible)
+- tapOn: "Close"
+- waitForAnimationToEnd
+
+# Verify preview card is still visible after auth modal dismiss
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring.*"
+    timeout: 10000
+
+# --- Expand bottom sheet via preview card tap ---
+- tapOn:
+    id: "property-preview-card"
+    optional: true
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_08_bottom_sheet_partial
+
+# Swipe up to fully expand the bottom sheet
+- swipe:
+    start: "50%,70%"
+    end: "50%,20%"
+    duration: 500
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_09_bottom_sheet_full
+
+# --- Verify bottom sheet structural sections ---
+# QuickActions (Save, Share buttons in bottom sheet)
+- assertVisible: "Save"
+- assertVisible: "Share"
+
+# --- Scroll to PriceGuessSection ---
+- swipe:
+    start: "50%,60%"
+    end: "50%,30%"
+    duration: 300
+- waitForAnimationToEnd
+
+# Verify price guess section exists (either auth prompt or submit form)
+- assertVisible:
+    text: "Guess the Price"
+    optional: true
+
+- takeScreenshot: maestro-screenshots/full_flow_10_price_section
+
+# Continue scrolling to Comments section
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+- waitForAnimationToEnd
+
+# Verify "Comments" header visible (seeded fixture has 5 comments)
+- assertVisible:
+    text: "Comments"
+
+# Verify comment input area shows auth prompt for unauthenticated users
+- assertVisible:
+    text: ".*Log in to comment.*"
+
+# Tap "Popular" sort toggle (visible when comments exist)
+- tapOn: "Popular"
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_11_comments_section
+
+# Scroll to see more of comments section
+- swipe:
+    start: "50%,70%"
+    end: "50%,30%"
+    duration: 300
+- waitForAnimationToEnd
+
+- takeScreenshot: maestro-screenshots/full_flow_12_bottom_sheet_scrolled

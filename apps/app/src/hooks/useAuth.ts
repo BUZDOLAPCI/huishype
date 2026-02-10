@@ -21,6 +21,8 @@ export interface UseAuthReturn {
   signInWithGoogle: () => Promise<void>;
   /** Sign in with Apple (iOS only) */
   signInWithApple: () => Promise<void>;
+  /** Sign in with a mock token (dev only) */
+  signInWithMockToken: (token: string) => Promise<void>;
   /** Sign out */
   signOut: () => Promise<void>;
   /** Get current access token (refreshes if needed) */
@@ -91,6 +93,22 @@ export function useAuth(): UseAuthReturn {
     }
   }, [auth, queryClient]);
 
+  const signInWithMockToken = useCallback(async (token: string) => {
+    setError(null);
+    setIsSigningIn(true);
+    try {
+      await auth.signInWithMockToken(token);
+      // Invalidate user-related queries after successful sign in
+      await queryClient.invalidateQueries({ queryKey: authKeys.user() });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Mock sign in failed');
+      setError(error);
+      throw error;
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [auth, queryClient]);
+
   const signOut = useCallback(async () => {
     setError(null);
     try {
@@ -115,6 +133,7 @@ export function useAuth(): UseAuthReturn {
     isSigningIn,
     signInWithGoogle,
     signInWithApple,
+    signInWithMockToken,
     signOut,
     getAccessToken: auth.getAccessToken,
     error,

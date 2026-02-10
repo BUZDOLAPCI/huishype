@@ -1,0 +1,28 @@
+appId: nl.huishype.app
+---
+# 07-cleanup.yaml — Final State
+# Dismisses any bottom sheet/overlay and verifies the app is in a clean state.
+# This is a sub-flow; user is authenticated.
+
+# Tap the Map tab to ensure we're on the map screen
+# (Do NOT use pressKey: Back — it can exit the app entirely)
+- tapOn: "Map"
+- waitForAnimationToEnd
+
+# Swipe down to dismiss any bottom sheet
+- swipe:
+    start: "50%,30%"
+    end: "50%,95%"
+    duration: 500
+- waitForAnimationToEnd
+
+# Verify map is visible with zoom indicator
+- extendedWaitUntil:
+    visible: "Zoom.*"
+    timeout: 10000
+
+# Assert tab bar is accessible
+- assertVisible: "Map"
+- assertVisible: "Feed"
+
+- takeScreenshot: maestro-screenshots/full_flow_20_final_state

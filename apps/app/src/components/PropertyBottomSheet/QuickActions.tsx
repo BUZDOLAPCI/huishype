@@ -5,14 +5,14 @@ import type { SectionProps } from './types';
 interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
   onShare?: () => void;
-  onFavorite?: () => void;
+  onLike?: () => void;
 }
 
 export function QuickActions({
   property,
   onSave,
   onShare,
-  onFavorite,
+  onLike,
 }: QuickActionsProps) {
   const handleShare = async () => {
     try {
@@ -33,6 +33,7 @@ export function QuickActions({
         <Pressable
           onPress={onSave}
           className="flex-1 flex-row items-center justify-center py-3 mx-1 bg-gray-50 rounded-xl active:bg-gray-100"
+          testID="quick-action-save"
         >
           <Ionicons
             name={property.isSaved ? 'bookmark' : 'bookmark-outline'}
@@ -53,18 +54,18 @@ export function QuickActions({
           <Text className="ml-2 font-medium text-gray-600">Share</Text>
         </Pressable>
 
-        {/* Favorite button */}
+        {/* Like button */}
         <Pressable
-          onPress={onFavorite}
+          onPress={onLike}
           className="flex-1 flex-row items-center justify-center py-3 mx-1 bg-gray-50 rounded-xl active:bg-gray-100"
         >
           <Ionicons
-            name={property.isFavorite ? 'heart' : 'heart-outline'}
+            name={property.isLiked ? 'heart' : 'heart-outline'}
             size={22}
-            color={property.isFavorite ? '#EF4444' : '#6B7280'}
+            color={property.isLiked ? '#EF4444' : '#6B7280'}
           />
-          <Text className={`ml-2 font-medium ${property.isFavorite ? 'text-red-500' : 'text-gray-600'}`}>
-            {property.isFavorite ? 'Liked' : 'Like'}
+          <Text className={`ml-2 font-medium ${property.isLiked ? 'text-red-500' : 'text-gray-600'}`}>
+            {property.isLiked ? 'Liked' : 'Like'}
           </Text>
         </Pressable>
       </View>

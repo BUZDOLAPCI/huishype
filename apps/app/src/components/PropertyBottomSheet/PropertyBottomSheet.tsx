@@ -29,11 +29,13 @@ import { LoadingSkeleton } from './LoadingSkeleton';
 export interface PropertyBottomSheetProps {
   property: Property | null;
   isLoading?: boolean;
+  isLiked?: boolean;
+  isSaved?: boolean;
   onClose?: () => void;
   onSheetChange?: (index: number) => void;
   onSave?: (propertyId: string) => void;
   onShare?: (propertyId: string) => void;
-  onFavorite?: (propertyId: string) => void;
+  onLike?: (propertyId: string) => void;
   onGuessPress?: (propertyId: string) => void;
   onCommentPress?: (propertyId: string) => void;
   onAuthRequired?: () => void;
@@ -50,15 +52,18 @@ export interface PropertyBottomSheetRef {
 }
 
 // Convert basic Property to PropertyDetailsData with default values
-function toPropertyDetails(property: Property): PropertyDetailsData {
+function toPropertyDetails(
+  property: Property,
+  overrides?: { isLiked?: boolean; isSaved?: boolean }
+): PropertyDetailsData {
   return {
     ...property,
     activityLevel: 'cold',
     commentCount: 0,
     guessCount: 0,
     viewCount: 0,
-    isSaved: false,
-    isFavorite: false,
+    isSaved: overrides?.isSaved ?? false,
+    isLiked: overrides?.isLiked ?? false,
   };
 }
 
@@ -67,11 +72,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     {
       property,
       isLoading = false,
+      isLiked: isLikedProp,
+      isSaved: isSavedProp,
       onClose,
       onSheetChange,
       onSave,
       onShare,
-      onFavorite,
+      onLike,
       onGuessPress,
       onCommentPress,
       onAuthRequired,
@@ -186,7 +193,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     });
 
     // Convert property to detailed format
-    const propertyDetails = property ? toPropertyDetails(property) : null;
+    const propertyDetails = property
+      ? toPropertyDetails(property, { isLiked: isLikedProp, isSaved: isSavedProp })
+      : null;
 
     // Don't render the sheet at all if it's not mounted
     // This completely hides the handle indicator when no property is selected
@@ -229,7 +238,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
                   property={propertyDetails}
                   onSave={() => onSave?.(propertyDetails.id)}
                   onShare={() => onShare?.(propertyDetails.id)}
-                  onFavorite={() => onFavorite?.(propertyDetails.id)}
+                  onLike={() => onLike?.(propertyDetails.id)}
                 />
 
                 {/* Listing Links (if available) */}
@@ -243,6 +252,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
                   <PriceGuessSection
                     property={propertyDetails}
                     onGuessPress={() => onGuessPress?.(propertyDetails.id)}
+                    onLoginRequired={onAuthRequired}
                   />
                 </View>
 
