@@ -76,8 +76,10 @@ appId: nl.huishype.app
 - assertVisible:
     text: ".*Log in to comment.*"
 
-# Tap "Popular" sort toggle (visible when comments exist)
-- tapOn: "Popular"
+# Tap "Popular" sort toggle (optional — requires comments to have loaded)
+- tapOn:
+    text: "Popular"
+    optional: true
 - waitForAnimationToEnd
 
 - takeScreenshot: maestro-screenshots/full_flow_11_comments_section

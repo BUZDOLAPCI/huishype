@@ -60,7 +60,7 @@ function useMergedMapStyle(): object | null {
       .then(r => r.json())
       .then((styleJson: Record<string, unknown>) => {
         if (cancelled) return;
-        console.log('[HuisHype] Fetched merged style from API, layers=',
+        if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
           (styleJson.layers as Array<unknown>)?.length);
         setMergedStyle(styleJson);
       })
@@ -283,8 +283,7 @@ export default function MapScreen() {
     toggleSave();
   }, [toggleSave]);
 
-  const handleShare = useCallback((propertyId: string) => {
-    console.log('Share property:', propertyId);
+  const handleShare = useCallback((_propertyId: string) => {
     // Sharing is handled within QuickActions component
   }, []);
 
@@ -292,13 +291,11 @@ export default function MapScreen() {
     toggleLike();
   }, [toggleLike]);
 
-  const handleGuessPress = useCallback((propertyId: string) => {
-    console.log('Open guess for property:', propertyId);
+  const handleGuessPress = useCallback((_propertyId: string) => {
     // TODO: Open full guess modal
   }, []);
 
-  const handleCommentPress = useCallback((propertyId: string) => {
-    console.log('Open comments for property:', propertyId);
+  const handleCommentPress = useCallback((_propertyId: string) => {
     // TODO: Open comments section
   }, []);
 

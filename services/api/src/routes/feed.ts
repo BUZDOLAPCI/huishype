@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
+import { computeActivityLevel } from './views.js';
 
 // Dutch address formatting (same pattern as properties.ts)
 const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || CASE
@@ -51,20 +52,6 @@ const feedResponseSchema = z.object({
   }),
 });
 
-// --- Helpers ---
-
-function computeActivityLevel(
-  trendingScore: number,
-  lastActivityAt: Date
-): 'hot' | 'warm' | 'cold' {
-  if (trendingScore >= 5) return 'hot';
-  if (trendingScore > 0) return 'warm';
-  const daysSince =
-    (Date.now() - lastActivityAt.getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSince <= 30) return 'warm';
-  return 'cold';
-}
-
 // --- SQL row type ---
 
 interface FeedRow {
@@ -78,6 +65,7 @@ interface FeedRow {
   comment_count: number;
   guess_count: number;
   like_count: number;
+  view_count: number;
   fmv: number | null;
   guess_stddev: number | null;
   trending_score: number;
@@ -190,6 +178,7 @@ export async function feedRoutes(app: FastifyInstance) {
           COALESCE(c.cnt, 0)::int AS comment_count,
           COALESCE(g.cnt, 0)::int AS guess_count,
           COALESCE(r.cnt, 0)::int AS like_count,
+          COALESCE(v.cnt, 0)::int AS view_count,
           g.fmv,
           g.stddev AS guess_stddev,
           (
@@ -251,6 +240,11 @@ export async function feedRoutes(app: FastifyInstance) {
             AND created_at > NOW() - INTERVAL '7 days'
           GROUP BY target_id
         ) r7 ON r7.target_id = p.id
+        LEFT JOIN (
+          SELECT property_id, COUNT(*)::int AS cnt
+          FROM property_views
+          GROUP BY property_id
+        ) v ON v.property_id = p.id
         WHERE 1=1
           ${spatialCondition}
           ${dataFilterWhere}
@@ -272,7 +266,7 @@ export async function feedRoutes(app: FastifyInstance) {
         likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
-        viewCount: 0, // No view tracking yet
+        viewCount: Number(r.view_count),
         activityLevel: computeActivityLevel(
           Number(r.trending_score),
           new Date(r.last_activity_at)

@@ -40,6 +40,22 @@ export function calculateActivityLevel(
   return 'cold';
 }
 
+/**
+ * Compute activity level from trending score and last activity date.
+ * Used by the feed endpoint.
+ */
+export function computeActivityLevel(
+  trendingScore: number,
+  lastActivityAt: Date
+): 'hot' | 'warm' | 'cold' {
+  if (trendingScore >= 5) return 'hot';
+  if (trendingScore > 0) return 'warm';
+  const daysSince =
+    (Date.now() - lastActivityAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSince <= 30) return 'warm';
+  return 'cold';
+}
+
 export async function viewRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 

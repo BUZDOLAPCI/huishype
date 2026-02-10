@@ -160,16 +160,16 @@ function PostcodeView({ city, zipcode }: { city: string; zipcode: string }) {
  * Property Detail View - Full property page with resolved address
  */
 function PropertyDetailView({ address }: { address: ResolvedAddress }) {
-  const handleLikeComment = (commentId: string) => {
-    console.log('Liked comment:', commentId);
+  const handleLikeComment = (_commentId: string) => {
+    // TODO: Wire up comment like API
   };
 
-  const handleReplyComment = (commentId: string) => {
-    console.log('Reply to comment:', commentId);
+  const handleReplyComment = (_commentId: string) => {
+    // TODO: Wire up comment reply API
   };
 
-  const handleSubmitGuess = (price: number) => {
-    console.log('Submitted guess for property', address.bagId, ':', price);
+  const handleSubmitGuess = (_price: number) => {
+    // TODO: Wire up guess submission API
   };
 
   const handleShare = async () => {
@@ -184,11 +184,11 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
   };
 
   const handleSave = () => {
-    console.log('Save property:', address.bagId);
+    // TODO: Wire up save API
   };
 
   const handleLike = () => {
-    console.log('Like property:', address.bagId);
+    // TODO: Wire up like API
   };
 
   // Format the address title like the reference: "Street Number" with "Zip City" below

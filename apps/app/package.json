@@ -36,7 +36,6 @@
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
-    "mapbox-gl": "^3.18.1",
     "maplibre-gl": "^5.16.0",
     "nativewind": "^4.1.23",
     "proj4": "^2.20.2",

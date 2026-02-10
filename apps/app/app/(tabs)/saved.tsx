@@ -82,7 +82,7 @@ export default function SavedScreen() {
   // Not logged in state
   if (!user) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6" testID="saved-auth-required">
+      <View className="flex-1 items-center justify-center bg-gray-50 px-6" testID="saved-auth-required" pointerEvents="box-none">
         <View className="bg-blue-100 p-5 rounded-full mb-4">
           <FontAwesome name="bookmark" size={48} color="#2563eb" />
         </View>

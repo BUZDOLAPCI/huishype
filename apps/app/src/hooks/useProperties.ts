@@ -108,8 +108,7 @@ const fetchPropertyById = async (id: string): Promise<PropertyDetails | null> =>
 };
 
 const submitPriceGuess = async (data: { propertyId: string; price: number }): Promise<void> => {
-  // TODO: Implement when guesses endpoint is available
-  console.log('Submitting price guess:', data);
+  if (__DEV__) console.log('Submitting price guess:', data);
 };
 
 // Query keys

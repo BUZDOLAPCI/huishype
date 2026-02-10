@@ -1001,20 +1001,20 @@ export default function MapScreen() {
     toggleSave();
   }, [toggleSave]);
 
-  const handleShare = useCallback((propertyId: string) => {
-    console.log('Share property:', propertyId);
+  const handleShare = useCallback((_propertyId: string) => {
+    // Sharing not yet implemented on web
   }, []);
 
   const handleLike = useCallback((_propertyId?: string) => {
     toggleLike();
   }, [toggleLike]);
 
-  const handleGuessPress = useCallback((propertyId: string) => {
-    console.log('Open guess for property:', propertyId);
+  const handleGuessPress = useCallback((_propertyId: string) => {
+    // TODO: Open full guess modal
   }, []);
 
-  const handleCommentPress = useCallback((propertyId: string) => {
-    console.log('Open comments for property:', propertyId);
+  const handleCommentPress = useCallback((_propertyId: string) => {
+    // TODO: Open comments section
   }, []);
 
   // Auth handlers

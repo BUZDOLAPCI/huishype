@@ -16,6 +16,7 @@ import {
   verifyRefreshToken,
   getAccessTokenExpiry,
 } from '../plugins/auth.js';
+import { getKarmaRank } from '../services/karma.js';
 
 // Validation schemas
 const refreshSchema = z.object({
@@ -32,16 +33,6 @@ function generateUsername(): string {
   return `${adj}${noun}${num}`;
 }
 
-// Helper to get karma rank from score
-function getKarmaRank(karma: number): string {
-  if (karma >= 10000) return 'Legend';
-  if (karma >= 5000) return 'Master';
-  if (karma >= 1000) return 'Expert';
-  if (karma >= 500) return 'Trusted';
-  if (karma >= 100) return 'Regular';
-  return 'Newbie';
-}
-
 /**
  * Validate Google ID token
  * In production, this would verify with Google's API
@@ -50,7 +41,7 @@ function getKarmaRank(karma: number): string {
 async function validateGoogleToken(
   idToken: string
 ): Promise<{ email: string; googleId: string; name?: string } | null> {
-  if (config.isDev) {
+  if (config.isDev === true) {
     // Mock validation for development
     // Token format: mock-google-{email}-{googleId}
     if (idToken.startsWith('mock-google-')) {
@@ -113,7 +104,7 @@ async function validateGoogleToken(
 async function validateAppleToken(
   idToken: string
 ): Promise<{ email: string; appleId: string; name?: string } | null> {
-  if (config.isDev) {
+  if (config.isDev === true) {
     // Mock validation for development
     if (idToken.startsWith('mock-apple-')) {
       const parts = idToken.split('-');
@@ -258,7 +249,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             displayName: user.displayName || user.username,
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
-            karmaRank: getKarmaRank(user.karma),
+            karmaRank: getKarmaRank(user.karma).title,
             isPlus: false, // TODO: Check subscription status
             createdAt: user.createdAt.toISOString(),
           },
@@ -374,7 +365,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             displayName: user.displayName || user.username,
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
-            karmaRank: getKarmaRank(user.karma),
+            karmaRank: getKarmaRank(user.karma).title,
             isPlus: false, // TODO: Check subscription status
             createdAt: user.createdAt.toISOString(),
           },
@@ -532,7 +523,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           profilePhotoUrl: user.profilePhotoUrl,
           email: user.email,
           karma: user.karma,
-          karmaRank: getKarmaRank(user.karma),
+          karmaRank: getKarmaRank(user.karma).title,
           isPlus: false, // TODO: Check subscription status
           createdAt: user.createdAt.toISOString(),
         },

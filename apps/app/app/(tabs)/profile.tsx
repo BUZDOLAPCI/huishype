@@ -133,7 +133,7 @@ export default function ProfileScreen() {
   // Not logged in
   if (!user) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6" testID="profile-auth-required">
+      <View className="flex-1 items-center justify-center bg-gray-50 px-6" testID="profile-auth-required" pointerEvents="box-none">
         <View className="bg-blue-100 p-5 rounded-full mb-4">
           <FontAwesome name="user" size={48} color="#2563eb" />
         </View>

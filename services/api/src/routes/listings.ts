@@ -167,6 +167,26 @@ function detectSourceName(url: string): 'funda' | 'pararius' | 'other' {
   }
 }
 
+const ALLOWED_LISTING_DOMAINS = ['funda.nl', 'pararius.nl', 'pararius.com'] as const;
+
+/**
+ * Validate that a URL is an allowed listing domain (SSRF protection at route level).
+ * Only allows HTTPS URLs pointing to funda.nl or pararius.nl (and subdomains).
+ * Blocks private IP ranges by rejecting non-whitelisted hostnames.
+ */
+export function isAllowedListingUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return ALLOWED_LISTING_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Validate API key from request header against env var.
  */
@@ -307,13 +327,16 @@ export async function listingRoutes(app: FastifyInstance) {
   typedApp.post(
     '/listings/preview',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['listings'],
         summary: 'Preview a listing URL',
-        description: 'Fetches OG metadata from a URL and checks if the address matches the property',
+        description: 'Fetches OG metadata from a URL and checks if the address matches the property. Requires authentication.',
         body: previewRequestSchema,
         response: {
           200: previewResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
@@ -326,6 +349,14 @@ export async function listingRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { url, propertyId } = request.body;
+
+      // SSRF protection: only allow whitelisted domains
+      if (!isAllowedListingUrl(url)) {
+        return reply.status(400).send({
+          error: 'INVALID_URL',
+          message: 'Only funda.nl and pararius.nl URLs are allowed.',
+        });
+      }
 
       // Fetch property to get address info
       const propertyResult = await db
@@ -372,6 +403,7 @@ export async function listingRoutes(app: FastifyInstance) {
   typedApp.post(
     '/listings/submit',
     {
+      onRequest: [app.authenticate],
       schema: {
         tags: ['listings'],
         summary: 'Submit a listing',
@@ -379,6 +411,7 @@ export async function listingRoutes(app: FastifyInstance) {
         body: submitRequestSchema,
         response: {
           201: submitResponseSchema,
+          400: errorResponseSchema,
           401: errorResponseSchema,
           404: errorResponseSchema,
           409: errorResponseSchema,
@@ -386,15 +419,15 @@ export async function listingRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      // Require authentication
-      if (!request.userId) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Authentication required to submit a listing.',
+      const { url, propertyId, ogTitle, thumbnailUrl } = request.body;
+
+      // SSRF protection: only allow whitelisted domains
+      if (!isAllowedListingUrl(url)) {
+        return reply.status(400).send({
+          error: 'INVALID_URL',
+          message: 'Only funda.nl and pararius.nl URLs are allowed.',
         });
       }
-
-      const { url, propertyId, ogTitle, thumbnailUrl } = request.body;
 
       // Check property exists
       const propertyExists = await db

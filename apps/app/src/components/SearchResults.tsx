@@ -5,8 +5,10 @@ import {
   FlatList,
   Pressable,
   ActivityIndicator,
+  Platform,
   type ListRenderItemInfo,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 
 export interface SearchResultsProps {
@@ -83,28 +85,34 @@ export function SearchResults({
     <Pressable
       testID="search-result-item"
       onPress={() => onResultPress(item)}
-      style={({ pressed }) => ({
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingVertical: 12,
         paddingHorizontal: 16,
-        backgroundColor: pressed ? '#F3F4F6' : '#FFFFFF',
+        backgroundColor: pressed ? '#E5E7EB' : (Platform.OS === 'web' && hovered) ? '#F3F4F6' : '#FFFFFF',
         borderBottomWidth: index < results.length - 1 ? 1 : 0,
-        borderBottomColor: '#F3F4F6',
+        borderBottomColor: '#E5E7EB',
+        ...(Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {}),
       })}
     >
-      <Text
-        style={{ fontSize: 14, color: '#111827' }}
-        numberOfLines={1}
-        ellipsizeMode="tail"
-      >
-        {item.formattedAddress}
-      </Text>
-      <Text
-        style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}
-        numberOfLines={1}
-        ellipsizeMode="tail"
-      >
-        {item.details.zip} {item.details.city}
-      </Text>
+      <Ionicons name="location-sharp" size={16} color="#3B82F6" style={{ marginRight: 10, flexShrink: 0 }} />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{ fontSize: 14, color: '#111827' }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {item.formattedAddress}
+        </Text>
+        <Text
+          style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {item.details.zip} {item.details.city}
+        </Text>
+      </View>
     </Pressable>
   );
 

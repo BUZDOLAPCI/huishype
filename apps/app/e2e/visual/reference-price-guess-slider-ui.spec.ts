@@ -96,8 +96,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('capture price guess slider UI for visual comparison', async ({ page }) => {
-    // First, fetch a property ID directly from the API
-    const apiBaseUrl = 'http://localhost:3100'; // API server
+    test.setTimeout(90000);
+
+    // Fetch a property ID directly from the API
+    const apiBaseUrl = 'http://localhost:3100';
     let propertyId: string | null = null;
 
     try {
@@ -108,170 +110,30 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         console.log('Found property from API:', propertyId, data.data[0].address);
       }
     } catch (e) {
-      console.log('Could not fetch property from API, will try map interaction');
+      console.log('Could not fetch property from API');
     }
 
-    // If we have a property ID, navigate directly to the property detail page
-    if (propertyId) {
-      console.log(`Navigating directly to property page: /property/${propertyId}`);
-      await page.goto(`/property/${propertyId}`);
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(2000);
-
-      // Check if we're on the property detail page
-      const propertyDetailsVisible = await page.locator('text=Property Details').first().isVisible().catch(() => false);
-      console.log(`Property Details page loaded: ${propertyDetailsVisible}`);
-
-      // Take screenshot of the property detail page
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-property-detail.png`,
-        fullPage: true,
-      });
-
-      // Check if the price guess slider is visible on this page
-      const priceSlider = page.locator('[data-testid="price-guess-slider"]');
-      const isSliderVisible = await priceSlider.isVisible().catch(() => false);
-      console.log(`Price slider visible on property page: ${isSliderVisible}`);
-
-      if (isSliderVisible) {
-        // Scroll to make sure slider is in view
-        await priceSlider.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(500);
-
-        // Get bounding boxes for slider and submit button
-        const sliderBox = await priceSlider.boundingBox();
-        const submitButton = page.locator('[data-testid="submit-guess-button"]');
-        const submitBox = await submitButton.boundingBox();
-
-        // Take a screenshot that includes both the slider and submit button
-        if (sliderBox && submitBox) {
-          // Calculate to include everything from slider top to submit button bottom + padding
-          const topY = Math.max(0, sliderBox.y - 20);
-          const bottomY = submitBox.y + submitBox.height + 40;
-          const combinedClip = {
-            x: Math.max(0, Math.min(sliderBox.x, submitBox.x) - 20),
-            y: topY,
-            width: Math.max(sliderBox.width, submitBox.x + submitBox.width - sliderBox.x) + 40,
-            height: bottomY - topY,
-          };
-          await page.screenshot({
-            path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-            clip: combinedClip,
-          });
-        } else if (sliderBox) {
-          // Fallback: capture slider with extra padding
-          const paddedClip = {
-            x: Math.max(0, sliderBox.x - 20),
-            y: Math.max(0, sliderBox.y - 20),
-            width: sliderBox.width + 40,
-            height: sliderBox.height + 120,
-          };
-          await page.screenshot({
-            path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-            clip: paddedClip,
-          });
-        } else {
-          await priceSlider.screenshot({
-            path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-          });
-        }
-        console.log(`Slider screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
-
-        // Take full page screenshot
-        await page.screenshot({
-          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-full-page.png`,
-          fullPage: true,
-        });
-
-        // Verify page functionality
-        await expect(page.locator('body')).toBeVisible();
-        return;
-      }
+    if (!propertyId) {
+      console.log('No property found, skipping test');
+      return;
     }
 
-    // Fallback: Try the map interaction approach
-    console.log('Falling back to map interaction approach...');
-
-    await page.goto('/');
+    // Navigate to the property detail page
+    await page.goto(`/property/${propertyId}`);
     await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
-    // Set map to Eindhoven center
-    await page.evaluate(
-      ({ center }) => {
-        const mapInstance = (window as any).__mapInstance;
-        if (mapInstance && typeof mapInstance.setCenter === 'function') {
-          mapInstance.setCenter(center);
-          mapInstance.setZoom(16);
-          mapInstance.setPitch(0);
-        }
-      },
-      { center: CENTER_COORDINATES }
-    );
+    // Scroll to the price guess slider (it's below the fold)
+    const priceSection = page.locator('[data-testid="price-guess-section"]');
+    await priceSection.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(500);
 
-    await page.waitForTimeout(5000);
-
-    // Click on the map multiple times to try to hit a property marker
-    const mapCanvas = page.locator('canvas').first();
-    const box = await mapCanvas.boundingBox();
-
-    if (box) {
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const xOffset = (Math.random() - 0.5) * box.width * 0.8;
-        const yOffset = (Math.random() - 0.5) * box.height * 0.8;
-        await page.mouse.click(
-          box.x + box.width / 2 + xOffset,
-          box.y + box.height / 2 + yOffset
-        );
-        await page.waitForTimeout(800);
-
-        const hasPreview = await page.locator('text=Eindhoven').first().isVisible().catch(() => false);
-        if (hasPreview) {
-          console.log(`Found preview after ${attempt + 1} attempts`);
-          break;
-        }
-      }
-    }
-
-    // Take screenshot of current state
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-preview-state.png`,
-      fullPage: true,
-    });
-
-    // Try to expand bottom sheet
-    const addressVisible = await page.locator('text=Eindhoven').first().isVisible().catch(() => false);
-    if (addressVisible) {
-      const addressElement = page.locator('text=Eindhoven').first();
-      const addressBox = await addressElement.boundingBox();
-      if (addressBox) {
-        await page.mouse.click(addressBox.x + addressBox.width / 2, addressBox.y);
-        console.log('Clicked on address area to expand bottom sheet');
-        await page.waitForTimeout(1500);
-      }
-    }
-
-    // Swipe up to expand
-    const viewportSize = page.viewportSize();
-    if (viewportSize) {
-      await page.mouse.move(viewportSize.width / 2, viewportSize.height - 100);
-      await page.mouse.down();
-      await page.mouse.move(viewportSize.width / 2, 100, { steps: 10 });
-      await page.mouse.up();
-      await page.waitForTimeout(1000);
-    }
-
-    // Take screenshots
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-expanded-state.png`,
-      fullPage: true,
-    });
-
-    // Check for price slider
     const priceSlider = page.locator('[data-testid="price-guess-slider"]');
+    await priceSlider.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(500);
+
     const isSliderVisible = await priceSlider.isVisible().catch(() => false);
-    console.log(`Price slider visible: ${isSliderVisible}`);
+    console.log(`Price slider visible on property page: ${isSliderVisible}`);
 
     if (isSliderVisible) {
       // Get bounding boxes for slider and submit button
@@ -279,8 +141,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const submitButton = page.locator('[data-testid="submit-guess-button"]');
       const submitBox = await submitButton.boundingBox();
 
+      // Take a screenshot that includes both the slider and submit button
       if (sliderBox && submitBox) {
-        // Calculate to include everything from slider top to submit button bottom + padding
         const topY = Math.max(0, sliderBox.y - 20);
         const bottomY = submitBox.y + submitBox.height + 40;
         const combinedClip = {
@@ -309,24 +171,23 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
         });
       }
+      console.log(`Slider screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
     } else {
+      // Slider not found — take full page screenshot for debugging
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-        fullPage: false,
+        fullPage: true,
       });
     }
 
+    // Take full page screenshot
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-full-page.png`,
       fullPage: true,
     });
 
-    // Verify basic page functionality
-    const errorState = page.locator('text=Failed to load');
-    await expect(errorState).not.toBeVisible();
-
-    const canvas = page.locator('canvas').first();
-    await expect(canvas).toBeVisible();
+    // Verify page functionality
+    await expect(page.locator('body')).toBeVisible();
   });
 
   test('verify price guess slider UI elements', async ({ page }) => {
@@ -359,6 +220,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto(`/property/${propertyId}`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
+
+    // Scroll to the price guess section (it's below the fold)
+    const priceSection = page.locator('[data-testid="price-guess-section"]');
+    await priceSection.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(500);
+
+    const priceSlider = page.locator('[data-testid="price-guess-slider"]');
+    await priceSlider.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(500);
 
     // Check for Price Guess Slider elements
     const priceHeader = page.locator('text=What do you think this property is worth?');

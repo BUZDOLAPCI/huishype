@@ -8,16 +8,16 @@ appId: nl.huishype.app
 - tapOn: "Feed"
 
 # Wait for feed to load - filter chips should be visible
+# Default active filter is "Trending" (no "All" chip exists)
 - extendedWaitUntil:
-    visible: "All"
+    visible: "Trending"
     timeout: 30000
 
 # Assert filter chips visible
-- assertVisible: "All"
-- assertVisible: "New"
 - assertVisible: "Trending"
+- assertVisible: "Recent"
+- assertVisible: "Controversial"
 - assertVisible: "Price Mismatch"
-- assertVisible: "Polarizing"
 
 - takeScreenshot: maestro-screenshots/full_flow_02_feed_filters
 
@@ -25,8 +25,8 @@ appId: nl.huishype.app
 - assertVisible:
     text: ".*guesses.*"
 
-# Tap "Trending" filter to test filter switching
-- tapOn: "Trending"
+# Tap "Recent" filter to test filter switching
+- tapOn: "Recent"
 - waitForAnimationToEnd
 
 # Verify cards still render after filter change
@@ -34,10 +34,10 @@ appId: nl.huishype.app
     text: ".*guesses.*"
     optional: true
 
-- takeScreenshot: maestro-screenshots/full_flow_02_trending_filter
+- takeScreenshot: maestro-screenshots/full_flow_02_recent_filter
 
-# Reset to "All" filter
-- tapOn: "All"
+# Switch back to "Trending" filter
+- tapOn: "Trending"
 - waitForAnimationToEnd
 
 # Scroll down to test pagination
@@ -78,7 +78,7 @@ appId: nl.huishype.app
 
 # Wait for feed to be visible again
 - extendedWaitUntil:
-    visible: "All"
+    visible: "Trending"
     timeout: 10000
 
 # Switch back to Map tab

@@ -33,16 +33,16 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // Register CORS
+  // Register CORS — only permissive in explicit dev mode
   await app.register(cors, {
-    origin: config.isDev ? true : ['https://huishype.nl', 'https://huishype.com'],
+    origin: config.isDev === true ? true : ['https://huishype.nl', 'https://huishype.com'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   // Register cookie support
   await app.register(cookie, {
-    secret: process.env.COOKIE_SECRET || 'huishype-dev-secret-change-in-production',
+    secret: process.env.COOKIE_SECRET || (config.isDev ? 'huishype-dev-secret-change-in-production' : ''),
   });
 
   // Register Swagger/OpenAPI

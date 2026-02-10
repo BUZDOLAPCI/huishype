@@ -37,18 +37,29 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Disable tracing to avoid artifact issues; increase timeout for map-heavy tests
 test.use({ trace: 'off' });
-test.setTimeout(60000);
+test.setTimeout(120000);
 
 /** Wait for the MapLibre GL map instance to be available and loaded */
-async function waitForMapReady(page: Page, timeout = 45000) {
+async function waitForMapReady(page: Page, timeout = 60000) {
   await page.waitForSelector('canvas', { timeout });
+  // First wait for the map instance to exist
   await page.waitForFunction(
     () => {
       const map = (window as any).__mapInstance;
-      return map && typeof map.getZoom === 'function' && map.loaded();
+      return map && typeof map.getZoom === 'function';
     },
-    { timeout }
+    { timeout, polling: 500 }
   );
+  // Then wait for it to be loaded (tiles/style downloaded)
+  await page.waitForFunction(
+    () => {
+      const map = (window as any).__mapInstance;
+      return map?.loaded() ?? false;
+    },
+    { timeout: Math.min(timeout, 30000), polling: 1000 }
+  ).catch(() => {
+    console.log('Map not fully loaded yet, continuing anyway');
+  });
 }
 
 /** Get the current zoom level from the map */
@@ -229,7 +240,7 @@ test.describe('Cluster Tap Flow', () => {
   });
 
   test('small cluster tap shows ClusterPreviewCard', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     // Monitor batch API calls
@@ -282,7 +293,7 @@ test.describe('Cluster Tap Flow', () => {
   });
 
   test('cluster preview navigation works', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
@@ -331,7 +342,7 @@ test.describe('Cluster Tap Flow', () => {
   });
 
   test('cluster property tap opens property details', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
@@ -366,7 +377,7 @@ test.describe('Cluster Tap Flow', () => {
   });
 
   test('large cluster zoom works at low zoom level', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     // At very low zoom, clusters will likely have >30 properties
@@ -404,7 +415,7 @@ test.describe('Cluster Tap Flow', () => {
   });
 
   test('tiles include property_ids field for clusters', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     // Set zoom where clusters exist

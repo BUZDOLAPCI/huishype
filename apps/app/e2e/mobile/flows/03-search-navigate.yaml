@@ -30,16 +30,21 @@ appId: nl.huishype.app
 
 # Wait for camera fly-to animation to complete
 - waitForAnimationToEnd
-
-# Dismiss the search results overlay by pressing back
-- pressKey: back
 - waitForAnimationToEnd
 
-# Assert preview card appears with the address text
-# The property resolve endpoint maps this to a local property
+# The search dropdown is already dismissed by onResultPress handler.
+# Tap on the map area to dismiss the keyboard (do NOT use pressKey: back
+# since it can navigate away when the search overlay is already gone).
+- tapOn:
+    point: "50%,50%"
+    optional: true
+- waitForAnimationToEnd
+
+# Wait for the property resolve + preview card to appear
+# This needs extra time for API call + map animation
 - extendedWaitUntil:
     visible: ".*Beeldbuisring.*"
-    timeout: 10000
+    timeout: 15000
 
 - takeScreenshot: maestro-screenshots/full_flow_05_property_selected
 
