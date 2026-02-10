@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, listings, priceHistory } from '../db/index.js';
-import { eq, sql, and, desc, isNull } from 'drizzle-orm';
+import { eq, sql, desc } from 'drizzle-orm';
 import { canonicalizeAddress, normalizeSourceUrl } from '../utils/address.js';
 import { fetchOgMetadata } from '../services/og-fetcher.js';
 import { checkAddressMatch } from '../services/address-matcher.js';
@@ -484,9 +484,20 @@ export async function listingRoutes(app: FastifyInstance) {
       let skipped = 0;
       const errors: { sourceUrl: string; message: string }[] = [];
 
-      for (const item of incomingListings) {
+      // ---------------------------------------------------------------
+      // Phase 1: Canonicalize all addresses
+      // ---------------------------------------------------------------
+      interface Canonicalized {
+        item: typeof incomingListings[number];
+        canonical: NonNullable<ReturnType<typeof canonicalizeAddress>>;
+        index: number;
+      }
+
+      const canonicalized: Canonicalized[] = [];
+
+      for (let i = 0; i < incomingListings.length; i++) {
+        const item = incomingListings[i];
         try {
-          // 1. Canonicalize the address
           const canonical = canonicalizeAddress({
             postalCode: item.address.postalCode,
             houseNumber: item.address.houseNumber,
@@ -503,47 +514,203 @@ export async function listingRoutes(app: FastifyInstance) {
             continue;
           }
 
-          // 2. Find property by (postal_code, house_number, house_number_addition)
-          const conditions = [
-            eq(properties.postalCode, canonical.postalCode),
-            eq(properties.houseNumber, canonical.houseNumber),
-          ];
-          if (canonical.houseNumberAddition != null) {
-            conditions.push(eq(properties.houseNumberAddition, canonical.houseNumberAddition));
-          } else {
-            conditions.push(isNull(properties.houseNumberAddition));
+          canonicalized.push({ item, canonical, index: i });
+        } catch (err) {
+          errors.push({
+            sourceUrl: item.sourceUrl,
+            message: err instanceof Error ? err.message : 'Unknown error during canonicalization',
+          });
+          skipped++;
+        }
+      }
+
+      if (canonicalized.length === 0) {
+        return reply.send({ ingested, updated, skipped, errors });
+      }
+
+      // ---------------------------------------------------------------
+      // Phase 2: Batch exact address match
+      // ---------------------------------------------------------------
+      // Build a single query matching ALL listings against properties
+      // using (postal_code, house_number, house_number_addition).
+      //
+      // We generate a VALUES list as parameterized SQL fragments and
+      // JOIN against properties.
+      // ---------------------------------------------------------------
+
+      // Map from "postalCode|houseNumber|addition" -> property UUID
+      const propertyIdMap = new Map<string, string>();
+
+      function buildMatchKey(postalCode: string, houseNumber: number, addition: string | null): string {
+        return `${postalCode}|${houseNumber}|${addition ?? ''}`;
+      }
+
+      // Deduplicate addresses before querying (many listings may share the same address)
+      const uniqueAddresses = new Map<string, { postalCode: string; houseNumber: number; addition: string | null }>();
+      for (const c of canonicalized) {
+        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
+        if (!uniqueAddresses.has(key)) {
+          uniqueAddresses.set(key, {
+            postalCode: c.canonical.postalCode,
+            houseNumber: c.canonical.houseNumber,
+            addition: c.canonical.houseNumberAddition,
+          });
+        }
+      }
+
+      // Batch exact match in chunks (3 params per address, limit ~20000 addresses per batch)
+      const EXACT_MATCH_CHUNK = 20000;
+      const uniqueAddressEntries = Array.from(uniqueAddresses.entries());
+
+      for (let i = 0; i < uniqueAddressEntries.length; i += EXACT_MATCH_CHUNK) {
+        const chunk = uniqueAddressEntries.slice(i, i + EXACT_MATCH_CHUNK);
+
+        // Build VALUES clause: ($1::text, $2::int, $3::text), ($4::text, $5::int, $6::text), ...
+        const valueFragments = chunk.map(([, addr]) =>
+          sql`(${addr.postalCode}::text, ${addr.houseNumber}::int, ${addr.addition ?? ''}::text)`
+        );
+
+        const matchRows = await db.execute<{
+          id: string;
+          postal_code: string;
+          house_number: number;
+          house_number_addition: string | null;
+        }>(sql`
+          SELECT p.id, p.postal_code, p.house_number, p.house_number_addition
+          FROM properties p
+          JOIN (VALUES ${sql.join(valueFragments, sql`, `)})
+            AS v(postal_code, house_number, addition)
+          ON p.postal_code = v.postal_code
+            AND p.house_number = v.house_number
+            AND COALESCE(p.house_number_addition, '') = v.addition
+        `);
+
+        for (const row of matchRows) {
+          const key = buildMatchKey(
+            row.postal_code,
+            row.house_number,
+            row.house_number_addition,
+          );
+          propertyIdMap.set(key, row.id);
+        }
+      }
+
+      // ---------------------------------------------------------------
+      // Phase 3: Batch spatial fallback for unmatched listings
+      // ---------------------------------------------------------------
+      // For listings that didn't get an exact match and have lat/lon,
+      // do a single spatial query using geometry (NOT ::geography which
+      // bypasses the GiST index). Use 0.001 degrees (~100m in NL).
+      // ---------------------------------------------------------------
+
+      interface UnmatchedWithCoords {
+        canonIndex: number; // index into canonicalized[]
+        lon: number;
+        lat: number;
+      }
+
+      const unmatchedWithCoords: UnmatchedWithCoords[] = [];
+
+      for (let ci = 0; ci < canonicalized.length; ci++) {
+        const c = canonicalized[ci];
+        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
+        if (!propertyIdMap.has(key)) {
+          const lat = c.item.address.latitude;
+          const lon = c.item.address.longitude;
+          if (lat != null && lon != null) {
+            unmatchedWithCoords.push({ canonIndex: ci, lon, lat });
           }
+        }
+      }
 
-          let propertyResult = await db
-            .select({ id: properties.id })
-            .from(properties)
-            .where(and(...conditions))
-            .limit(1);
+      if (unmatchedWithCoords.length > 0) {
+        // Batch spatial query in chunks (3 params per coord: idx, lon, lat)
+        const SPATIAL_CHUNK = 20000;
+        for (let i = 0; i < unmatchedWithCoords.length; i += SPATIAL_CHUNK) {
+          const chunk = unmatchedWithCoords.slice(i, i + SPATIAL_CHUNK);
 
-          // 3. Fallback: PostGIS proximity if lat/lon provided and no exact match
-          if (propertyResult.length === 0 && item.address.latitude != null && item.address.longitude != null) {
-            propertyResult = await db
-              .select({ id: properties.id })
-              .from(properties)
-              .where(
-                sql`ST_DWithin(
-                  ${properties.geometry}::geography,
-                  ST_SetSRID(ST_MakePoint(${item.address.longitude}, ${item.address.latitude}), 4326)::geography,
-                  50
-                )`,
-              )
-              .limit(1);
+          // Build CTE VALUES: (idx, lon::float, lat::float)
+          const coordFragments = chunk.map((u, j) =>
+            sql`(${i + j}::int, ${u.lon}::float, ${u.lat}::float)`
+          );
+
+          const spatialRows = await db.execute<{ idx: number; id: string }>(sql`
+            WITH coords AS (
+              SELECT * FROM (VALUES ${sql.join(coordFragments, sql`, `)}) AS t(idx, lon, lat)
+            )
+            SELECT DISTINCT ON (c.idx) c.idx, p.id
+            FROM coords c
+            JOIN properties p ON ST_DWithin(
+              p.geometry,
+              ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326),
+              0.001
+            )
+            ORDER BY c.idx, ST_Distance(p.geometry, ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326))
+          `);
+
+          for (const row of spatialRows) {
+            const localIdx = row.idx - i; // offset back to chunk-relative
+            const u = chunk[localIdx];
+            const c = canonicalized[u.canonIndex];
+            const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
+            propertyIdMap.set(key, row.id);
           }
+        }
+      }
 
-          // 4. If no property found: skip
-          if (propertyResult.length === 0) {
-            skipped++;
-            continue;
-          }
+      // ---------------------------------------------------------------
+      // Phase 4: Batch upsert matched listings
+      // ---------------------------------------------------------------
+      // Build a single INSERT ... ON CONFLICT for all matched listings.
+      // Use the xmax trick to distinguish inserts from updates.
+      // ---------------------------------------------------------------
 
-          const propertyId = propertyResult[0].id;
+      interface MatchedListing {
+        propertyId: string;
+        item: typeof incomingListings[number];
+      }
 
-          // 5. Upsert listing by (source_name, mirror_listing_id)
+      const matched: MatchedListing[] = [];
+
+      for (const c of canonicalized) {
+        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
+        const propertyId = propertyIdMap.get(key);
+        if (propertyId) {
+          matched.push({ propertyId, item: c.item });
+        } else {
+          skipped++;
+        }
+      }
+
+      // Batch upsert in chunks to stay within PG parameter limit
+      // 16 columns per row * 500 = 8000 params (safe under 65534)
+      const UPSERT_CHUNK = 500;
+
+      for (let i = 0; i < matched.length; i += UPSERT_CHUNK) {
+        const chunk = matched.slice(i, i + UPSERT_CHUNK);
+
+        try {
+          const valueFragments = chunk.map(({ propertyId, item }) =>
+            sql`(
+              ${propertyId}::uuid,
+              ${normalizeSourceUrl(item.sourceUrl)},
+              ${item.sourceName}::listing_source,
+              ${item.mirrorListingId},
+              ${item.askingPrice}::bigint,
+              ${item.priceType},
+              ${item.livingAreaM2 ?? null}::int,
+              ${item.numRooms ?? null}::int,
+              ${item.energyLabel ?? null},
+              ${item.thumbnailUrl ?? null},
+              ${item.ogTitle ?? null},
+              ${item.status}::listing_status,
+              ${item.mirrorFirstSeenAt ? new Date(item.mirrorFirstSeenAt) : null}::timestamptz,
+              ${item.mirrorLastChangedAt ? new Date(item.mirrorLastChangedAt) : null}::timestamptz,
+              ${item.mirrorLastSeenAt ? new Date(item.mirrorLastSeenAt) : null}::timestamptz,
+              NOW()
+            )`
+          );
+
           const upsertResult = await db.execute<{ xmax: string }>(sql`
             INSERT INTO listings (
               property_id,
@@ -562,24 +729,8 @@ export async function listingRoutes(app: FastifyInstance) {
               mirror_last_changed_at,
               mirror_last_seen_at,
               updated_at
-            ) VALUES (
-              ${propertyId},
-              ${normalizeSourceUrl(item.sourceUrl)},
-              ${item.sourceName},
-              ${item.mirrorListingId},
-              ${item.askingPrice},
-              ${item.priceType},
-              ${item.livingAreaM2 ?? null},
-              ${item.numRooms ?? null},
-              ${item.energyLabel ?? null},
-              ${item.thumbnailUrl ?? null},
-              ${item.ogTitle ?? null},
-              ${item.status},
-              ${item.mirrorFirstSeenAt ? new Date(item.mirrorFirstSeenAt) : null},
-              ${item.mirrorLastChangedAt ? new Date(item.mirrorLastChangedAt) : null},
-              ${item.mirrorLastSeenAt ? new Date(item.mirrorLastSeenAt) : null},
-              NOW()
             )
+            VALUES ${sql.join(valueFragments, sql`, `)}
             ON CONFLICT (source_name, mirror_listing_id) WHERE mirror_listing_id IS NOT NULL
             DO UPDATE SET
               asking_price = EXCLUDED.asking_price,
@@ -597,42 +748,74 @@ export async function listingRoutes(app: FastifyInstance) {
             RETURNING (xmax::text)
           `);
 
-          // xmax = '0' means INSERT, otherwise UPDATE
           const rows = Array.from(upsertResult);
-          const wasInsert = rows.length > 0 && rows[0].xmax === '0';
-          if (wasInsert) {
-            ingested++;
-          } else {
-            updated++;
-          }
-
-          // 6. Upsert price history entries if provided
-          if (item.priceHistory && item.priceHistory.length > 0) {
-            for (const ph of item.priceHistory) {
-              await db.execute(sql`
-                INSERT INTO price_history (
-                  property_id,
-                  price,
-                  price_date,
-                  event_type,
-                  source
-                ) VALUES (
-                  ${propertyId},
-                  ${ph.price},
-                  ${ph.priceDate},
-                  ${ph.eventType},
-                  ${item.sourceName}
-                )
-                ON CONFLICT (property_id, price_date, price, event_type)
-                DO NOTHING
-              `);
+          for (const row of rows) {
+            if (row.xmax === '0') {
+              ingested++;
+            } else {
+              updated++;
             }
           }
         } catch (err) {
-          errors.push({
-            sourceUrl: item.sourceUrl,
-            message: err instanceof Error ? err.message : 'Unknown error',
-          });
+          // On batch failure, report error for all items in chunk
+          for (const { item } of chunk) {
+            errors.push({
+              sourceUrl: item.sourceUrl,
+              message: err instanceof Error ? err.message : 'Unknown error during batch upsert',
+            });
+          }
+        }
+      }
+
+      // ---------------------------------------------------------------
+      // Phase 5: Batch upsert price history
+      // ---------------------------------------------------------------
+      // Collect all price history entries from matched listings and
+      // insert them in a single batch query.
+      // ---------------------------------------------------------------
+
+      interface PriceHistoryEntry {
+        propertyId: string;
+        price: number;
+        priceDate: string;
+        eventType: string;
+        sourceName: string;
+      }
+
+      const allPriceHistory: PriceHistoryEntry[] = [];
+
+      for (const { propertyId, item } of matched) {
+        if (item.priceHistory && item.priceHistory.length > 0) {
+          for (const ph of item.priceHistory) {
+            allPriceHistory.push({
+              propertyId,
+              price: ph.price,
+              priceDate: ph.priceDate,
+              eventType: ph.eventType,
+              sourceName: item.sourceName,
+            });
+          }
+        }
+      }
+
+      // 5 columns per row * 10000 = 50000 params (safe under 65534)
+      const PH_CHUNK = 10000;
+      for (let i = 0; i < allPriceHistory.length; i += PH_CHUNK) {
+        const chunk = allPriceHistory.slice(i, i + PH_CHUNK);
+
+        try {
+          const valueFragments = chunk.map((ph) =>
+            sql`(${ph.propertyId}::uuid, ${ph.price}::bigint, ${ph.priceDate}, ${ph.eventType}, ${ph.sourceName})`
+          );
+
+          await db.execute(sql`
+            INSERT INTO price_history (property_id, price, price_date, event_type, source)
+            VALUES ${sql.join(valueFragments, sql`, `)}
+            ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
+          `);
+        } catch (err) {
+          // Price history errors are non-fatal; log but don't fail the batch
+          request.log.error({ err }, 'Price history batch insert failed');
         }
       }
 
@@ -670,7 +853,7 @@ export async function listingRoutes(app: FastifyInstance) {
       const { source } = request.query;
 
       const result = await db.execute<{ last_changed_at: string | null }>(sql`
-        SELECT MAX(mirror_last_changed_at)::text as last_changed_at
+        SELECT TO_CHAR(MAX(mirror_last_changed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_changed_at
         FROM listings
         WHERE source_name = ${source} AND mirror_listing_id IS NOT NULL
       `);
