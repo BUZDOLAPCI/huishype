@@ -24,6 +24,8 @@ Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Archite
 - Map commands (queryRenderedFeatures, etc.) use TurboModules (JSI-based, not old bridge)
 - Component renames in alpha.44+: `MapView` → `Map`, `ShapeSource` → `GeoJSONSource`, `sourceID` → `source` etc.
 
+**Local source checkout**: `/home/caslan/dev/git_repos/maplibre-react-native` (v11.0.0-alpha.47, shallow clone). Reference this to discover available components, props, and features (e.g. `Marker`, `ViewAnnotation`, `Callout`) instead of guessing from type defs.
+
 ## Data Sources
 
 There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
