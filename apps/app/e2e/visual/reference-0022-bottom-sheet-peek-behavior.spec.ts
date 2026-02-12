@@ -405,7 +405,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(initialBackdrop, 'No backdrop should be visible before clicking').toBe(false);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -499,7 +499,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -636,7 +636,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);

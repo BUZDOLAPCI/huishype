@@ -352,7 +352,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Try to click on an actual property marker
     let previewVisible = false;
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
 
     // Try to find and click on a marker
     const clickResult = await clickOnPropertyMarker(page);
@@ -420,7 +420,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       try {
         await page.waitForFunction(
           () => {
-            const card = document.querySelector('[data-testid="property-preview-card"]');
+            const card = document.querySelector('[data-testid="group-preview-card"]');
             if (!card) return false;
             const text = card.textContent || '';
             // Check for euro symbol or formatted price
@@ -491,7 +491,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -552,7 +552,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       // Verify price display - the mock property has wozValue of 425000
       // Price should be formatted as euro amount (e.g., "425.000" or "425,000")
-      const priceText = page.locator('[data-testid="property-preview-card"]').locator('text=/\\d{3}[.,]\\d{3}/');
+      const priceText = page.locator('[data-testid="group-preview-card"]').locator('text=/\\d{3}[.,]\\d{3}/');
       const hasPrice = await priceText.first().isVisible().catch(() => false);
       console.log(`Price visible: ${hasPrice}`);
 
@@ -562,7 +562,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`WOZ label visible: ${hasWozLabel}`);
 
       // Also check for euro symbol
-      const euroSymbol = page.locator('[data-testid="property-preview-card"]').locator('text=/\u20AC/');
+      const euroSymbol = page.locator('[data-testid="group-preview-card"]').locator('text=/\u20AC/');
       const hasEuro = await euroSymbol.first().isVisible().catch(() => false);
       console.log(`Euro symbol visible: ${hasEuro}`);
 
@@ -588,8 +588,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       expect(hasGuess, 'Guess button should be visible').toBe(true);
 
       // Verify arrow element exists (either pointing up or down depending on card position)
-      const arrowDown = page.locator('[data-testid="property-preview-arrow"].property-preview-arrow');
-      const arrowUp = page.locator('[data-testid="property-preview-arrow"].property-preview-arrow-up');
+      const arrowDown = page.locator('[data-testid="group-preview-arrow-down"]');
+      const arrowUp = page.locator('[data-testid="group-preview-arrow-up"]');
       const hasArrowDown = await arrowDown.isVisible().catch(() => false);
       const hasArrowUp = await arrowUp.isVisible().catch(() => false);
       const hasArrow = hasArrowDown || hasArrowUp;
@@ -707,7 +707,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -874,7 +874,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);

@@ -226,7 +226,7 @@ async function expandBottomSheet(page: Page): Promise<boolean> {
   }
 
   // Fallback: click on preview card
-  const previewCard = page.locator('[data-testid="property-preview-card"]');
+  const previewCard = page.locator('[data-testid="group-preview-card"]');
   if (await previewCard.isVisible().catch(() => false)) {
     await previewCard.click({ force: true });
     await page.waitForTimeout(1500);
@@ -304,7 +304,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);

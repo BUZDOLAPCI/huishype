@@ -322,7 +322,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -406,7 +406,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -483,7 +483,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -586,7 +586,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -689,7 +689,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -764,7 +764,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     //
     // To avoid all overlay issues, we use elementFromPoint() to check what DOM element
     // is at each candidate position, and only pick spots where the canvas is the topmost element.
-    const popupBox = await page.locator('.property-preview-popup').boundingBox().catch(() => null);
+    const popupBox = await page.locator('[data-testid="group-preview-card"]').boundingBox().catch(() => null);
     console.log(`Popup bounding box: ${JSON.stringify(popupBox)}`);
 
     const emptySpotResult = await page.evaluate((popupRect) => {
@@ -910,7 +910,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -973,16 +973,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       await page.waitForTimeout(500);
     }
 
-    const cardBody = page.locator('.property-preview-card');
+    const cardBody = page.locator('[data-testid="group-preview-card"]');
     const cardBodyVisible = await cardBody.isVisible().catch(() => false);
 
     if (cardBodyVisible) {
-      // Click on the card body (address/info area, not buttons)
-      const previewInfo = page.locator('.preview-info').first();
-      const infoVisible = await previewInfo.isVisible().catch(() => false);
+      // Click on the card body (property card pressable area)
+      const propertyCard = page.locator('[data-testid="group-preview-property-card"]').first();
+      const propertyCardVisible = await propertyCard.isVisible().catch(() => false);
 
-      if (infoVisible) {
-        await previewInfo.click();
+      if (propertyCardVisible) {
+        await propertyCard.click();
       } else {
         // Fallback: click on the card body itself
         await cardBody.click();
@@ -1019,7 +1019,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker to show preview
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
@@ -1078,13 +1078,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // If the panel isn't open, open it by clicking the card body
     if (sheetIndexBefore.fromRef <= 0) {
-      const cardBody = page.locator('.property-preview-card');
+      const cardBody = page.locator('[data-testid="group-preview-card"]');
       const cardBodyVisible = await cardBody.isVisible().catch(() => false);
       if (cardBodyVisible) {
-        const previewInfo = page.locator('.preview-info').first();
-        const infoVisible = await previewInfo.isVisible().catch(() => false);
-        if (infoVisible) {
-          await previewInfo.click();
+        const propertyCard = page.locator('[data-testid="group-preview-property-card"]').first();
+        const propertyCardVisible = await propertyCard.isVisible().catch(() => false);
+        if (propertyCardVisible) {
+          await propertyCard.click();
         } else {
           await cardBody.click();
         }
@@ -1135,7 +1135,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);

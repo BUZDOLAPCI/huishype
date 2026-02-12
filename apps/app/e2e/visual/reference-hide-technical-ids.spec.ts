@@ -173,7 +173,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       await page.waitForTimeout(2000);
 
       // Check if preview card appeared
-      const previewCard = page.locator('[data-testid="property-preview-card"]');
+      const previewCard = page.locator('[data-testid="group-preview-card"]');
       const previewVisible = await previewCard.isVisible().catch(() => false);
       console.log(`Preview card visible: ${previewVisible}`);
 

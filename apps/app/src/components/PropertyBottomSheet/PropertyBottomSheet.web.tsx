@@ -1,9 +1,8 @@
 /**
- * WebPropertyPanel — web-native side panel for property details.
+ * PropertyBottomSheet (web) — CSS side panel for property details.
  *
- * Replaces @gorhom/bottom-sheet (which is RN-only) on the web map screen.
  * Slides in from the right like Zillow / Redfin / Google Maps.
- * Reuses the exact same sub-components as PropertyBottomSheet.
+ * Reuses the same shared sub-components as the native bottom sheet.
  */
 import {
   forwardRef,
@@ -13,20 +12,23 @@ import {
   useState,
   useEffect,
 } from 'react';
-import { ScrollView, View, Pressable, Text } from 'react-native';
+import { ScrollView, View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { Property } from '../hooks/useProperties';
-import { useListings } from '../hooks/useListings';
-import type { PropertyDetailsData } from './PropertyBottomSheet/types';
-import { PropertyHeader } from './PropertyBottomSheet/PropertyHeader';
-import { PriceSection } from './PropertyBottomSheet/PriceSection';
-import { QuickActions } from './PropertyBottomSheet/QuickActions';
-import { PriceGuessSection } from './PropertyBottomSheet/PriceGuessSection';
-import { CommentsSection } from './PropertyBottomSheet/CommentsSection';
-import { PropertyDetails } from './PropertyBottomSheet/PropertyDetails';
-import { ListingLinks } from './PropertyBottomSheet/ListingLinks';
+import { useProperty } from '../../hooks/useProperties';
+import { useListings } from '../../hooks/useListings';
+import { usePropertyView } from '../../hooks/usePropertyView';
+import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
+import { toPropertyDetails } from './types';
+import { PropertyHeader } from './PropertyHeader';
+import { PriceSection } from './PriceSection';
+import { QuickActions } from './QuickActions';
+import { PriceGuessSection } from './PriceGuessSection';
+import { CommentsSection } from './CommentsSection';
+import { PropertyDetails } from './PropertyDetails';
+import { ListingLinks } from './ListingLinks';
+import { ListingSubmissionSheet } from './ListingSubmissionSheet';
 
 // CSS for the panel — injected once into <head>
 const PANEL_CSS_ID = 'web-property-panel-css';
@@ -101,58 +103,19 @@ if (typeof document !== 'undefined' && !document.getElementById(PANEL_CSS_ID)) {
   document.head.appendChild(style);
 }
 
-export interface WebPropertyPanelProps {
-  property: Property | null;
-  isLiked?: boolean;
-  isSaved?: boolean;
-  onClose?: () => void;
-  onSheetChange?: (index: number) => void;
-  onSave?: (propertyId: string) => void;
-  onShare?: (propertyId: string) => void;
-  onLike?: (propertyId: string) => void;
-  onGuessPress?: (propertyId: string) => void;
-  onCommentPress?: (propertyId: string) => void;
-  onAuthRequired?: () => void;
-}
-
-/** Ref interface matching PropertyBottomSheetRef so callers don't need to change */
-export interface WebPropertyPanelRef {
-  expand: () => void;
-  collapse: () => void;
-  close: () => void;
-  snapToIndex: (index: number) => void;
-  scrollToComments: () => void;
-  scrollToGuess: () => void;
-  getCurrentIndex: () => number;
-}
-
-function toPropertyDetails(
-  property: Property,
-  overrides?: { isLiked?: boolean; isSaved?: boolean }
-): PropertyDetailsData {
-  const p = property as Partial<PropertyDetailsData>;
-  return {
-    ...property,
-    activityLevel: p.activityLevel ?? 'cold',
-    commentCount: p.commentCount ?? 0,
-    guessCount: p.guessCount ?? 0,
-    viewCount: p.viewCount ?? 0,
-    isSaved: overrides?.isSaved ?? p.isSaved ?? false,
-    isLiked: overrides?.isLiked ?? p.isLiked ?? false,
-  };
-}
-
-export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanelProps>(
-  function WebPropertyPanel(
+export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
+  function PropertyBottomSheet(
     {
       property,
-      isLiked,
-      isSaved,
+      isLiked: isLikedProp,
+      isSaved: isSavedProp,
       onClose,
       onSheetChange,
       onSave,
       onShare,
       onLike,
+      onGuessPress,
+      onCommentPress,
       onAuthRequired,
     },
     ref
@@ -161,16 +124,26 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
     const scrollRef = useRef<ScrollView>(null);
     const queryClient = useQueryClient();
 
+    // Listing submission modal state
+    const [showSubmission, setShowSubmission] = useState(false);
+
     // Section position refs for scroll-to
     const guessSectionY = useRef(0);
     const commentsSectionY = useRef(0);
 
+    // Fetch enriched property details (viewCount, activityLevel, etc.)
+    const { data: enrichedProperty } = useProperty(property?.id ?? null);
+
+    // Record view when property is opened
+    const { recordPropertyView } = usePropertyView();
+    useEffect(() => {
+      if (property?.id && isOpen) {
+        recordPropertyView(property.id);
+      }
+    }, [property?.id, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Listings
     const { data: listings = [] } = useListings(property?.id ?? null);
-
-    // Open panel when property changes and is non-null
-    // (auto-open only if a property is provided — the caller controls when to show)
-    // Actually, we DON'T auto-open here. The caller decides via snapToIndex.
 
     // Expose ref methods
     useImperativeHandle(ref, () => ({
@@ -229,8 +202,9 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
       return () => document.removeEventListener('keydown', handler);
     }, [isOpen, handleClose]);
 
+    // Convert property to detailed format, merging enriched API data
     const propertyDetails = property
-      ? toPropertyDetails(property, { isLiked, isSaved })
+      ? toPropertyDetails(property, enrichedProperty, { isLiked: isLikedProp, isSaved: isSavedProp })
       : null;
 
     return (
@@ -279,7 +253,10 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
                   onShare={() => onShare?.(propertyDetails.id)}
                   onLike={() => onLike?.(propertyDetails.id)}
                 />
-                <ListingLinks listings={listings} />
+                <ListingLinks
+                  listings={listings}
+                  onAddListing={() => setShowSubmission(true)}
+                />
                 <View
                   onLayout={(e) => {
                     guessSectionY.current = e.nativeEvent.layout.y;
@@ -287,6 +264,7 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
                 >
                   <PriceGuessSection
                     property={propertyDetails}
+                    onGuessPress={() => onGuessPress?.(propertyDetails.id)}
                     onLoginRequired={onAuthRequired}
                   />
                 </View>
@@ -297,6 +275,7 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
                 >
                   <CommentsSection
                     property={propertyDetails}
+                    onAddComment={() => onCommentPress?.(propertyDetails.id)}
                     onAuthRequired={onAuthRequired}
                   />
                 </View>
@@ -312,6 +291,20 @@ export const WebPropertyPanel = forwardRef<WebPropertyPanelRef, WebPropertyPanel
             )}
           </ScrollView>
         </div>
+
+        {/* Listing submission modal */}
+        {property && (
+          <ListingSubmissionSheet
+            propertyId={property.id}
+            visible={showSubmission}
+            onClose={() => setShowSubmission(false)}
+            onSubmitted={() => {
+              setShowSubmission(false);
+              queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
+            }}
+            onAuthRequired={onAuthRequired}
+          />
+        )}
       </>
     );
   }

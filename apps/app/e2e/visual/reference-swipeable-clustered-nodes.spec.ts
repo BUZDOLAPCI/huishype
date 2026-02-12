@@ -143,7 +143,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
         console.log(`Map center screen position: ${JSON.stringify(mapCenter)}`);
 
         // Try clicking in multiple positions to find a cluster
-        const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+        const clusterPreview = page.locator('[data-testid="group-preview-card"]');
         let foundCluster = false;
 
         // Grid of positions to try - start with map center if available
@@ -193,10 +193,10 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
             });
 
             // Verify pagination elements
-            const pageIndicator = page.locator('[data-testid="cluster-page-indicator"]');
-            const leftNav = page.locator('[data-testid="cluster-nav-left"]');
-            const rightNav = page.locator('[data-testid="cluster-nav-right"]');
-            const closeButton = page.locator('[data-testid="cluster-close-button"]');
+            const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+            const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
+            const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
+            const closeButton = page.locator('[data-testid="group-preview-close-button"]');
 
             // Check all pagination elements exist
             expect(await pageIndicator.isVisible(), 'Page indicator should be visible').toBe(true);
@@ -288,7 +288,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
       await page.waitForTimeout(2000);
 
       // Try multiple positions to find a cluster
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       let foundCluster = false;
 
       const positions = [
@@ -305,9 +305,9 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
         if (isVisible) {
           foundCluster = true;
 
-          const pageIndicator = page.locator('[data-testid="cluster-page-indicator"]');
-          const leftNav = page.locator('[data-testid="cluster-nav-left"]');
-          const rightNav = page.locator('[data-testid="cluster-nav-right"]');
+          const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+          const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
+          const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
 
           // Get initial page
           const initialText = await pageIndicator.textContent();
@@ -361,7 +361,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
       await page.waitForTimeout(2000);
 
       // Try multiple positions to find a cluster
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       let foundCluster = false;
 
       const positions = [
@@ -379,7 +379,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
           foundCluster = true;
 
           // Click on the property card
-          const propertyCard = page.locator('[data-testid="cluster-property-card"]');
+          const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
           await propertyCard.click();
           await page.waitForTimeout(1000);
 

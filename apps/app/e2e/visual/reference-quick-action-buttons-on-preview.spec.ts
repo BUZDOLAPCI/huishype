@@ -351,7 +351,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Try to click on an actual property marker
     let previewVisible = false;
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
 
     // First, try to find and click on a marker using the map's fire event
     const clickResult = await clickOnPropertyMarker(page);
@@ -452,7 +452,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       // Verify horizontal layout (buttons should be on the same row)
       const buttonsLayout = await page.evaluate(() => {
-        const card = document.querySelector('[data-testid="property-preview-card"]');
+        const card = document.querySelector('[data-testid="group-preview-card"]');
         if (!card) return null;
 
         // Find elements containing the button text
@@ -481,16 +481,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         expect(buttonsLayout.areHorizontal, 'Buttons should be arranged horizontally').toBe(true);
       }
 
-      // Verify border separator exists (the preview-actions div has border-top CSS)
+      // Verify border separator exists between info and action areas
       const hasBorderSeparator = await page.evaluate(() => {
-        const card = document.querySelector('[data-testid="property-preview-card"]');
+        const card = document.querySelector('[data-testid="group-preview-card"]');
         if (!card) return false;
-        // Check for .border-t (Tailwind) or .preview-actions (which has border-top in CSS)
-        const borderElement = card.querySelector('.border-t') || card.querySelector('.preview-actions');
-        if (!borderElement) return false;
-        // Verify it actually has a visible border-top
-        const style = window.getComputedStyle(borderElement);
-        return style.borderTopWidth !== '0px' && style.borderTopStyle !== 'none';
+        // Find the actions container: it's a flex-row element with border-top (inline or class)
+        const allChildren = Array.from(card.querySelectorAll('*'));
+        return allChildren.some(el => {
+          const style = window.getComputedStyle(el);
+          return style.borderTopWidth !== '0px' && style.borderTopStyle !== 'none' &&
+                 style.flexDirection === 'row' && el.children.length >= 3;
+        });
       });
       console.log(`Has border separator: ${hasBorderSeparator}`);
       expect(hasBorderSeparator, 'Should have border separator between info and actions').toBe(true);
@@ -550,7 +551,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     // Use the reliable click helper
@@ -661,7 +662,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     // Use the reliable click helper

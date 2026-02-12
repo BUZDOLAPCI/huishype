@@ -23,8 +23,8 @@ export type { SearchBarProps } from './SearchBar';
 export { SearchResults } from './SearchResults';
 export type { SearchResultsProps } from './SearchResults';
 export type { PropertyPreviewData } from './PropertyPreviewCard';
-export { ClusterPreviewCard } from './ClusterPreviewCard';
-export type { ClusterPreviewCardProps } from './ClusterPreviewCard';
+export { GroupPreviewCard } from './GroupPreviewCard';
+export type { GroupPreviewCardProps, GroupPreviewProperty } from './GroupPreviewCard';
 
 // Comments components
 export {

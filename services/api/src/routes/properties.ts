@@ -192,6 +192,7 @@ const nearbyQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
   limit: z.coerce.number().int().min(1).max(20).default(5),
+  cluster: z.string().optional().transform(v => v === 'true'),
 });
 
 const nearbyPropertySchema = z.object({
@@ -211,12 +212,199 @@ const nearbyPropertySchema = z.object({
 
 const nearbyResponseSchema = z.array(nearbyPropertySchema);
 
+// Cluster detection response schemas (used when cluster=true)
+const clusterResultSchema = z.object({
+  type: z.literal('cluster'),
+  point_count: z.number(),
+  property_ids: z.string().describe('Comma-separated UUIDs'),
+  coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
+  distanceMeters: z.number(),
+});
+
+const singleResultSchema = z.object({
+  type: z.literal('single'),
+  id: z.string().uuid(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  wozValue: z.number().nullable(),
+  hasListing: z.boolean(),
+  activityScore: z.number(),
+  distanceMeters: z.number(),
+  geometry: coordinateSchema.nullable(),
+});
+
+const nearbyClusterResponseSchema = z.nullable(
+  z.discriminatedUnion('type', [clusterResultSchema, singleResultSchema])
+);
+
 /**
  * Compute search radius in degrees from a zoom level.
  * At z17 this is ~26m, at z18 ~13m, etc.
  */
 function zoomToRadiusDegrees(zoom: number): number {
   return 25 * (360 / Math.pow(2, zoom) / 256);
+}
+
+/** Zoom level above which properties are shown individually (no clustering). */
+const GHOST_NODE_THRESHOLD_ZOOM = 17;
+
+/** Grid cell size in degrees, matching tiles.ts clustering logic. */
+function getGridCellSize(zoom: number): number {
+  const baseCellSize = 360 / Math.pow(2, zoom);
+  return baseCellSize * 0.5;
+}
+
+// Row type for cluster detection queries
+type ClusterDetectionRow = {
+  id: string;
+  street: string;
+  house_number: number;
+  house_number_addition: string | null;
+  address: string;
+  city: string;
+  postal_code: string | null;
+  woz_value: number | null;
+  has_listing: boolean;
+  activity_score: number;
+  distance_meters: number;
+  lon: number;
+  lat: number;
+};
+
+/** Map a DB row to a single-property cluster detection result. */
+function mapToSingleResult(r: ClusterDetectionRow) {
+  return {
+    type: 'single' as const,
+    id: r.id,
+    street: r.street,
+    houseNumber: r.house_number,
+    houseNumberAddition: r.house_number_addition,
+    address: r.address,
+    city: r.city,
+    postalCode: r.postal_code,
+    wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+    hasListing: r.has_listing,
+    activityScore: Number(r.activity_score),
+    distanceMeters: Number(r.distance_meters),
+    geometry:
+      r.lon != null && r.lat != null
+        ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+        : null,
+  };
+}
+
+/**
+ * Detect whether a tap point lands on a cluster or a single property.
+ * Uses the same ST_SnapToGrid logic as tiles.ts for consistent results.
+ */
+async function detectCluster(lon: number, lat: number, zoom: number) {
+  if (zoom >= GHOST_NODE_THRESHOLD_ZOOM) {
+    // High zoom: no clustering on map, find nearest single property
+    const radiusDeg = zoomToRadiusDegrees(zoom);
+    const rows = await db.execute<ClusterDetectionRow>(sql`
+      SELECT
+        p.id,
+        p.street,
+        p.house_number,
+        p.house_number_addition,
+        ${ADDRESS_SQL} AS address,
+        p.city,
+        p.postal_code,
+        p.woz_value,
+        CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+        ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
+        ST_Distance(
+          p.geometry::geography,
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
+        ) AS distance_meters,
+        ST_X(p.geometry) AS lon,
+        ST_Y(p.geometry) AS lat
+      FROM properties p
+      LEFT JOIN LATERAL (
+        SELECT id FROM listings
+        WHERE property_id = p.id AND status = 'active'
+        LIMIT 1
+      ) l ON true
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND ST_DWithin(
+          p.geometry,
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+          ${radiusDeg}
+        )
+      ORDER BY distance_meters
+      LIMIT 1
+    `);
+
+    const result = Array.from(rows);
+    if (result.length === 0) return null;
+    return mapToSingleResult(result[0]);
+  }
+
+  // Low zoom: cluster detection using ST_SnapToGrid (same logic as tiles.ts)
+  const gridSize = getGridCellSize(zoom);
+  const searchRadius = gridSize * 1.5;
+
+  const rows = await db.execute<ClusterDetectionRow>(sql`
+    WITH nearby AS (
+      SELECT
+        p.id,
+        p.street,
+        p.house_number,
+        p.house_number_addition,
+        ${ADDRESS_SQL} AS address,
+        p.city,
+        p.postal_code,
+        p.woz_value,
+        CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+        ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
+        ST_Distance(
+          p.geometry::geography,
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
+        ) AS distance_meters,
+        ST_X(p.geometry) AS lon,
+        ST_Y(p.geometry) AS lat
+      FROM properties p
+      LEFT JOIN LATERAL (
+        SELECT id FROM listings
+        WHERE property_id = p.id AND status = 'active'
+        LIMIT 1
+      ) l ON true
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND ST_DWithin(
+          p.geometry,
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+          ${searchRadius}
+        )
+        AND ST_SnapToGrid(p.geometry, ${gridSize}) = ST_SnapToGrid(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326), ${gridSize})
+    )
+    SELECT * FROM nearby
+    WHERE has_listing = true OR activity_score > 0
+    ORDER BY distance_meters
+  `);
+
+  const result = Array.from(rows);
+  if (result.length === 0) return null;
+  if (result.length === 1) return mapToSingleResult(result[0]);
+
+  // Multiple properties in the same grid cell = cluster
+  const lons = result.map(r => Number(r.lon));
+  const lats = result.map(r => Number(r.lat));
+  const centroidLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+  const centroidLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+
+  return {
+    type: 'cluster' as const,
+    point_count: result.length,
+    property_ids: result.map(r => r.id).join(','),
+    coordinate: [centroidLon, centroidLat] as [number, number],
+    distanceMeters: Number(result[0].distance_meters),
+  };
 }
 
 /**
@@ -515,15 +703,23 @@ export async function propertyRoutes(app: FastifyInstance) {
         description:
           'Find the nearest properties to a given coordinate using PostGIS KNN. ' +
           'The search radius is derived from the zoom level. ' +
-          'Used as a fallback for native map tap when queryRenderedFeatures is unreliable.',
+          'Used as a fallback for native map tap when queryRenderedFeatures is unreliable. ' +
+          'When cluster=true, detects if the tap lands on a cluster or single property.',
         querystring: nearbyQuerySchema,
         response: {
-          200: nearbyResponseSchema,
+          200: z.union([nearbyResponseSchema, nearbyClusterResponseSchema]),
         },
       },
     },
     async (request, reply) => {
-      const { lon, lat, zoom, limit } = request.query;
+      const { lon, lat, zoom, limit, cluster } = request.query;
+
+      // Cluster detection mode: returns a single cluster/property or null
+      if (cluster) {
+        const result = await detectCluster(lon, lat, zoom);
+        return reply.send(result);
+      }
+
       const radiusDeg = zoomToRadiusDegrees(zoom);
 
       // PostGIS nearby query:
@@ -1068,6 +1264,7 @@ export type ResolveQuery = z.infer<typeof resolveQuerySchema>;
 export type ResolveResponse = z.infer<typeof resolveResponseSchema>;
 export type NearbyProperty = z.infer<typeof nearbyPropertySchema>;
 export type NearbyResponse = z.infer<typeof nearbyResponseSchema>;
+export type NearbyClusterResult = z.infer<typeof nearbyClusterResponseSchema>;
 export type SaveResponse = z.infer<typeof saveResponseSchema>;
 export type SavedPropertyResponse = z.infer<typeof savedPropertySchema>;
 export type SavedPropertiesResponse = z.infer<typeof savedPropertiesResponseSchema>;

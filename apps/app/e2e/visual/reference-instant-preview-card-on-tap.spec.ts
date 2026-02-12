@@ -337,7 +337,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Try to click on an actual property marker
     let previewVisible = false;
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
 
     // First, try to find and click on a marker using the map's fire event
     const clickResult = await clickOnPropertyMarker(page);
@@ -485,7 +485,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     // Use the reliable click helper
@@ -595,7 +595,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
 
     // Find and click on a property marker
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     let previewVisible = false;
 
     // Use the reliable click helper

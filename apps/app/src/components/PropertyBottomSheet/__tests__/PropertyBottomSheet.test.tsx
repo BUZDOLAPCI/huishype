@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PropertyBottomSheet } from '../PropertyBottomSheet';
+import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
 import type { Property } from '../../../hooks/useProperties';
 
 // Create a test query client

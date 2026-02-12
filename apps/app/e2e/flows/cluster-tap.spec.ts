@@ -1,10 +1,10 @@
 /**
  * Cluster Tap Flow E2E Tests
  *
- * Tests the cluster tap → ClusterPreviewCard flow:
- * - Small clusters (<=30 properties): tap → batch API → ClusterPreviewCard
+ * Tests the cluster tap → GroupPreviewCard flow:
+ * - Small clusters (<=30 properties): tap → batch API → GroupPreviewCard
  * - Large clusters (>30 properties): tap → zoom in
- * - ClusterPreviewCard navigation and property selection
+ * - GroupPreviewCard navigation and property selection
  */
 
 import { test, expect, Page } from '@playwright/test';
@@ -129,7 +129,7 @@ async function clickClusterAtCenter(page: Page): Promise<boolean> {
   const box = await canvas.boundingBox();
   if (!box) return false;
 
-  const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+  const clusterPreview = page.locator('[data-testid="group-preview-card"]');
 
   // Grid of positions around center to try (limited for performance)
   const positions = [
@@ -239,7 +239,7 @@ test.describe('Cluster Tap Flow', () => {
     }
   });
 
-  test('small cluster tap shows ClusterPreviewCard', async ({ page }) => {
+  test('small cluster tap shows GroupPreviewCard', async ({ page }) => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
@@ -270,11 +270,11 @@ test.describe('Cluster Tap Flow', () => {
       expect(batchRequests.length).toBeGreaterThan(0);
       console.log(`Batch API called ${batchRequests.length} time(s)`);
 
-      // Verify ClusterPreviewCard elements
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      // Verify GroupPreviewCard elements
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       await expect(clusterPreview).toBeVisible();
 
-      const pageIndicator = page.locator('[data-testid="cluster-page-indicator"]');
+      const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
       await expect(pageIndicator).toBeVisible();
 
       const pageText = await pageIndicator.textContent();
@@ -282,9 +282,9 @@ test.describe('Cluster Tap Flow', () => {
       console.log(`Cluster preview showing: ${pageText}`);
 
       // Verify navigation arrows
-      await expect(page.locator('[data-testid="cluster-nav-left"]')).toBeVisible();
-      await expect(page.locator('[data-testid="cluster-nav-right"]')).toBeVisible();
-      await expect(page.locator('[data-testid="cluster-close-button"]')).toBeVisible();
+      await expect(page.locator('[data-testid="group-preview-nav-left"]')).toBeVisible();
+      await expect(page.locator('[data-testid="group-preview-nav-right"]')).toBeVisible();
+      await expect(page.locator('[data-testid="group-preview-close-button"]')).toBeVisible();
     } else {
       console.log(
         'No cluster found at z13 center. This may happen if data density is low. Test is informational.'
@@ -302,7 +302,7 @@ test.describe('Cluster Tap Flow', () => {
     const foundCluster = await clickClusterAtCenter(page);
 
     if (foundCluster) {
-      const pageIndicator = page.locator('[data-testid="cluster-page-indicator"]');
+      const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
       const initialText = await pageIndicator.textContent();
       console.log(`Initial: ${initialText}`);
 
@@ -310,7 +310,7 @@ test.describe('Cluster Tap Flow', () => {
       const match = initialText?.match(/(\d+) of (\d+)/);
       if (match && parseInt(match[2]) > 1) {
         // Click right arrow
-        const rightNav = page.locator('[data-testid="cluster-nav-right"]');
+        const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
         await rightNav.click();
         await page.waitForTimeout(500);
 
@@ -319,7 +319,7 @@ test.describe('Cluster Tap Flow', () => {
         console.log(`After right: ${afterRightText}`);
 
         // Click left arrow to go back
-        const leftNav = page.locator('[data-testid="cluster-nav-left"]');
+        const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
         await leftNav.click();
         await page.waitForTimeout(500);
 
@@ -329,11 +329,11 @@ test.describe('Cluster Tap Flow', () => {
       }
 
       // Close the preview
-      const closeButton = page.locator('[data-testid="cluster-close-button"]');
+      const closeButton = page.locator('[data-testid="group-preview-close-button"]');
       await closeButton.click();
       await page.waitForTimeout(500);
 
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       const stillVisible = await clusterPreview.isVisible().catch(() => false);
       expect(stillVisible).toBe(false);
     } else {
@@ -352,13 +352,13 @@ test.describe('Cluster Tap Flow', () => {
 
     if (foundCluster) {
       // Click the property card
-      const propertyCard = page.locator('[data-testid="cluster-property-card"]');
+      const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
       await expect(propertyCard).toBeVisible();
       await propertyCard.click();
       await page.waitForTimeout(1000);
 
       // Cluster preview should close
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       const previewVisible = await clusterPreview.isVisible().catch(() => false);
       expect(previewVisible).toBe(false);
 
@@ -397,11 +397,11 @@ test.describe('Cluster Tap Flow', () => {
       await page.waitForTimeout(2000);
 
       const newZoom = await getMapZoom(page);
-      const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       const previewVisible = await clusterPreview.isVisible().catch(() => false);
 
       // At z10 with large clusters: either zoom increased or nothing happened
-      // (if no cluster was clicked). ClusterPreviewCard should NOT appear for large clusters.
+      // (if no cluster was clicked). GroupPreviewCard should NOT appear for large clusters.
       if (newZoom > initialZoom + 0.5) {
         expect(previewVisible).toBe(false);
         console.log(`Large cluster zoom: ${initialZoom} -> ${newZoom} (preview not shown)`);

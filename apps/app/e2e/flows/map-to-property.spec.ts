@@ -304,13 +304,13 @@ test.describe('Map to Property Flow', () => {
     await page.mouse.click(featureInfo!.viewportX, featureInfo!.viewportY);
 
     // Wait for the preview card to appear (API fetch + render)
-    await page.waitForSelector('[data-testid="property-preview-popup"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="group-preview-card"]', { timeout: 10000 });
     await page.waitForSelector('[data-testid="selected-marker"]', { timeout: 5000 });
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/map-click-preview.png` });
 
     // Verify preview card has real property data
-    const previewCard = page.locator('[data-testid="property-preview-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
     await expect(previewCard).toBeVisible();
 
     const cardText = await previewCard.textContent() || '';
@@ -324,7 +324,7 @@ test.describe('Map to Property Flow', () => {
 
     // Verify the preview card persists (not immediately dismissed)
     await page.waitForTimeout(1000);
-    await expect(page.locator('[data-testid="property-preview-popup"]')).toBeVisible();
+    await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible();
   });
 
   test('API properties endpoint returns data for Eindhoven', async ({ request }) => {

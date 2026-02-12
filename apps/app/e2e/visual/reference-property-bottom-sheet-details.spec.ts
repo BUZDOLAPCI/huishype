@@ -155,7 +155,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       });
 
       // Find and click the preview card to open bottom sheet
-      const previewCard = page.locator('[data-testid="property-preview-card"]');
+      const previewCard = page.locator('[data-testid="group-preview-card"]');
       if (await previewCard.isVisible().catch(() => false)) {
         console.log('Preview card visible, clicking to expand...');
 

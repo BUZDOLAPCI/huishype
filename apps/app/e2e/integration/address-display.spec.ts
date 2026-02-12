@@ -158,8 +158,8 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
 
     // Try to find and click on a property marker
     // Look for cluster preview cards or property markers
-    const previewCard = page.locator('[data-testid="cluster-preview-card"]');
-    const propertyCard = page.locator('[data-testid="cluster-property-card"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
+    const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
     const addressText = page.locator('[data-testid="property-address"]');
 
     // Check if any preview cards are visible
@@ -288,7 +288,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     await expect(mapContainer.first()).toBeVisible({ timeout: 30000 });
 
     // Look for any visible cluster preview
-    const clusterPreview = page.locator('[data-testid="cluster-preview-card"]');
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
     const isPreviewVisible = await clusterPreview.first().isVisible().catch(() => false);
 
     if (isPreviewVisible) {

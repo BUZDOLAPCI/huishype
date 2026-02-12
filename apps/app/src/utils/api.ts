@@ -169,6 +169,52 @@ export async function resolveProperty(
   }
 }
 
+// --- Cluster-aware nearby lookup (imperative, not a hook) ---
+
+/** Cluster detection result from GET /properties/nearby?cluster=true */
+export type NearbyClusterResult =
+  | {
+      type: 'cluster';
+      point_count: number;
+      property_ids: string;
+      coordinate: [number, number];
+      distanceMeters: number;
+    }
+  | {
+      type: 'single';
+      id: string;
+      address: string;
+      city: string;
+      postalCode: string | null;
+      wozValue: number | null;
+      hasListing: boolean;
+      askingPrice: number | null;
+      activityScore: number;
+      distanceMeters: number;
+      geometry: { type: 'Point'; coordinates: [number, number] } | null;
+    };
+
+/**
+ * Fetch cluster-aware nearby result for a tap coordinate.
+ * Returns a discriminated union: either a cluster (multiple properties in
+ * the same grid cell) or a single property, or null if nothing is nearby.
+ */
+export async function fetchNearbyCluster(
+  lon: number,
+  lat: number,
+  zoom: number,
+): Promise<NearbyClusterResult | null> {
+  try {
+    const result = await apiFetch<NearbyClusterResult | null>(
+      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}&cluster=true`,
+    );
+    return result;
+  } catch (err) {
+    console.warn('[HuisHype] fetchNearbyCluster failed:', err);
+    return null;
+  }
+}
+
 // --- Batch property lookup (imperative, not a hook) ---
 
 /** Shape returned by GET /properties/batch */

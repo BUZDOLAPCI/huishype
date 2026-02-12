@@ -479,6 +479,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
           // Check if a bottom sheet or preview appeared
           const previewSelectors = [
+            '[data-testid="group-preview-card"]',
             '[data-testid="property-preview"]',
             '[data-testid="property-bottom-sheet"]',
             '[data-testid="bottom-sheet"]',

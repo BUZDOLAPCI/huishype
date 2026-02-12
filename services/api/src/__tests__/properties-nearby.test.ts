@@ -240,6 +240,110 @@ describe('GET /properties/nearby', () => {
     });
   });
 
+  describe('cluster detection (cluster=true)', () => {
+    it('should return a cluster at low zoom in a populated area', async () => {
+      // At zoom 10, grid cells are ~0.17 degrees wide (~19km)
+      // Eindhoven has many seeded active properties, so they should cluster
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10&cluster=true',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      if (body !== null) {
+        expect(body).toHaveProperty('type');
+        if (body.type === 'cluster') {
+          expect(body.point_count).toBeGreaterThan(1);
+          expect(typeof body.property_ids).toBe('string');
+          expect(body.property_ids.split(',').length).toBe(body.point_count);
+          expect(Array.isArray(body.coordinate)).toBe(true);
+          expect(body.coordinate).toHaveLength(2);
+          expect(typeof body.coordinate[0]).toBe('number');
+          expect(typeof body.coordinate[1]).toBe('number');
+          expect(typeof body.distanceMeters).toBe('number');
+        } else {
+          expect(body.type).toBe('single');
+          expect(body).toHaveProperty('id');
+        }
+      }
+    });
+
+    it('should return a single property at high zoom (above clustering threshold)', async () => {
+      // At zoom 18, above GHOST_NODE_THRESHOLD_ZOOM (17) — no clustering
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=18&cluster=true',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      if (body !== null) {
+        expect(body.type).toBe('single');
+        expect(body).toHaveProperty('id');
+        expect(body).toHaveProperty('address');
+        expect(body).toHaveProperty('city');
+        expect(body).toHaveProperty('distanceMeters');
+        expect(body).toHaveProperty('geometry');
+        expect(typeof body.distanceMeters).toBe('number');
+      }
+    });
+
+    it('should return null for a location with no properties', async () => {
+      // Coordinates in the middle of the North Sea
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=3.0&lat=55.0&zoom=14&cluster=true',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toBeNull();
+    });
+
+    it('should return array when cluster=false (backward compatible)', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&cluster=false',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(Array.isArray(body)).toBe(true);
+    });
+
+    it('should return array when cluster param is absent (backward compatible)', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(Array.isArray(body)).toBe(true);
+    });
+
+    it('should include valid UUIDs in cluster property_ids', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10&cluster=true',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      if (body !== null && body.type === 'cluster') {
+        const ids = body.property_ids.split(',');
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        for (const id of ids) {
+          expect(id).toMatch(uuidRegex);
+        }
+      }
+    });
+  });
+
   describe('OpenAPI documentation', () => {
     it('should include /properties/nearby in swagger', async () => {
       const response = await app.inject({
@@ -269,6 +373,7 @@ describe('GET /properties/nearby', () => {
       expect(paramNames).toContain('lat');
       expect(paramNames).toContain('zoom');
       expect(paramNames).toContain('limit');
+      expect(paramNames).toContain('cluster');
     });
   });
 });

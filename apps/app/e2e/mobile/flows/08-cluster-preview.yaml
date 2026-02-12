@@ -1,12 +1,12 @@
 appId: nl.huishype.app
 ---
 # 08-cluster-preview.yaml — Cluster Preview Card Test
-# Tests cluster visibility at zoomed-out levels and cluster tap → ClusterPreviewCard.
+# Tests cluster visibility at zoomed-out levels and cluster tap → GroupPreviewCard.
 # This is a sub-flow; user is authenticated and on the Map tab after cleanup.
 #
 # Note: queryRenderedFeatures has a known C++ bug on MapLibre Android native
 # (issues #2875, #2828). Cluster tap may only trigger intermittently, so
-# ClusterPreviewCard assertions use `optional: true` to avoid flaky failures.
+# GroupPreviewCard assertions use `optional: true` to avoid flaky failures.
 # The test still captures screenshots to verify cluster rendering visually.
 
 # Ensure we're on the Map tab
@@ -57,8 +57,10 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 
 # Wait a moment for queryRenderedFeatures + potential batch API call
+# GroupPreviewCard shows "X of Y" page indicator for clusters
 - extendedWaitUntil:
-    visible: "Swipe to browse"
+    visible:
+        id: "group-preview-page-indicator"
     timeout: 8000
     optional: true
 
@@ -69,12 +71,12 @@ appId: nl.huishype.app
 
 # Check if "of" indicator is visible (e.g., "1 of 5")
 - assertVisible:
-    id: "cluster-preview-card"
+    id: "group-preview-card"
     optional: true
 
 # Try navigating to the next property in the cluster
 - tapOn:
-    id: "cluster-nav-right"
+    id: "group-preview-nav-right"
     optional: true
 - waitForAnimationToEnd
 
@@ -82,13 +84,13 @@ appId: nl.huishype.app
 
 # Try navigating back
 - tapOn:
-    id: "cluster-nav-left"
+    id: "group-preview-nav-left"
     optional: true
 - waitForAnimationToEnd
 
 # Close the cluster preview if it was shown
 - tapOn:
-    id: "cluster-close-button"
+    id: "group-preview-close-button"
     optional: true
 - waitForAnimationToEnd
 
@@ -109,7 +111,7 @@ appId: nl.huishype.app
 
 # Clean up: close any open cluster preview
 - tapOn:
-    id: "cluster-close-button"
+    id: "group-preview-close-button"
     optional: true
 - waitForAnimationToEnd
 

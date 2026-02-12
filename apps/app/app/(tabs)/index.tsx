@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
+import { Text, View, ActivityIndicator, Pressable, useWindowDimensions, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -13,21 +13,21 @@ import {
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
 import {
-  PropertyPreviewCard,
   PropertyBottomSheet,
-  ClusterPreviewCard,
   AuthModal,
   SearchBar,
   BottomSheetErrorBoundary,
+  GroupPreviewCard,
 } from '@/src/components';
+import type { GroupPreviewProperty } from '@/src/components';
 import type { PropertyBottomSheetRef } from '@/src/components';
-import { useProperty, type Property } from '@/src/hooks/useProperties';
+import { useProperty } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
-import { useClusterPreview, LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
+import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
-import { API_URL, fetchNearbyProperty, type PropertyResolveResult } from '@/src/utils/api';
+import { API_URL, fetchNearbyCluster, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 
 // No access token needed for MapLibre - it's open source
 
@@ -103,6 +103,12 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   return 'cold';
 }
 
+/** State for the geo-anchored preview card (single or cluster). */
+interface PreviewGroup {
+  properties: GroupPreviewProperty[];
+  coordinate: [number, number]; // [longitude, latitude]
+}
+
 export default function MapScreen() {
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
   // Merged style as JS object (base map + property vector tiles)
@@ -113,7 +119,7 @@ export default function MapScreen() {
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     null
   );
-  const [showPreview, setShowPreview] = useState(false);
+  const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -127,26 +133,34 @@ export default function MapScreen() {
     return () => clearTimeout(timeout);
   }, [mapLoaded]);
 
-  // Cluster preview (shared hook — batch-fetches properties and manages navigation)
-  const handleClusterPropertySelect = useCallback((property: Property) => {
-    setSelectedPropertyId(property.id);
-    // Snap to partial (index 1 = 50%) when selecting from cluster
-    bottomSheetRef.current?.snapToIndex(1);
-  }, []);
+  // Cluster preview index (for paging within a cluster preview card)
+  const [clusterIndex, setClusterIndex] = useState(0);
 
-  const {
-    clusterProperties,
-    currentClusterIndex,
-    isClusterPreview,
-    openClusterPreview,
-    closeClusterPreview,
-    setCurrentClusterIndex: handleClusterIndexChange,
-    handleClusterPropertyPress,
-  } = useClusterPreview({ onPropertySelect: handleClusterPropertySelect });
+  // Screen position for the overlay preview card (projected from geo coordinate)
+  const [previewScreenPos, setPreviewScreenPos] = useState<{ x: number; y: number } | null>(null);
+  // Measured card height for accurate positioning (default estimate until measured)
+  const [previewCardHeight, setPreviewCardHeight] = useState(200);
+  const { width: windowWidth } = useWindowDimensions();
+  const PREVIEW_CARD_WIDTH = 320;
 
-  // Activity data for selected property (from vector tile feature)
-  const [selectedActivityScore, setSelectedActivityScore] = useState(0);
-  const [selectedHasListing, setSelectedHasListing] = useState(false);
+  // Project the preview coordinate to screen pixels
+  const updatePreviewScreenPos = useCallback(async () => {
+    if (!previewGroup || !mapRef.current) {
+      setPreviewScreenPos(null);
+      return;
+    }
+    try {
+      const point = await mapRef.current.project(previewGroup.coordinate);
+      setPreviewScreenPos({ x: point[0], y: point[1] });
+    } catch {
+      setPreviewScreenPos(null);
+    }
+  }, [previewGroup]);
+
+  // Re-project when previewGroup changes
+  useEffect(() => {
+    updatePreviewScreenPos();
+  }, [updatePreviewScreenPos]);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -173,8 +187,44 @@ export default function MapScreen() {
   });
 
 
+  /** Convert batch/nearby properties to GroupPreviewProperty format. */
+  const toGroupProperty = useCallback(
+    (p: { id: string; address: string; city: string; postalCode?: string | null; wozValue?: number | null; askingPrice?: number | null; activityScore?: number; geometry?: { type: 'Point'; coordinates: [number, number] } | null; bouwjaar?: number | null; oppervlakte?: number | null }): GroupPreviewProperty => ({
+      id: p.id,
+      address: p.address,
+      city: p.city,
+      postalCode: p.postalCode,
+      wozValue: p.wozValue,
+      askingPrice: p.askingPrice ?? null,
+      activityLevel: getActivityLevel((p.activityScore as number) ?? 0),
+      activityScore: (p.activityScore as number) ?? 0,
+      thumbnailUrl: p.geometry ? getPropertyThumbnailFromGeometry(p.geometry) : null,
+      bouwjaar: p.bouwjaar ?? null,
+      oppervlakte: p.oppervlakte ?? null,
+    }),
+    []
+  );
+
+  /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
+  const openClusterPreviewAtCoord = useCallback(
+    async (propertyIds: string[], coordinate: [number, number]) => {
+      try {
+        const batch = await fetchBatchProperties(propertyIds.slice(0, 50));
+        if (batch.length > 0) {
+          setPreviewGroup({
+            properties: batch.map(b => toGroupProperty({ ...b, activityScore: 0 })),
+            coordinate,
+          });
+          setClusterIndex(0);
+        }
+      } catch (err) {
+        console.warn('[HuisHype] Batch fetch for cluster preview failed:', err);
+      }
+    },
+    [toGroupProperty]
+  );
+
   // Handle feature press - queries rendered features from style layers via Map
-  // TODO: Re-implement using mapRef.queryRenderedFeatures() once tiles render
   const handleFeaturePress = useCallback(
     async (features: GeoJSON.Feature[]) => {
       if (!features.length) return;
@@ -202,45 +252,62 @@ export default function MapScreen() {
             });
           }
         } else {
-          // Small cluster — show paginated preview
+          // Small cluster — show geo-anchored GroupPreviewCard
           const ids = propertyIdsStr.split(',');
-          openClusterPreview(ids);
+          if (clusterGeom && clusterGeom.type === 'Point') {
+            const coord = clusterGeom.coordinates as [number, number];
+            openClusterPreviewAtCoord(ids, coord);
+          }
         }
       } else {
         const propertyId = properties.id as string;
         const activityScore = (properties.activityScore as number) ?? 0;
-        const hasListing = (properties.hasListing as boolean) ?? false;
+        const geom = feature.geometry;
 
-        if (propertyId) {
+        if (propertyId && geom && geom.type === 'Point') {
+          const coord = geom.coordinates as [number, number];
           setSelectedPropertyId(propertyId);
-          setSelectedActivityScore(activityScore);
-          setSelectedHasListing(hasListing);
-          setShowPreview(true);
-          closeClusterPreview();
+          setPreviewGroup({
+            properties: [{
+              id: propertyId,
+              address: (properties.address as string) ?? '',
+              city: (properties.city as string) ?? '',
+              postalCode: (properties.postalCode as string) ?? null,
+              wozValue: (properties.wozValue as number) ?? null,
+              askingPrice: (properties.askingPrice as number) ?? null,
+              activityLevel: getActivityLevel(activityScore),
+              activityScore,
+              thumbnailUrl: getPropertyThumbnailFromGeometry({ type: 'Point', coordinates: coord }),
+            }],
+            coordinate: coord,
+          });
+          setClusterIndex(0);
         }
       }
     },
-    [currentZoom, openClusterPreview, closeClusterPreview]
+    [currentZoom, openClusterPreviewAtCoord]
   );
 
-  // Handle map region change to track zoom level
+  // Handle map region change to track zoom level + re-project overlay position
   const handleRegionChange = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       const { zoom } = event.nativeEvent;
       if (zoom !== undefined) {
         setCurrentZoom(zoom);
       }
+      // Re-project the preview card position after camera settles
+      updatePreviewScreenPos();
     },
-    []
+    [updatePreviewScreenPos]
   );
 
-  // Handle preview card press (opens full bottom sheet)
-  // CRITICAL: Preview card should STAY OPEN when clicked - only expand the sheet
-  const handlePreviewPress = useCallback(() => {
-    // Do NOT close preview - just expand the bottom sheet
-    // Preview card persists until user explicitly dismisses it
-    bottomSheetRef.current?.snapToIndex(1);
-  }, []);
+  // Also track during camera movement so the card follows smoothly
+  const handleRegionIsChanging = useCallback(
+    (_event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      updatePreviewScreenPos();
+    },
+    [updatePreviewScreenPos]
+  );
 
   // Handle bottom sheet index changes for preview card persistence logic
   const handleSheetIndexChange = useCallback((index: number) => {
@@ -257,14 +324,7 @@ export default function MapScreen() {
     // BUT we do NOT close the preview card here - user intention is to "return to map view"
     // not to deselect the property. Preview card remains visible showing the selected property.
     // The preview will only close when user taps on empty map background (handled in handleMapPress)
-
-    // We also don't clear selectedPropertyId here - the property remains selected
-    // Only close cluster preview since that doesn't have the same persistence rules
-    closeClusterPreview();
-    // Don't clear the rest - preview should persist
-    // setSelectedPropertyId(null);  // DON'T do this
-    // setShowPreview(false);        // DON'T do this
-  }, [closeClusterPreview]);
+  }, []);
 
 
   // Handle quick actions from preview card
@@ -314,9 +374,8 @@ export default function MapScreen() {
   const handleAuthStarting = useCallback(() => {
     bottomSheetRef.current?.close();
     setSelectedPropertyId(null);
-    setShowPreview(false);
-    closeClusterPreview();
-  }, [closeClusterPreview]);
+    setPreviewGroup(null);
+  }, []);
 
   const handleAuthModalClose = useCallback(() => {
     setShowAuthModal(false);
@@ -364,23 +423,44 @@ export default function MapScreen() {
         }
       }
 
-      // Fallback: use /properties/nearby API endpoint (native only).
+      // Fallback: use cluster-aware /properties/nearby API endpoint (native only).
       // queryRenderedFeatures doesn't reliably find features from custom
       // vector tile sources on Android — this is a MapLibre Native C++ bug.
       if (!foundFeature && lngLat) {
         const [lng, lat] = lngLat;
         try {
-          const nearby = await fetchNearbyProperty(lng, lat, currentZoom);
-          if (nearby) {
-            setSelectedPropertyId(nearby.id);
-            setSelectedActivityScore(nearby.activityScore);
-            setSelectedHasListing(nearby.hasListing);
-            setShowPreview(true);
-            closeClusterPreview();
-            return;
+          const result = await fetchNearbyCluster(lng, lat, currentZoom);
+          if (result) {
+            if (result.type === 'cluster') {
+              // Cluster detected — batch-fetch and show GroupPreviewCard
+              if (result.point_count > LARGE_CLUSTER_THRESHOLD) {
+                // Too many — zoom in instead
+                cameraRef.current?.flyTo({
+                  center: result.coordinate,
+                  zoom: Math.min(currentZoom + 2, 18),
+                  duration: 500,
+                });
+              } else {
+                const ids = result.property_ids.split(',');
+                openClusterPreviewAtCoord(ids, result.coordinate);
+              }
+              return;
+            } else {
+              // Single property
+              const coord: [number, number] = result.geometry
+                ? result.geometry.coordinates
+                : [lng, lat];
+              setSelectedPropertyId(result.id);
+              setPreviewGroup({
+                properties: [toGroupProperty(result)],
+                coordinate: coord,
+              });
+              setClusterIndex(0);
+              return;
+            }
           }
         } catch (err) {
-          console.warn('[HuisHype] Nearby fallback failed:', err);
+          console.warn('[HuisHype] Nearby cluster fallback failed:', err);
         }
       }
 
@@ -388,34 +468,43 @@ export default function MapScreen() {
       const currentSheetIndex = sheetIndexRef.current;
       if (currentSheetIndex <= 0) {
         // Sheet is in peek (0) or closed (-1) state - safe to close preview
-        if (showPreview) {
-          setShowPreview(false);
-        }
-        if (isClusterPreview) {
-          closeClusterPreview();
+        if (previewGroup) {
+          setPreviewGroup(null);
         }
       }
       // If sheet is expanded (1 or 2), don't close preview
       // The backdrop/sheet will handle closing itself
     },
-    [showPreview, isClusterPreview, handleFeaturePress, closeClusterPreview, currentZoom]
+    [previewGroup, handleFeaturePress, currentZoom, openClusterPreviewAtCoord, toGroupProperty]
   );
 
   // Zoom control handlers
   // Search bar callbacks
   const handlePropertyResolved = useCallback((property: PropertyResolveResult) => {
     const { lon, lat } = property.coordinates;
+    const coord: [number, number] = [lon, lat];
     cameraRef.current?.flyTo({
-      center: [lon, lat],
+      center: coord,
       zoom: 17,
       duration: 1000,
     });
     setSelectedPropertyId(property.id);
-    setSelectedActivityScore(0); // Will be updated when property data loads
-    setSelectedHasListing(property.hasListing);
-    setShowPreview(true);
-    closeClusterPreview();
-  }, [closeClusterPreview]);
+    setPreviewGroup({
+      properties: [{
+        id: property.id,
+        address: property.address,
+        city: property.city,
+        postalCode: property.postalCode ?? null,
+        wozValue: property.wozValue ?? null,
+        askingPrice: null,
+        activityLevel: 'cold',
+        activityScore: 0,
+        thumbnailUrl: getPropertyThumbnailFromGeometry({ type: 'Point', coordinates: coord }),
+      }],
+      coordinate: coord,
+    });
+    setClusterIndex(0);
+  }, []);
 
   const handleLocationResolved = useCallback((coordinates: { lon: number; lat: number }, _address: string) => {
     cameraRef.current?.flyTo({
@@ -463,6 +552,7 @@ export default function MapScreen() {
           mapStyle={mergedStyle}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
+          onRegionIsChanging={handleRegionIsChanging}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
           onDidFailLoadingMap={() => {
             console.error('Map failed to load');
@@ -478,6 +568,7 @@ export default function MapScreen() {
               pitch: DEFAULT_PITCH,
             }}
           />
+
         </Map>
         )}
 
@@ -554,46 +645,53 @@ export default function MapScreen() {
           </Pressable>
         </View>
 
-        {/* Property Preview Card (floating) - single property */}
-        {showPreview && selectedProperty && !isClusterPreview && (
-          <View className="absolute bottom-4 left-4 right-4">
-            <PropertyPreviewCard
-              property={{
-                id: selectedProperty.id,
-                address: selectedProperty.address,
-                city: selectedProperty.city,
-                postalCode: selectedProperty.postalCode,
-                wozValue: selectedProperty.wozValue,
-                activityLevel: getActivityLevel(selectedActivityScore),
-                activityScore: selectedActivityScore,
-                thumbnailUrl: getPropertyThumbnailFromGeometry(selectedProperty.geometry),
-              }}
-              isLiked={isLiked}
-              onPress={handlePreviewPress}
-              onLike={handleLike}
-              onComment={handleComment}
-              onGuess={handleGuess}
-            />
-          </View>
-        )}
-
         {/* Loading indicator for property fetch */}
-        {showPreview && propertyLoading && !selectedProperty && (
+        {previewGroup && previewGroup.properties.length === 1 && propertyLoading && !selectedProperty && (
           <View className="absolute bottom-4 left-4 right-4 bg-white rounded-xl p-4 shadow-lg items-center">
             <ActivityIndicator size="small" color="#3B82F6" />
             <Text className="text-gray-500 mt-2">Loading property...</Text>
           </View>
         )}
 
-        {/* Cluster Preview Card (floating) - multiple properties */}
-        {isClusterPreview && clusterProperties.length > 0 && (
-          <View className="absolute bottom-4 left-4 right-4">
-            <ClusterPreviewCard
-              properties={clusterProperties}
-              currentIndex={currentClusterIndex}
-              onIndexChange={handleClusterIndexChange}
-              onClose={closeClusterPreview}
-              onPropertyPress={handleClusterPropertyPress}
+        {/* Overlay GroupPreviewCard — rendered outside Map as a real Android View
+            so Maestro/accessibility can find it. Position tracks the geo coordinate
+            via mapRef.project(). */}
+        {previewGroup && previewGroup.properties.length > 0 && previewScreenPos && (
+          <View
+            style={{
+              position: 'absolute',
+              // Center card horizontally on the projected point, clamped to screen
+              left: Math.max(4, Math.min(
+                previewScreenPos.x - PREVIEW_CARD_WIDTH / 2,
+                windowWidth - PREVIEW_CARD_WIDTH - 4,
+              )),
+              // Position card so its bottom (arrow tip) aligns with the map point
+              top: previewScreenPos.y - previewCardHeight,
+              zIndex: 1000,
+              elevation: 10,
+            }}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              if (h > 0 && h !== previewCardHeight) {
+                setPreviewCardHeight(h);
+              }
+            }}
+          >
+            <GroupPreviewCard
+              properties={previewGroup.properties}
+              currentIndex={clusterIndex}
+              onIndexChange={setClusterIndex}
+              onClose={() => setPreviewGroup(null)}
+              onPropertyTap={(property) => {
+                setSelectedPropertyId(property.id);
+                bottomSheetRef.current?.snapToIndex(1);
+              }}
+              onLike={handleLike}
+              onComment={handleComment}
+              onGuess={handleGuess}
+              isLiked={isLiked}
+              showArrow
+              arrowDirection="down"
             />
           </View>
         )}

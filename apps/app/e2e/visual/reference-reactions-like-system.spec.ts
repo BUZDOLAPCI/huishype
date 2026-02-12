@@ -286,7 +286,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         });
 
         // Also take a screenshot of just the preview card if possible
-        const previewCard = page.locator('.bg-white.rounded-xl.shadow-lg').first();
+        const previewCard = page.locator('[data-testid="group-preview-card"]').or(page.locator('.bg-white.rounded-xl.shadow-lg')).first();
         if (await previewCard.isVisible().catch(() => false)) {
           await previewCard.screenshot({
             path: path.join(SCREENSHOT_DIR, `${EXPECTATION_NAME}-preview-card-only.png`),

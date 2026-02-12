@@ -2,35 +2,61 @@ appId: nl.huishype.app
 ---
 # 06-auth-interactions.yaml — Post-Login Interactions
 # After login, the property was deselected (handleAuthStarting clears it).
-# This flow tries to re-open a property and test authenticated interactions.
+# Re-search for the fixture property to get the bottom sheet open again,
+# then test authenticated interactions.
 #
-# KNOWN LIMITATION: The preview card tap is optional because auth clears the
-# selected property. If the tap fails, the bottom sheet never opens, making all
-# subsequent content assertions unreachable. Maestro has no conditional blocks,
-# so all assertions after the tap must remain optional to avoid false failures.
-# This is acceptable — the unauthenticated flow (04-bottom-sheet) already tests
-# bottom sheet content thoroughly.
-#
-# SAFETY: Never use `tapOn: Input text` patterns here — if the bottom sheet
-# didn't open, Maestro would type into whatever is focused (e.g., the search
-# bar), which covers the screen and breaks subsequent flows.
+# KNOWN LIMITATION: GroupPreviewCard is in a MapLibre <Marker> (GL texture).
+# Cannot tap preview card buttons. Use search → bottom sheet expansion instead.
 
-# Try tapping the preview card (may not exist after auth cleared it)
+# Make sure we're on the Map tab
+- tapOn: "Map"
+- waitForAnimationToEnd
+
+# Clear any previous search text and re-search
 - tapOn:
-    id: "property-preview-card"
+    id: "search-clear-button"
     optional: true
 - waitForAnimationToEnd
 
-# Try swiping up to expand bottom sheet (if preview card was found)
+- tapOn:
+    id: "search-bar-input"
+- waitForAnimationToEnd
+
+- inputText: "Beeldbuisring 41 Eindhoven"
+
+- extendedWaitUntil:
+    visible: ".*Beeldbuisring 41.*"
+    timeout: 15000
+
+- tapOn:
+    id: "search-result-item"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+# Wait for property data to load (bottom sheet peeks)
+- extendedWaitUntil:
+    visible:
+        id: "property-header-carousel"
+    timeout: 15000
+
+# Expand bottom sheet
 - swipe:
-    start: "50%,70%"
-    end: "50%,20%"
+    start: "50%,88%"
+    end: "50%,40%"
+    duration: 500
+- waitForAnimationToEnd
+
+# Expand to full height
+- swipe:
+    start: "50%,60%"
+    end: "50%,15%"
     duration: 500
 - waitForAnimationToEnd
 
 - takeScreenshot: maestro-screenshots/full_flow_15_auth_bottom_sheet
 
-# All assertions below are optional — bottom sheet may not be open (see header comment)
+# All assertions below are optional — bottom sheet expansion may not work
 - assertVisible:
     text: "Save"
     optional: true
