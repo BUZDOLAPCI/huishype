@@ -1,8 +1,9 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { Text, View, ActivityIndicator, Pressable, useWindowDimensions, type NativeSyntheticEvent } from 'react-native';
+import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
+  Marker,
   LogManager,
   type CameraRef,
   type MapRef,
@@ -27,7 +28,7 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
-import { API_URL, fetchNearbyCluster, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
+import { API_URL, fetchBatchProperties, fetchNearbyCluster, type PropertyResolveResult } from '@/src/utils/api';
 
 // No access token needed for MapLibre - it's open source
 
@@ -135,32 +136,6 @@ export default function MapScreen() {
 
   // Cluster preview index (for paging within a cluster preview card)
   const [clusterIndex, setClusterIndex] = useState(0);
-
-  // Screen position for the overlay preview card (projected from geo coordinate)
-  const [previewScreenPos, setPreviewScreenPos] = useState<{ x: number; y: number } | null>(null);
-  // Measured card height for accurate positioning (default estimate until measured)
-  const [previewCardHeight, setPreviewCardHeight] = useState(200);
-  const { width: windowWidth } = useWindowDimensions();
-  const PREVIEW_CARD_WIDTH = 320;
-
-  // Project the preview coordinate to screen pixels
-  const updatePreviewScreenPos = useCallback(async () => {
-    if (!previewGroup || !mapRef.current) {
-      setPreviewScreenPos(null);
-      return;
-    }
-    try {
-      const point = await mapRef.current.project(previewGroup.coordinate);
-      setPreviewScreenPos({ x: point[0], y: point[1] });
-    } catch {
-      setPreviewScreenPos(null);
-    }
-  }, [previewGroup]);
-
-  // Re-project when previewGroup changes
-  useEffect(() => {
-    updatePreviewScreenPos();
-  }, [updatePreviewScreenPos]);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -288,25 +263,15 @@ export default function MapScreen() {
     [currentZoom, openClusterPreviewAtCoord]
   );
 
-  // Handle map region change to track zoom level + re-project overlay position
+  // Handle map region change to track zoom level
   const handleRegionChange = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       const { zoom } = event.nativeEvent;
       if (zoom !== undefined) {
         setCurrentZoom(zoom);
       }
-      // Re-project the preview card position after camera settles
-      updatePreviewScreenPos();
     },
-    [updatePreviewScreenPos]
-  );
-
-  // Also track during camera movement so the card follows smoothly
-  const handleRegionIsChanging = useCallback(
-    (_event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
-      updatePreviewScreenPos();
-    },
-    [updatePreviewScreenPos]
+    []
   );
 
   // Handle bottom sheet index changes for preview card persistence logic
@@ -402,10 +367,12 @@ export default function MapScreen() {
       // PixelPoint is a tuple [x, y], not an object
       const pixelPoint: [number, number] = [point[0], point[1]];
 
-      // Query rendered features at the tap point
-      // Note: queryRenderedFeatures in maplibre-react-native alpha may not reliably
-      // find features from custom vector tile sources. This is a known limitation.
-      let foundFeature = false;
+      // Query rendered features at the tap point.
+      // NOTE: On native Android, queryRenderedFeatures is unreliable with style-based
+      // vector sources because (a) the press event point is in screen pixels but the
+      // TurboModule expects dp, causing a double-density offset, and (b) only JSX-declared
+      // <VectorSource onPress> components get automatic hit testing on the native side.
+      // We still try it first since it's free (no API call).
       if (mapRef.current) {
         try {
           const features = await mapRef.current.queryRenderedFeatures(
@@ -414,7 +381,6 @@ export default function MapScreen() {
           );
 
           if (features && features.length > 0) {
-            // Found a property/cluster - handle the feature press
             handleFeaturePress(features);
             return;
           }
@@ -423,44 +389,53 @@ export default function MapScreen() {
         }
       }
 
-      // Fallback: use cluster-aware /properties/nearby API endpoint (native only).
-      // queryRenderedFeatures doesn't reliably find features from custom
-      // vector tile sources on Android — this is a MapLibre Native C++ bug.
-      if (!foundFeature && lngLat) {
-        const [lng, lat] = lngLat;
+      // Server-side fallback: use the nearby API with reliable lngLat coordinates.
+      // Only call at zoom >= 13 to avoid excessive API hits when zoomed out.
+      if (currentZoom >= 13) {
+        const [lon, lat] = lngLat;
         try {
-          const result = await fetchNearbyCluster(lng, lat, currentZoom);
-          if (result) {
-            if (result.type === 'cluster') {
-              // Cluster detected — batch-fetch and show GroupPreviewCard
-              if (result.point_count > LARGE_CLUSTER_THRESHOLD) {
-                // Too many — zoom in instead
+          const nearby = await fetchNearbyCluster(lon, lat, currentZoom);
+          if (nearby) {
+            if (nearby.type === 'single') {
+              const coord = nearby.geometry?.coordinates as [number, number] | undefined;
+              if (coord) {
+                setSelectedPropertyId(nearby.id);
+                setPreviewGroup({
+                  properties: [{
+                    id: nearby.id,
+                    address: nearby.address,
+                    city: nearby.city,
+                    postalCode: nearby.postalCode,
+                    wozValue: nearby.wozValue,
+                    askingPrice: nearby.askingPrice,
+                    activityLevel: getActivityLevel(nearby.activityScore ?? 0),
+                    activityScore: nearby.activityScore ?? 0,
+                    thumbnailUrl: getPropertyThumbnailFromGeometry({ type: 'Point', coordinates: coord }),
+                  }],
+                  coordinate: coord,
+                });
+                setClusterIndex(0);
+                return;
+              }
+            } else if (nearby.type === 'cluster') {
+              const pointCount = nearby.point_count ?? 0;
+              if (pointCount > LARGE_CLUSTER_THRESHOLD) {
+                // Large cluster — zoom in
                 cameraRef.current?.flyTo({
-                  center: result.coordinate,
+                  center: nearby.coordinate,
                   zoom: Math.min(currentZoom + 2, 18),
                   duration: 500,
                 });
               } else {
-                const ids = result.property_ids.split(',');
-                openClusterPreviewAtCoord(ids, result.coordinate);
+                // Small cluster — show preview card
+                const ids = nearby.property_ids.split(',');
+                openClusterPreviewAtCoord(ids, nearby.coordinate);
               }
-              return;
-            } else {
-              // Single property
-              const coord: [number, number] = result.geometry
-                ? result.geometry.coordinates
-                : [lng, lat];
-              setSelectedPropertyId(result.id);
-              setPreviewGroup({
-                properties: [toGroupProperty(result)],
-                coordinate: coord,
-              });
-              setClusterIndex(0);
               return;
             }
           }
-        } catch (err) {
-          console.warn('[HuisHype] Nearby cluster fallback failed:', err);
+        } catch (error) {
+          console.warn('[HuisHype] Nearby fallback failed:', error);
         }
       }
 
@@ -475,7 +450,7 @@ export default function MapScreen() {
       // If sheet is expanded (1 or 2), don't close preview
       // The backdrop/sheet will handle closing itself
     },
-    [previewGroup, handleFeaturePress, currentZoom, openClusterPreviewAtCoord, toGroupProperty]
+    [previewGroup, handleFeaturePress, currentZoom, openClusterPreviewAtCoord]
   );
 
   // Zoom control handlers
@@ -552,7 +527,6 @@ export default function MapScreen() {
           mapStyle={mergedStyle}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
-          onRegionIsChanging={handleRegionIsChanging}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
           onDidFailLoadingMap={() => {
             console.error('Map failed to load');
@@ -569,6 +543,33 @@ export default function MapScreen() {
             }}
           />
 
+          {/* Geo-anchored GroupPreviewCard via native Marker.
+              On Android, Marker renders real native Views (not GL textures),
+              so it's accessible to Maestro/uiautomator. The native map engine
+              handles projection at 60fps — no async JS roundtrip needed. */}
+          {previewGroup && previewGroup.properties.length > 0 && (
+            <Marker
+              lngLat={previewGroup.coordinate}
+              anchor="bottom"
+            >
+              <GroupPreviewCard
+                properties={previewGroup.properties}
+                currentIndex={clusterIndex}
+                onIndexChange={setClusterIndex}
+                onClose={() => setPreviewGroup(null)}
+                onPropertyTap={(property) => {
+                  setSelectedPropertyId(property.id);
+                  bottomSheetRef.current?.snapToIndex(1);
+                }}
+                onLike={handleLike}
+                onComment={handleComment}
+                onGuess={handleGuess}
+                isLiked={isLiked}
+                showArrow
+                arrowDirection="down"
+              />
+            </Marker>
+          )}
         </Map>
         )}
 
@@ -653,48 +654,6 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Overlay GroupPreviewCard — rendered outside Map as a real Android View
-            so Maestro/accessibility can find it. Position tracks the geo coordinate
-            via mapRef.project(). */}
-        {previewGroup && previewGroup.properties.length > 0 && previewScreenPos && (
-          <View
-            style={{
-              position: 'absolute',
-              // Center card horizontally on the projected point, clamped to screen
-              left: Math.max(4, Math.min(
-                previewScreenPos.x - PREVIEW_CARD_WIDTH / 2,
-                windowWidth - PREVIEW_CARD_WIDTH - 4,
-              )),
-              // Position card so its bottom (arrow tip) aligns with the map point
-              top: previewScreenPos.y - previewCardHeight,
-              zIndex: 1000,
-              elevation: 10,
-            }}
-            onLayout={(e) => {
-              const h = e.nativeEvent.layout.height;
-              if (h > 0 && h !== previewCardHeight) {
-                setPreviewCardHeight(h);
-              }
-            }}
-          >
-            <GroupPreviewCard
-              properties={previewGroup.properties}
-              currentIndex={clusterIndex}
-              onIndexChange={setClusterIndex}
-              onClose={() => setPreviewGroup(null)}
-              onPropertyTap={(property) => {
-                setSelectedPropertyId(property.id);
-                bottomSheetRef.current?.snapToIndex(1);
-              }}
-              onLike={handleLike}
-              onComment={handleComment}
-              onGuess={handleGuess}
-              isLiked={isLiked}
-              showArrow
-              arrowDirection="down"
-            />
-          </View>
-        )}
       </View>
 
       {/* Property details bottom sheet */}

@@ -292,6 +292,16 @@ export function GroupPreviewCard({
     onIndexChange?.(currentIndex + 1);
   }, [canGoRight, currentIndex, onIndexChange, translateX]);
 
+  // Refs to hold latest navigation state — read inside PanResponder to avoid stale closures
+  const canGoLeftRef = useRef(canGoLeft);
+  const canGoRightRef = useRef(canGoRight);
+  const goLeftRef = useRef(goLeft);
+  const goRightRef = useRef(goRight);
+  canGoLeftRef.current = canGoLeft;
+  canGoRightRef.current = canGoRight;
+  goLeftRef.current = goLeft;
+  goRightRef.current = goRight;
+
   // PanResponder for swipe gestures (cluster only)
   // Guard against PanResponder being undefined in test environments
   const panResponder = useRef(
@@ -303,10 +313,10 @@ export function GroupPreviewCard({
         translateX.setValue(Math.max(-80, Math.min(80, gs.dx)));
       },
       onPanResponderRelease: (_, gs) => {
-        if (gs.dx > 40 && canGoLeft) {
-          goLeft();
-        } else if (gs.dx < -40 && canGoRight) {
-          goRight();
+        if (gs.dx > 40 && canGoLeftRef.current) {
+          goLeftRef.current();
+        } else if (gs.dx < -40 && canGoRightRef.current) {
+          goRightRef.current();
         } else {
           Animated.spring(translateX, {
             toValue: 0,

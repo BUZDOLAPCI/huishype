@@ -599,8 +599,6 @@ export default function MapScreen() {
             }
 
             setSelectedPropertyId(propertyId);
-            // Open the side panel directly on marker click
-            bottomSheetRef.current?.snapToIndex(1);
           }
         }
       };
@@ -884,11 +882,19 @@ export default function MapScreen() {
     setArrowDirection(shouldShowBelow ? 'up' : 'down');
 
     // Create container element for the React Portal
+    // IMPORTANT: Do NOT apply CSS animations with `transform` on this element.
+    // MapLibre Marker positions it via inline `transform: translate(...)`.
+    // A CSS animation with `forwards` fill mode would override that transform,
+    // breaking geo-anchoring. Animation is applied to inner wrapper instead.
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
-    container.style.animation = 'popIn 0.3s ease-out forwards';
     container.style.zIndex = '1000';
     container.setAttribute('data-testid', 'group-preview-marker-container');
+
+    // Prevent map interaction when interacting with the preview card
+    ['mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'wheel', 'dblclick'].forEach(evt => {
+      container.addEventListener(evt, (e) => e.stopPropagation());
+    });
 
     // Create MapLibre Marker anchored to the coordinate
     const marker = new maplibregl.Marker({
@@ -967,20 +973,23 @@ export default function MapScreen() {
         )}
 
         {/* GroupPreviewCard rendered via MapLibre Marker + React Portal (geo-anchored) */}
+        {/* Inner div carries the popIn animation so the marker container's transform is free for MapLibre */}
         {portalTarget && previewGroup && createPortal(
-          <GroupPreviewCard
-            properties={previewGroup.properties}
-            currentIndex={previewIndex}
-            onIndexChange={handlePreviewIndexChange}
-            onClose={handleClosePreview}
-            onPropertyTap={handlePreviewPropertyTap}
-            onLike={handlePreviewLike}
-            onComment={handlePreviewComment}
-            onGuess={handlePreviewGuess}
-            isLiked={isLiked}
-            showArrow
-            arrowDirection={arrowDirection}
-          />,
+          <div style={{ animation: 'popIn 0.3s ease-out forwards' }}>
+            <GroupPreviewCard
+              properties={previewGroup.properties}
+              currentIndex={previewIndex}
+              onIndexChange={handlePreviewIndexChange}
+              onClose={handleClosePreview}
+              onPropertyTap={handlePreviewPropertyTap}
+              onLike={handlePreviewLike}
+              onComment={handlePreviewComment}
+              onGuess={handlePreviewGuess}
+              isLiked={isLiked}
+              showArrow
+              arrowDirection={arrowDirection}
+            />
+          </div>,
           portalTarget
         )}
 

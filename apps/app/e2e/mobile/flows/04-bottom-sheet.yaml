@@ -4,10 +4,9 @@ appId: nl.huishype.app
 # Tests the bottom sheet expansion, content sections, and auth gate modals.
 # This is a sub-flow; property (Beeldbuisring 41) has been resolved via search.
 #
-# KNOWN LIMITATION: The GroupPreviewCard is inside a MapLibre <Marker>
-# (GL texture, not real Android views). Maestro cannot tap preview card
-# buttons. Instead, we expand the bottom sheet directly by swiping up
-# from the peek position (10% height).
+# NOTE: The GroupPreviewCard is inside a MapLibre <Marker> which on
+# Android v11 alpha renders real native Views (visible to Maestro).
+# We expand the bottom sheet by swiping up from peek position (10% height).
 
 # The PropertyBottomSheet should be in peek state (index=0, 10% height)
 # after search resolved the property. Wait for property data to load.

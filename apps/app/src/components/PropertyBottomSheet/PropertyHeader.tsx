@@ -90,13 +90,15 @@ export function PropertyHeader({ property }: SectionProps) {
 
   return (
     <View>
-      {/* Photo/Satellite Carousel */}
+      {/* Photo/Satellite Carousel — testID on View wrapper because horizontal
+           ScrollView + NativeWind className doesn't propagate testID to Android
+           resource-id in Fabric (New Architecture). */}
+      <View testID="property-header-carousel">
       <ScrollView
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         className="h-48"
-        testID="property-header-carousel"
       >
         {hasPhotos ? (
           // Show actual property photos if available
@@ -127,6 +129,7 @@ export function PropertyHeader({ property }: SectionProps) {
           </View>
         )}
       </ScrollView>
+      </View>
 
       {/* Photo count indicator - only show if multiple photos */}
       {hasPhotos && property.photos!.length > 1 && (

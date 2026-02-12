@@ -5,8 +5,9 @@ appId: nl.huishype.app
 # Re-search for the fixture property to get the bottom sheet open again,
 # then test authenticated interactions.
 #
-# KNOWN LIMITATION: GroupPreviewCard is in a MapLibre <Marker> (GL texture).
-# Cannot tap preview card buttons. Use search → bottom sheet expansion instead.
+# NOTE: GroupPreviewCard is in a MapLibre <Marker> (real native Views on
+# Android v11 alpha, visible to Maestro). We re-search to get the bottom
+# sheet open for authenticated interaction testing.
 
 # Make sure we're on the Map tab
 - tapOn: "Map"

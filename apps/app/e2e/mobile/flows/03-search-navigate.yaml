@@ -5,12 +5,11 @@ appId: nl.huishype.app
 # (Beeldbuisring 41, Eindhoven) seeded by the test fixture script.
 # This is a sub-flow; app is on the Map tab.
 #
-# KNOWN LIMITATION: The GroupPreviewCard is rendered inside a MapLibre
-# <Marker> component, which on Android renders as a GL texture — NOT as
-# real Android views in the accessibility/view hierarchy. Maestro and
-# uiautomator cannot see or interact with Marker children. Preview card
-# interaction is tested by Playwright on web. This flow tests search +
-# property resolution + bottom sheet peek.
+# NOTE: The GroupPreviewCard is rendered inside a MapLibre <Marker>
+# component, which on Android v11 alpha renders children as real native
+# Views (via MarkerViewNativeComponent / Fabric). They ARE visible to
+# Maestro/uiautomator. This flow tests search + property resolution +
+# bottom sheet peek.
 
 # Tap on the search bar input
 - tapOn:
