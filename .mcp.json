@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "playwright-manual": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--browser",
+        "chrome",
+        "--caps",
+        "vision,devtools",
+        "--headless"
+      ],
+      "env": {}
+    },
+    "android-manual": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-android-emulator"
+      ],
+      "env": {
+        "ADB_PATH": "/home/caslan/Android/sdk/platform-tools/adb"
+      }
+    }
+  }
+}
