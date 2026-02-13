@@ -26,7 +26,7 @@ const LOW_CONFIDENCE_FMV: FMVData = {
   distribution: {
     min: 300000,
     max: 350000,
-    median: 325000,
+    p10: 300000, p25: 310000, p50: 325000, p75: 340000, p90: 350000,
   },
 };
 
@@ -37,7 +37,7 @@ const MEDIUM_CONFIDENCE_FMV: FMVData = {
   distribution: {
     min: 320000,
     max: 430000,
-    median: 370000,
+    p10: 330000, p25: 345000, p50: 370000, p75: 400000, p90: 420000,
   },
 };
 
@@ -48,7 +48,7 @@ const HIGH_CONFIDENCE_FMV: FMVData = {
   distribution: {
     min: 350000,
     max: 520000,
-    median: 420000,
+    p10: 370000, p25: 390000, p50: 420000, p75: 470000, p90: 500000,
   },
 };
 
@@ -59,7 +59,7 @@ const WIDE_DISTRIBUTION_FMV: FMVData = {
   distribution: {
     min: 300000,
     max: 750000,
-    median: 485000,
+    p10: 330000, p25: 380000, p50: 485000, p75: 600000, p90: 700000,
   },
 };
 

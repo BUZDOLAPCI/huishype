@@ -233,7 +233,7 @@ async function isBackdropVisible(page: Page): Promise<boolean> {
     const backdropElements = document.querySelectorAll('[data-state="open"], [aria-modal="true"], .bottom-sheet-backdrop');
 
     // Also look for elements with semi-transparent backgrounds
-    const allElements = document.querySelectorAll('*');
+    const allElements = Array.from(document.querySelectorAll('*'));
     let hasVisibleBackdrop = false;
 
     for (const el of allElements) {
@@ -296,7 +296,7 @@ async function getBottomSheetHeightPercentage(page: Page): Promise<number> {
 
     // Find the bottom sheet container - @gorhom/bottom-sheet uses specific structure
     // Look for the sheet content that's translated from bottom
-    const sheets = document.querySelectorAll('[data-testid*="bottom-sheet"], [role="dialog"]');
+    const sheets = Array.from(document.querySelectorAll('[data-testid*="bottom-sheet"], [role="dialog"]'));
 
     for (const sheet of sheets) {
       const rect = sheet.getBoundingClientRect();

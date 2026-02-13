@@ -30,6 +30,7 @@ function toPropertyDetails(
   const p = property as Partial<PropertyDetailsData>;
   return {
     ...property,
+    askingPrice: property.askingPrice ?? undefined,
     activityLevel: p.activityLevel ?? 'cold',
     commentCount: p.commentCount ?? 0,
     guessCount: p.guessCount ?? 0,

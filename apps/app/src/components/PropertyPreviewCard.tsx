@@ -150,7 +150,7 @@ export function PropertyPreviewCard({
                   }
                 ]}
               />
-              <Text style={{ fontSize: 12, color: '#9CA3AF' }} title={activityDescriptions[activityLevel]}>
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }} accessibilityLabel={activityDescriptions[activityLevel]}>
                 {activityLabels[activityLevel]}
               </Text>
             </View>

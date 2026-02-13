@@ -123,7 +123,24 @@ Launch multiple independent subagents in a single message for maximum efficiency
 
 ## Verification
 
-Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. Follow "All tests green" development. 
+Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. Follow "All tests green" development.
+
+## Pre-Commit Quality Gate (Mandatory)
+
+Run these checks before every commit. All must pass.
+
+```bash
+pnpm -C apps/app typecheck        # Zero TS errors
+pnpm -C apps/app test             # All unit tests green
+```
+
+If e2e files changed, also run the impacted Playwright project(s):
+
+```bash
+pnpm -C apps/app exec playwright test --project=visual    # visual e2e tests
+pnpm -C apps/app exec playwright test --project=integration  # integration e2e tests
+pnpm -C apps/app exec playwright test --project=flows     # flow e2e tests
+```
 
 ## Agent-Managed Tooling
 

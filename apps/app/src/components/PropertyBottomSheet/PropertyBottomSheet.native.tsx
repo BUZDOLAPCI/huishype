@@ -166,7 +166,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // Convert property to detailed format, merging enriched API data
     const propertyDetails = property
-      ? toPropertyDetails(property, enrichedProperty, { isLiked: isLikedProp, isSaved: isSavedProp })
+      ? toPropertyDetails(property, enrichedProperty as Record<string, unknown> | null | undefined, { isLiked: isLikedProp, isSaved: isSavedProp })
       : null;
 
     // Don't render the sheet at all if it's not mounted

@@ -55,7 +55,7 @@ export default function SavedScreen() {
         postalCode={item.postalCode}
         photoUrl={item.photoUrl}
         wozValue={item.wozValue}
-        askingPrice={item.askingPrice}
+        askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}
         commentCount={item.commentCount}

@@ -145,7 +145,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }) || document.scrollingElement || document.documentElement;
 
       // Find the comments section
-      const allElements = document.querySelectorAll('*');
+      const allElements = Array.from(document.querySelectorAll('*'));
       for (const el of allElements) {
         const text = el.textContent || '';
         // Match the specific "Comments (X)" header pattern
@@ -278,7 +278,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Scroll to comments section
     await page.evaluate(() => {
-      const headers = document.querySelectorAll('*');
+      const headers = Array.from(document.querySelectorAll('*'));
       for (const el of headers) {
         if (el.textContent?.includes('Comments') && el.tagName !== 'SCRIPT') {
           el.scrollIntoView({ behavior: 'instant', block: 'start' });

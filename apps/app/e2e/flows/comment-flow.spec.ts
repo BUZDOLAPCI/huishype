@@ -116,7 +116,7 @@ test.describe('Comment Flow', () => {
 
     // Scroll to comments area
     await page.evaluate(() => {
-      const allElements = document.querySelectorAll('*');
+      const allElements = Array.from(document.querySelectorAll('*'));
       for (const el of allElements) {
         if (el.textContent?.includes('Comments') && el.tagName !== 'SCRIPT') {
           el.scrollIntoView({ behavior: 'instant', block: 'start' });

@@ -398,8 +398,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Found ${markerPositions.length} marker positions for Playwright clicks`);
 
       for (const pos of markerPositions) {
-        console.log(`Clicking at screen position (${Math.round(pos.x)}, ${Math.round(pos.y)})...`);
-        await page.mouse.click(pos.x, pos.y);
+        console.log(`Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`);
+        await page.mouse.click(pos!.x, pos!.y);
         await page.waitForTimeout(800);
 
         previewVisible = await previewCard.isVisible().catch(() => false);
@@ -455,6 +455,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           markerCount: features?.length ?? 0,
+          hasGhostLayer: !!mapInstance.getLayer('ghost-nodes'),
+          hasActiveLayer: !!mapInstance.getLayer('active-nodes'),
         };
       }
       return null;
@@ -538,8 +540,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Found ${markerPositions.length} marker positions for Playwright clicks`);
 
       for (const pos of markerPositions) {
-        console.log(`Clicking at screen position (${Math.round(pos.x)}, ${Math.round(pos.y)})...`);
-        await page.mouse.click(pos.x, pos.y);
+        console.log(`Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`);
+        await page.mouse.click(pos!.x, pos!.y);
         await page.waitForTimeout(800);
 
         previewVisible = await previewCard.isVisible().catch(() => false);

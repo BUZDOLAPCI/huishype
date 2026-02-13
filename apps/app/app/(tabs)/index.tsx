@@ -52,8 +52,8 @@ const STYLE_URL = `${API_URL}/tiles/style.json`;
  * alpha on Android only reliably renders custom vector sources when passed
  * as inline style objects.
  */
-function useMergedMapStyle(): object | null {
-  const [mergedStyle, setMergedStyle] = useState<object | null>(null);
+function useMergedMapStyle(): Record<string, unknown> | null {
+  const [mergedStyle, setMergedStyle] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,12 +293,12 @@ export default function MapScreen() {
 
 
   // Handle quick actions from preview card
-  const handleComment = useCallback(() => {
+  const handleComment = useCallback((_property?: any) => {
     // Preview card stays open - user can still see the property while commenting
     bottomSheetRef.current?.scrollToComments();
   }, []);
 
-  const handleGuess = useCallback(() => {
+  const handleGuess = useCallback((_property?: any) => {
     // Preview card stays open - user can still see the property while guessing
     bottomSheetRef.current?.scrollToGuess();
   }, []);
@@ -312,7 +312,7 @@ export default function MapScreen() {
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleLike = useCallback((_propertyId?: string) => {
+  const handleLike = useCallback((_property?: any) => {
     toggleLike();
   }, [toggleLike]);
 
@@ -524,7 +524,7 @@ export default function MapScreen() {
         <Map
           ref={mapRef}
           style={{ position: 'absolute', width: contentSize.width, height: contentSize.height }}
-          mapStyle={mergedStyle}
+          mapStyle={mergedStyle as any}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}

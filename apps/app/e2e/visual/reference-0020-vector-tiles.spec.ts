@@ -301,12 +301,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       allLayers: [] as string[],
     }));
 
-    if (!layerCheckResult.hasLayers) {
-      console.log('Missing layers:', layerCheckResult.missingLayers);
-      console.log('Available layers:', layerCheckResult.allLayers);
+    if (!layerCheckResult!.hasLayers) {
+      console.log('Missing layers:', layerCheckResult!.missingLayers);
+      console.log('Available layers:', layerCheckResult!.allLayers);
     }
 
-    expect(layerCheckResult.hasLayers, `All property layers should be configured. Missing: ${layerCheckResult.missingLayers.join(', ')}`).toBe(
+    expect(layerCheckResult!.hasLayers, `All property layers should be configured. Missing: ${layerCheckResult!.missingLayers.join(', ')}`).toBe(
       true
     );
   });

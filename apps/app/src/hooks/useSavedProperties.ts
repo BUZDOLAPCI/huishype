@@ -66,21 +66,26 @@ function transformSavedProperty(property: SavedPropertyApiResponse): FeedPropert
     id: property.id,
     address: property.address,
     city: property.city,
+    zipCode: property.postalCode ?? '',
     postalCode: property.postalCode,
     coordinates: property.geometry
       ? { lon: property.geometry.coordinates[0], lat: property.geometry.coordinates[1] }
       : null,
     wozValue: property.wozValue,
-    askingPrice: property.askingPrice ?? undefined,
+    askingPrice: property.askingPrice,
+    fmv: null,
     fmvValue: undefined,
+    thumbnailUrl: null,
+    likeCount: 0,
     activityLevel,
+    lastActivityAt: property.savedAt,
+    hasListing: property.hasListing,
     photoUrl: `https://picsum.photos/seed/${property.id}/400/300`,
     commentCount: property.commentCount,
     guessCount: property.guessCount,
     viewCount: 0,
     bouwjaar: property.bouwjaar,
     oppervlakte: property.oppervlakte,
-    createdAt: property.createdAt,
   };
 }
 

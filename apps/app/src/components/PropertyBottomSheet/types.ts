@@ -49,6 +49,7 @@ export function toPropertyDetails(
 ): PropertyDetailsData {
   return {
     ...property,
+    askingPrice: property.askingPrice ?? undefined,
     activityLevel: (enriched?.activityLevel as 'hot' | 'warm' | 'cold') ?? 'cold',
     commentCount: (enriched?.commentCount as number) ?? 0,
     guessCount: (enriched?.guessCount as number) ?? 0,

@@ -29,6 +29,8 @@ export interface FmvDistribution {
   max: number;
 }
 
+export type FmvConfidence = 'none' | 'low' | 'medium' | 'high';
+
 export interface FmvResponse {
   fmv: number | null;
   confidence: 'none' | 'low' | 'medium' | 'high';

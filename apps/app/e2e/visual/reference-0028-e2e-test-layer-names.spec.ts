@@ -167,8 +167,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log('Layer info at low zoom:', JSON.stringify(layerInfo, null, 2));
 
     // Verify low-zoom layers exist
-    expect(layerInfo.expectedLayerStatus[MAP_LAYER_NAMES.CLUSTERS], 'property-clusters layer should exist').toBe(true);
-    expect(layerInfo.expectedLayerStatus[MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS], 'single-active-points layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.CLUSTERS], 'property-clusters layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS], 'single-active-points layer should exist').toBe(true);
 
     // Take screenshot
     await page.screenshot({
@@ -250,8 +250,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log('Layer info at high zoom:', JSON.stringify(layerInfo, null, 2));
 
     // Verify high-zoom layers exist
-    expect(layerInfo.expectedLayerStatus[MAP_LAYER_NAMES.ACTIVE_NODES], 'active-nodes layer should exist').toBe(true);
-    expect(layerInfo.expectedLayerStatus[MAP_LAYER_NAMES.GHOST_NODES], 'ghost-nodes layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.ACTIVE_NODES], 'active-nodes layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.GHOST_NODES], 'ghost-nodes layer should exist').toBe(true);
 
     // Take screenshot
     await page.screenshot({

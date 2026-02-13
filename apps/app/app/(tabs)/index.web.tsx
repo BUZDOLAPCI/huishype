@@ -944,7 +944,7 @@ export default function MapScreen() {
               bottom: 0,
               zIndex: 10,
               transition: 'opacity 0.3s ease-out',
-            }}
+            } as any}
             testID="map-loading-indicator"
           >
             <View className="items-center">
@@ -952,7 +952,7 @@ export default function MapScreen() {
                 className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"
                 style={{
                   animation: 'spin 1s linear infinite',
-                }}
+                } as any}
               />
               <Text className="text-gray-600 mt-3 text-base">Loading map...</Text>
             </View>

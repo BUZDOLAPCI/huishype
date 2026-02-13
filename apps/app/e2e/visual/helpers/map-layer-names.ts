@@ -78,5 +78,6 @@ export function getExistingLayers(
   const map = mapInstance as { getLayer?: (id: string) => unknown };
   if (!map?.getLayer) return [];
 
-  return layerNames.filter((layerId) => map.getLayer(layerId) !== undefined);
+  const getLayer = map.getLayer!;
+  return layerNames.filter((layerId) => getLayer(layerId) !== undefined);
 }
