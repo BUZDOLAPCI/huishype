@@ -546,8 +546,10 @@ export default function MapScreen() {
           {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),
               so it's accessible to Maestro/uiautomator. The native map engine
-              handles projection at 60fps — no async JS roundtrip needed. */}
-          {previewGroup && previewGroup.properties.length > 0 && (
+              handles projection at 60fps — no async JS roundtrip needed.
+              Guard: only render after map is loaded so the native projection
+              is initialised — prevents null-projection crash on Android. */}
+          {mapLoaded && previewGroup && previewGroup.properties.length > 0 && (
             <Marker
               lngLat={previewGroup.coordinate}
               anchor="bottom"
