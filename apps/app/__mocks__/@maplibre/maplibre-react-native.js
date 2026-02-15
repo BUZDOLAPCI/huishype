@@ -1,13 +1,10 @@
 // Mock for @maplibre/maplibre-react-native
 const React = require('react');
 
-// Mock Map component (renamed from MapView in alpha.44)
+// Mock Map component
 const Map = React.forwardRef(({ children, ...props }, ref) => {
   return React.createElement('Map', { ...props, ref }, children);
 });
-
-// Legacy alias
-const MapView = Map;
 
 // Mock Camera component
 const Camera = React.forwardRef(({ children, ...props }, ref) => {
@@ -31,59 +28,24 @@ const GeoJSONSource = ({ children, ...props }) => {
   return React.createElement('GeoJSONSource', props, children);
 };
 
-// Mock CircleLayer component
-const CircleLayer = (props) => {
-  return React.createElement('CircleLayer', props);
+// Mock Layer component
+const Layer = (props) => {
+  return React.createElement('Layer', props);
 };
 
-// Mock SymbolLayer component
-const SymbolLayer = (props) => {
-  return React.createElement('SymbolLayer', props);
-};
-
-// Mock LineLayer component
-const LineLayer = (props) => {
-  return React.createElement('LineLayer', props);
-};
-
-// Mock FillLayer component
-const FillLayer = (props) => {
-  return React.createElement('FillLayer', props);
-};
-
-// Mock RasterLayer component
-const RasterLayer = (props) => {
-  return React.createElement('RasterLayer', props);
-};
-
-// Mock BackgroundLayer component
-const BackgroundLayer = (props) => {
-  return React.createElement('BackgroundLayer', props);
-};
-
-// Mock HeatmapLayer component
-const HeatmapLayer = (props) => {
-  return React.createElement('HeatmapLayer', props);
-};
-
-// Mock FillExtrusionLayer component
-const FillExtrusionLayer = (props) => {
-  return React.createElement('FillExtrusionLayer', props);
-};
-
-// Mock MarkerView component
-const MarkerView = ({ children, ...props }) => {
-  return React.createElement('MarkerView', props, children);
-};
-
-// Mock PointAnnotation component
-const PointAnnotation = React.forwardRef(({ children, ...props }, ref) => {
-  return React.createElement('PointAnnotation', { ...props, ref }, children);
+// Mock Marker component
+const Marker = React.forwardRef(({ children, ...props }, ref) => {
+  return React.createElement('Marker', { ...props, ref }, children);
 });
 
-// Mock Annotation component
-const Annotation = ({ children, ...props }) => {
-  return React.createElement('Annotation', props, children);
+// Mock ViewAnnotation component
+const ViewAnnotation = React.forwardRef(({ children, ...props }, ref) => {
+  return React.createElement('ViewAnnotation', { ...props, ref }, children);
+});
+
+// Mock LayerAnnotation component
+const LayerAnnotation = ({ children, ...props }) => {
+  return React.createElement('LayerAnnotation', props, children);
 };
 
 // Mock Callout component
@@ -159,44 +121,30 @@ const useCurrentPosition = () => ({
 
 // Mock Animated
 const Animated = {
-  ShapeSource: GeoJSONSource,
-  CircleLayer,
-  SymbolLayer,
-  LineLayer,
-  FillLayer,
-  FillExtrusionLayer,
-  RasterLayer,
-  HeatmapLayer,
-  BackgroundLayer,
-  extractAnimationCoordinates: jest.fn(),
+  GeoJSONSource,
+  Layer,
 };
 
-// Named exports (matching the actual package API)
+// Named exports only
 module.exports = {
   __esModule: true,
+
   // Components
   Map,
-  MapView, // legacy alias
   Camera,
   VectorSource,
   GeoJSONSource,
-  CircleLayer,
-  SymbolLayer,
-  LineLayer,
-  FillLayer,
-  RasterLayer,
-  BackgroundLayer,
-  HeatmapLayer,
-  FillExtrusionLayer,
-  MarkerView,
-  PointAnnotation,
-  Annotation,
+  Layer,
+  Marker,
+  ViewAnnotation,
+  LayerAnnotation,
   Callout,
   UserLocation,
   NativeUserLocation,
   Images,
   ImageSource,
   RasterSource,
+
   // Modules
   LocationManager,
   LogManager,
@@ -204,8 +152,10 @@ module.exports = {
   OfflineManager,
   OfflinePack,
   StaticMapImageManager,
+
   // Hooks
   useCurrentPosition,
+
   // Utils
   Animated,
 };

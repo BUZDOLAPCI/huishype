@@ -18,7 +18,7 @@
     "@gorhom/bottom-sheet": "^5.1.4",
     "@huishype/api-client": "workspace:*",
     "@huishype/shared": "workspace:*",
-    "@maplibre/maplibre-react-native": "11.0.0-alpha.47",
+    "@maplibre/maplibre-react-native": "11.0.0-beta.6",
     "@react-navigation/native": "^7.1.8",
     "@tanstack/react-query": "^5.66.0",
     "expo": "~54.0.32",
