@@ -418,6 +418,7 @@ export default function MapScreen() {
     if (!mapContainerRef.current || mapRef.current) return;
 
     let cancelled = false;
+    let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 
     // Fetch the merged style from our API (which already includes property layers,
     // 3D buildings, self-hosted font glyphs, self-hosted sprites, and pre-filtered
@@ -468,7 +469,16 @@ export default function MapScreen() {
         };
       }
 
+      // Timeout fallback: dismiss loading overlay after 15s even if 'load' doesn't fire
+      loadTimeout = setTimeout(() => {
+        if (!cancelled) {
+          setMapLoaded(true);
+          console.warn('[MapScreen] Map load timed out after 15s');
+        }
+      }, 15000);
+
       map.on('load', () => {
+        clearTimeout(loadTimeout);
         setMapLoaded(true);
 
         // Configure lighting
@@ -488,6 +498,10 @@ export default function MapScreen() {
         setTimeout(() => {
           map.resize();
         }, 100);
+      });
+
+      map.on('error', (e) => {
+        console.warn('[MapScreen] MapLibre error:', e.error?.message || e);
       });
 
       // Track zoom level
@@ -695,6 +709,7 @@ export default function MapScreen() {
 
     return () => {
       cancelled = true;
+      clearTimeout(loadTimeout);
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;

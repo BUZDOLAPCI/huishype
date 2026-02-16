@@ -59,7 +59,16 @@ const getApiUrl = (): string => {
     }
   }
 
-  // iOS simulator, web, or no detection: localhost works
+  // Web: if the page is served from a non-localhost address (e.g. LAN IP),
+  // use that same host for the API so mobile browsers on the same network work.
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const pageHost = window.location.hostname;
+    if (pageHost && pageHost !== 'localhost' && pageHost !== '127.0.0.1') {
+      return `http://${pageHost}:${port}`;
+    }
+  }
+
+  // iOS simulator, web (localhost), or no detection: localhost works
   return url || `http://localhost:${port}`;
 };
 
