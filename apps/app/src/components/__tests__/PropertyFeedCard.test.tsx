@@ -158,7 +158,7 @@ describe('PropertyFeedCard', () => {
     expect(getByText('Crowd FMV')).toBeTruthy();
   });
 
-  it('shows price difference indicator when both asking and FMV are present', () => {
+  it('shows overpriced label in red when asking > FMV', () => {
     const { getByText } = render(
       <PropertyFeedCard
         {...defaultProps}
@@ -167,8 +167,34 @@ describe('PropertyFeedCard', () => {
       />
     );
 
-    // Should show difference vs asking
-    expect(getByText(/vs asking/)).toBeTruthy();
+    // 20% above FMV → overpriced label
+    expect(getByText(/Asking 20\.0% above FMV/)).toBeTruthy();
+  });
+
+  it('shows underpriced label when asking < FMV', () => {
+    const { getByText } = render(
+      <PropertyFeedCard
+        {...defaultProps}
+        askingPrice={400000}
+        fmvValue={500000}
+      />
+    );
+
+    // 20% below FMV → good deal label
+    expect(getByText(/Asking 20\.0% below FMV/)).toBeTruthy();
+  });
+
+  it('shows fair price label when asking ≈ FMV', () => {
+    const { getByText } = render(
+      <PropertyFeedCard
+        {...defaultProps}
+        askingPrice={505000}
+        fmvValue={500000}
+      />
+    );
+
+    // 1% difference → fair price
+    expect(getByText('~Fair price')).toBeTruthy();
   });
 
   describe('BAG Pand placeholder resolution', () => {

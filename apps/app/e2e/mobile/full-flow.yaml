@@ -26,30 +26,31 @@ appId: nl.huishype.app
 # Launch the app
 - launchApp
 
-# Handle Expo Dev Client: tap server picker if shown (after clearState, always shown)
+# Handle Expo Dev Client server picker (after clearState, always shown)
+# Match both emulator (10.0.2.2:8081) and physical device (localhost:8081)
 - tapOn:
     text: ".*10.0.2.2:8081.*"
     optional: true
+- tapOn:
+    text: ".*localhost:8081.*"
+    optional: true
 
-# Wait for the app to start loading (shows HuisHype header)
+# Wait for the app to connect and show HuisHype header (dev client or app)
 - extendedWaitUntil:
     visible: "HuisHype"
     timeout: 120000
 
 # Dismiss Expo developer menu onboarding popup if it appears
+# This popup blocks the app with "Continue" button after first server connection
 - tapOn:
     text: "Continue"
     optional: true
 - waitForAnimationToEnd
 
-# After onboarding, the Expo developer menu may be open — dismiss with back press
+# The developer menu may now be showing — dismiss it with back press
+# Unlike the dev client launcher, back press on the dev menu overlay just closes it
 - pressKey: back
 - waitForAnimationToEnd
-
-# Also try tapping close button (content-desc) as fallback
-- tapOn:
-    text: "\u00d7"
-    optional: true
 
 # Tap on the map area to dismiss any remaining overlay
 - tapOn:
@@ -59,8 +60,7 @@ appId: nl.huishype.app
 # Wait for any dismissal animation
 - waitForAnimationToEnd
 
-# Wait for the map to fully load after dismissing overlays
-# After clearState, Metro must recompile the full bundle (cold start) — 2+ min on emulator
+# Wait for the map to fully load (JS bundle cold start after clearState can take 2+ min)
 - extendedWaitUntil:
     visible: "Zoom.*"
     timeout: 180000

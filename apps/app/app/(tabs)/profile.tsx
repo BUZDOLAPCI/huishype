@@ -4,6 +4,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useMyProfile, useUpdateProfile, useMyGuesses } from '@/src/hooks/useUserProfile';
+import { AuthModal } from '@/src/components';
 
 function KarmaRankBadge({ title, level }: { title: string; level: number }) {
   const colors = [
@@ -64,6 +65,7 @@ export default function ProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
 
   const canChangeName = useMemo(() => {
     if (!profile?.lastNameChangeAt) return true;
@@ -140,9 +142,22 @@ export default function ProfileScreen() {
         <Text className="text-lg font-semibold text-gray-900 text-center mb-2">
           Sign in to see your profile
         </Text>
-        <Text className="text-gray-500 text-center">
+        <Text className="text-gray-500 text-center mb-6">
           Track your guess history, karma, and saved properties.
         </Text>
+        <Pressable
+          onPress={() => setShowAuth(true)}
+          className="bg-blue-600 mx-6 py-3 rounded-xl items-center self-stretch"
+          testID="profile-sign-in-button"
+        >
+          <Text className="text-white font-semibold text-base">Sign In</Text>
+        </Pressable>
+        <AuthModal
+          visible={showAuth}
+          onClose={() => setShowAuth(false)}
+          message="Sign in to HuisHype"
+          onSuccess={() => setShowAuth(false)}
+        />
       </View>
     );
   }

@@ -139,14 +139,15 @@ test.describe('Profile Tab Flow', () => {
     await feedTab.first().click();
     await page.waitForTimeout(2000);
 
-    // Should show feed content
-    const feedVisible = await Promise.race([
+    // Should show feed content (any feed-related element visible means navigation succeeded)
+    const feedChecks = await Promise.all([
       page.locator('[data-testid="feed-screen"]').isVisible().catch(() => false),
       page.locator('[data-testid="feed-loading"]').isVisible().catch(() => false),
       page.locator('[data-testid="feed-empty"]').isVisible().catch(() => false),
       page.locator('[data-testid="feed-error"]').isVisible().catch(() => false),
       page.locator('[data-testid="filter-chip-trending"]').isVisible().catch(() => false),
     ]);
+    const feedVisible = feedChecks.some(Boolean);
     expect(feedVisible, 'Should navigate from Profile to Feed tab').toBe(true);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-tab-navigation.png` });

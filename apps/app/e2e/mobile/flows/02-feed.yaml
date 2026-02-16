@@ -22,8 +22,10 @@ appId: nl.huishype.app
 - takeScreenshot: maestro-screenshots/full_flow_02_feed_filters
 
 # Verify property cards are displayed (guesses count is always present)
-- assertVisible:
-    text: ".*guesses.*"
+# Feed API call may take time on device — wait for cards to load
+- extendedWaitUntil:
+    visible: ".*guesses.*"
+    timeout: 30000
 
 # Tap "Recent" filter to test filter switching
 - tapOn: "Recent"

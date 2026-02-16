@@ -256,27 +256,6 @@ export function AuthModal({
                 </TouchableOpacity>
               )}
 
-              {/* Dev Login (dev builds only) */}
-              {__DEV__ && (
-                <TouchableOpacity
-                  onPress={handleDevLogin}
-                  disabled={isSigningIn || isDevLoggingIn}
-                  className="flex-row items-center justify-center bg-purple-600 rounded-xl py-4 px-6 mt-3"
-                  accessibilityLabel="Dev Login"
-                  accessibilityRole="button"
-                >
-                  {isDevLoggingIn ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="code-slash" size={20} color="#FFFFFF" />
-                      <Text className="text-white font-semibold text-base ml-3">
-                        Dev Login
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
             </View>
 
             {/* Terms */}
@@ -291,6 +270,35 @@ export function AuthModal({
           <View className="h-8" />
         </View>
       </Animated.View>
+
+      {/* Dev Login button — rendered OUTSIDE Animated.View so Android
+          accessibility reports correct bounds (Reanimated translateY
+          animation causes y2 < y1 in the a11y tree, making buttons
+          inside the sheet undiscoverable by Maestro/uiautomator).
+          Positioned absolutely to overlap the auth sheet visually. */}
+      {__DEV__ && (
+        <View style={styles.devLoginContainer}>
+          <TouchableOpacity
+            onPress={handleDevLogin}
+            disabled={isSigningIn || isDevLoggingIn}
+            className="flex-row items-center justify-center bg-purple-600 rounded-xl py-4 px-6"
+            accessibilityLabel="Dev Login"
+            accessibilityRole="button"
+            testID="dev-login-button"
+          >
+            {isDevLoggingIn ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="code-slash" size={20} color="#FFFFFF" />
+                <Text className="text-white font-semibold text-base ml-3">
+                  Dev Login
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -317,6 +325,17 @@ const styles = StyleSheet.create({
   sheetInner: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+  },
+  devLoginContainer: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    // Place it visually where the sign-in buttons are (roughly 55% from top)
+    // This is inside the modal overlay but outside the Animated.View,
+    // so Android accessibility bounds are correct.
+    top: '55%',
+    zIndex: 10000,
+    elevation: 10000,
   },
 });
 

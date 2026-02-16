@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
-import { PropertyFeedCard, FeedLoadingMore } from '@/src/components';
+import { PropertyFeedCard, FeedLoadingMore, AuthModal } from '@/src/components';
 import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { FeedProperty } from '@/src/hooks';
@@ -11,6 +11,7 @@ import type { FeedProperty } from '@/src/hooks';
 export default function SavedScreen() {
   const { user } = useAuthContext();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
 
   const {
     data,
@@ -89,9 +90,22 @@ export default function SavedScreen() {
         <Text className="text-lg font-semibold text-gray-900 text-center mb-2">
           Sign in to see your saved properties
         </Text>
-        <Text className="text-gray-500 text-center">
+        <Text className="text-gray-500 text-center mb-6">
           Save properties while browsing the map and find them all here.
         </Text>
+        <Pressable
+          onPress={() => setShowAuth(true)}
+          className="bg-blue-600 mx-6 py-3 rounded-xl items-center self-stretch"
+          testID="saved-sign-in-button"
+        >
+          <Text className="text-white font-semibold text-base">Sign In</Text>
+        </Pressable>
+        <AuthModal
+          visible={showAuth}
+          onClose={() => setShowAuth(false)}
+          message="Sign in to HuisHype"
+          onSuccess={() => setShowAuth(false)}
+        />
       </View>
     );
   }

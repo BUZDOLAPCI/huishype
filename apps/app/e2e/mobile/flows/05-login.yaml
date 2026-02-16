@@ -8,10 +8,8 @@ appId: nl.huishype.app
 # error during complex state transitions. If the RN error overlay appears,
 # we dismiss it.
 #
-# KNOWN ISSUE: AuthModal uses Reanimated translateY animation which renders
-# visually but doesn't update Android accessibility bounds. Modal content
-# below the header ("Dev Login" button) is not discoverable by uiautomator.
-# Workaround: use coordinate-based taps at calculated button positions.
+# NOTE: Dev Login button is rendered outside the Reanimated Animated.View
+# so that Android accessibility bounds are correct and Maestro can tap by text.
 
 # Dismiss any React Native error overlay that may have appeared
 - tapOn:
@@ -60,14 +58,10 @@ appId: nl.huishype.app
 
 - takeScreenshot: maestro-screenshots/full_flow_12b_auth_modal
 
-# The Dev Login button is at approximately:
-# Modal top (10% = 240px) + header (60px) + padding (32px) +
-# logo area (120px) + brand text (50px) + message (60px) +
-# Google button (60px) + gap (12px) + half button (30px) = ~664px
-# On 2400px screen = ~28% from top.
-# Due to Reanimated accessibility bug, use coordinate tap.
+# Dev Login button is rendered outside the Reanimated Animated.View
+# so Android accessibility bounds are correct and Maestro can find it by label.
 - tapOn:
-    point: "50%,28%"
+    text: "Dev Login"
 - waitForAnimationToEnd
 
 # Wait for auth state transition to complete

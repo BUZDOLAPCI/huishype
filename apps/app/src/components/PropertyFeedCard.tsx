@@ -210,15 +210,19 @@ export function PropertyFeedCard({
                 {priceDifference !== null && (
                   <Text
                     className={`text-xs font-medium ${
-                      priceDifference > 5
+                      priceDifference > 3
                         ? 'text-red-500'
-                        : priceDifference < -5
-                          ? 'text-green-500'
+                        : priceDifference < -3
+                          ? 'text-green-600'
                           : 'text-gray-500'
                     }`}
+                    testID="fmv-comparison"
                   >
-                    {priceDifference > 0 ? '+' : ''}
-                    {priceDifference.toFixed(1)}% vs asking
+                    {priceDifference > 3
+                      ? `Asking ${priceDifference.toFixed(1)}% above FMV`
+                      : priceDifference < -3
+                        ? `Asking ${Math.abs(priceDifference).toFixed(1)}% below FMV`
+                        : '~Fair price'}
                   </Text>
                 )}
               </>

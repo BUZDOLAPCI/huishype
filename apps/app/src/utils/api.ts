@@ -16,9 +16,10 @@ const extractPort = (url: string): string | undefined => {
 
 // Get the API URL, resolving to the correct host for the current environment:
 // - If EXPO_PUBLIC_API_URL is set to a non-localhost address, use it as-is
-// - Android emulator: rewrite localhost → 10.0.2.2 (emulator host alias)
-// - Real device (Android/iOS): extract dev server LAN IP from Expo's hostUri
-// - Fallback: localhost (works for iOS simulator and web)
+// - Native: use the hostname from Expo's hostUri (same host that serves Metro)
+//   This works universally: LAN IP, localhost (adb reverse), 10.0.2.2 (emulator)
+// - Android without hostUri: fallback to 10.0.2.2 (emulator host alias)
+// - iOS simulator / web / fallback: localhost
 //
 // When an explicit URL is configured (EXPO_PUBLIC_API_URL or extra.apiUrl),
 // its port is preserved during host rewriting. The hardcoded default port is
@@ -39,16 +40,20 @@ const getApiUrl = (): string => {
 
   // For native platforms, try to resolve a reachable host
   if (Platform.OS === 'android' || Platform.OS === 'ios') {
-    // Expo dev server exposes the host machine's LAN IP via hostUri (e.g. "192.168.1.5:8081")
+    // Expo dev server exposes the dev machine's address via hostUri (e.g. "192.168.1.5:8081").
+    // Whatever hostname Metro is reachable at, the API is reachable at the same hostname:
+    // - LAN IP (192.168.x.x) → device on same network
+    // - localhost/127.0.0.1  → physical device with adb reverse (ports forwarded)
+    // - 10.0.2.2             → Android emulator host alias
     const hostUri = Constants.expoConfig?.hostUri;
     if (hostUri) {
-      const lanIp = hostUri.split(':')[0];
-      if (lanIp && lanIp !== 'localhost' && lanIp !== '127.0.0.1') {
-        return `http://${lanIp}:${port}`;
+      const host = hostUri.split(':')[0];
+      if (host) {
+        return `http://${host}:${port}`;
       }
     }
 
-    // No LAN IP available — likely Android emulator where hostUri isn't set
+    // No hostUri at all — likely Android emulator where hostUri isn't set
     if (Platform.OS === 'android') {
       return `http://10.0.2.2:${port}`;
     }
