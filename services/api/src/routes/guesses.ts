@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, priceGuesses, properties, users } from '../db/index.js';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, desc } from 'drizzle-orm';
 import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
 import { calculateFmvForProperty, type FmvResult } from '../services/fmv.js';
 
@@ -141,7 +141,7 @@ export async function guessRoutes(app: FastifyInstance) {
         .where(eq(priceGuesses.propertyId, propertyId))
         .limit(limit)
         .offset(offset)
-        .orderBy(priceGuesses.createdAt);
+        .orderBy(desc(priceGuesses.createdAt));
 
       // Calculate FMV using karma-weighted algorithm with WOZ anchoring
       const fmvResult = await calculateFmvForProperty(propertyId);

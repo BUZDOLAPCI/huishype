@@ -241,8 +241,8 @@ test.describe('Price Guess Flow', () => {
     expect(guessData.propertyId).toBe(property.id);
     expect(guessData.message).toContain('submitted');
 
-    // Verify the guess appears in the list (use high limit to avoid pagination
-    // issues when many guesses accumulate from repeated test runs)
+    // Verify the guess appears in the list. The endpoint returns newest first,
+    // so our just-submitted guess should be on page 1.
     const listResponse = await request.get(
       `${API_BASE_URL}/properties/${property.id}/guesses?limit=100`
     );
@@ -250,7 +250,7 @@ test.describe('Price Guess Flow', () => {
     const listData = await listResponse.json();
     expect(listData.data.length).toBeGreaterThan(0);
     const found = listData.data.find(
-      (g: { userId: string }) => g.userId === testUser.userId
+      (g: { id: string }) => g.id === guessData.id
     );
     expect(found).toBeDefined();
     expect(found.guessedPrice).toBe(guessPrice);

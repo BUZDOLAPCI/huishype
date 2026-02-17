@@ -36,7 +36,6 @@ import { API_URL, fetchBatchProperties, fetchNearbyCluster, type PropertyResolve
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const DEFAULT_ZOOM = 13;
 const DEFAULT_PITCH = 50; // 3D perspective angle for buildings
-
 // Style URL — served by our API, single source of truth for all map layers
 const STYLE_URL = `${API_URL}/tiles/style.json`;
 
@@ -136,6 +135,10 @@ export default function MapScreen() {
 
   // Cluster preview index (for paging within a cluster preview card)
   const [clusterIndex, setClusterIndex] = useState(0);
+
+  // Touch guard: when preview card is touched, suppress handleMapPress so the
+  // tap doesn't fall through to the map's onPress handler.
+  const previewCardTouchedRef = useRef(false);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -363,6 +366,14 @@ export default function MapScreen() {
   // If sheet is expanded (index > 0), tapping map should close sheet but preserve preview
   const handleMapPress = useCallback(
     async (event: NativeSyntheticEvent<PressEvent>) => {
+      // If the preview card was just touched, suppress this map press event.
+      // The card's onTouchStart fires before the map's onPress, so the ref is
+      // already set by the time we get here.
+      if (previewCardTouchedRef.current) {
+        previewCardTouchedRef.current = false;
+        return;
+      }
+
       const { point, lngLat } = event.nativeEvent;
       // PixelPoint is a tuple [x, y], not an object
       const pixelPoint: [number, number] = [point[0], point[1]];
@@ -567,6 +578,11 @@ export default function MapScreen() {
                 isLiked={isLiked}
                 showArrow
                 arrowDirection="down"
+                onTouchStart={() => {
+                  previewCardTouchedRef.current = true;
+                  // Auto-reset after 500ms in case handleMapPress doesn't fire
+                  setTimeout(() => { previewCardTouchedRef.current = false; }, 500);
+                }}
               />
             </Marker>
           )}

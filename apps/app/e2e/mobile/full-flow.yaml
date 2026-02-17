@@ -8,6 +8,7 @@
 #   6. Authenticated interactions (comment, guess, like, save)
 #   7. Cleanup & final state
 #   8. Cluster preview card (zoom out + tap cluster)
+#   9. Preview card touch interactions (tap-through, quick actions, swipe pagination)
 #
 # Prerequisites:
 # - App installed on emulator, Metro dev server running
@@ -80,3 +81,6 @@ appId: nl.huishype.app
 
 # === CLUSTER PREVIEW ===
 - runFlow: flows/08-cluster-preview.yaml
+
+# === PREVIEW CARD INTERACTIONS ===
+- runFlow: flows/09-preview-card-interactions.yaml

@@ -165,8 +165,7 @@ function PropertyCardContent({
         }}
       >
         <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
+          onPress={() => {
             onLike?.();
           }}
           style={{
@@ -197,8 +196,7 @@ function PropertyCardContent({
         </Pressable>
 
         <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
+          onPress={() => {
             onComment?.();
           }}
           style={{
@@ -217,8 +215,7 @@ function PropertyCardContent({
         </Pressable>
 
         <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
+          onPress={() => {
             onGuess?.();
           }}
           style={{
@@ -259,6 +256,7 @@ export function GroupPreviewCard({
   isLiked = false,
   showArrow = false,
   arrowDirection = 'down',
+  onTouchStart,
 }: GroupPreviewCardProps) {
   const isCluster = properties.length > 1;
   const currentIndex = controlledIndex ?? 0;
@@ -302,13 +300,14 @@ export function GroupPreviewCard({
   goLeftRef.current = goLeft;
   goRightRef.current = goRight;
 
-  // PanResponder for swipe gestures (cluster only)
+  // PanResponder for swipe gestures
   // Guard against PanResponder being undefined in test environments
   const panResponder = useRef(
     PanResponder?.create?.({
-      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponder: () => false, // Don't claim taps — let Pressable children handle them
       onMoveShouldSetPanResponder: (_, gs) =>
         Math.abs(gs.dx) > 10 && Math.abs(gs.dy) < 30,
+      onPanResponderTerminationRequest: () => false, // Don't let map steal the gesture
       onPanResponderMove: (_, gs) => {
         translateX.setValue(Math.max(-80, Math.min(80, gs.dx)));
       },
@@ -347,6 +346,7 @@ export function GroupPreviewCard({
         overflow: 'visible',
       }}
       testID="group-preview-card"
+      onTouchStart={Platform.OS !== 'web' ? () => onTouchStart?.() : undefined}
     >
       {/* Arrow pointing up */}
       {showArrow && arrowUp && (

@@ -36,4 +36,6 @@ export interface GroupPreviewCardProps {
   showArrow?: boolean;
   /** Direction the arrow pointer points. */
   arrowDirection?: 'up' | 'down';
+  /** Callback fired when the card receives a touch (native only). Used to guard map press. */
+  onTouchStart?: () => void;
 }
