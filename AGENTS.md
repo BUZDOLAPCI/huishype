@@ -24,7 +24,7 @@ Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Archite
 - Map commands (queryRenderedFeatures, etc.) use TurboModules (JSI-based, not old bridge)
 - Component renames in alpha.44+: `MapView` → `Map`, `ShapeSource` → `GeoJSONSource`, `sourceID` → `source` etc.
 
-**Local source checkout**: `/home/caslan/dev/git_repos/maplibre-react-native` (v11.0.0-alpha.47, shallow clone). Reference this to discover available components, props, and features (e.g. `Marker`, `ViewAnnotation`, `Callout`) instead of guessing from type defs.
+**Fork**: `/home/caslan/dev/git_repos/hh/maplibre-react-native` (GitHub: `BUZDOLAPCI/maplibre-react-native`, branch `huishype`, tracks upstream `beta`). Referenced from `apps/app/package.json` via GitHub URL. Contains our MarkerView touch dispatch fix. Reference this to discover available components, props, and features (e.g. `Marker`, `ViewAnnotation`, `Callout`) instead of guessing from type defs. To sync upstream: `./tools/sync-maplibre-fork.sh`.
 
 ## Data Sources
 

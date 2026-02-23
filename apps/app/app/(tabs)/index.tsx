@@ -36,6 +36,12 @@ import { API_URL, fetchBatchProperties, fetchNearbyCluster, type PropertyResolve
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const DEFAULT_ZOOM = 13;
 const DEFAULT_PITCH = 50; // 3D perspective angle for buildings
+
+// Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
+// after a card touch (e.g. user lifts finger outside the map gesture area),
+// the ref resets so the next map tap isn't blocked.
+const TOUCH_GUARD_RESET_MS = 500;
+
 // Style URL — served by our API, single source of truth for all map layers
 const STYLE_URL = `${API_URL}/tiles/style.json`;
 
@@ -580,8 +586,8 @@ export default function MapScreen() {
                 arrowDirection="down"
                 onTouchStart={() => {
                   previewCardTouchedRef.current = true;
-                  // Auto-reset after 500ms in case handleMapPress doesn't fire
-                  setTimeout(() => { previewCardTouchedRef.current = false; }, 500);
+                  // Auto-reset in case handleMapPress doesn't fire
+                  setTimeout(() => { previewCardTouchedRef.current = false; }, TOUCH_GUARD_RESET_MS);
                 }}
               />
             </Marker>
