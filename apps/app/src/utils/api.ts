@@ -193,6 +193,7 @@ export type NearbyClusterResult =
       property_ids: string;
       coordinate: [number, number];
       distanceMeters: number;
+      bbox: [number, number, number, number]; // [west, south, east, north]
     }
   | {
       type: 'single';

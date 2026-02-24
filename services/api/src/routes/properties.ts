@@ -219,6 +219,7 @@ const clusterResultSchema = z.object({
   property_ids: z.string().describe('Comma-separated UUIDs'),
   coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
   distanceMeters: z.number(),
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).describe('[west, south, east, north]'),
 });
 
 const singleResultSchema = z.object({
@@ -398,12 +399,18 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
   const centroidLon = lons.reduce((a, b) => a + b, 0) / lons.length;
   const centroidLat = lats.reduce((a, b) => a + b, 0) / lats.length;
 
+  const minLon = Math.min(...lons);
+  const minLat = Math.min(...lats);
+  const maxLon = Math.max(...lons);
+  const maxLat = Math.max(...lats);
+
   return {
     type: 'cluster' as const,
     point_count: result.length,
     property_ids: result.map(r => r.id).join(','),
     coordinate: [centroidLon, centroidLat] as [number, number],
     distanceMeters: Number(result[0].distance_meters),
+    bbox: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
   };
 }
 
