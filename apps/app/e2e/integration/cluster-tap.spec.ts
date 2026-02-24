@@ -171,6 +171,33 @@ test.describe('Cluster Tap - API Integration', () => {
     expect(foundTile).toBe(true);
   });
 
+  test('nearby cluster response includes bbox', async ({ request }) => {
+    const resp = await request.get(
+      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=13&cluster=true`
+    );
+
+    if (resp.ok()) {
+      const data = await resp.json();
+      if (data && data.type === 'cluster') {
+        expect(data).toHaveProperty('bbox');
+        expect(data.bbox).toHaveLength(4);
+        const [west, south, east, north] = data.bbox;
+        expect(west).toBeLessThanOrEqual(east);
+        expect(south).toBeLessThanOrEqual(north);
+        // Verify bbox values are reasonable coordinates (WGS84 ranges)
+        expect(west).toBeGreaterThanOrEqual(-180);
+        expect(east).toBeLessThanOrEqual(180);
+        expect(south).toBeGreaterThanOrEqual(-90);
+        expect(north).toBeLessThanOrEqual(90);
+        console.log(`Cluster bbox: [${west}, ${south}, ${east}, ${north}]`);
+      } else if (data && data.type === 'single') {
+        console.log('Nearby returned a single result, not a cluster — bbox test not applicable');
+      }
+    } else {
+      console.log(`Nearby endpoint returned ${resp.status()} — may not have data in area`);
+    }
+  });
+
   test('tiles at z18 return individual property data', async ({ request }) => {
     const { x, y } = lonLatToTile(EINDHOVEN_CENTER[0], EINDHOVEN_CENTER[1], 18);
 

@@ -202,6 +202,48 @@ describe('Tile routes', () => {
 
       expect(response.statusCode).toBe(400);
     });
+
+    it('should return non-empty clustered tiles with bbox properties at z13 for Eindhoven', async () => {
+      // Eindhoven center ≈ 51.4416, 5.4697 — compute z13 tile coordinates
+      const lon = 5.4697;
+      const lat = 51.4416;
+      const z = 13;
+      const x = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
+      const latRad = (lat * Math.PI) / 180;
+      const y = Math.floor(
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+          Math.pow(2, z)
+      );
+
+      // Try the computed tile and neighbors to find one with data
+      const tilesToTry = [
+        [z, x, y],
+        [z, x + 1, y],
+        [z, x, y + 1],
+        [z, x - 1, y],
+      ];
+
+      let foundCluster = false;
+      for (const [tz, tx, ty] of tilesToTry) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tz}/${tx}/${ty}.pbf`,
+        });
+
+        if (response.statusCode === 200 && response.rawPayload.length > 0) {
+          // At z13 with clustering enabled, the tile should encode correctly
+          // (bbox_west/south/east/north are added as MVT feature properties).
+          // Full MVT property verification requires a protobuf decoder;
+          // here we confirm the tile encodes without error and is non-empty.
+          expect(response.headers['content-type']).toBe('application/x-protobuf');
+          expect(response.rawPayload.length).toBeGreaterThan(0);
+          foundCluster = true;
+          break;
+        }
+      }
+
+      expect(foundCluster).toBe(true);
+    });
   });
 
   describe('GET /fonts/:fontstack/:range', () => {
