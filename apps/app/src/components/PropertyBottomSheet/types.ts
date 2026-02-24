@@ -21,6 +21,7 @@ export interface PropertyBottomSheetProps {
   isLoading?: boolean;
   isLiked?: boolean;
   isSaved?: boolean;
+  isPreviewCardVisible?: boolean;
   onClose?: () => void;
   onSheetChange?: (index: number) => void;
   onSave?: (propertyId: string) => void;

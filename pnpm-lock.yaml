@@ -51,8 +51,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@maplibre/maplibre-react-native':
-        specifier: github:BUZDOLAPCI/maplibre-react-native#fd42c520
-        version: https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/fd42c520(@expo/config-plugins@54.0.4)(@types/geojson@7946.0.16)(@types/react@19.1.17)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+        specifier: github:BUZDOLAPCI/maplibre-react-native#90242beb
+        version: https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/90242beb(@expo/config-plugins@54.0.4)(@types/geojson@7946.0.16)(@types/react@19.1.17)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       '@react-navigation/native':
         specifier: ^7.1.8
         version: 7.1.28(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -1998,8 +1998,8 @@ packages:
     resolution: {integrity: sha512-UKhA4qv1h30XT768ccSv5NjNCX+dgfoq2qlLVmKejspPcSQTYD4SrVucgqegmYcKcmwf06wcNAa/kRd0NHWbUg==}
     hasBin: true
 
-  '@maplibre/maplibre-react-native@https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/fd42c520':
-    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/fd42c520}
+  '@maplibre/maplibre-react-native@https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/90242beb':
+    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/90242beb}
     version: 11.0.0-beta.9
     peerDependencies:
       '@expo/config-plugins': '>=54.0.0'
@@ -8493,7 +8493,7 @@ snapshots:
       rw: 1.3.3
       tinyqueue: 3.0.0
 
-  '@maplibre/maplibre-react-native@https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/fd42c520(@expo/config-plugins@54.0.4)(@types/geojson@7946.0.16)(@types/react@19.1.17)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)':
+  '@maplibre/maplibre-react-native@https://codeload.github.com/BUZDOLAPCI/maplibre-react-native/tar.gz/90242beb(@expo/config-plugins@54.0.4)(@types/geojson@7946.0.16)(@types/react@19.1.17)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@maplibre/maplibre-gl-style-spec': 24.4.1
       '@turf/distance': 7.3.3

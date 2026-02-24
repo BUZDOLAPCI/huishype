@@ -35,7 +35,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       isLoading = false,
       isLiked: isLikedProp,
       isSaved: isSavedProp,
-      onClose,
+      isPreviewCardVisible,
+      onClose: _onClose,
       onSheetChange,
       onSave,
       onShare,
@@ -68,17 +69,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // Fetch listings for the current property
     const { data: listings = [] } = useListings(property?.id ?? null);
 
-    // Track whether sheet should be mounted (only when we have a property)
-    // This prevents the handle indicator from being visible when no property is selected
-    const [isSheetMounted, setIsSheetMounted] = useState(false);
-
-    // Mount sheet when property is provided, unmount when closed
-    useEffect(() => {
-      if (property) {
-        setIsSheetMounted(true);
-      }
-    }, [property]);
-
     // Section layout positions
     const sectionPositions = useRef<{ guess: number; comments: number }>({
       guess: 0,
@@ -89,7 +79,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // Index 0 = peek (just drag handle visible)
     // Index 1 = partial (50% height)
     // Index 2 = full (90% height)
-    const snapPoints = useMemo(() => ['10%', '50%', '90%'], []);
+    const snapPoints = useMemo(() => ['4%', '48.5%', '100%'], []);
 
     // Handle section layout measurement
     const handleGuessSectionLayout = useCallback((event: LayoutChangeEvent) => {
@@ -101,6 +91,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }, []);
 
     // Scroll to section helpers
+    // Sheet is always mounted when preview card is visible, so we can call directly.
     const scrollToSection = useCallback((sectionY: number) => {
       // Expand to full height first (index 2 = 90%), then scroll
       bottomSheetRef.current?.snapToIndex(2);
@@ -111,10 +102,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }, []);
 
     // Expose methods to parent
+    // Sheet is always mounted when preview card is visible, so all calls go directly
+    // to bottomSheetRef. close() snaps to peek (index 0) since the parent controls
+    // actual unmount by clearing the preview card.
     useImperativeHandle(ref, () => ({
       expand: () => bottomSheetRef.current?.expand(),
       collapse: () => bottomSheetRef.current?.collapse(),
-      close: () => bottomSheetRef.current?.close(),
+      close: () => bottomSheetRef.current?.snapToIndex(0),
       snapToIndex: (index: number) => bottomSheetRef.current?.snapToIndex(index),
       scrollToComments: () => scrollToSection(sectionPositions.current.comments),
       scrollToGuess: () => scrollToSection(sectionPositions.current.guess),
@@ -123,17 +117,23 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // Render backdrop
     // Backdrop should only appear when sheet is expanded (index 1 or 2), not at peek (index 0)
+    // When preview card is visible, return null so touches can pass through to the card.
+    // enableTouchThrough is insufficient because the backdrop's animated reaction overrides
+    // pointerEvents back to 'auto' when the sheet expands past disappearsOnIndex.
     const renderBackdrop = useCallback(
-      (props: BottomSheetBackdropProps) => (
-        <BottomSheetBackdrop
-          {...props}
-          disappearsOnIndex={0}
-          appearsOnIndex={1}
-          opacity={0.3}
-          pressBehavior="close"
-        />
-      ),
-      []
+      (props: BottomSheetBackdropProps) => {
+        if (isPreviewCardVisible) return null;
+        return (
+          <BottomSheetBackdrop
+            {...props}
+            disappearsOnIndex={0}
+            appearsOnIndex={1}
+            opacity={0.3}
+            pressBehavior="close"
+          />
+        );
+      },
+      [isPreviewCardVisible]
     );
 
     // Handle sheet changes
@@ -142,13 +142,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         animatedIndex.value = index;
         // Notify parent of index change for preview card persistence logic
         onSheetChange?.(index);
-        if (index === -1) {
-          // Unmount sheet when fully closed to prevent handle from being visible
-          setIsSheetMounted(false);
-          onClose?.();
-        }
       },
-      [animatedIndex, onClose, onSheetChange]
+      [animatedIndex, onSheetChange]
     );
 
     // Animated content opacity based on expand state
@@ -169,9 +164,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       ? toPropertyDetails(property, enrichedProperty as Record<string, unknown> | null | undefined, { isLiked: isLikedProp, isSaved: isSavedProp })
       : null;
 
-    // Don't render the sheet at all if it's not mounted
-    // This completely hides the handle indicator when no property is selected
-    if (!isSheetMounted) {
+    // Only render when preview card is visible — parent controls mount/unmount
+    // by setting isPreviewCardVisible. This hides the handle when no property is selected.
+    if (!isPreviewCardVisible) {
       return null;
     }
 
@@ -181,7 +176,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         ref={bottomSheetRef}
         index={0}
         snapPoints={snapPoints}
-        enablePanDownToClose
+        enablePanDownToClose={false}
         enableDynamicSizing={false}
         backdropComponent={renderBackdrop}
         onChange={handleSheetChange}

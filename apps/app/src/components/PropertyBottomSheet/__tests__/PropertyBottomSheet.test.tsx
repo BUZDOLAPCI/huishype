@@ -161,32 +161,32 @@ describe('PropertyBottomSheet', () => {
   });
 
   it('renders property address when property is provided', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Teststraat 42')).toBeTruthy();
   });
 
   it('renders property city and postal code', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
   });
 
   it('renders building year badge', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Built 1985')).toBeTruthy();
   });
 
   it('renders surface area badge', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     // Multiple instances may appear (in header and details), use getAllByText
     expect(screen.getAllByText(/120 m/).length).toBeGreaterThan(0);
   });
 
   it('renders quick action buttons', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Save')).toBeTruthy();
     expect(screen.getByText('Share')).toBeTruthy();
@@ -195,7 +195,7 @@ describe('PropertyBottomSheet', () => {
 
   it('calls onSave when Save button is pressed', () => {
     const onSave = jest.fn();
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} onSave={onSave} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible onSave={onSave} />);
 
     fireEvent.press(screen.getByText('Save'));
 
@@ -204,7 +204,7 @@ describe('PropertyBottomSheet', () => {
 
   it('calls onLike when Like button is pressed', () => {
     const onLike = jest.fn();
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} onLike={onLike} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible onLike={onLike} />);
 
     fireEvent.press(screen.getByText('Like'));
 
@@ -212,7 +212,7 @@ describe('PropertyBottomSheet', () => {
   });
 
   it('renders price guess section', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Guess the Price')).toBeTruthy();
     expect(screen.getByText('Submit Guess')).toBeTruthy();
@@ -220,7 +220,7 @@ describe('PropertyBottomSheet', () => {
 
   it('renders Submit Guess button in price guess section', () => {
     renderWithProviders(
-      <PropertyBottomSheet property={mockProperty} />
+      <PropertyBottomSheet property={mockProperty} isPreviewCardVisible />
     );
 
     // The Submit Guess button should be visible in the PriceGuessSlider
@@ -228,7 +228,7 @@ describe('PropertyBottomSheet', () => {
   });
 
   it('renders comments section', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     // 'Comments' should appear in the section header
     expect(screen.getAllByText('Comments').length).toBeGreaterThan(0);
@@ -237,7 +237,7 @@ describe('PropertyBottomSheet', () => {
   });
 
   it('renders property details section', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Property Details')).toBeTruthy();
     // Technical IDs like BAG ID are hidden per reference expectation 0026
@@ -266,7 +266,7 @@ describe('PropertyBottomSheet', () => {
       updatedAt: '2024-01-01T00:00:00Z',
     };
 
-    renderWithProviders(<PropertyBottomSheet property={minimalProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={minimalProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Minimal Address')).toBeTruthy();
     expect(screen.getByText('Amsterdam')).toBeTruthy();
@@ -276,20 +276,20 @@ describe('PropertyBottomSheet', () => {
 
 describe('PropertyBottomSheet sections', () => {
   it('renders PriceSection with WOZ value', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('WOZ Value')).toBeTruthy();
   });
 
   it('renders activity level indicator', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     // Default activity level is 'cold', displayed as 'Quiet'
     expect(screen.getByText('Quiet')).toBeTruthy();
   });
 
   it('shows CTA text when counts are zero in PropertyDetails', () => {
-    renderWithProviders(<PropertyBottomSheet property={mockProperty} />);
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     // With zero counts, CTAs are shown instead of count labels
     expect(screen.getByText('Be the first to guess')).toBeTruthy();
