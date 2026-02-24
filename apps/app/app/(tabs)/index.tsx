@@ -142,6 +142,16 @@ export default function MapScreen() {
   // Cluster preview index (for paging within a cluster preview card)
   const [clusterIndex, setClusterIndex] = useState(0);
 
+  // Sync selected property with current preview card index.
+  // When the user swipes to a different property in a cluster preview, or when
+  // a new preview group opens, update selectedPropertyId so the bottom sheet
+  // reflects the currently visible card.
+  useEffect(() => {
+    if (previewGroup && previewGroup.properties[clusterIndex]) {
+      setSelectedPropertyId(previewGroup.properties[clusterIndex].id);
+    }
+  }, [clusterIndex, previewGroup]);
+
   // Touch guard: when preview card is touched, suppress handleMapPress so the
   // tap doesn't fall through to the map's onPress handler.
   const previewCardTouchedRef = useRef(false);
