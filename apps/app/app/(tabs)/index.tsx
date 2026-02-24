@@ -235,13 +235,23 @@ export default function MapScreen() {
         const clusterGeom = feature.geometry;
 
         if (pointCount > LARGE_CLUSTER_THRESHOLD || !propertyIdsStr) {
-          // Large cluster or missing IDs — zoom in
-          if (clusterGeom && clusterGeom.type === 'Point') {
+          // Large cluster or missing IDs — fit bounds to show all members
+          const bboxWest = properties.bbox_west as number | undefined;
+          const bboxSouth = properties.bbox_south as number | undefined;
+          const bboxEast = properties.bbox_east as number | undefined;
+          const bboxNorth = properties.bbox_north as number | undefined;
+
+          if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
+            cameraRef.current?.fitBounds(
+              [bboxWest, bboxSouth, bboxEast, bboxNorth],
+              { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
+            );
+          } else if (clusterGeom && clusterGeom.type === 'Point') {
+            // Fallback if bbox not in tile (shouldn't happen)
             const [lng, lat] = clusterGeom.coordinates as [number, number];
-            const newZoom = Math.min(currentZoom + 2, 18);
             cameraRef.current?.flyTo({
               center: [lng, lat],
-              zoom: newZoom,
+              zoom: Math.min(currentZoom + 2, 18),
               duration: 500,
             });
           }
@@ -447,12 +457,20 @@ export default function MapScreen() {
             } else if (nearby.type === 'cluster') {
               const pointCount = nearby.point_count ?? 0;
               if (pointCount > LARGE_CLUSTER_THRESHOLD) {
-                // Large cluster — zoom in
-                cameraRef.current?.flyTo({
-                  center: nearby.coordinate,
-                  zoom: Math.min(currentZoom + 2, 18),
-                  duration: 500,
-                });
+                // Large cluster — fit bounds to show all members
+                if (nearby.bbox) {
+                  const [west, south, east, north] = nearby.bbox;
+                  cameraRef.current?.fitBounds(
+                    [west, south, east, north],
+                    { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
+                  );
+                } else {
+                  cameraRef.current?.flyTo({
+                    center: nearby.coordinate,
+                    zoom: Math.min(currentZoom + 2, 18),
+                    duration: 500,
+                  });
+                }
               } else {
                 // Small cluster — show preview card
                 const ids = nearby.property_ids.split(',');
