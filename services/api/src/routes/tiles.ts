@@ -791,7 +791,11 @@ async function getClusteredMVT(
         MAX(CASE WHEN has_listing THEN 1 ELSE 0 END) as has_listing_max,
         SUM(activity_score) as total_activity,
         MAX(activity_score) as max_activity,
-        array_agg(id ORDER BY activity_score DESC) as property_ids
+        array_agg(id ORDER BY activity_score DESC) as property_ids,
+        ST_XMin(ST_Extent(geometry)) as bbox_west,
+        ST_YMin(ST_Extent(geometry)) as bbox_south,
+        ST_XMax(ST_Extent(geometry)) as bbox_east,
+        ST_YMax(ST_Extent(geometry)) as bbox_north
       FROM active_properties
       GROUP BY snapped_geom
     ),
@@ -809,7 +813,11 @@ async function getClusteredMVT(
         has_listing_max > 0 as has_active_children,
         total_activity,
         max_activity,
-        array_to_string(property_ids, ',') as property_ids
+        array_to_string(property_ids, ',') as property_ids,
+        bbox_west,
+        bbox_south,
+        bbox_east,
+        bbox_north
       FROM clustered
       WHERE display_geom IS NOT NULL
     )
