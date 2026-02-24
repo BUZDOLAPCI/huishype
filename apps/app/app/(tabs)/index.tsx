@@ -427,8 +427,8 @@ export default function MapScreen() {
       }
 
       // Server-side fallback: use the nearby API with reliable lngLat coordinates.
-      // Only call at zoom >= 13 to avoid excessive API hits when zoomed out.
-      if (currentZoom >= 13) {
+      // Threshold at 12 (not 13) because fitBounds can settle at e.g. 12.98 for z13 clusters.
+      if (currentZoom >= 12) {
         const [lon, lat] = lngLat;
         try {
           const nearby = await fetchNearbyCluster(lon, lat, currentZoom);
