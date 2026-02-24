@@ -581,14 +581,26 @@ export default function MapScreen() {
               }
             }
           } else {
-            // Large cluster: zoom in
-            const geom = feature.geometry;
-            if (geom.type === 'Point') {
-              const newZoom = Math.min(map.getZoom() + 2, 18);
-              map.easeTo({
-                center: geom.coordinates as [number, number],
-                zoom: newZoom,
-              });
+            // Large cluster: fit bounds to show all members
+            const bboxWest = properties.bbox_west as number | undefined;
+            const bboxSouth = properties.bbox_south as number | undefined;
+            const bboxEast = properties.bbox_east as number | undefined;
+            const bboxNorth = properties.bbox_north as number | undefined;
+
+            if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
+              map.fitBounds(
+                [[bboxWest, bboxSouth], [bboxEast, bboxNorth]],
+                { padding: 80, maxZoom: 18 },
+              );
+            } else {
+              // Fallback if bbox not in tile
+              const geom = feature.geometry;
+              if (geom.type === 'Point') {
+                map.easeTo({
+                  center: geom.coordinates as [number, number],
+                  zoom: Math.min(map.getZoom() + 2, 18),
+                });
+              }
             }
           }
         } else {
