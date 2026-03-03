@@ -200,6 +200,189 @@ function filterLayersForMissingSprites(
 }
 
 /**
+ * Convert a CSS color string (rgb, rgba, hsl, hsla) to hex (#RRGGBB).
+ * Only converts FULLY OPAQUE colors. Colors with alpha < 1 are left as-is
+ * because MapLibre Native doesn't support 8-digit hex (#RRGGBBAA) — it
+ * silently ignores them, breaking symbol layers (e.g. cluster count labels).
+ * MapLibre Native DOES parse rgba()/hsla() natively, so leaving them untouched
+ * is safe.
+ */
+function cssColorToHex(color: string): string {
+  const rgbMatch = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    const a = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+    if (a < 1) return color; // Keep rgba() as-is for native compatibility
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  const hslMatch = color.match(/^hsla?\(\s*(\d+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$/);
+  if (hslMatch) {
+    const h = parseInt(hslMatch[1], 10) / 360;
+    const s = parseFloat(hslMatch[2]) / 100;
+    const l = parseFloat(hslMatch[3]) / 100;
+    const a = hslMatch[4] !== undefined ? parseFloat(hslMatch[4]) : 1;
+    if (a < 1) return color; // Keep hsla() as-is for native compatibility
+
+    let r: number, g: number, b: number;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p: number, q: number, t: number) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+
+    return `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
+  }
+
+  return color;
+}
+
+/**
+ * Recursively walk a style object and normalize all CSS color function strings
+ * (rgb, rgba, hsl, hsla) to hex. Mutates the object in place.
+ */
+function normalizeCssColors(obj: unknown): void {
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      if (typeof obj[i] === 'string' && /^(rgb|hsl)a?\(/.test(obj[i])) {
+        obj[i] = cssColorToHex(obj[i]);
+      } else if (typeof obj[i] === 'object' && obj[i] !== null) {
+        normalizeCssColors(obj[i]);
+      }
+    }
+  } else if (typeof obj === 'object' && obj !== null) {
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      const val = (obj as Record<string, unknown>)[key];
+      if (typeof val === 'string' && /^(rgb|hsl)a?\(/.test(val)) {
+        (obj as Record<string, unknown>)[key] = cssColorToHex(val);
+      } else if (typeof val === 'object' && val !== null) {
+        normalizeCssColors(val);
+      }
+    }
+  }
+}
+
+/**
+ * Positron fill color replacements.
+ *
+ * Positron uses extremely muted fill colors (2-5 units channel deviation from pure gray).
+ * These are perceptible on WebGL with proper gamma correction but indistinguishable from
+ * gray on MapLibre Native's OpenGL ES renderer (especially on OLED phone screens).
+ *
+ * We replace them with clearly visible alternatives from OpenFreeMap Bright style,
+ * keeping the overall clean/minimal Positron aesthetic for lines and labels.
+ */
+const FILL_COLOR_OVERRIDES: Record<string, string> = {
+  park: '#d8e8c8',            // Bright green (was #e6e9e5 — barely perceptible)
+  water: '#aad0e6',           // Soft blue (was #c2c8ca — barely perceptible)
+  landcover_wood: '#c5d8b5',  // Forest green (was #dce0dc — barely perceptible)
+};
+
+/**
+ * Replace near-gray Positron fill colors with visible alternatives.
+ * Only modifies layers with known near-gray fills — leaves other layers untouched.
+ */
+function enhanceFillColors(layers: Array<Record<string, unknown>>): void {
+  for (const layer of layers) {
+    if (layer.type !== 'fill') continue;
+    const override = FILL_COLOR_OVERRIDES[layer.id as string];
+    if (!override) continue;
+    const paint = layer.paint as Record<string, unknown> | undefined;
+    if (paint) {
+      paint['fill-color'] = override;
+    }
+  }
+}
+
+/**
+ * Flatten zoom-interpolated fill-opacity expressions to simple numeric values.
+ *
+ * MapLibre Native (v11 beta) has a rendering bug where zoom-interpolated
+ * `fill-opacity` expressions (e.g. `['interpolate', ['linear'], ['zoom'], ...]`)
+ * cause ALL fill layers in the style to render as flat gray. This happens regardless
+ * of color values — even vivid #00FF00 green renders gray when any fill layer
+ * has an interpolated opacity expression.
+ *
+ * The fix: evaluate expressions at a representative zoom level and replace them
+ * with the resulting numeric value. This preserves the intended opacity at the
+ * typical viewing zoom while avoiding the native rendering bug.
+ *
+ * Mutates layers in place.
+ */
+function flattenFillOpacityExpressions(layers: Array<Record<string, unknown>>): void {
+  const REPRESENTATIVE_ZOOM = 13; // Default viewing zoom
+
+  for (const layer of layers) {
+    if (layer.type !== 'fill') continue;
+    const paint = layer.paint as Record<string, unknown> | undefined;
+    if (!paint) continue;
+
+    const opacity = paint['fill-opacity'];
+    if (!Array.isArray(opacity)) continue;
+
+    // Evaluate the interpolation expression at the representative zoom
+    paint['fill-opacity'] = evaluateZoomExpression(opacity, REPRESENTATIVE_ZOOM);
+  }
+}
+
+/**
+ * Evaluate a MapLibre zoom interpolation expression at a given zoom level.
+ * Handles both ['interpolate', ['linear'], ['zoom'], ...stops] and
+ * ['interpolate', ['exponential', base], ['zoom'], ...stops] expressions.
+ * Returns the evaluated numeric value, or 1 as fallback.
+ */
+function evaluateZoomExpression(expr: unknown[], zoom: number): number {
+  if (expr[0] !== 'interpolate' || !Array.isArray(expr[1])) return 1;
+
+  const interpType = expr[1][0] as string;
+  const base = interpType === 'exponential' ? (expr[1][1] as number) : 1;
+
+  // Extract zoom stops: pairs of [zoom, value] starting at index 3
+  const stops: [number, number][] = [];
+  for (let i = 3; i < expr.length; i += 2) {
+    if (typeof expr[i] === 'number' && typeof expr[i + 1] === 'number') {
+      stops.push([expr[i] as number, expr[i + 1] as number]);
+    }
+  }
+
+  if (stops.length === 0) return 1;
+
+  // Clamp to stop range
+  if (zoom <= stops[0][0]) return stops[0][1];
+  if (zoom >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+
+  // Find surrounding stops
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [z0, v0] = stops[i];
+    const [z1, v1] = stops[i + 1];
+    if (zoom >= z0 && zoom <= z1) {
+      // Interpolate
+      let t = (zoom - z0) / (z1 - z0);
+      if (base !== 1) {
+        t = (Math.pow(base, t * (z1 - z0)) - 1) / (Math.pow(base, z1 - z0) - 1);
+      }
+      return v0 + t * (v1 - v0);
+    }
+  }
+
+  return 1;
+}
+
+/**
  * Build the property layers array for the merged style.
  * These are the canonical layer definitions — both web and native clients
  * consume them from /tiles/style.json.
@@ -500,6 +683,7 @@ export async function tileRoutes(app: FastifyInstance) {
    * Cached for 60s to avoid repeated upstream fetches.
    * The cache is cloned before mutation to avoid corrupting the cached object.
    */
+  const STYLE_CACHE_TTL = 60_000; // 60 seconds
   let cachedStyle: { data: Record<string, unknown>; fetchedAt: number } | null = null;
   typedApp.get(
     '/tiles/style.json',
@@ -518,9 +702,9 @@ export async function tileRoutes(app: FastifyInstance) {
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
 
-      // Check cache (60s TTL)
+      // Check cache (24h TTL)
       const now = Date.now();
-      if (cachedStyle && now - cachedStyle.fetchedAt < 60000) {
+      if (cachedStyle && now - cachedStyle.fetchedAt < STYLE_CACHE_TTL) {
         // Deep-clone the cached style to avoid mutating the shared cache object
         const style = JSON.parse(JSON.stringify(cachedStyle.data)) as Record<string, unknown>;
         // Patch dynamic URLs that depend on the request host
@@ -542,6 +726,43 @@ export async function tileRoutes(app: FastifyInstance) {
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
 
+        // Remove unused raster sources (e.g. ne2_shaded natural earth) that have no
+        // corresponding layer. MapLibre Native may still attempt to load/process these,
+        // potentially interfering with the vector fill rendering pipeline.
+        const layerSources = new Set(layers.map(l => l.source as string).filter(Boolean));
+        for (const srcName of Object.keys(sources)) {
+          if (!layerSources.has(srcName)) {
+            delete sources[srcName];
+          }
+        }
+
+        // Resolve TileJSON URL references into inline tile arrays.
+        // MapLibre React Native doesn't resolve `"url"` (TileJSON) references in
+        // style-defined vector sources, so the entire base map fails to render.
+        // We fetch the TileJSON server-side and inline the result.
+        for (const [name, src] of Object.entries(sources)) {
+          const source = src as Record<string, unknown>;
+          if (source.type === 'vector' && typeof source.url === 'string' && !source.tiles) {
+            try {
+              const tjResp = await fetch(source.url as string);
+              const tileJson = await tjResp.json() as Record<string, unknown>;
+              // Only keep essential TileJSON fields — large metadata like vector_layers
+              // bloats the style JSON and may cause issues with MapLibre Native's
+              // Fabric bridge serialization.
+              sources[name] = {
+                type: source.type,
+                tiles: tileJson.tiles,
+                ...(tileJson.minzoom != null && { minzoom: tileJson.minzoom }),
+                ...(tileJson.maxzoom != null && { maxzoom: tileJson.maxzoom }),
+                ...(tileJson.bounds && { bounds: tileJson.bounds }),
+                ...(tileJson.attribution && { attribution: tileJson.attribution }),
+              };
+            } catch (tjErr) {
+              app.log.warn(tjErr, `Failed to resolve TileJSON for source "${name}" — keeping url reference`);
+            }
+          }
+        }
+
         // Override glyphs URL to use self-hosted fonts
         baseStyle.glyphs = glyphsUrl;
 
@@ -556,28 +777,20 @@ export async function tileRoutes(app: FastifyInstance) {
           maxzoom: 22,
         };
 
-        // Fade out existing 2D building fill layers at high zoom (for 3D transition)
+        // Hide 2D building fill at zoom levels where 3D buildings appear.
+        // Previously used a fill-opacity interpolation expression, but MapLibre Native
+        // (v11 beta) has a rendering bug where ANY zoom-interpolated fill-opacity expression
+        // causes ALL fill layers to render as gray. Using maxzoom instead — the transition
+        // from 2D to 3D is abrupt but avoids the bug entirely.
         layers.forEach((layer, index) => {
           const isBuilding =
             layer.id?.toString().includes('building') &&
             layer['source-layer'] === 'building';
 
           if (isBuilding && layer.type === 'fill') {
-            const existingPaint = (layer.paint as Record<string, unknown>) || {};
             layers[index] = {
               ...layer,
-              paint: {
-                ...existingPaint,
-                'fill-opacity': [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  BUILDINGS_3D_CONFIG.minZoom,
-                  1,
-                  BUILDINGS_3D_CONFIG.minZoom + 0.5,
-                  0,
-                ],
-              },
+              maxzoom: BUILDINGS_3D_CONFIG.minZoom + 0.5,
             };
           }
         });
@@ -608,7 +821,24 @@ export async function tileRoutes(app: FastifyInstance) {
           app.log.warn(spriteErr, 'Failed to load sprite manifest for layer filtering — keeping all layers');
         }
 
+        // MapLibre Native (v11 beta) rendering bug workaround:
+        // Zoom-interpolated fill-opacity expressions (e.g. ['interpolate', ['linear'], ['zoom'], ...])
+        // cause ALL fill layers to render as gray. Flattening these to simple numeric values
+        // fixes the rendering. We evaluate each expression at a representative zoom (z13) or
+        // use the expression's max value.
+        flattenFillOpacityExpressions(filteredLayers);
+
+        // Replace Positron's near-gray fill colors with visible alternatives.
+        // Positron uses fills that deviate only 2-5 units from pure gray, which
+        // are perceptible on WebGL but invisible on mobile GPU renderers.
+        enhanceFillColors(filteredLayers);
+
         const merged = { ...baseStyle, sources, layers: filteredLayers };
+
+        // Normalize CSS color functions (rgb, rgba, hsl, hsla) to hex.
+        // MapLibre GL JS handles these fine, but keeping hex for consistency.
+        normalizeCssColors(merged);
+
         cachedStyle = { data: merged, fetchedAt: now };
 
         return reply

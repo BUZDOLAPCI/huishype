@@ -62,6 +62,7 @@ function useMergedMapStyle(): Record<string, unknown> | null {
 
   useEffect(() => {
     let cancelled = false;
+
     fetch(STYLE_URL)
       .then(r => r.json())
       .then((styleJson: Record<string, unknown>) => {
