@@ -109,6 +109,14 @@ function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   return 'cold';
 }
 
+/** Estimate the zoom level that would show the given bbox, conservatively accounting for padding. */
+function estimateZoomForBbox(west: number, south: number, east: number, north: number): number {
+  const lonSpan = Math.abs(east - west);
+  const latSpan = Math.abs(north - south);
+  const maxSpan = Math.max(lonSpan, latSpan, 0.0001);
+  return Math.log2(360 / maxSpan) - 1; // -1 accounts for padding
+}
+
 /** State for the geo-anchored preview card (single or cluster). */
 interface PreviewGroup {
   properties: GroupPreviewProperty[];
@@ -242,10 +250,23 @@ export default function MapScreen() {
           const bboxNorth = properties.bbox_north as number | undefined;
 
           if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
-            cameraRef.current?.fitBounds(
-              [bboxWest, bboxSouth, bboxEast, bboxNorth],
-              { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
-            );
+            // Estimate what zoom fitBounds would produce from the bbox span
+            const estimatedZoom = estimateZoomForBbox(bboxWest, bboxSouth, bboxEast, bboxNorth);
+
+            if (estimatedZoom > currentZoom + 0.5) {
+              // fitBounds will meaningfully zoom in — use it
+              cameraRef.current?.fitBounds(
+                [bboxWest, bboxSouth, bboxEast, bboxNorth],
+                { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
+              );
+            } else {
+              // fitBounds would barely zoom in or zoom out — force zoom in on centroid
+              cameraRef.current?.flyTo({
+                center: [(bboxWest + bboxEast) / 2, (bboxSouth + bboxNorth) / 2],
+                zoom: Math.min(currentZoom + 2, 18),
+                duration: 500,
+              });
+            }
           } else if (clusterGeom && clusterGeom.type === 'Point') {
             // Fallback if bbox not in tile (shouldn't happen)
             const [lng, lat] = clusterGeom.coordinates as [number, number];
@@ -460,10 +481,22 @@ export default function MapScreen() {
                 // Large cluster — fit bounds to show all members
                 if (nearby.bbox) {
                   const [west, south, east, north] = nearby.bbox;
-                  cameraRef.current?.fitBounds(
-                    [west, south, east, north],
-                    { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
-                  );
+                  const estimatedZoom = estimateZoomForBbox(west, south, east, north);
+
+                  if (estimatedZoom > currentZoom + 0.5) {
+                    // fitBounds will meaningfully zoom in — use it
+                    cameraRef.current?.fitBounds(
+                      [west, south, east, north],
+                      { padding: { top: 80, right: 80, bottom: 80, left: 80 }, duration: 500 },
+                    );
+                  } else {
+                    // fitBounds would barely zoom in or zoom out — force zoom in on centroid
+                    cameraRef.current?.flyTo({
+                      center: [(west + east) / 2, (south + north) / 2],
+                      zoom: Math.min(currentZoom + 2, 18),
+                      duration: 500,
+                    });
+                  }
                 } else {
                   cameraRef.current?.flyTo({
                     center: nearby.coordinate,

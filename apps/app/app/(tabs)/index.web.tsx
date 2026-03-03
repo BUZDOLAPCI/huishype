@@ -588,10 +588,21 @@ export default function MapScreen() {
             const bboxNorth = properties.bbox_north as number | undefined;
 
             if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
-              map.fitBounds(
-                [[bboxWest, bboxSouth], [bboxEast, bboxNorth]],
-                { padding: 80, maxZoom: 18 },
-              );
+              const currentZoom = map.getZoom();
+              const bounds: [[number, number], [number, number]] = [[bboxWest, bboxSouth], [bboxEast, bboxNorth]];
+              const target = map.cameraForBounds(bounds, { padding: 80, maxZoom: 18 });
+
+              if (target && target.zoom != null && target.zoom > currentZoom + 0.5) {
+                // fitBounds will meaningfully zoom in — use it
+                map.fitBounds(bounds, { padding: 80, maxZoom: 18 });
+              } else {
+                // fitBounds would barely zoom in, stay, or zoom out — force zoom in
+                const center: [number, number] = [(bboxWest + bboxEast) / 2, (bboxSouth + bboxNorth) / 2];
+                map.easeTo({
+                  center,
+                  zoom: Math.min(currentZoom + 2, 18),
+                });
+              }
             } else {
               // Fallback if bbox not in tile
               const geom = feature.geometry;

@@ -148,6 +148,25 @@ The `tools/` directory is the agent workspace. See `tools/README.md` for current
 - Improve existing tools
 - Create new tools as needed
 
+## Local Dev Services
+
+Metro and the API run as always-on systemd user services. Docker (postgres, redis) is managed separately via `docker compose`.
+
+| Service | Unit | Port | Logs |
+|---------|------|------|------|
+| Expo/Metro | `huishype-expo.service` | 8081 | `journalctl --user -u huishype-expo -f` |
+| API | `huishype-api.service` | 3100 | `journalctl --user -u huishype-api -f` |
+
+```bash
+systemctl --user restart huishype-expo   # Restart Metro
+systemctl --user restart huishype-api    # Restart API
+systemctl --user stop huishype-expo      # Stop (auto-restarts unless disabled)
+```
+
+**adb reverse** is automated via udev rule (`/etc/udev/rules.d/99-huishype-adb.rules`) — triggers on Samsung S10e USB connect. No manual step needed.
+
+**inotify limit** persisted at 524288 in `/etc/sysctl.d/90-inotify.conf` (Metro needs this).
+
 ## Hooks
 
 Agents may configure Claude Code hooks in `.claude/settings.json`. Notice hook changes don't take effect until the session restarts. If hooks are modified, inform the user they need to restart the session.
