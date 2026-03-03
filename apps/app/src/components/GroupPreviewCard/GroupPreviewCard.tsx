@@ -695,7 +695,7 @@ export function GroupPreviewCard({
     <View
       style={{
         width: CARD_WIDTH,
-        maxWidth: '92%',
+        maxWidth: '80%',
         alignSelf: 'center',
         position: 'relative',
         overflow: 'visible',
