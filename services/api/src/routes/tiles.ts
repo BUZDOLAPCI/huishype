@@ -90,7 +90,7 @@ const GHOST_NODE_FRONTEND_ZOOM = 17;
 const BUILDINGS_3D_CONFIG = {
   minZoom: 15,
   colors: {
-    base: '#FFFFFF',
+    palette: ['#E2DAD0', '#DDD7CF', '#E6E0D8', '#D8D2CA', '#E0DCD6'],
   },
   opacity: 1.0,
   heightMultiplier: 1.0,
@@ -547,7 +547,15 @@ function build3DBuildingsLayer(): Record<string, unknown> {
     minzoom: BUILDINGS_3D_CONFIG.minZoom,
     filter: ['!=', ['get', 'hide_3d'], true],
     paint: {
-      'fill-extrusion-color': BUILDINGS_3D_CONFIG.colors.base,
+      'fill-extrusion-color': [
+        'match',
+        ['%', ['coalesce', ['get', 'osm_id'], 0], 5],
+        0, BUILDINGS_3D_CONFIG.colors.palette[0],
+        1, BUILDINGS_3D_CONFIG.colors.palette[1],
+        2, BUILDINGS_3D_CONFIG.colors.palette[2],
+        3, BUILDINGS_3D_CONFIG.colors.palette[3],
+        BUILDINGS_3D_CONFIG.colors.palette[4],
+      ],
       'fill-extrusion-height': [
         'interpolate',
         ['linear'],
