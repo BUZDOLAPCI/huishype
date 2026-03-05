@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
+import { db } from '../../db/index.js';
+import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 describe('Tree tiles endpoint', () => {
@@ -59,6 +61,25 @@ describe('Tree tiles endpoint', () => {
     expect(style.sources['tree-source'].tiles[0]).toContain('/tiles/trees/{z}/{x}/{y}.pbf');
     expect(style.sources['tree-source'].minzoom).toBe(15);
     expect(style.sources['tree-source'].maxzoom).toBe(20);
+  });
+
+  it('tall_buildings table exists and tree tile query works with exclusion', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tiles/trees/15/16892/10898.pbf',
+    });
+    // Query should not error — verifies tall_buildings table exists
+    // (query would fail with "relation tall_buildings does not exist" otherwise)
+    expect([200, 204]).toContain(res.statusCode);
+  });
+
+  it('GIST index on exclusion_geom exists (prevents sequential scan)', async () => {
+    const result = await db.execute<{ indexname: string }>(sql`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'tall_buildings'
+      AND indexdef LIKE '%exclusion_geom%'
+    `);
+    expect(result.length).toBeGreaterThan(0);
   });
 
 });
