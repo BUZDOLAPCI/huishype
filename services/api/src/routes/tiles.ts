@@ -626,6 +626,10 @@ function buildPaperTreesLayer(): Record<string, unknown> {
 const TREE_MIN_ZOOM = 15;
 const TREE_MAX_ZOOM = 20;
 const TREE_VARIANTS = 16;
+/** Minimum building height (meters) for tree exclusion — matches import-tall-buildings.ts */
+const TALL_BUILDING_MIN_HEIGHT = 20;
+/** Maximum exclusion radius (meters) — matches import-tall-buildings.ts */
+const TALL_BUILDING_MAX_RADIUS = 100;
 
 export async function tileRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -1082,6 +1086,11 @@ export async function tileRoutes(app: FastifyInstance) {
             c.geom
           FROM candidates c
           INNER JOIN landcover lc ON ST_Within(c.geom, lc.geometry)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM tall_buildings b
+            WHERE ST_Intersects(c.geom, b.exclusion_geom)
+          )
+          ORDER BY c.id
         ),
         mvt_data AS (
           SELECT
