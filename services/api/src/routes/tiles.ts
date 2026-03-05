@@ -605,6 +605,7 @@ function buildPaperTreesLayer(): Record<string, unknown> {
         19, 1.2,
       ],
       'icon-anchor': 'bottom',
+      'icon-offset': [0, 3], // sink trunk into ground for "planted" look
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'symbol-sort-key': ['*', -1, ['get', 'tree_variant']],

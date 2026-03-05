@@ -19,17 +19,69 @@ async function sliceAtlas() {
 
   console.log(`Atlas: ${width}x${height}, cell: ${cellW}x${cellH}`);
 
-  // Slice each cell
+  // Slice each cell, trim transparent padding, and anchor at bottom-center
+  // so the trunk touches the very bottom pixel row (Paper Mario "rooted" look)
   for (let row = 0; row < GRID_ROWS; row++) {
     for (let col = 0; col < GRID_COLS; col++) {
       const index = row * GRID_COLS + col;
       const outPath = path.join(SPRITES_DIR, `tree-${index}.png`);
-      await sharp(ATLAS_PATH)
+
+      // Extract cell, remove white background, trim transparent padding
+      const cell = await sharp(ATLAS_PATH)
         .extract({ left: col * cellW, top: row * cellH, width: cellW, height: cellH })
-        .resize(SPRITE_SIZE, SPRITE_SIZE, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      // Find bounding box of non-white/non-transparent pixels
+      const cw = cell.info.width;
+      const ch = cell.info.height;
+      const px = cell.data; // RGBA raw pixels
+      let minX = cw, minY = ch, maxX = 0, maxY = 0;
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const i = (y * cw + x) * 4;
+          const r = px[i], g = px[i+1], b = px[i+2], a = px[i+3];
+          // Skip near-white and transparent pixels (background)
+          if (a < 10 || (r > 240 && g > 240 && b > 240)) continue;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+
+      const tw = maxX - minX + 1;
+      const th = maxY - minY + 1;
+
+      const trimmed = await sharp(ATLAS_PATH)
+        .extract({ left: col * cellW + minX, top: row * cellH + minY, width: tw, height: th })
+        .ensureAlpha()
+        .toBuffer({ resolveWithObject: true });
+
+      // Scale to fit within SPRITE_SIZE preserving aspect ratio
+      const scale = Math.min(SPRITE_SIZE / tw, SPRITE_SIZE / th);
+      const scaledW = Math.round(tw * scale);
+      const scaledH = Math.round(th * scale);
+
+      const resized = await sharp(trimmed.data)
+        .resize(scaledW, scaledH)
+        .toBuffer();
+
+      // Place on canvas: horizontally centered, vertically anchored at bottom
+      await sharp({
+        create: {
+          width: SPRITE_SIZE,
+          height: SPRITE_SIZE,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      })
+        .composite([{ input: resized, left: Math.round((SPRITE_SIZE - scaledW) / 2), top: SPRITE_SIZE - scaledH }])
         .png()
         .toFile(outPath);
-      console.log(`  tree-${index}.png`);
+
+      console.log(`  tree-${index}.png (${tw}x${th} trimmed → ${scaledW}x${scaledH} anchored bottom)`);
     }
   }
 
