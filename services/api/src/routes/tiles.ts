@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scatterCandidatePoints, tileSeed } from '../services/tree-scatter.js';
+import { generateTreeCandidates } from '../services/tree-scatter.js';
 
 /**
  * Vector Tile Route for Property Clustering
@@ -625,7 +625,6 @@ function buildPaperTreesLayer(): Record<string, unknown> {
 // Tree scatter tile configuration
 const TREE_MIN_ZOOM = 15;
 const TREE_MAX_ZOOM = 20;
-const TREE_CANDIDATES_PER_TILE = 600;
 const TREE_VARIANTS = 16;
 
 export async function tileRoutes(app: FastifyInstance) {
@@ -1060,9 +1059,8 @@ export async function tileRoutes(app: FastifyInstance) {
         return reply.status(204).send();
       }
 
-      const seed = tileSeed(z, x, y);
       const bbox = tileToBBox(z, x, y);
-      const candidates = scatterCandidatePoints(bbox, TREE_CANDIDATES_PER_TILE, TREE_VARIANTS, seed);
+      const candidates = generateTreeCandidates(z, x, y, bbox, TREE_VARIANTS);
 
       if (candidates.length === 0) {
         return reply.status(204).send();
@@ -1114,7 +1112,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
       return reply
         .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'public, max-age=86400, immutable')
+        .header('Cache-Control', 'public, max-age=3600')
         .send(mvtBuffer);
     },
   );
