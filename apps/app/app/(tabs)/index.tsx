@@ -622,6 +622,10 @@ export default function MapScreen() {
             }}
           />
 
+          {/* Paper Mario trees come from the server-side style.json as a symbol layer
+              (paper-trees). On web, BillboardCustomLayer replaces it with WebGL depth-tested
+              rendering. On native, the symbol layer renders tree sprites from the sprite sheet. */}
+
           {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),
               so it's accessible to Maestro/uiautomator. The native map engine

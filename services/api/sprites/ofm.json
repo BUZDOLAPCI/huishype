@@ -1846,5 +1846,117 @@
     "width": 17,
     "x": 481,
     "y": 148
+  },
+  "tree-0": {
+    "height": 64,
+    "width": 64,
+    "x": 0,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-1": {
+    "height": 64,
+    "width": 64,
+    "x": 64,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-2": {
+    "height": 64,
+    "width": 64,
+    "x": 128,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-3": {
+    "height": 64,
+    "width": 64,
+    "x": 192,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-4": {
+    "height": 64,
+    "width": 64,
+    "x": 256,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-5": {
+    "height": 64,
+    "width": 64,
+    "x": 320,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-6": {
+    "height": 64,
+    "width": 64,
+    "x": 384,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-7": {
+    "height": 64,
+    "width": 64,
+    "x": 448,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-8": {
+    "height": 64,
+    "width": 64,
+    "x": 512,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-9": {
+    "height": 64,
+    "width": 64,
+    "x": 576,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-10": {
+    "height": 64,
+    "width": 64,
+    "x": 640,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-11": {
+    "height": 64,
+    "width": 64,
+    "x": 704,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-12": {
+    "height": 64,
+    "width": 64,
+    "x": 768,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-13": {
+    "height": 64,
+    "width": 64,
+    "x": 832,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-14": {
+    "height": 64,
+    "width": 64,
+    "x": 896,
+    "y": 263,
+    "pixelRatio": 1
+  },
+  "tree-15": {
+    "height": 64,
+    "width": 64,
+    "x": 960,
+    "y": 263,
+    "pixelRatio": 1
   }
 }

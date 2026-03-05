@@ -17,6 +17,7 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
+import { BillboardCustomLayer } from '../../src/components/map/BillboardCustomLayer';
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -82,101 +83,6 @@ function enhanceVegetationColors(map: maplibregl.Map) {
       }
     }
   });
-}
-
-/**
- * Create tree icon
- */
-function createTreeIcon(size: number = 64): ImageData {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-
-  ctx.clearRect(0, 0, size, size);
-
-  const centerX = size / 2;
-  const trunkWidth = size * 0.08;
-  const trunkHeight = size * 0.2;
-  const canopyRadius = size * 0.35;
-
-  ctx.fillStyle = VEGETATION_CONFIG.colors.treeTrunk;
-  ctx.fillRect(
-    centerX - trunkWidth / 2,
-    size - trunkHeight - 2,
-    trunkWidth,
-    trunkHeight
-  );
-
-  const gradient = ctx.createRadialGradient(
-    centerX - canopyRadius * 0.3,
-    size * 0.35 - canopyRadius * 0.3,
-    0,
-    centerX,
-    size * 0.35,
-    canopyRadius
-  );
-  gradient.addColorStop(0, '#6BCB6B');
-  gradient.addColorStop(0.5, VEGETATION_CONFIG.colors.tree);
-  gradient.addColorStop(1, '#3D8B40');
-
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(centerX, size * 0.35, canopyRadius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = '#357A38';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  return ctx.getImageData(0, 0, size, size);
-}
-
-/**
- * Add 3D tree symbols
- */
-function add3DTreeSymbols(map: maplibregl.Map) {
-  const sourceId = 'openmaptiles';
-
-  const treeIcon = createTreeIcon(64);
-  if (!map.hasImage('tree-icon')) {
-    map.addImage('tree-icon', treeIcon, { pixelRatio: 2 });
-  }
-
-  const existingLayers = map.getStyle()?.layers || [];
-  const labelLayerId = existingLayers.find(
-    (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
-  )?.id;
-
-  map.addLayer(
-    {
-      id: '3d-tree-symbols',
-      source: sourceId,
-      'source-layer': 'poi',
-      type: 'symbol',
-      minzoom: 14,
-      filter: [
-        'any',
-        ['==', ['get', 'class'], 'park'],
-        ['==', ['get', 'class'], 'garden'],
-        ['==', ['get', 'subclass'], 'tree'],
-        ['==', ['get', 'subclass'], 'park'],
-        ['==', ['get', 'subclass'], 'garden'],
-        ['==', ['get', 'subclass'], 'nature_reserve'],
-      ],
-      layout: {
-        'icon-image': 'tree-icon',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.4, 16, 0.6, 18, 0.8],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
-        'symbol-placement': 'point',
-      },
-      paint: {
-        'icon-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0.8, 16, 1.0],
-      },
-    },
-    labelLayerId
-  );
 }
 
 /**
@@ -492,7 +398,36 @@ export default function MapScreen() {
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
-        add3DTreeSymbols(map);
+        // Paper Mario billboard trees (custom WebGL layer with depth testing).
+        // The server adds a symbol layer 'paper-trees' for native; replace it
+        // with a WebGL custom layer for proper 3D depth-tested rendering on web.
+        if (map.getLayer('paper-trees')) {
+          map.removeLayer('paper-trees');
+        }
+        // Custom layers can't trigger vector tile loading — MapLibre only loads
+        // tiles for sources referenced by standard layers. Add an invisible circle
+        // layer so tree-source tiles are fetched and querySourceFeatures works.
+        map.addLayer({
+          id: 'tree-source-loader',
+          type: 'circle',
+          source: 'tree-source',
+          'source-layer': 'scattered-trees',
+          minzoom: 15,
+          paint: { 'circle-radius': 0, 'circle-opacity': 0 },
+        });
+        const treeLayer = new BillboardCustomLayer({
+          id: 'paper-trees',
+          sourceId: 'tree-source',
+          sourceLayer: 'scattered-trees',
+          atlasUrl: `${API_URL}/sprites/tree-atlas.png`,
+          gridCols: 4,
+          gridRows: 4,
+          variantProperty: 'tree_variant',
+          size: 64,
+          minZoom: 15,
+          heightMeters: 10,
+        });
+        map.addLayer(treeLayer);
         // NOTE: 3D buildings and property layers are already provided by /tiles/style.json
 
         setTimeout(() => {

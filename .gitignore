@@ -71,6 +71,7 @@ data_sources/*.sqlite
 data_sources/*.sqlite-journal
 data_sources/*.zip
 data_sources/*.7z
+data_sources/*.pbf
 
 # Derived address data (regenerate from BAG with ogr2ogr)
 fixtures/eindhoven-addresses.json

@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scatterCandidatePoints, tileSeed } from '../services/tree-scatter.js';
 
 /**
  * Vector Tile Route for Property Clustering
@@ -87,7 +88,7 @@ const GHOST_NODE_FRONTEND_ZOOM = 17;
 
 // 3D Buildings configuration
 const BUILDINGS_3D_CONFIG = {
-  minZoom: 14,
+  minZoom: 15,
   colors: {
     base: '#FFFFFF',
   },
@@ -583,6 +584,50 @@ function build3DBuildingsLayer(): Record<string, unknown> {
   };
 }
 
+/**
+ * Build the paper-trees symbol layer for native rendering.
+ * Uses tree-0 through tree-15 sprites from the sprite sheet.
+ * Positioned after 3D buildings for visual layering.
+ */
+function buildPaperTreesLayer(): Record<string, unknown> {
+  return {
+    id: 'paper-trees',
+    type: 'symbol',
+    source: 'tree-source',
+    'source-layer': 'scattered-trees',
+    minzoom: TREE_MIN_ZOOM,
+    layout: {
+      'icon-image': ['concat', 'tree-', ['to-string', ['get', 'tree_variant']]],
+      'icon-size': [
+        'interpolate', ['linear'], ['zoom'],
+        15, 0.4,
+        17, 0.8,
+        19, 1.2,
+      ],
+      'icon-anchor': 'bottom',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'symbol-sort-key': ['*', -1, ['get', 'tree_variant']],
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+    },
+    paint: {
+      'icon-opacity': [
+        'interpolate', ['linear'], ['zoom'],
+        15, 0,
+        15.5, 0.85,
+        18, 1,
+      ],
+    },
+  };
+}
+
+// Tree scatter tile configuration
+const TREE_MIN_ZOOM = 15;
+const TREE_MAX_ZOOM = 20;
+const TREE_CANDIDATES_PER_TILE = 600;
+const TREE_VARIANTS = 16;
+
 export async function tileRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
@@ -639,6 +684,24 @@ export async function tileRoutes(app: FastifyInstance) {
   );
 
   /**
+   * GET /sprites/tree-atlas.png
+   *
+   * Serves the raw tree atlas texture for the BillboardLayer WebGL/GL renderer.
+   */
+  app.get('/sprites/tree-atlas.png', async (_request, reply) => {
+    const atlasPath = join(__dirname, '..', '..', '..', '..', 'tree-atlas.png');
+    try {
+      const buffer = await readFile(atlasPath);
+      return reply
+        .header('Content-Type', 'image/png')
+        .header('Cache-Control', 'public, max-age=604800, immutable')
+        .send(buffer);
+    } catch {
+      return reply.status(404).send({ error: 'Tree atlas not found' });
+    }
+  });
+
+  /**
    * GET /sprites/:filename
    *
    * Serves self-hosted sprite files for MapLibre icon rendering.
@@ -664,7 +727,7 @@ export async function tileRoutes(app: FastifyInstance) {
         const data = await readFile(filePath);
         return reply
           .header('Content-Type', contentType)
-          .header('Cache-Control', 'public, max-age=604800, immutable')
+          .header('Cache-Control', 'public, max-age=3600')
           .send(data);
       } catch {
         return reply.status(404).send({ error: 'Sprite file not found' });
@@ -699,6 +762,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const host = request.host;
       const baseUrl = `${protocol}://${host}`;
       const tileUrl = `${baseUrl}/tiles/properties/{z}/{x}/{y}.pbf`;
+      const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
 
@@ -711,6 +775,8 @@ export async function tileRoutes(app: FastifyInstance) {
         const sources = style.sources as Record<string, unknown>;
         const propSource = sources['properties-source'] as Record<string, unknown>;
         propSource.tiles = [tileUrl];
+        const treeSource = sources['tree-source'] as Record<string, unknown>;
+        if (treeSource) treeSource.tiles = [treeTileUrl];
         style.glyphs = glyphsUrl;
         style.sprite = spriteUrl;
         return reply
@@ -777,6 +843,14 @@ export async function tileRoutes(app: FastifyInstance) {
           maxzoom: 22,
         };
 
+        // Add tree scatter tile source
+        sources['tree-source'] = {
+          type: 'vector',
+          tiles: [treeTileUrl],
+          minzoom: TREE_MIN_ZOOM,
+          maxzoom: TREE_MAX_ZOOM,
+        };
+
         // Hide 2D building fill at zoom levels where 3D buildings appear.
         // Previously used a fill-opacity interpolation expression, but MapLibre Native
         // (v11 beta) has a rendering bug where ANY zoom-interpolated fill-opacity expression
@@ -790,7 +864,7 @@ export async function tileRoutes(app: FastifyInstance) {
           if (isBuilding && layer.type === 'fill') {
             layers[index] = {
               ...layer,
-              maxzoom: BUILDINGS_3D_CONFIG.minZoom + 0.5,
+              maxzoom: BUILDINGS_3D_CONFIG.minZoom,
             };
           }
         });
@@ -832,6 +906,17 @@ export async function tileRoutes(app: FastifyInstance) {
         // Positron uses fills that deviate only 2-5 units from pure gray, which
         // are perceptible on WebGL but invisible on mobile GPU renderers.
         enhanceFillColors(filteredLayers);
+
+        // Add paper-trees symbol layer AFTER sprite filtering to preserve
+        // the raw concat expression (coalesce+image wrapper breaks on native).
+        // On web, BillboardCustomLayer replaces this with WebGL depth-tested rendering.
+        const buildings3DIndex = filteredLayers.findIndex(l => l.id === '3d-buildings');
+        const paperTreesLayer = buildPaperTreesLayer();
+        if (buildings3DIndex !== -1) {
+          filteredLayers.splice(buildings3DIndex + 1, 0, paperTreesLayer);
+        } else {
+          filteredLayers.push(paperTreesLayer);
+        }
 
         const merged = { ...baseStyle, sources, layers: filteredLayers };
 
@@ -946,6 +1031,92 @@ export async function tileRoutes(app: FastifyInstance) {
         .header('X-Tile-Generation-Time', `${queryTime}ms`)
         .send(mvtBuffer);
     }
+  );
+
+  // --- Tree scatter tiles ---
+
+  /**
+   * GET /tiles/trees/:z/:x/:y.pbf
+   *
+   * Returns MVT tiles with scattered tree points inside landcover polygons.
+   * Points are generated deterministically via seeded PRNG, then filtered
+   * to only those inside green areas using ST_Within.
+   */
+  typedApp.get(
+    '/tiles/trees/:z/:x/:y.pbf',
+    {
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get tree scatter vector tile',
+        description:
+          'Returns MVT with deterministically scattered tree points inside landcover polygons.',
+        params: tileParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+
+      if (z < TREE_MIN_ZOOM || z > TREE_MAX_ZOOM) {
+        return reply.status(204).send();
+      }
+
+      const seed = tileSeed(z, x, y);
+      const bbox = tileToBBox(z, x, y);
+      const candidates = scatterCandidatePoints(bbox, TREE_CANDIDATES_PER_TILE, TREE_VARIANTS, seed);
+
+      if (candidates.length === 0) {
+        return reply.status(204).send();
+      }
+
+      // Build VALUES clause for candidate points
+      const valuesClause = candidates
+        .map((p, i) => `(${i}, ST_SetSRID(ST_MakePoint(${p.lon}, ${p.lat}), 4326), ${p.variant})`)
+        .join(',');
+
+      const query = `
+        WITH candidates(id, geom, tree_variant) AS (
+          VALUES ${valuesClause}
+        ),
+        green_trees AS (
+          SELECT DISTINCT ON (c.id)
+            c.id,
+            c.tree_variant,
+            c.geom
+          FROM candidates c
+          INNER JOIN landcover lc ON ST_Within(c.geom, lc.geometry)
+        ),
+        mvt_data AS (
+          SELECT
+            id,
+            tree_variant,
+            ST_AsMVTGeom(
+              ST_Transform(geom, 3857),
+              ST_TileEnvelope(${z}, ${x}, ${y}),
+              4096,
+              256,
+              true
+            ) AS geom
+          FROM green_trees
+        )
+        SELECT ST_AsMVT(mvt_data, 'scattered-trees', 4096, 'geom') AS mvt
+        FROM mvt_data
+      `;
+
+      const result = await db.execute<{ mvt: Buffer }>(sql.raw(query));
+      const rows = Array.from(result) as { mvt: Buffer }[];
+      const mvt = rows[0]?.mvt;
+
+      if (!mvt || mvt.length === 0) {
+        return reply.status(204).send();
+      }
+
+      const mvtBuffer = Buffer.isBuffer(mvt) ? mvt : Buffer.from(mvt);
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'public, max-age=86400, immutable')
+        .send(mvtBuffer);
+    },
   );
 }
 
