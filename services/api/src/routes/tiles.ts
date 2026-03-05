@@ -687,24 +687,6 @@ export async function tileRoutes(app: FastifyInstance) {
   );
 
   /**
-   * GET /sprites/tree-atlas.png
-   *
-   * Serves the raw tree atlas texture for the BillboardLayer WebGL/GL renderer.
-   */
-  app.get('/sprites/tree-atlas.png', async (_request, reply) => {
-    const atlasPath = join(__dirname, '..', '..', '..', '..', 'tree-atlas.png');
-    try {
-      const buffer = await readFile(atlasPath);
-      return reply
-        .header('Content-Type', 'image/png')
-        .header('Cache-Control', 'public, max-age=604800, immutable')
-        .send(buffer);
-    } catch {
-      return reply.status(404).send({ error: 'Tree atlas not found' });
-    }
-  });
-
-  /**
    * GET /sprites/:filename
    *
    * Serves self-hosted sprite files for MapLibre icon rendering.

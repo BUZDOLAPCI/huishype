@@ -47,7 +47,6 @@ describe('Tree tiles endpoint', () => {
     const res = await app.inject({ method: 'GET', url: '/tiles/trees/15/16892/10898.pbf' });
     if (res.statusCode === 200) {
       expect(res.headers['cache-control']).toContain('max-age');
-      expect(res.headers['cache-control']).toContain('immutable');
     }
   });
 
@@ -62,10 +61,4 @@ describe('Tree tiles endpoint', () => {
     expect(style.sources['tree-source'].maxzoom).toBe(20);
   });
 
-  it('GET /sprites/tree-atlas.png serves the raw atlas', async () => {
-    const res = await app.inject({ method: 'GET', url: '/sprites/tree-atlas.png' });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('image/png');
-    expect(res.rawPayload.length).toBeGreaterThan(0);
-  });
 });

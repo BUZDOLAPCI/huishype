@@ -17,7 +17,6 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
-import { BillboardCustomLayer } from '../../src/components/map/BillboardCustomLayer';
 
 // Eindhoven center coordinates [longitude, latitude]
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -398,37 +397,7 @@ export default function MapScreen() {
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
-        // Paper Mario billboard trees (custom WebGL layer with depth testing).
-        // The server adds a symbol layer 'paper-trees' for native; replace it
-        // with a WebGL custom layer for proper 3D depth-tested rendering on web.
-        if (map.getLayer('paper-trees')) {
-          map.removeLayer('paper-trees');
-        }
-        // Custom layers can't trigger vector tile loading — MapLibre only loads
-        // tiles for sources referenced by standard layers. Add an invisible circle
-        // layer so tree-source tiles are fetched and querySourceFeatures works.
-        map.addLayer({
-          id: 'tree-source-loader',
-          type: 'circle',
-          source: 'tree-source',
-          'source-layer': 'scattered-trees',
-          minzoom: 15,
-          paint: { 'circle-radius': 0, 'circle-opacity': 0 },
-        });
-        const treeLayer = new BillboardCustomLayer({
-          id: 'paper-trees',
-          sourceId: 'tree-source',
-          sourceLayer: 'scattered-trees',
-          atlasUrl: `${API_URL}/sprites/tree-atlas.png`,
-          gridCols: 4,
-          gridRows: 4,
-          variantProperty: 'tree_variant',
-          size: 64,
-          minZoom: 15,
-          heightMeters: 10,
-        });
-        map.addLayer(treeLayer);
-        // NOTE: 3D buildings and property layers are already provided by /tiles/style.json
+        // NOTE: 3D buildings, property layers, and paper-trees are already provided by /tiles/style.json
 
         setTimeout(() => {
           map.resize();
