@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   maplibre-gl@5.16.0:
-    hash: 4dn5hnd3btskyolakmjuataeuq
+    hash: 24mulv2nmzvvqn4ov52n55z5sa
     path: patches/maplibre-gl@5.16.0.patch
 
 importers:
@@ -111,7 +111,7 @@ importers:
         version: 15.0.10(expo@54.0.32)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))
       maplibre-gl:
         specifier: ^5.16.0
-        version: 5.16.0(patch_hash=4dn5hnd3btskyolakmjuataeuq)
+        version: 5.16.0(patch_hash=24mulv2nmzvvqn4ov52n55z5sa)
       nativewind:
         specifier: ^4.1.23
         version: 4.2.1(react-native-reanimated@4.1.6(@babel/core@7.28.6)(react-native-worklets@0.5.1(@babel/core@7.28.6)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
@@ -11951,7 +11951,7 @@ snapshots:
     dependencies:
       tmpl: 1.0.5
 
-  maplibre-gl@5.16.0(patch_hash=4dn5hnd3btskyolakmjuataeuq):
+  maplibre-gl@5.16.0(patch_hash=24mulv2nmzvvqn4ov52n55z5sa):
     dependencies:
       '@mapbox/geojson-rewind': 0.5.2
       '@mapbox/jsonlint-lines-primitives': 2.0.2
