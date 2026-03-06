@@ -1178,10 +1178,14 @@ export async function tileRoutes(app: FastifyInstance) {
               ST_TileEnvelope(${z}, ${x}, ${y}),
               4096,
               256,
-              true
+              false
             ) AS geom
           FROM bag_buildings
           WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
+            AND ST_Intersects(
+              ST_Centroid(geometry),
+              ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
+            )
         )
         SELECT ST_AsMVT(mvt_data, 'buildings', 4096, 'geom', 'id') AS mvt
         FROM mvt_data
