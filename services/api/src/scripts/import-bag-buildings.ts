@@ -1,9 +1,11 @@
 /**
  * Import 3DBAG building footprints (~10.8M) into PostGIS.
  *
- * Source: data_sources/3dbag_nl.gpkg (104GB), layer `lod12_2d`
- * - 2D polygons with LIDAR-measured heights from AHN point cloud
- * - EPSG:7415 (RD New + NAP height) → EPSG:4326 (WGS84)
+ * Source: data_sources/3dbag_nl.gpkg (104GB)
+ *   - Geometry: layer `lod12_2d` (2D polygons with LIDAR roof heights)
+ *   - Attributes: layer `pand` (ground elevation b3_h_maaiveld)
+ *   - Joined on `identificatie` during ogr2ogr extraction
+ *   - EPSG:7415 (RD New + NAP height) → EPSG:4326 (WGS84)
  *
  * Usage: pnpm -C services/api run db:import-buildings
  */
@@ -76,7 +78,7 @@ async function main() {
     '-lco', 'FID=ogc_fid',
     '-overwrite',
     '-progress',
-    '-sql', '"SELECT identificatie, b3_h_70p, b3_h_min, geom FROM lod12_2d"',
+    '-sql', '"SELECT l.identificatie, l.b3_h_70p, p.b3_h_maaiveld, l.geom FROM lod12_2d l LEFT JOIN pand p ON l.identificatie = p.identificatie"',
   ].join(' ');
 
   execSync(ogrCmd, { stdio: 'inherit', timeout: 60 * 60 * 1000 });
@@ -90,8 +92,8 @@ async function main() {
   psql(`
     INSERT INTO bag_buildings (identificatie, render_height, render_min_height, geometry)
     SELECT s.identificatie,
-      GREATEST(3.0, COALESCE(s.b3_h_70p, 10.0))::real,
-      COALESCE(s.b3_h_min, 0.0)::real,
+      COALESCE(s.b3_h_70p, 10.0)::real,
+      COALESCE(s.b3_h_maaiveld, 0.0)::real,
       s.geometry
     FROM bag_buildings_staging s
     INNER JOIN (
@@ -109,8 +111,8 @@ async function main() {
   psql(`
     INSERT INTO bag_buildings (identificatie, render_height, render_min_height, geometry)
     SELECT s.identificatie,
-      GREATEST(3.0, COALESCE(MAX(s.b3_h_70p), 10.0))::real,
-      COALESCE(MIN(s.b3_h_min), 0.0)::real,
+      COALESCE(MAX(s.b3_h_70p), 10.0)::real,
+      COALESCE(MIN(s.b3_h_maaiveld), 0.0)::real,
       ST_Union(s.geometry)
     FROM bag_buildings_staging s
     INNER JOIN (
