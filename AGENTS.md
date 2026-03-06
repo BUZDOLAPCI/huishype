@@ -50,6 +50,15 @@ Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishyp
 
 **Web counterpart**: Web uses a pnpm patch (`patches/maplibre-gl@5.16.0.patch`) on dist bundles for the same shader effects — different approach because maplibre-gl is a JS package with inlined shader strings.
 
+**Applying web shader changes**: After editing the patch file, pnpm keeps stale patched copies under old hashes. To force re-patching:
+```bash
+rm -rf node_modules/.pnpm/maplibre-gl@5.16.0_patch_hash=*
+pnpm install
+rm -rf /tmp/metro-* /tmp/haste-map-*
+systemctl --user restart huishype-expo
+```
+Then hard-refresh the browser (Ctrl+Shift+R). All 4 steps are required — pnpm re-patches the module, cache clear ensures Metro rebundles, and browser refresh loads the new bundle.
+
 ## Data Sources
 
 There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
