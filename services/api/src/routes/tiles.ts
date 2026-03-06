@@ -90,7 +90,7 @@ const GHOST_NODE_FRONTEND_ZOOM = 17;
 const BUILDINGS_3D_CONFIG = {
   minZoom: 15,
   colors: {
-    palette: ['#E8DED2', '#D4CBC0', '#F0E8E0', '#C8BFB4', '#DDD5CA'],
+    palette: ['#F5EDE2', '#EDE4D8', '#F8F1E8', '#E8DDD0', '#F0E8DC'],
   },
   opacity: 1.0,
   heightMultiplier: 1.0,
