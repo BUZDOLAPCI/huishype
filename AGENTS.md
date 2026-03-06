@@ -26,6 +26,30 @@ Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Archite
 
 **Fork**: `/home/caslan/dev/git_repos/hh/maplibre-react-native` (GitHub: `BUZDOLAPCI/maplibre-react-native`, branch `huishype`, tracks upstream `beta`). Referenced from `apps/app/package.json` via GitHub URL. Contains our MarkerView touch dispatch fix. Reference this to discover available components, props, and features (e.g. `Marker`, `ViewAnnotation`, `Callout`) instead of guessing from type defs. To sync upstream: `./tools/sync-maplibre-fork.sh`.
 
+## MapLibre Native Fork (Android shaders)
+
+Custom fork at `/home/caslan/dev/git_repos/hh/maplibre-native` (branch `huishype`, version `12.2.3-huishype`) with procedural building shaders edited directly in GLSL source files — no patching.
+
+**Why**: Procedural window patterns, spatial color striping (zebra-stripe for merged row-house polygons), and soft ambient occlusion on 3D fill-extrusion buildings. These require fragment/vertex shader modifications that can't be done via style expressions.
+
+**Shader files**: `shaders/fill_extrusion.fragment.glsl` and `shaders/fill_extrusion.vertex.glsl`. After editing, regenerate headers with `node shaders/generate_shader_code.mjs` (compiles `.glsl` → `include/mbgl/shaders/gl/fill_extrusion.hpp`).
+
+**Build & publish AAR**:
+```bash
+cd /home/caslan/dev/git_repos/hh/maplibre-native
+BUILDTYPE=Release make android-lib-arm-v8
+cd platform/android
+BUILDTYPE=Release ../../gradlew :MapLibreAndroid:assembleOpenglRelease
+BUILDTYPE=Release ../../gradlew :MapLibreAndroid:publishOpenglReleasePublicationToMavenLocal
+```
+Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`.
+
+**App wiring** (`apps/app/android/build.gradle`):
+- `mavenLocal()` in `allprojects.repositories` (so Gradle finds the local AAR)
+- `ext.set("org.maplibre.reactnative.nativeVersion", "12.2.3-huishype")` (overrides the default `12.2.3` from the `maplibre-react-native` npm package)
+
+**Web counterpart**: Web uses a pnpm patch (`patches/maplibre-gl@5.16.0.patch`) on dist bundles for the same shader effects — different approach because maplibre-gl is a JS package with inlined shader strings.
+
 ## Data Sources
 
 There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
