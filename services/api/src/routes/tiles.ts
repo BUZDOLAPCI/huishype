@@ -96,6 +96,12 @@ const BUILDINGS_3D_CONFIG = {
   heightMultiplier: 1.0,
 };
 
+// BAG building tile serving configuration
+const BUILDINGS_TILE_CONFIG = {
+  minZoom: 15, // match BUILDINGS_3D_CONFIG.minZoom — no need to serve below 3D threshold
+  maxZoom: 17, // beyond z17, tiles are detailed enough (MapLibre overzooms)
+};
+
 // Resolve the fonts directory relative to this file.
 // In dev (tsx) __dirname isn't available with ESM, so derive it from import.meta.url.
 const __filename = fileURLToPath(import.meta.url);
@@ -541,14 +547,13 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
 function build3DBuildingsLayer(): Record<string, unknown> {
   return {
     id: '3d-buildings',
-    source: 'openmaptiles',
-    'source-layer': 'building',
+    source: 'buildings-source',
+    'source-layer': 'buildings',
     type: 'fill-extrusion',
     minzoom: BUILDINGS_3D_CONFIG.minZoom,
-    filter: ['!=', ['get', 'hide_3d'], true],
     paint: {
-      // Divide feature ID by 7 then mod 5 for better color distribution —
-      // raw ['id'] % 5 clusters because adjacent OSM IDs share residues.
+      // Each BAG pand is its own feature, so ['id'] gives per-building variation.
+      // Divide by 7 and mod 5 for better distribution across the palette.
       'fill-extrusion-color': [
         'match',
         ['%', ['floor', ['/', ['id'], 7]], 5],
@@ -773,6 +778,8 @@ export async function tileRoutes(app: FastifyInstance) {
         propSource.tiles = [tileUrl];
         const treeSource = sources['tree-source'] as Record<string, unknown>;
         if (treeSource) treeSource.tiles = [treeTileUrl];
+        const buildingSource = sources['buildings-source'] as Record<string, unknown>;
+        if (buildingSource) buildingSource.tiles = [`${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`];
         style.glyphs = glyphsUrl;
         style.sprite = spriteUrl;
         return reply
@@ -845,6 +852,15 @@ export async function tileRoutes(app: FastifyInstance) {
           tiles: [treeTileUrl],
           minzoom: TREE_MIN_ZOOM,
           maxzoom: TREE_MAX_ZOOM,
+        };
+
+        // Add BAG building tile source
+        const buildingTileUrl = `${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`;
+        sources['buildings-source'] = {
+          type: 'vector',
+          tiles: [buildingTileUrl],
+          minzoom: BUILDINGS_TILE_CONFIG.minZoom,
+          maxzoom: BUILDINGS_TILE_CONFIG.maxZoom,
         };
 
         // Hide 2D building fill at zoom levels where 3D buildings appear.
@@ -1115,6 +1131,74 @@ export async function tileRoutes(app: FastifyInstance) {
       return reply
         .header('Content-Type', 'application/x-protobuf')
         .header('Cache-Control', 'public, max-age=3600')
+        .send(mvtBuffer);
+    },
+  );
+
+  // --- BAG building tiles ---
+
+  /**
+   * GET /tiles/buildings/:z/:x/:y.pbf
+   *
+   * Returns MVT tiles with individual BAG building footprints.
+   * Each building is its own feature with render_height and render_min_height
+   * from LIDAR measurements, enabling per-building 3D extrusion and color variation.
+   */
+  typedApp.get(
+    '/tiles/buildings/:z/:x/:y.pbf',
+    {
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get BAG building vector tile',
+        description:
+          'Returns MVT with individual BAG building footprints and LIDAR-measured heights.',
+        params: tileParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+
+      if (z < BUILDINGS_TILE_CONFIG.minZoom || z > BUILDINGS_TILE_CONFIG.maxZoom) {
+        return reply.status(204).send();
+      }
+
+      const startTime = Date.now();
+
+      const result = await db.execute<{ mvt: Buffer }>(sql`
+        WITH mvt_data AS (
+          SELECT
+            id,
+            render_height,
+            render_min_height,
+            ST_AsMVTGeom(
+              ST_Transform(geometry, 3857),
+              ST_TileEnvelope(${z}, ${x}, ${y}),
+              4096,
+              256,
+              true
+            ) AS geom
+          FROM bag_buildings
+          WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
+        )
+        SELECT ST_AsMVT(mvt_data, 'buildings', 4096, 'geom', 'id') AS mvt
+        FROM mvt_data
+        WHERE geom IS NOT NULL
+      `);
+
+      const rows = Array.from(result) as { mvt: Buffer }[];
+      const mvt = rows[0]?.mvt;
+      const elapsed = Date.now() - startTime;
+
+      if (!mvt || mvt.length === 0) {
+        return reply.status(204).send();
+      }
+
+      const mvtBuffer = Buffer.isBuffer(mvt) ? mvt : Buffer.from(mvt);
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'public, max-age=86400')
+        .header('X-Tile-Generation-Time', `${elapsed}ms`)
         .send(mvtBuffer);
     },
   );

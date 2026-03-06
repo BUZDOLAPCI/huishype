@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
+import { db } from '../../db/index.js';
+import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -66,15 +68,30 @@ describe('Tile routes', () => {
       expect(layerIds).toContain('ghost-nodes');
     });
 
-    it('should include 3D buildings layer', async () => {
+    it('should include 3D buildings layer with BAG source', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/tiles/style.json',
       });
 
       const style = JSON.parse(response.body);
-      const layerIds = style.layers.map((l: any) => l.id);
-      expect(layerIds).toContain('3d-buildings');
+      const buildings3D = style.layers.find((l: any) => l.id === '3d-buildings');
+      expect(buildings3D).toBeDefined();
+      expect(buildings3D.source).toBe('buildings-source');
+      expect(buildings3D['source-layer']).toBe('buildings');
+      expect(buildings3D.type).toBe('fill-extrusion');
+    });
+
+    it('should include buildings-source in sources', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      const style = JSON.parse(response.body);
+      expect(style.sources['buildings-source']).toBeDefined();
+      expect(style.sources['buildings-source'].type).toBe('vector');
+      expect(style.sources['buildings-source'].tiles[0]).toContain('/tiles/buildings/');
     });
 
     it('cluster-count layer should have correct text configuration', async () => {
@@ -320,6 +337,87 @@ describe('Tile routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe('GET /tiles/buildings/:z/:x/:y.pbf', () => {
+    // Eindhoven center tile at z15
+    const EINDHOVEN_Z15 = { z: 15, x: 16828, y: 10898 };
+    // Ocean tile (no buildings)
+    const OCEAN_TILE = { z: 15, x: 0, y: 0 };
+
+    it('returns 204 below minzoom', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tiles/buildings/14/${EINDHOVEN_Z15.x}/${EINDHOVEN_Z15.y}.pbf`,
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('returns 204 above maxzoom', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tiles/buildings/20/${EINDHOVEN_Z15.x}/${EINDHOVEN_Z15.y}.pbf`,
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('returns 204 for empty ocean tile', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tiles/buildings/${OCEAN_TILE.z}/${OCEAN_TILE.x}/${OCEAN_TILE.y}.pbf`,
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('returns MVT for Eindhoven at z15', async () => {
+      const { z, x, y } = EINDHOVEN_Z15;
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tiles/buildings/${z}/${x}/${y}.pbf`,
+      });
+      // May be 200 or 204 depending on whether bag_buildings is populated
+      if (res.statusCode === 200) {
+        expect(res.headers['content-type']).toBe('application/x-protobuf');
+        expect(res.headers['cache-control']).toContain('public');
+        expect(res.headers['x-tile-generation-time']).toBeDefined();
+      } else {
+        expect(res.statusCode).toBe(204);
+      }
+    });
+
+    it('is deterministic (same tile = same bytes)', async () => {
+      const { z, x, y } = EINDHOVEN_Z15;
+      const url = `/tiles/buildings/${z}/${x}/${y}.pbf`;
+      const res1 = await app.inject({ method: 'GET', url });
+      const res2 = await app.inject({ method: 'GET', url });
+      expect(res1.statusCode).toBe(res2.statusCode);
+      if (res1.statusCode === 200) {
+        expect(Buffer.from(res1.rawPayload)).toEqual(Buffer.from(res2.rawPayload));
+      }
+    });
+  });
+
+  describe('bag_buildings table', () => {
+    it('exists with expected columns', async () => {
+      const result = await db.execute<{ column_name: string }>(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'bag_buildings'
+        ORDER BY ordinal_position
+      `);
+      const columns = Array.from(result).map((r) => r.column_name);
+      expect(columns).toContain('geometry');
+      expect(columns).toContain('render_height');
+      expect(columns).toContain('render_min_height');
+      expect(columns).toContain('identificatie');
+    });
+
+    it('has GIST index on geometry', async () => {
+      const result = await db.execute<{ indexname: string }>(sql`
+        SELECT indexname FROM pg_indexes
+        WHERE tablename = 'bag_buildings' AND indexdef LIKE '%gist%'
+      `);
+      expect(Array.from(result).length).toBeGreaterThan(0);
     });
   });
 });
