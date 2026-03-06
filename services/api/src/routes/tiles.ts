@@ -571,12 +571,24 @@ function build3DBuildingsLayer(): Record<string, unknown> {
         0,
         BUILDINGS_3D_CONFIG.minZoom + 1,
         [
-          '*',
-          ['coalesce', ['get', 'render_height'], 10],
-          BUILDINGS_3D_CONFIG.heightMultiplier,
+          '+',
+          [
+            '*',
+            ['coalesce', ['get', 'render_height'], 10],
+            BUILDINGS_3D_CONFIG.heightMultiplier,
+          ],
+          ['*', ['%', ['id'], 97], 0.005],
         ],
       ],
-      'fill-extrusion-base': 0,
+      'fill-extrusion-base': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        BUILDINGS_3D_CONFIG.minZoom,
+        0,
+        BUILDINGS_3D_CONFIG.minZoom + 1,
+        ['*', ['%', ['id'], 97], 0.005],
+      ],
       'fill-extrusion-opacity': [
         'interpolate',
         ['linear'],
