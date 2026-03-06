@@ -576,15 +576,7 @@ function build3DBuildingsLayer(): Record<string, unknown> {
           BUILDINGS_3D_CONFIG.heightMultiplier,
         ],
       ],
-      'fill-extrusion-base': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        BUILDINGS_3D_CONFIG.minZoom,
-        0,
-        BUILDINGS_3D_CONFIG.minZoom + 1,
-        ['coalesce', ['get', 'render_min_height'], 0],
-      ],
+      'fill-extrusion-base': 0,
       'fill-extrusion-opacity': [
         'interpolate',
         ['linear'],
@@ -1168,8 +1160,7 @@ export async function tileRoutes(app: FastifyInstance) {
         WITH mvt_data AS (
           SELECT
             id,
-            render_height,
-            render_min_height,
+            GREATEST(3.0, render_height - render_min_height) AS render_height,
             ST_AsMVTGeom(
               ST_Transform(geometry, 3857),
               ST_TileEnvelope(${z}, ${x}, ${y}),
