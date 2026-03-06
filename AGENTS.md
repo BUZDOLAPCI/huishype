@@ -72,6 +72,7 @@ pnpm run db:reset
 pnpm run db:migrate          # Create/update tables
 pnpm run db:seed             # Seed BAG properties (~9.6M, ~7.5 min)
 pnpm run db:seed-listings    # Seed listings from mirrors (~144K, ~1.3 min)
+pnpm run db:import-buildings # Import 3DBAG building footprints (~10.8M, ~10 min)
 ```
 
 ### Performance
@@ -80,8 +81,9 @@ pnpm run db:seed-listings    # Seed listings from mirrors (~144K, ~1.3 min)
 |------|---------|------|
 | BAG property seed | ~9.6M | ~7.5 min |
 | Listing seed | ~144K listings | ~1.3 min |
-| **Total db:reset** | | **~9 min** (with `--skip-extract`: skip ogr2ogr) |
-| **Total db:reset (full)** | | **~14 min** (includes ogr2ogr extraction) |
+| BAG building import | ~10.8M | ~10 min |
+| **Total db:reset** | | **~19 min** (with `--skip-extract`: skip ogr2ogr) |
+| **Total db:reset (full)** | | **~24 min** (includes ogr2ogr extraction) |
 
 ### Seed Flags
 

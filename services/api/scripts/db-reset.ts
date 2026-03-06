@@ -74,10 +74,13 @@ async function dbReset() {
   // Step 5: Seed test fixture
   run('npx tsx scripts/seed-test-fixture.ts', 'Step 5: Seed test fixture data');
 
-  // Step 6: Final ANALYZE
+  // Step 6: Import 3DBAG building footprints
+  run('npx tsx src/scripts/import-bag-buildings.ts', 'Step 6: Import 3DBAG buildings (~10.8M footprints)');
+
+  // Step 7: Final ANALYZE
   const sqlFinal = postgres(databaseUrl, { max: 1, onnotice: () => {} });
   try {
-    console.log('\nStep 6: Final ANALYZE...');
+    console.log('\nStep 7: Final ANALYZE...');
     const start = Date.now();
     await sqlFinal.unsafe('ANALYZE');
     console.log(`  ANALYZE complete in ${formatTime(Date.now() - start)}`);

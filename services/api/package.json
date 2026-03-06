@@ -20,7 +20,8 @@
     "db:seed-test-fixture": "tsx scripts/seed-test-fixture.ts",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:seed-landcover": "tsx src/scripts/import-landcover.ts",
-    "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts"
+    "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts",
+    "db:import-buildings": "tsx src/scripts/import-bag-buildings.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
