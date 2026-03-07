@@ -1172,7 +1172,7 @@ export async function tileRoutes(app: FastifyInstance) {
         WITH mvt_data AS (
           SELECT
             id,
-            GREATEST(3.0, render_height - render_min_height) AS render_height,
+            GREATEST(3.02, render_height - render_min_height) AS render_height,
             ST_AsMVTGeom(
               ST_Transform(geometry, 3857),
               ST_TileEnvelope(${z}, ${x}, ${y}),
