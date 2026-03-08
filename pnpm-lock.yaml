@@ -105,8 +105,8 @@ importers:
         specifier: ~15.0.10
         version: 15.0.10(expo@54.0.32)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))
       maplibre-gl:
-        specifier: github:BUZDOLAPCI/maplibre-gl-js#7a617001da9364c01cffd0c8559f210c79df4ae0
-        version: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/7a617001da9364c01cffd0c8559f210c79df4ae0
+        specifier: github:BUZDOLAPCI/maplibre-gl-js#dd838bf1cad913573fe38cce5d1e153f5c374251
+        version: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/dd838bf1cad913573fe38cce5d1e153f5c374251
       nativewind:
         specifier: ^4.1.23
         version: 4.2.1(react-native-reanimated@4.1.6(@babel/core@7.28.6)(react-native-worklets@0.5.1(@babel/core@7.28.6)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
@@ -4890,8 +4890,8 @@ packages:
   makeerror@1.0.12:
     resolution: {integrity: sha512-JmqCvUhmt43madlpFzG4BQzG2Z3m6tvQDNKdClZnO3VbIudJYmxsT0FNJMeiB2+JTSlTQTSbU8QdesVmwJcmLg==}
 
-  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/7a617001da9364c01cffd0c8559f210c79df4ae0:
-    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/7a617001da9364c01cffd0c8559f210c79df4ae0}
+  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/dd838bf1cad913573fe38cce5d1e153f5c374251:
+    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/dd838bf1cad913573fe38cce5d1e153f5c374251}
     version: 5.16.0
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
@@ -11947,7 +11947,7 @@ snapshots:
     dependencies:
       tmpl: 1.0.5
 
-  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/7a617001da9364c01cffd0c8559f210c79df4ae0:
+  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/dd838bf1cad913573fe38cce5d1e153f5c374251:
     dependencies:
       '@mapbox/geojson-rewind': 0.5.2
       '@mapbox/jsonlint-lines-primitives': 2.0.2
