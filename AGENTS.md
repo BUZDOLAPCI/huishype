@@ -48,16 +48,42 @@ Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishyp
 - `mavenLocal()` in `allprojects.repositories` (so Gradle finds the local AAR)
 - `ext.set("org.maplibre.reactnative.nativeVersion", "12.2.3-huishype")` (overrides the default `12.2.3` from the `maplibre-react-native` npm package)
 
-**Web counterpart**: Web uses a pnpm patch (`patches/maplibre-gl@5.16.0.patch`) on dist bundles for the same shader effects — different approach because maplibre-gl is a JS package with inlined shader strings.
+**Web counterpart**: Web uses a forked `maplibre-gl` (see "MapLibre GL JS Fork" section below) for the same shader effects — the fork edits GLSL source and rebuilds `dist/`, consumed via GitHub commit hash in `apps/app/package.json`.
 
-**Applying web shader changes**: After editing the patch file, pnpm keeps stale patched copies under old hashes. To force re-patching:
+## MapLibre GL JS Fork (Web Shaders)
+
+Custom fork at `/home/caslan/dev/git_repos/hh/maplibre-gl-js` (GitHub: `BUZDOLAPCI/maplibre-gl-js`, branch `huishype`, based on upstream `v5.16.0`) with procedural building shaders edited in GLSL source files and rebuilt into `dist/`.
+
+**Why**: Same procedural window patterns, ambient occlusion, and LOD-adaptive detail as the native Android fork — but for the web runtime. The fork replaces the previous `pnpm` patch workflow (`patches/maplibre-gl@5.16.0.patch`) which was fragile across upstream bumps and required manual cache-clearing steps.
+
+**Shader files**: `src/shaders/fill_extrusion.vertex.glsl` and `src/shaders/fill_extrusion.fragment.glsl`.
+
+**Shader edit workflow**:
+1. Edit `.glsl` source files in the fork
+2. `npm run generate-shaders` (compiles `.glsl` into `.glsl.g.ts` minified JS string exports)
+3. `npm run build-dist` (rollup bundles `.glsl.g.ts` into `dist/maplibre-gl*.js`)
+4. Commit source + generated files together
+5. Push to `origin huishype`
+6. Update commit hash in `apps/app/package.json`: `"maplibre-gl": "github:BUZDOLAPCI/maplibre-gl-js#<new-hash>"`
+7. `pnpm install` to update the lockfile
+
+**Applying web shader changes** (after pushing fork changes):
 ```bash
-rm -rf node_modules/.pnpm/maplibre-gl@5.16.0_patch_hash=*
+# Update hash in apps/app/package.json (step 6 above), then:
 pnpm install
 rm -rf /tmp/metro-* /tmp/haste-map-*
 systemctl --user restart huishype-expo
 ```
-Then hard-refresh the browser (Ctrl+Shift+R). All 4 steps are required — pnpm re-patches the module, cache clear ensures Metro rebundles, and browser refresh loads the new bundle.
+Then hard-refresh the browser (Ctrl+Shift+R).
+
+**Sync upstream**: `./tools/sync-maplibre-gl-fork.sh` (fetches upstream tag, merges, rebuilds, pushes, updates hash).
+
+**Rollback to pnpm patches** (if the fork becomes too costly):
+1. Change `apps/app/package.json`: `"maplibre-gl": "^5.16.0"`
+2. Generate patch from fork diff: `cd /home/caslan/dev/git_repos/hh/maplibre-gl-js && git diff v5.16.0..huishype -- src/shaders/ > /tmp/shader.patch`
+3. Create pnpm patch: `pnpm patch maplibre-gl@5.16.0`, apply shader changes from `/tmp/shader.patch`, then `pnpm patch-commit <path>`
+4. Restore `"pnpm": { "patchedDependencies": { "maplibre-gl@5.16.0": "patches/maplibre-gl@5.16.0.patch" } }` in root `package.json`
+5. `pnpm install`
 
 ## Data Sources
 
