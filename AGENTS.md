@@ -15,6 +15,13 @@ sudo password for the machine is "123123" if you need it
 
 Shader files in both forks: `fill_extrusion.vertex.glsl` and `fill_extrusion.fragment.glsl`. See "MapLibre GL JS Fork" and "MapLibre Native Fork" sections below for edit/build/consume workflows.
 
+**Key patterns** (read the `.glsl` source for current values):
+- **Cross-platform parity**: Both shaders must use identical window parameters. Web and native differ only in coordinate-scale-dependent values (`window_spacing`, `edge_fade`) and LOD thresholds.
+- **Coordinate scale ratio**: Web tile extent (8192) vs native gives ~4.6x ratio for `window_spacing` and `edge_fade`.
+- **LOD tint gate**: `win_mask *= max(detail, floor_detail)` — prevents blue color bleed at distance. Without this, LOD merges window shapes but still applies window color uniformly.
+- **Native DPI scaling**: `fwidth()` returns ~3x smaller values on high-DPI mobile screens (~440 DPI vs ~96 DPI web). Native LOD `smoothstep` thresholds must be ~3x smaller to match web's LOD zoom behavior.
+- **Native AAR GPG workaround**: `publishToMavenLocal` fails on GPG signing — manually copy AAR to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`
+
 ## Design Decisions
 
 All design decisions and specifications are in `agent-rules/`. **Consult these before making decisions.**
