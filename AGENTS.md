@@ -4,6 +4,17 @@ This project is built entirely by Claude agents with minimal human intervention.
 
 sudo password for the machine is "123123" if you need it
 
+## Quick Reference: Building Windows & Shaders
+
+3D buildings use **procedural window shaders** edited in GLSL source across two forks:
+
+| Platform | Fork repo | Local path | Branch |
+|----------|-----------|------------|--------|
+| **Web** | `BUZDOLAPCI/maplibre-gl-js` | `/home/caslan/dev/git_repos/hh/maplibre-gl-js` | `huishype` |
+| **Native (Android)** | `BUZDOLAPCI/maplibre-native` (private) | `/home/caslan/dev/git_repos/hh/maplibre-native` | `huishype` |
+
+Shader files in both forks: `fill_extrusion.vertex.glsl` and `fill_extrusion.fragment.glsl`. See "MapLibre GL JS Fork" and "MapLibre Native Fork" sections below for edit/build/consume workflows.
+
 ## Design Decisions
 
 All design decisions and specifications are in `agent-rules/`. **Consult these before making decisions.**
