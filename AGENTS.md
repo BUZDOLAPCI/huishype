@@ -227,6 +227,10 @@ The `tools/` directory is the agent workspace. See `tools/README.md` for current
 - Improve existing tools
 - Create new tools as needed
 
+## Debug Camera
+
+`apps/app/src/lib/mapDefaults.ts` — shared initial camera config for both web and native maps. Set `DEBUG_CAMERA = __DEV__ && true` to start zoomed into the debug location (currently Beeldbuisring 41) instead of the default Eindhoven city center. Flip back to `false` when done.
+
 ## Local Dev Services
 
 Metro and the API run as always-on systemd user services. Docker (postgres, redis) is managed separately via `docker compose`.

@@ -17,12 +17,7 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
-
-// Eindhoven center coordinates [longitude, latitude]
-const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
-const DEFAULT_ZOOM = 13;
-const DEFAULT_PITCH = 50; // 3D perspective angle
-const DEFAULT_BEARING = 0;
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING } from '@/src/lib/mapDefaults';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -343,7 +338,7 @@ export default function MapScreen() {
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
         style,
-        center: EINDHOVEN_CENTER,
+        center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
         pitch: DEFAULT_PITCH,
         bearing: DEFAULT_BEARING,

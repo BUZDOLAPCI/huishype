@@ -29,13 +29,7 @@ import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
 import { API_URL, fetchBatchProperties, fetchNearbyCluster, type PropertyResolveResult } from '@/src/utils/api';
-
-// No access token needed for MapLibre - it's open source
-
-// Eindhoven center coordinates [longitude, latitude]
-const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
-const DEFAULT_ZOOM = 13;
-const DEFAULT_PITCH = 50; // 3D perspective angle for buildings
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH } from '@/src/lib/mapDefaults';
 
 // Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
 // after a card touch (e.g. user lifts finger outside the map gesture area),
@@ -616,7 +610,7 @@ export default function MapScreen() {
           <Camera
             ref={cameraRef}
             initialViewState={{
-              center: EINDHOVEN_CENTER,
+              center: DEFAULT_CENTER,
               zoom: DEFAULT_ZOOM,
               pitch: DEFAULT_PITCH,
             }}
