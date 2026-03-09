@@ -86,3 +86,13 @@ maestro-results.xml
 
 # Claude agent working directory
 .claudegram/
+
+# Playwright CLI debug output
+.playwright-cli/
+
+# Playwright test output artifacts
+output/
+apps/app/output/
+
+# One-off debug screenshots
+shader-fix-verification.png
