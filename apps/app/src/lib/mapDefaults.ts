@@ -8,10 +8,10 @@ const PRODUCTION_PITCH = 50;
 const PRODUCTION_BEARING = 0;
 
 // Debug camera (Beeldbuisring 41 close-up for shader/building iteration)
-const DEBUG_CENTER: [number, number] = [5.44672, 51.4496];
-const DEBUG_ZOOM = 18.9;
-const DEBUG_PITCH = 50;
-const DEBUG_BEARING = 0;
+const DEBUG_CENTER: [number, number] = [5.4780, 51.4395];
+const DEBUG_ZOOM = 18;
+const DEBUG_PITCH = 55;
+const DEBUG_BEARING = -20;
 
 export const DEFAULT_CENTER: [number, number] = DEBUG_CAMERA ? DEBUG_CENTER : PRODUCTION_CENTER;
 export const DEFAULT_ZOOM = DEBUG_CAMERA ? DEBUG_ZOOM : PRODUCTION_ZOOM;

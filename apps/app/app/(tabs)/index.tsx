@@ -36,8 +36,10 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH } from '@/src/lib/mapDefaul
 // the ref resets so the next map tap isn't blocked.
 const TOUCH_GUARD_RESET_MS = 500;
 
-// Style URL — served by our API, single source of truth for all map layers
-const STYLE_URL = `${API_URL}/tiles/style.json`;
+// Style URL — served by our API, single source of truth for all map layers.
+// Native needs ?platform=native so the API can flatten expressions that don't
+// work on MapLibre Native (e.g. data-driven fill-extrusion-color).
+const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
 
 /**
  * Hook to fetch the merged MapLibre style from the API.

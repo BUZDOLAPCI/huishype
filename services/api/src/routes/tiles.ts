@@ -407,6 +407,73 @@ function evaluateZoomExpression(expr: unknown[], zoom: number): number {
 }
 
 /**
+ * MapLibre Native (v11 beta) rendering bug workaround for fill-extrusion layers:
+ * Zoom-interpolated expressions on ANY fill-extrusion paint property
+ * (height, base, opacity) cause the entire fill-extrusion layer to not render.
+ *
+ * The fix: strip the zoom interpolation wrapper and use the value at the
+ * highest zoom stop directly. When that value is itself an expression
+ * (e.g. ['coalesce', ['get', 'render_height'], 10]), we keep it as-is.
+ * When it's a number, we use it as a constant.
+ *
+ * This sacrifices the "grow from ground" zoom animation on native but
+ * preserves correct final building heights and per-building variation.
+ *
+ * Mutates layers in place.
+ */
+function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknown>>): void {
+  const EXTRUSION_PROPS = [
+    'fill-extrusion-height',
+    'fill-extrusion-base',
+    'fill-extrusion-opacity',
+  ];
+
+  for (const layer of layers) {
+    if (layer.type !== 'fill-extrusion') continue;
+    const paint = layer.paint as Record<string, unknown> | undefined;
+    if (!paint) continue;
+
+    for (const prop of EXTRUSION_PROPS) {
+      const expr = paint[prop];
+      if (!Array.isArray(expr)) continue;
+      if (expr[0] !== 'interpolate') continue;
+
+      // Extract the value at the highest zoom stop (last pair)
+      // Expression format: ['interpolate', [type], ['zoom'], z0, v0, z1, v1, ...]
+      const lastValue = expr[expr.length - 1];
+      paint[prop] = lastValue;
+    }
+  }
+}
+
+/**
+ * Flatten data-driven fill-extrusion-color expressions to a fixed value.
+ *
+ * MapLibre Native can't evaluate data-driven expressions (e.g. ['match', ['get', ...], ...])
+ * on fill-extrusion-color — the expression silently fails and falls back to the GL spec
+ * default #000000 (black buildings). This replaces array expressions with the fallback
+ * color from the match expression (last element).
+ *
+ * Only called for native clients (?platform=native).
+ * Mutates layers in place.
+ */
+function flattenFillExtrusionColorExpressions(layers: Array<Record<string, unknown>>): void {
+  for (const layer of layers) {
+    if (layer.type !== 'fill-extrusion') continue;
+    const paint = layer.paint as Record<string, unknown> | undefined;
+    if (!paint) continue;
+
+    const colorExpr = paint['fill-extrusion-color'];
+    if (!Array.isArray(colorExpr)) continue;
+
+    // Use the fallback/default value (last element of match expression)
+    if (colorExpr[0] === 'match') {
+      paint['fill-extrusion-color'] = colorExpr[colorExpr.length - 1];
+    }
+  }
+}
+
+/**
  * Build the property layers array for the merged style.
  * These are the canonical layer definitions — both web and native clients
  * consume them from /tiles/style.json.
@@ -571,6 +638,10 @@ function build3DBuildingsLayer(): Record<string, unknown> {
     paint: {
       // Each BAG pand is its own feature, so ['id'] gives per-building variation.
       // Divide by 7 and mod 5 for better distribution across the palette.
+      // Per-building color variation using MVT feature ID.
+      // ['id'] works on web but fails on MapLibre Native fill-extrusion
+      // (expression evaluates to null → black). The API flattens this to a
+      // fixed color for native clients via ?platform=native query param.
       'fill-extrusion-color': [
         'match',
         ['%', ['floor', ['/', ['id'], 7]], 5],
@@ -580,41 +651,12 @@ function build3DBuildingsLayer(): Record<string, unknown> {
         3, BUILDINGS_3D_CONFIG.colors.palette[3],
         BUILDINGS_3D_CONFIG.colors.palette[4],
       ],
-      'fill-extrusion-height': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        BUILDINGS_3D_CONFIG.minZoom,
-        0,
-        BUILDINGS_3D_CONFIG.minZoom + 1,
-        [
-          '+',
-          [
-            '*',
-            ['coalesce', ['get', 'render_height'], 10],
-            BUILDINGS_3D_CONFIG.heightMultiplier,
-          ],
-          ['*', ['%', ['id'], 97], 0.005],
-        ],
-      ],
-      'fill-extrusion-base': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        BUILDINGS_3D_CONFIG.minZoom,
-        0,
-        BUILDINGS_3D_CONFIG.minZoom + 1,
-        ['*', ['%', ['id'], 97], 0.005],
-      ],
-      'fill-extrusion-opacity': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        BUILDINGS_3D_CONFIG.minZoom,
-        0,
-        BUILDINGS_3D_CONFIG.minZoom + 0.5,
-        BUILDINGS_3D_CONFIG.opacity,
-      ],
+      // NOTE: MapLibre Native bugs prevent zoom-interpolated expressions and
+      // ['id']-based arithmetic on fill-extrusion-height/base. Keep simple.
+      // The per-building height variation and grow animation are web-only.
+      'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': BUILDINGS_3D_CONFIG.opacity,
       'fill-extrusion-vertical-gradient': false,
     },
   };
@@ -787,8 +829,18 @@ export async function tileRoutes(app: FastifyInstance) {
       const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
+      const isNative = (request.query as Record<string, string>)?.platform === 'native';
 
-      // Check cache (24h TTL)
+      // Apply per-request, platform-specific transforms on the (cloned) style
+      function applyPlatformTransforms(style: Record<string, unknown>): void {
+        if (!isNative) return;
+        const layers = style.layers as Array<Record<string, unknown>> | undefined;
+        if (layers) {
+          flattenFillExtrusionColorExpressions(layers);
+        }
+      }
+
+      // Check cache (60s TTL)
       const now = Date.now();
       if (cachedStyle && now - cachedStyle.fetchedAt < STYLE_CACHE_TTL) {
         // Deep-clone the cached style to avoid mutating the shared cache object
@@ -803,6 +855,7 @@ export async function tileRoutes(app: FastifyInstance) {
         if (buildingSource) buildingSource.tiles = [`${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`];
         style.glyphs = glyphsUrl;
         style.sprite = spriteUrl;
+        applyPlatformTransforms(style);
         return reply
           .header('Cache-Control', 'public, max-age=60')
           .send(style);
@@ -935,6 +988,10 @@ export async function tileRoutes(app: FastifyInstance) {
         // use the expression's max value.
         flattenFillOpacityExpressions(filteredLayers);
 
+        // Same bug class for fill-extrusion layers: zoom-interpolated expressions
+        // on height/base/opacity cause the layer to not render at all.
+        flattenFillExtrusionZoomExpressions(filteredLayers);
+
         // Replace Positron's near-gray fill colors with visible alternatives.
         // Positron uses fills that deviate only 2-5 units from pure gray, which
         // are perceptible on WebGL but invisible on mobile GPU renderers.
@@ -951,7 +1008,20 @@ export async function tileRoutes(app: FastifyInstance) {
           filteredLayers.push(paperTreesLayer);
         }
 
-        const merged = { ...baseStyle, sources, layers: filteredLayers };
+        const merged = {
+          ...baseStyle,
+          sources,
+          layers: filteredLayers,
+          // Explicit light configuration for 3D buildings.
+          // MapLibre GL JS defaults match these, but MapLibre Native may use
+          // different defaults, causing buildings to render too dark.
+          light: {
+            anchor: 'viewport',
+            color: '#FFFFFF',
+            intensity: 0.3,
+            position: [1.15, 210, 45],
+          },
+        };
 
         // Normalize CSS color functions (rgb, rgba, hsl, hsla) to hex.
         // MapLibre GL JS handles these fine, but keeping hex for consistency.
@@ -959,9 +1029,15 @@ export async function tileRoutes(app: FastifyInstance) {
 
         cachedStyle = { data: merged, fetchedAt: now };
 
+        // Clone before applying platform transforms to avoid mutating the cache
+        const responseStyle = isNative
+          ? JSON.parse(JSON.stringify(merged)) as Record<string, unknown>
+          : merged;
+        applyPlatformTransforms(responseStyle);
+
         return reply
           .header('Cache-Control', 'public, max-age=60')
-          .send(merged);
+          .send(responseStyle);
       } catch (err) {
         app.log.error(err, 'Failed to fetch base style');
         return reply.status(502).send({ error: 'Failed to build merged style' });
