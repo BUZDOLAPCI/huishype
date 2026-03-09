@@ -1847,6 +1847,13 @@
     "x": 481,
     "y": 148
   },
+  "water-pattern": {
+    "height": 128,
+    "pixelRatio": 1,
+    "width": 128,
+    "x": 0,
+    "y": 327
+  },
   "tree-0": {
     "height": 64,
     "width": 64,

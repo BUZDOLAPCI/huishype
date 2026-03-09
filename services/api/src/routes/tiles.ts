@@ -300,17 +300,34 @@ const FILL_COLOR_OVERRIDES: Record<string, string> = {
 };
 
 /**
+ * Layers that should use a fill-pattern sprite instead of (or in addition to) fill-color.
+ * fill-pattern takes precedence when the sprite is available; fill-color remains as fallback.
+ */
+const FILL_PATTERN_OVERRIDES: Record<string, string> = {
+  water: 'water-pattern',
+};
+
+/**
  * Replace near-gray Positron fill colors with visible alternatives.
  * Only modifies layers with known near-gray fills — leaves other layers untouched.
+ * Also applies fill-pattern overrides (e.g. water wave texture).
  */
 function enhanceFillColors(layers: Array<Record<string, unknown>>): void {
   for (const layer of layers) {
     if (layer.type !== 'fill') continue;
-    const override = FILL_COLOR_OVERRIDES[layer.id as string];
-    if (!override) continue;
-    const paint = layer.paint as Record<string, unknown> | undefined;
-    if (paint) {
-      paint['fill-color'] = override;
+    const colorOverride = FILL_COLOR_OVERRIDES[layer.id as string];
+    if (colorOverride) {
+      const paint = layer.paint as Record<string, unknown> | undefined;
+      if (paint) {
+        paint['fill-color'] = colorOverride;
+      }
+    }
+    const patternOverride = FILL_PATTERN_OVERRIDES[layer.id as string];
+    if (patternOverride) {
+      const paint = layer.paint as Record<string, unknown> | undefined;
+      if (paint) {
+        paint['fill-pattern'] = patternOverride;
+      }
     }
   }
 }

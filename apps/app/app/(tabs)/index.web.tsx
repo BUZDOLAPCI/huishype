@@ -105,8 +105,13 @@ function enhanceBaseMapColors(map: maplibregl.Map) {
         }
       }
 
+      // Water layers use fill-pattern (wave texture) from server-side style.
+      // Only override fill-color as fallback when no fill-pattern is set.
       if (layer.id.includes('water') && layer.type === 'fill') {
-        map.setPaintProperty(layer.id, 'fill-color', ENHANCED_BASE_COLORS.water);
+        const currentPattern = map.getPaintProperty(layer.id, 'fill-pattern');
+        if (!currentPattern) {
+          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_BASE_COLORS.water);
+        }
       }
     } catch {
       // Ignore
