@@ -4,14 +4,15 @@ const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// Redirect native-only packages to empty stubs when bundling for web.
-// @maplibre/maplibre-react-native uses codegenNativeComponent at the top level,
-// which does not exist in react-native-web. Even though index.web.tsx exists,
-// Metro's require.context (used by expo-router) still includes index.tsx in the
-// context map, causing the native module to be evaluated during web builds.
+// Redirect platform-incompatible packages to stubs.
+// Expo Router's require.context evaluates ALL route files (index.tsx AND
+// index.web.tsx) regardless of platform, so both the native-only
+// @maplibre/maplibre-react-native and the web-only maplibre-gl get bundled
+// on both platforms. Stub each one on the wrong platform.
 const originalResolveRequest = config.resolver.resolveRequest;
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Stub native map library on web
   if (
     platform === 'web' &&
     moduleName === '@maplibre/maplibre-react-native'
@@ -19,6 +20,17 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return {
       type: 'sourceFile',
       filePath: path.resolve(__dirname, 'src/stubs/maplibre-react-native.js'),
+    };
+  }
+
+  // Stub web map library on native
+  if (
+    platform !== 'web' &&
+    moduleName === 'maplibre-gl'
+  ) {
+    return {
+      type: 'sourceFile',
+      filePath: path.resolve(__dirname, 'src/stubs/maplibre-gl.js'),
     };
   }
 

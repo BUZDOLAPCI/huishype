@@ -16,11 +16,11 @@ sudo password for the machine is "123123" if you need it
 Shader files in both forks: `fill_extrusion.vertex.glsl` and `fill_extrusion.fragment.glsl`. See "MapLibre GL JS Fork" and "MapLibre Native Fork" sections below for edit/build/consume workflows.
 
 **Key patterns** (read the `.glsl` source for current values):
-- **Cross-platform parity**: Both shaders must use identical window parameters. Web and native differ only in coordinate-scale-dependent values (`window_spacing`, `edge_fade`) and LOD thresholds.
-- **Coordinate scale ratio**: Web tile extent (8192) vs native gives ~4.6x ratio for `window_spacing` and `edge_fade`.
+- **Cross-platform parity**: Both shaders use identical window parameters and constants (spacing=360, gap=8, pad=60). Web and native both use 8192 tile extent — the ~4.6x ratio previously documented was a red herring from different algorithms, not coordinate scale difference.
 - **LOD tint gate**: `win_mask *= max(detail, floor_detail)` — prevents blue color bleed at distance. Without this, LOD merges window shapes but still applies window color uniformly.
 - **Native DPI scaling**: `fwidth()` returns ~3x smaller values on high-DPI mobile screens (~440 DPI vs ~96 DPI web). Native LOD `smoothstep` thresholds must be ~3x smaller to match web's LOD zoom behavior.
-- **Native AAR GPG workaround**: `publishToMavenLocal` fails on GPG signing — manually copy AAR to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`
+- **`flat` varying provoking vertex**: OpenGL ES 3.0 uses last-vertex convention for `flat` interpolation. Triangle winding order in `fill_extrusion_bucket.cpp` must ensure vertex 1 (topLeft, face-start edgedistance) is the last vertex of BOTH triangles — otherwise `v_ed_flat` gets wrong value on half the triangles (no windows + color mismatch). Web GL JS bucket already does this correctly.
+- **Native fork modifies C++ too**: Not just GLSL shaders — also `fill_extrusion_bucket.cpp` (triangle winding), `shader_info.cpp` (attribute binding), `render_fill_extrusion_layer.cpp` (template order). Check these when debugging rendering issues.
 
 ## Design Decisions
 
@@ -50,17 +50,20 @@ Custom fork at `/home/caslan/dev/git_repos/hh/maplibre-native` (branch `huishype
 
 **Why**: Procedural window patterns, spatial color striping (zebra-stripe for merged row-house polygons), and soft ambient occlusion on 3D fill-extrusion buildings. These require fragment/vertex shader modifications that can't be done via style expressions.
 
-**Shader files**: `shaders/fill_extrusion.fragment.glsl` and `shaders/fill_extrusion.vertex.glsl`. After editing, regenerate headers with `node shaders/generate_shader_code.mjs` (compiles `.glsl` → `include/mbgl/shaders/gl/fill_extrusion.hpp`).
+**Shader files**: `shaders/fill_extrusion.fragment.glsl` and `shaders/fill_extrusion.vertex.glsl`. After editing GLSL, regenerate headers with `node shaders/generate_shader_code.mjs` (compiles `.glsl` → `include/mbgl/shaders/gl/fill_extrusion.hpp`). C++ changes (bucket, render layer, shader_info) don't need this step.
 
 **Build & publish AAR**:
 ```bash
-cd /home/caslan/dev/git_repos/hh/maplibre-native
-BUILDTYPE=Release make android-lib-arm-v8
-cd platform/android
-BUILDTYPE=Release ../../gradlew :MapLibreAndroid:assembleOpenglRelease
-BUILDTYPE=Release ../../gradlew :MapLibreAndroid:publishOpenglReleasePublicationToMavenLocal
+cd /home/caslan/dev/git_repos/hh/maplibre-native/platform/android
+BUILDTYPE=Release ./gradlew :MapLibreAndroid:assembleOpenglRelease
+BUILDTYPE=Release ./gradlew :MapLibreAndroid:publishOpenglReleasePublicationToMavenLocal
 ```
-Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`.
+Gradle handles CMake native compilation automatically. Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`.
+
+**After installing updated AAR on device**: Clear the shader cache — MapLibre Native caches compiled GLSL programs in app data, so stale shaders persist across `adb install -r`:
+```bash
+adb shell pm clear nl.huishype.app
+```
 
 **App wiring** (`apps/app/android/build.gradle`):
 - `mavenLocal()` in `allprojects.repositories` (so Gradle finds the local AAR)

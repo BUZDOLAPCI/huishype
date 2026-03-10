@@ -90,7 +90,8 @@ const GHOST_NODE_FRONTEND_ZOOM = 17;
 const BUILDINGS_3D_CONFIG = {
   minZoom: 15,
   colors: {
-    palette: ['#F5EDE2', '#EDE4D8', '#F8F1E8', '#E8DDD0', '#F0E8DC'],
+    // Neutral base — shader overrides with per-building hash-based beige palette
+    base: '#F0E8DC',
   },
   opacity: 1.0,
   heightMultiplier: 1.0,
@@ -446,32 +447,6 @@ function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknow
   }
 }
 
-/**
- * Flatten data-driven fill-extrusion-color expressions to a fixed value.
- *
- * MapLibre Native can't evaluate data-driven expressions (e.g. ['match', ['get', ...], ...])
- * on fill-extrusion-color — the expression silently fails and falls back to the GL spec
- * default #000000 (black buildings). This replaces array expressions with the fallback
- * color from the match expression (last element).
- *
- * Only called for native clients (?platform=native).
- * Mutates layers in place.
- */
-function flattenFillExtrusionColorExpressions(layers: Array<Record<string, unknown>>): void {
-  for (const layer of layers) {
-    if (layer.type !== 'fill-extrusion') continue;
-    const paint = layer.paint as Record<string, unknown> | undefined;
-    if (!paint) continue;
-
-    const colorExpr = paint['fill-extrusion-color'];
-    if (!Array.isArray(colorExpr)) continue;
-
-    // Use the fallback/default value (last element of match expression)
-    if (colorExpr[0] === 'match') {
-      paint['fill-extrusion-color'] = colorExpr[colorExpr.length - 1];
-    }
-  }
-}
 
 /**
  * Build the property layers array for the merged style.
@@ -636,24 +611,15 @@ function build3DBuildingsLayer(): Record<string, unknown> {
     type: 'fill-extrusion',
     minzoom: BUILDINGS_3D_CONFIG.minZoom,
     paint: {
-      // Each BAG pand is its own feature, so ['id'] gives per-building variation.
-      // Divide by 7 and mod 5 for better distribution across the palette.
-      // Per-building color variation using MVT feature ID.
-      // ['id'] works on web but fails on MapLibre Native fill-extrusion
-      // (expression evaluates to null → black). The API flattens this to a
-      // fixed color for native clients via ?platform=native query param.
-      'fill-extrusion-color': [
-        'match',
-        ['%', ['floor', ['/', ['id'], 7]], 5],
-        0, BUILDINGS_3D_CONFIG.colors.palette[0],
-        1, BUILDINGS_3D_CONFIG.colors.palette[1],
-        2, BUILDINGS_3D_CONFIG.colors.palette[2],
-        3, BUILDINGS_3D_CONFIG.colors.palette[3],
-        BUILDINGS_3D_CONFIG.colors.palette[4],
-      ],
+      // Per-building color variation is handled in the fragment shader
+      // (hash-based warm beige palette) on both web and native. The style
+      // only provides a neutral base color that the shader overrides.
+      'fill-extrusion-color': BUILDINGS_3D_CONFIG.colors.base,
       // NOTE: MapLibre Native bugs prevent zoom-interpolated expressions and
       // ['id']-based arithmetic on fill-extrusion-height/base. Keep simple.
       // The per-building height variation and grow animation are web-only.
+      // NOTE: MapLibre Native needs correct attribute enum order (Color before Height)
+      // in shader_defines.hpp to match readDataDrivenPaintProperties template order.
       'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
       'fill-extrusion-base': 0,
       'fill-extrusion-opacity': BUILDINGS_3D_CONFIG.opacity,
@@ -829,17 +795,6 @@ export async function tileRoutes(app: FastifyInstance) {
       const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
-      const isNative = (request.query as Record<string, string>)?.platform === 'native';
-
-      // Apply per-request, platform-specific transforms on the (cloned) style
-      function applyPlatformTransforms(style: Record<string, unknown>): void {
-        if (!isNative) return;
-        const layers = style.layers as Array<Record<string, unknown>> | undefined;
-        if (layers) {
-          flattenFillExtrusionColorExpressions(layers);
-        }
-      }
-
       // Check cache (60s TTL)
       const now = Date.now();
       if (cachedStyle && now - cachedStyle.fetchedAt < STYLE_CACHE_TTL) {
@@ -855,7 +810,6 @@ export async function tileRoutes(app: FastifyInstance) {
         if (buildingSource) buildingSource.tiles = [`${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`];
         style.glyphs = glyphsUrl;
         style.sprite = spriteUrl;
-        applyPlatformTransforms(style);
         return reply
           .header('Cache-Control', 'public, max-age=60')
           .send(style);
@@ -1029,15 +983,9 @@ export async function tileRoutes(app: FastifyInstance) {
 
         cachedStyle = { data: merged, fetchedAt: now };
 
-        // Clone before applying platform transforms to avoid mutating the cache
-        const responseStyle = isNative
-          ? JSON.parse(JSON.stringify(merged)) as Record<string, unknown>
-          : merged;
-        applyPlatformTransforms(responseStyle);
-
         return reply
           .header('Cache-Control', 'public, max-age=60')
-          .send(responseStyle);
+          .send(merged);
       } catch (err) {
         app.log.error(err, 'Failed to fetch base style');
         return reply.status(502).send({ error: 'Failed to build merged style' });
