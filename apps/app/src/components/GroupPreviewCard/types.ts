@@ -3,14 +3,15 @@ export interface GroupPreviewProperty {
   address: string;
   city: string;
   postalCode?: string | null;
-  wozValue?: number | null;
+  countryCode?: string;
+  officialValuation?: number | null;
   askingPrice?: number | null;
   fmv?: number | null;
   activityLevel?: 'hot' | 'warm' | 'cold';
   activityScore?: number;
   thumbnailUrl?: string | null;
-  bouwjaar?: number | null;
-  oppervlakte?: number | null;
+  yearBuilt?: number | null;
+  floorAreaM2?: number | null;
 }
 
 export interface GroupPreviewCardProps {

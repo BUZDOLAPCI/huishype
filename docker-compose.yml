@@ -31,6 +31,34 @@ services:
       retries: 5
       start_period: 5s
 
+  # Photon geocoder (Komoot) — self-hosted, planet-wide address search.
+  # There is no official Docker image. This builds from a Dockerfile that
+  # downloads the Photon JAR from GitHub releases.
+  #
+  # First run: download a pre-built database extract into the photon_data volume:
+  #   mkdir -p photon_data && cd photon_data
+  #   wget -O - https://download1.graphhopper.com/public/photon-db-planet-1.0-latest.tar.bz2 | pbzip2 -cd | tar x
+  # Or for NL only (smaller):
+  #   wget -O - https://download1.graphhopper.com/public/photon-db-nl-1.0-latest.tar.bz2 | pbzip2 -cd | tar x
+  #
+  # Then start: docker compose up -d photon
+  photon:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM eclipse-temurin:21-jre-alpine
+        WORKDIR /photon
+        ADD https://github.com/komoot/photon/releases/download/1.0.1/photon-1.0.1.jar photon.jar
+        EXPOSE 2322
+        ENTRYPOINT ["java"]
+        CMD ["-Xmx4G", "-jar", "photon.jar", "serve", "-listen-ip", "0.0.0.0", "-listen-port", "2322", "-data-dir", "/photon/data"]
+    container_name: huishype-photon
+    ports:
+      - "2322:2322"
+    volumes:
+      - ./photon_data:/photon/data
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

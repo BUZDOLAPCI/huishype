@@ -4,13 +4,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
-
-// Dutch address formatting (same pattern as properties.ts)
-const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || CASE
-  WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
-  WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
-  ELSE '-' || p.house_number_addition
-END || ', ' || p.postal_code || ' ' || p.city`;
+import { formatDisplayAddress } from '../utils/address.js';
+import { isValidCountryCode } from '@huishype/shared';
 
 // --- Zod schemas ---
 
@@ -22,6 +17,10 @@ const feedQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   lat: z.coerce.number().min(-90).max(90).optional(),
   lon: z.coerce.number().min(-180).max(180).optional(),
+  country: z.string().length(2).toUpperCase().refine(
+    (val) => isValidCountryCode(val),
+    { message: 'Invalid country code' }
+  ).optional(),
 });
 
 const feedItemSchema = z.object({
@@ -31,7 +30,7 @@ const feedItemSchema = z.object({
   zipCode: z.string(),
   askingPrice: z.number().nullable(),
   fmv: z.number().nullable(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
   thumbnailUrl: z.string().nullable(),
   likeCount: z.number(),
   commentCount: z.number(),
@@ -54,13 +53,16 @@ const feedResponseSchema = z.object({
 
 // --- SQL row type ---
 
-interface FeedRow {
+interface FeedRow extends Record<string, unknown> {
   id: string;
-  address: string;
+  country_code: string;
+  street: string;
+  house_number: number;
+  house_number_addition: string | null;
   city: string;
   zip_code: string;
   asking_price: number | null;
-  woz_value: number | null;
+  official_valuation: number | null;
   thumbnail_url: string | null;
   comment_count: number;
   guess_count: number;
@@ -94,7 +96,7 @@ export async function feedRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { filter, page, limit, lat, lon } = request.query;
+      const { filter, page, limit, lat, lon, country } = request.query;
       const offset = (page - 1) * limit;
 
       // --- Build dynamic query parts ---
@@ -104,6 +106,11 @@ export async function feedRoutes(app: FastifyInstance) {
         lat !== undefined && lon !== undefined
           ? sql`AND ST_DWithin(p.geometry::geography, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, 25000)`
           : sql``;
+
+      // Country filter condition
+      const countryCondition = country
+        ? sql`AND p.country_code = ${country}`
+        : sql``;
 
       // Filter-specific WHERE for the data query (can reference join aliases)
       let dataFilterWhere: ReturnType<typeof sql>;
@@ -154,6 +161,7 @@ export async function feedRoutes(app: FastifyInstance) {
           AND p.geometry IS NOT NULL
         WHERE 1=1
           ${spatialCondition}
+          ${countryCondition}
           ${countFilterWhere}
       `);
       const total = Array.from(countRows)[0]?.total ?? 0;
@@ -169,11 +177,14 @@ export async function feedRoutes(app: FastifyInstance) {
       const rows = await db.execute<FeedRow>(sql`
         SELECT
           p.id,
-          ${ADDRESS_SQL} AS address,
+          p.country_code,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
           p.city,
           p.postal_code AS zip_code,
           l.asking_price,
-          p.woz_value,
+          p.official_valuation,
           l.thumbnail_url,
           COALESCE(c.cnt, 0)::int AS comment_count,
           COALESCE(g.cnt, 0)::int AS guess_count,
@@ -247,6 +258,7 @@ export async function feedRoutes(app: FastifyInstance) {
         ) v ON v.property_id = p.id
         WHERE 1=1
           ${spatialCondition}
+          ${countryCondition}
           ${dataFilterWhere}
         ${orderBy}
         LIMIT ${limit}
@@ -256,12 +268,21 @@ export async function feedRoutes(app: FastifyInstance) {
       // --- Transform to response ---
       const items = Array.from(rows).map((r) => ({
         id: r.id,
-        address: r.address,
+        address: formatDisplayAddress(
+          {
+            street: r.street,
+            houseNumber: r.house_number,
+            houseNumberAddition: r.house_number_addition,
+            postalCode: r.zip_code ?? '',
+            city: r.city,
+          },
+          isValidCountryCode(r.country_code) ? r.country_code : undefined,
+        ),
         city: r.city,
         zipCode: r.zip_code,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         fmv: r.fmv != null ? Number(r.fmv) : null,
-        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
         thumbnailUrl: r.thumbnail_url,
         likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),

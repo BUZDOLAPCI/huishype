@@ -68,7 +68,7 @@ describe('Tile routes', () => {
       expect(layerIds).toContain('ghost-nodes');
     });
 
-    it('should include 3D buildings layer with BAG source', async () => {
+    it('should include 3D buildings layer with OSM source', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/tiles/style.json',
@@ -376,7 +376,7 @@ describe('Tile routes', () => {
         method: 'GET',
         url: `/tiles/buildings/${z}/${x}/${y}.pbf`,
       });
-      // May be 200 or 204 depending on whether bag_buildings is populated
+      // May be 200 or 204 depending on whether osm_buildings is populated
       if (res.statusCode === 200) {
         expect(res.headers['content-type']).toBe('application/x-protobuf');
         expect(res.headers['cache-control']).toContain('public');
@@ -398,24 +398,24 @@ describe('Tile routes', () => {
     });
   });
 
-  describe('bag_buildings table', () => {
+  describe('osm_buildings table', () => {
     it('exists with expected columns', async () => {
       const result = await db.execute<{ column_name: string }>(sql`
         SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'bag_buildings'
+        WHERE table_name = 'osm_buildings'
         ORDER BY ordinal_position
       `);
       const columns = Array.from(result).map((r) => r.column_name);
       expect(columns).toContain('geometry');
       expect(columns).toContain('render_height');
       expect(columns).toContain('render_min_height');
-      expect(columns).toContain('identificatie');
+      expect(columns).toContain('osm_id');
     });
 
     it('has GIST index on geometry', async () => {
       const result = await db.execute<{ indexname: string }>(sql`
         SELECT indexname FROM pg_indexes
-        WHERE tablename = 'bag_buildings' AND indexdef LIKE '%gist%'
+        WHERE tablename = 'osm_buildings' AND indexdef LIKE '%gist%'
       `);
       expect(Array.from(result).length).toBeGreaterThan(0);
     });

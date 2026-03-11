@@ -12,6 +12,8 @@ import {
   uniqueIndex,
   pgEnum,
   customType,
+  serial,
+  real,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -102,10 +104,42 @@ const geometry = customType<{
   },
 });
 
+// Custom type for PostGIS MultiPolygon geometry (used by osm_buildings, read-only via raw SQL)
+const multiPolygonGeometry = customType<{
+  data: string; // WKB hex — only accessed via raw SQL in tiles endpoint
+  driverData: string;
+}>({
+  dataType() {
+    return 'geometry(MultiPolygon, 4326)';
+  },
+  toDriver(value) {
+    return value;
+  },
+  fromDriver(value) {
+    return typeof value === 'string' ? value : String(value);
+  },
+});
+
+// OSM Buildings table (imported from OSM PBF via import-osm-buildings.ts)
+export const osmBuildings = pgTable(
+  'osm_buildings',
+  {
+    id: serial('id').primaryKey(),
+    osmId: bigint('osm_id', { mode: 'number' }),
+    renderHeight: real('render_height').notNull().default(6.0),
+    renderMinHeight: real('render_min_height').notNull().default(0.0),
+    geometry: multiPolygonGeometry('geometry').notNull(),
+  },
+  (table) => [
+    uniqueIndex('osm_buildings_osm_id_idx').on(table.osmId).where(sql`osm_id IS NOT NULL`),
+    index('idx_osm_buildings_geometry').using('gist', table.geometry),
+  ]
+);
+
 // Enums
 export const reactionTypeEnum = pgEnum('reaction_type', ['like', 'love', 'wow', 'angry']);
 export const targetTypeEnum = pgEnum('target_type', ['property', 'comment']);
-export const listingSourceEnum = pgEnum('listing_source', ['funda', 'pararius', 'other']);
+// listing_source changed from enum to varchar(50) for multi-country extensibility
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive', 'demolished']);
 export const listingStatusEnum = pgEnum('listing_status', ['active', 'sold', 'rented', 'withdrawn']);
 
@@ -122,6 +156,7 @@ export const users = pgTable(
     profilePhotoUrl: text('profile_photo_url'),
     karma: integer('karma').notNull().default(0),
     internalKarma: integer('internal_karma').notNull().default(0), // Can go negative for tracking bad actors
+    homeCountry: varchar('home_country', { length: 2 }), // ISO 3166-1 alpha-2 country code
     lastDisplayNameChangeAt: timestamp('last_display_name_change_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -134,32 +169,35 @@ export const users = pgTable(
   ]
 );
 
-// Properties table (addresses from BAG)
+// Properties table (addresses — multi-country)
 export const properties = pgTable(
   'properties',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    bagIdentificatie: varchar('bag_identificatie', { length: 50 }).unique(), // BAG ID
+    countryCode: varchar('country_code', { length: 2 }).notNull().default('NL'), // ISO 3166-1 alpha-2
+    nationalId: varchar('national_id', { length: 50 }), // Country-specific ID (e.g. BAG identificatie for NL, Overture GERS UUID)
     street: varchar('street', { length: 255 }).notNull(),
     houseNumber: integer('house_number').notNull(),
-    houseNumberAddition: varchar('house_number_addition', { length: 20 }),
+    houseNumberAddition: varchar('house_number_addition', { length: 50 }),
     city: varchar('city', { length: 100 }).notNull(),
+    region: varchar('region', { length: 255 }), // Province/state/region
     postalCode: varchar('postal_code', { length: 10 }).notNull(),
     geometry: geometry('geometry'),
-    bouwjaar: integer('bouwjaar'), // Construction year
-    oppervlakte: integer('oppervlakte'), // Surface area in m2
+    yearBuilt: integer('year_built'), // Construction year
+    floorAreaM2: integer('floor_area_m2'), // Floor area in m²
     status: propertyStatusEnum('status').notNull().default('active'),
-    wozValue: bigint('woz_value', { mode: 'number' }), // Official government valuation
+    officialValuation: bigint('official_valuation', { mode: 'number' }), // Official government valuation (e.g. WOZ for NL)
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('properties_bag_id_idx').on(table.bagIdentificatie),
+    uniqueIndex('properties_national_id_idx').on(table.countryCode, table.nationalId),
     index('properties_city_idx').on(table.city),
     index('properties_postal_code_idx').on(table.postalCode),
-    uniqueIndex('properties_address_unique_idx').on(table.postalCode, table.houseNumber, table.houseNumberAddition),
+    uniqueIndex('properties_address_unique_idx').on(table.countryCode, table.street, table.postalCode, table.houseNumber, table.houseNumberAddition),
     index('properties_created_at_idx').on(table.createdAt),
-    // PostGIS spatial index would be created via raw SQL migration
+    index('properties_country_code_idx').on(table.countryCode),
+    index('properties_geometry_gist_idx').using('gist', table.geometry),
   ]
 );
 
@@ -172,7 +210,7 @@ export const listings = pgTable(
       .notNull()
       .references(() => properties.id, { onDelete: 'cascade' }),
     sourceUrl: text('source_url').notNull(),
-    sourceName: listingSourceEnum('source_name').notNull(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
     askingPrice: bigint('asking_price', { mode: 'number' }),
     thumbnailUrl: text('thumbnail_url'),
     ogTitle: text('og_title'), // Open Graph title

@@ -1,35 +1,34 @@
 import { Image, Pressable, Text, View } from 'react-native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { useReverseGeocode, isBagPandPlaceholder } from '@/src/hooks';
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
 interface PropertyFeedCardProps {
   id: string;
   address: string;
   city: string;
   postalCode?: string | null;
+  countryCode?: string;
   photoUrl?: string;
-  wozValue?: number | null;
+  officialValuation?: number | null;
   askingPrice?: number;
   fmvValue?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
   commentCount?: number;
   guessCount?: number;
   viewCount?: number;
-  bouwjaar?: number | null;
-  oppervlakte?: number | null;
+  yearBuilt?: number | null;
+  floorAreaM2?: number | null;
   onPress?: () => void;
-  // Coordinates for runtime address resolution
-  coordinates?: { lat: number; lon: number } | null;
 }
 
 /**
- * Format price in Dutch locale with euro symbol
+ * Format price using country config
  */
-function formatPrice(value: number | null | undefined): string {
+function formatPrice(value: number | null | undefined, countryCode?: string): string {
   if (value === null || value === undefined) {
     return '-';
   }
-  return `\u20AC${value.toLocaleString('nl-NL')}`;
+  return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
 /**
@@ -39,34 +38,19 @@ export function PropertyFeedCard({
   address,
   city,
   postalCode,
+  countryCode,
   photoUrl,
-  wozValue,
+  officialValuation,
   askingPrice,
   fmvValue,
   activityLevel = 'cold',
   commentCount = 0,
   guessCount = 0,
   viewCount = 0,
-  bouwjaar,
-  oppervlakte,
+  yearBuilt,
+  floorAreaM2,
   onPress,
-  coordinates,
 }: PropertyFeedCardProps) {
-  // Check if address is a BAG Pand placeholder that needs resolution
-  const needsResolution = isBagPandPlaceholder(address);
-
-  // Use reverse geocoding to resolve BAG Pand placeholders
-  const { data: resolvedAddress, isLoading: isResolvingAddress } = useReverseGeocode(
-    needsResolution && coordinates ? coordinates.lat : null,
-    needsResolution && coordinates ? coordinates.lon : null,
-    { enabled: needsResolution && !!coordinates }
-  );
-
-  // Determine what address/city/postal to display
-  const displayAddress = resolvedAddress?.address || address;
-  const displayCity = resolvedAddress?.city || city;
-  const displayPostalCode = resolvedAddress?.postalCode || postalCode;
-  const isLoadingAddress = needsResolution && isResolvingAddress;
 
   const activityColors = {
     hot: 'bg-red-500',
@@ -131,22 +115,16 @@ export function PropertyFeedCard({
         {/* Address and activity indicator */}
         <View className="flex-row items-start justify-between mb-1">
           <View className="flex-1 mr-2">
-            {isLoadingAddress ? (
-              <View className="flex-row items-center">
-                <View className="w-32 h-5 bg-gray-200 rounded animate-pulse" />
-              </View>
-            ) : (
-              <Text
-                className="text-lg font-semibold text-gray-900"
-                numberOfLines={1}
-                testID="property-address"
-              >
-                {displayAddress}
-              </Text>
-            )}
+            <Text
+              className="text-lg font-semibold text-gray-900"
+              numberOfLines={1}
+              testID="property-address"
+            >
+              {address}
+            </Text>
             <Text className="text-sm text-gray-500">
-              {displayCity}
-              {displayPostalCode ? `, ${displayPostalCode}` : ''}
+              {city}
+              {postalCode ? `, ${postalCode}` : ''}
             </Text>
           </View>
           <View
@@ -155,20 +133,20 @@ export function PropertyFeedCard({
         </View>
 
         {/* Property details badges */}
-        {(bouwjaar || oppervlakte) && (
+        {(yearBuilt || floorAreaM2) && (
           <View className="flex-row mt-2 mb-3">
-            {bouwjaar && (
+            {yearBuilt && (
               <View className="bg-gray-100 px-2 py-1 rounded-md mr-2">
                 <Text className="text-xs text-gray-600">
                   <FontAwesome name="calendar" size={10} color="#6B7280" />{' '}
-                  {bouwjaar}
+                  {yearBuilt}
                 </Text>
               </View>
             )}
-            {oppervlakte && (
+            {floorAreaM2 && (
               <View className="bg-gray-100 px-2 py-1 rounded-md">
                 <Text className="text-xs text-gray-600">
-                  {oppervlakte} m{'\u00B2'}
+                  {floorAreaM2} m{'\u00B2'}
                 </Text>
               </View>
             )}
@@ -178,12 +156,12 @@ export function PropertyFeedCard({
         {/* Price section */}
         <View className="flex-row justify-between items-end mt-2 mb-3">
           <View className="flex-1">
-            {/* WOZ Value */}
-            {wozValue && (
+            {/* Official Valuation */}
+            {officialValuation && (
               <View className="mb-1">
-                <Text className="text-xs text-gray-400">WOZ Value</Text>
+                <Text className="text-xs text-gray-400">{getValuationLabel(countryCode)}</Text>
                 <Text className="text-base font-medium text-gray-600">
-                  {formatPrice(wozValue)}
+                  {formatPrice(officialValuation, countryCode)}
                 </Text>
               </View>
             )}
@@ -193,7 +171,7 @@ export function PropertyFeedCard({
               <View className="mb-1">
                 <Text className="text-xs text-gray-400">Asking Price</Text>
                 <Text className="text-base font-semibold text-gray-800">
-                  {formatPrice(askingPrice)}
+                  {formatPrice(askingPrice, countryCode)}
                 </Text>
               </View>
             )}
@@ -205,7 +183,7 @@ export function PropertyFeedCard({
               <>
                 <Text className="text-xs text-gray-400">Crowd FMV</Text>
                 <Text className="text-xl font-bold text-primary-600">
-                  {formatPrice(fmvValue)}
+                  {formatPrice(fmvValue, countryCode)}
                 </Text>
                 {priceDifference !== null && (
                   <Text
@@ -226,11 +204,11 @@ export function PropertyFeedCard({
                   </Text>
                 )}
               </>
-            ) : wozValue ? (
+            ) : officialValuation ? (
               <>
                 <Text className="text-xs text-gray-400">Est. Value</Text>
                 <Text className="text-xl font-bold text-primary-600">
-                  {formatPrice(wozValue)}
+                  {formatPrice(officialValuation, countryCode)}
                 </Text>
               </>
             ) : null}

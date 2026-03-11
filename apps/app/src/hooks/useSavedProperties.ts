@@ -11,7 +11,7 @@ import type { FeedProperty } from './useFeed';
 
 interface SavedPropertyApiResponse {
   id: string;
-  bagIdentificatie: string | null;
+  nationalId: string | null;
   street: string;
   houseNumber: number;
   houseNumberAddition: string | null;
@@ -19,10 +19,10 @@ interface SavedPropertyApiResponse {
   city: string;
   postalCode: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
-  bouwjaar: number | null;
-  oppervlakte: number | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
-  wozValue: number | null;
+  officialValuation: number | null;
   hasListing: boolean;
   askingPrice: number | null;
   commentCount: number;
@@ -71,7 +71,7 @@ function transformSavedProperty(property: SavedPropertyApiResponse): FeedPropert
     coordinates: property.geometry
       ? { lon: property.geometry.coordinates[0], lat: property.geometry.coordinates[1] }
       : null,
-    wozValue: property.wozValue,
+    officialValuation: property.officialValuation,
     askingPrice: property.askingPrice,
     fmv: null,
     fmvValue: undefined,
@@ -84,8 +84,8 @@ function transformSavedProperty(property: SavedPropertyApiResponse): FeedPropert
     commentCount: property.commentCount,
     guessCount: property.guessCount,
     viewCount: 0,
-    bouwjaar: property.bouwjaar,
-    oppervlakte: property.oppervlakte,
+    yearBuilt: property.yearBuilt,
+    floorAreaM2: property.floorAreaM2,
   };
 }
 

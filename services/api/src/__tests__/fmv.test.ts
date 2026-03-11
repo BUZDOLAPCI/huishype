@@ -253,7 +253,7 @@ describe('FMV Service', () => {
       expect(result.confidence).toBe('none');
       expect(result.guessCount).toBe(0);
       expect(result.distribution).toBeNull();
-      expect(result.wozValue).toBe(400000);
+      expect(result.officialValuation).toBe(400000);
       expect(result.askingPrice).toBe(350000);
       expect(result.divergence).toBeCloseTo(14.29, 1);
     });
@@ -388,7 +388,7 @@ describe('FMV Service', () => {
         { guessedPrice: 400000, karma: 10 },
       ];
       const result = calculateFmv(guesses, null, null);
-      expect(result.wozValue).toBeNull();
+      expect(result.officialValuation).toBeNull();
       expect(result.askingPrice).toBeNull();
       expect(result.divergence).toBeNull();
       // No WOZ: falls back to crowd estimate regardless of confidence

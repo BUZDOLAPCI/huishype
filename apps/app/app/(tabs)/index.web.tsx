@@ -229,11 +229,11 @@ function toGroupPreviewProperty(
     address: string;
     city: string;
     postalCode?: string | null;
-    wozValue?: number | null;
+    officialValuation?: number | null;
     askingPrice?: number | null;
     geometry?: { type: 'Point'; coordinates: [number, number] } | null;
-    bouwjaar?: number | null;
-    oppervlakte?: number | null;
+    yearBuilt?: number | null;
+    floorAreaM2?: number | null;
   },
   activityScore?: number
 ): GroupPreviewProperty {
@@ -250,15 +250,15 @@ function toGroupPreviewProperty(
     address: p.address,
     city: p.city,
     postalCode: p.postalCode,
-    wozValue: p.wozValue,
+    officialValuation: p.officialValuation,
     askingPrice: p.askingPrice,
     thumbnailUrl: getPropertyThumbnailFromGeometry(
       (p.geometry as { type: 'Point'; coordinates: [number, number] }) ?? null
     ),
     activityLevel: level,
     activityScore,
-    bouwjaar: p.bouwjaar ?? null,
-    oppervlakte: p.oppervlakte ?? null,
+    yearBuilt: p.yearBuilt ?? null,
+    floorAreaM2: p.floorAreaM2 ?? null,
   };
 }
 

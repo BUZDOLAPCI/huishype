@@ -3,7 +3,7 @@
  *
  * Tests the search bar functionality on the map screen:
  * - Search bar visibility and interaction
- * - PDOK address autocomplete results
+ * - Geocoder (Photon) address autocomplete results
  * - Property navigation after selecting a result
  * - Graceful handling when no local property is found
  * - Clear/reset functionality
@@ -31,7 +31,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /GL Driver Message/,
   /Expected value to be of type/,
   /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*api\.pdok\.nl/,
 ];
 
 // Disable tracing to avoid artifact issues
@@ -107,7 +106,7 @@ test.describe('Search Navigation Flow', () => {
     await expect(searchInput).toHaveAttribute('placeholder', 'Search address...');
   });
 
-  test('typing in search bar shows PDOK autocomplete results', async ({ page }) => {
+  test('typing in search bar shows geocoder autocomplete results', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
@@ -120,14 +119,14 @@ test.describe('Search Navigation Flow', () => {
     await searchInput.click();
     await searchInput.pressSequentially('Eindhoven Markt', { delay: 30 });
 
-    // Wait for PDOK results to appear (debounce 300ms + network round trip)
+    // Wait for geocoder results to appear (debounce 300ms + network round trip)
     const resultItem = page.locator('[data-testid="search-result-item"]');
     await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
 
     // Should have at least 1 result
     const resultCount = await resultItem.count();
     expect(resultCount).toBeGreaterThan(0);
-    console.log(`PDOK returned ${resultCount} results for "Eindhoven Markt"`);
+    console.log(`Geocoder returned ${resultCount} results for "Eindhoven Markt"`);
   });
 
   test('selecting search result navigates to property', async ({
@@ -153,7 +152,7 @@ test.describe('Search Navigation Flow', () => {
     await searchInput.click();
     await searchInput.pressSequentially(searchQuery, { delay: 30 });
 
-    // Wait for PDOK autocomplete results
+    // Wait for geocoder autocomplete results
     const resultItem = page.locator('[data-testid="search-result-item"]');
     await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
 
@@ -215,12 +214,12 @@ test.describe('Search Navigation Flow', () => {
     const searchInput = page.locator('[data-testid="search-bar-input"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
 
-    // Search for a real Dutch address that likely exists in PDOK
+    // Search for a real Dutch address that likely exists in the geocoder
     // but might not be in our local Eindhoven-only database
     await searchInput.click();
     await searchInput.pressSequentially('Amsterdam Damrak 1', { delay: 30 });
 
-    // Wait for PDOK results
+    // Wait for geocoder results
     const resultItem = page.locator('[data-testid="search-result-item"]');
     await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
 

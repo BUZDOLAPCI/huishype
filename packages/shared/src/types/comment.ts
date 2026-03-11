@@ -3,7 +3,7 @@
  * Comments follow a TikTok/Instagram-style short-form pattern
  */
 
-import type { UserSummary } from './user';
+import type { UserSummary } from './user.js';
 
 /**
  * Comment on a property

@@ -18,6 +18,7 @@ import { listingRoutes } from './routes/listings.js';
 import { viewRoutes } from './routes/views.js';
 import { userRoutes } from './routes/users.js';
 import { feedRoutes } from './routes/feed.js';
+import { geocodeRoutes } from './routes/geocode.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -63,6 +64,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(viewRoutes);
   await app.register(userRoutes);
   await app.register(feedRoutes);
+  await app.register(geocodeRoutes);
 
   // Add global error handler
   app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {

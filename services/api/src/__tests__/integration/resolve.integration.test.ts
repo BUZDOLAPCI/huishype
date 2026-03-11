@@ -64,7 +64,7 @@ describe('GET /properties/resolve', () => {
     expect(typeof body.coordinates.lon).toBe('number');
     expect(typeof body.coordinates.lat).toBe('number');
     expect(typeof body.hasListing).toBe('boolean');
-    expect(body.wozValue === null || typeof body.wozValue === 'number').toBe(true);
+    expect(body.officialValuation === null || typeof body.officialValuation === 'number').toBe(true);
   });
 
   it('should return 404 for a non-existent address', async () => {

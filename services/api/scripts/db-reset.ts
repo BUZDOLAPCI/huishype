@@ -37,6 +37,12 @@ async function dbReset() {
   const args = process.argv.slice(2);
   const skipExtract = args.includes('--skip-extract');
 
+  // Forward --country flag to import scripts (default: all available PBFs)
+  const countryIdx = args.indexOf('--country');
+  const countryFlag = countryIdx !== -1 && countryIdx + 1 < args.length
+    ? ` -- --country ${args[countryIdx + 1]}`
+    : '';
+
   console.log('='.repeat(60));
   console.log('HuisHype Database Reset');
   console.log('='.repeat(60));
@@ -74,13 +80,24 @@ async function dbReset() {
   // Step 5: Seed test fixture
   run('npx tsx scripts/seed-test-fixture.ts', 'Step 5: Seed test fixture data');
 
-  // Step 6: Import 3DBAG building footprints
-  run('npx tsx src/scripts/import-bag-buildings.ts', 'Step 6: Import 3DBAG buildings (~10.8M footprints)');
+  // Step 6: Import OSM building footprints (all available countries)
+  run(`npx tsx src/scripts/import-osm-buildings.ts${countryFlag}`, 'Step 6: Import OSM buildings');
+
+  // Step 6b: Import Overture addresses (all available countries)
+  if (args.includes('--with-overture')) {
+    run(`npx tsx src/scripts/import-overture-addresses.ts${countryFlag}`, 'Step 6b: Import Overture addresses');
+  }
+
+  // Step 6c: Import landcover
+  run(`npx tsx src/scripts/import-landcover.ts${countryFlag}`, 'Step 6c: Import landcover');
+
+  // Step 6d: Import tall buildings (tree exclusion zones)
+  run(`npx tsx src/scripts/import-tall-buildings.ts${countryFlag}`, 'Step 6d: Import tall buildings');
 
   // Step 7: Final ANALYZE
   const sqlFinal = postgres(databaseUrl, { max: 1, onnotice: () => {} });
   try {
-    console.log('\nStep 7: Final ANALYZE...');
+    console.log('\nStep 8: Final ANALYZE...');
     const start = Date.now();
     await sqlFinal.unsafe('ANALYZE');
     console.log(`  ANALYZE complete in ${formatTime(Date.now() - start)}`);

@@ -2,7 +2,7 @@
  * Price guess and FMV types for HuisHype
  */
 
-import type { UserSummary } from './user';
+import type { UserSummary } from './user.js';
 
 /**
  * Price guess submitted by a user

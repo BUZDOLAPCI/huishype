@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Image, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
-import { getDutchAerialSnapshotUrl } from '../../lib/pdok/imagery';
+import { getPropertyThumbnailUrl } from '../../lib/propertyThumbnail';
+import type { CountryCode } from '@huishype/shared';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
@@ -10,20 +11,21 @@ const placeholderImage = require('../../../assets/images/property-placeholder.pn
 interface SatelliteImageWithPinProps {
   lat: number;
   lon: number;
+  countryCode?: string;
 }
 
 /**
  * SatelliteImageWithPin - Displays aerial imagery with a centered location pin
- * Similar to the AerialImageCard but optimized for PropertyHeader
+ * Uses country-gated thumbnail URL (currently only NL via PDOK)
  */
-function SatelliteImageWithPin({ lat, lon }: SatelliteImageWithPinProps) {
+function SatelliteImageWithPin({ lat, lon, countryCode }: SatelliteImageWithPinProps) {
   const [error, setError] = useState(false);
 
-  // Generate the PDOK aerial imagery URL
-  const imageUrl = getDutchAerialSnapshotUrl(lat, lon, 800, 600, 45);
+  // Generate the country-gated aerial imagery URL
+  const imageUrl = getPropertyThumbnailUrl(lat, lon, (countryCode ?? 'NL') as CountryCode, 800, 600, 45);
 
-  // If error, show the styled placeholder
-  if (error) {
+  // If no imagery available for this country, or on error, show the styled placeholder
+  if (!imageUrl || error) {
     return (
       <View style={styles.imageContainer} testID="property-header-placeholder">
         <Image
@@ -115,7 +117,7 @@ export function PropertyHeader({ property }: SectionProps) {
           // Show satellite imagery with pin overlay
           <View className="w-screen h-48 px-4">
             {hasCoordinates && lat !== null && lon !== null ? (
-              <SatelliteImageWithPin lat={lat} lon={lon} />
+              <SatelliteImageWithPin lat={lat} lon={lon} countryCode={property.countryCode} />
             ) : (
               // Fallback to placeholder if no coordinates
               <View style={styles.imageContainer} testID="property-header-no-coords-placeholder">
@@ -163,16 +165,16 @@ export function PropertyHeader({ property }: SectionProps) {
 
         {/* Property badges */}
         <View className="flex-row flex-wrap gap-2 mt-3">
-          {property.bouwjaar && (
+          {property.yearBuilt && (
             <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
               <Ionicons name="calendar-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">Built {property.bouwjaar}</Text>
+              <Text className="text-sm text-gray-600 ml-1">Built {property.yearBuilt}</Text>
             </View>
           )}
-          {property.oppervlakte && (
+          {property.floorAreaM2 && (
             <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
               <Ionicons name="resize-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">{property.oppervlakte} m{'\u00B2'}</Text>
+              <Text className="text-sm text-gray-600 ml-1">{property.floorAreaM2} m{'\u00B2'}</Text>
             </View>
           )}
           {property.viewCount > 0 && (

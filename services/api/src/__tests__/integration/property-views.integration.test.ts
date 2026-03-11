@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { users, propertyViews } from '../../db/schema.js';
+import { users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 
 /**

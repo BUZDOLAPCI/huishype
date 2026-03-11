@@ -3,9 +3,29 @@
  * Used by both frontend and backend for consistent display
  */
 
+import { getCountryConfig, isValidCountryCode, type CountryCode } from '../config/country-config.js';
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Resolve locale and currency from an optional country code. */
+function resolveLocaleAndCurrency(countryCode?: CountryCode): {
+  locale: string | undefined;
+  currency: string | undefined;
+} {
+  if (!countryCode) return { locale: undefined, currency: undefined };
+  const cfg = getCountryConfig(countryCode);
+  return { locale: cfg.locale, currency: cfg.currency };
+}
+
+// ---------------------------------------------------------------------------
+// Price formatting
+// ---------------------------------------------------------------------------
+
 /**
- * Format a price in euros
- * @param price - Price in euros (whole number)
+ * Format a price with full control over locale/currency.
+ * @param price - Price in local currency (whole number)
  * @param options - Formatting options
  * @returns Formatted price string (e.g., "€ 450.000" or "€ 450K")
  */
@@ -16,15 +36,27 @@ export function formatPrice(
     compact?: boolean;
     /** Include currency symbol */
     includeCurrency?: boolean;
-    /** Locale for formatting */
+    /** Locale for formatting (overrides countryCode) */
     locale?: string;
+    /** Country code — resolves locale and currency from config */
+    countryCode?: CountryCode;
+    /** ISO 4217 currency code (overrides countryCode) */
+    currency?: string;
   } = {}
 ): string {
-  const { compact = false, includeCurrency = true, locale = 'nl-NL' } = options;
+  const {
+    compact = false,
+    includeCurrency = true,
+    countryCode = 'NL',
+  } = options;
+
+  const resolved = resolveLocaleAndCurrency(countryCode);
+  const locale = options.locale ?? resolved.locale;
+  const currency = options.currency ?? resolved.currency ?? 'EUR';
 
   const formatter = new Intl.NumberFormat(locale, {
     style: includeCurrency ? 'currency' : 'decimal',
-    currency: 'EUR',
+    currency,
     notation: compact ? 'compact' : 'standard',
     maximumFractionDigits: compact ? 1 : 0,
   });
@@ -33,13 +65,36 @@ export function formatPrice(
 }
 
 /**
+ * Convenience: format a property price using country config.
+ * @param price - Price in local currency
+ * @param countryCode - Country code (defaults to 'NL')
+ * @param options - Extra formatting options
+ */
+export function formatPropertyPrice(
+  price: number,
+  countryCode: CountryCode = 'NL',
+  options: { compact?: boolean } = {}
+): string {
+  return formatPrice(price, {
+    countryCode,
+    compact: options.compact,
+    includeCurrency: true,
+  });
+}
+
+/**
  * Format a price range
  * @param min - Minimum price
  * @param max - Maximum price
+ * @param countryCode - Country code (defaults to 'NL')
  * @returns Formatted range string (e.g., "€ 400.000 - € 500.000")
  */
-export function formatPriceRange(min: number, max: number): string {
-  return `${formatPrice(min)} - ${formatPrice(max)}`;
+export function formatPriceRange(
+  min: number,
+  max: number,
+  countryCode: CountryCode = 'NL'
+): string {
+  return `${formatPrice(min, { countryCode })} - ${formatPrice(max, { countryCode })}`;
 }
 
 /**
@@ -69,15 +124,19 @@ export function formatPercentage(
   return `${formatted}%`;
 }
 
+// ---------------------------------------------------------------------------
+// Date / time formatting (non-property — uses device locale by default)
+// ---------------------------------------------------------------------------
+
 /**
  * Format a date relative to now (e.g., "2 hours ago", "yesterday")
  * @param date - Date to format (string or Date)
- * @param locale - Locale for formatting
+ * @param locale - Locale for formatting (undefined = device locale)
  * @returns Relative time string
  */
 export function formatRelativeTime(
   date: string | Date,
-  locale: string = 'nl-NL'
+  locale?: string
 ): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   const now = new Date();
@@ -122,11 +181,11 @@ export function formatDate(
     includeTime?: boolean;
     /** Format style */
     style?: 'short' | 'medium' | 'long';
-    /** Locale */
+    /** Locale (undefined = device locale) */
     locale?: string;
   } = {}
 ): string {
-  const { includeTime = false, style = 'medium', locale = 'nl-NL' } = options;
+  const { includeTime = false, style = 'medium', locale } = options;
   const dateObj = typeof date === 'string' ? new Date(date) : date;
 
   const dateStyle =
@@ -140,27 +199,32 @@ export function formatDate(
   return formatter.format(dateObj);
 }
 
-/**
- * Format a Dutch postal code (ensure proper spacing)
- * @param postalCode - Postal code (with or without space)
- * @returns Formatted postal code (e.g., "1234 AB")
- */
-export function formatPostalCode(postalCode: string): string {
-  // Remove any existing spaces and convert to uppercase
-  const cleaned = postalCode.replace(/\s/g, '').toUpperCase();
+// ---------------------------------------------------------------------------
+// Address / postal code formatting
+// ---------------------------------------------------------------------------
 
-  // Insert space between numbers and letters
+/**
+ * Format a postal code. When a countryCode is provided, delegates to the
+ * country config's normalizer. Falls back to Dutch formatting.
+ */
+export function formatPostalCode(
+  postalCode: string,
+  countryCode?: CountryCode
+): string {
+  if (countryCode) {
+    return getCountryConfig(countryCode).postalCodeNormalize(postalCode);
+  }
+  // Legacy Dutch default
+  const cleaned = postalCode.replace(/\s/g, '').toUpperCase();
   if (cleaned.length === 6) {
     return `${cleaned.slice(0, 4)} ${cleaned.slice(4)}`;
   }
-
   return cleaned;
 }
 
 /**
- * Format a full Dutch address
- * @param parts - Address parts
- * @returns Formatted address string
+ * Format a full address. When a countryCode is provided, delegates to the
+ * country config's addressFormatter. Falls back to Dutch formatting.
  */
 export function formatAddress(parts: {
   streetName: string;
@@ -168,10 +232,22 @@ export function formatAddress(parts: {
   houseNumberAddition?: string;
   postalCode?: string;
   city?: string;
+  countryCode?: CountryCode;
 }): string {
-  const { streetName, houseNumber, houseNumberAddition, postalCode, city } =
-    parts;
+  const { streetName, houseNumber, houseNumberAddition, postalCode, city, countryCode } = parts;
 
+  if (countryCode) {
+    return getCountryConfig(countryCode).addressFormatter({
+      street: streetName,
+      houseNumber,
+      houseNumberAddition,
+      postalCode: postalCode ?? '',
+      city: city ?? '',
+      countryCode,
+    });
+  }
+
+  // Legacy Dutch default
   let address = `${streetName} ${houseNumber}`;
 
   if (houseNumberAddition) {
@@ -194,22 +270,43 @@ export function formatAddress(parts: {
   return address;
 }
 
+// ---------------------------------------------------------------------------
+// Valuation label
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the country-specific label for the official property valuation.
+ * @param countryCode - Country code (defaults to 'NL')
+ * @returns Label string (e.g. "WOZ Value" for NL, "Official Valuation" for others)
+ */
+export function getValuationLabel(countryCode?: string): string {
+  if (countryCode && isValidCountryCode(countryCode)) {
+    return getCountryConfig(countryCode).valuationLabel;
+  }
+  return 'Official Valuation';
+}
+
+// ---------------------------------------------------------------------------
+// Number formatting (non-property — uses device locale by default)
+// ---------------------------------------------------------------------------
+
 /**
  * Format area in square meters
  * @param sqm - Area in square meters
+ * @param locale - Locale (undefined = device locale)
  * @returns Formatted string (e.g., "120 m²")
  */
-export function formatArea(sqm: number): string {
-  return `${sqm.toLocaleString('nl-NL')} m²`;
+export function formatArea(sqm: number, locale?: string): string {
+  return `${sqm.toLocaleString(locale)} m²`;
 }
 
 /**
  * Format a number with thousands separators
  * @param value - Number to format
- * @param locale - Locale for formatting
+ * @param locale - Locale for formatting (undefined = device locale)
  * @returns Formatted number string
  */
-export function formatNumber(value: number, locale: string = 'nl-NL'): string {
+export function formatNumber(value: number, locale?: string): string {
   return value.toLocaleString(locale);
 }
 
@@ -222,7 +319,7 @@ export function formatKarma(karma: number): string {
   if (karma >= 10000) {
     return `${(karma / 1000).toFixed(1)}K`;
   }
-  return karma.toLocaleString('nl-NL');
+  return karma.toLocaleString();
 }
 
 /**

@@ -7,6 +7,9 @@ export {
   // Primitives
   idSchema,
   postalCodeSchema,
+  validatePostalCode,
+  normalizePostalCode,
+  postalCodeSchemaForCountry,
   usernameSchema,
   displayNameSchema,
   priceSchema,
@@ -42,11 +45,12 @@ export {
   // Pagination
   paginationSchema,
   cursorPaginationSchema,
-} from './validation';
+} from './validation.js';
 
 // Formatting utilities
 export {
   formatPrice,
+  formatPropertyPrice,
   formatPriceRange,
   formatPercentage,
   formatRelativeTime,
@@ -57,5 +61,6 @@ export {
   formatNumber,
   formatKarma,
   getKarmaRank,
+  getValuationLabel,
   truncateText,
-} from './formatting';
+} from './formatting.js';

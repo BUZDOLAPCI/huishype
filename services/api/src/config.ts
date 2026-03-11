@@ -38,6 +38,9 @@ export const config = {
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     appleClientId: process.env.APPLE_CLIENT_ID || 'nl.huishype.app',
   },
+  photon: {
+    url: process.env.PHOTON_URL || 'http://localhost:2322',
+  },
   env: process.env.NODE_ENV || 'development',
   isDev,
 } as const;

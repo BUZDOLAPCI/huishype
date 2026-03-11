@@ -4,16 +4,9 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
 import { sql, eq, and } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
+import { isValidCountryCode, getCountryConfig, type CountryCode } from '@huishype/shared';
 import { calculateActivityLevel } from './views.js';
 import { calculateFmvForProperty } from '../services/fmv.js';
-
-// Dutch address formatting: single-letter additions concatenate directly ("13A"),
-// all other additions use a hyphen separator ("105-1", "13-BIS").
-const ADDRESS_SQL = sql`p.street || ' ' || p.house_number || CASE
-  WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
-  WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
-  ELSE '-' || p.house_number_addition
-END || ', ' || p.postal_code || ' ' || p.city`;
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -23,7 +16,9 @@ const coordinateSchema = z.object({
 
 const propertySchema = z.object({
   id: z.string().uuid(),
-  bagIdentificatie: z.string().nullable(),
+  nationalId: z.string().nullable(),
+  countryCode: z.string(),
+  region: z.string().nullable(),
   street: z.string(),
   houseNumber: z.number(),
   houseNumberAddition: z.string().nullable(),
@@ -31,10 +26,10 @@ const propertySchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
-  bouwjaar: z.number().nullable().describe('Construction year'),
-  oppervlakte: z.number().nullable().describe('Surface area in m2'),
+  yearBuilt: z.number().nullable().describe('Year of construction'),
+  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
-  wozValue: z.number().nullable().describe('Official government valuation'),
+  officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
   commentCount: z.number(),
@@ -85,14 +80,16 @@ const fmvSchema = z.object({
   confidence: z.enum(['none', 'low', 'medium', 'high']),
   guessCount: z.number(),
   distribution: fmvDistributionSchema.nullable(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
   askingPrice: z.number().nullable(),
   divergence: z.number().nullable(),
 });
 
 const propertyDetailSchema = z.object({
   id: z.string().uuid(),
-  bagIdentificatie: z.string().nullable(),
+  nationalId: z.string().nullable(),
+  countryCode: z.string(),
+  region: z.string().nullable(),
   street: z.string(),
   houseNumber: z.number(),
   houseNumberAddition: z.string().nullable(),
@@ -100,10 +97,10 @@ const propertyDetailSchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
-  bouwjaar: z.number().nullable().describe('Construction year'),
-  oppervlakte: z.number().nullable().describe('Surface area in m2'),
+  yearBuilt: z.number().nullable().describe('Year of construction'),
+  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
-  wozValue: z.number().nullable().describe('Official government valuation'),
+  officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean().describe('Whether property has an active listing'),
   askingPrice: z.number().nullable().describe('Active listing asking price'),
   likeCount: z.number().describe('Total number of likes on this property'),
@@ -134,7 +131,9 @@ const errorResponseSchema = z.object({
 
 const savedPropertySchema = z.object({
   id: z.string().uuid(),
-  bagIdentificatie: z.string().nullable(),
+  nationalId: z.string().nullable(),
+  countryCode: z.string(),
+  region: z.string().nullable(),
   street: z.string(),
   houseNumber: z.number(),
   houseNumberAddition: z.string().nullable(),
@@ -142,10 +141,10 @@ const savedPropertySchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
-  bouwjaar: z.number().nullable(),
-  oppervlakte: z.number().nullable(),
+  yearBuilt: z.number().nullable().describe('Year of construction'),
+  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
   commentCount: z.number(),
@@ -167,10 +166,13 @@ const savedPropertiesResponseSchema = z.object({
 });
 
 // Schema for /properties/resolve endpoint
+// Postal code validation is permissive at schema level — country-specific
+// validation is done in the handler using the country-config registry.
 const resolveQuerySchema = z.object({
-  postalCode: z.string().regex(/^\d{4}\s?[A-Za-z]{2}$/, 'Invalid Dutch postal code format'),
+  postalCode: z.string().min(1, 'Postal code is required').max(15),
   houseNumber: z.coerce.number().int().positive(),
   houseNumberAddition: z.string().optional(),
+  countryCode: z.string().length(2).toUpperCase().default('NL'),
 });
 
 const resolveResponseSchema = z.object({
@@ -183,7 +185,7 @@ const resolveResponseSchema = z.object({
     lat: z.number(),
   }),
   hasListing: z.boolean(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
 });
 
 // Schema for /properties/nearby endpoint
@@ -203,7 +205,7 @@ const nearbyPropertySchema = z.object({
   address: z.string(), // computed display string
   city: z.string(),
   postalCode: z.string().nullable(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
   activityScore: z.number(),
   distanceMeters: z.number(),
@@ -231,7 +233,7 @@ const singleResultSchema = z.object({
   address: z.string(),
   city: z.string(),
   postalCode: z.string().nullable(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
   activityScore: z.number(),
   distanceMeters: z.number(),
@@ -262,13 +264,13 @@ function getGridCellSize(zoom: number): number {
 // Row type for cluster detection queries
 type ClusterDetectionRow = {
   id: string;
+  country_code: string;
   street: string;
   house_number: number;
   house_number_addition: string | null;
-  address: string;
   city: string;
   postal_code: string | null;
-  woz_value: number | null;
+  official_valuation: number | null;
   has_listing: boolean;
   activity_score: number;
   distance_meters: number;
@@ -284,10 +286,19 @@ function mapToSingleResult(r: ClusterDetectionRow) {
     street: r.street,
     houseNumber: r.house_number,
     houseNumberAddition: r.house_number_addition,
-    address: r.address,
+    address: formatDisplayAddress(
+      {
+        street: r.street,
+        houseNumber: r.house_number,
+        houseNumberAddition: r.house_number_addition,
+        postalCode: r.postal_code ?? '',
+        city: r.city,
+      },
+      isValidCountryCode(r.country_code) ? r.country_code : undefined,
+    ),
     city: r.city,
     postalCode: r.postal_code,
-    wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+    officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
     hasListing: r.has_listing,
     activityScore: Number(r.activity_score),
     distanceMeters: Number(r.distance_meters),
@@ -309,13 +320,13 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
     const rows = await db.execute<ClusterDetectionRow>(sql`
       SELECT
         p.id,
+        p.country_code,
         p.street,
         p.house_number,
         p.house_number_addition,
-        ${ADDRESS_SQL} AS address,
         p.city,
         p.postal_code,
-        p.woz_value,
+        p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
         ST_Distance(
@@ -354,13 +365,13 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
     WITH nearby AS (
       SELECT
         p.id,
+        p.country_code,
         p.street,
         p.house_number,
         p.house_number_addition,
-        ${ADDRESS_SQL} AS address,
         p.city,
         p.postal_code,
-        p.woz_value,
+        p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
         ST_Distance(
@@ -420,39 +431,51 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
  */
 function mapPropertyRow(r: {
   id: string;
-  bag_identificatie: string | null;
+  national_id: string | null;
+  country_code: string;
+  region: string | null;
   street: string;
   house_number: number;
   house_number_addition: string | null;
-  address: string;
   city: string;
   postal_code: string | null;
   lon: number | null;
   lat: number | null;
-  bouwjaar: number | null;
-  oppervlakte: number | null;
+  year_built: number | null;
+  floor_area_m2: number | null;
   status: string;
-  woz_value: number | null;
+  official_valuation: number | null;
   created_at: string;
   updated_at: string;
 }) {
   return {
     id: r.id,
-    bagIdentificatie: r.bag_identificatie,
+    nationalId: r.national_id,
+    countryCode: r.country_code,
+    region: r.region,
     street: r.street,
     houseNumber: r.house_number,
     houseNumberAddition: r.house_number_addition,
-    address: r.address,
+    address: formatDisplayAddress(
+      {
+        street: r.street,
+        houseNumber: r.house_number,
+        houseNumberAddition: r.house_number_addition,
+        postalCode: r.postal_code ?? '',
+        city: r.city,
+      },
+      isValidCountryCode(r.country_code) ? r.country_code : undefined,
+    ),
     city: r.city,
     postalCode: r.postal_code,
     geometry:
       r.lon != null && r.lat != null
         ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
         : null,
-    bouwjaar: r.bouwjaar != null ? Number(r.bouwjaar) : null,
-    oppervlakte: r.oppervlakte != null ? Number(r.oppervlakte) : null,
+    yearBuilt: r.year_built != null ? Number(r.year_built) : null,
+    floorAreaM2: r.floor_area_m2 != null ? Number(r.floor_area_m2) : null,
     status: r.status as 'active' | 'inactive' | 'demolished',
-    wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+    officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
     createdAt: new Date(r.created_at).toISOString(),
     updatedAt: new Date(r.updated_at).toISOString(),
   };
@@ -487,11 +510,11 @@ export async function propertyRoutes(app: FastifyInstance) {
       }
 
       if (minPrice !== undefined) {
-        conditions.push(sql`p.woz_value >= ${minPrice}`);
+        conditions.push(sql`p.official_valuation >= ${minPrice}`);
       }
 
       if (maxPrice !== undefined) {
-        conditions.push(sql`p.woz_value <= ${maxPrice}`);
+        conditions.push(sql`p.official_valuation <= ${maxPrice}`);
       }
 
       // Bounding box query (requires PostGIS)
@@ -530,19 +553,20 @@ export async function propertyRoutes(app: FastifyInstance) {
       // Get paginated results with listing, comment, and guess data
       const rows = await db.execute<{
         id: string;
-        bag_identificatie: string | null;
+        national_id: string | null;
+        country_code: string;
+        region: string | null;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
-        bouwjaar: number | null;
-        oppervlakte: number | null;
+        year_built: number | null;
+        floor_area_m2: number | null;
         status: string;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
         comment_count: number;
@@ -552,19 +576,20 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
-          p.bag_identificatie,
+          p.national_id,
+          p.country_code,
+          p.region,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          p.bouwjaar,
-          p.oppervlakte,
+          p.year_built,
+          p.floor_area_m2,
           p.status,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
           (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
@@ -616,6 +641,10 @@ export async function propertyRoutes(app: FastifyInstance) {
         querystring: resolveQuerySchema,
         response: {
           200: resolveResponseSchema,
+          400: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
           404: z.object({
             error: z.string(),
             message: z.string(),
@@ -624,10 +653,27 @@ export async function propertyRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { postalCode, houseNumber, houseNumberAddition } = request.query;
+      const { postalCode, houseNumber, houseNumberAddition, countryCode: rawCC } = request.query;
 
-      // Normalize postal code: strip whitespace, uppercase
-      const normalizedPostalCode = postalCode.replace(/\s/g, '').toUpperCase();
+      // Validate country code against config registry
+      if (!isValidCountryCode(rawCC)) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: `Unsupported country code: ${rawCC}`,
+        });
+      }
+      const cc = rawCC as CountryCode;
+
+      // Validate postal code against country-specific regex
+      const cfg = getCountryConfig(cc);
+      const stripped = postalCode.replace(/\s/g, '').toUpperCase();
+      if (!cfg.postalCodeRegex.test(stripped)) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: `Invalid postal code format for ${cfg.name}: "${postalCode}"`,
+        });
+      }
+      const normalizedPostalCode = stripped;
 
       // Normalize addition: trim, uppercase, treat empty as null
       const normalizedAddition = houseNumberAddition?.trim().toUpperCase() || null;
@@ -640,26 +686,26 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const rows = await db.execute<{
         id: string;
+        country_code: string;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         lon: number | null;
         lat: number | null;
       }>(sql`
         SELECT
           p.id,
+          p.country_code,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat
@@ -686,7 +732,16 @@ export async function propertyRoutes(app: FastifyInstance) {
       const r = result[0];
       return reply.send({
         id: r.id,
-        address: r.address,
+        address: formatDisplayAddress(
+          {
+            street: r.street,
+            houseNumber: r.house_number,
+            houseNumberAddition: r.house_number_addition,
+            postalCode: r.postal_code ?? '',
+            city: r.city,
+          },
+          isValidCountryCode(r.country_code) ? r.country_code : undefined,
+        ),
         postalCode: r.postal_code,
         city: r.city,
         coordinates: {
@@ -694,7 +749,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           lat: r.lat ?? 0,
         },
         hasListing: r.has_listing,
-        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
       });
     }
   );
@@ -735,13 +790,13 @@ export async function propertyRoutes(app: FastifyInstance) {
       // 3. Joins with listings, comments, price_guesses for activity data
       const rows = await db.execute<{
         id: string;
+        country_code: string;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string | null;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         activity_score: number;
         distance_meters: number;
@@ -750,13 +805,13 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
+          p.country_code,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
           ST_Distance(
@@ -787,10 +842,19 @@ export async function propertyRoutes(app: FastifyInstance) {
         street: r.street,
         houseNumber: r.house_number,
         houseNumberAddition: r.house_number_addition,
-        address: r.address,
+        address: formatDisplayAddress(
+          {
+            street: r.street,
+            houseNumber: r.house_number,
+            houseNumberAddition: r.house_number_addition,
+            postalCode: r.postal_code ?? '',
+            city: r.city,
+          },
+          isValidCountryCode(r.country_code) ? r.country_code : undefined,
+        ),
         city: r.city,
         postalCode: r.postal_code,
-        wozValue: r.woz_value != null ? Number(r.woz_value) : null,
+        officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
         hasListing: r.has_listing,
         activityScore: Number(r.activity_score),
         distanceMeters: Number(r.distance_meters),
@@ -829,19 +893,20 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const rows = await db.execute<{
         id: string;
-        bag_identificatie: string | null;
+        national_id: string | null;
+        country_code: string;
+        region: string | null;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
-        bouwjaar: number | null;
-        oppervlakte: number | null;
+        year_built: number | null;
+        floor_area_m2: number | null;
         status: string;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
         comment_count: number;
@@ -851,19 +916,20 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
-          p.bag_identificatie,
+          p.national_id,
+          p.country_code,
+          p.region,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          p.bouwjaar,
-          p.oppervlakte,
+          p.year_built,
+          p.floor_area_m2,
           p.status,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
           (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
@@ -928,19 +994,20 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const rows = await db.execute<{
         id: string;
-        bag_identificatie: string | null;
+        national_id: string | null;
+        country_code: string;
+        region: string | null;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
-        bouwjaar: number | null;
-        oppervlakte: number | null;
+        year_built: number | null;
+        floor_area_m2: number | null;
         status: string;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
         like_count: number;
@@ -956,19 +1023,20 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
-          p.bag_identificatie,
+          p.national_id,
+          p.country_code,
+          p.region,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          p.bouwjaar,
-          p.oppervlakte,
+          p.year_built,
+          p.floor_area_m2,
           p.status,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
           (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
@@ -1011,14 +1079,6 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       return reply.send({
         ...mapPropertyRow(r),
-        // Override address with formatted display address
-        address: formatDisplayAddress({
-          street: r.street,
-          houseNumber: r.house_number,
-          houseNumberAddition: r.house_number_addition,
-          postalCode: r.postal_code,
-          city: r.city,
-        }),
         hasListing: r.has_listing,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         likeCount: Number(r.like_count),
@@ -1193,19 +1253,20 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const rows = await db.execute<{
         id: string;
-        bag_identificatie: string | null;
+        national_id: string | null;
+        country_code: string;
+        region: string | null;
         street: string;
         house_number: number;
         house_number_addition: string | null;
-        address: string;
         city: string;
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
-        bouwjaar: number | null;
-        oppervlakte: number | null;
+        year_built: number | null;
+        floor_area_m2: number | null;
         status: string;
-        woz_value: number | null;
+        official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
         comment_count: number;
@@ -1216,19 +1277,20 @@ export async function propertyRoutes(app: FastifyInstance) {
       }>(sql`
         SELECT
           p.id,
-          p.bag_identificatie,
+          p.national_id,
+          p.country_code,
+          p.region,
           p.street,
           p.house_number,
           p.house_number_addition,
-          ${ADDRESS_SQL} AS address,
           p.city,
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          p.bouwjaar,
-          p.oppervlakte,
+          p.year_built,
+          p.floor_area_m2,
           p.status,
-          p.woz_value,
+          p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
           (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,

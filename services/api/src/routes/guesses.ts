@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, priceGuesses, properties, users } from '../db/index.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
-import { calculateFmvForProperty, type FmvResult } from '../services/fmv.js';
+import { calculateFmvForProperty } from '../services/fmv.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -58,7 +58,7 @@ const fmvSchema = z.object({
   confidence: z.enum(['none', 'low', 'medium', 'high']),
   guessCount: z.number(),
   distribution: fmvDistributionSchema.nullable(),
-  wozValue: z.number().nullable(),
+  officialValuation: z.number().nullable(),
   askingPrice: z.number().nullable(),
   divergence: z.number().nullable(),
 });
@@ -213,7 +213,7 @@ export async function guessRoutes(app: FastifyInstance) {
 
       // Check if property exists and get WOZ value for meme guess detection
       const propertyResult = await db
-        .select({ id: properties.id, wozValue: properties.wozValue })
+        .select({ id: properties.id, officialValuation: properties.officialValuation })
         .from(properties)
         .where(eq(properties.id, propertyId))
         .limit(1);
@@ -225,7 +225,7 @@ export async function guessRoutes(app: FastifyInstance) {
         });
       }
 
-      const isMeme = checkMemeGuess(guessedPrice, propertyResult[0].wozValue);
+      const isMeme = checkMemeGuess(guessedPrice, propertyResult[0].officialValuation);
 
       // Check for existing guess
       const existingGuess = await db

@@ -7,6 +7,7 @@ import { canonicalizeAddress, normalizeSourceUrl } from '../utils/address.js';
 import { fetchOgMetadata } from '../services/og-fetcher.js';
 import { checkAddressMatch } from '../services/address-matcher.js';
 import rateLimit from '@fastify/rate-limit';
+import { getAllListingDomains, getSourceNameForDomain, getAllListingSourceNames } from '@huishype/shared/config';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -28,7 +29,7 @@ const errorResponseSchema = z.object({
 const listingResponseSchema = z.object({
   id: z.string().uuid(),
   sourceUrl: z.string(),
-  sourceName: z.enum(['funda', 'pararius', 'other']),
+  sourceName: z.string(),
   askingPrice: z.number().nullable(),
   priceType: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
@@ -64,7 +65,7 @@ const previewResponseSchema = z.object({
   ogTitle: z.string().nullable(),
   ogImage: z.string().nullable(),
   ogDescription: z.string().nullable(),
-  sourceName: z.enum(['funda', 'pararius', 'other']),
+  sourceName: z.string(),
   addressMatch: z.boolean(),
   warning: z.string().nullable(),
 });
@@ -84,7 +85,7 @@ const submitResponseSchema = z.object({
   id: z.string().uuid(),
   propertyId: z.string().uuid(),
   sourceUrl: z.string(),
-  sourceName: z.enum(['funda', 'pararius', 'other']),
+  sourceName: z.string(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']),
   createdAt: z.string().datetime(),
 });
@@ -93,9 +94,15 @@ const submitResponseSchema = z.object({
 // 5. POST /api/ingest/listings
 // ---------------------------------------------------------------------------
 
+/** All valid listing source names from the country-config registry (cached at import time). */
+const ALL_SOURCE_NAMES = getAllListingSourceNames();
+
 const ingestListingSchema = z.object({
   sourceUrl: z.string().url(),
-  sourceName: z.enum(['funda', 'pararius']),
+  sourceName: z.string().refine(
+    (val) => ALL_SOURCE_NAMES.includes(val),
+    { message: `Must be one of: ${getAllListingSourceNames().join(', ')}` },
+  ),
   mirrorListingId: z.string(),
   askingPrice: z.number().nullable(),
   priceType: z.enum(['sale', 'rent']),
@@ -142,7 +149,10 @@ const ingestResponseSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const watermarkQuerySchema = z.object({
-  source: z.enum(['funda', 'pararius']),
+  source: z.string().refine(
+    (val) => ALL_SOURCE_NAMES.includes(val),
+    { message: `Must be one of: ${getAllListingSourceNames().join(', ')}` },
+  ),
 });
 
 const watermarkResponseSchema = z.object({
@@ -153,34 +163,36 @@ const watermarkResponseSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** All listing domains from the country-config registry (cached at import time). */
+const ALL_LISTING_DOMAINS = getAllListingDomains();
+
 /**
  * Detect listing source from a URL domain.
+ * Uses the country-config registry for domain→source mapping.
+ * Returns the config-derived source name (e.g. 'funda', 'immobilienscout24'),
+ * or 'other' if the domain is not recognized.
  */
-function detectSourceName(url: string): 'funda' | 'pararius' | 'other' {
+function detectSourceName(url: string): string {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    if (hostname.includes('funda.nl')) return 'funda';
-    if (hostname.includes('pararius.nl') || hostname.includes('pararius.com')) return 'pararius';
-    return 'other';
+    return getSourceNameForDomain(hostname) ?? 'other';
   } catch {
     return 'other';
   }
 }
 
-const ALLOWED_LISTING_DOMAINS = ['funda.nl', 'pararius.nl', 'pararius.com'] as const;
-
 /**
  * Validate that a URL is an allowed listing domain (SSRF protection at route level).
- * Only allows HTTPS URLs pointing to funda.nl or pararius.nl (and subdomains).
- * Blocks private IP ranges by rejecting non-whitelisted hostnames.
+ * Only allows HTTPS URLs pointing to domains registered in the country-config registry
+ * (and their subdomains). Blocks private IP ranges by rejecting non-whitelisted hostnames.
  */
 export function isAllowedListingUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:') return false;
     const hostname = parsed.hostname.toLowerCase();
-    return ALLOWED_LISTING_DOMAINS.some(
-      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    return ALL_LISTING_DOMAINS.some(
+      (domain: string) => hostname === domain || hostname.endsWith(`.${domain}`),
     );
   } catch {
     return false;
@@ -354,7 +366,7 @@ export async function listingRoutes(app: FastifyInstance) {
       if (!isAllowedListingUrl(url)) {
         return reply.status(400).send({
           error: 'INVALID_URL',
-          message: 'Only funda.nl and pararius.nl URLs are allowed.',
+          message: 'URL must be from a recognized listing platform.',
         });
       }
 
@@ -425,7 +437,7 @@ export async function listingRoutes(app: FastifyInstance) {
       if (!isAllowedListingUrl(url)) {
         return reply.status(400).send({
           error: 'INVALID_URL',
-          message: 'Only funda.nl and pararius.nl URLs are allowed.',
+          message: 'URL must be from a recognized listing platform.',
         });
       }
 
@@ -727,7 +739,7 @@ export async function listingRoutes(app: FastifyInstance) {
             sql`(
               ${propertyId}::uuid,
               ${normalizeSourceUrl(item.sourceUrl)},
-              ${item.sourceName}::listing_source,
+              ${item.sourceName},
               ${item.mirrorListingId},
               ${item.askingPrice}::bigint,
               ${item.priceType},

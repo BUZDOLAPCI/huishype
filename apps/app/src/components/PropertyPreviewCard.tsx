@@ -1,13 +1,15 @@
 import { Pressable, Text, View, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
+import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 
 export interface PropertyPreviewData {
   id: string;
   address: string;
   city: string;
   postalCode?: string | null;
-  wozValue?: number | null;
+  countryCode?: string;
+  officialValuation?: number | null;
   askingPrice?: number;
   fmv?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
@@ -38,7 +40,7 @@ export function PropertyPreviewCard({
   onPress,
   showArrow = false,
 }: PropertyPreviewCardProps) {
-  const displayPrice = property.fmv ?? property.askingPrice ?? property.wozValue;
+  const displayPrice = property.fmv ?? property.askingPrice ?? property.officialValuation;
   const activityLevel = property.activityLevel ?? 'cold';
 
   const activityColors = {
@@ -163,10 +165,10 @@ export function PropertyPreviewCard({
           {displayPrice !== undefined && displayPrice !== null && (
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 4 }}>
               <Text style={{ fontSize: 18, fontWeight: '700', color: '#2563EB' }}>
-                {'\u20AC'}{displayPrice.toLocaleString('nl-NL')}
+                {formatPropertyPrice(displayPrice, property.countryCode as CountryCode)}
               </Text>
               <Text style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 4 }}>
-                {property.fmv ? 'FMV' : property.askingPrice ? 'Ask' : 'WOZ'}
+                {property.fmv ? 'FMV' : property.askingPrice ? 'Ask' : property.officialValuation ? (property.countryCode === 'NL' ? 'WOZ' : 'Val.') : ''}
               </Text>
             </View>
           )}

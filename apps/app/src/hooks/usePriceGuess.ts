@@ -36,7 +36,7 @@ export interface FmvResponse {
   confidence: 'none' | 'low' | 'medium' | 'high';
   guessCount: number;
   distribution: FmvDistribution | null;
-  wozValue: number | null;
+  officialValuation: number | null;
   askingPrice: number | null;
   divergence: number | null;
 }
@@ -123,7 +123,7 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
             confidence: 'none',
             guessCount: 0,
             distribution: null,
-            wozValue: null,
+            officialValuation: null,
             askingPrice: null,
             divergence: null,
           },

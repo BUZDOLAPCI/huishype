@@ -266,14 +266,15 @@ async function seedTestFixture() {
     console.log('');
 
     // ------------------------------------------------------------------
-    // Step 7: Set WOZ value
+    // Step 7: Set WOZ value and country code
     // ------------------------------------------------------------------
-    console.log('Step 7: Setting WOZ value...');
+    console.log('Step 7: Setting WOZ value and country code...');
 
     await sql`
-      UPDATE properties SET woz_value = ${385000} WHERE id = ${propertyId}
+      UPDATE properties SET official_valuation = ${385000}, country_code = 'NL' WHERE id = ${propertyId}
     `;
-    console.log(`  WOZ value: 385,000 EUR`);
+    console.log(`  Official valuation: 385,000 EUR`);
+    console.log(`  Country code: NL`);
     console.log('');
 
     // ------------------------------------------------------------------
@@ -288,7 +289,7 @@ async function seedTestFixture() {
     console.log(`  Comments: 5 (1 reply)`);
     console.log(`  Guesses:  3`);
     console.log(`  Reactions: 5`);
-    console.log(`  WOZ:      385,000 EUR`);
+    console.log(`  Valuation: 385,000 EUR`);
     console.log(`  Time:     ${formatTime(Date.now() - startTime)}`);
   } finally {
     await sql.end();

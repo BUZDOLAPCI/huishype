@@ -22,6 +22,24 @@ Shader files in both forks: `fill_extrusion.vertex.glsl` and `fill_extrusion.fra
 - **`flat` varying provoking vertex**: OpenGL ES 3.0 uses last-vertex convention for `flat` interpolation. Triangle winding order in `fill_extrusion_bucket.cpp` must ensure vertex 1 (topLeft, face-start edgedistance) is the last vertex of BOTH triangles — otherwise `v_ed_flat` gets wrong value on half the triangles (no windows + color mismatch). Web GL JS bucket already does this correctly.
 - **Native fork modifies C++ too**: Not just GLSL shaders — also `fill_extrusion_bucket.cpp` (triangle winding), `shader_info.cpp` (attribute binding), `render_fill_extrusion_layer.cpp` (template order). Check these when debugging rendering issues.
 
+## Multi-Country Architecture
+
+Single deployment serves 19 European countries simultaneously. No per-country deployments.
+
+**Central registry**: `packages/shared/src/config/country-config.ts` — all country-specific logic flows through `getCountryConfig(countryCode)`. Import from `@huishype/shared/config`.
+
+**Key columns**: `properties.country_code CHAR(2)`, `properties.national_id`, `properties.year_built`, `properties.floor_area_m2`, `properties.official_valuation`, `properties.region`, `users.home_country CHAR(2)`, `listing_source VARCHAR(50)`.
+
+**Formatting**: Use `formatPropertyPrice(price, countryCode)` from `@huishype/shared` — never hardcode locale/currency. Non-property formatting (dates, numbers) uses device locale (no hardcoded `nl-NL`).
+
+**Geocoding**: Photon self-hosted (planet DB). Backend proxy `GET /geocode/search?q=...&countrycode=XX`. Frontend uses `apiGeocoder.search()` from `apps/app/src/services/api-geocoder.ts`. PDOK address search is deleted; PDOK aerial imagery stays (NL-gated).
+
+**Validation**: `validatePostalCode(code, countryCode)` and `normalizePostalCode(code, countryCode)` from `@huishype/shared` — no hardcoded Dutch regex.
+
+**Address formatting**: `formatDisplayAddress(addr, countryCode)` dispatches through country config. `formatAddition()` is NL-specific.
+
+**Listing domains**: Config-driven via `getAllListingDomains()`. Domain → source name via `getSourceNameForDomain(hostname)`.
+
 ## Design Decisions
 
 All design decisions and specifications are in `agent-rules/`. **Consult these before making decisions.**
@@ -108,47 +126,80 @@ Then hard-refresh the browser (Ctrl+Shift+R).
 
 ## Data Sources
 
-There is a `data_sources/` folder containing the locally available data like the The full 7GB BAG Geopackage from (https://service.pdok.nl/lv/bag/atom/bag.xml) already downloaded.
+The `data_sources/` folder contains locally available data:
+- `data_sources/bag-light.gpkg` — 7GB BAG GeoPackage (NL-only property data)
+- `data_sources/{CC}/` — Country-specific OSM PBF files (NL, DE, BE, FR, GB downloaded)
+- `photon_data/` — Photon geocoder planet DB (~88GB extracted, bind-mounted into Docker)
 
-Refer to the `data_sources/data-sources.md` for more information
+Refer to `data_sources/data-sources.md` for more information.
 
 ## Database Seeding
 
-The seed scripts populate the PostgreSQL database with property data from the BAG GeoPackage and listings from the Funda/Pararius mirror databases.
+Multi-country property data from Overture Maps (addresses) + OSM PBF (buildings) + BAG GeoPackage (NL legacy) + Funda/Pararius mirrors (listings).
 
 ### Quick Start
 
 ```bash
 cd services/api
 
-# Full reset: drop DB, migrate, seed properties + listings
+# Full reset: drop DB, migrate, seed NL properties + listings
 pnpm run db:reset
 
 # Or run steps individually:
-pnpm run db:migrate          # Create/update tables
-pnpm run db:seed             # Seed BAG properties (~9.6M, ~7.5 min)
-pnpm run db:seed-listings    # Seed listings from mirrors (~144K, ~1.3 min)
-pnpm run db:import-buildings # Import 3DBAG building footprints (~10.8M, ~10 min)
+pnpm run db:migrate                                     # Create/update tables
+pnpm run db:seed                                        # Seed BAG properties (~9.6M NL, ~7.5 min)
+pnpm run db:seed-listings                               # Seed listings from mirrors (~144K, ~1.3 min)
+pnpm run db:seed-overture                               # Import Overture addresses (all countries, ~2h)
+pnpm run db:seed-overture -- --country NL               # Single country
+pnpm run db:seed-overture -- --country NL,DE,BE         # Multiple countries
+pnpm run db:import-buildings                             # Import OSM buildings (all available PBFs)
+pnpm run db:import-buildings -- --country DE             # Single country (appends, no drop)
 ```
 
-### Performance
+### Current Data (as of 2026-03-11)
+
+| Dataset | Records | Countries |
+|---------|---------|-----------|
+| Properties (Overture) | 41.9M | NL (10.2M), FR (24.8M), DE (5.2M), BE (1.7M) |
+| OSM Buildings | 123.3M | FR (49.4M), DE (38.8M), NL+BE (19M), GB (16.2M) |
+| Listings | ~144K | NL (Funda + Pararius mirrors) |
+
+**Note**: GB has 0 Overture addresses (UK doesn't publish open address data) but 16.2M OSM buildings.
+
+### Import Performance
 
 | Step | Records | Time |
 |------|---------|------|
-| BAG property seed | ~9.6M | ~7.5 min |
-| Listing seed | ~144K listings | ~1.3 min |
-| BAG building import | ~10.8M | ~10 min |
-| **Total db:reset** | | **~19 min** (with `--skip-extract`: skip ogr2ogr) |
-| **Total db:reset (full)** | | **~24 min** (includes ogr2ogr extraction) |
+| BAG property seed (NL) | ~9.6M | ~7.5 min |
+| Overture NL | 10.2M | ~15 min |
+| Overture DE | 5.2M | ~13 min |
+| Overture FR | 24.8M | ~76 min |
+| Overture BE | 1.7M | ~4 min |
+| OSM buildings NL+BE | ~19M | ~18 min |
+| OSM buildings DE | 38.8M | ~22 min |
+| OSM buildings FR | 49.4M | ~29 min |
+| OSM buildings GB | 16.2M | ~11 min |
+| Listing seed | ~144K | ~1.3 min |
 
 ### Seed Flags
 
-**db:seed (BAG properties):**
+**db:seed (BAG properties, NL only):**
 - `--skip-extract` — Reuse existing CSV (skip ogr2ogr extraction)
 - `--limit N` — Limit properties inserted
 - `--offset N` — Start from offset N
 - `--skip-demolished` — Skip demolished/withdrawn properties
 - `--dry-run` — Don't modify database
+
+**db:seed-overture (multi-country addresses):**
+- `--country NL,DE,BE` — Specific countries (default: all 19 European)
+- `--release 2026-02-18.0` — Pin Overture release version
+- `--local /path/to/parquet` — Use local file instead of S3
+- `--dry-run` — Don't modify database
+
+**db:import-buildings (multi-country OSM):**
+- `--country NL` — Single country (appends to existing table)
+- `--country all` — Full import (drops and recreates table)
+- No flag = same as `--country all`
 
 **db:seed-listings:**
 - `--source funda|pararius|both` — Filter by listing source (default: both)
@@ -159,11 +210,19 @@ pnpm run db:import-buildings # Import 3DBAG building footprints (~10.8M, ~10 min
 
 ### How It Works
 
-**BAG Seed Pipeline:** `ogr2ogr (with -t_srs EPSG:4326) → CSV → PostgreSQL COPY into staging → INSERT INTO properties SELECT DISTINCT ON ... ON CONFLICT`
+**BAG Seed Pipeline (NL only):** `ogr2ogr (with -t_srs EPSG:4326) → CSV → PostgreSQL COPY into staging → INSERT INTO properties SELECT DISTINCT ON ... ON CONFLICT`
 
-**Listing Seed:** Preloads all 6.5M property addresses into memory Map for O(1) lookups, batch INSERT listings + price_history, PostGIS spatial fallback for edge cases.
+**Overture Pipeline (multi-country):** `DuckDB CLI → S3 GeoParquet query with bbox+country filter → CSV → COPY staging → DISTINCT ON (country, street, postal_code, house_number, addition) → UPSERT properties`
 
-Both seeds are upsert-safe and can be re-run on a populated database (e.g., to refresh BAG data yearly without destroying user data).
+**OSM Buildings Pipeline:** `ogr2ogr from PBF multipolygons → staging → INSERT with hstore height parsing → GIST index`
+
+**Listing Seed:** Preloads all property addresses into memory Map for O(1) lookups, batch INSERT listings + price_history, PostGIS spatial fallback for edge cases.
+
+All seeds are upsert-safe and can be re-run on a populated database.
+
+### Important: Unique Index
+
+The properties unique constraint is `(country_code, street, postal_code, house_number, house_number_addition)`. The `street` column is critical — without it, countries with coarse postal codes (DE, FR, BE) lose 90%+ of addresses to dedup collisions (NL postal codes are per-house, other countries are per-area).
 
 ## Permissions
 
@@ -242,6 +301,7 @@ Metro and the API run as always-on systemd user services. Docker (postgres, redi
 |---------|------|------|------|
 | Expo/Metro | `huishype-expo.service` | 8081 | `journalctl --user -u huishype-expo -f` |
 | API | `huishype-api.service` | 3100 | `journalctl --user -u huishype-api -f` |
+| Photon geocoder | Docker (`huishype-photon`) | 2322 | `docker logs huishype-photon -f` |
 
 ```bash
 systemctl --user restart huishype-expo   # Restart Metro

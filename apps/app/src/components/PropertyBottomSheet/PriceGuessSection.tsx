@@ -10,6 +10,7 @@ import Animated, {
   FadeOut,
 } from 'react-native-reanimated';
 
+import { formatPropertyPrice } from '@huishype/shared';
 import type { SectionProps } from './types';
 import { PriceGuessSlider } from '../PriceGuessSlider';
 import { FMVVisualization, type FMVData } from '../FMVVisualization';
@@ -27,9 +28,9 @@ interface PriceGuessSectionProps extends SectionProps {
   onLoginRequired?: () => void;
 }
 
-// Format price in Dutch locale
+// Format price using country config (defaults to NL)
 function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+  return formatPropertyPrice(price);
 }
 
 // Skeleton loading component
@@ -177,7 +178,7 @@ export function PriceGuessSection({
           confidence: guessData.fmv.confidence,
           guessCount: guessData.fmv.guessCount,
           distribution: guessData.fmv.distribution,
-          wozValue: guessData.fmv.wozValue,
+          officialValuation: guessData.fmv.officialValuation,
           askingPrice: guessData.fmv.askingPrice,
           divergence: guessData.fmv.divergence,
         }
@@ -233,7 +234,7 @@ export function PriceGuessSection({
             fmv={fmvData}
             userGuess={guessData?.userGuess?.guessedPrice}
             askingPrice={property.askingPrice}
-            wozValue={property.wozValue ?? undefined}
+            officialValuation={property.officialValuation ?? undefined}
             testID="fmv-visualization"
           />
         </View>
@@ -256,7 +257,7 @@ export function PriceGuessSection({
       {/* Price Guess Slider */}
       <PriceGuessSlider
         propertyId={property.id}
-        wozValue={property.wozValue ?? undefined}
+        officialValuation={property.officialValuation ?? undefined}
         askingPrice={property.askingPrice}
         currentFMV={fmvData?.value ?? undefined}
         userGuess={guessData?.userGuess?.guessedPrice}

@@ -95,7 +95,7 @@ export default function FMVVisualizationShowcase() {
               fmv={HIGH_CONFIDENCE_FMV}
               askingPrice={480000}
               userGuess={435000}
-              wozValue={390000}
+              officialValuation={390000}
               testID="fmv-visualization-high"
             />
           </View>
@@ -111,7 +111,7 @@ export default function FMVVisualizationShowcase() {
             <FMVVisualization
               fmv={MEDIUM_CONFIDENCE_FMV}
               askingPrice={340000}
-              wozValue={350000}
+              officialValuation={350000}
               testID="fmv-visualization-medium"
             />
           </View>
@@ -126,7 +126,7 @@ export default function FMVVisualizationShowcase() {
             </Text>
             <FMVVisualization
               fmv={LOW_CONFIDENCE_FMV}
-              wozValue={315000}
+              officialValuation={315000}
               testID="fmv-visualization-low"
             />
           </View>
@@ -143,7 +143,7 @@ export default function FMVVisualizationShowcase() {
               fmv={WIDE_DISTRIBUTION_FMV}
               askingPrice={550000}
               userGuess={380000}
-              wozValue={420000}
+              officialValuation={420000}
               testID="fmv-visualization-wide"
             />
           </View>

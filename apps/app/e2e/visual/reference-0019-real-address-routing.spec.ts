@@ -3,7 +3,7 @@
  *
  * Tests the real address routing feature:
  * - URL structure: huishype.nl/{city}/{zipcode}/{street}/{house_number}
- * - PDOK Locatieserver address resolution
+ * - Photon geocoder address resolution (via backend /geocode/search proxy)
  * - Hierarchical routing (city, postcode, property views)
  * - Address styling matching the reference
  *
@@ -69,8 +69,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     });
 
-    // Mock PDOK API responses
-    await page.route('**/api.pdok.nl/**', async (route) => {
+    // Mock the backend geocode proxy (Photon-backed)
+    await page.route('**/geocode/search**', async (route) => {
       const url = new URL(route.request().url());
       const query = url.searchParams.get('q') || '';
 
@@ -84,42 +84,26 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            response: {
-              numFound: 1,
-              start: 0,
-              maxScore: 18.5,
-              docs: [
-                {
-                  id: 'adr-51d1f8e8e3ca30e9c0258e0900015b44',
-                  type: 'adres',
-                  weergavenaam: 'Deflectiespoelstraat 16, 5651HP Eindhoven',
-                  score: 18.5,
-                  centroide_ll: 'POINT(5.4557789 51.4300456)',
-                  huisnummer: '16',
-                  postcode: '5651HP',
-                  straatnaam: 'Deflectiespoelstraat',
-                  woonplaatsnaam: 'Eindhoven',
-                  gemeentenaam: 'Eindhoven',
-                  provincienaam: 'Noord-Brabant',
-                },
-              ],
+          body: JSON.stringify([
+            {
+              id: 'W_123456',
+              displayName: 'Deflectiespoelstraat 16, 5651HP Eindhoven',
+              street: 'Deflectiespoelstraat',
+              houseNumber: '16',
+              postalCode: '5651HP',
+              city: 'Eindhoven',
+              region: 'Noord-Brabant',
+              countryCode: 'nl',
+              coordinates: [5.4557789, 51.4300456],
             },
-          }),
+          ]),
         });
       } else {
         // Return empty for non-existent addresses
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            response: {
-              numFound: 0,
-              start: 0,
-              maxScore: 0,
-              docs: [],
-            },
-          }),
+          body: JSON.stringify([]),
         });
       }
     });
@@ -171,9 +155,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ).first();
     await expect(addressSubtitle).toBeVisible({ timeout: 5000 });
 
-    // Verify BAG ID is displayed (starts with "adr-")
-    const bagId = page.locator('text=/adr-/').first();
-    await expect(bagId).toBeVisible({ timeout: 5000 });
+    // Verify geocoder ID is displayed (Photon format: osm_type + "_" + osm_id, e.g. "W_123456")
+    const geocoderId = page.locator('text=/W_123456/').first();
+    await expect(geocoderId).toBeVisible({ timeout: 5000 });
 
     // Verify no "loading" or error states
     const loadingState = page.getByText('Resolving address');
@@ -292,7 +276,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const addressTitle = page.locator('text=Deflectiespoelstraat 16').first();
     await expect(addressTitle).toBeVisible({ timeout: 10000 });
 
-    // Verify coordinates are displayed (proves PDOK resolution worked)
+    // Verify coordinates are displayed (proves geocoder resolution worked)
     const coordinates = page.locator('text=/51\\.4.*5\\.4/').first();
     await expect(coordinates).toBeVisible({ timeout: 5000 });
 

@@ -87,7 +87,7 @@ export default function PublicProfileScreen() {
         {/* Member since */}
         <View className="bg-white mt-2 px-6 py-4">
           <Text className="text-sm text-gray-500">
-            Member since {new Date(profile.joinedAt).toLocaleDateString('nl-NL', {
+            Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
               month: 'long',
               year: 'numeric',
             })}

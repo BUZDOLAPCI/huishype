@@ -8,7 +8,7 @@ describe('PropertyPreviewCard', () => {
     address: 'Teststraat 123',
     city: 'Eindhoven',
     postalCode: '5600 AA',
-    wozValue: 350000,
+    officialValuation: 350000,
     activityLevel: 'warm',
     activityScore: 25,
   };
@@ -20,12 +20,17 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
   });
 
-  it('displays WOZ value correctly', () => {
+  it('displays valuation label correctly (generic without countryCode)', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 
-    // Component uses abbreviated label "WOZ" instead of "WOZ Value"
+    // Without countryCode, uses generic "Val." label
+    expect(screen.getByText('Val.')).toBeTruthy();
+  });
+
+  it('displays WOZ label when countryCode is NL', () => {
+    render(<PropertyPreviewCard property={{ ...mockProperty, countryCode: 'NL' }} />);
+
     expect(screen.getByText('WOZ')).toBeTruthy();
-    // Check for the formatted price (Euro symbol + formatted number)
   });
 
   it('shows activity indicator based on activity level', () => {
@@ -128,23 +133,24 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Eindhoven')).toBeTruthy();
   });
 
-  it('handles property without WOZ value', () => {
+  it('handles property without official valuation', () => {
     const propertyWithoutWozValue: PropertyPreviewData = {
       ...mockProperty,
-      wozValue: null,
+      officialValuation: null,
     };
     render(<PropertyPreviewCard property={propertyWithoutWozValue} />);
 
     // Should render without crashing
     expect(screen.getByText('Teststraat 123')).toBeTruthy();
-    // WOZ Value label should not be present
-    expect(screen.queryByText('WOZ Value')).toBeNull();
+    // Valuation label should not be present
+    expect(screen.queryByText('Val.')).toBeNull();
+    expect(screen.queryByText('WOZ')).toBeNull();
   });
 
   it('displays asking price when provided', () => {
     const propertyWithAskingPrice: PropertyPreviewData = {
       ...mockProperty,
-      wozValue: null,
+      officialValuation: null,
       askingPrice: 395000,
     };
     render(<PropertyPreviewCard property={propertyWithAskingPrice} />);
@@ -164,10 +170,10 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('FMV')).toBeTruthy();
   });
 
-  it('prefers FMV over asking price over WOZ value', () => {
+  it('prefers FMV over asking price over official valuation', () => {
     const propertyWithAllPrices: PropertyPreviewData = {
       ...mockProperty,
-      wozValue: 350000,
+      officialValuation: 350000,
       askingPrice: 395000,
       fmv: 380000,
     };

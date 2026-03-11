@@ -23,18 +23,19 @@ import fs from 'fs';
  */
 const MOCK_PROPERTY_WITH_PRICE = {
   id: 'test-property-001',
-  bagIdentificatie: '0772010000123456',
+  nationalId: '0772010000123456',
   address: 'Stratumseind 100',
   city: 'Eindhoven',
   postalCode: '5611 ET',
+  countryCode: 'NL',
   geometry: {
     type: 'Point',
     coordinates: [5.4697, 51.4416],
   },
-  bouwjaar: 1985,
-  oppervlakte: 120,
+  yearBuilt: 1985,
+  floorAreaM2: 120,
   status: 'active',
-  wozValue: 425000, // Mock WOZ value for price display
+  officialValuation: 425000, // Mock official valuation for price display
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
@@ -58,7 +59,7 @@ async function setupPropertyMocking(page: Page): Promise<void> {
         id: propertyId,
       };
 
-      console.log(`Mocking property API response for ID: ${propertyId} with WOZ value: ${mockResponse.wozValue}`);
+      console.log(`Mocking property API response for ID: ${propertyId} with valuation: ${mockResponse.officialValuation}`);
 
       await route.fulfill({
         status: 200,
@@ -550,7 +551,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Thumbnail image visible: ${hasImage}`);
       console.log(`Thumbnail placeholder visible: ${hasPlaceholder}`);
 
-      // Verify price display - the mock property has wozValue of 425000
+      // Verify price display - the mock property has officialValuation of 425000
       // Price should be formatted as euro amount (e.g., "425.000" or "425,000")
       const priceText = page.locator('[data-testid="group-preview-card"]').locator('text=/\\d{3}[.,]\\d{3}/');
       const hasPrice = await priceText.first().isVisible().catch(() => false);
@@ -796,8 +797,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         'text=Property Details',
         'text=Save',
         'text=Share',
-        'text=bouwjaar',
-        'text=oppervlakte',
+        'text=Year Built',
         'text=m\u00B2', // square meters
       ];
 

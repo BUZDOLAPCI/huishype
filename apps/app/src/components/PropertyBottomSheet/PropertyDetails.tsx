@@ -48,13 +48,13 @@ export function PropertyDetails({ property }: SectionProps) {
         <DetailRow
           icon="calendar-outline"
           label="Year Built"
-          value={property.bouwjaar}
+          value={property.yearBuilt}
         />
 
         <DetailRow
           icon="resize-outline"
           label="Surface Area"
-          value={property.oppervlakte ? `${property.oppervlakte} m\u00B2` : null}
+          value={property.floorAreaM2 ? `${property.floorAreaM2} m\u00B2` : null}
         />
 
         {property.status && (

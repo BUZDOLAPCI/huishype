@@ -1,6 +1,6 @@
 {
-  "id": "0e3ee5ba-ede7-4713-a8cc-9a119ba2f504",
-  "prevId": "46112caf-4479-438a-9e33-ea8f837abc72",
+  "id": "1e088934-c6a3-4290-afe1-2a31eb738eea",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -175,8 +175,7 @@
         },
         "source_name": {
           "name": "source_name",
-          "type": "listing_source",
-          "typeSchema": "public",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true
         },
@@ -409,6 +408,83 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.osm_buildings": {
+      "name": "osm_buildings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "osm_id": {
+          "name": "osm_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "render_height": {
+          "name": "render_height",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 6
+        },
+        "render_min_height": {
+          "name": "render_min_height",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "geometry": {
+          "name": "geometry",
+          "type": "geometry(MultiPolygon, 4326)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "osm_buildings_osm_id_idx": {
+          "name": "osm_buildings_osm_id_idx",
+          "columns": [
+            {
+              "expression": "osm_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "osm_id IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_osm_buildings_geometry": {
+          "name": "idx_osm_buildings_geometry",
+          "columns": [
+            {
+              "expression": "geometry",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gist",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -724,8 +800,15 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "bag_identificatie": {
-          "name": "bag_identificatie",
+        "country_code": {
+          "name": "country_code",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NL'"
+        },
+        "national_id": {
+          "name": "national_id",
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false
@@ -744,7 +827,7 @@
         },
         "house_number_addition": {
           "name": "house_number_addition",
-          "type": "varchar(20)",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false
         },
@@ -753,6 +836,12 @@
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true
+        },
+        "region": {
+          "name": "region",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
         },
         "postal_code": {
           "name": "postal_code",
@@ -766,14 +855,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "bouwjaar": {
-          "name": "bouwjaar",
+        "year_built": {
+          "name": "year_built",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
-        "oppervlakte": {
-          "name": "oppervlakte",
+        "floor_area_m2": {
+          "name": "floor_area_m2",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -786,8 +875,8 @@
           "notNull": true,
           "default": "'active'"
         },
-        "woz_value": {
-          "name": "woz_value",
+        "official_valuation": {
+          "name": "official_valuation",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
@@ -808,11 +897,17 @@
         }
       },
       "indexes": {
-        "properties_bag_id_idx": {
-          "name": "properties_bag_id_idx",
+        "properties_national_id_idx": {
+          "name": "properties_national_id_idx",
           "columns": [
             {
-              "expression": "bag_identificatie",
+              "expression": "country_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "national_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -857,6 +952,18 @@
           "name": "properties_address_unique_idx",
           "columns": [
             {
+              "expression": "country_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "street",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "postal_code",
               "isExpression": false,
               "asc": true,
@@ -894,19 +1001,41 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "properties_country_code_idx": {
+          "name": "properties_country_code_idx",
+          "columns": [
+            {
+              "expression": "country_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "properties_geometry_gist_idx": {
+          "name": "properties_geometry_gist_idx",
+          "columns": [
+            {
+              "expression": "geometry",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gist",
+          "with": {}
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "properties_bag_identificatie_unique": {
-          "name": "properties_bag_identificatie_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "bag_identificatie"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1343,6 +1472,12 @@
           "notNull": true,
           "default": 0
         },
+        "home_country": {
+          "name": "home_country",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_display_name_change_at": {
           "name": "last_display_name_change_at",
           "type": "timestamp with time zone",
@@ -1464,15 +1599,6 @@
     }
   },
   "enums": {
-    "public.listing_source": {
-      "name": "listing_source",
-      "schema": "public",
-      "values": [
-        "funda",
-        "pararius",
-        "other"
-      ]
-    },
     "public.listing_status": {
       "name": "listing_status",
       "schema": "public",

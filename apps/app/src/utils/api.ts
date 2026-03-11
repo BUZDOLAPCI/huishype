@@ -104,7 +104,7 @@ export interface NearbyProperty {
   address: string;
   city: string;
   postalCode: string | null;
-  wozValue: number | null;
+  officialValuation: number | null;
   hasListing: boolean;
   activityScore: number;
   distanceMeters: number;
@@ -201,7 +201,7 @@ export type NearbyClusterResult =
       address: string;
       city: string;
       postalCode: string | null;
-      wozValue: number | null;
+      officialValuation: number | null;
       hasListing: boolean;
       askingPrice: number | null;
       activityScore: number;
@@ -235,15 +235,15 @@ export async function fetchNearbyCluster(
 /** Shape returned by GET /properties/batch */
 export interface BatchProperty {
   id: string;
-  bagIdentificatie: string | null;
+  nationalId: string | null;
   address: string;
   city: string;
   postalCode: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
-  bouwjaar: number | null;
-  oppervlakte: number | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
   status: string;
-  wozValue: number | null;
+  officialValuation: number | null;
   hasListing: boolean;
   askingPrice: number | null;
   commentCount: number;

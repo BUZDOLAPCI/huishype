@@ -19,7 +19,7 @@ export interface SearchResultsProps {
 }
 
 /**
- * Dropdown list of PDOK address search results.
+ * Dropdown list of geocoder address search results.
  * Shown below the search input when the user types.
  */
 export function SearchResults({

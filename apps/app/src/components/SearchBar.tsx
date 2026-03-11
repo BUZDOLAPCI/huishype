@@ -14,7 +14,7 @@ export interface SearchBarProps {
   onPropertyResolved: (property: PropertyResolveResult) => void;
   /**
    * Called when a search result is tapped but the property is NOT found
-   * in our local database. Falls back to PDOK coordinates.
+   * in our local database. Falls back to geocoder coordinates.
    */
   onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
 }
@@ -23,7 +23,7 @@ const DEBOUNCE_MS = 300;
 
 /**
  * Search bar overlay for the map screen.
- * Uses PDOK Locatieserver for address autocomplete and
+ * Uses the geocoding backend (Photon) for address autocomplete and
  * the backend /properties/resolve endpoint to map addresses
  * to local properties.
  */
@@ -67,7 +67,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
     };
   }, [inputValue]);
 
-  // PDOK address search using existing hook
+  // Geocoder address search using existing hook
   const { data: results = [], isLoading } = useAddressSearch(debouncedQuery, 5);
 
   // Handle result tap: resolve to local property
@@ -80,7 +80,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
       setIsResolving(true);
 
       try {
-        // Extract postal code and house number from PDOK result
+        // Extract postal code and house number from geocoder result
         const postalCode = address.details.zip;
         const houseNumber = address.details.number;
 
@@ -90,14 +90,14 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
           if (property) {
             onPropertyResolved(property);
           } else {
-            // Property not in our DB - fly to PDOK coordinates
+            // Property not in our DB - fly to geocoder coordinates
             onLocationResolved(
               { lon: address.lon, lat: address.lat },
               address.formattedAddress,
             );
           }
         } else {
-          // Missing postal code or house number - use PDOK coordinates
+          // Missing postal code or house number - use geocoder coordinates
           onLocationResolved(
             { lon: address.lon, lat: address.lat },
             address.formattedAddress,
@@ -105,7 +105,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
         }
       } catch (error) {
         console.warn('[HuisHype] Search resolve error:', error);
-        // Fallback to PDOK coordinates
+        // Fallback to geocoder coordinates
         onLocationResolved(
           { lon: address.lon, lat: address.lat },
           address.formattedAddress,

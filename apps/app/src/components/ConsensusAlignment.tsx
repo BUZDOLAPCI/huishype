@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
+import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import type { PriceGuess } from '../hooks/usePriceGuess';
 
 const MIN_GUESSES_FOR_CONSENSUS = 3;
@@ -23,6 +24,7 @@ export interface ConsensusAlignmentProps {
   topPredictorsAgreement?: number;
   guessCount: number;
   guesses?: PriceGuess[];
+  countryCode?: string;
   isVisible?: boolean;
   testID?: string;
 }
@@ -86,9 +88,9 @@ function getAlignmentInfo(userGuess: number, crowdEstimate: number): {
   };
 }
 
-// Format price in Dutch locale
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+// Format price using country config
+function formatPrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
 // Generate the main message based on alignment
@@ -118,6 +120,7 @@ export function ConsensusAlignment({
   topPredictorsAgreement,
   guessCount,
   guesses,
+  countryCode,
   isVisible = true,
   testID = 'consensus-alignment',
 }: ConsensusAlignmentProps) {
@@ -244,14 +247,14 @@ export function ConsensusAlignment({
               <View className="items-center">
                 <Text className="text-xs text-gray-400">Your guess</Text>
                 <Text className="text-sm font-semibold text-gray-700">
-                  {formatPrice(userGuess)}
+                  {formatPrice(userGuess, countryCode)}
                 </Text>
               </View>
               <Ionicons name="swap-horizontal" size={20} color="#9CA3AF" />
               <View className="items-center">
                 <Text className="text-xs text-gray-400">Crowd estimate</Text>
                 <Text className="text-sm font-semibold text-gray-700">
-                  {formatPrice(crowdEstimate)}
+                  {formatPrice(crowdEstimate, countryCode)}
                 </Text>
               </View>
             </View>

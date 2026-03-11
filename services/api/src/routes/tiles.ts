@@ -97,7 +97,7 @@ const BUILDINGS_3D_CONFIG = {
   heightMultiplier: 1.0,
 };
 
-// BAG building tile serving configuration
+// OSM building tile serving configuration
 const BUILDINGS_TILE_CONFIG = {
   minZoom: 15, // match BUILDINGS_3D_CONFIG.minZoom — no need to serve below 3D threshold
   maxZoom: 17, // beyond z17, tiles are detailed enough (MapLibre overzooms)
@@ -671,10 +671,6 @@ function buildPaperTreesLayer(): Record<string, unknown> {
 const TREE_MIN_ZOOM = 15;
 const TREE_MAX_ZOOM = 20;
 const TREE_VARIANTS = 16;
-/** Minimum building height (meters) for tree exclusion — matches import-tall-buildings.ts */
-const TALL_BUILDING_MIN_HEIGHT = 20;
-/** Maximum exclusion radius (meters) — matches import-tall-buildings.ts */
-const TALL_BUILDING_MAX_RADIUS = 100;
 
 export async function tileRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -851,8 +847,8 @@ export async function tileRoutes(app: FastifyInstance) {
                 tiles: tileJson.tiles,
                 ...(tileJson.minzoom != null && { minzoom: tileJson.minzoom }),
                 ...(tileJson.maxzoom != null && { maxzoom: tileJson.maxzoom }),
-                ...(tileJson.bounds && { bounds: tileJson.bounds }),
-                ...(tileJson.attribution && { attribution: tileJson.attribution }),
+                ...(tileJson.bounds ? { bounds: tileJson.bounds } : {}),
+                ...(tileJson.attribution ? { attribution: tileJson.attribution } : {}),
               };
             } catch (tjErr) {
               app.log.warn(tjErr, `Failed to resolve TileJSON for source "${name}" — keeping url reference`);
@@ -882,7 +878,7 @@ export async function tileRoutes(app: FastifyInstance) {
           maxzoom: TREE_MAX_ZOOM,
         };
 
-        // Add BAG building tile source
+        // Add OSM building tile source
         const buildingTileUrl = `${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`;
         sources['buildings-source'] = {
           type: 'vector',
@@ -1180,23 +1176,23 @@ export async function tileRoutes(app: FastifyInstance) {
     },
   );
 
-  // --- BAG building tiles ---
+  // --- OSM building tiles ---
 
   /**
    * GET /tiles/buildings/:z/:x/:y.pbf
    *
-   * Returns MVT tiles with individual BAG building footprints.
+   * Returns MVT tiles with individual OSM building footprints.
    * Each building is its own feature with render_height and render_min_height
-   * from LIDAR measurements, enabling per-building 3D extrusion and color variation.
+   * from OSM tags, enabling per-building 3D extrusion and color variation.
    */
   typedApp.get(
     '/tiles/buildings/:z/:x/:y.pbf',
     {
       schema: {
         tags: ['tiles'],
-        summary: 'Get BAG building vector tile',
+        summary: 'Get OSM building vector tile',
         description:
-          'Returns MVT with individual BAG building footprints and LIDAR-measured heights.',
+          'Returns MVT with individual OSM building footprints and heights.',
         params: tileParamsSchema,
       },
     },
@@ -1221,7 +1217,7 @@ export async function tileRoutes(app: FastifyInstance) {
               256,
               true
             ) AS geom
-          FROM bag_buildings
+          FROM osm_buildings
           WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
         )
         SELECT ST_AsMVT(mvt_data, 'buildings', 4096, 'geom', 'id') AS mvt
@@ -1395,9 +1391,9 @@ async function getIndividualPointsMVT(
         END AS address,
         p.city,
         p.postal_code,
-        p.woz_value,
-        p.oppervlakte,
-        p.bouwjaar,
+        p.official_valuation,
+        p.floor_area_m2,
+        p.year_built,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
         COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score
       FROM properties p
@@ -1433,9 +1429,9 @@ async function getIndividualPointsMVT(
         address,
         city,
         postal_code as "postalCode",
-        woz_value as "wozValue",
-        oppervlakte,
-        bouwjaar,
+        official_valuation as "officialValuation",
+        floor_area_m2 as "floorAreaM2",
+        year_built as "yearBuilt",
         has_listing as "hasListing",
         activity_score as "activityScore",
         NOT has_listing AND activity_score = 0 as is_ghost

@@ -59,11 +59,17 @@ Both seeds are upsert-safe and can be re-run on a populated database.
 ## 3D Buildings Layer
 **Use case:** Render accurate 3D volumes for every building to create the immersive "toy city" aesthetic.
 
-### Source: 3D BAG
-- **Documentation:** [https://docs.3dbag.nl/en/](https://docs.3dbag.nl/en/)
-- **Local Source Files:**
-  - `data_sources/3dbag_nl.gpkg.zip` (19.6 GB) (The file is compressed as Seek-Optimized ZIP, see the documentation on how to access it without decompressing)
-  - `data_sources/3dbag_nl.gpkg` (~104 GB) (unzipped file in case needed. Beware, this is a very large file.)
+### Source: OpenStreetMap (OSM PBF)
+- **Local file:** `data_sources/netherlands-latest.osm.pbf` (1.3 GB)
+- **Layer:** `multipolygons` filtered by `building IS NOT NULL`
+- **~11.5M building polygons** for the Netherlands
+- **Height resolution:** `height` tag → `building:levels * 3` → `6m` default
+- **Import:** `pnpm -C services/api run db:import-buildings` (~10-15 min)
+- **Table:** `osm_buildings` (id, osm_id, render_height, render_min_height, geometry)
+
+### Legacy: 3D BAG (no longer used for buildings)
+- `data_sources/3dbag_nl.gpkg` (~104 GB) — kept on disk but no longer imported
+- Was replaced by OSM to enable multi-country support
 
 BRT Achtergrondkaart (OGC API)
 https://api.pdok.nl/kadaster/brt-achtergrondkaart/ogc/v1

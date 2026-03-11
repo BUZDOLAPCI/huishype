@@ -6,7 +6,7 @@
 /**
  * Listing source platform
  */
-export type ListingSource = 'funda' | 'pararius' | 'other';
+export type ListingSource = string;
 
 /**
  * Listing status
@@ -87,7 +87,7 @@ export interface ListingSummary {
   commentCount: number;
   guessCount: number;
   likeCount: number;
-  activityLevel: import('./property').ActivityLevel;
+  activityLevel: import('./property.js').ActivityLevel;
 }
 
 /**

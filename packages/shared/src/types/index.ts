@@ -11,7 +11,7 @@ export type {
   UserSummary,
   KarmaRank,
   InternalKarmaMetrics,
-} from './user';
+} from './user.js';
 
 // Property types
 export type {
@@ -27,7 +27,7 @@ export type {
   ActivityLevel,
   MapProperty,
   PropertyCluster,
-} from './property';
+} from './property.js';
 
 // Listing types
 export type {
@@ -39,7 +39,7 @@ export type {
   ListingOpenGraphData,
   SubmitListingRequest,
   SubmitListingResponse,
-} from './listing';
+} from './listing.js';
 
 // Guess types
 export type {
@@ -55,7 +55,7 @@ export type {
   UpdateGuessRequest,
   GuessValidationError,
   UserGuessHistory,
-} from './guess';
+} from './guess.js';
 
 // Comment types
 export type {
@@ -67,7 +67,7 @@ export type {
   CommentSortOption,
   GetCommentsParams,
   CommentNotification,
-} from './comment';
+} from './comment.js';
 
 // Reaction types
 export type {
@@ -77,7 +77,10 @@ export type {
   UserPropertyReactions,
   CommentLike,
   ToggleCommentLikeResponse,
-} from './reaction';
+} from './reaction.js';
+
+// Geocoding types
+export type { GeocodeSuggestion } from './geocoding.js';
 
 // API types
 export type {
@@ -123,4 +126,4 @@ export type {
   // Saved
   GetSavedPropertiesRequest,
   GetSavedPropertiesResponse,
-} from './api';
+} from './api.js';

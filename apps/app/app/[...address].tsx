@@ -14,7 +14,7 @@ import { ScrollView, Text, View, Pressable, ActivityIndicator, Share } from 'rea
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { formatPrice } from '@huishype/shared';
+import { formatPrice, formatPostalCode, getValuationLabel } from '@huishype/shared';
 
 import { PriceGuessSlider, CommentList } from '@/src/components';
 import {
@@ -193,10 +193,8 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
 
   // Format the address title like the reference: "Street Number" with "Zip City" below
   const streetWithNumber = `${address.details.street} ${address.details.number}`;
-  // Format zip with space: "5651HP" -> "5651 HP" per reference styling
-  const formattedZip = address.details.zip.length === 6
-    ? `${address.details.zip.slice(0, 4)} ${address.details.zip.slice(4).toUpperCase()}`
-    : address.details.zip.toUpperCase();
+  // Format postal code using country-aware formatting
+  const formattedZip = formatPostalCode(address.details.zip);
   const zipWithCity = `${formattedZip} ${address.details.city}`;
 
   return (
@@ -218,7 +216,7 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
           </Text>
         </View>
 
-        {/* BAG ID badge */}
+        {/* Property ID badge */}
         <View className="flex-row flex-wrap gap-2 mb-4">
           <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
             <Ionicons name="barcode-outline" size={14} color="#6B7280" />
@@ -231,7 +229,7 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
         {/* Quick stats */}
         <View className="flex-row flex-wrap mb-6 bg-gray-50 rounded-xl p-4">
           <View className="w-1/2 mb-3">
-            <Text className="text-xs text-gray-400">WOZ Value</Text>
+            <Text className="text-xs text-gray-400">{getValuationLabel()}</Text>
             <Text className="text-lg font-semibold text-gray-700">--</Text>
           </View>
           <View className="w-1/2 mb-3">
@@ -276,7 +274,7 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
         <View className="mb-6">
           <PriceGuessSlider
             propertyId={address.bagId}
-            wozValue={undefined}
+            officialValuation={undefined}
             onGuessSubmit={handleSubmitGuess}
           />
         </View>
@@ -310,7 +308,7 @@ function PropertyDetailView({ address }: { address: ResolvedAddress }) {
               <View className="w-8 items-center">
                 <Ionicons name="barcode-outline" size={16} color="#6B7280" />
               </View>
-              <Text className="flex-1 text-gray-500 text-sm">BAG ID</Text>
+              <Text className="flex-1 text-gray-500 text-sm">Property ID</Text>
               <Text className="text-gray-900 text-sm font-medium" numberOfLines={1}>
                 {address.bagId}
               </Text>
@@ -345,7 +343,7 @@ export default function AddressScreen() {
   const addressParams = parseAddressSegments(params.address || []);
   const viewType = determineViewType(addressParams);
 
-  // Resolve address using PDOK Locatieserver
+  // Resolve address using geocoding backend (Photon)
   const {
     data: resolvedAddress,
     isLoading,

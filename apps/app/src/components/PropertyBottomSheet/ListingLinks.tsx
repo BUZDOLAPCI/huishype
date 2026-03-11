@@ -1,5 +1,6 @@
 import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { formatPropertyPrice } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
 
 interface ListingLinksProps {
@@ -37,7 +38,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
   const formatPrice = (price: number | null, priceType: string | null) => {
     if (price == null) return null;
     const suffix = priceType === 'rent' ? '/mo' : '';
-    return `\u20AC${price.toLocaleString('nl-NL')}${suffix}`;
+    return `${formatPropertyPrice(price)}${suffix}`;
   };
 
   const getStatusBadge = (status: string) => {

@@ -44,12 +44,12 @@ async function getTestProperty(request: APIRequestContext) {
   const data = await response.json();
   expect(data.data.length).toBeGreaterThan(0);
   // Prefer a property with a WOZ value for better slider display
-  const withWoz = data.data.find((p: { wozValue?: number }) => p.wozValue && p.wozValue > 0);
+  const withWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
   const property = withWoz || data.data[0];
   return {
     id: property.id as string,
     address: property.address as string,
-    wozValue: property.wozValue as number | null,
+    officialValuation: property.officialValuation as number | null,
   };
 }
 

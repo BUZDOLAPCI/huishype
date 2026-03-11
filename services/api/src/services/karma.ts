@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { priceGuesses, priceHistory, properties, users } from '../db/schema.js';
-import { eq, and, sql } from 'drizzle-orm';
+import { priceGuesses, priceHistory, users } from '../db/schema.js';
+import { eq, and } from 'drizzle-orm';
 
 // --- Karma Rank Titles ---
 
@@ -64,10 +64,10 @@ export function scoreGuessAccuracy(
 
 // --- Meme Guess Detection ---
 
-export function checkMemeGuess(guessedPrice: number, wozValue: number | null): boolean {
-  if (!wozValue || wozValue <= 0) return false;
+export function checkMemeGuess(guessedPrice: number, officialValuation: number | null): boolean {
+  if (!officialValuation || officialValuation <= 0) return false;
 
-  const ratio = guessedPrice / wozValue;
+  const ratio = guessedPrice / officialValuation;
   return ratio < 0.2 || ratio > 5.0;
 }
 

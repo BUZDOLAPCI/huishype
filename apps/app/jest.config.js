@@ -26,6 +26,10 @@ module.exports = {
     '^react-native-css-interop/(.*)$': '<rootDir>/__mocks__/react-native-css-interop.js',
     '^expo-haptics$': '<rootDir>/__mocks__/expo-haptics.js',
     '^@maplibre/maplibre-react-native$': '<rootDir>/__mocks__/@maplibre/maplibre-react-native.js',
+    '^@huishype/shared$': path.join(__dirname, '../../packages/shared/src/index.ts'),
+    '^@huishype/shared/(.*)$': path.join(__dirname, '../../packages/shared/src/$1/index.ts'),
+    // Handle .js extensions in TypeScript source (NodeNext convention)
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   // Transform TypeScript and JSX using babel
   // We override babel config to avoid nativewind transformations in tests
@@ -45,7 +49,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@testing-library)/)',
+    'node_modules/(?!(@testing-library|@huishype)/)',
   ],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',

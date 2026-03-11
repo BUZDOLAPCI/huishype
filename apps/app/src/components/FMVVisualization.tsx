@@ -10,6 +10,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import type { FmvDistribution } from '../hooks/usePriceGuess';
 
 export interface FMVData {
@@ -17,7 +18,7 @@ export interface FMVData {
   confidence: 'none' | 'low' | 'medium' | 'high';
   guessCount: number;
   distribution: FmvDistribution | null;
-  wozValue?: number | null;
+  officialValuation?: number | null;
   askingPrice?: number | null;
   divergence?: number | null;
 }
@@ -26,14 +27,15 @@ export interface FMVVisualizationProps {
   fmv: FMVData | null;
   userGuess?: number;
   askingPrice?: number;
-  wozValue?: number;
+  officialValuation?: number;
+  countryCode?: string;
   isLoading?: boolean;
   testID?: string;
 }
 
-// Format price in Dutch locale
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+// Format price using country config
+function formatPrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
 // Get confidence badge color and text
@@ -128,7 +130,8 @@ export function FMVVisualization({
   fmv,
   userGuess,
   askingPrice: askingPriceProp,
-  wozValue: wozValueProp,
+  officialValuation: officialValuationProp,
+  countryCode,
   isLoading = false,
   testID = 'fmv-visualization',
 }: FMVVisualizationProps) {
@@ -166,7 +169,7 @@ export function FMVVisualization({
 
   // Use props or FMV-embedded values for asking price and WOZ
   const askingPrice = askingPriceProp ?? fmv.askingPrice ?? undefined;
-  const wozValue = wozValueProp ?? fmv.wozValue ?? undefined;
+  const officialValuation = officialValuationProp ?? fmv.officialValuation ?? undefined;
 
   // Use backend divergence or calculate from asking price
   const divergence = fmv.divergence ?? (
@@ -208,7 +211,7 @@ export function FMVVisualization({
       {/* FMV Value */}
       <Animated.View style={valueAnimatedStyle}>
         <Text className="text-3xl font-bold text-primary-600 mb-1" testID="fmv-value">
-          {formatPrice(fmv.value)}
+          {formatPrice(fmv.value, countryCode)}
         </Text>
         <Text className="text-xs text-gray-400 mb-4">
           {confidenceInfo.text}
@@ -248,8 +251,8 @@ export function FMVVisualization({
 
           {/* Min/Max labels */}
           <View className="flex-row justify-between mt-1">
-            <Text className="text-xs text-gray-400">{formatPrice(dist.min)}</Text>
-            <Text className="text-xs text-gray-400">{formatPrice(dist.max)}</Text>
+            <Text className="text-xs text-gray-400">{formatPrice(dist.min, countryCode)}</Text>
+            <Text className="text-xs text-gray-400">{formatPrice(dist.max, countryCode)}</Text>
           </View>
 
           {/* Percentile legend */}
@@ -353,11 +356,11 @@ export function FMVVisualization({
           </View>
         )}
 
-        {wozValue && (
+        {officialValuation && (
           <View className="flex-row items-center mt-1">
             <Ionicons name="business" size={14} color="#6B7280" />
             <Text className="text-sm text-gray-500 ml-1">
-              WOZ: {formatPrice(wozValue)}
+              {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
             </Text>
           </View>
         )}

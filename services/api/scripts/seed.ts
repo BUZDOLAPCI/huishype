@@ -74,7 +74,7 @@ function phase1Extract(skipDemolished: boolean): number {
   const whereClause = conditions.join(' AND ');
 
   const sqlQuery = [
-    'SELECT identificatie, oppervlakte, bouwjaar, status,',
+    'SELECT identificatie, oppervlakte AS floor_area_m2, bouwjaar AS year_built, status,',
     '       openbare_ruimte_naam, huisnummer, huisletter, toevoeging,',
     '       postcode, woonplaats_naam, geom',
     'FROM verblijfsobject',
@@ -125,8 +125,8 @@ async function phase2Copy(sql: postgres.Sql): Promise<number> {
     CREATE UNLOGGED TABLE vbo_staging (
       geom text,
       identificatie text,
-      oppervlakte text,
-      bouwjaar text,
+      floor_area_m2 text,
+      year_built text,
       status text,
       openbare_ruimte_naam text,
       huisnummer text,
@@ -187,8 +187,8 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
   // query is raw SQL (DISTINCT ON, casts, PostGIS functions, ON CONFLICT).
   const upsertQuery = `
     INSERT INTO properties (
-      bag_identificatie, street, house_number, house_number_addition,
-      postal_code, city, geometry, bouwjaar, oppervlakte, status
+      national_id, street, house_number, house_number_addition,
+      postal_code, city, geometry, year_built, floor_area_m2, status
     )
     SELECT
       identificatie,
@@ -204,8 +204,8 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
       UPPER(REPLACE(postcode, ' ', '')),
       woonplaats_naam,
       ST_GeomFromText(geom, 4326),
-      NULLIF(bouwjaar, '')::int,
-      NULLIF(oppervlakte, '')::int,
+      NULLIF(year_built, '')::int,
+      NULLIF(floor_area_m2, '')::int,
       CASE
         WHEN status ILIKE '%ingetrokken%' THEN 'demolished'::property_status
         WHEN status ILIKE '%buiten gebruik%' THEN 'inactive'::property_status
@@ -231,8 +231,8 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
         postcode,
         woonplaats_naam,
         geom,
-        bouwjaar,
-        oppervlakte,
+        year_built,
+        floor_area_m2,
         status
       FROM vbo_staging
       WHERE postcode IS NOT NULL
@@ -252,12 +252,11 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
         identificatie
       ${limitClause}
     ) AS deduped
-    ON CONFLICT (postal_code, house_number, house_number_addition) DO UPDATE SET
-      bag_identificatie = EXCLUDED.bag_identificatie,
-      street = EXCLUDED.street,
+    ON CONFLICT (country_code, street, postal_code, house_number, house_number_addition) DO UPDATE SET
+      national_id = EXCLUDED.national_id,
       geometry = EXCLUDED.geometry,
-      bouwjaar = EXCLUDED.bouwjaar,
-      oppervlakte = EXCLUDED.oppervlakte,
+      year_built = EXCLUDED.year_built,
+      floor_area_m2 = EXCLUDED.floor_area_m2,
       status = EXCLUDED.status,
       updated_at = NOW()
   `;

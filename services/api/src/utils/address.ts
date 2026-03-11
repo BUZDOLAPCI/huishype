@@ -2,9 +2,13 @@
 // Address canonicalization utilities
 //
 // Shared across every data-ingestion boundary (Funda sync, Pararius sync,
-// API mutations) to guarantee deterministic matching of Dutch property
-// addresses.
+// API mutations) to guarantee deterministic matching of property addresses.
 // ---------------------------------------------------------------------------
+
+import {
+  getCountryConfig,
+  type CountryCode,
+} from '@huishype/shared';
 
 export interface CanonicalAddress {
   street: string;
@@ -96,17 +100,21 @@ function parseCompositeHouseNumber(raw: string | number): {
 }
 
 /**
- * Normalize a Dutch postal code.
- *   - Strip ALL whitespace (not just a single space in the middle)
- *   - Uppercase
- *   - Validate the 4-digit + 2-letter pattern
+ * Normalize and validate a postal code using the country-config registry.
+ *
+ *   - Strips whitespace, uppercases
+ *   - Validates against the country's postalCodeRegex
+ *   - Returns the country-specific normalized form
+ *
+ * Throws when the postal code doesn't match the country's format.
  */
-function normalizePostalCode(raw: string): string {
-  const stripped = raw.replace(/\s/g, "").toUpperCase();
+function normalizePostalCode(raw: string, countryCode: CountryCode = 'NL'): string {
+  const cfg = getCountryConfig(countryCode);
+  const stripped = raw.replace(/\s/g, '').toUpperCase();
 
-  if (!/^\d{4}[A-Z]{2}$/.test(stripped)) {
+  if (!cfg.postalCodeRegex.test(stripped)) {
     throw new Error(
-      `Invalid Dutch postal code: "${raw}" (normalized: "${stripped}")`,
+      `Invalid ${cfg.name} postal code: "${raw}" (normalized: "${stripped}")`,
     );
   }
 
@@ -130,13 +138,14 @@ export function canonicalizeAddress(input: {
   houseNumberAddition?: string | null;
   postalCode: string;
   city?: string;
+  countryCode?: CountryCode;
 }): CanonicalAddress | null {
   // -- Postal code ----------------------------------------------------------
   if (!input.postalCode) return null;
 
   let postalCode: string;
   try {
-    postalCode = normalizePostalCode(input.postalCode);
+    postalCode = normalizePostalCode(input.postalCode, input.countryCode ?? 'NL');
   } catch {
     return null;
   }
@@ -200,10 +209,13 @@ export function normalizeSourceUrl(url: string): string {
 /**
  * Format a house-number addition with the correct Dutch separator.
  *
- * Dutch convention:
+ * **NL-specific** — Dutch convention:
  *   - Single letter additions are concatenated directly: "13A", "105B"
  *   - Everything else (numeric, multi-char) uses a hyphen: "105-1", "13-BIS"
  *   - Empty/null additions return an empty string
+ *
+ * Other countries typically just concatenate the addition directly
+ * (handled by the country config's addressFormatter).
  */
 export function formatAddition(addition: string | null | undefined): string {
   if (!addition) return "";
@@ -216,9 +228,10 @@ export function formatAddition(addition: string | null | undefined): string {
 /**
  * Produce a human-readable one-line address string.
  *
- * Format: "Street HouseNumber[Addition], PostalCode City"
+ * When `countryCode` is provided, delegates to the country config's
+ * `addressFormatter`. Falls back to NL-specific Dutch formatting.
  *
- * Examples:
+ * Examples (NL default):
  *   { street: "Reehorst", houseNumber: 13, houseNumberAddition: "A",
  *     postalCode: "5658DP", city: "Eindhoven" }
  *   -> "Reehorst 13A, 5658DP Eindhoven"
@@ -226,12 +239,27 @@ export function formatAddition(addition: string | null | undefined): string {
  *   { street: "De Ruijterkade", houseNumber: 105, houseNumberAddition: "1",
  *     postalCode: "1011AB", city: "Amsterdam" }
  *   -> "De Ruijterkade 105-1, 1011AB Amsterdam"
- *
- *   { street: "Keizersgracht", houseNumber: 100, houseNumberAddition: null,
- *     postalCode: "1015AA", city: "Amsterdam" }
- *   -> "Keizersgracht 100, 1015AA Amsterdam"
  */
-export function formatDisplayAddress(addr: CanonicalAddress): string {
+export function formatDisplayAddress(
+  addr: CanonicalAddress,
+  countryCode?: CountryCode,
+): string {
+  const code = countryCode ?? 'NL';
+
+  // For non-NL countries, delegate to the country config formatter
+  // which handles addition concatenation per that country's convention.
+  if (code !== 'NL') {
+    return getCountryConfig(code).addressFormatter({
+      street: addr.street,
+      houseNumber: String(addr.houseNumber),
+      houseNumberAddition: addr.houseNumberAddition ?? undefined,
+      postalCode: addr.postalCode,
+      city: addr.city,
+      countryCode: code,
+    });
+  }
+
+  // NL-specific: use formatAddition for Dutch separator convention
   const addition = formatAddition(addr.houseNumberAddition);
   const streetPart = addr.street
     ? `${addr.street} ${addr.houseNumber}${addition}`

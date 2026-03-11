@@ -9,15 +9,17 @@ export interface PropertyGeometry {
 
 export interface Property {
   id: string;
-  bagIdentificatie: string | null;
+  nationalId: string | null;
+  /** ISO 3166-1 alpha-2 country code */
+  countryCode: string;
   address: string;
   city: string;
   postalCode: string | null;
   geometry: PropertyGeometry | null;
-  bouwjaar: number | null;
-  oppervlakte: number | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
-  wozValue: number | null;
+  officialValuation: number | null;
   hasListing?: boolean;
   askingPrice?: number | null;
   createdAt: string;
@@ -47,7 +49,7 @@ export interface PropertyFmvData {
     min: number;
     max: number;
   } | null;
-  wozValue: number | null;
+  officialValuation: number | null;
   askingPrice: number | null;
   divergence: number | null;
 }

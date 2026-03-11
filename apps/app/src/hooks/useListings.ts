@@ -4,7 +4,7 @@ import { api } from '../utils/api';
 export interface ListingData {
   id: string;
   sourceUrl: string;
-  sourceName: 'funda' | 'pararius' | 'other';
+  sourceName: string;
   askingPrice: number | null;
   priceType: string | null;
   thumbnailUrl: string | null;

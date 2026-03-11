@@ -1,4 +1,5 @@
 import { Image, Text, View } from 'react-native';
+import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 
 interface PropertyCardProps {
   address: string;
@@ -7,6 +8,7 @@ interface PropertyCardProps {
   fmv?: number;
   askingPrice?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
+  countryCode?: CountryCode;
 }
 
 export function PropertyCard({
@@ -16,6 +18,7 @@ export function PropertyCard({
   fmv,
   askingPrice,
   activityLevel = 'cold',
+  countryCode,
 }: PropertyCardProps) {
   const activityColors = {
     hot: 'bg-red-500',
@@ -51,7 +54,7 @@ export function PropertyCard({
             <View>
               <Text className="text-xs text-gray-400">Crowd FMV</Text>
               <Text className="text-base font-bold text-primary-600">
-                {'\u20AC'}{fmv.toLocaleString('nl-NL')}
+                {formatPropertyPrice(fmv, countryCode)}
               </Text>
             </View>
           )}
@@ -59,7 +62,7 @@ export function PropertyCard({
             <View>
               <Text className="text-xs text-gray-400">Asking Price</Text>
               <Text className="text-base font-semibold text-gray-700">
-                {'\u20AC'}{askingPrice.toLocaleString('nl-NL')}
+                {formatPropertyPrice(askingPrice, countryCode)}
               </Text>
             </View>
           )}

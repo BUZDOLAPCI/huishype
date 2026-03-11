@@ -21,7 +21,7 @@ export interface FmvResult {
   confidence: FmvConfidence;
   guessCount: number;
   distribution: FmvDistribution | null;
-  wozValue: number | null;
+  officialValuation: number | null;
   askingPrice: number | null;
   divergence: number | null; // % difference between FMV and asking price
 }
@@ -129,23 +129,23 @@ export function getConfidence(guessCount: number): FmvConfidence {
  */
 export function blendFmv(
   crowdEstimate: number,
-  wozValue: number | null,
+  officialValuation: number | null,
   confidence: FmvConfidence
 ): number {
   if (confidence === 'none') {
-    return wozValue ?? 0;
+    return officialValuation ?? 0;
   }
 
-  if (!wozValue || wozValue <= 0) {
+  if (!officialValuation || officialValuation <= 0) {
     // No WOZ available: use crowd estimate at any confidence
     return crowdEstimate;
   }
 
   switch (confidence) {
     case 'low':
-      return Math.round(wozValue * 0.7 + crowdEstimate * 0.3);
+      return Math.round(officialValuation * 0.7 + crowdEstimate * 0.3);
     case 'medium':
-      return Math.round(wozValue * 0.3 + crowdEstimate * 0.7);
+      return Math.round(officialValuation * 0.3 + crowdEstimate * 0.7);
     case 'high':
       return Math.round(crowdEstimate);
     default:
@@ -171,7 +171,7 @@ export function calculateDivergence(
  */
 export function calculateFmv(
   guesses: WeightedGuess[],
-  wozValue: number | null,
+  officialValuation: number | null,
   askingPrice: number | null
 ): FmvResult {
   const confidence = getConfidence(guesses.length);
@@ -179,13 +179,13 @@ export function calculateFmv(
   // No guesses: return WOZ-only result
   if (guesses.length === 0) {
     return {
-      fmv: wozValue ?? null,
+      fmv: officialValuation ?? null,
       confidence,
       guessCount: 0,
       distribution: null,
-      wozValue,
+      officialValuation,
       askingPrice,
-      divergence: calculateDivergence(wozValue, askingPrice),
+      divergence: calculateDivergence(officialValuation, askingPrice),
     };
   }
 
@@ -199,7 +199,7 @@ export function calculateFmv(
   const crowdEstimate = Math.round(karmaWeightedMean(effectiveGuesses));
 
   // Blend with WOZ based on confidence
-  const fmv = blendFmv(crowdEstimate, wozValue, confidence);
+  const fmv = blendFmv(crowdEstimate, officialValuation, confidence);
 
   // Distribution from all non-meme guess prices (before trimming, for full picture)
   const allPrices = guesses.map((g) => g.guessedPrice);
@@ -210,7 +210,7 @@ export function calculateFmv(
     confidence,
     guessCount: guesses.length,
     distribution,
-    wozValue,
+    officialValuation,
     askingPrice,
     divergence: calculateDivergence(fmv, askingPrice),
   };
@@ -223,14 +223,14 @@ export function calculateFmv(
  * Fetches non-meme guesses with user karma, WOZ value, and asking price.
  */
 export async function calculateFmvForProperty(propertyId: string): Promise<FmvResult> {
-  // Fetch property WOZ value
+  // Fetch property official valuation
   const propertyRows = await db
-    .select({ wozValue: properties.wozValue })
+    .select({ officialValuation: properties.officialValuation })
     .from(properties)
     .where(eq(properties.id, propertyId))
     .limit(1);
 
-  const wozValue = propertyRows[0]?.wozValue ?? null;
+  const officialValuation = propertyRows[0]?.officialValuation ?? null;
 
   // Fetch active listing asking price (most recent)
   const listingRows = await db
@@ -267,5 +267,5 @@ export async function calculateFmvForProperty(propertyId: string): Promise<FmvRe
     karma: r.karma,
   }));
 
-  return calculateFmv(guesses, wozValue, askingPrice);
+  return calculateFmv(guesses, officialValuation, askingPrice);
 }

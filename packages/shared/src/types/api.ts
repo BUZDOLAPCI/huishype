@@ -3,12 +3,12 @@
  * These types define the contract between frontend and backend
  */
 
-import type { PropertyDetail, PropertySummary, MapProperty, PropertyCluster } from './property';
-import type { Listing, ListingSummary } from './listing';
-import type { User, UserProfile, UserSession } from './user';
-import type { PriceGuess, FMV, UserGuessHistory } from './guess';
-import type { CommentThread, Comment } from './comment';
-import type { ReactionCounts } from './reaction';
+import type { PropertyDetail, PropertySummary, MapProperty, PropertyCluster } from './property.js';
+import type { Listing, ListingSummary } from './listing.js';
+import type { User, UserProfile, UserSession } from './user.js';
+import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
+import type { CommentThread, Comment } from './comment.js';
+import type { ReactionCounts } from './reaction.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary, MapProperty, PropertyCluster };
@@ -110,8 +110,8 @@ export interface GetUserGuessHistoryResponse {
 // ============================================
 
 /**
- * Response for resolving a Dutch address to a local property.
- * Used by the search feature: PDOK provides fuzzy address matching,
+ * Response for resolving an address to a local property.
+ * Used by the search feature: geocoder provides fuzzy address matching,
  * then the backend resolves the address to our local property.
  */
 export interface PropertyResolveResponse {
@@ -121,7 +121,7 @@ export interface PropertyResolveResponse {
   city: string;
   coordinates: { lon: number; lat: number };
   hasListing: boolean;
-  wozValue: number | null;
+  officialValuation: number | null;
 }
 
 export interface GetPropertyRequest {

@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { getCountryConfig, getAllListingDomains, getAllListingSourceNames, type CountryCode } from '../config/country-config.js';
 
 // ============================================
 // Primitive Schemas
@@ -12,10 +13,38 @@ import { z } from 'zod';
 /** UUID v4 format */
 export const idSchema = z.string().uuid();
 
-/** Dutch postal code format (1234 AB) */
+/** Dutch postal code format (1234 AB) — legacy, prefer validatePostalCode() */
 export const postalCodeSchema = z
   .string()
   .regex(/^\d{4}\s?[A-Z]{2}$/, 'Invalid Dutch postal code format');
+
+/**
+ * Validate a postal code against the country-config regex.
+ * Trims and uppercases the input before testing.
+ */
+export function validatePostalCode(code: string, countryCode: CountryCode = 'NL'): boolean {
+  const cfg = getCountryConfig(countryCode);
+  return cfg.postalCodeRegex.test(code.trim().toUpperCase());
+}
+
+/**
+ * Normalize a postal code using the country-config normalizer.
+ * Returns the canonical form (e.g. "1234AB" → "1234 AB" for NL).
+ */
+export function normalizePostalCode(code: string, countryCode: CountryCode = 'NL'): string {
+  return getCountryConfig(countryCode).postalCodeNormalize(code);
+}
+
+/**
+ * Create a Zod schema for postal code validation for a specific country.
+ */
+export function postalCodeSchemaForCountry(countryCode: CountryCode) {
+  const cfg = getCountryConfig(countryCode);
+  return z.string().refine(
+    (val) => cfg.postalCodeRegex.test(val.trim().toUpperCase()),
+    `Invalid postal code format for ${cfg.name}`,
+  );
+}
 
 /** Username: alphanumeric, underscores, 3-20 chars */
 export const usernameSchema = z
@@ -103,7 +132,16 @@ export const getMapPropertiesSchema = z.object({
 // Listing Schemas
 // ============================================
 
-export const listingSourceSchema = z.enum(['funda', 'pararius', 'other']);
+/** All valid listing source names from the country-config registry, plus 'other' as fallback. */
+const ALL_LISTING_SOURCES = [...getAllListingSourceNames(), 'other'] as const;
+
+export const listingSourceSchema = z.string().refine(
+  (val) => (ALL_LISTING_SOURCES as readonly string[]).includes(val),
+  { message: `Must be one of: ${ALL_LISTING_SOURCES.join(', ')}` },
+);
+
+/** All listing domains from the country-config registry (cached at import time). */
+const LISTING_DOMAINS = getAllListingDomains();
 
 export const submitListingSchema = z.object({
   url: z
@@ -112,13 +150,11 @@ export const submitListingSchema = z.object({
     .refine(
       (url) => {
         const hostname = new URL(url).hostname.toLowerCase();
-        return (
-          hostname.includes('funda.nl') ||
-          hostname.includes('pararius.nl') ||
-          hostname.includes('pararius.com')
+        return LISTING_DOMAINS.some(
+          (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
         );
       },
-      'URL must be from funda.nl or pararius.nl'
+      'URL must be from a recognized listing platform',
     ),
 });
 

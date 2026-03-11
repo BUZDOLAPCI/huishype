@@ -1,51 +1,22 @@
 /**
  * Address Resolver Service
  *
- * Resolves human-readable URL paths to BAG verblijfsobject IDs using PDOK Locatieserver.
+ * Resolves addresses using the backend geocode proxy (Photon-backed).
+ * Provides search and URL-based resolution for the app.
  *
  * URL Structure: /{city}/{zipcode}/{street}/{house_number}
  * Example: /eindhoven/5651hp/deflectiespoelstraat/16
- *
- * CRITICAL: Uses centroide_ll (WGS84) NOT centroide_rd (RD coordinates)
  */
 
-// PDOK Locatieserver API endpoints
-const PDOK_SEARCH_URL = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free';
-const PDOK_REVERSE_URL = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/reverse';
-
-/**
- * PDOK Locatieserver response types
- */
-export interface PDOKResponse {
-  response: {
-    numFound: number;
-    start: number;
-    maxScore: number;
-    docs: PDOKDocument[];
-  };
-}
-
-export interface PDOKDocument {
-  id: string;
-  type: string;
-  weergavenaam: string;
-  score: number;
-  centroide_ll?: string; // WGS84 format: "POINT(lon lat)"
-  centroide_rd?: string; // RD format - DO NOT USE with Mapbox
-  huisnummer?: string;
-  postcode?: string;
-  straatnaam?: string;
-  woonplaatsnaam?: string;
-  gemeentenaam?: string;
-  provincienaam?: string;
-}
+import { apiGeocoder } from './api-geocoder';
+import type { GeocodeSuggestion } from './geocoder';
 
 /**
  * Resolved address with all necessary data for the app
  */
 export interface ResolvedAddress {
-  bagId: string; // Verblijfsobject ID
-  formattedAddress: string; // Display name (weergavenaam)
+  bagId: string; // Geocoder result ID (osm_type + osm_id)
+  formattedAddress: string; // Display name
   lat: number;
   lon: number;
   details: {
@@ -64,20 +35,6 @@ export interface AddressUrlParams {
   zipcode?: string;
   street?: string;
   housenumber?: string;
-}
-
-/**
- * Parse centroide_ll (WGS84) string to coordinates
- * Format: "POINT(longitude latitude)"
- */
-function parseWGS84Point(centroide_ll: string): { lat: number; lon: number } | null {
-  const match = centroide_ll.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
-  if (!match) return null;
-
-  return {
-    lon: parseFloat(match[1]),
-    lat: parseFloat(match[2]),
-  };
 }
 
 /**
@@ -104,26 +61,40 @@ export function createAddressUrl(address: ResolvedAddress): string {
 }
 
 /**
- * Build PDOK search query from URL parameters
+ * Map a GeocodeSuggestion to our ResolvedAddress format
+ */
+function toResolvedAddress(suggestion: GeocodeSuggestion): ResolvedAddress {
+  return {
+    bagId: suggestion.id,
+    formattedAddress: suggestion.displayName,
+    lat: suggestion.coordinates[1],
+    lon: suggestion.coordinates[0],
+    details: {
+      city: suggestion.city || '',
+      zip: suggestion.postalCode || '',
+      street: suggestion.street || '',
+      number: suggestion.houseNumber || '',
+    },
+  };
+}
+
+/**
+ * Build a free text query from URL parameters
  */
 function buildSearchQuery(params: AddressUrlParams): string {
   const parts: string[] = [];
 
   if (params.zipcode && params.housenumber) {
-    // Most accurate: postcode + huisnummer
-    parts.push(`postcode:${params.zipcode.toUpperCase()}`);
-    parts.push(`huisnummer:${params.housenumber}`);
+    parts.push(params.zipcode.toUpperCase());
+    parts.push(params.housenumber);
   } else if (params.city && params.street && params.housenumber) {
-    // Alternative: city + street + number as free text
-    parts.push(params.city);
     parts.push(params.street.replace(/-/g, ' '));
     parts.push(params.housenumber);
-  } else if (params.city && params.zipcode) {
-    // Partial: city + zipcode
     parts.push(params.city);
-    parts.push(`postcode:${params.zipcode.toUpperCase()}`);
+  } else if (params.city && params.zipcode) {
+    parts.push(params.city);
+    parts.push(params.zipcode.toUpperCase());
   } else if (params.city) {
-    // Just city
     parts.push(params.city);
   }
 
@@ -131,7 +102,7 @@ function buildSearchQuery(params: AddressUrlParams): string {
 }
 
 /**
- * Resolve URL parameters to a full address using PDOK Locatieserver
+ * Resolve URL parameters to a full address using the geocoder.
  *
  * @param params URL parameters from Expo Router
  * @returns ResolvedAddress or null if not found
@@ -144,109 +115,44 @@ export async function resolveUrlParams(params: AddressUrlParams): Promise<Resolv
   }
 
   try {
-    const searchParams = new URLSearchParams({
-      q: query,
-      fq: 'type:adres', // Filter strictly for addresses
-      fl: 'id,weergavenaam,centroide_ll,huisnummer,postcode,straatnaam,woonplaatsnaam',
-      rows: '1', // We only need the best match
-    });
+    const results = await apiGeocoder.search(query, { limit: 1 });
 
-    const response = await fetch(`${PDOK_SEARCH_URL}?${searchParams.toString()}`);
-
-    if (!response.ok) {
-      console.error('PDOK API error:', response.status, response.statusText);
+    if (results.length === 0) {
       return null;
     }
 
-    const data: PDOKResponse = await response.json();
-
-    if (data.response.numFound === 0 || !data.response.docs.length) {
-      return null;
-    }
-
-    const doc = data.response.docs[0];
-
-    // CRITICAL: Use centroide_ll (WGS84) NOT centroide_rd
-    if (!doc.centroide_ll) {
-      console.error('PDOK response missing centroide_ll');
-      return null;
-    }
-
-    const coords = parseWGS84Point(doc.centroide_ll);
-    if (!coords) {
-      console.error('Failed to parse centroide_ll:', doc.centroide_ll);
-      return null;
-    }
-
-    return {
-      bagId: doc.id,
-      formattedAddress: doc.weergavenaam,
-      lat: coords.lat,
-      lon: coords.lon,
-      details: {
-        city: doc.woonplaatsnaam || params.city || '',
-        zip: doc.postcode || params.zipcode || '',
-        street: doc.straatnaam || params.street?.replace(/-/g, ' ') || '',
-        number: doc.huisnummer || params.housenumber || '',
-      },
-    };
-  } catch (error) {
-    console.error('PDOK API request failed:', error);
+    return toResolvedAddress(results[0]);
+  } catch {
     return null;
   }
 }
 
 /**
- * Search for addresses by free text query
- * Used for search/autocomplete functionality
+ * Search for addresses by free text query.
+ * Used for search/autocomplete functionality.
  *
  * @param query Free text search query
  * @param limit Maximum number of results
+ * @param options Additional search options
  * @returns Array of resolved addresses
  */
-export async function searchAddresses(query: string, limit: number = 5): Promise<ResolvedAddress[]> {
+export async function searchAddresses(
+  query: string,
+  limit: number = 5,
+  options?: { countryCode?: string },
+): Promise<ResolvedAddress[]> {
   if (!query || query.length < 2) {
     return [];
   }
 
   try {
-    const searchParams = new URLSearchParams({
-      q: query,
-      fq: 'type:adres',
-      fl: 'id,weergavenaam,centroide_ll,huisnummer,postcode,straatnaam,woonplaatsnaam',
-      rows: String(limit),
+    const results = await apiGeocoder.search(query, {
+      limit,
+      countryCode: options?.countryCode,
     });
 
-    const response = await fetch(`${PDOK_SEARCH_URL}?${searchParams.toString()}`);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const data: PDOKResponse = await response.json();
-
-    return data.response.docs
-      .filter(doc => doc.centroide_ll)
-      .map(doc => {
-        const coords = parseWGS84Point(doc.centroide_ll!);
-        if (!coords) return null;
-
-        return {
-          bagId: doc.id,
-          formattedAddress: doc.weergavenaam,
-          lat: coords.lat,
-          lon: coords.lon,
-          details: {
-            city: doc.woonplaatsnaam || '',
-            zip: doc.postcode || '',
-            street: doc.straatnaam || '',
-            number: doc.huisnummer || '',
-          },
-        };
-      })
-      .filter((addr): addr is ResolvedAddress => addr !== null);
-  } catch (error) {
-    console.error('Address search failed:', error);
+    return results.map(toResolvedAddress);
+  } catch {
     return [];
   }
 }
@@ -261,79 +167,4 @@ export function determineViewType(params: AddressUrlParams): AddressViewType {
   if (!params.zipcode) return 'city';
   if (!params.street || !params.housenumber) return 'postcode';
   return 'property';
-}
-
-/**
- * Result from reverse geocoding
- */
-export interface ReverseGeocodedAddress {
-  address: string; // Street name + house number (e.g., "Straatnaam 123")
-  postalCode: string | null;
-  city: string;
-}
-
-/**
- * Check if an address is a BAG Pand placeholder
- * These placeholders look like "BAG Pand 0772100001217229"
- */
-export function isBagPandPlaceholder(address: string): boolean {
-  return /^BAG\s*Pand\s*/i.test(address);
-}
-
-/**
- * Reverse geocode coordinates to get a real Dutch address
- * Uses PDOK Locatieserver reverse geocoding API
- *
- * @param lat Latitude (WGS84)
- * @param lon Longitude (WGS84)
- * @returns ReverseGeocodedAddress or null if not found
- */
-export async function reverseGeocode(
-  lat: number,
-  lon: number
-): Promise<ReverseGeocodedAddress | null> {
-  try {
-    const searchParams = new URLSearchParams({
-      lat: lat.toString(),
-      lon: lon.toString(),
-      rows: '1',
-      fq: 'type:adres',
-    });
-
-    const response = await fetch(`${PDOK_REVERSE_URL}?${searchParams.toString()}`);
-
-    if (!response.ok) {
-      console.error('PDOK reverse geocoding error:', response.status, response.statusText);
-      return null;
-    }
-
-    const data: PDOKResponse = await response.json();
-
-    if (data.response.numFound === 0 || !data.response.docs.length) {
-      return null;
-    }
-
-    const doc = data.response.docs[0];
-
-    // Format the address: "Straatnaam Huisnummer"
-    let address: string;
-    if (doc.straatnaam && doc.huisnummer) {
-      address = `${doc.straatnaam} ${doc.huisnummer}`;
-    } else if (doc.weergavenaam) {
-      // Use display name as fallback, but extract just the street part
-      const parts = doc.weergavenaam.split(',');
-      address = parts[0].trim();
-    } else {
-      return null;
-    }
-
-    return {
-      address,
-      postalCode: doc.postcode || null,
-      city: doc.woonplaatsnaam || doc.gemeentenaam || '',
-    };
-  } catch (error) {
-    console.error('PDOK reverse geocoding failed:', error);
-    return null;
-  }
 }

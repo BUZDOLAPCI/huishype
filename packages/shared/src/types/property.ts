@@ -1,6 +1,6 @@
 /**
  * Property-related types for HuisHype
- * Properties represent addresses from BAG (Basisregistratie Adressen en Gebouwen)
+ * Properties represent addresses sourced from national registries (BAG, Overture, OSM, etc.)
  */
 
 /**
@@ -17,12 +17,14 @@ export interface Coordinates {
 export type ActivityLevel = 'cold' | 'warm' | 'hot';
 
 /**
- * Core property information from BAG data
+ * Core property information (multi-country)
  */
 export interface Property {
   id: string;
-  /** BAG identificatie (official Dutch government identifier) */
-  bagIdentificatie: string;
+  /** ISO 3166-1 alpha-2 country code */
+  countryCode: string;
+  /** Country-specific national identifier (e.g. BAG identificatie for NL, Overture GERS UUID) */
+  nationalId: string;
   /** Full formatted address */
   address: string;
   /** Street name */
@@ -33,18 +35,20 @@ export interface Property {
   houseNumberAddition?: string;
   /** City name */
   city: string;
-  /** Postal code (Dutch format: 1234 AB) */
+  /** Province/state/region */
+  region?: string;
+  /** Postal code */
   postalCode: string;
   /** Geographic coordinates */
   coordinates: Coordinates;
-  /** Year of construction from BAG */
-  bouwjaar?: number;
-  /** Living area in square meters from BAG */
-  oppervlakte?: number;
-  /** Official WOZ value (government property valuation) */
-  wozValue?: number;
-  /** Year of the WOZ valuation */
-  wozYear?: number;
+  /** Year of construction */
+  yearBuilt?: number;
+  /** Floor area in square meters */
+  floorAreaM2?: number;
+  /** Official government valuation (e.g. WOZ for NL) */
+  officialValuation?: number;
+  /** Year of the official valuation */
+  officialValuationYear?: number;
   /** Property type (apartment, house, etc.) */
   propertyType?: PropertyType;
 }
@@ -109,7 +113,7 @@ export interface PropertySummary {
 export interface PropertyListing {
   id: string;
   sourceUrl: string;
-  sourceName: 'funda' | 'pararius' | 'other';
+  sourceName: string;
   askingPrice: number;
   thumbnailUrl?: string;
   /** When this listing was discovered/added */

@@ -55,16 +55,15 @@ export default function SavedScreen() {
         city={item.city}
         postalCode={item.postalCode}
         photoUrl={item.photoUrl}
-        wozValue={item.wozValue}
+        officialValuation={item.officialValuation}
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}
         commentCount={item.commentCount}
         guessCount={item.guessCount}
         viewCount={item.viewCount}
-        bouwjaar={item.bouwjaar}
-        oppervlakte={item.oppervlakte}
-        coordinates={item.coordinates}
+        yearBuilt={item.yearBuilt}
+        floorAreaM2={item.floorAreaM2}
         onPress={() => handlePropertyPress(item.id)}
       />
     ),

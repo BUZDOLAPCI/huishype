@@ -8,7 +8,7 @@ const makeProperty = (overrides: Partial<GroupPreviewProperty> = {}): GroupPrevi
   address: 'Teststraat 42',
   city: 'Eindhoven',
   postalCode: '5600 AA',
-  wozValue: 350000,
+  officialValuation: 350000,
   activityLevel: 'warm',
   ...overrides,
 });
@@ -18,7 +18,7 @@ const makeProperties = (count: number): GroupPreviewProperty[] =>
     makeProperty({
       id: `prop-${i + 1}`,
       address: `Straat ${i + 1}`,
-      wozValue: 300000 + i * 10000,
+      officialValuation: 300000 + i * 10000,
     })
   );
 
@@ -37,34 +37,45 @@ describe('GroupPreviewCard', () => {
       expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
     });
 
-    it('displays WOZ price with label', () => {
+    it('displays valuation price with generic label (no countryCode)', () => {
       render(
         <GroupPreviewCard
-          properties={[makeProperty({ wozValue: 350000 })]}
+          properties={[makeProperty({ officialValuation: 350000 })]}
+          onClose={jest.fn()}
+        />
+      );
+      expect(screen.getByText('Val.')).toBeTruthy();
+    });
+
+    it('displays WOZ label when countryCode is NL', () => {
+      render(
+        <GroupPreviewCard
+          properties={[makeProperty({ officialValuation: 350000, countryCode: 'NL' })]}
           onClose={jest.fn()}
         />
       );
       expect(screen.getByText('WOZ')).toBeTruthy();
     });
 
-    it('prefers FMV over asking price over WOZ', () => {
+    it('prefers FMV over asking price over valuation', () => {
       render(
         <GroupPreviewCard
           properties={[
-            makeProperty({ fmv: 400000, askingPrice: 380000, wozValue: 350000 }),
+            makeProperty({ fmv: 400000, askingPrice: 380000, officialValuation: 350000 }),
           ]}
           onClose={jest.fn()}
         />
       );
       expect(screen.getByText('FMV')).toBeTruthy();
       expect(screen.queryByText('Ask')).toBeNull();
+      expect(screen.queryByText('Val.')).toBeNull();
       expect(screen.queryByText('WOZ')).toBeNull();
     });
 
     it('shows asking price label when no FMV', () => {
       render(
         <GroupPreviewCard
-          properties={[makeProperty({ fmv: null, askingPrice: 395000, wozValue: 350000 })]}
+          properties={[makeProperty({ fmv: null, askingPrice: 395000, officialValuation: 350000 })]}
           onClose={jest.fn()}
         />
       );
@@ -84,12 +95,13 @@ describe('GroupPreviewCard', () => {
     it('handles property without any price', () => {
       render(
         <GroupPreviewCard
-          properties={[makeProperty({ wozValue: null, askingPrice: null, fmv: null })]}
+          properties={[makeProperty({ officialValuation: null, askingPrice: null, fmv: null })]}
           onClose={jest.fn()}
         />
       );
       // Should render without crashing
       expect(screen.getByText('Teststraat 42')).toBeTruthy();
+      expect(screen.queryByText('Val.')).toBeNull();
       expect(screen.queryByText('WOZ')).toBeNull();
       expect(screen.queryByText('Ask')).toBeNull();
       expect(screen.queryByText('FMV')).toBeNull();

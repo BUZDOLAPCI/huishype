@@ -22,7 +22,7 @@ const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
-// Bounding box for area with real addresses (seeded via PDOK Locatieserver)
+// Bounding box for area with real addresses (seeded via geocoding backend)
 // This area contains properties with real street names like "Opera", "Nabucco", "Ella Fitzgeraldlaan"
 const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 
@@ -96,7 +96,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
 
   test('API returns properties with real addresses (not BAG Pand placeholders)', async ({ request }) => {
     // Fetch properties directly from the API using bounding box filter
-    // This queries an area seeded with real addresses from PDOK Locatieserver
+    // This queries an area seeded with real addresses from the geocoding backend
     const response = await request.get(`${API_BASE_URL}/properties?limit=10&bbox=${REAL_ADDRESS_BBOX}`);
     expect(response.ok()).toBe(true);
 

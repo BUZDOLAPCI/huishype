@@ -2,12 +2,13 @@
 // OG metadata fetcher with SSRF protection
 //
 // Fetches OpenGraph metadata from user-supplied URLs.  Only whitelisted
-// domains (funda.nl, pararius.nl and their subdomains) are allowed over
-// HTTPS.  Resolved IPs are validated against private ranges before any
-// request is made.
+// domains from the country-config registry (and their subdomains) are
+// allowed over HTTPS.  Resolved IPs are validated against private ranges
+// before any request is made.
 // ---------------------------------------------------------------------------
 
 import dns from "node:dns";
+import { getAllListingDomains, getSourceNameForDomain } from "@huishype/shared/config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,7 +24,8 @@ export interface OgMetadata {
 // Constants
 // ---------------------------------------------------------------------------
 
-const ALLOWED_ROOT_DOMAINS = ["funda.nl", "pararius.nl"] as const;
+/** All listing domains from the country-config registry (cached at import time). */
+const ALLOWED_ROOT_DOMAINS = getAllListingDomains();
 
 const FETCH_TIMEOUT_MS = 5_000;
 const MAX_RESPONSE_BYTES = 1_048_576; // 1 MB
@@ -91,7 +93,7 @@ function setCachedOg(url: string, data: OgMetadata): void {
 function matchesWhitelist(hostname: string): boolean {
   const lower = hostname.toLowerCase();
   return ALLOWED_ROOT_DOMAINS.some(
-    (root) => lower === root || lower.endsWith(`.${root}`),
+    (root: string) => lower === root || lower.endsWith(`.${root}`),
   );
 }
 
@@ -110,15 +112,14 @@ export function isWhitelistedDomain(url: string): boolean {
 
 /**
  * Detect the source marketplace from a listing URL.
+ * Uses the country-config registry for domain→source mapping.
+ * Returns the config-derived source name (e.g. 'funda', 'immobilienscout24'),
+ * or 'other' if the domain is not recognized.
  */
-export function detectSourceName(url: string): "funda" | "pararius" | "other" {
+export function detectSourceName(url: string): string {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    if (hostname === "funda.nl" || hostname.endsWith(".funda.nl"))
-      return "funda";
-    if (hostname === "pararius.nl" || hostname.endsWith(".pararius.nl"))
-      return "pararius";
-    return "other";
+    return getSourceNameForDomain(hostname) ?? "other";
   } catch {
     return "other";
   }

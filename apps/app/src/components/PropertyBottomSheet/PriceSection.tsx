@@ -1,24 +1,31 @@
 import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import type { SectionProps } from './types';
 
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL')}`;
+function formatPrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
 function PriceComparisonBar({
-  wozValue,
+  officialValuation,
   askingPrice,
-  fmv
+  fmv,
+  countryCode,
 }: {
-  wozValue: number | null;
+  officialValuation: number | null;
   askingPrice?: number;
   fmv?: number;
+  countryCode?: string;
 }) {
-  if (!wozValue) return null;
+  if (!officialValuation) return null;
+
+  const valuationLabel = getValuationLabel(countryCode);
+  // Use short label for comparison bar legend
+  const shortValuationLabel = countryCode === 'NL' ? 'WOZ' : 'Val.';
 
   const prices = [
-    { label: 'WOZ', value: wozValue, color: 'bg-gray-400' },
+    { label: shortValuationLabel, value: officialValuation, color: 'bg-gray-400' },
     askingPrice ? { label: 'Asking', value: askingPrice, color: 'bg-orange-500' } : null,
     fmv ? { label: 'FMV', value: fmv, color: 'bg-primary-500' } : null,
   ].filter(Boolean) as { label: string; value: number; color: string }[];
@@ -45,8 +52,8 @@ function PriceComparisonBar({
         })}
       </View>
       <View className="flex-row justify-between mt-1">
-        <Text className="text-xs text-gray-400">{formatPrice(minPrice)}</Text>
-        <Text className="text-xs text-gray-400">{formatPrice(maxPrice)}</Text>
+        <Text className="text-xs text-gray-400">{formatPrice(minPrice, countryCode)}</Text>
+        <Text className="text-xs text-gray-400">{formatPrice(maxPrice, countryCode)}</Text>
       </View>
       {/* Legend */}
       <View className="flex-row flex-wrap gap-3 mt-2">
@@ -62,7 +69,7 @@ function PriceComparisonBar({
 }
 
 export function PriceSection({ property }: SectionProps) {
-  const { wozValue, askingPrice, fmv: fmvData, guessCount } = property;
+  const { officialValuation, askingPrice, fmv: fmvData, guessCount, countryCode } = property;
   const fmv = fmvData?.fmv ?? undefined;
   const fmvConfidence = fmvData?.confidence;
 
@@ -83,15 +90,15 @@ export function PriceSection({ property }: SectionProps) {
   return (
     <View className="px-4 py-4 border-t border-gray-100">
       <View className="flex-row flex-wrap">
-        {/* WOZ Value */}
-        {wozValue && (
+        {/* Official Valuation */}
+        {officialValuation && (
           <View className="w-1/2 mb-4 pr-2">
             <View className="flex-row items-center">
               <Ionicons name="home-outline" size={14} color="#9CA3AF" />
-              <Text className="text-xs text-gray-400 ml-1">WOZ Value</Text>
+              <Text className="text-xs text-gray-400 ml-1">{getValuationLabel(countryCode)}</Text>
             </View>
             <Text className="text-lg font-semibold text-gray-700 mt-1">
-              {formatPrice(wozValue)}
+              {formatPrice(officialValuation, countryCode)}
             </Text>
           </View>
         )}
@@ -104,7 +111,7 @@ export function PriceSection({ property }: SectionProps) {
               <Text className="text-xs text-gray-400 ml-1">Asking Price</Text>
             </View>
             <Text className="text-lg font-semibold text-orange-600 mt-1">
-              {formatPrice(askingPrice)}
+              {formatPrice(askingPrice, countryCode)}
             </Text>
           </View>
         )}
@@ -117,7 +124,7 @@ export function PriceSection({ property }: SectionProps) {
               <Text className="text-xs text-gray-400 ml-1">Crowd FMV</Text>
             </View>
             <Text className="text-xl font-bold text-primary-600 mt-1">
-              {formatPrice(fmv)}
+              {formatPrice(fmv, countryCode)}
             </Text>
             {fmvConfidence && (
               <Text className={`text-xs ${confidenceColors[fmvConfidence]}`}>
@@ -143,9 +150,10 @@ export function PriceSection({ property }: SectionProps) {
 
       {/* Price comparison visualization */}
       <PriceComparisonBar
-        wozValue={wozValue}
+        officialValuation={officialValuation}
         askingPrice={askingPrice}
         fmv={fmv}
+        countryCode={countryCode}
       />
     </View>
   );

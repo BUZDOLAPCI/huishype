@@ -1,23 +1,21 @@
 /**
  * Import tall building footprints (>20m) from OSM into PostGIS.
  *
- * Uses ogr2ogr to extract building polygons with height data from the Netherlands
- * PBF, then filters to buildings taller than 20m. Pre-computes exclusion_geom
+ * Iterates over countries from the config registry. Pre-computes exclusion_geom
  * via ST_Buffer (height-proportional radius, capped at 100m) for fast
  * GIST-indexed ST_Intersects in the tree tile query.
  *
- * Requires a custom osmconf.ini to expose `height` and `building:levels` as
- * first-class columns (they're normally in `other_tags`).
+ * Uses each country's projectionSrid for accurate meter-based buffer distances.
  *
- * Usage: pnpm -C services/api run db:seed-tall-buildings
+ * Usage:
+ *   pnpm -C services/api run db:seed-tall-buildings                  # all available
+ *   pnpm -C services/api run db:seed-tall-buildings -- --country NL   # just NL
  */
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-
-const DATA_DIR = path.resolve(import.meta.dirname, '../../../../data_sources');
-const PBF_PATH = path.join(DATA_DIR, 'netherlands-latest.osm.pbf');
-const PBF_URL = 'https://download.geofabrik.de/europe/netherlands-latest.osm.pbf';
+import { getCountryConfig, type CountryCode } from '@huishype/shared/config';
+import { DATA_DIR, getPbfPath, parseCountryArg, filterAvailableCountries } from './lib/country-pbf.js';
 
 const DB_HOST = process.env.DB_HOST ?? 'localhost';
 const DB_PORT = process.env.DB_PORT ?? '5440';
@@ -38,7 +36,6 @@ const MAX_EXCLUSION_RADIUS = 100;
 function createCustomOsmConf(): string {
   const defaultConf = fs.readFileSync('/usr/share/gdal/osmconf.ini', 'utf-8');
 
-  // Add height and building:levels to multipolygons attributes
   const customConf = defaultConf.replace(
     /^(attributes=name,type,aeroway,amenity,admin_level,barrier,boundary,building,craft,geological,historic,land_area,landuse,leisure,man_made,military,natural,office,place,shop,sport,tourism)$/m,
     '$1,height,building:levels',
@@ -49,49 +46,13 @@ function createCustomOsmConf(): string {
   return confPath;
 }
 
-async function main() {
-  // Step 1: Download PBF if not cached
-  if (!fs.existsSync(PBF_PATH)) {
-    console.log(`Downloading Netherlands OSM PBF to ${PBF_PATH}...`);
-    console.log('This is ~1.4GB and may take a few minutes.');
-    execSync(`curl -L -o "${PBF_PATH}" "${PBF_URL}"`, {
-      stdio: 'inherit',
-      timeout: 600_000,
-    });
-    console.log('Download complete.');
-  } else {
-    console.log(`Using cached PBF: ${PBF_PATH}`);
-  }
+function importCountry(code: CountryCode, osmConfPath: string): void {
+  const cfg = getCountryConfig(code);
+  const pbfPath = getPbfPath(code);
 
-  // Step 2: Create table with exclusion_geom column
-  console.log('Ensuring tall_buildings table exists...');
-  execSync(
-    `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "
-      CREATE TABLE IF NOT EXISTS tall_buildings (
-        id SERIAL PRIMARY KEY,
-        osm_id BIGINT,
-        height REAL NOT NULL,
-        geometry GEOMETRY(MultiPolygon, 4326) NOT NULL,
-        exclusion_geom GEOMETRY(Geometry, 4326) NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_tall_buildings_exclusion ON tall_buildings USING GIST (exclusion_geom);
-    "`,
-    { stdio: 'inherit' },
-  );
-
-  // Step 3: Truncate existing data (idempotent re-import)
-  console.log('Truncating existing tall_buildings data...');
-  execSync(
-    `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "TRUNCATE tall_buildings RESTART IDENTITY;"`,
-    { stdio: 'inherit' },
-  );
-
-  // Step 4: Create custom osmconf.ini to expose height/building:levels columns
-  const osmConfPath = createCustomOsmConf();
-
-  // Step 5: Import via ogr2ogr into a staging table
-  // ogr2ogr launders `building:levels` → `building_levels`
-  console.log('Importing building footprints via ogr2ogr...');
+  console.log(`\n--- Importing tall buildings for ${code} (${cfg.name}) ---`);
+  console.log(`  PBF: ${pbfPath}`);
+  console.log(`  Projection SRID for buffer: EPSG:${cfg.projectionSrid}`);
 
   const ogrSQL = [
     'SELECT osm_id,',
@@ -104,7 +65,7 @@ async function main() {
     'AND (height IS NOT NULL OR building_levels IS NOT NULL)',
   ].join(' ');
 
-  const sqlFile = path.join(DATA_DIR, '_tall_buildings_query.sql');
+  const sqlFile = path.join(DATA_DIR, `_tall_buildings_query_${code}.sql`);
   fs.writeFileSync(sqlFile, ogrSQL);
 
   const pgConn = `PG:host=${DB_HOST} port=${DB_PORT} dbname=${DB_NAME} user=${DB_USER} password=${DB_PASS}`;
@@ -112,20 +73,18 @@ async function main() {
 
   try {
     execSync(
-      `OSM_CONFIG_FILE="${osmConfPath}" ogr2ogr -f "PostgreSQL" "${pgConn}" "${PBF_PATH}" -sql @"${sqlFile}" -dialect sqlite -nln ${stagingTable} -t_srs EPSG:4326 -lco GEOMETRY_NAME=geometry -overwrite -progress`,
+      `OSM_CONFIG_FILE="${osmConfPath}" ogr2ogr -f "PostgreSQL" "${pgConn}" "${pbfPath}" -sql @"${sqlFile}" -dialect sqlite -nln ${stagingTable} -t_srs EPSG:4326 -lco GEOMETRY_NAME=geometry -overwrite -progress`,
       {
         stdio: 'inherit',
-        timeout: 1_200_000, // 20 minutes (buildings table is large)
+        timeout: 1_200_000,
       },
     );
   } finally {
     try { fs.unlinkSync(sqlFile); } catch { /* ignore */ }
-    try { fs.unlinkSync(osmConfPath); } catch { /* ignore */ }
   }
 
-  // Step 6: Filter >20m and pre-compute exclusion zones
-  // Buffer computed in EPSG:28992 (Amersfoort/RD New) for accurate meter distances in NL
-  console.log('Filtering to buildings >20m and computing exclusion zones...');
+  // Filter >20m and pre-compute exclusion zones using country's projection SRID
+  console.log(`  Filtering to buildings >${MIN_HEIGHT_THRESHOLD}m and computing exclusion zones...`);
   execSync(
     `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "
       INSERT INTO tall_buildings (osm_id, height, geometry, exclusion_geom)
@@ -135,7 +94,7 @@ async function main() {
         geometry,
         ST_Transform(
           ST_Buffer(
-            ST_Transform(geometry, 28992),
+            ST_Transform(geometry, ${cfg.projectionSrid}),
             LEAST(height, ${MAX_EXCLUSION_RADIUS})
           ),
           4326
@@ -146,9 +105,60 @@ async function main() {
     "`,
     { stdio: 'inherit' },
   );
+}
 
-  // Step 7: Verify
-  console.log('Verifying import...');
+async function main() {
+  const requested = parseCountryArg();
+  const countries = filterAvailableCountries(requested);
+
+  if (countries.length === 0) {
+    console.error('No countries with PBF files found. Nothing to import.');
+    process.exit(1);
+  }
+
+  console.log('=== Tall Buildings Import ===');
+  console.log(`Countries: ${countries.join(', ')}`);
+
+  // Create table (fresh start)
+  console.log('\nCreating tall_buildings table...');
+  execSync(
+    `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "
+      DROP TABLE IF EXISTS tall_buildings CASCADE;
+      CREATE TABLE tall_buildings (
+        id SERIAL PRIMARY KEY,
+        osm_id BIGINT,
+        height REAL NOT NULL,
+        geometry GEOMETRY(MultiPolygon, 4326) NOT NULL,
+        exclusion_geom GEOMETRY(Geometry, 4326) NOT NULL
+      );
+    "`,
+    { stdio: 'inherit' },
+  );
+
+  // Create custom osmconf.ini once for all countries
+  const osmConfPath = createCustomOsmConf();
+
+  try {
+    // Import each country
+    for (const code of countries) {
+      importCountry(code, osmConfPath);
+    }
+  } finally {
+    try { fs.unlinkSync(osmConfPath); } catch { /* ignore */ }
+  }
+
+  // Create index and analyze
+  console.log('\nCreating index...');
+  execSync(
+    `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "
+      CREATE INDEX IF NOT EXISTS idx_tall_buildings_exclusion ON tall_buildings USING GIST (exclusion_geom);
+      ANALYZE tall_buildings;
+    "`,
+    { stdio: 'inherit' },
+  );
+
+  // Verify
+  console.log('\nVerifying import...');
   execSync(
     `docker exec huishype-postgres psql -U ${DB_USER} -d ${DB_NAME} -c "
       SELECT COUNT(*) AS total,

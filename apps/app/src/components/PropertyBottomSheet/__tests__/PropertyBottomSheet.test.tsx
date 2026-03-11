@@ -134,7 +134,8 @@ jest.mock('../../../hooks/usePriceGuess', () => ({
 
 const mockProperty: Property = {
   id: 'test-property-123',
-  bagIdentificatie: 'BAG-12345',
+  nationalId: 'BAG-12345',
+  countryCode: 'NL',
   address: 'Teststraat 42',
   city: 'Eindhoven',
   postalCode: '5600 AA',
@@ -142,10 +143,10 @@ const mockProperty: Property = {
     type: 'Point',
     coordinates: [5.4697, 51.4416],
   },
-  bouwjaar: 1985,
-  oppervlakte: 120,
+  yearBuilt: 1985,
+  floorAreaM2: 120,
   status: 'active',
-  wozValue: 350000,
+  officialValuation: 350000,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
@@ -253,15 +254,16 @@ describe('PropertyBottomSheet', () => {
   it('handles property without optional fields', () => {
     const minimalProperty: Property = {
       id: 'minimal-123',
-      bagIdentificatie: null,
+      nationalId: null,
+      countryCode: 'NL',
       address: 'Minimal Address',
       city: 'Amsterdam',
       postalCode: null,
       geometry: null,
-      bouwjaar: null,
-      oppervlakte: null,
+      yearBuilt: null,
+      floorAreaM2: null,
       status: 'active',
-      wozValue: null,
+      officialValuation: null,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
     };

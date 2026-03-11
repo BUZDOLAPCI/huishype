@@ -184,7 +184,6 @@ describe('generateTreeCandidates', () => {
 
   test('z16 tiles have more candidates than z15 (Level 2 added)', () => {
     // Total z16 children trees should equal LEVEL1 + LEVEL2
-    const parentBBox = tileToBBox(15, 16892, 10898);
     const childCoords = [
       [33784, 21796],
       [33785, 21796],

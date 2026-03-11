@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, Text, TextInput, View, Alert, RefreshControl } from 'react-native';
 import { useState, useCallback, useMemo } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useMyProfile, useUpdateProfile, useMyGuesses } from '@/src/hooks/useUserProfile';
@@ -79,7 +80,7 @@ export default function ProfileScreen() {
     const cooldownEnd = new Date(profile.lastNameChangeAt);
     cooldownEnd.setDate(cooldownEnd.getDate() + 30);
     if (new Date() >= cooldownEnd) return null;
-    return cooldownEnd.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+    return cooldownEnd.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   }, [profile?.lastNameChangeAt]);
 
   const onRefresh = useCallback(async () => {
@@ -124,12 +125,8 @@ export default function ProfileScreen() {
     ]);
   }, [signOut]);
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('nl-NL', {
-      style: 'currency',
-      currency: 'EUR',
-      maximumFractionDigits: 0,
-    }).format(price);
+  const formatPrice = (price: number, countryCode?: string) => {
+    return formatPropertyPrice(price, countryCode as CountryCode);
   };
 
   // Not logged in
@@ -246,7 +243,7 @@ export default function ProfileScreen() {
       {/* Member since */}
       <View className="bg-white mt-2 px-6 py-4 border-b border-gray-100">
         <Text className="text-sm text-gray-500">
-          Member since {new Date(profile.joinedAt).toLocaleDateString('nl-NL', {
+          Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
             month: 'long',
             year: 'numeric',
           })}
@@ -282,7 +279,7 @@ export default function ProfileScreen() {
                 <GuessOutcomeBadge outcome={guess.outcome} />
               </View>
               <Text className="text-xs text-gray-400 mt-1">
-                {new Date(guess.guessedAt).toLocaleDateString('nl-NL')}
+                {new Date(guess.guessedAt).toLocaleDateString(undefined)}
               </Text>
             </View>
           ))

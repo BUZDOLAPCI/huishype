@@ -17,10 +17,12 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
 export interface PriceGuessSliderProps {
   propertyId: string;
-  wozValue?: number;
+  countryCode?: string;
+  officialValuation?: number;
   askingPrice?: number;
   currentFMV?: number;
   userGuess?: number;
@@ -53,9 +55,9 @@ function positionToPrice(position: number): number {
   return Math.round(Math.exp(priceLog) / 1000) * 1000;
 }
 
-// Format price in Dutch locale
-function formatPrice(price: number): string {
-  return `\u20AC${price.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`;
+// Format price using country config
+function formatPrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
 // Check if two positions are "near" each other (within 3%)
@@ -127,7 +129,8 @@ function ReferenceMarker({
 
 export function PriceGuessSlider({
   propertyId,
-  wozValue,
+  countryCode,
+  officialValuation,
   askingPrice,
   currentFMV,
   userGuess,
@@ -138,7 +141,7 @@ export function PriceGuessSlider({
   testID = 'price-guess-slider',
 }: PriceGuessSliderProps) {
   // Initial price - prefer user's existing guess, then WOZ, then middle of range
-  const initialPrice = userGuess ?? wozValue ?? 350000;
+  const initialPrice = userGuess ?? officialValuation ?? 350000;
   const [guessedPrice, setGuessedPrice] = useState(initialPrice);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
 
@@ -186,8 +189,8 @@ export function PriceGuessSlider({
       const newPrice = positionToPrice(position);
 
       // Check if we crossed the WOZ value
-      if (wozValue) {
-        const wozPosition = priceToPosition(wozValue);
+      if (officialValuation) {
+        const wozPosition = priceToPosition(officialValuation);
         const wasAboveWOZ = priceToPosition(guessedPrice) > wozPosition;
         const isAboveWOZ = position > wozPosition;
 
@@ -226,7 +229,7 @@ export function PriceGuessSlider({
     },
     [
       guessedPrice,
-      wozValue,
+      officialValuation,
       isNearWOZ,
       onGuessChange,
       thumbPulse,
@@ -340,7 +343,7 @@ export function PriceGuessSlider({
   }, [userGuess, guessedPrice, thumbPosition]);
 
   // Calculate reference marker positions
-  const wozPosition = wozValue ? priceToPosition(wozValue) : null;
+  const wozPosition = officialValuation ? priceToPosition(officialValuation) : null;
   const askingPosition = askingPrice ? priceToPosition(askingPrice) : null;
   const fmvPosition = currentFMV ? priceToPosition(currentFMV) : null;
 
@@ -353,9 +356,9 @@ export function PriceGuessSlider({
         </Text>
 
         {/* Reference values */}
-        {wozValue && (
+        {officialValuation && (
           <Text className="text-sm text-gray-500 mb-4">
-            WOZ Value: {formatPrice(wozValue)}
+            {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
           </Text>
         )}
 
@@ -365,7 +368,7 @@ export function PriceGuessSlider({
             className={`text-4xl font-bold ${disabled ? 'text-gray-400' : 'text-primary-600'}`}
             testID="price-display"
           >
-            {formatPrice(guessedPrice)}
+            {formatPrice(guessedPrice, countryCode)}
           </Text>
         </Animated.View>
 
@@ -375,7 +378,8 @@ export function PriceGuessSlider({
           {wozPosition !== null && (
             <ReferenceMarker
               position={wozPosition}
-              label="WOZ"
+              label={countryCode === 'NL' ? 'WOZ' : 'Val.'}
+
               color="text-purple-600"
               isActive={isNearWOZ}
             />
@@ -450,8 +454,8 @@ export function PriceGuessSlider({
 
           {/* Min/Max labels */}
           <View className="flex-row justify-between mt-2">
-            <Text className="text-xs text-gray-400">{formatPrice(MIN_PRICE)}</Text>
-            <Text className="text-xs text-gray-400">{formatPrice(MAX_PRICE)}</Text>
+            <Text className="text-xs text-gray-400">{formatPrice(MIN_PRICE, countryCode)}</Text>
+            <Text className="text-xs text-gray-400">{formatPrice(MAX_PRICE, countryCode)}</Text>
           </View>
         </View>
 

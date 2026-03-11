@@ -122,11 +122,17 @@ describe('FMVVisualization', () => {
     expect(screen.getByText(/Your guess is/)).toBeTruthy();
   });
 
-  it('shows WOZ value when provided', () => {
-    render(<FMVVisualization fmv={mockFMV} wozValue={320000} />);
+  it('shows official valuation when provided', () => {
+    render(<FMVVisualization fmv={mockFMV} officialValuation={320000} />);
 
-    expect(screen.getByText(/WOZ:/)).toBeTruthy();
+    expect(screen.getByText(/Official Valuation:/)).toBeTruthy();
     expect(screen.getByText(/320.000/)).toBeTruthy();
+  });
+
+  it('shows WOZ label when countryCode is NL', () => {
+    render(<FMVVisualization fmv={mockFMV} officialValuation={320000} countryCode="NL" />);
+
+    expect(screen.getByText(/WOZ Value:/)).toBeTruthy();
   });
 
   it('uses custom testID when provided', () => {

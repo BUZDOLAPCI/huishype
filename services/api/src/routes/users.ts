@@ -11,6 +11,7 @@ import { db } from '../db/index.js';
 import { users, priceGuesses, comments, savedProperties, reactions } from '../db/schema.js';
 import { getKarmaRank } from '../services/karma.js';
 import { formatDisplayAddress } from '../utils/address.js';
+import { isValidCountryCode } from '@huishype/shared';
 
 // --- Constants ---
 const DISPLAY_NAME_COOLDOWN_DAYS = 30;
@@ -29,6 +30,7 @@ const publicProfileSchema = z.object({
   displayName: z.string(),
   handle: z.string(),
   profilePhotoUrl: z.string().nullable(),
+  homeCountry: z.string().nullable(),
   karma: z.number(),
   karmaRank: karmaRankSchema,
   guessCount: z.number(),
@@ -46,6 +48,10 @@ const myProfileSchema = publicProfileSchema.extend({
 const updateProfileSchema = z.object({
   displayName: z.string().min(DISPLAY_NAME_MIN_LENGTH).max(DISPLAY_NAME_MAX_LENGTH).optional(),
   profilePhotoUrl: z.string().url().optional(),
+  homeCountry: z.string().length(2).toUpperCase().refine(
+    (val) => isValidCountryCode(val),
+    { message: 'Invalid country code. Must be a supported 2-letter ISO country code.' }
+  ).nullable().optional(),
 });
 
 const guessHistoryItemSchema = z.object({
@@ -115,6 +121,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         displayName: user.displayName || user.username,
         handle: user.username,
         profilePhotoUrl: user.profilePhotoUrl,
+        homeCountry: user.homeCountry ?? null,
         karma: Math.max(0, user.karma),
         karmaRank: rank,
         guessCount: Number(guessCountResult.value),
@@ -170,6 +177,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         displayName: user.displayName || user.username,
         handle: user.username,
         profilePhotoUrl: user.profilePhotoUrl,
+        homeCountry: user.homeCountry ?? null,
         email: user.email,
         karma: Math.max(0, user.karma),
         karmaRank: rank,
@@ -199,6 +207,7 @@ export async function userRoutes(fastify: FastifyInstance) {
             id: z.string().uuid(),
             displayName: z.string(),
             profilePhotoUrl: z.string().nullable(),
+            homeCountry: z.string().nullable(),
             lastNameChangeAt: z.string().datetime().nullable(),
           }),
           400: errorResponseSchema,
@@ -209,7 +218,7 @@ export async function userRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const userId = request.userId!;
-      const { displayName, profilePhotoUrl } = request.body;
+      const { displayName, profilePhotoUrl, homeCountry } = request.body;
 
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
@@ -248,6 +257,10 @@ export async function userRoutes(fastify: FastifyInstance) {
         updates.profilePhotoUrl = profilePhotoUrl;
       }
 
+      if (homeCountry !== undefined) {
+        updates.homeCountry = homeCountry;
+      }
+
       const [updated] = await db
         .update(users)
         .set(updates)
@@ -256,6 +269,7 @@ export async function userRoutes(fastify: FastifyInstance) {
           id: users.id,
           displayName: users.displayName,
           profilePhotoUrl: users.profilePhotoUrl,
+          homeCountry: users.homeCountry,
           lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
         });
 
@@ -263,6 +277,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         id: updated.id,
         displayName: updated.displayName || user.username,
         profilePhotoUrl: updated.profilePhotoUrl,
+        homeCountry: updated.homeCountry ?? null,
         lastNameChangeAt: updated.lastDisplayNameChangeAt?.toISOString() ?? null,
       };
     }
@@ -306,6 +321,7 @@ export async function userRoutes(fastify: FastifyInstance) {
       // Fetch guesses with property address and outcome
       const rows = await db.execute<{
         property_id: string;
+        country_code: string;
         street: string;
         house_number: number;
         house_number_addition: string | null;
@@ -317,6 +333,7 @@ export async function userRoutes(fastify: FastifyInstance) {
       }>(sql`
         SELECT
           pg.property_id,
+          p.country_code,
           p.street,
           p.house_number,
           p.house_number_addition,
@@ -356,13 +373,16 @@ export async function userRoutes(fastify: FastifyInstance) {
 
         return {
           propertyId: r.property_id,
-          propertyAddress: formatDisplayAddress({
-            street: r.street,
-            houseNumber: r.house_number,
-            houseNumberAddition: r.house_number_addition,
-            postalCode: r.postal_code,
-            city: r.city,
-          }),
+          propertyAddress: formatDisplayAddress(
+            {
+              street: r.street,
+              houseNumber: r.house_number,
+              houseNumberAddition: r.house_number_addition,
+              postalCode: r.postal_code,
+              city: r.city,
+            },
+            isValidCountryCode(r.country_code) ? r.country_code : undefined,
+          ),
           guessAmount: guessedPrice,
           guessedAt: new Date(r.guessed_at).toISOString(),
           outcome,

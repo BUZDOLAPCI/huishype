@@ -22,8 +22,14 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByTestId('submit-guess-button')).toBeTruthy();
   });
 
-  it('displays WOZ value when provided', () => {
-    render(<PriceGuessSlider {...defaultProps} wozValue={350000} />);
+  it('displays official valuation when provided', () => {
+    render(<PriceGuessSlider {...defaultProps} officialValuation={350000} />);
+
+    expect(screen.getByText(/Official Valuation:/)).toBeTruthy();
+  });
+
+  it('displays WOZ Value label when countryCode is NL', () => {
+    render(<PriceGuessSlider {...defaultProps} officialValuation={350000} countryCode="NL" />);
 
     expect(screen.getByText(/WOZ Value:/)).toBeTruthy();
   });
@@ -87,14 +93,14 @@ describe('PriceGuessSlider', () => {
     render(
       <PriceGuessSlider
         {...defaultProps}
-        wozValue={300000}
+        officialValuation={300000}
         askingPrice={350000}
         currentFMV={320000}
       />
     );
 
-    // Check for WOZ marker label
-    expect(screen.getByText('WOZ')).toBeTruthy();
+    // Check for Val. marker label (no countryCode defaults to generic)
+    expect(screen.getByText('Val.')).toBeTruthy();
     // Check for Ask marker label
     expect(screen.getByText('Ask')).toBeTruthy();
     // Check for FMV marker label
@@ -131,7 +137,7 @@ describe('PriceGuessSlider - Logarithmic Scale', () => {
 
 describe('PriceGuessSlider - Price Formatting', () => {
   it('formats large prices with thousands separator', () => {
-    render(<PriceGuessSlider propertyId="test" onGuessSubmit={jest.fn()} wozValue={1500000} />);
+    render(<PriceGuessSlider propertyId="test" onGuessSubmit={jest.fn()} officialValuation={1500000} />);
 
     // Dutch format uses periods as thousands separators - use getAllByText for multiple matches
     expect(screen.getAllByText(/1\.500\.000/).length).toBeGreaterThan(0);

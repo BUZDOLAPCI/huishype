@@ -2,6 +2,7 @@ import React from 'react';
 import { render, fireEvent, screen, act, waitFor } from '@testing-library/react-native';
 import { SearchBar } from '../SearchBar';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import { TEST_LAT, TEST_LNG } from '@/src/__tests__/fixtures/test-coordinates';
 
 // Mock the useAddressSearch hook
 const mockUseAddressSearch = jest.fn();
@@ -16,13 +17,13 @@ jest.mock('@/src/utils/api', () => ({
   API_URL: 'http://localhost:3100',
 }));
 
-// Helper: create a mock PDOK address result
+// Helper: create a mock address result
 function createMockAddress(overrides?: Partial<ResolvedAddress>): ResolvedAddress {
   return {
     bagId: 'addr-001',
     formattedAddress: 'Teststraat 42, 5651HA Eindhoven',
-    lat: 51.4416,
-    lon: 5.4697,
+    lat: TEST_LAT,
+    lon: TEST_LNG,
     details: {
       city: 'Eindhoven',
       zip: '5651HA',
@@ -159,9 +160,9 @@ describe('SearchBar', () => {
       address: 'Teststraat 42',
       postalCode: '5651HA',
       city: 'Eindhoven',
-      coordinates: { lon: 5.4697, lat: 51.4416 },
+      coordinates: { lon: TEST_LNG, lat: TEST_LAT },
       hasListing: true,
-      wozValue: 350000,
+      officialValuation: 350000,
     };
 
     mockUseAddressSearch.mockReturnValue({
@@ -234,7 +235,7 @@ describe('SearchBar', () => {
 
       await waitFor(() => {
         expect(onLocationResolved).toHaveBeenCalledWith(
-          { lon: 5.4697, lat: 51.4416 },
+          { lon: TEST_LNG, lat: TEST_LAT },
           'Teststraat 42, 5651HA Eindhoven',
         );
       });

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
 
 const CARD_WIDTH = 320;
@@ -52,20 +53,22 @@ function pointInRect(px: number, py: number, rect: Rect): boolean {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-function formatPrice(value: number | null | undefined): string | null {
+function formatPrice(value: number | null | undefined, countryCode?: string): string | null {
   if (value === null || value === undefined) return null;
-  return `\u20AC${value.toLocaleString('nl-NL')}`;
+  return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
 function getPriceLabel(property: GroupPreviewProperty): string {
   if (property.fmv != null) return 'FMV';
   if (property.askingPrice != null) return 'Ask';
-  if (property.wozValue != null) return 'WOZ';
+  if (property.officialValuation != null) {
+    return property.countryCode === 'NL' ? 'WOZ' : 'Val.';
+  }
   return '';
 }
 
 function getDisplayPrice(property: GroupPreviewProperty): number | null {
-  return property.fmv ?? property.askingPrice ?? property.wozValue ?? null;
+  return property.fmv ?? property.askingPrice ?? property.officialValuation ?? null;
 }
 
 const ACTIVITY_CONFIG = {
@@ -284,7 +287,7 @@ function PropertyCardContent({
 }) {
   const displayPrice = getDisplayPrice(property);
   const priceLabel = getPriceLabel(property);
-  const formattedPrice = formatPrice(displayPrice);
+  const formattedPrice = formatPrice(displayPrice, property.countryCode);
   const activity = ACTIVITY_CONFIG[property.activityLevel ?? 'cold'];
 
   return (

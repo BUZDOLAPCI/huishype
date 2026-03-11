@@ -21,9 +21,11 @@
     "db:reset": "tsx scripts/db-reset.ts",
     "db:seed-landcover": "tsx src/scripts/import-landcover.ts",
     "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts",
-    "db:import-buildings": "tsx src/scripts/import-bag-buildings.ts"
+    "db:import-buildings": "tsx src/scripts/import-osm-buildings.ts",
+    "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts"
   },
   "dependencies": {
+    "@huishype/shared": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",

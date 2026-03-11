@@ -6,10 +6,13 @@
  */
 
 // Re-export all types
-export * from './types';
+export * from './types/index.js';
 
 // Re-export all utilities
-export * from './utils';
+export * from './utils/index.js';
+
+// Re-export all config
+export * from './config/index.js';
 
 // Package metadata
 export const PACKAGE_NAME = '@huishype/shared';

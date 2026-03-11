@@ -109,7 +109,7 @@ describe('GET /properties/nearby', () => {
         expect(prop).toHaveProperty('address');
         expect(prop).toHaveProperty('city');
         expect(prop).toHaveProperty('postalCode');
-        expect(prop).toHaveProperty('wozValue');
+        expect(prop).toHaveProperty('officialValuation');
         expect(prop).toHaveProperty('hasListing');
         expect(prop).toHaveProperty('activityScore');
         expect(prop).toHaveProperty('distanceMeters');

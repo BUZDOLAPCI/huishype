@@ -58,7 +58,7 @@ describe('Feed routes', () => {
         expect(item).toHaveProperty('zipCode');
         expect(item).toHaveProperty('askingPrice');
         expect(item).toHaveProperty('fmv');
-        expect(item).toHaveProperty('wozValue');
+        expect(item).toHaveProperty('officialValuation');
         expect(item).toHaveProperty('thumbnailUrl');
         expect(item).toHaveProperty('likeCount');
         expect(item).toHaveProperty('commentCount');

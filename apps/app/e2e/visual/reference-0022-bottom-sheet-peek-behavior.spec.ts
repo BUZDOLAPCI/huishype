@@ -20,7 +20,7 @@ import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-hel
  */
 const MOCK_PROPERTY_WITH_PRICE = {
   id: 'test-property-001',
-  bagIdentificatie: '0772010000123456',
+  nationalId: '0772010000123456',
   address: 'Stratumseind 100',
   city: 'Eindhoven',
   postalCode: '5611 ET',
@@ -28,10 +28,10 @@ const MOCK_PROPERTY_WITH_PRICE = {
     type: 'Point',
     coordinates: [5.4697, 51.4416],
   },
-  bouwjaar: 1985,
-  oppervlakte: 120,
+  yearBuilt: 1985,
+  floorAreaM2: 120,
   status: 'active',
-  wozValue: 425000,
+  officialValuation: 425000,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };

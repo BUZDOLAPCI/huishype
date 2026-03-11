@@ -201,10 +201,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const data = await response.json();
       if (data.data && data.data.length > 0) {
         // Find a property with a WOZ value if possible
-        const propertyWithWoz = data.data.find((p: { wozValue?: number }) => p.wozValue && p.wozValue > 0);
+        const propertyWithWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
         const selectedProperty = propertyWithWoz || data.data[0];
         propertyId = selectedProperty.id;
-        propertyWozValue = selectedProperty.wozValue;
+        propertyWozValue = selectedProperty.officialValuation;
         console.log('Selected property:', propertyId, 'WOZ value:', propertyWozValue);
       }
     } catch (e) {

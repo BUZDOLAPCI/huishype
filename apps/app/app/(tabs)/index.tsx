@@ -188,18 +188,18 @@ export default function MapScreen() {
 
   /** Convert batch/nearby properties to GroupPreviewProperty format. */
   const toGroupProperty = useCallback(
-    (p: { id: string; address: string; city: string; postalCode?: string | null; wozValue?: number | null; askingPrice?: number | null; activityScore?: number; geometry?: { type: 'Point'; coordinates: [number, number] } | null; bouwjaar?: number | null; oppervlakte?: number | null }): GroupPreviewProperty => ({
+    (p: { id: string; address: string; city: string; postalCode?: string | null; officialValuation?: number | null; askingPrice?: number | null; activityScore?: number; geometry?: { type: 'Point'; coordinates: [number, number] } | null; yearBuilt?: number | null; floorAreaM2?: number | null }): GroupPreviewProperty => ({
       id: p.id,
       address: p.address,
       city: p.city,
       postalCode: p.postalCode,
-      wozValue: p.wozValue,
+      officialValuation: p.officialValuation,
       askingPrice: p.askingPrice ?? null,
       activityLevel: getActivityLevel((p.activityScore as number) ?? 0),
       activityScore: (p.activityScore as number) ?? 0,
       thumbnailUrl: p.geometry ? getPropertyThumbnailFromGeometry(p.geometry) : null,
-      bouwjaar: p.bouwjaar ?? null,
-      oppervlakte: p.oppervlakte ?? null,
+      yearBuilt: p.yearBuilt ?? null,
+      floorAreaM2: p.floorAreaM2 ?? null,
     }),
     []
   );
@@ -295,7 +295,7 @@ export default function MapScreen() {
               address: (properties.address as string) ?? '',
               city: (properties.city as string) ?? '',
               postalCode: (properties.postalCode as string) ?? null,
-              wozValue: (properties.wozValue as number) ?? null,
+              officialValuation: (properties.officialValuation as number) ?? null,
               askingPrice: (properties.askingPrice as number) ?? null,
               activityLevel: getActivityLevel(activityScore),
               activityScore,
@@ -461,7 +461,7 @@ export default function MapScreen() {
                     address: nearby.address,
                     city: nearby.city,
                     postalCode: nearby.postalCode,
-                    wozValue: nearby.wozValue,
+                    officialValuation: nearby.officialValuation,
                     askingPrice: nearby.askingPrice,
                     activityLevel: getActivityLevel(nearby.activityScore ?? 0),
                     activityScore: nearby.activityScore ?? 0,
@@ -545,7 +545,7 @@ export default function MapScreen() {
         address: property.address,
         city: property.city,
         postalCode: property.postalCode ?? null,
-        wozValue: property.wozValue ?? null,
+        officialValuation: property.officialValuation ?? null,
         askingPrice: null,
         activityLevel: 'cold',
         activityScore: 0,

@@ -42,7 +42,7 @@ export const propertyHandlers = [
       city: 'Amsterdam',
       coordinates: { lon: 4.8952, lat: 52.3702 },
       hasListing: true,
-      wozValue: 450000,
+      officialValuation: 450000,
     };
 
     return HttpResponse.json(response);

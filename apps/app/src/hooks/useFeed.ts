@@ -18,7 +18,7 @@ export interface FeedProperty {
   zipCode: string;
   askingPrice: number | null;
   fmv: number | null;
-  wozValue: number | null;
+  officialValuation: number | null;
   thumbnailUrl: string | null;
   likeCount: number;
   commentCount: number;
@@ -32,8 +32,8 @@ export interface FeedProperty {
   coordinates: { lat: number; lon: number } | null;
   photoUrl?: string;
   fmvValue?: number;
-  bouwjaar: number | null;
-  oppervlakte: number | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
 }
 
 // Raw response from GET /feed
@@ -45,7 +45,7 @@ interface FeedApiResponse {
     zipCode: string;
     askingPrice: number | null;
     fmv: number | null;
-    wozValue: number | null;
+    officialValuation: number | null;
     thumbnailUrl: string | null;
     likeCount: number;
     commentCount: number;
@@ -82,8 +82,8 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
     coordinates: null, // feed endpoint doesn't return geometry
     photoUrl: item.thumbnailUrl ?? undefined,
     fmvValue: item.fmv ?? undefined,
-    bouwjaar: null, // not returned by feed endpoint
-    oppervlakte: null, // not returned by feed endpoint
+    yearBuilt: null, // not returned by feed endpoint
+    floorAreaM2: null, // not returned by feed endpoint
   };
 }
 
