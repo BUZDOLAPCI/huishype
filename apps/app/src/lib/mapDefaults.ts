@@ -1,7 +1,7 @@
 import { getCountryConfig, type CountryCode, isValidCountryCode } from '@huishype/shared/config';
 
 // Debug camera: set to true to start zoomed into Beeldbuisring 41 for shader/building debugging
-export const DEBUG_CAMERA = __DEV__ && false;
+export const DEBUG_CAMERA = __DEV__ && true;
 
 // Default production camera values (from country config)
 const PRODUCTION_PITCH = 50;
@@ -11,7 +11,7 @@ const PRODUCTION_BEARING = 0;
 // Switch DEBUG_LOCATION below to jump to a different spot on launch.
 const DEBUG_LOCATIONS = {
   /** Beeldbuisring 41, Eindhoven — dense row-houses, shader/building iteration */
-  beeldbuisring:  { center: [5.44866, 51.4501]   as [number, number], zoom: 18.5 },
+  beeldbuisring:  { center: [5.44566, 51.45230] as [number, number], zoom: 20.1 },
   /** Fosforstraat, Eindhoven — 3 story single wide apartment building, shader/building iteration */
   fosforstraat:  { center: [5.44866, 51.4501]   as [number, number], zoom: 18.5 },
   /** Amsterdam canal ring — tall narrow buildings, mixed heights */
