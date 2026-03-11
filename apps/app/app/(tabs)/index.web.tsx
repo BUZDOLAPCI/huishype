@@ -17,7 +17,7 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
-import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING } from '@/src/lib/mapDefaults';
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -352,6 +352,29 @@ export default function MapScreen() {
 
       // Add zoom controls (no compass)
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+      // Debug: copy camera button
+      if (DEBUG_CAMERA) {
+        const btn = document.createElement('button');
+        btn.textContent = '\u{1F4CB}';
+        btn.title = 'Copy camera position';
+        Object.assign(btn.style, {
+          position: 'absolute', bottom: '120px', right: '10px', zIndex: '2',
+          width: '30px', height: '30px', borderRadius: '4px',
+          border: '1px solid #ccc', background: '#fff', cursor: 'pointer',
+          fontSize: '16px', lineHeight: '1',
+        });
+        btn.addEventListener('click', () => {
+          const c = map.getCenter();
+          const z = map.getZoom();
+          const snippet = `{ center: [${c.lng.toFixed(5)}, ${c.lat.toFixed(5)}] as [number, number], zoom: ${z.toFixed(1)} }`;
+          navigator.clipboard.writeText(snippet);
+          btn.textContent = '\u2713';
+          btn.style.background = '#D1FAE5';
+          setTimeout(() => { btn.textContent = '\u{1F4CB}'; btn.style.background = '#fff'; }, 1500);
+        });
+        map.getContainer().appendChild(btn);
+      }
 
       // Expose map instance for testing
       if (typeof window !== 'undefined') {

@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   Map,
   Camera,
@@ -29,7 +30,7 @@ import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 
 import { API_URL, fetchBatchProperties, fetchNearbyCluster, type PropertyResolveResult } from '@/src/utils/api';
-import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH } from '@/src/lib/mapDefaults';
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 
 // Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
 // after a card touch (e.g. user lifts finger outside the map gesture area),
@@ -588,6 +589,16 @@ export default function MapScreen() {
     }
   }, [currentZoom]);
 
+  const [copiedFlash, setCopiedFlash] = useState(false);
+  const handleCopyCamera = useCallback(async () => {
+    const center = await mapRef.current?.getCenter();
+    if (!center) return;
+    const snippet = `{ center: [${center[0].toFixed(5)}, ${center[1].toFixed(5)}] as [number, number], zoom: ${currentZoom.toFixed(1)} }`;
+    await Clipboard.setStringAsync(snippet);
+    setCopiedFlash(true);
+    setTimeout(() => setCopiedFlash(false), 1500);
+  }, [currentZoom]);
+
   return (
     <View style={{ flex: 1 }} className="bg-gray-100">
       {/* Map View */}
@@ -728,6 +739,25 @@ export default function MapScreen() {
           >
             <Text style={{ fontSize: 22, fontWeight: '300', color: '#1F2937', lineHeight: 24 }}>{'\u2212'}</Text>
           </Pressable>
+          {DEBUG_CAMERA && (
+            <>
+              <View style={{ height: 1, backgroundColor: '#E5E7EB', marginHorizontal: 8 }} />
+              <Pressable
+                onPress={handleCopyCamera}
+                style={({ pressed }) => ({
+                  width: 48,
+                  height: 48,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: pressed ? '#F3F4F6' : copiedFlash ? '#D1FAE5' : '#FFFFFF',
+                })}
+                accessibilityLabel="Copy camera position"
+                accessibilityRole="button"
+              >
+                <Text style={{ fontSize: 16, color: copiedFlash ? '#059669' : '#1F2937' }}>{copiedFlash ? '\u2713' : '\u{1F4CB}'}</Text>
+              </Pressable>
+            </>
+          )}
         </View>
 
         {/* Loading indicator for property fetch */}
