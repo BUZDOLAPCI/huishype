@@ -7,11 +7,35 @@ export const DEBUG_CAMERA = __DEV__ && false;
 const PRODUCTION_PITCH = 50;
 const PRODUCTION_BEARING = 0;
 
-// Debug camera (Beeldbuisring 41 close-up for shader/building iteration)
-const DEBUG_CENTER: [number, number] = [5.4780, 51.4395];
-const DEBUG_ZOOM = 18;
-const DEBUG_PITCH = 55;
-const DEBUG_BEARING = -20;
+// ── Debug camera locations ──────────────────────────────────────────
+// Switch DEBUG_LOCATION below to jump to a different spot on launch.
+const DEBUG_LOCATIONS = {
+  /** Beeldbuisring 41, Eindhoven — dense row-houses, shader/building iteration */
+  beeldbuisring:  { center: [5.44866, 51.4501]   as [number, number], zoom: 18.5 },
+  /** Fosforstraat, Eindhoven — 3 story single wide apartment building, shader/building iteration */
+  fosforstraat:  { center: [5.44866, 51.4501]   as [number, number], zoom: 18.5 },
+  /** Amsterdam canal ring — tall narrow buildings, mixed heights */
+  amsterdam:      { center: [4.8897, 52.3703]    as [number, number], zoom: 17 },
+  /** Rotterdam Erasmusbrug — modern high-rises + waterfront */
+  rotterdam:      { center: [4.4869, 51.9094]    as [number, number], zoom: 16.5 },
+  /** Paris Haussmann — uniform 6-story blocks, tree-lined boulevards */
+  paris:          { center: [2.3364, 48.8708]     as [number, number], zoom: 17 },
+  /** Berlin Mitte — mixed Soviet + modern blocks */
+  berlin:         { center: [13.3889, 52.5170]    as [number, number], zoom: 16.5 },
+  /** Brussels Grand Place — dense medieval core */
+  brussels:       { center: [4.3517, 50.8467]     as [number, number], zoom: 17 },
+  /** London City — skyscrapers next to low-rise */
+  london:         { center: [-0.0833, 51.5134]    as [number, number], zoom: 16 },
+} as const;
+
+type DebugLocationKey = keyof typeof DEBUG_LOCATIONS;
+
+// ▸ Change this to switch debug start location
+const DEBUG_LOCATION: DebugLocationKey = 'beeldbuisring';
+
+const _dbg = DEBUG_LOCATIONS[DEBUG_LOCATION];
+const DEBUG_CENTER = _dbg.center;
+const DEBUG_ZOOM = _dbg.zoom;
 
 /** Get default map center for a country. Falls back to NL. */
 export function getDefaultCenter(countryCode?: string): [number, number] {
@@ -30,5 +54,5 @@ export function getDefaultZoom(countryCode?: string): number {
 // Backward-compatible constants (default to NL)
 export const DEFAULT_CENTER: [number, number] = DEBUG_CAMERA ? DEBUG_CENTER : getCountryConfig('NL').defaultCenter;
 export const DEFAULT_ZOOM = DEBUG_CAMERA ? DEBUG_ZOOM : getCountryConfig('NL').defaultZoom;
-export const DEFAULT_PITCH = DEBUG_CAMERA ? DEBUG_PITCH : PRODUCTION_PITCH;
-export const DEFAULT_BEARING = DEBUG_CAMERA ? DEBUG_BEARING : PRODUCTION_BEARING;
+export const DEFAULT_PITCH = PRODUCTION_PITCH;
+export const DEFAULT_BEARING = PRODUCTION_BEARING;
