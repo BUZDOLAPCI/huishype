@@ -1218,11 +1218,7 @@ export async function tileRoutes(app: FastifyInstance) {
               false
             ) AS geom
           FROM osm_buildings
-          WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}, margin => 0.03125), 4326)
-            AND ST_Intersects(
-              ST_Centroid(geometry),
-              ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}, margin => 0.03125), 4326)
-            )
+          WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
         )
         SELECT ST_AsMVT(mvt_data, 'buildings', 4096, 'geom', 'id') AS mvt
         FROM mvt_data
