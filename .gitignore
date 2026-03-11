@@ -72,6 +72,10 @@ data_sources/*.sqlite-journal
 data_sources/*.zip
 data_sources/*.7z
 data_sources/*.pbf
+data_sources/**/*.pbf
+
+# Photon geocoder planet database (~88GB, re-downloadable)
+photon_data/
 
 # Derived address data (regenerate from BAG with ogr2ogr)
 fixtures/eindhoven-addresses.json
