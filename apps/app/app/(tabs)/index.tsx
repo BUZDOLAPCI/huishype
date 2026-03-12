@@ -1,6 +1,5 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import {
   Map,
   Camera,
@@ -594,6 +593,7 @@ export default function MapScreen() {
     const center = await mapRef.current?.getCenter();
     if (!center) return;
     const snippet = `{ center: [${center[0].toFixed(5)}, ${center[1].toFixed(5)}] as [number, number], zoom: ${currentZoom.toFixed(1)} }`;
+    const Clipboard = await import('expo-clipboard');
     await Clipboard.setStringAsync(snippet);
     setCopiedFlash(true);
     setTimeout(() => setCopiedFlash(false), 1500);
