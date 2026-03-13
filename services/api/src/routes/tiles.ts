@@ -966,8 +966,8 @@ export async function tileRoutes(app: FastifyInstance) {
           // MapLibre GL JS defaults match these, but MapLibre Native may use
           // different defaults, causing buildings to render too dark.
           light: {
-            anchor: 'viewport',
-            color: '#FFFFFF',
+            anchor: 'map',
+            color: '#FFF6EA',
             intensity: 0.3,
             position: [1.15, 210, 45],
           },
