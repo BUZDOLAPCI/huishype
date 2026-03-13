@@ -411,7 +411,7 @@ export default function MapScreen() {
 
         // Configure lighting
         map.setLight({
-          anchor: 'viewport',
+          anchor: 'map',
           color: '#FFFFFF',
           intensity: 0.3,
           position: [1.15, 210, 45],
