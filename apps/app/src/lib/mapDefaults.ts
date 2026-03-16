@@ -26,6 +26,8 @@ const DEBUG_LOCATIONS = {
   brussels:       { center: [4.3517, 50.8467]     as [number, number], zoom: 17 },
   /** London City — skyscrapers next to low-rise */
   london:         { center: [-0.0833, 51.5134]    as [number, number], zoom: 16 },
+  /** row house shadows, shader/building iteration */
+  shadow_debug:  { center: [5.44773, 51.45050] as [number, number], zoom: 20.0 },
 } as const;
 
 type DebugLocationKey = keyof typeof DEBUG_LOCATIONS;

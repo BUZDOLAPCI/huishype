@@ -968,8 +968,8 @@ export async function tileRoutes(app: FastifyInstance) {
           light: {
             anchor: 'map',
             color: '#FFF6EA',
-            intensity: 0.3,
-            position: [1.15, 210, 45],
+            intensity: 0.2,
+            position: [1.15, 240, 45],
           },
         };
 

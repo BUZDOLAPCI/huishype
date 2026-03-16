@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Text, View } from 'react-native';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 
 import {
   GroupPreviewCard,
@@ -52,7 +52,7 @@ const ENHANCED_BASE_COLORS = {
 function enhanceVegetationColors(map: maplibregl.Map) {
   const existingLayers = map.getStyle()?.layers || [];
 
-  existingLayers.forEach((layer) => {
+  existingLayers.forEach((layer: maplibregl.LayerSpecification) => {
     if (layer.type === 'fill') {
       if (layer.id === 'park' || layer.id.includes('park')) {
         try {
@@ -85,7 +85,7 @@ function enhanceVegetationColors(map: maplibregl.Map) {
 function enhanceBaseMapColors(map: maplibregl.Map) {
   const existingLayers = map.getStyle()?.layers || [];
 
-  existingLayers.forEach((layer) => {
+  existingLayers.forEach((layer: maplibregl.LayerSpecification) => {
     try {
       if (layer.id === 'background' || layer.id.includes('background')) {
         if (layer.type === 'background') {
@@ -409,14 +409,6 @@ export default function MapScreen() {
         clearTimeout(loadTimeout);
         setMapLoaded(true);
 
-        // Configure lighting
-        map.setLight({
-          anchor: 'map',
-          color: '#FFFFFF',
-          intensity: 0.3,
-          position: [1.15, 210, 45],
-        });
-
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
@@ -427,7 +419,7 @@ export default function MapScreen() {
         }, 100);
       });
 
-      map.on('error', (e) => {
+      map.on('error', (e: maplibregl.ErrorEvent) => {
         console.warn('[MapScreen] MapLibre error:', e.error?.message || e);
       });
 
@@ -571,7 +563,7 @@ export default function MapScreen() {
       // CRITICAL: Preview card should only close when:
       // 1. User taps on empty map background AND
       // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
-      map.on('click', (e) => {
+      map.on('click', (e: maplibregl.MapMouseEvent) => {
         // If a layer-specific handler already processed this click, skip
         if (propertyClickHandled.current) {
           propertyClickHandled.current = false;

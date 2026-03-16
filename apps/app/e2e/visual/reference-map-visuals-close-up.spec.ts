@@ -5,7 +5,7 @@
  * reference expectation with:
  * - 3D building extrusions with beige/cream colors
  * - Camera pitch (3D perspective view at 45-60 degrees)
- * - Soft shadows via lighting configuration
+ * - Directional building shadows via lighting configuration
  * - Roads, greenery, streets visible at close-up zoom
  * - Buildings only appear as 3D when zoomed in (zoom > 14)
  *
