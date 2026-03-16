@@ -108,8 +108,8 @@ importers:
         specifier: ~15.0.10
         version: 15.0.10(expo@54.0.32)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))
       maplibre-gl:
-        specifier: github:BUZDOLAPCI/maplibre-gl-js#2f89536bb
-        version: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/2f89536bb
+        specifier: github:BUZDOLAPCI/maplibre-gl-js#b2d5ecb36
+        version: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/b2d5ecb36
       nativewind:
         specifier: ^4.1.23
         version: 4.2.1(react-native-reanimated@4.1.6(@babel/core@7.28.6)(react-native-worklets@0.5.1(@babel/core@7.28.6)(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
@@ -2167,11 +2167,11 @@ packages:
       '@types/react':
         optional: true
 
-  '@maplibre/mlt@1.1.2':
-    resolution: {integrity: sha512-SQKdJ909VGROkA6ovJgtHNs9YXV4YXUPS+VaZ50I2Mt951SLlUm2Cv34x5Xwc1HiFlsd3h2Yrs5cn7xzqBmENw==}
+  '@maplibre/mlt@1.1.7':
+    resolution: {integrity: sha512-HZSsXrgn2V6T3o0qklMwKERfKaAxjO8shmiFnVygCtXTg4SPKWVX+U99RkvxUfCsjYBEcT4ltor8lSlBSCca7Q==}
 
-  '@maplibre/vt-pbf@4.2.1':
-    resolution: {integrity: sha512-IxZBGq/+9cqf2qdWlFuQ+ZfoMhWpxDUGQZ/poPHOJBvwMUT1GuxLo6HgYTou+xxtsOsjfbcjI8PZaPCtmt97rA==}
+  '@maplibre/vt-pbf@4.3.0':
+    resolution: {integrity: sha512-jIvp8F5hQCcreqOOpEt42TJMUlsrEcpf/kI1T2v85YrQRV6PPXUcEXUg5karKtH6oh47XJZ4kHu56pUkOuqA7w==}
 
   '@mswjs/interceptors@0.40.0':
     resolution: {integrity: sha512-EFd6cVbHsgLa6wa4RljGj6Wk75qoHxUSyc5asLyyPSyuhIcdS2Q3Phw6ImS1q+CkALthJRShiYfKANcQMuMqsQ==}
@@ -5109,8 +5109,8 @@ packages:
   makeerror@1.0.12:
     resolution: {integrity: sha512-JmqCvUhmt43madlpFzG4BQzG2Z3m6tvQDNKdClZnO3VbIudJYmxsT0FNJMeiB2+JTSlTQTSbU8QdesVmwJcmLg==}
 
-  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/2f89536bb:
-    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/2f89536bb}
+  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/b2d5ecb36:
+    resolution: {tarball: https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/b2d5ecb36}
     version: 5.16.0
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
@@ -9096,11 +9096,11 @@ snapshots:
       '@types/geojson': 7946.0.16
       '@types/react': 19.1.17
 
-  '@maplibre/mlt@1.1.2':
+  '@maplibre/mlt@1.1.7':
     dependencies:
       '@mapbox/point-geometry': 1.1.0
 
-  '@maplibre/vt-pbf@4.2.1':
+  '@maplibre/vt-pbf@4.3.0':
     dependencies:
       '@mapbox/point-geometry': 1.1.0
       '@mapbox/vector-tile': 2.0.4
@@ -12455,7 +12455,7 @@ snapshots:
     dependencies:
       tmpl: 1.0.5
 
-  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/2f89536bb:
+  maplibre-gl@https://codeload.github.com/BUZDOLAPCI/maplibre-gl-js/tar.gz/b2d5ecb36:
     dependencies:
       '@mapbox/geojson-rewind': 0.5.2
       '@mapbox/jsonlint-lines-primitives': 2.0.2
@@ -12465,8 +12465,8 @@ snapshots:
       '@mapbox/vector-tile': 2.0.4
       '@mapbox/whoots-js': 3.1.0
       '@maplibre/maplibre-gl-style-spec': 24.4.1
-      '@maplibre/mlt': 1.1.2
-      '@maplibre/vt-pbf': 4.2.1
+      '@maplibre/mlt': 1.1.7
+      '@maplibre/vt-pbf': 4.3.0
       '@types/geojson': 7946.0.16
       '@types/geojson-vt': 3.2.5
       '@types/supercluster': 7.1.3
