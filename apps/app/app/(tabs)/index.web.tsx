@@ -958,6 +958,7 @@ export default function MapScreen() {
         property={selectedProperty ?? null}
         isLiked={isLiked}
         isSaved={isSaved}
+        isPreviewCardVisible={!!previewGroup}
         onClose={handleSheetClose}
         onSheetChange={handleSheetIndexChange}
         onSave={handleSave}
