@@ -7,6 +7,9 @@
  * Portrait state model matches native @gorhom/bottom-sheet:
  *   closed (-1) → peek (0) → partial (1) → full (2)
  *   enablePanDownToClose=false: drag down from peek stays at peek
+ *
+ * Content rendering is delegated to PropertyContent — this file is
+ * container-only (layout, gestures, state machine, CSS injection).
  */
 import {
   forwardRef,
@@ -16,23 +19,11 @@ import {
   useState,
   useEffect,
 } from 'react';
-import { ScrollView, View, Text } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
 
-import { useProperty } from '../../hooks/useProperties';
-import { useListings } from '../../hooks/useListings';
-import { usePropertyView } from '../../hooks/usePropertyView';
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
-import { toPropertyDetails } from './types';
-import { PropertyHeader } from './PropertyHeader';
-import { PriceSection } from './PriceSection';
-import { QuickActions } from './QuickActions';
-import { PriceGuessSection } from './PriceGuessSection';
-import { CommentsSection } from './CommentsSection';
-import { PropertyDetails } from './PropertyDetails';
-import { ListingLinks } from './ListingLinks';
-import { ListingSubmissionSheet } from './ListingSubmissionSheet';
+import { PropertyContent } from './PropertyContent';
 
 type SheetState = 'closed' | 'peek' | 'partial' | 'full';
 
@@ -209,6 +200,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
   function PropertyBottomSheet(
     {
       property,
+      isLoading = false,
       isLiked: isLikedProp,
       isSaved: isSavedProp,
       isPreviewCardVisible,
@@ -226,29 +218,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const [sheetState, setSheetState] = useState<SheetState>('closed');
     const scrollRef = useRef<ScrollView>(null);
     const panelRef = useRef<HTMLDivElement>(null);
-    const queryClient = useQueryClient();
     const isLandscape = useIsLandscape();
-
-    // Listing submission modal state
-    const [showSubmission, setShowSubmission] = useState(false);
 
     // Section position refs for scroll-to
     const guessSectionY = useRef(0);
     const commentsSectionY = useRef(0);
-
-    // Fetch enriched property details (viewCount, activityLevel, etc.)
-    const { data: enrichedProperty } = useProperty(property?.id ?? null);
-
-    // Record view when property is opened
-    const { recordPropertyView } = usePropertyView();
-    useEffect(() => {
-      if (property?.id && sheetState !== 'closed') {
-        recordPropertyView(property.id);
-      }
-    }, [property?.id, sheetState]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Listings
-    const { data: listings = [] } = useListings(property?.id ?? null);
 
     const isOpen = sheetState !== 'closed';
 
@@ -499,11 +473,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       };
     }, [isLandscape, snapFromDrag]);
 
-    // Convert property to detailed format, merging enriched API data
-    const propertyDetails = property
-      ? toPropertyDetails(property, enrichedProperty as Record<string, unknown> | null | undefined, { isLiked: isLikedProp, isSaved: isSavedProp })
-      : null;
-
     // Determine panel class based on orientation and state
     const panelClassName = isLandscape
       ? `web-property-panel--landscape ${isOpen ? 'open' : ''}`
@@ -561,68 +530,23 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
             onScroll={(e) => { scrollTopRef.current = e.nativeEvent.contentOffset.y; }}
             scrollEventThrottle={16}
           >
-            {propertyDetails ? (
-              <View>
-                <PropertyHeader property={propertyDetails} />
-                <PriceSection property={propertyDetails} />
-                <QuickActions
-                  property={propertyDetails}
-                  onSave={() => onSave?.(propertyDetails.id)}
-                  onShare={() => onShare?.(propertyDetails.id)}
-                  onLike={() => onLike?.(propertyDetails.id)}
-                />
-                <ListingLinks
-                  listings={listings}
-                  onAddListing={() => setShowSubmission(true)}
-                />
-                <View
-                  onLayout={(e) => {
-                    guessSectionY.current = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <PriceGuessSection
-                    property={propertyDetails}
-                    onGuessPress={() => onGuessPress?.(propertyDetails.id)}
-                    onLoginRequired={onAuthRequired}
-                  />
-                </View>
-                <View
-                  onLayout={(e) => {
-                    commentsSectionY.current = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <CommentsSection
-                    property={propertyDetails}
-                    onAddComment={() => onCommentPress?.(propertyDetails.id)}
-                    onAuthRequired={onAuthRequired}
-                  />
-                </View>
-                <PropertyDetails property={propertyDetails} />
-              </View>
-            ) : (
-              <View style={{ padding: 24, alignItems: 'center' }}>
-                <Ionicons name="home-outline" size={48} color="#D1D5DB" />
-                <Text style={{ color: '#9CA3AF', marginTop: 12 }}>
-                  Select a property to view details
-                </Text>
-              </View>
-            )}
+            <PropertyContent
+              property={property}
+              isLoading={isLoading}
+              isLiked={isLikedProp}
+              isSaved={isSavedProp}
+              onSave={onSave}
+              onShare={onShare}
+              onLike={onLike}
+              onGuessPress={onGuessPress}
+              onCommentPress={onCommentPress}
+              onAuthRequired={onAuthRequired}
+              onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
+              onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+              isVisible={sheetState !== 'closed'}
+            />
           </ScrollView>
         </div>
-
-        {/* Listing submission modal */}
-        {property && (
-          <ListingSubmissionSheet
-            propertyId={property.id}
-            visible={showSubmission}
-            onClose={() => setShowSubmission(false)}
-            onSubmitted={() => {
-              setShowSubmission(false);
-              queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
-            }}
-            onAuthRequired={onAuthRequired}
-          />
-        )}
       </>
     );
   }

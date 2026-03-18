@@ -170,8 +170,7 @@ export default function MapScreen() {
   const sheetIndexRef = useRef(-1);
 
   // Fetch selected property details
-  const { data: selectedProperty, isLoading: propertyLoading } =
-    useProperty(selectedPropertyId);
+  const { data: selectedProperty } = useProperty(selectedPropertyId);
 
   // Property like hook
   const { isLiked, toggleLike } = usePropertyLike({
@@ -184,7 +183,6 @@ export default function MapScreen() {
     propertyId: selectedPropertyId,
     onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
   });
-
 
   /** Convert batch/nearby properties to GroupPreviewProperty format. */
   const toGroupProperty = useCallback(
@@ -759,15 +757,6 @@ export default function MapScreen() {
             </>
           )}
         </View>
-
-        {/* Loading indicator for property fetch */}
-        {previewGroup && previewGroup.properties.length === 1 && propertyLoading && !selectedProperty && (
-          <View className="absolute bottom-4 left-4 right-4 bg-white rounded-xl p-4 shadow-lg items-center">
-            <ActivityIndicator size="small" color="#3B82F6" />
-            <Text className="text-gray-500 mt-2">Loading property...</Text>
-          </View>
-        )}
-
       </View>
 
       {/* Property details bottom sheet */}

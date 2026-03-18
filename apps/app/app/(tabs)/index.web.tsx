@@ -956,6 +956,7 @@ export default function MapScreen() {
       <PropertyBottomSheet
         ref={bottomSheetRef}
         property={selectedProperty ?? null}
+        isLoading={propertyLoading}
         isLiked={isLiked}
         isSaved={isSaved}
         isPreviewCardVisible={!!previewGroup}

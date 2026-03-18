@@ -1,6 +1,5 @@
-import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle, useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { View, type LayoutChangeEvent, type ScrollView } from 'react-native';
+import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle } from 'react';
+import { type ScrollView } from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
@@ -13,30 +12,17 @@ import Animated, {
   Extrapolation,
 } from 'react-native-reanimated';
 
-import { useProperty } from '../../hooks/useProperties';
-import { useListings } from '../../hooks/useListings';
-import { usePropertyView } from '../../hooks/usePropertyView';
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
-import { toPropertyDetails } from './types';
-import { PropertyHeader } from './PropertyHeader';
-import { PriceSection } from './PriceSection';
-import { QuickActions } from './QuickActions';
-import { PriceGuessSection } from './PriceGuessSection';
-import { CommentsSection } from './CommentsSection';
-import { PropertyDetails } from './PropertyDetails';
-import { ListingLinks } from './ListingLinks';
-import { ListingSubmissionSheet } from './ListingSubmissionSheet';
-import { LoadingSkeleton } from './LoadingSkeleton';
+import { PropertyContent } from './PropertyContent';
 
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
   function PropertyBottomSheet(
     {
       property,
       isLoading = false,
-      isLiked: isLikedProp,
-      isSaved: isSavedProp,
+      isLiked,
+      isSaved,
       isPreviewCardVisible,
-      onClose: _onClose,
       onSheetChange,
       onSave,
       onShare,
@@ -50,61 +36,30 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const bottomSheetRef = useRef<BottomSheetLib>(null);
     const scrollViewRef = useRef<ScrollView>(null);
     const animatedIndex = useSharedValue(-1);
-    const queryClient = useQueryClient();
 
-    // Listing submission modal state
-    const [showSubmission, setShowSubmission] = useState(false);
-
-    // Fetch enriched property details (viewCount, activityLevel, etc.)
-    const { data: enrichedProperty } = useProperty(property?.id ?? null);
-
-    // Record view when property is opened
-    const { recordPropertyView } = usePropertyView();
-    useEffect(() => {
-      if (property?.id) {
-        recordPropertyView(property.id);
-      }
-    }, [property?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Fetch listings for the current property
-    const { data: listings = [] } = useListings(property?.id ?? null);
-
-    // Section layout positions
+    // Section layout positions for scroll-to
     const sectionPositions = useRef<{ guess: number; comments: number }>({
       guess: 0,
       comments: 0,
     });
 
-    // Snap points: 10% (peek), 50% (partial) and 90% (full)
-    // Index 0 = peek (just drag handle visible)
-    // Index 1 = partial (50% height)
-    // Index 2 = full (90% height)
     const snapPoints = useMemo(() => ['4%', '48.5%', '100%'], []);
 
-    // Handle section layout measurement
-    const handleGuessSectionLayout = useCallback((event: LayoutChangeEvent) => {
-      sectionPositions.current.guess = event.nativeEvent.layout.y;
+    const handleGuessSectionLayout = useCallback((y: number) => {
+      sectionPositions.current.guess = y;
     }, []);
 
-    const handleCommentsSectionLayout = useCallback((event: LayoutChangeEvent) => {
-      sectionPositions.current.comments = event.nativeEvent.layout.y;
+    const handleCommentsSectionLayout = useCallback((y: number) => {
+      sectionPositions.current.comments = y;
     }, []);
 
-    // Scroll to section helpers
-    // Sheet is always mounted when preview card is visible, so we can call directly.
     const scrollToSection = useCallback((sectionY: number) => {
-      // Expand to full height first (index 2 = 90%), then scroll
       bottomSheetRef.current?.snapToIndex(2);
-      // Small delay to let the expansion animation start
       setTimeout(() => {
         scrollViewRef.current?.scrollTo?.({ y: sectionY, animated: true });
       }, 300);
     }, []);
 
-    // Expose methods to parent
-    // Sheet is always mounted when preview card is visible, so all calls go directly
-    // to bottomSheetRef. close() snaps to peek (index 0) since the parent controls
-    // actual unmount by clearing the preview card.
     useImperativeHandle(ref, () => ({
       expand: () => bottomSheetRef.current?.expand(),
       collapse: () => bottomSheetRef.current?.collapse(),
@@ -115,11 +70,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       getCurrentIndex: () => animatedIndex.value,
     }));
 
-    // Render backdrop
-    // Backdrop should only appear when sheet is expanded (index 1 or 2), not at peek (index 0)
-    // When preview card is visible, return null so touches can pass through to the card.
-    // enableTouchThrough is insufficient because the backdrop's animated reaction overrides
-    // pointerEvents back to 'auto' when the sheet expands past disappearsOnIndex.
     const renderBackdrop = useCallback(
       (props: BottomSheetBackdropProps) => {
         if (isPreviewCardVisible) return null;
@@ -136,19 +86,14 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       [isPreviewCardVisible]
     );
 
-    // Handle sheet changes
     const handleSheetChange = useCallback(
       (index: number) => {
         animatedIndex.value = index;
-        // Notify parent of index change for preview card persistence logic
         onSheetChange?.(index);
       },
       [animatedIndex, onSheetChange]
     );
 
-    // Animated content opacity based on expand state
-    // Index: -1 = closed, 0 = peek, 1 = partial, 2 = full
-    // Content is fully visible at all open states
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         animatedIndex.value,
@@ -159,19 +104,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       return { opacity };
     });
 
-    // Convert property to detailed format, merging enriched API data
-    const propertyDetails = property
-      ? toPropertyDetails(property, enrichedProperty as Record<string, unknown> | null | undefined, { isLiked: isLikedProp, isSaved: isSavedProp })
-      : null;
-
-    // Only render when preview card is visible — parent controls mount/unmount
-    // by setting isPreviewCardVisible. This hides the handle when no property is selected.
     if (!isPreviewCardVisible) {
       return null;
     }
 
     return (
-      <>
       <BottomSheetLib
         ref={bottomSheetRef}
         index={0}
@@ -190,68 +127,23 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           showsVerticalScrollIndicator={false}
         >
           <Animated.View style={contentAnimatedStyle}>
-            {isLoading ? (
-              <LoadingSkeleton />
-            ) : propertyDetails ? (
-              <View>
-                {/* Property Header with Photos */}
-                <PropertyHeader property={propertyDetails} />
-
-                {/* Price Section */}
-                <PriceSection property={propertyDetails} />
-
-                {/* Quick Actions Bar */}
-                <QuickActions
-                  property={propertyDetails}
-                  onSave={() => onSave?.(propertyDetails.id)}
-                  onShare={() => onShare?.(propertyDetails.id)}
-                  onLike={() => onLike?.(propertyDetails.id)}
-                />
-
-                {/* Listing Links (if available) */}
-                <ListingLinks
-                  listings={listings}
-                  onAddListing={() => setShowSubmission(true)}
-                />
-
-                {/* Price Guess Section */}
-                <View onLayout={handleGuessSectionLayout}>
-                  <PriceGuessSection
-                    property={propertyDetails}
-                    onGuessPress={() => onGuessPress?.(propertyDetails.id)}
-                    onLoginRequired={onAuthRequired}
-                  />
-                </View>
-
-                {/* Comments Section */}
-                <View onLayout={handleCommentsSectionLayout}>
-                  <CommentsSection
-                    property={propertyDetails}
-                    onAddComment={() => onCommentPress?.(propertyDetails.id)}
-                    onAuthRequired={onAuthRequired}
-                  />
-                </View>
-
-                {/* Property Details */}
-                <PropertyDetails property={propertyDetails} />
-              </View>
-            ) : null}
+            <PropertyContent
+              property={property}
+              isLoading={isLoading}
+              isLiked={isLiked}
+              isSaved={isSaved}
+              onSave={onSave}
+              onShare={onShare}
+              onLike={onLike}
+              onGuessPress={onGuessPress}
+              onCommentPress={onCommentPress}
+              onAuthRequired={onAuthRequired}
+              onGuessSectionLayout={handleGuessSectionLayout}
+              onCommentsSectionLayout={handleCommentsSectionLayout}
+            />
           </Animated.View>
         </BottomSheetScrollView>
       </BottomSheetLib>
-      {property && (
-        <ListingSubmissionSheet
-          propertyId={property.id}
-          visible={showSubmission}
-          onClose={() => setShowSubmission(false)}
-          onSubmitted={() => {
-            setShowSubmission(false);
-            queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
-          }}
-          onAuthRequired={onAuthRequired}
-        />
-      )}
-    </>
     );
   }
 );

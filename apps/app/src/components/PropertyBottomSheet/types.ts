@@ -1,4 +1,6 @@
-import type { Property, PropertyFmvData } from '../../hooks/useProperties';
+import type { Property, PropertyDetails, PropertyFmvData } from '../../hooks/useProperties';
+
+export type PropertyContentData = Property | PropertyDetails | PropertyDetailsData;
 
 export interface PropertyDetailsData extends Property {
   askingPrice?: number;
@@ -17,7 +19,7 @@ export interface SectionProps {
 }
 
 export interface PropertyBottomSheetProps {
-  property: Property | null;
+  property: PropertyContentData | null;
   isLoading?: boolean;
   isLiked?: boolean;
   isSaved?: boolean;
@@ -42,20 +44,43 @@ export interface PropertyBottomSheetRef {
   getCurrentIndex: () => number;
 }
 
-/** Convert basic Property to PropertyDetailsData, merging enriched API data when available */
+function isActivityLevel(
+  value: unknown
+): value is PropertyDetailsData['activityLevel'] {
+  return value === 'hot' || value === 'warm' || value === 'cold';
+}
+
+export function hasPropertyDetails(
+  property: PropertyContentData | null | undefined
+): property is PropertyDetails | PropertyDetailsData {
+  if (!property) {
+    return false;
+  }
+
+  return (
+    'commentCount' in property && typeof property.commentCount === 'number' &&
+    'guessCount' in property && typeof property.guessCount === 'number' &&
+    'viewCount' in property && typeof property.viewCount === 'number' &&
+    'activityLevel' in property && isActivityLevel(property.activityLevel)
+  );
+}
+
 export function toPropertyDetails(
-  property: Property,
-  enriched?: Record<string, unknown> | null,
+  property: PropertyContentData,
   overrides?: { isLiked?: boolean; isSaved?: boolean }
 ): PropertyDetailsData {
+  const details = property as Partial<PropertyDetailsData>;
+
   return {
     ...property,
     askingPrice: property.askingPrice ?? undefined,
-    activityLevel: (enriched?.activityLevel as 'hot' | 'warm' | 'cold') ?? 'cold',
-    commentCount: (enriched?.commentCount as number) ?? 0,
-    guessCount: (enriched?.guessCount as number) ?? 0,
-    viewCount: (enriched?.viewCount as number) ?? 0,
-    isSaved: overrides?.isSaved ?? (enriched?.isSaved as boolean) ?? false,
-    isLiked: overrides?.isLiked ?? (enriched?.isLiked as boolean) ?? false,
+    fmv: details.fmv,
+    activityLevel: isActivityLevel(details.activityLevel) ? details.activityLevel : 'cold',
+    commentCount: details.commentCount ?? 0,
+    guessCount: details.guessCount ?? 0,
+    viewCount: details.viewCount ?? 0,
+    photos: details.photos,
+    isSaved: overrides?.isSaved ?? details.isSaved ?? false,
+    isLiked: overrides?.isLiked ?? details.isLiked ?? false,
   };
 }

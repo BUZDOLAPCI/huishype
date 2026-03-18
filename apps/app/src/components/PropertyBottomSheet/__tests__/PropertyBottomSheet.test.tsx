@@ -2,7 +2,11 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
-import type { Property } from '../../../hooks/useProperties';
+import type { Property, PropertyDetails } from '../../../hooks/useProperties';
+
+const mockUseProperty = jest.fn();
+const mockUseListings = jest.fn();
+const mockRecordPropertyView = jest.fn();
 
 // Create a test query client
 const createTestQueryClient = () =>
@@ -116,6 +120,47 @@ jest.mock('../../../hooks/useComments', () => ({
   }),
 }));
 
+// Mock the property like/save hooks (used internally by PropertyContent)
+jest.mock('../../../hooks/usePropertyLike', () => ({
+  usePropertyLike: () => ({
+    isLiked: false,
+    toggleLike: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../hooks/usePropertySave', () => ({
+  usePropertySave: () => ({
+    isSaved: false,
+    toggleSave: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../hooks/useProperties', () => {
+  const actual = jest.requireActual('../../../hooks/useProperties');
+  return {
+    ...actual,
+    useProperty: (...args: unknown[]) => mockUseProperty(...args),
+  };
+});
+
+jest.mock('../../../hooks/useListings', () => ({
+  useListings: (...args: unknown[]) => mockUseListings(...args),
+}));
+
+jest.mock('../../../hooks/usePropertyView', () => ({
+  usePropertyView: () => ({
+    recordPropertyView: mockRecordPropertyView,
+  }),
+}));
+
+jest.mock('../LoadingSkeleton', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    LoadingSkeleton: () => <Text testID="property-loading-skeleton">Loading skeleton</Text>,
+  };
+});
+
 // Mock the price guess hooks
 jest.mock('../../../hooks/usePriceGuess', () => ({
   useFetchPriceGuess: () => ({
@@ -150,6 +195,32 @@ const mockProperty: Property = {
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
+
+const mockPropertyDetails: PropertyDetails = {
+  ...mockProperty,
+  askingPrice: undefined,
+  activityLevel: 'cold',
+  commentCount: 0,
+  guessCount: 0,
+  viewCount: 0,
+  uniqueViewers: 0,
+  isLiked: false,
+  isSaved: false,
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUseProperty.mockImplementation((id: string | null) => ({
+    data: id === mockProperty.id ? mockPropertyDetails : null,
+    isLoading: false,
+    error: null,
+  }));
+  mockUseListings.mockReturnValue({
+    data: [],
+    isLoading: false,
+    error: null,
+  });
+});
 
 describe('PropertyBottomSheet', () => {
   it('renders nothing when property is null', () => {
@@ -245,10 +316,17 @@ describe('PropertyBottomSheet', () => {
     expect(screen.getByText('Year Built')).toBeTruthy();
   });
 
-  it('shows loading skeleton when isLoading is true', async () => {
-    // Skip this test for now - the loading skeleton uses reanimated which has issues in tests
-    // The component works correctly but the mock doesn't handle animated views well
-    expect(true).toBe(true);
+  it('shows loading skeleton when isLoading is true', () => {
+    renderWithProviders(
+      <PropertyBottomSheet
+        property={mockProperty}
+        isLoading
+        isPreviewCardVisible
+      />
+    );
+
+    expect(screen.getByTestId('property-loading-skeleton')).toBeTruthy();
+    expect(screen.queryByText('Save')).toBeNull();
   });
 
   it('handles property without optional fields', () => {
