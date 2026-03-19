@@ -511,56 +511,54 @@
           "alignItems": "center",
           "children": [
             {
-              "type": "text",
-              "id": "R5RFN",
-              "name": "brand",
-              "fill": "$gold-500",
-              "content": "HuisHype",
-              "fontFamily": "Inter",
-              "fontSize": 22,
-              "fontWeight": "700"
-            },
-            {
               "type": "frame",
-              "id": "ss7O2",
-              "name": "hdrR",
-              "gap": 12,
+              "id": "d8pbp",
+              "name": "brandMark",
+              "gap": 8,
               "alignItems": "center",
               "children": [
                 {
                   "type": "frame",
-                  "id": "exA8X",
-                  "name": "logBtn",
+                  "id": "NSJm9",
+                  "name": "logoFrame",
+                  "width": 28,
+                  "height": 28,
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../logo.png",
+                    "mode": "fill"
+                  },
+                  "cornerRadius": 6
+                },
+                {
+                  "type": "text",
+                  "id": "6qV7R",
+                  "name": "brandText",
                   "fill": "$gold-500",
-                  "cornerRadius": 20,
-                  "gap": 6,
-                  "padding": [
-                    6,
-                    12
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon_font",
-                      "id": "0Fkki",
-                      "name": "logI",
-                      "width": 16,
-                      "height": 16,
-                      "iconFontName": "log-in",
-                      "iconFontFamily": "lucide",
-                      "fill": "$white"
-                    },
-                    {
-                      "type": "text",
-                      "id": "4Qtvk",
-                      "name": "logT",
-                      "fill": "$white",
-                      "content": "Log in",
-                      "fontFamily": "Inter",
-                      "fontSize": 13,
-                      "fontWeight": "500"
-                    }
-                  ]
+                  "content": "HuisHype",
+                  "fontFamily": "Inter",
+                  "fontSize": 22,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ZWxPT",
+              "name": "locationDisplay",
+              "gap": 4,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "0vjrB",
+                  "name": "locText",
+                  "fill": "$warm-800",
+                  "content": "Eindhoven",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "600"
                 }
               ]
             }
@@ -625,24 +623,6 @@
                   "iconFontName": "search",
                   "iconFontFamily": "lucide",
                   "fill": "$warm-400"
-                },
-                {
-                  "type": "text",
-                  "id": "S83kO",
-                  "name": "sZm",
-                  "fill": "$warm-700",
-                  "content": "Zoom",
-                  "fontFamily": "Inter",
-                  "fontSize": 14,
-                  "fontWeight": "600"
-                },
-                {
-                  "type": "rectangle",
-                  "id": "W3upl",
-                  "name": "sDiv",
-                  "fill": "$warm-300",
-                  "width": 1,
-                  "height": 20
                 },
                 {
                   "type": "text",
@@ -865,8 +845,8 @@
     {
       "type": "frame",
       "id": "JOQnl",
-      "x": 500,
-      "y": 0,
+      "x": 502,
+      "y": 6,
       "name": "2. Feed Screen",
       "clip": true,
       "width": 402,
@@ -949,45 +929,30 @@
           "id": "9FBPz",
           "name": "Feed Header",
           "width": "fill_container",
-          "gap": 12,
+          "height": 44,
+          "gap": 8,
           "padding": [
-            8,
+            0,
             20
           ],
+          "justifyContent": "space_between",
           "alignItems": "center",
           "children": [
-            {
-              "type": "icon_font",
-              "id": "IHYNd",
-              "name": "Back Arrow",
-              "width": 24,
-              "height": 24,
-              "iconFontName": "arrow-left",
-              "iconFontFamily": "lucide",
-              "fill": "$warm-700"
-            },
             {
               "type": "frame",
               "id": "L0xse",
               "name": "Logo Circle",
-              "width": 52,
-              "height": 52,
-              "fill": "$gold-500",
-              "cornerRadius": 14,
+              "width": 28,
+              "height": 28,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "../logo.png",
+                "mode": "fill"
+              },
+              "cornerRadius": 6,
               "justifyContent": "center",
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "icon_font",
-                  "id": "wNeVs",
-                  "name": "houseIcon",
-                  "width": 26,
-                  "height": 26,
-                  "iconFontName": "house",
-                  "iconFontFamily": "lucide",
-                  "fill": "$white"
-                }
-              ]
+              "alignItems": "center"
             },
             {
               "type": "text",
@@ -996,8 +961,52 @@
               "fill": "$gold-500",
               "content": "HuisHype",
               "fontFamily": "Inter",
-              "fontSize": 26,
+              "fontSize": 22,
               "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "Ltm9m",
+              "name": "Header Right",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "zRlqX",
+                  "name": "Bell Button",
+                  "width": 32,
+                  "height": 32,
+                  "cornerRadius": 16,
+                  "layout": "none",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "eDv4T",
+                      "layoutPosition": "absolute",
+                      "x": 5,
+                      "y": 5,
+                      "name": "Bell Icon",
+                      "width": 22,
+                      "height": 22,
+                      "iconFontName": "bell",
+                      "iconFontFamily": "lucide",
+                      "fill": "$warm-700"
+                    },
+                    {
+                      "type": "ellipse",
+                      "id": "Cvxnd",
+                      "layoutPosition": "absolute",
+                      "x": 22,
+                      "y": 2,
+                      "name": "Notification Badge",
+                      "fill": "#EF4444",
+                      "width": 8,
+                      "height": 8
+                    }
+                  ]
+                }
+              ]
             }
           ]
         },
@@ -1009,8 +1018,6 @@
           "layout": "vertical",
           "gap": 4,
           "padding": [
-            16,
-            20,
             8,
             20
           ],
@@ -1020,7 +1027,7 @@
               "id": "JhzLY",
               "name": "titleText",
               "fill": "$warm-900",
-              "content": "Trending & Hot Properties",
+              "content": "Trending Properties",
               "fontFamily": "Inter",
               "fontSize": 22,
               "fontWeight": "700"
@@ -1565,7 +1572,7 @@
                       "name": "feedIcon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "newspaper",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$white"
                     },
@@ -2233,7 +2240,7 @@
                       "fill": "$warm-700",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "Ziet er goed uit! Ik denk €420K.",
+                      "content": "Looks great! I think €420K.",
                       "fontFamily": "Inter",
                       "fontSize": 13,
                       "fontWeight": "normal"
@@ -2647,7 +2654,7 @@
                   "id": "qPX8g",
                   "name": "titleTxt",
                   "fill": "$warm-900",
-                  "content": "Reacties",
+                  "content": "Comments",
                   "fontFamily": "Inter",
                   "fontSize": 17,
                   "fontWeight": "700"
@@ -2734,7 +2741,7 @@
                   "id": "HPN5i",
                   "name": "countText",
                   "fill": "$warm-900",
-                  "content": "47 reacties",
+                  "content": "47 comments",
                   "fontFamily": "Inter",
                   "fontSize": 15,
                   "fontWeight": "700"
@@ -2763,7 +2770,7 @@
                           "id": "bSTWh",
                           "name": "activeLabel",
                           "fill": "$warm-900",
-                          "content": "Populair",
+                          "content": "Popular",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "600"
@@ -2903,7 +2910,7 @@
                               "id": "Ahro6",
                               "name": "timeText",
                               "fill": "$warm-500",
-                              "content": "2u",
+                              "content": "2h",
                               "fontFamily": "Inter",
                               "fontSize": 12,
                               "fontWeight": "normal"
@@ -2917,7 +2924,7 @@
                           "fill": "$warm-800",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Ziet er goed uit! De buurt is ook echt top voor gezinnen.",
+                          "content": "Looks great! The neighborhood is really great for families.",
                           "lineHeight": 1.4,
                           "fontFamily": "Inter",
                           "fontSize": 14,
@@ -2928,7 +2935,7 @@
                           "id": "PutGl",
                           "name": "reageer",
                           "fill": "$warm-500",
-                          "content": "Reageer",
+                          "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "600"
@@ -3075,7 +3082,7 @@
                               "id": "Y8740",
                               "name": "replyTime",
                               "fill": "$warm-500",
-                              "content": "1u",
+                              "content": "1h",
                               "fontFamily": "Inter",
                               "fontSize": 12,
                               "fontWeight": "normal"
@@ -3089,7 +3096,7 @@
                           "fill": "$warm-800",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "@Martijn Eens, en de school om de hoek is perfect!",
+                          "content": "@Martijn Agreed, and the school around the corner is perfect!",
                           "lineHeight": 1.4,
                           "fontFamily": "Inter",
                           "fontSize": 14,
@@ -3100,7 +3107,7 @@
                           "id": "cdvXd",
                           "name": "replyReageer",
                           "fill": "$warm-500",
-                          "content": "Reageer",
+                          "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "600"
@@ -3231,7 +3238,7 @@
                           "fill": "$warm-800",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Mooi huis, maar de keuken is wat gedateerd 🤔",
+                          "content": "Nice house, but the kitchen is a bit dated 🤔",
                           "fontFamily": "Inter",
                           "fontSize": 14,
                           "fontWeight": "normal"
@@ -3241,7 +3248,7 @@
                           "id": "Scg62",
                           "name": "reageerLink",
                           "fill": "$warm-500",
-                          "content": "Reageer",
+                          "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "600"
@@ -3308,7 +3315,7 @@
                       "id": "9G145",
                       "name": "viewRepliesText",
                       "fill": "$warm-500",
-                      "content": "Bekijk 2 antwoorden",
+                      "content": "View 2 replies",
                       "fontFamily": "Inter",
                       "fontSize": 12,
                       "fontWeight": "600"
@@ -3438,7 +3445,7 @@
                               "fill": "$warm-800",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "@Hesemart.af Klopt, maar dat is makkelijk te renoveren!",
+                              "content": "@Hesemart.af True, but that's easy to renovate!",
                               "fontFamily": "Inter",
                               "fontSize": 14,
                               "fontWeight": "normal"
@@ -3448,7 +3455,7 @@
                               "id": "vC3W6",
                               "name": "replyReageer",
                               "fill": "$warm-500",
-                              "content": "Reageer",
+                              "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 12,
                               "fontWeight": "600"
@@ -3590,7 +3597,7 @@
                       "id": "OwsrX",
                       "name": "commentText",
                       "fill": "$warm-800",
-                      "content": "Benieuwd naar de biedingen 👀",
+                      "content": "Curious about the bids 👀",
                       "fontFamily": "Inter",
                       "fontSize": 14,
                       "fontWeight": "normal"
@@ -3600,7 +3607,7 @@
                       "id": "j41VZ",
                       "name": "reageerText",
                       "fill": "$warm-500",
-                      "content": "Reageer",
+                      "content": "Reply",
                       "fontFamily": "Inter",
                       "fontSize": 12,
                       "fontWeight": "600"
@@ -3727,7 +3734,7 @@
                           "fill": "$warm-700",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Wat een locatie! Die school om de hoek is perfect voor gezinnen 🏫",
+                          "content": "What a location! The school around the corner is perfect for families 🏫",
                           "fontFamily": "Inter",
                           "fontSize": 14,
                           "fontWeight": "normal"
@@ -3737,7 +3744,7 @@
                           "id": "NdG7q",
                           "name": "action4",
                           "fill": "$warm-500",
-                          "content": "Reageer",
+                          "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "500"
@@ -3864,7 +3871,7 @@
                               "fill": "$warm-700",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "@JanWillem Ja! En het park is ook vlakbij 🌳",
+                              "content": "@JanWillem Yes! And the park is nearby too 🌳",
                               "fontFamily": "Inter",
                               "fontSize": 13,
                               "fontWeight": "normal"
@@ -3874,7 +3881,7 @@
                               "id": "BGOZX",
                               "name": "raction",
                               "fill": "$warm-500",
-                              "content": "Reageer",
+                              "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 11,
                               "fontWeight": "500"
@@ -3935,7 +3942,7 @@
                   "id": "wXsyR",
                   "name": "footerText",
                   "fill": "$warm-500",
-                  "content": "Bekijk alle 47 reacties",
+                  "content": "View all 47 comments",
                   "fontFamily": "Inter",
                   "fontSize": 13,
                   "fontWeight": "600"
@@ -4013,7 +4020,7 @@
                   "id": "eU5Mu",
                   "name": "inputPh",
                   "fill": "$warm-400",
-                  "content": "Voeg een reactie toe...",
+                  "content": "Add a comment...",
                   "fontFamily": "Inter",
                   "fontSize": 14,
                   "fontWeight": "normal"
@@ -4110,12 +4117,12 @@
           "width": "fill_container",
           "height": "fill_container",
           "layout": "vertical",
-          "gap": 20,
+          "gap": 16,
           "padding": [
-            8,
-            20,
-            20,
-            20
+            16,
+            16,
+            0,
+            16
           ],
           "children": [
             {
@@ -4123,185 +4130,323 @@
               "id": "V0pjd",
               "name": "Header",
               "width": "fill_container",
-              "layout": "vertical",
               "gap": 4,
+              "justifyContent": "space_between",
+              "alignItems": "center",
               "children": [
                 {
-                  "type": "text",
-                  "id": "7rSmx",
-                  "name": "headerTitle",
-                  "fill": "$warm-900",
-                  "content": "Saved Properties",
-                  "fontFamily": "Inter",
-                  "fontSize": 20,
-                  "fontWeight": "600"
+                  "type": "frame",
+                  "id": "gf6d4",
+                  "name": "titleWrap",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "7rSmx",
+                      "name": "headerTitle",
+                      "fill": "$warm-900",
+                      "content": "Saved Properties",
+                      "fontFamily": "Inter",
+                      "fontSize": 20,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "77saR",
+                      "name": "headerSub",
+                      "fill": "$warm-500",
+                      "content": "3 properties saved",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
                 },
                 {
-                  "type": "text",
-                  "id": "77saR",
-                  "name": "headerSub",
-                  "fill": "$warm-500",
-                  "content": "3 properties saved",
-                  "fontFamily": "Inter",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
+                  "type": "frame",
+                  "id": "qWazL",
+                  "name": "bellBtn",
+                  "width": 32,
+                  "height": 32,
+                  "cornerRadius": 16,
+                  "layout": "none",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "jXQDL",
+                      "x": 5,
+                      "y": 5,
+                      "name": "bellIcon",
+                      "width": 22,
+                      "height": 22,
+                      "iconFontName": "bell",
+                      "iconFontFamily": "lucide",
+                      "fill": "$warm-700"
+                    },
+                    {
+                      "type": "ellipse",
+                      "id": "k26eC",
+                      "layoutPosition": "absolute",
+                      "x": 22,
+                      "y": 2,
+                      "name": "badge",
+                      "fill": "#EF4444",
+                      "width": 8,
+                      "height": 8
+                    }
+                  ]
                 }
               ]
             },
             {
               "type": "frame",
-              "id": "Aikry",
-              "name": "Keizersgracht 124",
+              "id": "ivEFQ",
+              "name": "Feed Card 1 - Keizersgracht",
               "clip": true,
               "width": "fill_container",
-              "height": 156,
               "fill": "$white",
               "cornerRadius": 16,
               "effect": {
                 "type": "shadow",
                 "shadowType": "outer",
-                "color": "#C7BFB322",
+                "color": "#B4771215",
                 "offset": {
                   "x": 0,
-                  "y": 4
+                  "y": 2
                 },
-                "blur": 16
+                "blur": 12
               },
+              "layout": "vertical",
               "children": [
                 {
                   "type": "frame",
-                  "id": "4gAIp",
-                  "name": "Photo",
+                  "id": "mYqeq",
+                  "name": "imgFrame",
                   "metadata": {
                     "type": "unsplash",
-                    "username": "danieldalea",
-                    "link": "https://unsplash.com/@danieldalea",
-                    "author": "Daniel Dalea"
+                    "username": "krisztiann",
+                    "link": "https://unsplash.com/@krisztiann",
+                    "author": "Krisztian Skakic"
                   },
-                  "width": 120,
-                  "height": "fill_container",
+                  "clip": true,
+                  "width": "fill_container",
+                  "height": 180,
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "https://images.unsplash.com/photo-1664900717079-d38726ec3d37?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM4MjYwMDZ8&ixlib=rb-4.1.0&q=80&w=1080",
+                    "url": "https://images.unsplash.com/photo-1686684089739-3c7184349b55?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM5MzEyNzZ8&ixlib=rb-4.1.0&q=80&w=1080",
                     "mode": "fill"
                   }
                 },
                 {
                   "type": "frame",
-                  "id": "T7oA5",
-                  "name": "Details",
+                  "id": "GBbv4",
+                  "name": "body",
                   "width": "fill_container",
-                  "height": "fill_container",
                   "layout": "vertical",
-                  "padding": 14,
-                  "justifyContent": "space_between",
+                  "gap": 8,
+                  "padding": [
+                    14,
+                    16,
+                    16,
+                    16
+                  ],
                   "children": [
                     {
                       "type": "frame",
-                      "id": "oTFK7",
-                      "name": "card1Top",
+                      "id": "tKHwB",
+                      "name": "addrRow",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 2,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "frame",
-                          "id": "biBrv",
-                          "name": "card1AddrRow",
-                          "width": "fill_container",
-                          "justifyContent": "space_between",
-                          "alignItems": "center",
+                          "id": "sh2O3",
+                          "name": "addrLeft",
+                          "layout": "vertical",
+                          "gap": 2,
                           "children": [
                             {
                               "type": "text",
-                              "id": "uY7t8",
-                              "name": "card1Addr",
+                              "id": "2w7dN",
+                              "name": "streetTxt",
                               "fill": "$warm-900",
                               "content": "Keizersgracht 124",
                               "fontFamily": "Inter",
-                              "fontSize": 15,
+                              "fontSize": 16,
                               "fontWeight": "600"
                             },
                             {
-                              "type": "icon_font",
-                              "id": "BhtcW",
-                              "name": "card1Bkmk",
-                              "width": 20,
-                              "height": 20,
-                              "iconFontName": "bookmark",
-                              "iconFontFamily": "lucide",
-                              "fill": "$gold-400"
+                              "type": "text",
+                              "id": "pF3M9",
+                              "name": "cityTxt",
+                              "fill": "$warm-500",
+                              "content": "Amsterdam Centrum",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "GrkK7",
-                          "name": "card1City",
-                          "fill": "$warm-500",
-                          "content": "Amsterdam Centrum",
-                          "fontFamily": "Inter",
-                          "fontSize": 13,
-                          "fontWeight": "normal"
+                          "type": "icon_font",
+                          "id": "cZ9xa",
+                          "name": "bookmarkIcon",
+                          "width": 18,
+                          "height": 18,
+                          "iconFontName": "bookmark",
+                          "iconFontFamily": "lucide",
+                          "fill": "$gold-400"
                         }
                       ]
                     },
                     {
                       "type": "frame",
-                      "id": "SNzj3",
-                      "name": "card1Bot",
+                      "id": "mxVpx",
+                      "name": "priceRow",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 8,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
+                          "type": "text",
+                          "id": "27Eee",
+                          "name": "askingTxt",
+                          "fill": "$warm-500",
+                          "content": "Asking Price €485K",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
                           "type": "frame",
-                          "id": "6iGuS",
-                          "name": "card1PriceRow",
-                          "width": "fill_container",
-                          "gap": 8,
+                          "id": "VLTYQ",
+                          "name": "fmvGroup",
+                          "gap": 4,
                           "alignItems": "center",
                           "children": [
                             {
+                              "type": "icon_font",
+                              "id": "UNhRv",
+                              "name": "houseIcon",
+                              "width": 14,
+                              "height": 14,
+                              "iconFontName": "house",
+                              "iconFontFamily": "lucide",
+                              "fill": "$gold-500"
+                            },
+                            {
                               "type": "text",
-                              "id": "FNmRd",
-                              "name": "card1Price",
-                              "fill": "$gold-500",
-                              "content": "€ 485,000",
+                              "id": "C9BLm",
+                              "name": "fmvTxt",
+                              "fill": "$warm-900",
+                              "content": "€495K",
                               "fontFamily": "Inter",
                               "fontSize": 16,
                               "fontWeight": "700"
-                            },
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "u0YCd",
+                      "name": "barSection",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Im16m",
+                          "name": "barRow",
+                          "clip": true,
+                          "width": "fill_container",
+                          "height": 28,
+                          "cornerRadius": 14,
+                          "gap": 2,
+                          "children": [
                             {
                               "type": "frame",
-                              "id": "3QML1",
-                              "name": "card1Pill",
-                              "fill": "$gold-50",
-                              "cornerRadius": 10,
-                              "gap": 4,
-                              "padding": [
-                                3,
-                                8
-                              ],
+                              "id": "JpQQB",
+                              "name": "seg1",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$gold-400",
+                              "justifyContent": "center",
                               "alignItems": "center",
                               "children": [
                                 {
-                                  "type": "icon_font",
-                                  "id": "2Jnax",
-                                  "name": "card1PillIcn",
-                                  "width": 11,
-                                  "height": 11,
-                                  "iconFontName": "users",
-                                  "iconFontFamily": "lucide",
-                                  "fill": "$gold-600"
-                                },
+                                  "type": "text",
+                                  "id": "6OVpl",
+                                  "name": "seg1txt",
+                                  "fill": "$white",
+                                  "content": "❤ 485K",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "nmKGo",
+                              "name": "seg2",
+                              "width": 30,
+                              "height": "fill_container",
+                              "fill": "$gold-300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "lNQe2",
+                              "name": "seg3",
+                              "width": 20,
+                              "height": "fill_container",
+                              "fill": "#FDD835"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "oRWQb",
+                              "name": "seg4",
+                              "width": 16,
+                              "height": "fill_container",
+                              "fill": "#FFB300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NElH6",
+                              "name": "seg5",
+                              "width": 14,
+                              "height": "fill_container",
+                              "fill": "#FF9800"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "gRjLt",
+                              "name": "seg6",
+                              "width": 12,
+                              "height": "fill_container",
+                              "fill": "#FF7043"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ujgml",
+                              "name": "seg7",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$hot-red",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
                                 {
                                   "type": "text",
-                                  "id": "9Yv2J",
-                                  "name": "card1PillTxt",
-                                  "fill": "$gold-600",
-                                  "content": "€ 495k avg",
+                                  "id": "42TgZ",
+                                  "name": "seg7txt",
+                                  "fill": "$white",
+                                  "content": "€495K",
                                   "fontFamily": "Inter",
                                   "fontSize": 11,
                                   "fontWeight": "600"
@@ -4312,34 +4457,32 @@
                         },
                         {
                           "type": "frame",
-                          "id": "R0SBD",
-                          "name": "Price Bar",
+                          "id": "EDJTj",
+                          "name": "rangeRow",
                           "width": "fill_container",
-                          "height": 6,
-                          "fill": {
-                            "type": "gradient",
-                            "gradientType": "linear",
-                            "enabled": true,
-                            "rotation": 270,
-                            "size": {
-                              "height": 1
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "4sjNk",
+                              "name": "rangeLow",
+                              "fill": "$warm-400",
+                              "content": "€450K – €500K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             },
-                            "colors": [
-                              {
-                                "color": "$gold-300",
-                                "position": 0
-                              },
-                              {
-                                "color": "$gold-400",
-                                "position": 0.5
-                              },
-                              {
-                                "color": "#FF6B35",
-                                "position": 1
-                              }
-                            ]
-                          },
-                          "cornerRadius": 3
+                            {
+                              "type": "text",
+                              "id": "bVUEN",
+                              "name": "rangeHigh",
+                              "fill": "$warm-400",
+                              "content": "€490K – €520K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -4349,158 +4492,276 @@
             },
             {
               "type": "frame",
-              "id": "7Sk2c",
-              "name": "Vondelstraat 87",
+              "id": "dCtdJ",
+              "name": "Feed Card 2 - Vondelstraat",
               "clip": true,
               "width": "fill_container",
-              "height": 156,
               "fill": "$white",
               "cornerRadius": 16,
               "effect": {
                 "type": "shadow",
                 "shadowType": "outer",
-                "color": "#C7BFB322",
+                "color": "#B4771215",
                 "offset": {
                   "x": 0,
-                  "y": 4
+                  "y": 2
                 },
-                "blur": 16
+                "blur": 12
               },
+              "layout": "vertical",
               "children": [
                 {
                   "type": "frame",
-                  "id": "uW2M2",
-                  "name": "Photo",
+                  "id": "Lsu4g",
+                  "name": "Card Image",
                   "metadata": {
                     "type": "unsplash",
-                    "username": "milaoktasafitri",
-                    "link": "https://unsplash.com/@milaoktasafitri",
-                    "author": "Mila Okta Safitri"
+                    "username": "globalnomadtravel",
+                    "link": "https://unsplash.com/@globalnomadtravel",
+                    "author": "GlobalNomad"
                   },
-                  "width": 120,
-                  "height": "fill_container",
+                  "width": "fill_container",
+                  "height": 180,
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "https://images.unsplash.com/photo-1762507934399-3110e7ce9e57?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM4MjYwMTZ8&ixlib=rb-4.1.0&q=80&w=1080",
+                    "url": "https://images.unsplash.com/photo-1586368699435-6570dd5f93e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM5MzEyMjl8&ixlib=rb-4.1.0&q=80&w=1080",
                     "mode": "fill"
                   }
                 },
                 {
                   "type": "frame",
-                  "id": "5jhd6",
-                  "name": "Details",
+                  "id": "ggVUK",
+                  "name": "Card Body",
                   "width": "fill_container",
-                  "height": "fill_container",
                   "layout": "vertical",
-                  "padding": 14,
-                  "justifyContent": "space_between",
+                  "gap": 8,
+                  "padding": [
+                    14,
+                    16,
+                    16,
+                    16
+                  ],
                   "children": [
                     {
                       "type": "frame",
-                      "id": "OO7sf",
-                      "name": "card2Top",
+                      "id": "inWcu",
+                      "name": "Address Row",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 2,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "frame",
-                          "id": "HWTQe",
-                          "name": "card2AddrRow",
-                          "width": "fill_container",
-                          "justifyContent": "space_between",
-                          "alignItems": "center",
+                          "id": "CN0E3",
+                          "name": "Address Left",
+                          "layout": "vertical",
+                          "gap": 2,
                           "children": [
                             {
                               "type": "text",
-                              "id": "afez7",
-                              "name": "card2Addr",
+                              "id": "RkY8G",
+                              "name": "streetTxt",
                               "fill": "$warm-900",
                               "content": "Vondelstraat 87",
                               "fontFamily": "Inter",
-                              "fontSize": 15,
+                              "fontSize": 16,
                               "fontWeight": "600"
                             },
                             {
-                              "type": "icon_font",
-                              "id": "rvrxE",
-                              "name": "card2Bkmk",
-                              "width": 20,
-                              "height": 20,
-                              "iconFontName": "bookmark",
-                              "iconFontFamily": "lucide",
-                              "fill": "$gold-400"
+                              "type": "text",
+                              "id": "maxEM",
+                              "name": "cityTxt",
+                              "fill": "$warm-500",
+                              "content": "Amsterdam West",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "DvPsn",
-                          "name": "card2City",
-                          "fill": "$warm-500",
-                          "content": "Amsterdam West",
-                          "fontFamily": "Inter",
-                          "fontSize": 13,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "6PdXR",
+                          "name": "Warm Badge",
+                          "fill": "$warning-orange",
+                          "cornerRadius": 8,
+                          "gap": 4,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon_font",
+                              "id": "VKta6",
+                              "name": "thermoIcon",
+                              "width": 12,
+                              "height": 12,
+                              "iconFontName": "thermometer",
+                              "iconFontFamily": "lucide",
+                              "fill": "$white"
+                            },
+                            {
+                              "type": "text",
+                              "id": "dX6Ff",
+                              "name": "warmTxt",
+                              "fill": "$white",
+                              "content": "Warm",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
                         }
                       ]
                     },
                     {
                       "type": "frame",
-                      "id": "EZyrY",
-                      "name": "card2Bot",
+                      "id": "LfylW",
+                      "name": "Price Row",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 8,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
+                          "type": "text",
+                          "id": "xEeHg",
+                          "name": "askTxt",
+                          "fill": "$warm-500",
+                          "content": "Asking Price €625K",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
                           "type": "frame",
-                          "id": "uKox2",
-                          "name": "card2PriceRow",
-                          "width": "fill_container",
-                          "gap": 8,
+                          "id": "tkPvs",
+                          "name": "FMV Group",
+                          "gap": 4,
                           "alignItems": "center",
                           "children": [
                             {
+                              "type": "icon_font",
+                              "id": "6QHwk",
+                              "name": "houseIcon",
+                              "width": 14,
+                              "height": 14,
+                              "iconFontName": "house",
+                              "iconFontFamily": "lucide",
+                              "fill": "$gold-500"
+                            },
+                            {
                               "type": "text",
-                              "id": "gtuSo",
-                              "name": "card2Price",
-                              "fill": "$gold-500",
-                              "content": "€ 625,000",
+                              "id": "L0US0",
+                              "name": "fmvTxt",
+                              "fill": "$warm-900",
+                              "content": "€610K",
                               "fontFamily": "Inter",
                               "fontSize": 16,
                               "fontWeight": "700"
-                            },
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "GQpGl",
+                      "name": "Price Bar Section",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "p3r1q",
+                          "name": "Bar Row",
+                          "clip": true,
+                          "width": "fill_container",
+                          "height": 28,
+                          "cornerRadius": 14,
+                          "gap": 2,
+                          "children": [
                             {
                               "type": "frame",
-                              "id": "Nl92t",
-                              "name": "card2Pill",
-                              "fill": "$gold-50",
-                              "cornerRadius": 10,
-                              "gap": 4,
-                              "padding": [
-                                3,
-                                8
-                              ],
+                              "id": "HEaXg",
+                              "name": "Seg1",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$gold-400",
+                              "justifyContent": "center",
                               "alignItems": "center",
                               "children": [
                                 {
-                                  "type": "icon_font",
-                                  "id": "CtzHw",
-                                  "name": "card2PillIcn",
-                                  "width": 11,
-                                  "height": 11,
-                                  "iconFontName": "users",
-                                  "iconFontFamily": "lucide",
-                                  "fill": "$gold-600"
-                                },
+                                  "type": "text",
+                                  "id": "y48uH",
+                                  "name": "seg1Txt",
+                                  "fill": "$white",
+                                  "content": "❤ 610K",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "u0gtY",
+                              "name": "Seg2",
+                              "width": 30,
+                              "height": "fill_container",
+                              "fill": "$gold-300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "kumKh",
+                              "name": "Seg3",
+                              "width": 20,
+                              "height": "fill_container",
+                              "fill": "#FDD835"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "sTnGQ",
+                              "name": "Seg4",
+                              "width": 16,
+                              "height": "fill_container",
+                              "fill": "#FFB300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "sGgWD",
+                              "name": "Seg5",
+                              "width": 14,
+                              "height": "fill_container",
+                              "fill": "#FF9800"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "6mXGY",
+                              "name": "Seg6",
+                              "width": 12,
+                              "height": "fill_container",
+                              "fill": "#FF7043"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zsqOw",
+                              "name": "Seg7",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$hot-red",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
                                 {
                                   "type": "text",
-                                  "id": "ydA3O",
-                                  "name": "card2PillTxt",
-                                  "fill": "$gold-600",
-                                  "content": "€ 610k avg",
+                                  "id": "7NFNi",
+                                  "name": "seg7Txt",
+                                  "fill": "$white",
+                                  "content": "€625K",
                                   "fontFamily": "Inter",
                                   "fontSize": 11,
                                   "fontWeight": "600"
@@ -4511,34 +4772,32 @@
                         },
                         {
                           "type": "frame",
-                          "id": "If8Xc",
-                          "name": "Price Bar",
+                          "id": "D2wwK",
+                          "name": "Range Row",
                           "width": "fill_container",
-                          "height": 6,
-                          "fill": {
-                            "type": "gradient",
-                            "gradientType": "linear",
-                            "enabled": true,
-                            "rotation": 270,
-                            "size": {
-                              "height": 1
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "1STe5",
+                              "name": "rangeLTxt",
+                              "fill": "$warm-400",
+                              "content": "€580K – €620K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             },
-                            "colors": [
-                              {
-                                "color": "$gold-300",
-                                "position": 0
-                              },
-                              {
-                                "color": "$gold-400",
-                                "position": 0.5
-                              },
-                              {
-                                "color": "#FF6B35",
-                                "position": 1
-                              }
-                            ]
-                          },
-                          "cornerRadius": 3
+                            {
+                              "type": "text",
+                              "id": "KcqEj",
+                              "name": "rangeRTxt",
+                              "fill": "$warm-400",
+                              "content": "€600K – €650K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -4548,158 +4807,251 @@
             },
             {
               "type": "frame",
-              "id": "nBRkL",
-              "name": "Mariastraat 15",
+              "id": "iMStr",
+              "name": "Feed Card 3 - Mariastraat",
               "clip": true,
               "width": "fill_container",
-              "height": 156,
               "fill": "$white",
               "cornerRadius": 16,
               "effect": {
                 "type": "shadow",
                 "shadowType": "outer",
-                "color": "#C7BFB322",
+                "color": "#B4771215",
                 "offset": {
                   "x": 0,
-                  "y": 4
+                  "y": 2
                 },
-                "blur": 16
+                "blur": 12
               },
+              "layout": "vertical",
               "children": [
                 {
                   "type": "frame",
-                  "id": "GsHNT",
-                  "name": "Photo",
+                  "id": "m6bDA",
+                  "name": "Card Image",
                   "metadata": {
                     "type": "unsplash",
-                    "username": "martfoto1",
-                    "link": "https://unsplash.com/@martfoto1",
-                    "author": "Martin Woortman"
+                    "username": "feliciafelicia",
+                    "link": "https://unsplash.com/@feliciafelicia",
+                    "author": "Felicia Varzari"
                   },
-                  "width": 120,
-                  "height": "fill_container",
+                  "width": "fill_container",
+                  "height": 180,
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "https://images.unsplash.com/photo-1682687510119-a61e23c510cb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM4MjYwMjh8&ixlib=rb-4.1.0&q=80&w=1080",
+                    "url": "https://images.unsplash.com/photo-1656013254859-8b1327794095?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3NzM5MzEyMjB8&ixlib=rb-4.1.0&q=80&w=1080",
                     "mode": "fill"
                   }
                 },
                 {
                   "type": "frame",
-                  "id": "NOj9O",
-                  "name": "Details",
+                  "id": "KCqHB",
+                  "name": "Card Body",
                   "width": "fill_container",
-                  "height": "fill_container",
                   "layout": "vertical",
-                  "padding": 14,
-                  "justifyContent": "space_between",
+                  "gap": 8,
+                  "padding": [
+                    14,
+                    16,
+                    16,
+                    16
+                  ],
                   "children": [
                     {
                       "type": "frame",
-                      "id": "WAkKh",
-                      "name": "card3Top",
+                      "id": "EpLJu",
+                      "name": "Address Row",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 2,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "frame",
-                          "id": "HHYp4",
-                          "name": "card3AddrRow",
-                          "width": "fill_container",
-                          "justifyContent": "space_between",
-                          "alignItems": "center",
+                          "id": "mwqzh",
+                          "name": "Address Left",
+                          "layout": "vertical",
+                          "gap": 2,
                           "children": [
                             {
                               "type": "text",
-                              "id": "zeGnA",
-                              "name": "card3Addr",
+                              "id": "yke9L",
+                              "name": "streetTxt",
                               "fill": "$warm-900",
                               "content": "Mariastraat 15",
                               "fontFamily": "Inter",
-                              "fontSize": 15,
+                              "fontSize": 16,
                               "fontWeight": "600"
                             },
                             {
-                              "type": "icon_font",
-                              "id": "sM6Y1",
-                              "name": "card3Bkmk",
-                              "width": 20,
-                              "height": 20,
-                              "iconFontName": "bookmark",
-                              "iconFontFamily": "lucide",
-                              "fill": "$gold-400"
+                              "type": "text",
+                              "id": "E7CW1",
+                              "name": "cityTxt",
+                              "fill": "$warm-500",
+                              "content": "Utrecht Binnenstad",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
                         {
-                          "type": "text",
-                          "id": "ydzSa",
-                          "name": "card3City",
-                          "fill": "$warm-500",
-                          "content": "Utrecht Binnenstad",
-                          "fontFamily": "Inter",
-                          "fontSize": 13,
-                          "fontWeight": "normal"
+                          "type": "icon_font",
+                          "id": "3e38B",
+                          "name": "bkmkIcon",
+                          "width": 18,
+                          "height": 18,
+                          "iconFontName": "bookmark",
+                          "iconFontFamily": "lucide",
+                          "fill": "$gold-400"
                         }
                       ]
                     },
                     {
                       "type": "frame",
-                      "id": "2EVDr",
-                      "name": "card3Bot",
+                      "id": "pRNG6",
+                      "name": "Price Row",
                       "width": "fill_container",
-                      "layout": "vertical",
-                      "gap": 8,
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
                       "children": [
                         {
+                          "type": "text",
+                          "id": "nNcrX",
+                          "name": "askTxt",
+                          "fill": "$warm-500",
+                          "content": "Asking Price €375K",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
                           "type": "frame",
-                          "id": "5zbwq",
-                          "name": "card3PriceRow",
-                          "width": "fill_container",
-                          "gap": 8,
+                          "id": "7VRqA",
+                          "name": "FMV",
+                          "gap": 4,
                           "alignItems": "center",
                           "children": [
                             {
+                              "type": "icon_font",
+                              "id": "NLHo3",
+                              "name": "houseIcon",
+                              "width": 14,
+                              "height": 14,
+                              "iconFontName": "house",
+                              "iconFontFamily": "lucide",
+                              "fill": "$gold-500"
+                            },
+                            {
                               "type": "text",
-                              "id": "7fKGJ",
-                              "name": "card3Price",
-                              "fill": "$gold-500",
-                              "content": "€ 375,000",
+                              "id": "FQj0e",
+                              "name": "fmvTxt",
+                              "fill": "$warm-900",
+                              "content": "€380K",
                               "fontFamily": "Inter",
                               "fontSize": 16,
                               "fontWeight": "700"
-                            },
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rRruX",
+                      "name": "Price Bar Section",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "anboN",
+                          "name": "Bar Row",
+                          "clip": true,
+                          "width": "fill_container",
+                          "height": 28,
+                          "cornerRadius": 14,
+                          "gap": 2,
+                          "children": [
                             {
                               "type": "frame",
-                              "id": "QEcAm",
-                              "name": "card3Pill",
-                              "fill": "$gold-50",
-                              "cornerRadius": 10,
-                              "gap": 4,
-                              "padding": [
-                                3,
-                                8
-                              ],
+                              "id": "NP2qN",
+                              "name": "Seg1",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$gold-400",
+                              "justifyContent": "center",
                               "alignItems": "center",
                               "children": [
                                 {
-                                  "type": "icon_font",
-                                  "id": "7cB6d",
-                                  "name": "card3PillIcn",
-                                  "width": 11,
-                                  "height": 11,
-                                  "iconFontName": "users",
-                                  "iconFontFamily": "lucide",
-                                  "fill": "$gold-600"
-                                },
+                                  "type": "text",
+                                  "id": "Cva4R",
+                                  "name": "seg1Txt",
+                                  "fill": "$white",
+                                  "content": "❤ 375K",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "lEzrs",
+                              "name": "Seg2",
+                              "width": 30,
+                              "height": "fill_container",
+                              "fill": "$gold-300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "yxey2",
+                              "name": "Seg3",
+                              "width": 20,
+                              "height": "fill_container",
+                              "fill": "#FDD835"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "3vfoW",
+                              "name": "Seg4",
+                              "width": 16,
+                              "height": "fill_container",
+                              "fill": "#FFB300"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "nATI5",
+                              "name": "Seg5",
+                              "width": 14,
+                              "height": "fill_container",
+                              "fill": "#FF9800"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "lEtNN",
+                              "name": "Seg6",
+                              "width": 12,
+                              "height": "fill_container",
+                              "fill": "#FF7043"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "XPzbO",
+                              "name": "Seg7",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "fill": "$hot-red",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
                                 {
                                   "type": "text",
-                                  "id": "8rXIs",
-                                  "name": "card3PillTxt",
-                                  "fill": "$gold-600",
-                                  "content": "€ 390k avg",
+                                  "id": "B2oUu",
+                                  "name": "seg7Txt",
+                                  "fill": "$white",
+                                  "content": "€380K",
                                   "fontFamily": "Inter",
                                   "fontSize": 11,
                                   "fontWeight": "600"
@@ -4710,34 +5062,32 @@
                         },
                         {
                           "type": "frame",
-                          "id": "Y8SS2",
-                          "name": "Price Bar",
+                          "id": "RZx1h",
+                          "name": "Range Row",
                           "width": "fill_container",
-                          "height": 6,
-                          "fill": {
-                            "type": "gradient",
-                            "gradientType": "linear",
-                            "enabled": true,
-                            "rotation": 270,
-                            "size": {
-                              "height": 1
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "KCNqD",
+                              "name": "rangeLft",
+                              "fill": "$warm-400",
+                              "content": "€340K – €370K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
                             },
-                            "colors": [
-                              {
-                                "color": "$gold-300",
-                                "position": 0
-                              },
-                              {
-                                "color": "$gold-400",
-                                "position": 0.5
-                              },
-                              {
-                                "color": "#FF6B35",
-                                "position": 1
-                              }
-                            ]
-                          },
-                          "cornerRadius": 3
+                            {
+                              "type": "text",
+                              "id": "8DNQ6",
+                              "name": "rangeRgt",
+                              "fill": "$warm-400",
+                              "content": "€370K – €400K",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
                         }
                       ]
                     }
@@ -4829,7 +5179,7 @@
                       "name": "tab2Icn",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "layout-grid",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$warm-400"
                     },
@@ -5027,6 +5377,73 @@
           "children": [
             {
               "type": "frame",
+              "id": "deOvm",
+              "name": "Top Row",
+              "width": "fill_container",
+              "gap": 8,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "GwZMj",
+                  "name": "Bell Button",
+                  "width": 32,
+                  "height": 32,
+                  "cornerRadius": 16,
+                  "layout": "none",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "O05iy",
+                      "x": 5,
+                      "y": 5,
+                      "name": "bellIcon",
+                      "width": 22,
+                      "height": 22,
+                      "iconFontName": "bell",
+                      "iconFontFamily": "lucide",
+                      "fill": "$warm-700"
+                    },
+                    {
+                      "type": "ellipse",
+                      "id": "irKqQ",
+                      "layoutPosition": "absolute",
+                      "x": 22,
+                      "y": 2,
+                      "name": "Notification Badge",
+                      "fill": "#EF4444",
+                      "width": 8,
+                      "height": 8
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tcXQ2",
+                  "name": "3-Dot Button",
+                  "width": 32,
+                  "height": 32,
+                  "cornerRadius": 16,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "Mb9tu",
+                      "name": "dotsIcon",
+                      "width": 20,
+                      "height": 20,
+                      "iconFontName": "ellipsis-vertical",
+                      "iconFontFamily": "lucide",
+                      "fill": "$warm-500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
               "id": "6NzfF",
               "name": "Avatar",
               "width": 72,
@@ -5086,7 +5503,7 @@
                   "id": "LyEfJ",
                   "name": "badgeText",
                   "fill": "$gold-700",
-                  "content": "Meester",
+                  "content": "Master",
                   "fontFamily": "Inter",
                   "fontSize": 11,
                   "fontWeight": "600",
@@ -5533,54 +5950,6 @@
                   ]
                 }
               ]
-            },
-            {
-              "type": "frame",
-              "id": "KWOpx",
-              "name": "Sign Out Wrapper",
-              "width": "fill_container",
-              "padding": [
-                8,
-                0,
-                0,
-                0
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "tvUpk",
-                  "name": "Sign Out Button",
-                  "width": "fill_container",
-                  "height": 48,
-                  "fill": "$warm-200",
-                  "cornerRadius": 12,
-                  "gap": 8,
-                  "justifyContent": "center",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon_font",
-                      "id": "ZhN9d",
-                      "name": "signOutIcon",
-                      "width": 18,
-                      "height": 18,
-                      "iconFontName": "log-out",
-                      "iconFontFamily": "lucide",
-                      "fill": "$warm-700"
-                    },
-                    {
-                      "type": "text",
-                      "id": "Vbznx",
-                      "name": "signOutText",
-                      "fill": "$warm-700",
-                      "content": "Sign Out",
-                      "fontFamily": "Inter",
-                      "fontSize": 15,
-                      "fontWeight": "500"
-                    }
-                  ]
-                }
-              ]
             }
           ]
         },
@@ -5674,7 +6043,7 @@
                       "name": "tab2Icon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "flame",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$warm-400"
                     },
@@ -5761,6 +6130,83 @@
                       "letterSpacing": 0.5
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "0H5Xn",
+          "layoutPosition": "absolute",
+          "x": 248,
+          "y": 118,
+          "name": "Dropdown Menu",
+          "width": 140,
+          "fill": "$white",
+          "cornerRadius": 12,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "$warm-200"
+          },
+          "effect": [
+            {
+              "type": "shadow",
+              "shadowType": "outer",
+              "color": "#00000018",
+              "offset": {
+                "x": 0,
+                "y": 4
+              },
+              "blur": 16
+            },
+            {
+              "type": "shadow",
+              "shadowType": "outer",
+              "color": "#00000010",
+              "offset": {
+                "x": 0,
+                "y": 1
+              },
+              "blur": 4
+            }
+          ],
+          "layout": "vertical",
+          "padding": 4,
+          "children": [
+            {
+              "type": "frame",
+              "id": "FZqmu",
+              "name": "Sign Out Item",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "gap": 10,
+              "padding": [
+                10,
+                12
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "Uf67H",
+                  "name": "signOutIcon",
+                  "width": 16,
+                  "height": 16,
+                  "iconFontName": "log-out",
+                  "iconFontFamily": "lucide",
+                  "fill": "$warm-600"
+                },
+                {
+                  "type": "text",
+                  "id": "eAdq1",
+                  "name": "signOutText",
+                  "fill": "$warm-700",
+                  "content": "Sign out",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "500"
                 }
               ]
             }
@@ -6097,7 +6543,7 @@
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "./images/generated-1773826129491.png",
+                    "url": "../logo.png",
                     "mode": "fill"
                   },
                   "cornerRadius": 16
@@ -6587,7 +7033,7 @@
                   "fill": {
                     "type": "image",
                     "enabled": true,
-                    "url": "./images/generated-1773826190689.png",
+                    "url": "../logo.png",
                     "mode": "fill"
                   },
                   "cornerRadius": 16
@@ -7075,26 +7521,12 @@
                   "width": 64,
                   "height": 64,
                   "fill": {
-                    "type": "gradient",
-                    "gradientType": "radial",
+                    "type": "image",
                     "enabled": true,
-                    "rotation": 0,
-                    "size": {
-                      "width": 1,
-                      "height": 1
-                    },
-                    "colors": [
-                      {
-                        "color": "#F7C948",
-                        "position": 0
-                      },
-                      {
-                        "color": "#F5A623",
-                        "position": 1
-                      }
-                    ]
+                    "url": "../logo.png",
+                    "mode": "fill"
                   },
-                  "cornerRadius": 32,
+                  "cornerRadius": 16,
                   "effect": {
                     "type": "shadow",
                     "shadowType": "outer",
@@ -7107,19 +7539,7 @@
                   },
                   "layout": "vertical",
                   "justifyContent": "center",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "icon_font",
-                      "id": "KSIgh",
-                      "name": "logoIcon",
-                      "width": 32,
-                      "height": 32,
-                      "iconFontName": "house",
-                      "iconFontFamily": "lucide",
-                      "fill": "#FFFFFF"
-                    }
-                  ]
+                  "alignItems": "center"
                 },
                 {
                   "type": "frame",
@@ -7516,47 +7936,54 @@
           "alignItems": "center",
           "children": [
             {
-              "type": "text",
-              "id": "X26cf",
-              "name": "brandText",
-              "fill": "$gold-500",
-              "content": "HuisHype",
-              "fontFamily": "Inter",
-              "fontSize": 22,
-              "fontWeight": "700"
-            },
-            {
               "type": "frame",
-              "id": "DKE2Q",
-              "name": "Login Button",
-              "fill": "$gold-500",
-              "cornerRadius": 20,
-              "gap": 6,
-              "padding": [
-                6,
-                12
-              ],
+              "id": "ZOJ06",
+              "name": "brandMark",
+              "gap": 8,
               "alignItems": "center",
               "children": [
                 {
-                  "type": "icon_font",
-                  "id": "PhesR",
-                  "name": "loginIcon",
-                  "width": 16,
-                  "height": 16,
-                  "iconFontName": "log-in",
-                  "iconFontFamily": "lucide",
-                  "fill": "$white"
+                  "type": "frame",
+                  "id": "KBYgU",
+                  "name": "logoFrame",
+                  "width": 28,
+                  "height": 28,
+                  "fill": {
+                    "type": "image",
+                    "enabled": true,
+                    "url": "../logo.png",
+                    "mode": "fill"
+                  },
+                  "cornerRadius": 6
                 },
                 {
                   "type": "text",
-                  "id": "v7uPm",
-                  "name": "loginText",
-                  "fill": "$white",
-                  "content": "Log in",
+                  "id": "pqZOU",
+                  "name": "brandText",
+                  "fill": "$gold-500",
+                  "content": "HuisHype",
                   "fontFamily": "Inter",
-                  "fontSize": 13,
-                  "fontWeight": "500"
+                  "fontSize": 22,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "PAx7l",
+              "name": "Location Display",
+              "gap": 4,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "rtQC6",
+                  "name": "locText",
+                  "fill": "$warm-800",
+                  "content": "Eindhoven",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "600"
                 }
               ]
             }
@@ -8270,14 +8697,62 @@
               "letterSpacing": -0.5
             },
             {
-              "type": "icon_font",
-              "id": "rb8Ud",
-              "name": "filterIcon",
-              "width": 22,
-              "height": 22,
-              "iconFontName": "sliders-horizontal",
-              "iconFontFamily": "lucide",
-              "fill": "$warm-600"
+              "type": "frame",
+              "id": "gr7Ld",
+              "name": "Header Right",
+              "gap": 14,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "xTZ6o",
+                  "name": "Bell Button",
+                  "width": 32,
+                  "height": 32,
+                  "cornerRadius": 16,
+                  "layout": "none",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "zboju",
+                      "x": 5,
+                      "y": 5,
+                      "name": "bellIcon",
+                      "width": 22,
+                      "height": 22,
+                      "iconFontName": "bell",
+                      "iconFontFamily": "lucide",
+                      "fill": "$warm-700"
+                    },
+                    {
+                      "type": "ellipse",
+                      "id": "PRkkP",
+                      "x": 21,
+                      "y": 2,
+                      "name": "Notification Badge",
+                      "fill": "#EF4444",
+                      "width": 9,
+                      "height": 9,
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#EF444440",
+                        "blur": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "icon_font",
+                  "id": "rb8Ud",
+                  "name": "filterIcon",
+                  "width": 22,
+                  "height": 22,
+                  "iconFontName": "sliders-horizontal",
+                  "iconFontFamily": "lucide",
+                  "fill": "$warm-600"
+                }
+              ]
             }
           ]
         },
@@ -9169,7 +9644,7 @@
                       "name": "t2Ic",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "layout-grid",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$white"
                     },
@@ -10272,7 +10747,7 @@
                       "name": "tab2Icon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "layout-grid",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$warm-400"
                     },
@@ -14075,7 +14550,7 @@
                   "name": "Tab Feed",
                   "width": "fill_container",
                   "height": "fill_container",
-                  "fill": "#FFFBEB",
+                  "fill": "$gold-500",
                   "cornerRadius": 26,
                   "layout": "vertical",
                   "gap": 4,
@@ -14088,15 +14563,15 @@
                       "name": "tab2Icon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "layout-grid",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
-                      "fill": "#DE911D"
+                      "fill": "$white"
                     },
                     {
                       "type": "text",
                       "id": "Ot748",
                       "name": "tab2Label",
-                      "fill": "#B47712",
+                      "fill": "$white",
                       "content": "FEED",
                       "fontFamily": "Inter",
                       "fontSize": 10,
@@ -15767,7 +16242,7 @@
                       "name": "t2i",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "newspaper",
+                      "iconFontName": "list",
                       "iconFontFamily": "lucide",
                       "fill": "$warm-400"
                     },
@@ -18195,7 +18670,7 @@
                           "fill": "$warm-700",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Ziet er goed uit! Ik denk €420K.",
+                          "content": "Looks great! I think €420K.",
                           "lineHeight": 1.4,
                           "fontFamily": "Inter",
                           "fontSize": 14,
@@ -18353,7 +18828,7 @@
                           "fill": "$warm-700",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Mooi huis, maar de tuin heeft wel werk nodig.",
+                          "content": "Nice house, but the garden needs some work.",
                           "lineHeight": 1.4,
                           "fontFamily": "Inter",
                           "fontSize": 14,
