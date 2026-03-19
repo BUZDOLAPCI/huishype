@@ -2677,7 +2677,7 @@
                           "type": "text",
                           "id": "PutGl",
                           "name": "reageer",
-                          "fill": "$warm-500",
+                          "fill": "#9DB3A5",
                           "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
@@ -2707,13 +2707,13 @@
                           "height": 16,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "ir13i",
                           "name": "heartCount",
-                          "fill": "$warm-500",
+                          "fill": "#BEA3AB",
                           "content": "12",
                           "fontFamily": "Inter",
                           "fontSize": 11,
@@ -2879,13 +2879,13 @@
                           "height": 14,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "Pj8Sr",
                           "name": "replyHeartCount",
-                          "fill": "$warm-500",
+                          "fill": "#BEA3AB",
                           "content": "3",
                           "fontFamily": "Inter",
                           "fontSize": 11,
@@ -2990,7 +2990,7 @@
                           "type": "text",
                           "id": "Scg62",
                           "name": "reageerLink",
-                          "fill": "$warm-500",
+                          "fill": "#9DB3A5",
                           "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
@@ -3015,13 +3015,13 @@
                           "height": 16,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "tKkro",
                           "name": "heartCount",
-                          "fill": "$warm-500",
+                          "fill": "#BEA3AB",
                           "content": "8",
                           "fontFamily": "Inter",
                           "fontSize": 11,
@@ -3197,7 +3197,7 @@
                               "type": "text",
                               "id": "vC3W6",
                               "name": "replyReageer",
-                              "fill": "$warm-500",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 12,
@@ -3222,13 +3222,13 @@
                               "height": 14,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "tDzZV",
                               "name": "replyHeartCount",
-                              "fill": "$warm-500",
+                              "fill": "#BEA3AB",
                               "content": "5",
                               "fontFamily": "Inter",
                               "fontSize": 11,
@@ -3349,7 +3349,7 @@
                       "type": "text",
                       "id": "j41VZ",
                       "name": "reageerText",
-                      "fill": "$warm-500",
+                      "fill": "#9DB3A5",
                       "content": "Reply",
                       "fontFamily": "Inter",
                       "fontSize": 12,
@@ -3379,13 +3379,13 @@
                       "height": 16,
                       "iconFontName": "heart",
                       "iconFontFamily": "lucide",
-                      "fill": "$warm-400"
+                      "fill": "#BEA3AB"
                     },
                     {
                       "type": "text",
                       "id": "uNGKp",
                       "name": "heartCount",
-                      "fill": "$warm-500",
+                      "fill": "#BEA3AB",
                       "content": "2",
                       "fontFamily": "Inter",
                       "fontSize": 11,
@@ -3486,7 +3486,7 @@
                           "type": "text",
                           "id": "NdG7q",
                           "name": "action4",
-                          "fill": "$warm-500",
+                          "fill": "#9DB3A5",
                           "content": "Reply",
                           "fontFamily": "Inter",
                           "fontSize": 12,
@@ -3511,13 +3511,13 @@
                           "height": 16,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-300"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "JHC8x",
                           "name": "cnt4",
-                          "fill": "$warm-500",
+                          "fill": "#BEA3AB",
                           "content": "6",
                           "fontFamily": "Inter",
                           "fontSize": 11,
@@ -3623,7 +3623,7 @@
                               "type": "text",
                               "id": "BGOZX",
                               "name": "raction",
-                              "fill": "$warm-500",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 11,
@@ -3648,13 +3648,13 @@
                               "height": 14,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-300"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "rXwDt",
                               "name": "rcnt",
-                              "fill": "$warm-500",
+                              "fill": "#BEA3AB",
                               "content": "2",
                               "fontFamily": "Inter",
                               "fontSize": 10,
@@ -8733,13 +8733,13 @@
                               "height": 15,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "$info-blue"
                             },
                             {
                               "type": "text",
                               "id": "XSOJc",
                               "name": "cmTx1",
-                              "fill": "$warm-500",
+                              "fill": "#1E88E5",
                               "content": "8",
                               "fontFamily": "Inter",
                               "fontSize": 13,
@@ -8997,13 +8997,13 @@
                               "height": 15,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "$info-blue"
                             },
                             {
                               "type": "text",
                               "id": "W7tvs",
                               "name": "cmTx2",
-                              "fill": "$warm-500",
+                              "fill": "#1E88E5",
                               "content": "15",
                               "fontFamily": "Inter",
                               "fontSize": 13,
@@ -9271,13 +9271,13 @@
                               "height": 15,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "$info-blue"
                             },
                             {
                               "type": "text",
                               "id": "Zc9rP",
                               "name": "cmTx3",
-                              "fill": "$warm-500",
+                              "fill": "#1E88E5",
                               "content": "6",
                               "fontFamily": "Inter",
                               "fontSize": 13,
@@ -9662,7 +9662,7 @@
                       "height": 18,
                       "iconFontName": "heart",
                       "iconFontFamily": "lucide",
-                      "fill": "$hot-red"
+                      "fill": "#BEA3AB"
                     }
                   ]
                 }
@@ -10001,13 +10001,13 @@
                               "height": 14,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "7Rmxo",
                               "name": "c1LikeCount",
-                              "fill": "$warm-500",
+                              "fill": "#BEA3AB",
                               "content": "12",
                               "fontFamily": "Inter",
                               "fontSize": 12,
@@ -10030,13 +10030,13 @@
                               "height": 14,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#9DB3A5"
                             },
                             {
                               "type": "text",
                               "id": "ks1cF",
                               "name": "c1ReplyText",
-                              "fill": "$warm-500",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 12,
@@ -10147,13 +10147,13 @@
                               "height": 14,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "dAmS5",
                               "name": "c2LikeCount",
-                              "fill": "$warm-500",
+                              "fill": "#BEA3AB",
                               "content": "8",
                               "fontFamily": "Inter",
                               "fontSize": 12,
@@ -10176,13 +10176,13 @@
                               "height": 14,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#9DB3A5"
                             },
                             {
                               "type": "text",
                               "id": "xDxiu",
                               "name": "c2ReplyText",
-                              "fill": "$warm-500",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Inter",
                               "fontSize": 12,
@@ -10890,13 +10890,13 @@
                               "height": 14,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "$hot-red"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "gxKXc",
                               "name": "c1heartCount",
-                              "fill": "$warm-500",
+                              "fill": "#BEA3AB",
                               "content": "12",
                               "fontFamily": "Inter",
                               "fontSize": 11,
@@ -10919,13 +10919,13 @@
                               "height": 14,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "$warm-400"
+                              "fill": "#9DB3A5"
                             },
                             {
                               "type": "text",
                               "id": "oOBuG",
                               "name": "c1replyCount",
-                              "fill": "$warm-500",
+                              "fill": "#9DB3A5",
                               "content": "3",
                               "fontFamily": "Inter",
                               "fontSize": 11,
@@ -16450,13 +16450,13 @@
                       "height": 18,
                       "iconFontName": "heart",
                       "iconFontFamily": "lucide",
-                      "fill": "$warm-700"
+                      "fill": "#BEA3AB"
                     },
                     {
                       "type": "text",
                       "id": "CVKZ3",
                       "name": "likeText",
-                      "fill": "$warm-700",
+                      "fill": "#BEA3AB",
                       "content": "Like",
                       "fontFamily": "Inter",
                       "fontSize": 14,
@@ -20217,13 +20217,13 @@
                           "height": 22,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "#6D6C6A"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "35c6P",
                           "name": "likeLabel",
-                          "fill": "#6D6C6A",
+                          "fill": "#BEA3AB",
                           "content": "Like",
                           "fontFamily": "Outfit",
                           "fontSize": 13,
@@ -21782,13 +21782,13 @@
                               "height": 16,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "#D08068"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "XEk07",
                               "name": "likeCount1",
-                              "fill": "#6D6C6A",
+                              "fill": "#BEA3AB",
                               "content": "12",
                               "fontFamily": "Outfit",
                               "fontSize": 13,
@@ -21811,13 +21811,13 @@
                               "height": 16,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "#9C9B99"
+                              "fill": "#9DB3A5"
                             },
                             {
                               "type": "text",
                               "id": "vptXC",
                               "name": "replyText1",
-                              "fill": "#9C9B99",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Outfit",
                               "fontSize": 13,
@@ -22012,13 +22012,13 @@
                               "height": 16,
                               "iconFontName": "heart",
                               "iconFontFamily": "lucide",
-                              "fill": "#9C9B99"
+                              "fill": "#BEA3AB"
                             },
                             {
                               "type": "text",
                               "id": "7hKaV",
                               "name": "likeCount2",
-                              "fill": "#6D6C6A",
+                              "fill": "#BEA3AB",
                               "content": "5",
                               "fontFamily": "Outfit",
                               "fontSize": 13,
@@ -22041,13 +22041,13 @@
                               "height": 16,
                               "iconFontName": "message-circle",
                               "iconFontFamily": "lucide",
-                              "fill": "#9C9B99"
+                              "fill": "#9DB3A5"
                             },
                             {
                               "type": "text",
                               "id": "dVZqy",
                               "name": "replyText2",
-                              "fill": "#9C9B99",
+                              "fill": "#9DB3A5",
                               "content": "Reply",
                               "fontFamily": "Outfit",
                               "fontSize": 13,
@@ -22941,6 +22941,51 @@
                     },
                     {
                       "type": "frame",
+                      "id": "rBgmA",
+                      "name": "cc",
+                      "fill": "#42A5F518",
+                      "cornerRadius": 10,
+                      "gap": 4,
+                      "padding": [
+                        3,
+                        7
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon_font",
+                          "id": "UJj5M",
+                          "name": "ccIcon",
+                          "width": 14,
+                          "height": 14,
+                          "iconFontName": "message-circle",
+                          "iconFontFamily": "lucide",
+                          "fill": "$info-blue"
+                        },
+                        {
+                          "type": "text",
+                          "id": "DN0WB",
+                          "name": "ccText",
+                          "fill": "#1E88E5",
+                          "content": "12",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "jrzGN",
+                      "name": "sep2",
+                      "fill": "$warm-300",
+                      "content": "|",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
                       "id": "DuAyz",
                       "name": "hp",
                       "gap": 4,
@@ -23022,13 +23067,13 @@
                           "height": 18,
                           "iconFontName": "heart",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#BEA3AB"
                         },
                         {
                           "type": "text",
                           "id": "gapET",
                           "name": "likeTxt",
-                          "fill": "$warm-500",
+                          "fill": "#BEA3AB",
                           "content": "Like",
                           "fontFamily": "Inter",
                           "fontSize": 13,
@@ -23052,13 +23097,13 @@
                           "height": 18,
                           "iconFontName": "message-circle",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#9DB3A5"
                         },
                         {
                           "type": "text",
                           "id": "viOrP",
                           "name": "commentTxt",
-                          "fill": "$warm-500",
+                          "fill": "#9DB3A5",
                           "content": "Comment",
                           "fontFamily": "Inter",
                           "fontSize": 13,
@@ -23082,13 +23127,13 @@
                           "height": 18,
                           "iconFontName": "tag",
                           "iconFontFamily": "lucide",
-                          "fill": "$warm-400"
+                          "fill": "#B8B89A"
                         },
                         {
                           "type": "text",
                           "id": "LYEip",
                           "name": "guessTxt",
-                          "fill": "$warm-500",
+                          "fill": "#B8B89A",
                           "content": "Guess",
                           "fontFamily": "Inter",
                           "fontSize": 13,
