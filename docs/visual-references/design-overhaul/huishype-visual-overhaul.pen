@@ -10783,8 +10783,8 @@
     {
       "type": "frame",
       "id": "idfEl",
-      "x": 1972,
-      "y": 6,
+      "x": 1970,
+      "y": 0,
       "name": "11. Comment Thread",
       "clip": true,
       "width": 402,
@@ -11956,7 +11956,7 @@
           "id": "kL7aT",
           "name": "Input Bar",
           "width": "fill_container",
-          "height": 60,
+          "height": 70,
           "fill": "$white",
           "stroke": {
             "align": "inside",
