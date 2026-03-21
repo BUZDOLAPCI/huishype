@@ -814,7 +814,7 @@
             {
               "type": "frame",
               "id": "Ojsbl",
-              "name": "Hot Chip",
+              "name": "Recent ActivityChip",
               "fill": "$white",
               "cornerRadius": 20,
               "stroke": {
@@ -830,9 +830,9 @@
                 {
                   "type": "text",
                   "id": "8t8Hm",
-                  "name": "hotChipLabel",
+                  "name": "recentChipLabel",
                   "fill": "$warm-700",
-                  "content": "Hot",
+                  "content": "Recent Activity",
                   "fontFamily": "Inter",
                   "fontSize": 13,
                   "fontWeight": "500"
@@ -2287,8 +2287,8 @@
     {
       "type": "frame",
       "id": "juUqm",
-      "x": 1790,
-      "y": 0,
+      "x": 2210,
+      "y": 7,
       "name": "5. Saved Screen",
       "clip": true,
       "width": 402,
@@ -3701,8 +3701,8 @@
     {
       "type": "frame",
       "id": "aG3yL",
-      "x": 2224,
-      "y": 0,
+      "x": 2644,
+      "y": 7,
       "name": "6. Profile Screen",
       "clip": true,
       "width": 402,
@@ -7327,8 +7327,8 @@
     {
       "type": "frame",
       "id": "smGDu",
-      "x": 4270,
-      "y": 6,
+      "x": 1782,
+      "y": 0,
       "name": "9. Social Activity Feed",
       "clip": true,
       "width": 402,
@@ -7407,8 +7407,9 @@
           "name": "header",
           "width": "fill_container",
           "height": 52,
+          "gap": 4,
           "padding": [
-            0,
+            8,
             20
           ],
           "justifyContent": "space_between",
@@ -7419,17 +7420,16 @@
               "id": "RaGQY",
               "name": "titleText",
               "fill": "$warm-900",
-              "content": "Activity",
+              "content": "Recent Activity",
               "fontFamily": "Inter",
-              "fontSize": 26,
-              "fontWeight": "600",
-              "letterSpacing": -0.5
+              "fontSize": 22,
+              "fontWeight": "700"
             },
             {
               "type": "frame",
               "id": "gr7Ld",
               "name": "Header Right",
-              "gap": 14,
+              "gap": 12,
               "alignItems": "center",
               "children": [
                 {
@@ -7470,18 +7470,124 @@
                       }
                     }
                   ]
-                },
-                {
-                  "type": "icon_font",
-                  "id": "rb8Ud",
-                  "name": "filterIcon",
-                  "width": 22,
-                  "height": 22,
-                  "iconFontName": "sliders-horizontal",
-                  "iconFontFamily": "lucide",
-                  "fill": "$warm-600"
                 }
               ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Pog3Q",
+          "name": "Filter Chips",
+          "width": "fill_container",
+          "gap": 10,
+          "padding": [
+            0,
+            20
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "g3POX",
+              "name": "Trending Chip",
+              "fill": "$white",
+              "cornerRadius": 20,
+              "stroke": {
+                "thickness": 1,
+                "fill": "$warm-300"
+              },
+              "gap": 6,
+              "padding": [
+                8,
+                16
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Z6UGP",
+                  "name": "trendEmoji",
+                  "fill": "$warm-700",
+                  "content": "🔥",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "JOCIs",
+                  "name": "trendLabel",
+                  "fill": "$warm-700",
+                  "content": "Trending",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yfRuE",
+              "name": "Latest Chip",
+              "fill": "$white",
+              "cornerRadius": 20,
+              "stroke": {
+                "thickness": 1,
+                "fill": "$warm-300"
+              },
+              "padding": [
+                8,
+                16
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "whDo2",
+                  "name": "latestLabel",
+                  "fill": "$warm-700",
+                  "content": "Latest",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "qhM4U",
+              "name": "Recent Activity Chip",
+              "fill": "$gold-500",
+              "cornerRadius": 20,
+              "gap": 6,
+              "padding": [
+                8,
+                16
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "eWBGX",
+                  "name": "activeLabel",
+                  "fill": "$white",
+                  "content": "Recent Activity",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "qzh9D",
+              "name": "dotsText",
+              "fill": "$warm-400",
+              "content": "•••",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
             }
           ]
         },
@@ -7495,9 +7601,9 @@
           "layout": "vertical",
           "gap": 16,
           "padding": [
-            4,
             16,
             16,
+            0,
             16
           ],
           "children": [
@@ -10993,8 +11099,8 @@
     {
       "type": "frame",
       "id": "yV0aT",
-      "x": 2661,
-      "y": 0,
+      "x": 3081,
+      "y": 7,
       "name": "13. Social Notifications",
       "clip": true,
       "width": 402,
@@ -12216,8 +12322,8 @@
     {
       "type": "frame",
       "id": "PBxCW",
-      "x": 3100,
-      "y": 0,
+      "x": 3520,
+      "y": 7,
       "name": "14. Community Leaderboard",
       "clip": true,
       "width": 402,
@@ -14186,7 +14292,7 @@
                       "id": "7ijl6",
                       "name": "hotLabel",
                       "fill": "$hot-red",
-                      "content": "Hot",
+                      "content": "Recent Activity",
                       "fontFamily": "Inter",
                       "fontSize": 12,
                       "fontWeight": "600"
@@ -17096,7 +17202,7 @@
                           "id": "wJ91W",
                           "name": "hotLabel",
                           "fill": "$hot-red",
-                          "content": "Hot",
+                          "content": "Recent Activity",
                           "fontFamily": "Outfit",
                           "fontSize": 11,
                           "fontWeight": "600"
