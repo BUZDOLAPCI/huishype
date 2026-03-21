@@ -7708,8 +7708,8 @@
     {
       "type": "frame",
       "id": "idfEl",
-      "x": 1396,
-      "y": 973,
+      "x": 868,
+      "y": 965,
       "name": "11. Comments Page",
       "clip": true,
       "width": 402,
@@ -8982,8 +8982,8 @@
     {
       "type": "frame",
       "id": "Ao3Le",
-      "x": 953,
-      "y": 973,
+      "x": 439,
+      "y": 962,
       "name": "12. Price Guesses Page",
       "clip": true,
       "width": 402,
@@ -12963,8 +12963,8 @@
     {
       "type": "frame",
       "id": "iHebo",
-      "x": 505,
-      "y": 973,
+      "x": 0,
+      "y": 962,
       "name": "3. Property Detail — Full Scroll",
       "clip": true,
       "width": 402,
@@ -14900,27 +14900,69 @@
                       "name": "footerRow",
                       "width": "fill_container",
                       "gap": 6,
+                      "justifyContent": "space_between",
                       "alignItems": "center",
                       "children": [
                         {
-                          "type": "icon_font",
-                          "id": "rhBub",
-                          "name": "uIcon",
-                          "width": 14,
-                          "height": 14,
-                          "iconFontName": "users",
-                          "iconFontFamily": "lucide",
-                          "fill": "#9C9B99"
+                          "type": "frame",
+                          "id": "sAAHb",
+                          "name": "leftGroup",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon_font",
+                              "id": "rhBub",
+                              "name": "uIcon",
+                              "width": 14,
+                              "height": 14,
+                              "iconFontName": "users",
+                              "iconFontFamily": "lucide",
+                              "fill": "#9C9B99"
+                            },
+                            {
+                              "type": "text",
+                              "id": "QjLfW",
+                              "name": "ftxt",
+                              "fill": "#9C9B99",
+                              "content": "28 people have guessed",
+                              "fontFamily": "Outfit",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
                         },
                         {
-                          "type": "text",
-                          "id": "QjLfW",
-                          "name": "ftxt",
-                          "fill": "#9C9B99",
-                          "content": "28 people have guessed",
-                          "fontFamily": "Outfit",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "yZuq3",
+                          "name": "viewGuesses",
+                          "gap": 2,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "lLVEF",
+                              "name": "viewText",
+                              "fill": "#9C9B99",
+                              "textGrowth": "fixed-width-height",
+                              "width": "fit_content(72)",
+                              "height": "fit_content(17)",
+                              "content": "View guesses",
+                              "fontFamily": "Outfit",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "icon_font",
+                              "id": "p64N4",
+                              "name": "arrowIcon",
+                              "width": 14,
+                              "height": 14,
+                              "iconFontName": "arrow-right",
+                              "iconFontFamily": "lucide",
+                              "fill": "#9C9B99"
+                            }
+                          ]
                         }
                       ]
                     }
