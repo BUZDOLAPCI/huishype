@@ -11,11 +11,12 @@
 
 This sprint transforms HuisHype from a clinical blue-and-white prototype into the finalized warm gold brand experience defined in the pen design file. The scope covers:
 
+- **Style normalization**: Pre-migration cleanup of 286 inline hex colors, 101+ raw numeric spacings, inconsistent Tailwind semantics across 30+ files
 - **Design system foundation**: New color palette (gold primary, warm neutrals), 3 custom fonts, Lucide icons, warm shadows, backdrop blur
 - **Component overhaul**: 34+ files need icon migration, color token swaps, typography changes
 - **New screens**: 4 entirely new full-screen pages (Notifications, Leaderboard, Comments Page, Price Guesses Page)
 - **Major rewrites**: Tab bar (floating pill), Property Detail (full page), Feed cards (photo + stats), Profile (achievements + activity)
-- **Backend additions**: Notifications system, Leaderboard endpoint, Social activity feed algorithm, User following system
+- **Backend additions**: Notifications system, Leaderboard endpoint, Social activity feed algorithm, Email auth (magic link), reactions→likes table refactor
 - **Verification**: Visual regression testing on all 15 design screens
 
 ---
@@ -54,8 +55,9 @@ This sprint transforms HuisHype from a clinical blue-and-white prototype into th
 |---------|--------------|-----------------|------------|
 | **Notifications** | `notifications` (type, actor_id, target_id, property_id, read, created_at) | `GET /notifications`, `PUT /notifications/read-all`, `GET /notifications/unread-count` | High |
 | **Leaderboard** | None (computed from `price_guesses`, `comments`, `users`) | `GET /leaderboard?period=week\|month\|all` | Medium |
-| **Social activity feed** | None (joins existing `likes`, `comments`, `price_guesses`) | `GET /feed?algorithm=activity` | Medium |
-| **Email auth** | Users already have email | `POST /auth/email/request`, `POST /auth/email/verify` (magic link) | Medium |
+| **Reactions→Likes refactor** | Rename `reactions` → `likes`, drop multi-type support | Update existing routes referencing reactions | Low |
+| **Social activity feed** | None (joins `likes`, `comments`, `price_guesses` after refactor) | `GET /feed?algorithm=activity` | Medium |
+| **Email auth** | `email_auth_tokens` (token, email, expires_at, used) | `POST /auth/email/request`, `POST /auth/email/verify` (magic link) | Medium |
 | **User activity log** | None (join across `price_guesses`, `comments`, `likes`) | `GET /users/me/activity` | Low |
 
 ---
@@ -66,6 +68,8 @@ This sprint transforms HuisHype from a clinical blue-and-white prototype into th
 
 ```
 Phase 0 (Packages)
+  ↓
+Phase 0.5 (Style Normalization) ← clean up bad practices so token migration is mechanical
   ↓
 Phase 1 (Design Tokens) ← prerequisite for ALL subsequent phases
   ↓
@@ -106,9 +110,10 @@ Phase 20 (Visual Regression & Test Suite)
 1. Install packages:
    ```bash
    cd apps/app
-   npx expo install expo-blur expo-notifications expo-device expo-constants @expo-google-fonts/inter @expo-google-fonts/outfit @expo-google-fonts/dm-sans expo-font
-   pnpm add lucide-react-native react-native-svg phosphor-react-native
+   npx expo install expo-blur expo-notifications expo-device @expo-google-fonts/inter @expo-google-fonts/outfit @expo-google-fonts/dm-sans
+   pnpm add lucide-react-native react-native-svg
    ```
+   Note: `expo-font` and `expo-constants` are already installed. `npx expo install` resolves SDK 54-compatible versions automatically (expo-blur ~15.0.8, expo-notifications ~0.32.16, expo-device ~8.0.10).
    Backend (for email auth + push notifications):
    ```bash
    pnpm -C services/api add resend expo-server-sdk
@@ -125,10 +130,140 @@ Phase 20 (Visual Regression & Test Suite)
 
 ---
 
+### Phase 0.5: Style Normalization (Pre-Migration Cleanup)
+**Estimated files**: 30+ | **Risk**: Medium (many files, but each change is small and safe) | **Blocking**: Phase 1
+
+**Goal**: Eliminate inline style bad practices and normalize inconsistent Tailwind patterns so that Phase 1's token migration becomes purely mechanical (grep-and-replace) rather than a mixed cleanup+migration.
+
+**Why this matters**: The audit found **286 hardcoded hex values** in inline styles, **101+ raw numeric spacing values**, **682 Tailwind color class usages** with inconsistent semantic mapping, and **5 files with conflicting className+style**. Without cleanup first, Phase 1 would have to simultaneously decide "what is this color semantically?" AND "what warm token replaces it?" — doubling the cognitive load and error risk.
+
+**Tasks**:
+
+#### 0.5A: Extract inline hex colors to Tailwind classes
+
+Replace hardcoded hex colors in `style={{ }}` props with equivalent Tailwind className. Use **current** palette names (blue/gray) — Phase 1 will remap them.
+
+**Mapping table** (inline hex → current Tailwind class):
+
+| Hex | Count | Tailwind Equivalent | Semantic |
+|-----|-------|-------------------|----------|
+| `#3B82F6` | 20 | `text-blue-500` / `bg-blue-500` | Primary blue |
+| `#2563EB` / `#2563eb` | 19 | `text-blue-600` / `bg-blue-600` | Primary blue alt |
+| `#6B7280` | 42 | `text-gray-500` | Secondary text |
+| `#9CA3AF` | 34 | `text-gray-400` | Muted text / icon gray |
+| `#4B5563` | 7 | `text-gray-600` | Dark text variant |
+| `#111827` | 5 | `text-gray-900` | Primary dark text |
+| `#1F2937` | 3 | `text-gray-800` | Dark text |
+| `#374151` | 1 | `text-gray-700` | Charcoal text |
+| `#E5E7EB` | 9 | `border-gray-200` / `bg-gray-200` | Light border |
+| `#D1D5DB` | 9 | `border-gray-300` / `bg-gray-300` | Medium border |
+| `#F3F4F6` | 5 | `bg-gray-100` | Light background |
+| `#FFFFFF` / `#fff` | 28 | `bg-white` / `text-white` | White |
+| `#000` | 4 | `text-black` / `bg-black` | Black |
+| `#EF4444` | 19 | `text-red-500` / `bg-red-500` | Red (likes/errors) |
+| `#22C55E` / `#10B981` | 10 | `text-green-500` / `text-emerald-500` | Success green |
+| `#F97316` / `#FB923C` | 9 | `text-orange-500` / `text-orange-400` | Activity orange |
+| `#F59E0B` | 2 | `text-amber-500` | Warning amber |
+
+**Exceptions** (keep as inline styles — cannot be Tailwind classes):
+- `rgba()` values for shadows and overlays (13 instances) — these move to the shadow helper in Phase 2
+- Dynamic/computed values (e.g., `fontSize: size * 0.4`)
+- Platform-specific layout styles that must be in StyleSheet (animation transforms, etc.)
+- `#4285F4` (Google brand blue) — keep as-is, brand requirement
+
+**Top 10 files to process** (by violation count):
+1. `src/components/GroupPreviewCard.tsx` — 28 hex + 32 numeric (worst offender)
+2. `src/components/PropertyPreviewCard.tsx` — 22 hex + 19 numeric
+3. `app/(tabs)/index.web.tsx` — 19 hex
+4. `app/[...address].tsx` — 17 hex
+5. `app/(tabs)/index.tsx` — 16 hex
+6. `src/components/SearchResults.tsx` — 14 hex + 7 numeric
+7. `src/components/PropertyBottomSheet/ListingSubmissionSheet.tsx` — 13 hex
+8. `src/components/PriceGuessSlider.tsx` — 9 hex + 7 numeric + className/style conflict
+9. `src/components/PropertyBottomSheet/PropertyHeader.tsx` — 3 hex (in StyleSheet)
+10. `src/components/AerialImageCard.tsx` — 6 hex (in StyleSheet)
+
+#### 0.5B: Fix className + style conflicts
+
+5 files have the same property set via both `className` and `style`, with the inline style silently overriding Tailwind:
+
+| File | Issue |
+|------|-------|
+| `PriceGuessSlider.tsx` (line ~511) | `className="text-gray-500"` overridden by `style={{ color: '#6B7280' }}`, duplicate `font-semibold`/`fontWeight`, `ml-2`/`marginLeft: 8` |
+| `AuthModal.tsx` | `className="bg-white"` mixed with `style={styles.sheetInner}` |
+| `CommentList.tsx` | `className="text-white"` + `style={{ fontSize: size * 0.4 }}` |
+| `Comments/Comment.tsx` | Same as CommentList |
+| `ConsensusAlignment.tsx` | `Animated.View` with both `style={animatedStyle}` and `className` |
+
+**Resolution**: Remove the inline style when className already covers it. For Reanimated `Animated.View`, keep `style` for animated values only, move static props to `className`.
+
+#### 0.5C: Normalize raw numeric spacing to Tailwind
+
+Convert the most common raw numeric spacing patterns to Tailwind equivalents. **Only convert values that map cleanly to the Tailwind spacing scale** (multiples of 4: 4→1, 8→2, 12→3, 16→4, 20→5, 24→6, 32→8, etc.):
+
+| Raw Value | Tailwind | Occurrences |
+|-----------|----------|-------------|
+| `padding: 16` / `paddingHorizontal: 16` | `p-4` / `px-4` | ~15 |
+| `marginBottom: 12` / `marginTop: 12` | `mb-3` / `mt-3` | ~10 |
+| `marginLeft: 8` / `marginRight: 8` | `ml-2` / `mr-2` | ~8 |
+| `padding: 8` | `p-2` | ~6 |
+| `gap: 8` / `gap: 12` / `gap: 16` | `gap-2` / `gap-3` / `gap-4` | ~10 |
+| `borderRadius: 12` / `borderRadius: 8` | `rounded-xl` / `rounded-lg` | ~8 |
+
+**Exceptions** (keep as numeric):
+- Dynamic/computed values (`width: contentSize.width`)
+- Non-standard values that don't map to Tailwind scale (`width: 420`, `THUMBNAIL_SIZE = 56`)
+- Values inside `StyleSheet.create` that power animations
+- Layout dimensions specific to platform (web side panel width, etc.)
+
+#### 0.5D: Normalize inconsistent Tailwind color semantics
+
+Consolidate cases where the same visual purpose uses different shades. Use the **most common** shade as the winner:
+
+| Semantic Purpose | Current (inconsistent) | Normalized To |
+|-----------------|----------------------|---------------|
+| **Muted/secondary text** | `text-gray-300`, `text-gray-400`, `text-gray-500` | `text-gray-500` (98 usages, clear winner) |
+| **Disabled text** | `text-gray-300`, `text-gray-400` | `text-gray-400` |
+| **Error background** | `bg-red-50`, `bg-red-100` | `bg-red-50` |
+| **Error text** | `text-red-500`, `text-red-600`, `text-red-700` | `text-red-600` |
+| **Success background** | `bg-green-50`, `bg-green-100`, `bg-green-200` | `bg-green-100` |
+| **Success text** | `text-green-600`, `text-green-700`, `text-green-800` | `text-green-700` |
+| **"Cold" activity** | `bg-gray-300`, `bg-gray-400` | `bg-gray-400` (consistent with PropertyMarker) |
+| **Light section bg** | `bg-gray-50`, `bg-gray-100` | `bg-gray-50` (screen bg), `bg-gray-100` (card/section within) — keep this 2-level distinction |
+| **Primary CTA text on blue** | `text-white` | `text-white` (already consistent) |
+
+**Note**: This is NOT the warm palette migration — that's Phase 1. This just ensures each semantic purpose maps to exactly one shade so Phase 1 has a clean 1:1 remap.
+
+#### 0.5E: Normalize hex case and format
+
+Standardize all remaining inline hex values (the ~13 rgba values and any brand colors that must stay inline):
+- Uppercase hex: `#FFFFFF` not `#ffffff` or `#fff`
+- Full 6-digit: `#000000` not `#000`
+
+**Files changed**: 30+ component files across `apps/app/src/` and `apps/app/app/`
+
+**Verification**:
+- `pnpm -C apps/app typecheck` — zero errors
+- `pnpm -C apps/app test` — all unit tests pass
+- App renders identically on web and native (this phase changes NO visual output — only how styles are expressed)
+- Visual spot-check: GroupPreviewCard, PropertyPreviewCard, PriceGuessSlider (top offenders)
+
+**Parallelism**: Sub-tasks 0.5A through 0.5E can be split across agents by file group. Recommended split:
+- Agent 1: GroupPreviewCard + PropertyPreviewCard (biggest files, 0.5A+0.5C)
+- Agent 2: index.web.tsx + index.tsx + [...address].tsx (route files, 0.5A+0.5C)
+- Agent 3: SearchResults + ListingSubmissionSheet + PriceGuessSlider (0.5A+0.5B+0.5C)
+- Agent 4: All remaining src/ components (0.5A+0.5C)
+- Agent 5: Tailwind semantic normalization across all files (0.5D)
+- Agent 6: Hex case normalization pass (0.5E)
+
+---
+
 ### Phase 1: Design Token Foundation
-**Estimated files**: 5 | **Risk**: Low (existing `primary-*` classes auto-remap) | **Blocking**: All component phases
+**Estimated files**: 35+ | **Risk**: Low (mechanical grep-replace after Phase 0.5 normalization) | **Blocking**: All component phases
 
 **Goal**: Replace the blue-based design system with gold + warm neutrals. Load custom fonts.
+
+**Prerequisite**: Phase 0.5 must be complete. After normalization, each semantic color purpose maps to exactly one Tailwind shade, and all inline hex colors have been extracted to Tailwind classes. This makes the token migration a clean 1:1 remap — `gray-*` → `warm-*`, `blue-*` → `primary-*` — with no ambiguity about what each color means.
 
 **Tasks**:
 1. **Replace `tailwind.config.js`** — full config from spec section 11.2
@@ -141,35 +276,39 @@ Phase 20 (Visual Regression & Test Suite)
    - Border radius tokens (card, button, sheet, pill)
    - Box shadow definitions (8 named shadows)
 
-2. **Update `Colors.ts`** — section 11.3
+2. **Update `Colors.ts`** (`apps/app/constants/Colors.ts`) — section 11.3
    - `tint: '#F5A623'` (was `#2f95dc`)
    - `tabIconDefault: '#C7BFB3'`
    - `tabIconSelected: '#F5A623'`
    - `background: '#FFFBF5'`
    - `text: '#2D2926'`
+   - Note: Colors.ts is a separate system from Tailwind — both must be updated
 
-3. **Update `global.css`** — section 11.5
-   - Background color: `#FFFBF5`
-   - Default text color: `#2D2926`
-   - Default font: Inter
+3. **Update `global.css`** (`apps/app/global.css`) — section 11.5
+   - Currently only contains `@tailwind` directives, no custom CSS
+   - Add background color: `#FFFBF5`
+   - Add default text color: `#2D2926`
+   - Add default font: Inter
 
 4. **Font loading in `_layout.tsx`** — section 11.4
-   - Import all weight variants from `@expo-google-fonts/*`
-   - Load via `useFonts()` hook
+   - Currently loads only SpaceMono + FontAwesome icons via `useFonts()`
+   - Add all weight variants from `@expo-google-fonts/*`
    - Show splash screen until fonts ready
 
-5. **Bulk color class replacement** across all component files — section 11.9
-   - `bg-gray-*` → `bg-warm-*`
-   - `text-gray-*` → `text-warm-*`
-   - `border-gray-*` → `border-warm-*`
-   - Hardcoded `#3B82F6` → `#F5A623`
-   - `bg-blue-*` → `bg-primary-*`
-   - `text-blue-*` → `text-primary-*`
+5. **Mechanical token remap** across all component files — section 11.9
+   After Phase 0.5 normalization, each semantic purpose maps to exactly one shade. The remap is now purely mechanical:
+   - **Gray → Warm neutral**: `gray-50` → `warm-50`, `gray-100` → `warm-100`, ... `gray-900` → `warm-900` (452 usages, straight grep-replace)
+   - **Blue → Primary**: `blue-500` → `primary-500`, `blue-600` → `primary-600`, etc. (33 usages)
+   - **Primary vars**: Already `primary-*` (21 usages) — automatically pick up new gold value from updated config
+   - **bg-white → bg-surface**: `bg-white` (46 usages) → `bg-surface` or `bg-warm-50` per context
+   - **Semantic colors preserved**: `red-*` (error, liked, hot), `green-*` (success), `orange-*` (warm activity), `yellow-*` (warning) — remap to new semantic tokens (`error-red`, `crowd-green`, `hot-red`, `warning-orange`)
+   - **Remaining inline hex** (~13 rgba shadows + brand colors) — shadows move to shadow helper (Phase 2), brand colors stay
 
-**Files changed**: `tailwind.config.js`, `Colors.ts`, `global.css`, `_layout.tsx`, 30+ component files (color classes)
+**Files changed**: `tailwind.config.js`, `Colors.ts`, `global.css`, `_layout.tsx`, 30+ component files (Tailwind class renames only — no structural changes thanks to Phase 0.5)
 
 **Verification**:
 - `pnpm -C apps/app typecheck` — zero errors
+- `pnpm -C apps/app test` — all unit tests pass
 - App renders with gold/warm colors on web and native
 - Fonts load correctly (visible difference from system fonts)
 
@@ -200,7 +339,9 @@ Phase 20 (Visual Regression & Test Suite)
    - Props: `username`, `size`, `displayName?`
 
 4. **KarmaBadge redesign** (`src/components/ui/KarmaBadge.tsx`) — spec section 7.17
-   - 7 tiers (was 6): add "Master" tier
+   - 6 tiers, renamed to English (currently Dutch in backend, mixed English in frontend):
+     - Newcomer (0+), Resident (10+), Connoisseur (50+), Specialist (100+), Master (200+), Legend (500+)
+   - Consolidate: backend `karma.ts` has 6 Dutch tiers, frontend `KarmaBadge.tsx` has 5 English tiers — unify to single 6-tier English system in both
    - Tier-specific colors per spec section 1.10
    - Pill shape with `rounded-full`
    - Size variants: small (comments), medium (leaderboard), large (hero)
@@ -213,7 +354,7 @@ Phase 20 (Visual Regression & Test Suite)
 - `apps/app/src/components/ui/KarmaBadge.tsx`
 
 **Modified files**:
-- `services/api/src/services/karma.ts` — add Master tier (1000+ karma), English tier names
+- `services/api/src/services/karma.ts` — rename Dutch tier names to English (Nieuwkomer→Newcomer, Bewoner→Resident, Kenner→Connoisseur, Specialist→Specialist, Meester→Master, Legende→Legend)
 - `apps/app/src/components/Comments/Comment.tsx` — use new UserAvatar + KarmaBadge
 - `apps/app/app/(tabs)/profile.tsx` — use new UserAvatar
 
@@ -226,13 +367,13 @@ Phase 20 (Visual Regression & Test Suite)
 ---
 
 ### Phase 3: Icon Migration (Ionicons/FontAwesome → Lucide)
-**Estimated files**: 34+ | **Risk**: Medium (many files, mechanical) | **Parallel**: Yes
+**Estimated files**: 38 | **Risk**: Medium (many files, mechanical) | **Parallel**: Yes
 
 **Goal**: Replace all `@expo/vector-icons` usage with `lucide-react-native`.
 
 **Tasks**:
 
-This is a mechanical search-and-replace across 34 files. Per spec section 11.10, the mapping is:
+This is a mechanical search-and-replace across 38 files (31 source + 2 route + 5 test files). Per spec section 11.10, the mapping is:
 
 | Old (Ionicons) | New (Lucide) |
 |----------------|-------------|
@@ -255,18 +396,20 @@ This is a mechanical search-and-replace across 34 files. Per spec section 11.10,
 | `notifications-outline` | `Bell` |
 
 **Special cases**:
-- Filled heart: Use `phosphor-react-native`'s `Heart` with `weight="fill"` for the liked state
+- Filled heart: Use `lucide-react-native`'s `Heart` with `fill="currentColor"` for the liked state (no need for phosphor-react-native)
 - `FontAwesome` tab icons: `map` → `Map`, `list` → `LayoutList`, `bookmark` → `Bookmark`, `user` → `User`
 - Icon sizes follow spec section 6.3 scale (xs=14, sm=16, md=18, lg=22, xl=28)
 - `strokeWidth`: 1.5 for inactive/outline, 2-2.5 for active/bold
 
-**Files to change** (all 34 files with Ionicons/FA references):
+**Files to change** (all 38 files with Ionicons/FA references):
 ```
+apps/app/app/_layout.tsx
 apps/app/app/(tabs)/_layout.tsx
 apps/app/app/(tabs)/profile.tsx
 apps/app/app/(tabs)/saved.tsx
 apps/app/app/property/[id].tsx
 apps/app/app/user/[id].tsx
+apps/app/app/[...address].tsx
 apps/app/src/components/AuthModal.tsx
 apps/app/src/components/SearchBar.tsx
 apps/app/src/components/SearchResults.tsx
@@ -293,7 +436,11 @@ apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.web.tsx
 apps/app/src/components/Comments/Comment.tsx
 apps/app/src/components/Comments/CommentInput.tsx
 apps/app/src/components/Comments/CommentsList.tsx
-+ test files that reference icons
+apps/app/src/components/__tests__/FeedFilterChips.test.tsx
+apps/app/src/components/__tests__/FeedStates.test.tsx
+apps/app/src/components/__tests__/PropertyFeedCard.test.tsx
+apps/app/src/components/Comments/__tests__/Comment.test.tsx
+apps/app/src/components/Comments/__tests__/CommentInput.test.tsx
 ```
 
 **Verification**:
@@ -329,7 +476,7 @@ apps/app/src/components/Comments/CommentsList.tsx
    - **Animation**: Gold capsule slides between tabs (200ms ease-out, `withTiming` from Reanimated)
 
 3. **Wire into Expo Router**
-   - Set `tabBar` prop on `<Tabs>` to render `CustomTabBar`
+   - Set `tabBar` prop on `<Tabs>` to render `CustomTabBar` (Expo Router's `<Tabs>` passes through to `@react-navigation/bottom-tabs` which supports the `tabBar` prop for fully custom tab bar components)
    - Remove all `tabBarStyle` and `tabBarIcon` from individual screen options
    - Remove `headerShown: true` from screen options (map screen has no header in design; other screens use in-screen headers)
 
@@ -459,7 +606,13 @@ CREATE INDEX idx_notifications_user_read ON notifications(user_id, read, created
 
 #### 5C: Social Activity Feed
 
-**No new tables** — computed from existing `likes`, `comments`, `price_guesses` joined with `users` and `properties`.
+**Prerequisite refactor**: The current DB table is named `reactions` (supports multiple reaction types: like, love, wow, angry). Since the design only uses likes, rename `reactions` → `likes` table and simplify to a single reaction type. This is a migration + route refactor:
+- Rename table `reactions` → `likes`
+- Drop `reaction_type` column (only "like" is used)
+- Rename `target_type`/`target_id` to `entity_type`/`entity_id` (or keep as-is)
+- Update all references in routes (`comments.ts`, `properties.ts`) and services
+
+**No new tables beyond the rename** — computed from existing `likes`, `comments`, `price_guesses` joined with `users` and `properties`.
 
 **Note**: The pen design does NOT include a "Following" chip or user-follow system. The 3 feed filter chips are: "Trending", "Latest", "Recent Activity". The "Recent Activity" variant shows ALL recent user actions across the platform, not just followed users.
 
