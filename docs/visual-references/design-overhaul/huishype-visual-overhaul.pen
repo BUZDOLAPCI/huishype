@@ -56,7 +56,7 @@
               "fill": {
                 "type": "image",
                 "enabled": true,
-                "url": "image.png",
+                "url": "./pen_assets/image.png",
                 "mode": "fill"
               },
               "width": 402,
@@ -4362,7 +4362,7 @@
                           "fill": {
                             "type": "image",
                             "enabled": true,
-                            "url": "./images/generated-1773826149538.png",
+                            "url": "./pen_assets/images/generated-1773826149538.png",
                             "mode": "fill"
                           },
                           "cornerRadius": 4
@@ -4400,7 +4400,7 @@
                           "fill": {
                             "type": "image",
                             "enabled": true,
-                            "url": "./images/generated-1773826164874.png",
+                            "url": "./pen_assets/images/generated-1773826164874.png",
                             "mode": "fill"
                           },
                           "cornerRadius": 4
@@ -4891,7 +4891,7 @@
                           "fill": {
                             "type": "image",
                             "enabled": true,
-                            "url": "./images/generated-1773826209132.png",
+                            "url": "./pen_assets/images/generated-1773826209132.png",
                             "mode": "fill"
                           },
                           "cornerRadius": 4
@@ -4929,7 +4929,7 @@
                           "fill": {
                             "type": "image",
                             "enabled": true,
-                            "url": "./images/generated-1773826223428.png",
+                            "url": "./pen_assets/images/generated-1773826223428.png",
                             "mode": "fill"
                           },
                           "cornerRadius": 4
@@ -5644,7 +5644,7 @@
           "fill": {
             "type": "image",
             "enabled": true,
-            "url": "image.png",
+            "url": "./pen_assets/image.png",
             "mode": "fill"
           },
           "width": 402,
