@@ -1,382 +1,540 @@
-# Visual Design Overhaul — Complete Sprint Implementation Plan
-
-**Date**: 2026-03-21
-**Source of truth**: `docs/superpowers/specs/2026-03-17-visual-design-overhaul-design.md` (design spec)
-**Pen file**: `docs/visual-references/design-overhaul/huishype-visual-overhaul.pen` (15 screens)
-**Status**: Implementation plan — ready for execution
-
----
-
-## Executive Summary
-
-This sprint transforms HuisHype from a clinical blue-and-white prototype into the finalized warm gold brand experience defined in the pen design file. The scope covers:
-
-- **Style normalization**: Pre-migration cleanup of 286 inline hex colors, 101+ raw numeric spacings, inconsistent Tailwind semantics across 30+ files
-- **Design system foundation**: New color palette (gold primary, warm neutrals), 3 custom fonts, Lucide icons, warm shadows, backdrop blur
-- **Component overhaul**: 34+ files need icon migration, color token swaps, typography changes
-- **New screens**: 4 entirely new full-screen pages (Notifications, Leaderboard, Comments Page, Price Guesses Page)
-- **Major rewrites**: Tab bar (floating pill), Property Detail (full page), Feed cards (photo + stats), Profile (achievements + activity)
-- **Backend additions**: Notifications system, Leaderboard endpoint, Social activity feed algorithm, Email auth (magic link), reactions→likes table refactor
-- **Verification**: Visual regression testing on all 15 design screens
-
----
-
-## Gap Analysis Summary
-
-### What Exists Today vs What The Design Requires
-
-| Area | Current State | Design Requires | Gap |
-|------|--------------|-----------------|-----|
-| **Colors** | Blue primary `#3B82F6`, cool grays | Gold `#F5A623`, warm neutrals `#FFFBF5` | Full palette swap |
-| **Fonts** | System fonts + SpaceMono | Inter + Outfit + DM Sans | 3 new font families |
-| **Icons** | `@expo/vector-icons` (Ionicons/FA) | `lucide-react-native` | 34 files to migrate |
-| **Tab bar** | Default Expo Router flat bar | Custom floating translucent pill with gold capsule | Full rewrite |
-| **Search bar** | Basic input | Backdrop blur, gold focus ring, mic icon | Redesign |
-| **Feed cards** | Text-only cards | Photo header, activity badges, colored stat pills | Major redesign |
-| **Preview card** | Basic preview | Close button, arrow pointer, quick actions | Redesign |
-| **Property detail** | Bottom sheet with `PropertyContent` | Full-page scroll view with hero image | Architecture change |
-| **Comments page** | Inline section only | Full-screen with sort toggle, threading, pinned input | New screen |
-| **Price guesses page** | Inline section only | Full-screen with distribution chart, CTA bar | New screen |
-| **Notifications** | Nothing | Full notification system + page | New feature + backend |
-| **Leaderboard** | Nothing | Full leaderboard with podium, rankings | New feature + backend |
-| **Social activity feed** | Nothing | "Recent Activity" feed variant with user action cards | New feature + backend |
-| **Email auth** | Nothing | Email sign-in button in auth modal | New auth method |
-| **Profile achievements** | Nothing | Achievement icons row | New feature |
-| **Profile activity log** | Guess history only | Full activity log (likes, comments, guesses) | Enhancement |
-| **User avatars** | Blue circle with initials | Warm-toned deterministic palette | Enhancement |
-| **Backdrop blur** | Not installed | Tab bar, search, location button, close buttons | New package + components |
-| **Shadows** | Default/none | Warm gold-tinted shadow system | New shadow helper |
-| **Animations** | Basic card entrance | Tab capsule slide, like bounce, hot pulse, etc. | New animations |
-| **Property photos** | PDOK aerial only (NL) | Listing thumbnail photos in cards | Enhancement |
-
-### Backend Gaps
-
-| Feature | Tables Needed | Endpoints Needed | Complexity |
-|---------|--------------|-----------------|------------|
-| **Notifications** | `notifications` (type, actor_id, target_id, property_id, read, created_at) | `GET /notifications`, `PUT /notifications/read-all`, `GET /notifications/unread-count` | High |
-| **Leaderboard** | None (computed from `price_guesses`, `comments`, `users`) | `GET /leaderboard?period=week\|month\|all` | Medium |
-| **Reactions→Likes refactor** | Rename `reactions` → `likes`, drop multi-type support | Update existing routes referencing reactions | Low |
-| **Social activity feed** | None (joins `likes`, `comments`, `price_guesses` after refactor) | `GET /feed?algorithm=activity` | Medium |
-| **Email auth** | `email_auth_tokens` (token, email, expires_at, used) | `POST /auth/email/request`, `POST /auth/email/verify` (magic link) | Medium |
-| **User activity log** | None (join across `price_guesses`, `comments`, `likes`) | `GET /users/me/activity` | Low |
-
----
-
-## Sprint Phases
-
-### Dependency Graph
-
-```
-Phase 0 (Packages)
-  ↓
-Phase 0.5 (Style Normalization) ← clean up bad practices so token migration is mechanical
-  ↓
-Phase 1 (Design Tokens) ← prerequisite for ALL subsequent phases
-  ↓
-Phase 2 (Foundation: Shadows, Blur, Avatars) ← used by all component phases
-  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│ These can run in PARALLEL after Phase 2:                             │
-│                                                                      │
-│ Phase 3 (Icons)         Phase 4 (Tab Bar)        Phase 5 (Backend)  │
-│ Phase 6 (Search Bar)    Phase 7 (Filter Chips)                       │
-│ Phase 8 (Feed Cards)    Phase 9 (Preview Card)                       │
-│ Phase 10 (Auth Modal)   Phase 11 (Saved Screen)                      │
-│ Phase 12 (Profile)      Phase 13 (Animations)                        │
-└──────────────────────────────────────────────────────────────────────┘
-  ↓ (After Phase 5 backend is done)
-┌──────────────────────────────────────────────────────────────────────┐
-│ These require backend endpoints from Phase 5:                        │
-│                                                                      │
-│ Phase 14 (Property Detail Full Page)                                 │
-│ Phase 15 (Comments Full Page)                                        │
-│ Phase 16 (Price Guesses Full Page)                                   │
-│ Phase 17 (Social Activity Feed)                                      │
-│ Phase 18 (Notifications Page)                                        │
-│ Phase 19 (Leaderboard Page)                                          │
-└──────────────────────────────────────────────────────────────────────┘
-  ↓
-Phase 20 (Visual Regression & Test Suite)
-```
-
----
-
-### Phase 0: Package Installation & Native Rebuild
-**Estimated files**: 2 | **Risk**: Low | **Blocking**: Everything
-
-**Goal**: Install all new dependencies and rebuild the native app.
-
-**Tasks**:
-1. Install packages:
-   ```bash
-   cd apps/app
-   npx expo install expo-blur expo-notifications expo-device @expo-google-fonts/inter @expo-google-fonts/outfit @expo-google-fonts/dm-sans
-   pnpm add lucide-react-native react-native-svg
-   ```
-   Note: `expo-font` and `expo-constants` are already installed. `npx expo install` resolves SDK 54-compatible versions automatically (expo-blur ~15.0.8, expo-notifications ~0.32.16, expo-device ~8.0.10).
-   Backend (for email auth + push notifications):
-   ```bash
-   pnpm -C services/api add resend expo-server-sdk
-   ```
-2. Run `pnpm install` from monorepo root to update lockfile
-3. Native rebuild: `npx expo run:android` (expo-blur and react-native-svg have native modules)
-4. Clear Metro cache: `rm -rf /tmp/metro-* /tmp/haste-map-*`
-5. Restart services: `systemctl --user restart huishype-expo`
-6. Verify app boots on device and web
-
-**Files changed**: `apps/app/package.json`, `services/api/package.json`, `pnpm-lock.yaml`
-
-**Verification**: App launches without crashes on both web (localhost:8081) and Android device.
-
----
-
-### Phase 0.5: Style Normalization (Pre-Migration Cleanup)
-**Estimated files**: 30+ | **Risk**: Medium (many files, but each change is small and safe) | **Blocking**: Phase 1
-
-**Goal**: Eliminate inline style bad practices and normalize inconsistent Tailwind patterns so that Phase 1's token migration becomes purely mechanical (grep-and-replace) rather than a mixed cleanup+migration.
-
-**Why this matters**: The audit found **286 hardcoded hex values** in inline styles, **101+ raw numeric spacing values**, **682 Tailwind color class usages** with inconsistent semantic mapping, and **5 files with conflicting className+style**. Without cleanup first, Phase 1 would have to simultaneously decide "what is this color semantically?" AND "what warm token replaces it?" — doubling the cognitive load and error risk.
-
-**Tasks**:
-
-#### 0.5A: Extract inline hex colors to Tailwind classes
-
-Replace hardcoded hex colors in `style={{ }}` props with equivalent Tailwind className. Use **current** palette names (blue/gray) — Phase 1 will remap them.
-
-**Mapping table** (inline hex → current Tailwind class):
-
-| Hex | Count | Tailwind Equivalent | Semantic |
-|-----|-------|-------------------|----------|
-| `#3B82F6` | 20 | `text-blue-500` / `bg-blue-500` | Primary blue |
-| `#2563EB` / `#2563eb` | 19 | `text-blue-600` / `bg-blue-600` | Primary blue alt |
-| `#6B7280` | 42 | `text-gray-500` | Secondary text |
-| `#9CA3AF` | 34 | `text-gray-400` | Muted text / icon gray |
-| `#4B5563` | 7 | `text-gray-600` | Dark text variant |
-| `#111827` | 5 | `text-gray-900` | Primary dark text |
-| `#1F2937` | 3 | `text-gray-800` | Dark text |
-| `#374151` | 1 | `text-gray-700` | Charcoal text |
-| `#E5E7EB` | 9 | `border-gray-200` / `bg-gray-200` | Light border |
-| `#D1D5DB` | 9 | `border-gray-300` / `bg-gray-300` | Medium border |
-| `#F3F4F6` | 5 | `bg-gray-100` | Light background |
-| `#FFFFFF` / `#fff` | 28 | `bg-white` / `text-white` | White |
-| `#000` | 4 | `text-black` / `bg-black` | Black |
-| `#EF4444` | 19 | `text-red-500` / `bg-red-500` | Red (likes/errors) |
-| `#22C55E` / `#10B981` | 10 | `text-green-500` / `text-emerald-500` | Success green |
-| `#F97316` / `#FB923C` | 9 | `text-orange-500` / `text-orange-400` | Activity orange |
-| `#F59E0B` | 2 | `text-amber-500` | Warning amber |
-
-**Exceptions** (keep as inline styles — cannot be Tailwind classes):
-- `rgba()` values for shadows and overlays (13 instances) — these move to the shadow helper in Phase 2
-- Dynamic/computed values (e.g., `fontSize: size * 0.4`)
-- Platform-specific layout styles that must be in StyleSheet (animation transforms, etc.)
-- `#4285F4` (Google brand blue) — keep as-is, brand requirement
-
-**Top 10 files to process** (by violation count):
-1. `src/components/GroupPreviewCard.tsx` — 28 hex + 32 numeric (worst offender)
-2. `src/components/PropertyPreviewCard.tsx` — 22 hex + 19 numeric
-3. `app/(tabs)/index.web.tsx` — 19 hex
-4. `app/[...address].tsx` — 17 hex
-5. `app/(tabs)/index.tsx` — 16 hex
-6. `src/components/SearchResults.tsx` — 14 hex + 7 numeric
-7. `src/components/PropertyBottomSheet/ListingSubmissionSheet.tsx` — 13 hex
-8. `src/components/PriceGuessSlider.tsx` — 9 hex + 7 numeric + className/style conflict
-9. `src/components/PropertyBottomSheet/PropertyHeader.tsx` — 3 hex (in StyleSheet)
-10. `src/components/AerialImageCard.tsx` — 6 hex (in StyleSheet)
-
-#### 0.5B: Fix className + style conflicts
-
-5 files have the same property set via both `className` and `style`, with the inline style silently overriding Tailwind:
-
-| File | Issue |
-|------|-------|
-| `PriceGuessSlider.tsx` (line ~511) | `className="text-gray-500"` overridden by `style={{ color: '#6B7280' }}`, duplicate `font-semibold`/`fontWeight`, `ml-2`/`marginLeft: 8` |
-| `AuthModal.tsx` | `className="bg-white"` mixed with `style={styles.sheetInner}` |
-| `CommentList.tsx` | `className="text-white"` + `style={{ fontSize: size * 0.4 }}` |
-| `Comments/Comment.tsx` | Same as CommentList |
-| `ConsensusAlignment.tsx` | `Animated.View` with both `style={animatedStyle}` and `className` |
-
-**Resolution**: Remove the inline style when className already covers it. For Reanimated `Animated.View`, keep `style` for animated values only, move static props to `className`.
-
-#### 0.5C: Normalize raw numeric spacing to Tailwind
-
-Convert the most common raw numeric spacing patterns to Tailwind equivalents. **Only convert values that map cleanly to the Tailwind spacing scale** (multiples of 4: 4→1, 8→2, 12→3, 16→4, 20→5, 24→6, 32→8, etc.):
-
-| Raw Value | Tailwind | Occurrences |
-|-----------|----------|-------------|
-| `padding: 16` / `paddingHorizontal: 16` | `p-4` / `px-4` | ~15 |
-| `marginBottom: 12` / `marginTop: 12` | `mb-3` / `mt-3` | ~10 |
-| `marginLeft: 8` / `marginRight: 8` | `ml-2` / `mr-2` | ~8 |
-| `padding: 8` | `p-2` | ~6 |
-| `gap: 8` / `gap: 12` / `gap: 16` | `gap-2` / `gap-3` / `gap-4` | ~10 |
-| `borderRadius: 12` / `borderRadius: 8` | `rounded-xl` / `rounded-lg` | ~8 |
-
-**Exceptions** (keep as numeric):
-- Dynamic/computed values (`width: contentSize.width`)
-- Non-standard values that don't map to Tailwind scale (`width: 420`, `THUMBNAIL_SIZE = 56`)
-- Values inside `StyleSheet.create` that power animations
-- Layout dimensions specific to platform (web side panel width, etc.)
-
-#### 0.5D: Normalize inconsistent Tailwind color semantics
-
-Consolidate cases where the same visual purpose uses different shades. Use the **most common** shade as the winner:
-
-| Semantic Purpose | Current (inconsistent) | Normalized To |
-|-----------------|----------------------|---------------|
-| **Muted/secondary text** | `text-gray-300`, `text-gray-400`, `text-gray-500` | `text-gray-500` (98 usages, clear winner) |
-| **Disabled text** | `text-gray-300`, `text-gray-400` | `text-gray-400` |
-| **Error background** | `bg-red-50`, `bg-red-100` | `bg-red-50` |
-| **Error text** | `text-red-500`, `text-red-600`, `text-red-700` | `text-red-600` |
-| **Success background** | `bg-green-50`, `bg-green-100`, `bg-green-200` | `bg-green-100` |
-| **Success text** | `text-green-600`, `text-green-700`, `text-green-800` | `text-green-700` |
-| **"Cold" activity** | `bg-gray-300`, `bg-gray-400` | `bg-gray-400` (consistent with PropertyMarker) |
-| **Light section bg** | `bg-gray-50`, `bg-gray-100` | `bg-gray-50` (screen bg), `bg-gray-100` (card/section within) — keep this 2-level distinction |
-| **Primary CTA text on blue** | `text-white` | `text-white` (already consistent) |
-
-**Note**: This is NOT the warm palette migration — that's Phase 1. This just ensures each semantic purpose maps to exactly one shade so Phase 1 has a clean 1:1 remap.
-
-#### 0.5E: Normalize hex case and format
-
-Standardize all remaining inline hex values (the ~13 rgba values and any brand colors that must stay inline):
-- Uppercase hex: `#FFFFFF` not `#ffffff` or `#fff`
-- Full 6-digit: `#000000` not `#000`
-
-**Files changed**: 30+ component files across `apps/app/src/` and `apps/app/app/`
-
-**Verification**:
-- `pnpm -C apps/app typecheck` — zero errors
-- `pnpm -C apps/app test` — all unit tests pass
-- App renders identically on web and native (this phase changes NO visual output — only how styles are expressed)
-- Visual spot-check: GroupPreviewCard, PropertyPreviewCard, PriceGuessSlider (top offenders)
-
-**Parallelism**: Sub-tasks 0.5A through 0.5E can be split across agents by file group. Recommended split:
-- Agent 1: GroupPreviewCard + PropertyPreviewCard (biggest files, 0.5A+0.5C)
-- Agent 2: index.web.tsx + index.tsx + [...address].tsx (route files, 0.5A+0.5C)
-- Agent 3: SearchResults + ListingSubmissionSheet + PriceGuessSlider (0.5A+0.5B+0.5C)
-- Agent 4: All remaining src/ components (0.5A+0.5C)
-- Agent 5: Tailwind semantic normalization across all files (0.5D)
-- Agent 6: Hex case normalization pass (0.5E)
-
----
-
-### Phase 1: Design Token Foundation
-**Estimated files**: 35+ | **Risk**: Low (mechanical grep-replace after Phase 0.5 normalization) | **Blocking**: All component phases
-
-**Goal**: Replace the blue-based design system with gold + warm neutrals. Load custom fonts.
-
-**Prerequisite**: Phase 0.5 must be complete. After normalization, each semantic color purpose maps to exactly one Tailwind shade, and all inline hex colors have been extracted to Tailwind classes. This makes the token migration a clean 1:1 remap — `gray-*` → `warm-*`, `blue-*` → `primary-*` — with no ambiguity about what each color means.
-
-**Tasks**:
-1. **Replace `tailwind.config.js`** — full config from spec section 11.2
-   - Gold primary scale (50-900)
-   - Warm neutral scale (50-900)
-   - Semantic colors (crowd-green, error-red, hot-red, info-blue, warning-orange)
-   - Surface aliases
-   - Font family definitions (Inter, Outfit, DM Sans)
-   - Type scale (14 steps: micro to display)
-   - Border radius tokens (card, button, sheet, pill)
-   - Box shadow definitions (8 named shadows)
-
-2. **Update `Colors.ts`** (`apps/app/constants/Colors.ts`) — section 11.3
-   - `tint: '#F5A623'` (was `#2f95dc`)
-   - `tabIconDefault: '#C7BFB3'`
-   - `tabIconSelected: '#F5A623'`
-   - `background: '#FFFBF5'`
-   - `text: '#2D2926'`
-   - Note: Colors.ts is a separate system from Tailwind — both must be updated
-
-3. **Update `global.css`** (`apps/app/global.css`) — section 11.5
-   - Currently only contains `@tailwind` directives, no custom CSS
-   - Add background color: `#FFFBF5`
-   - Add default text color: `#2D2926`
-   - Add default font: Inter
-
-4. **Font loading in `_layout.tsx`** — section 11.4
-   - Currently loads only SpaceMono + FontAwesome icons via `useFonts()`
-   - Add all weight variants from `@expo-google-fonts/*`
-   - Show splash screen until fonts ready
-
-5. **Mechanical token remap** across all component files — section 11.9
-   After Phase 0.5 normalization, each semantic purpose maps to exactly one shade. The remap is now purely mechanical:
-   - **Gray → Warm neutral**: `gray-50` → `warm-50`, `gray-100` → `warm-100`, ... `gray-900` → `warm-900` (452 usages, straight grep-replace)
-   - **Blue → Primary**: `blue-500` → `primary-500`, `blue-600` → `primary-600`, etc. (33 usages)
-   - **Primary vars**: Already `primary-*` (21 usages) — automatically pick up new gold value from updated config
-   - **bg-white → bg-surface**: `bg-white` (46 usages) → `bg-surface` or `bg-warm-50` per context
-   - **Semantic colors preserved**: `red-*` (error, liked, hot), `green-*` (success), `orange-*` (warm activity), `yellow-*` (warning) — remap to new semantic tokens (`error-red`, `crowd-green`, `hot-red`, `warning-orange`)
-   - **Remaining inline hex** (~13 rgba shadows + brand colors) — shadows move to shadow helper (Phase 2), brand colors stay
-
-**Files changed**: `tailwind.config.js`, `Colors.ts`, `global.css`, `_layout.tsx`, 30+ component files (Tailwind class renames only — no structural changes thanks to Phase 0.5)
-
-**Verification**:
-- `pnpm -C apps/app typecheck` — zero errors
-- `pnpm -C apps/app test` — all unit tests pass
-- App renders with gold/warm colors on web and native
-- Fonts load correctly (visible difference from system fonts)
-
----
-
-### Phase 2: Foundation Components (Shadows, Blur, Avatars)
-**Estimated files**: 6 new, 3 modified | **Risk**: Low (additive) | **Blocking**: All component phases
-
-**Goal**: Create reusable foundation components used across the entire app.
-
-**Tasks**:
-
-1. **Shadow helper** (`src/lib/shadows.ts`) — spec section 5.3
-   - Platform-specific shadow definitions (iOS shadowColor/Offset/Opacity/Radius, Android elevation)
-   - Named shadows: `card`, `card-alt`, `preview`, `tab-bar`, `search`, `dropdown`, `auth-glow`, `bottom-sheet`
-   - Export `shadows` const with `Platform.select<ViewStyle>` per shadow
-
-2. **Blur container** — spec section 11.7
-   - `src/components/ui/BlurContainer.native.tsx` — wraps `expo-blur` `BlurView`
-   - `src/components/ui/BlurContainer.web.tsx` — CSS `backdrop-filter: blur()`
-   - Props: `intensity` (0-100), `tint` ('light' | 'dark')
-   - Used by: tab bar, search bar, location button, preview card close button
-
-3. **UserAvatar component** (`src/components/ui/UserAvatar.tsx`) — spec section 7.18
-   - Letter-based circle with deterministic warm-toned background (8-color palette from username hash)
-   - Size prop: `sm` (32px), `md` (34px), `lg` (36px), `xl` (44px), `2xl` (52px), `profile` (72px)
-   - Letter color: 40% darker shade of background
-   - Props: `username`, `size`, `displayName?`
-
-4. **KarmaBadge redesign** (`src/components/ui/KarmaBadge.tsx`) — spec section 7.17
-   - 6 tiers, renamed to English (currently Dutch in backend, mixed English in frontend):
-     - Newcomer (0+), Resident (10+), Connoisseur (50+), Specialist (100+), Master (200+), Legend (500+)
-   - Consolidate: backend `karma.ts` has 6 Dutch tiers, frontend `KarmaBadge.tsx` has 5 English tiers — unify to single 6-tier English system in both
-   - Tier-specific colors per spec section 1.10
-   - Pill shape with `rounded-full`
-   - Size variants: small (comments), medium (leaderboard), large (hero)
-
-**New files**:
-- `apps/app/src/lib/shadows.ts`
-- `apps/app/src/components/ui/BlurContainer.native.tsx`
-- `apps/app/src/components/ui/BlurContainer.web.tsx`
-- `apps/app/src/components/ui/UserAvatar.tsx`
-- `apps/app/src/components/ui/KarmaBadge.tsx`
-
-**Modified files**:
-- `services/api/src/services/karma.ts` — rename Dutch tier names to English (Nieuwkomer→Newcomer, Bewoner→Resident, Kenner→Connoisseur, Specialist→Specialist, Meester→Master, Legende→Legend)
-- `apps/app/src/components/Comments/Comment.tsx` — use new UserAvatar + KarmaBadge
-- `apps/app/app/(tabs)/profile.tsx` — use new UserAvatar
-
-**Verification**:
-- Unit tests for UserAvatar (hash determinism, size variants)
-- Unit tests for KarmaBadge (7 tiers, correct colors)
-- Shadow helper renders correctly on iOS/Android/web
-- BlurContainer works on web (CSS) and native (expo-blur)
-
----
-
-### Phase 3: Icon Migration (Ionicons/FontAwesome → Lucide)
-**Estimated files**: 38 | **Risk**: Medium (many files, mechanical) | **Parallel**: Yes
-
-**Goal**: Replace all `@expo/vector-icons` usage with `lucide-react-native`.
-
-**Tasks**:
-
-This is a mechanical search-and-replace across 38 files (31 source + 2 route + 5 test files). Per spec section 11.10, the mapping is:
-
-| Old (Ionicons) | New (Lucide) |
-|----------------|-------------|
+# Visual Overhaul Sprint Plan 3
+
+**Date**: 2026-03-22
+**Status**: Merged execution plan
+**Purpose**: This document supersedes sprint plans 1 and 2. It keeps plan 2 as the orchestration and acceptance scaffold, and folds in the concrete implementation detail from plan 1 where that detail improves execution quality.
+
+## Source Of Truth
+
+Primary inputs:
+
+- `docs/visual-references/design-overhaul/huishype-visual-overhaul.pen`
+- `docs/visual-references/design-overhaul/pen_screen_exports/*`
+- `docs/superpowers/specs/2026-03-17-visual-design-overhaul-design.md`
+- `agent-rules/main-spec.md`
+- `agent-rules/software-stack.md`
+- `agent-rules/test-requirements.md`
+
+This plan also assumes a codebase audit across:
+
+- `apps/app/`
+- `services/api/`
+- `packages/shared/`
+- `packages/api-client/`
+- `packages/mocks/`
+
+## Why This Plan Replaces Plans 1 And 2
+
+Plan 1 was strong on concrete implementation detail:
+
+- style-normalization mechanics
+- token remap detail
+- icon migration mappings
+- backend endpoint and table detail
+- concrete file ownership
+
+Plan 2 was stronger as an execution artifact:
+
+- explicit coverage gaps
+- platform coverage matrix
+- definition of done
+- route and architecture decisions
+- web/native parity strategy
+- formal visual-agent loop
+
+This merged plan keeps both:
+
+- plan 2 structure for sequencing, ownership, and acceptance
+- plan 1 detail for implementation where ambiguity would slow execution
+
+## Final Vision Inventory
+
+The `.pen` file contains 15 named acceptance targets. Treat them as exact target states, not a loose visual direction:
+
+1. `1. Map Screen.jpg`
+2. `2. Search Results.jpg`
+3. `3. Auth Modal.jpg`
+4. `4. Feed - Trending Chosen.jpg`
+5. `5. Feed - Recent Activity Chosen.jpg`
+6. `6. Saved Screen.jpg`
+7. `7. Profile Screen.jpg`
+8. `8. Social Notifications.jpg`
+9. `9. Community Leaderboard.jpg`
+10. `10. Property Detail — Full Scroll Content.jpg`
+11. `11. Price Guesses Page.jpg`
+12. `12. Comments Page.jpg`
+13. `Cluster Preview Card Wrapper.jpg`
+14. `Preview Card Wrapper.jpg`
+15. `Preview Card Wrapper-1.jpg`
+
+Interpretation constraints:
+
+- `Search Results` is a map overlay state, not a standalone route.
+- `Auth Modal` is a cross-cutting overlay state.
+- `Preview Card Wrapper` and `Cluster Preview Card Wrapper` are component-level acceptance targets.
+- The final product keeps both the quick-preview path and the full property route.
+
+## Coverage Gaps This Plan Explicitly Closes
+
+Compared with plan 1, this merged plan adds explicit ownership and acceptance for:
+
+- map chrome and map shell ownership
+- preview-card plus quick-preview bottom-sheet parity
+- shared property interaction primitives
+- generated-contract and mock alignment
+- root test-command compliance with project rules
+- web/native parity risk from duplicated map controllers
+- route consolidation around `app/[...address].tsx`
+- achievement domain modeling
+- desktop and landscape carry-over checks
+- formal web plus Android visual-review loop
+
+Compared with plan 2, this merged plan adds concrete execution detail for:
+
+- style normalization mechanics
+- class/style conflict cleanup
+- token remap mapping
+- icon migration mapping
+- backend tables and endpoints
+- component- and route-level file targets
+- concrete visual and interaction tasks per surface
+
+## Key Product And Architecture Decisions
+
+These are resolved defaults for execution unless explicitly overridden.
+
+1. **Canonical property navigation model**
+   - Keep two depth levels:
+   - `map tap -> geo-anchored preview -> quick-preview bottom sheet`
+   - `feed/saved/activity/notification/deep link -> /property/[id] full page`
+   - The bottom sheet remains first-class. It is not deprecated.
+
+2. **Canonical feed filters**
+   - Final chips are `Trending`, `Latest`, `Recent Activity`.
+   - No `Following`.
+   - No separate `Hot` chip.
+
+3. **Search mic icon**
+   - Remove it unless real voice search ships in the same sprint.
+
+4. **Rank tier system**
+   - Use one shared English tier definition across backend, shared types, profile, and leaderboard.
+   - The final tier count must match the revised design spec and be sourced from one shared module.
+
+5. **Auth methods**
+   - Google and Apple are production paths.
+   - Email magic link is an allowed supplemental method because the final design includes it.
+   - No placeholder Apple-only branches are allowed at sign-off.
+
+6. **Property photos**
+   - Priority order:
+   - listing photo
+   - country-specific official or aerial fallback
+   - branded warm placeholder
+
+7. **Catch-all address route**
+   - `app/[...address].tsx` must stop being a second unfinished experience.
+   - It becomes a resolver or redirect, or it is removed.
+
+8. **Achievements**
+   - Achievements must come from a defined backend/shared domain model.
+   - They are not hardcoded UI-only ornaments.
+
+9. **Multi-country adaptation**
+   - Final visuals must work outside NL.
+   - Country-specific labels, valuations, address formatting, image fallbacks, and listing metadata must respect shared country config.
+
+## Delivery Principles
+
+- Lead agent orchestrates; implementation tasks must still be broken into focused work units.
+- Shared primitives come before screen assembly when the same pattern appears across exports.
+- No phase is complete if it updates visuals but leaves contracts, mocks, tests, or route ownership stale.
+- Web/native parity is enforced throughout the sprint, not deferred to the end.
+- Wide and landscape are required verification surfaces, not a future enhancement.
+- No temporary compatibility branches for old and new ownership if a canonical owner can be chosen now.
+
+## Definition Of Done For Any Phase
+
+A phase is only complete when all applicable items below are true:
+
+- scoped code is merged
+- affected API contracts are updated
+- `packages/api-client` is regenerated if contracts changed
+- `packages/mocks` is updated if frontend or tests depend on changed contracts
+- unit tests are added or updated
+- backend integration tests are added or updated when API or DB changed
+- Playwright coverage is updated for user-visible behavior
+- Maestro or equivalent Android-native capture coverage is updated for user-visible behavior
+- web screenshot artifacts are captured for the scoped surface
+- Android screenshot artifacts are captured for the scoped surface
+- visual review marks the artifacts `SUFFICIENT`
+- no console errors appear during web capture
+- no runtime errors appear in native logs during capture
+
+## Platform Coverage Matrix
+
+| Surface | Web Acceptance | Native Acceptance | Wide / Landscape Acceptance |
+|------|----------------|-------------------|-----------------------------|
+| Map screen | Playwright mobile-web screenshot vs pen | Android screenshot vs pen | Wide web screenshot + Android landscape smoke |
+| Search overlay | Playwright screenshot vs pen | Android screenshot vs pen | Wide web overlay screenshot |
+| Auth modal | Playwright screenshot vs pen | Android screenshot vs pen | Wide web modal screenshot |
+| Feed trending | Playwright screenshot vs pen | Android screenshot vs pen | Wide web feed screenshot |
+| Feed recent activity | Playwright screenshot vs pen | Android screenshot vs pen | Wide web feed screenshot |
+| Saved screen | Playwright screenshot vs pen | Android screenshot vs pen | Wide web saved screenshot |
+| Profile screen | Playwright screenshot vs pen | Android screenshot vs pen | Wide web profile screenshot |
+| Notifications | Playwright screenshot vs pen | Android screenshot vs pen | Wide web notifications screenshot |
+| Leaderboard | Playwright screenshot vs pen | Android screenshot vs pen | Wide web leaderboard screenshot |
+| Property detail | Playwright screenshot vs pen | Android screenshot vs pen | Wide web detail screenshot |
+| Price guesses | Playwright screenshot vs pen | Android screenshot vs pen | Wide web guesses screenshot |
+| Comments | Playwright screenshot vs pen | Android screenshot vs pen | Wide web comments screenshot |
+| Preview card | Playwright focused clip vs pen | Android focused screenshot vs pen | Wide web map clip |
+| Cluster preview | Playwright focused clip vs pen | Android focused screenshot vs pen | Wide web map clip |
+
+Notes:
+
+- Phone-sized viewports are the primary pen-match surface.
+- Wide and landscape are carry-over quality checks, not pixel-match targets.
+
+## Agent-Team Topology
+
+`Lead Agent`
+
+- orchestration
+- task graph
+- plan updates
+- integration review
+- final visual-approval synthesis
+
+`Team A: Contracts, Tooling, Verification`
+
+- OpenAPI
+- api-client generation
+- MSW
+- root test scripts
+- deterministic fixtures
+- screenshot harnesses
+
+`Team B: Design System And Platform Foundations`
+
+- style normalization
+- token migration
+- fonts
+- icons
+- shadows
+- blur
+- avatars
+- badges
+- notification bell
+- shell primitives
+
+`Team C: Map And Property Interaction`
+
+- map controller parity
+- map shell
+- map chrome
+- search overlay
+- preview cards
+- cluster preview
+- quick-preview bottom-sheet parity
+- shared property interaction primitives
+
+`Team D: Social And Account Surfaces`
+
+- feed
+- saved
+- profile
+- notifications
+- leaderboard
+- auth modal
+- activity surfaces
+
+`Team E: Backend Feature Enablement`
+
+- notifications
+- activity feed
+- leaderboard
+- achievements
+- auth
+- push delivery
+- async or queue work if needed
+
+`Team F: Full-Screen Routes And Cleanup`
+
+- property full page
+- comments page
+- guesses page
+- route consolidation
+- final cleanup
+
+## Task Template
+
+Every work item should state:
+
+- source design state from `pen_screen_exports`
+- exact owned files
+- expected route and contract changes
+- required tests to update
+- required screenshot artifacts
+- parity scope: web, Android native, wide or landscape if relevant
+- explicit close condition: do not close until visual review returns `SUFFICIENT`
+
+## Phase Dependencies
+
+High-level order:
+
+`Phase 0 -> Phase 1 -> Phase 2 -> Phase 3 -> Phase 4`
+
+Then in parallel where possible:
+
+- `Phase 5`
+- `Phase 6`
+- `Phase 8`
+- `Phase 9`
+- `Phase 10`
+- `Phase 11`
+
+Then:
+
+- `Phase 7` must stabilize before broad route assembly if shared property modules are still changing
+- `Phase 12`
+- `Phase 13`
+- `Phase 14`
+- `Phase 15`
+
+Key dependency notes:
+
+- `NotificationBell` belongs in primitives, not late-stage screen work.
+- Preview overlays and quick-preview parity depend on map controller parity plus shell work.
+- Property, comments, and guesses routes depend on shared property modules.
+- Profile depends on achievements, activity API, and notifications UI.
+- Final verification depends on actual mobile capture and actual root-script compliance.
+
+## Phase 0: Alignment, Scope Lock, And Plan Readiness
+
+**Goal**: Lock the execution artifact and remove source-of-truth ambiguity before implementation fans out.
+
+Tasks:
+
+1. Approve this merged plan as the active execution artifact.
+2. Freeze the canonical screen list and component-acceptance list from pen exports.
+3. Record the resolved decisions above.
+4. Create top-level tasks for all phases and sub-teams.
+5. Establish artifact conventions:
+   - `test-results/visual-overhaul/<surface>/web/*.png`
+   - `test-results/visual-overhaul/<surface>/android/*.png`
+   - `test-results/visual-overhaul/<surface>/notes.md`
+
+Verification:
+
+- task graph exists
+- each visual target has an owner
+
+## Phase 1: Contract, Tooling, And Verification Hardening
+
+**Goal**: Make the repo safe for parallel UI and backend work and compliant with project test rules.
+
+Tasks:
+
+1. Fix OpenAPI contract generation and consumption.
+   - generate `services/api/openapi.json`
+   - regenerate `packages/api-client/generated/api.ts`
+   - remove placeholder path drift in `packages/api-client/src/client.ts`
+   - decide whether wrappers remain around the generated client or the generated client becomes primary
+
+2. Expand `packages/mocks`.
+   - add handlers for feed variants
+   - add handlers for profile activity
+   - add handlers for notifications
+   - add handlers for leaderboard
+   - add handlers for comments and guesses full-page routes
+
+3. Bring root scripts into compliance with `agent-rules/test-requirements.md`.
+   - `test:unit`
+   - `test:integration`
+   - `test:e2e:web`
+   - `test:e2e:mobile`
+   - `test:all`
+   - `test:e2e:mobile` must run a real mobile command, not an echo placeholder
+
+4. Add deterministic visual fixtures.
+   - fixed seed data
+   - fixed timestamps or mock clock hooks
+   - stable ordering for notifications, leaderboard, and activity feeds
+   - stable image fixtures
+
+5. Formalize screenshot capture harnesses.
+   - Playwright helpers for mobile-web and wide-web
+   - Android screenshot conventions for native
+   - logging hooks that fail on console or runtime errors during capture
+
+6. Define the visual-agent review protocol.
+
+Files likely touched:
+
+- `package.json`
+- `packages/api-client/*`
+- `packages/mocks/*`
+- Playwright config and helpers
+- mobile test flows
+- API swagger or export scripts
+
+Verification:
+
+- `pnpm test:integration` works from repo root
+- `pnpm test:e2e:mobile` runs real mobile automation
+- generated client matches live API paths
+- mocks cover all new surfaces
+
+## Phase 2: Style Normalization And Brand Token Foundation
+
+**Goal**: Convert the app into a clean token-driven foundation so the overhaul is mechanical rather than ad hoc.
+
+### 2A. Pre-Migration Style Normalization
+
+Normalize the current code before the warm-palette migration.
+
+Why:
+
+- 286 inline hex values
+- 101+ raw numeric spacing values
+- inconsistent Tailwind semantics
+- className plus style conflicts
+
+Without this pass, token migration becomes mixed cleanup plus interpretation work.
+
+Tasks:
+
+1. Extract inline hex colors to Tailwind classes using the current palette semantics first.
+
+Primary mappings:
+
+| Hex | Tailwind Equivalent | Semantic |
+|-----|---------------------|----------|
+| `#3B82F6` | `text-blue-500` / `bg-blue-500` | primary blue |
+| `#2563EB` | `text-blue-600` / `bg-blue-600` | primary blue alt |
+| `#6B7280` | `text-gray-500` | secondary text |
+| `#9CA3AF` | `text-gray-400` | muted text |
+| `#4B5563` | `text-gray-600` | dark secondary |
+| `#111827` | `text-gray-900` | primary dark text |
+| `#1F2937` | `text-gray-800` | dark text |
+| `#374151` | `text-gray-700` | charcoal text |
+| `#E5E7EB` | `border-gray-200` / `bg-gray-200` | light border |
+| `#D1D5DB` | `border-gray-300` / `bg-gray-300` | medium border |
+| `#F3F4F6` | `bg-gray-100` | light surface |
+| `#FFFFFF` | `bg-white` / `text-white` | white |
+| `#000000` | `bg-black` / `text-black` | black |
+| `#EF4444` | `text-red-500` / `bg-red-500` | error and likes |
+| `#22C55E` / `#10B981` | `text-green-500` / `text-emerald-500` | success |
+| `#F97316` / `#FB923C` | `text-orange-500` / `text-orange-400` | activity orange |
+| `#F59E0B` | `text-amber-500` | warning |
+
+Keep inline only when necessary:
+
+- `rgba()` values for shadows and overlays
+- dynamic or computed values
+- platform-specific animation styles
+- `#4285F4` for Google branding
+
+2. Fix className and style conflicts.
+
+Known offenders:
+
+- `src/components/PriceGuessSlider.tsx`
+- `src/components/AuthModal.tsx`
+- `src/components/CommentList.tsx`
+- `src/components/Comments/Comment.tsx`
+- `src/components/ConsensusAlignment.tsx`
+
+3. Normalize raw numeric spacing to Tailwind where values map cleanly.
+
+Preferred mappings:
+
+| Raw Value | Tailwind |
+|-----------|----------|
+| `padding: 16` | `p-4` |
+| `paddingHorizontal: 16` | `px-4` |
+| `marginBottom: 12` | `mb-3` |
+| `marginTop: 12` | `mt-3` |
+| `marginLeft: 8` | `ml-2` |
+| `marginRight: 8` | `mr-2` |
+| `padding: 8` | `p-2` |
+| `gap: 8` | `gap-2` |
+| `gap: 12` | `gap-3` |
+| `gap: 16` | `gap-4` |
+| `borderRadius: 12` | `rounded-xl` |
+| `borderRadius: 8` | `rounded-lg` |
+
+Keep numeric values when they are dynamic, dimension-specific, or animation-driven.
+
+4. Normalize inconsistent Tailwind color semantics before the palette swap.
+
+Preferred winners:
+
+- secondary text -> `text-gray-500`
+- disabled text -> `text-gray-400`
+- error background -> `bg-red-50`
+- error text -> `text-red-600`
+- success background -> `bg-green-100`
+- success text -> `text-green-700`
+- cold activity -> `bg-gray-400`
+- screen background -> `bg-gray-50`
+- card or section background -> `bg-gray-100`
+
+5. Normalize remaining inline hex formatting.
+   - uppercase
+   - full 6-digit hex where applicable
+
+High-priority files:
+
+- `src/components/GroupPreviewCard.tsx`
+- `src/components/PropertyPreviewCard.tsx`
+- `app/(tabs)/index.web.tsx`
+- `app/[...address].tsx`
+- `app/(tabs)/index.tsx`
+- `src/components/SearchResults.tsx`
+- `src/components/PropertyBottomSheet/ListingSubmissionSheet.tsx`
+- `src/components/PriceGuessSlider.tsx`
+
+### 2B. Token Foundation
+
+Tasks:
+
+1. Replace `tailwind.config.js` with the warm-gold palette, typography, radius, and shadow system.
+2. Update `apps/app/constants/Colors.ts`.
+3. Update `apps/app/global.css` with base surface and text defaults.
+4. Load Inter, Outfit, and DM Sans in `apps/app/app/_layout.tsx`.
+5. Perform the mechanical semantic remap:
+   - `gray-* -> warm-*`
+   - `blue-* -> primary-*`
+   - `bg-white -> bg-surface` or `bg-warm-50` as context requires
+   - preserve semantic error, success, warning, and activity tokens
+
+Verification:
+
+- `pnpm -C apps/app typecheck`
+- `pnpm -C apps/app test`
+- spot checks on the current screens show token migration without structural regressions
+
+## Phase 3: Platform Foundations And Shared UI Primitives
+
+**Goal**: Build the reusable primitives the rest of the sprint depends on.
+
+Tasks:
+
+1. Create a shared shadow helper for native and web.
+   - file: `apps/app/src/lib/shadows.ts`
+   - include named shadows for card, preview, search, tab bar, dropdown, auth glow, bottom sheet
+
+2. Create blur containers for native and web.
+   - `apps/app/src/components/ui/BlurContainer.native.tsx`
+   - `apps/app/src/components/ui/BlurContainer.web.tsx`
+
+3. Migrate icons from `@expo/vector-icons` to Lucide.
+
+Primary mapping set:
+
+| Old | New |
+|-----|-----|
 | `heart-outline` | `Heart` |
 | `chatbubble-outline` | `MessageCircle` |
 | `close` / `close-circle` | `X` |
@@ -395,880 +553,671 @@ This is a mechanical search-and-replace across 38 files (31 source + 2 route + 5
 | `log-out-outline` | `LogOut` |
 | `notifications-outline` | `Bell` |
 
-**Special cases**:
-- Filled heart: Use `lucide-react-native`'s `Heart` with `fill="currentColor"` for the liked state (no need for phosphor-react-native)
-- `FontAwesome` tab icons: `map` → `Map`, `list` → `LayoutList`, `bookmark` → `Bookmark`, `user` → `User`
-- Icon sizes follow spec section 6.3 scale (xs=14, sm=16, md=18, lg=22, xl=28)
-- `strokeWidth`: 1.5 for inactive/outline, 2-2.5 for active/bold
+High-volume file targets include:
 
-**Files to change** (all 38 files with Ionicons/FA references):
-```
-apps/app/app/_layout.tsx
-apps/app/app/(tabs)/_layout.tsx
-apps/app/app/(tabs)/profile.tsx
-apps/app/app/(tabs)/saved.tsx
-apps/app/app/property/[id].tsx
-apps/app/app/user/[id].tsx
-apps/app/app/[...address].tsx
-apps/app/src/components/AuthModal.tsx
-apps/app/src/components/SearchBar.tsx
-apps/app/src/components/SearchResults.tsx
-apps/app/src/components/PropertyPreviewCard.tsx
-apps/app/src/components/PropertyFeedCard.tsx
-apps/app/src/components/GroupPreviewCard/GroupPreviewCard.tsx
-apps/app/src/components/FMVVisualization.tsx
-apps/app/src/components/ConsensusAlignment.tsx
-apps/app/src/components/FeedFilterChips.tsx
-apps/app/src/components/FeedEmptyState.tsx
-apps/app/src/components/FeedErrorState.tsx
-apps/app/src/components/CommentList.tsx
-apps/app/src/components/PriceGuessSlider.tsx
-apps/app/src/components/AerialImageCard.tsx
-apps/app/src/components/PropertyBottomSheet/PropertyHeader.tsx
-apps/app/src/components/PropertyBottomSheet/PropertyDetails.tsx
-apps/app/src/components/PropertyBottomSheet/PriceSection.tsx
-apps/app/src/components/PropertyBottomSheet/PriceGuessSection.tsx
-apps/app/src/components/PropertyBottomSheet/CommentsSection.tsx
-apps/app/src/components/PropertyBottomSheet/QuickActions.tsx
-apps/app/src/components/PropertyBottomSheet/ListingLinks.tsx
-apps/app/src/components/PropertyBottomSheet/ListingSubmissionSheet.tsx
-apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.web.tsx
-apps/app/src/components/Comments/Comment.tsx
-apps/app/src/components/Comments/CommentInput.tsx
-apps/app/src/components/Comments/CommentsList.tsx
-apps/app/src/components/__tests__/FeedFilterChips.test.tsx
-apps/app/src/components/__tests__/FeedStates.test.tsx
-apps/app/src/components/__tests__/PropertyFeedCard.test.tsx
-apps/app/src/components/Comments/__tests__/Comment.test.tsx
-apps/app/src/components/Comments/__tests__/CommentInput.test.tsx
-```
-
-**Verification**:
-- `pnpm -C apps/app typecheck` — zero errors
-- `pnpm -C apps/app test` — all unit tests pass (update icon snapshots/mocks)
-- Visual check: all icons render on web and native
-
----
-
-### Phase 4: Custom Tab Bar (Floating Pill)
-**Estimated files**: 3 | **Risk**: Medium-High (high visibility, custom component) | **Parallel**: After Phase 2
-
-**Goal**: Replace the default Expo Router tab bar with a custom floating translucent pill.
-
-**Tasks**:
-
-1. **Create `CustomTabBar` component** (`src/components/navigation/CustomTabBar.tsx`)
-   - Floating pill: 62px height, `rounded-[36px]`, 4px internal padding
-   - Backdrop blur via `BlurContainer` (native: expo-blur, web: CSS)
-   - Map screen: translucent `#FFFFFFCC` (80% white)
-   - Other screens: solid `#FFFFFF`
-   - 1px inner border `warm-200`
-   - Shadow: `tab-bar` from shadows helper
-   - Bottom offset: 16px above safe area
-   - Horizontal margin: 16px
-
-2. **Tab item capsule**
-   - Active: gold `#F5A623` background, 26px corner radius, white icon + label
-   - Inactive: transparent background, `warm-400` icon + label
-   - Icon: Lucide, 18px
-   - Label: Inter 10/600, uppercase, 0.5px letter spacing
-   - Gap: 4px between icon and label
-   - **Animation**: Gold capsule slides between tabs (200ms ease-out, `withTiming` from Reanimated)
-
-3. **Wire into Expo Router**
-   - Set `tabBar` prop on `<Tabs>` to render `CustomTabBar` (Expo Router's `<Tabs>` passes through to `@react-navigation/bottom-tabs` which supports the `tabBar` prop for fully custom tab bar components)
-   - Remove all `tabBarStyle` and `tabBarIcon` from individual screen options
-   - Remove `headerShown: true` from screen options (map screen has no header in design; other screens use in-screen headers)
-
-4. **Platform-specific behavior**
-   - Native: `expo-blur` `BlurView` background
-   - Web: CSS `backdrop-filter: blur(20px)`
-   - Safe area: `useSafeAreaInsets()` for bottom padding
-
-**Files changed**:
-- NEW: `apps/app/src/components/navigation/CustomTabBar.tsx`
-- MODIFIED: `apps/app/app/(tabs)/_layout.tsx` — remove default tab bar config, use custom
-- MODIFIED: Each tab screen — remove header config where design removes it
-
-**Verification**:
-- Tab bar floats above content on all 4 tabs
-- Gold capsule animates between tabs
-- Blur effect visible on map tab (translucent)
-- Solid white on other tabs
-- Safe area respected on device
-- Playwright visual test for tab bar appearance
-
-**Decision needed**: The design removes the header bar entirely on the Map screen (search bar is the header). On Feed/Saved/Profile, the headers are rendered in-screen (not by Expo Router). **Recommendation**: Set `headerShown: false` on all tab screens and render headers in-screen. This gives full control over header styling per the design.
-
----
-
-### Phase 5: Backend Additions
-**Estimated files**: 15+ new | **Risk**: High (new features) | **Parallel**: Independent of frontend
-
-**Goal**: Build all missing backend endpoints the UI design requires.
-
-#### 5A: Notifications System
-
-**Database migration** — new table:
-```sql
-CREATE TABLE notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type VARCHAR(50) NOT NULL, -- 'comment_reply', 'like', 'price_guess', 'comment_on_property', 'karma_milestone'
-  actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  property_id UUID REFERENCES properties(id) ON DELETE CASCADE,
-  comment_id UUID REFERENCES comments(id) ON DELETE CASCADE,
-  message TEXT, -- pre-rendered notification text
-  read BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX idx_notifications_user_read ON notifications(user_id, read, created_at DESC);
-```
-
-**Endpoints**:
-- `GET /notifications` — paginated, grouped by time period (today, this week, earlier)
-- `GET /notifications/unread-count` — returns `{ count: number }`
-- `PUT /notifications/read-all` — mark all as read
-- `PUT /notifications/:id/read` — mark single as read
-
-**Notification triggers** (create notifications when):
-- Someone replies to your comment
-- Someone likes your comment
-- Someone comments on a property you've interacted with
-- Someone submits a price guess on a property you've guessed on
-- You reach a karma milestone (tier upgrade)
-
-**Push notification delivery**:
-- Add `push_token` column to `users` table (nullable text)
-- Frontend: Register push token on app launch via `expo-notifications` + `expo-device`
-  - `POST /users/me/push-token` — saves Expo push token
-- Backend: Use `expo-server-sdk` to deliver push notifications alongside in-app notifications
-  - When creating a notification, check if user has a push_token → send push via Expo Push API
-  - Push payload: `{ title, body, data: { notificationId, propertyId } }`
-  - Handle push receipts for token cleanup (expired/invalid tokens)
-- Frontend: Handle push notification tap → navigate to relevant screen (property detail, comments, etc.)
-  - `useNotificationListener()` hook in `_layout.tsx` for foreground + background + killed states
-
-**Files to create**:
-- `services/api/src/db/migrations/XXXX_notifications.ts`
-- `services/api/src/db/migrations/XXXX_push_tokens.ts` — add push_token to users
-- `services/api/src/routes/notifications.ts`
-- `services/api/src/services/notifications.ts` — notification creation + push delivery logic
-- `services/api/src/services/push.ts` — Expo Push API wrapper using `expo-server-sdk`
-- `apps/app/src/hooks/useNotificationListener.ts` — push token registration + tap handling
-- Modify: `services/api/src/routes/users.ts` — add push-token endpoint
-- Modify: `services/api/src/routes/comments.ts` — trigger notification on reply/like
-- Modify: `services/api/src/routes/guesses.ts` — trigger notification on guess
-- Modify: `services/api/src/services/karma.ts` — trigger notification on tier change
-- Modify: `apps/app/app/_layout.tsx` — initialize notification listener
-
-#### 5B: Leaderboard Endpoint
-
-**No new tables** — computed from existing data.
-
-**Endpoint**: `GET /leaderboard?period=week|month|all&limit=50`
-
-**Response**:
-```json
-{
-  "rankings": [
-    {
-      "rank": 1,
-      "userId": "uuid",
-      "username": "string",
-      "displayName": "string",
-      "karma": 450,
-      "karmaRank": "Expert",
-      "guessCount": 120,
-      "commentCount": 85,
-      "accuracy": 0.78
-    }
-  ],
-  "userRank": {
-    "rank": 42,
-    "karma": 85,
-    "karmaRank": "Rising Star"
-  },
-  "featuredProperty": {
-    "id": "uuid",
-    "street": "string",
-    "city": "string",
-    "commentCount": 45,
-    "thumbnailUrl": "string"
-  }
-}
-```
-
-**Query**: Aggregate from `price_guesses` (guess count, accuracy), `comments` (count), `users` (karma). Period filter: WHERE `created_at > NOW() - interval`.
-
-**Files to create**:
-- `services/api/src/routes/leaderboard.ts`
-
-#### 5C: Social Activity Feed
-
-**Prerequisite refactor**: The current DB table is named `reactions` (supports multiple reaction types: like, love, wow, angry). Since the design only uses likes, rename `reactions` → `likes` table and simplify to a single reaction type. This is a migration + route refactor:
-- Rename table `reactions` → `likes`
-- Drop `reaction_type` column (only "like" is used)
-- Rename `target_type`/`target_id` to `entity_type`/`entity_id` (or keep as-is)
-- Update all references in routes (`comments.ts`, `properties.ts`) and services
-
-**No new tables beyond the rename** — computed from existing `likes`, `comments`, `price_guesses` joined with `users` and `properties`.
-
-**Note**: The pen design does NOT include a "Following" chip or user-follow system. The 3 feed filter chips are: "Trending", "Latest", "Recent Activity". The "Recent Activity" variant shows ALL recent user actions across the platform, not just followed users.
-
-**Endpoint**: `GET /feed?algorithm=activity`
-
-**Feed algorithm ("activity")**:
-- UNION across `likes` (with user), `comments` (with user), `price_guesses` (with user)
-- Join against `properties` for address + thumbnail
-- Order by `created_at DESC`
-- Return: action type ("liked" / "commented" / "guessed"), actor (user avatar, name), property (address, thumbnail), timestamp
-- Paginated (limit/offset)
-
-**Response format**:
-```json
-{
-  "items": [
-    {
-      "type": "activity",
-      "actionType": "liked",
-      "actor": { "id": "uuid", "username": "Sarah van Berg", "displayName": "Sarah" },
-      "property": { "id": "uuid", "street": "Keizersgracht 245", "city": "Amsterdam", "thumbnailUrl": "..." },
-      "createdAt": "2026-03-21T10:30:00Z"
-    }
-  ]
-}
-```
-
-**Files to modify**:
-- `services/api/src/routes/feed.ts` — add `activity` algorithm
-
-#### 5D: User Activity Log
-
-**Endpoint**: `GET /users/me/activity?limit=20&offset=0`
-
-**Response**: Unified timeline of user's actions:
-```json
-{
-  "activities": [
-    { "type": "guess", "propertyId": "uuid", "street": "...", "amount": 350000, "createdAt": "..." },
-    { "type": "comment", "propertyId": "uuid", "street": "...", "commentPreview": "...", "createdAt": "..." },
-    { "type": "like", "propertyId": "uuid", "street": "...", "createdAt": "..." }
-  ]
-}
-```
-
-**Files to create**:
-- Modify: `services/api/src/routes/users.ts` — add activity endpoint
-
-#### 5E: Email Auth (Magic Link)
-
-**Endpoint**:
-- `POST /auth/email/request` — sends magic link email
-- `POST /auth/email/verify` — verifies token from magic link, returns JWT
-
-**Implementation**:
-- Generate a time-limited token (UUID + 15min expiry)
-- Store in `email_auth_tokens` table (email, token, expires_at, used)
-- Send magic link email via **Resend** (`resend` npm package, already added in Phase 0)
-- Magic link format: `https://huishype.nl/auth/verify?token=UUID` (or deep link for native)
-- On verify: validate token, mark as used, create/find user by email, return JWT + refresh token
-- Frontend: `signInWithEmail(email)` method in AuthProvider → shows "Check your email" state
-- Frontend: Deep link handler for `auth/verify` route → calls verify endpoint → stores tokens
-
-**Environment variables** (add to API `.env`):
-```
-RESEND_API_KEY=re_xxx
-RESEND_FROM_EMAIL=noreply@huishype.nl
-```
-
-**Files to create**:
-- `services/api/src/db/migrations/XXXX_email_auth.ts`
-- `services/api/src/routes/auth-email.ts`
-- `services/api/src/services/email.ts` — Resend wrapper for sending magic link emails
-- `apps/app/app/auth/verify.tsx` — deep link handler for magic link verification
-- Modify: `apps/app/src/providers/AuthProvider.tsx` — add `signInWithEmail()` method
-- Modify: `apps/app/src/components/AuthModal.tsx` — email input + "Check your email" state
-
-**Verification**:
-- Integration tests for all new endpoints
-- `pnpm -C services/api test` — all tests pass
-
----
-
-### Phase 6: Search Bar Redesign
-**Estimated files**: 3 | **Risk**: Low (isolated) | **Parallel**: Yes
-
-**Goal**: Redesign the search bar per spec section 7.2.
-
-**Tasks**:
-1. Search bar container: 48px height, backdrop blur, translucent white over map
-2. Input field: 44px, `rounded-xl`, warm-300 border
-3. Lucide `Search` icon (left), no mic icon (removed from design)
-4. Focused state: gold 2px border, gold glow shadow, gold search icon
-5. Clear button (`X` icon) when text present
-6. Search dropdown redesign per spec section 7.3
-   - White card, 370px wide, warm shadow
-   - Result rows: gold `MapPin` icon, DM Sans text, city subtitle
-   - Dividers between rows
-
-**Files changed**:
+- `apps/app/app/_layout.tsx`
+- `apps/app/app/(tabs)/_layout.tsx`
+- `apps/app/app/(tabs)/profile.tsx`
+- `apps/app/app/(tabs)/saved.tsx`
+- `apps/app/app/property/[id].tsx`
+- `apps/app/app/[...address].tsx`
+- `apps/app/src/components/AuthModal.tsx`
 - `apps/app/src/components/SearchBar.tsx`
 - `apps/app/src/components/SearchResults.tsx`
-- Possibly: `apps/app/app/(tabs)/index.tsx` / `index.web.tsx` — search overlay dimming
+- `apps/app/src/components/PropertyPreviewCard.tsx`
+- `apps/app/src/components/PropertyFeedCard.tsx`
+- `apps/app/src/components/GroupPreviewCard/GroupPreviewCard.tsx`
+- `apps/app/src/components/FMVVisualization.tsx`
+- `apps/app/src/components/ConsensusAlignment.tsx`
+- `apps/app/src/components/FeedFilterChips.tsx`
+- `apps/app/src/components/CommentList.tsx`
+- `apps/app/src/components/PriceGuessSlider.tsx`
 
-**Verification**: Playwright visual test for search bar states (inactive, focused, with results)
+4. Create `UserAvatar`.
+   - deterministic warm-toned palette from username hash
+   - size variants for comments, cards, and profile
 
----
+5. Create unified `KarmaBadge`.
+   - one shared tier definition
+   - frontend and backend copy must match
 
-### Phase 7: Feed Filter Chips
-**Estimated files**: 1 | **Risk**: Low | **Parallel**: Yes
+6. Create `NotificationBell` early because Feed, Saved, Profile, and Notifications use it.
 
-**Goal**: Redesign filter chips per spec section 7.4.
+7. Add baseline wrappers where repetition is obvious.
+   - chips
+   - cards
+   - buttons
 
-**Tasks**:
-1. Active chip: gold `#F5A623` fill, white text, `rounded-[20px]`, 13px Inter 600
-2. Inactive chip: white fill, warm-300 border, warm-700 text
-3. Emoji prefix for Trending chip (🔥)
-4. "Latest" chip (replaces current "Recent" algorithm)
-5. "Recent Activity" chip (links to activity feed algorithm from Phase 5C)
-6. Overflow indicator ("...")
-7. 10px gap between chips
+8. Implement reduced-motion support at primitive level.
 
-**Files changed**: `apps/app/src/components/FeedFilterChips.tsx`
+Verification:
 
-**Verification**: Unit test + Playwright visual test
+- unit tests for avatar, badge, and primitive behavior
+- web/native render validation for blur and shadows
+- icon rendering parity on web and native
 
----
+## Phase 4: Map Controller Parity And Map Shell Refactor
 
-### Phase 8: Feed Cards Redesign
-**Estimated files**: 2-3 | **Risk**: Medium (visible everywhere) | **Parallel**: Yes
+**Goal**: Reduce web/native drift before heavy visual work lands on the map.
 
-**Goal**: Redesign feed cards per spec section 7.5 with photo headers and stat pills.
+Tasks:
 
-**Tasks**:
+1. Audit duplication between:
+   - `apps/app/app/(tabs)/index.tsx`
+   - `apps/app/app/(tabs)/index.web.tsx`
 
-1. **Card structure**: `rounded-2xl`, white fill, warm-gold shadow, clip: true
-2. **Image section**: 180px height, cover fill
-   - Primary source: listing `thumbnailUrl` (from Funda/Pararius mirrors, if available)
-   - Fallback: PDOK aerial imagery (NL only, via `getPropertyThumbnailUrl()`)
-   - Final fallback: Warm gradient placeholder (`warm-200` → `warm-100` with house icon overlay)
-3. **Body section**: 14px top padding, 16px side padding, 8px gap
-4. **Address row**: Street (Inter 16/600 warm-900) + city (Inter 13/400 warm-500)
-5. **Activity badge**: "Hot" pill (hot-red fill, flame icon, white text) — shown when activity level is hot
-6. **Price row**: "Asking Price" label + formatted price with house icon
-7. **Stats section**: Divider + horizontal row of colored stat pills
-   - Likes (pink tint `#E91E6315`)
-   - Comments (blue tint `#42A5F515`)
-   - Guesses (green tint `#4CAF5015`)
-   - Views (gold tint `#F5A62315`)
-   Each pill: `rounded-[10px]`, icon + count text in matching color
+2. Extract or align shared map interaction logic:
+   - selection state
+   - preview-group state
+   - cluster paging
+   - bottom-sheet state transitions
+   - auth-gated action triggers
+   - search-selection behavior
 
-8. **Property photo enhancement**:
-   - Modify `PropertyFeedCard` to accept and display listing photo
-   - Modify feed hook to include listing `thumbnailUrl` in feed response
-   - Backend: Join listings table in feed query to include `thumbnail_url`
+3. Define parity for events and state transitions:
+   - same quick-action semantics
+   - same preview persistence rules
+   - same dismissal rules
 
-**Files changed**:
-- `apps/app/src/components/PropertyFeedCard.tsx` — major redesign
-- `services/api/src/routes/feed.ts` — include thumbnail_url in response
-- `apps/app/src/components/PropertyCard.tsx` — if still used, update similarly
+4. Stabilize test IDs and selectors for map shell and preview interactions.
 
-**Verification**: Playwright visual test for feed screen with multiple card types
+Verification:
 
----
+- web and native flows still pass after refactor
+- no regressions in preview persistence, selection, or bottom-sheet transitions
 
-### Phase 9: Preview Card Redesign
-**Estimated files**: 2 | **Risk**: Medium (touches map interaction) | **Parallel**: Yes
+## Phase 5: Navigation Shell, Map Chrome, And Search Overlay
 
-**Goal**: Redesign the geo-anchored preview card per spec section 7.6.
+**Goal**: Deliver the final floating shell and map-chrome system shown in the pen.
 
-**Tasks**:
+Tasks:
 
-1. **Card**: 270px width, `rounded-2xl`, white fill, warm preview shadow, clip: true
-2. **Image section**: 100px height, cover fill (listing thumbnail or aerial)
-3. **Close button**: Absolute positioned top-right in image, 26px circle, translucent white, backdrop blur, warm-200 border, X icon
-4. **Body section**: Address (15/600 warm-900), activity badge, city text
-5. **Price row**: Heart count pill (gold tint), separator, comment count pill (blue tint), house price
-6. **Quick actions row**: Divider + like/comment/guess buttons with muted colors
-7. **Arrow pointer**: 20px triangle below card, white fill, subtle shadow
+1. Replace the default Expo tab bar with a custom floating pill.
+   - new file: `apps/app/src/components/navigation/CustomTabBar.tsx`
+   - translucent on map, solid on non-map tabs
+   - safe-area aware
+   - animated active capsule
 
-**Files changed**:
+2. Move tab headers in-screen where required.
+
+3. Implement the map-screen header row.
+   - brand mark
+   - city or location display
+   - status-bar aware spacing
+
+4. Implement the final search bar and focus states.
+   - 48px shell
+   - search icon
+   - no decorative mic icon
+   - clear button
+   - gold focus ring
+
+5. Implement search overlay dimming and dropdown styling.
+
+6. Implement the current-location floating button.
+
+7. Implement map top and bottom gradients.
+
+8. Ensure the shell carries to wide and landscape layouts.
+
+Concrete file targets:
+
+- `apps/app/app/(tabs)/_layout.tsx`
+- `apps/app/src/components/navigation/CustomTabBar.tsx`
+- `apps/app/src/components/SearchBar.tsx`
+- `apps/app/src/components/SearchResults.tsx`
+- map tab screens that currently rely on router headers
+
+Verification:
+
+- visual targets:
+  - `1. Map Screen.jpg`
+  - `2. Search Results.jpg`
+- phone web screenshot
+- Android screenshot
+- wide-web shell screenshot
+
+## Phase 6: Preview Overlay System And Quick-Preview Bottom-Sheet Parity
+
+**Goal**: Bring single-preview, cluster-preview, and quick-preview detail surfaces to final parity.
+
+Tasks:
+
+1. Redesign the single property preview card.
+   - image area
+   - close button
+   - pointer triangle
+   - stat pills
+   - quick actions
+
+2. Redesign the cluster preview card wrapper and paging model.
+
+3. Ensure quick-preview bottom sheet belongs to the same visual language as the full-page route.
+
+4. Preserve current interaction rules:
+   - preview persistence during map gestures
+   - map tap dismissal semantics
+   - auth gating only at submit points where applicable
+
+5. Ensure map quick actions route correctly.
+   - like
+   - comment
+   - guess
+   - card tap
+
+Concrete file targets:
+
 - `apps/app/src/components/PropertyPreviewCard.tsx`
 - `apps/app/src/components/GroupPreviewCard/GroupPreviewCard.tsx`
+- relevant quick-preview and bottom-sheet components under `apps/app/src/components/PropertyBottomSheet/`
 
-**Verification**: Playwright visual test on map with preview card open
+Verification:
 
----
+- visual targets:
+  - `Preview Card Wrapper.jpg`
+  - `Preview Card Wrapper-1.jpg`
+  - `Cluster Preview Card Wrapper.jpg`
+- focused Playwright clips
+- Android focused screenshots
+- flow tests for preview persistence and quick-action behavior
 
-### Phase 10: Auth Modal Redesign
-**Estimated files**: 1-2 | **Risk**: Low (isolated modal) | **Parallel**: Yes
+## Phase 7: Shared Property Interaction Modules
 
-**Goal**: Redesign auth modal per spec section 7.13.
+**Goal**: Build reusable modules that power property detail, bottom sheet, comments, guesses, and list cards.
 
-**Tasks**:
+Tasks:
 
-1. **Backdrop**: `#2D2926BF` (warm-900 at 75%)
-2. **Card**: `rounded-3xl`, white fill, gold glow shadow, padding `[20, 28, 28, 28]`
-3. **Close button**: 36px circle, cool gray `#F4F4F5`, X icon `#71717A`
-4. **Logo**: 64px with 16px border radius
-5. **Title**: "Welcome to HuisHype" Outfit 20/600
-6. **Subtitle**: Inter 14/400, warm-500, centered
-7. **Google button**: 52px, white fill, cool gray border `#E4E4E7`, Google logo + Inter 15/500
-8. **Apple button**: 52px, near-black `#1A1A1A`, Apple logo + white text
-9. **Divider**: "or" with cool gray lines
-10. **Email button**: 44px, gold-50 fill, gold-400 border, mail icon + gold-700 text
-11. **Email auth flow**: Connect to backend email magic link endpoint (Phase 5E)
+1. Consolidate and redesign:
+   - `FMVVisualization`
+   - `PriceGuessSlider`
+   - `ConsensusAlignment`
+   - listing source rows
+   - metric pills
+   - quick action rows
+   - comment cell
+   - comment input
+   - one-level reply thread layout
 
-**Files changed**:
-- `apps/app/src/components/AuthModal.tsx`
-- `apps/app/src/providers/AuthProvider.tsx` — add `signInWithEmail` method
+2. Establish one reusable media-and-metrics card model for property-centric surfaces.
 
-**Verification**: Unit test + visual test for auth modal
+3. Ensure modules support:
+   - official valuation present or absent by country
+   - asking price present or absent
+   - listing photo present or absent
+   - user guess present or absent
+   - low-confidence FMV states
 
----
+4. Introduce shared image fallback rules.
 
-### Phase 11: Saved Screen Redesign
-**Estimated files**: 1 | **Risk**: Low | **Parallel**: Yes
+5. Introduce achievement domain model and shared types from backend or shared package, not local UI constants.
 
-**Goal**: Update saved screen per spec section 8.4.
+6. Prepare modules for both quick-preview and full-screen contexts.
 
-**Tasks**:
-1. Background: `warm-50`
-2. Header: "Saved Properties" Inter 20/600, subtitle "X properties saved" Inter 13/400 warm-500
-3. Notification bell icon (top-right) with badge
-4. Same feed card component (Phase 8)
-5. **Empty state (unauthenticated)**: Bookmark icon (gold-400), "Sign in to save properties" text, gold CTA
-6. **Empty state (authenticated, no saves)**: Bookmark outline (warm-300), "No saved properties yet" text
+Verification:
 
-**Files changed**: `apps/app/app/(tabs)/saved.tsx`
+- unit tests for FMV, guess, and comment rendering edge cases
+- focused visual tests for shared modules
 
-**Verification**: Visual test for both empty states and populated state
+## Phase 8: Feed, Saved, And Recent Activity Surfaces
 
----
+**Goal**: Deliver the final list-based browsing surfaces.
 
-### Phase 12: Profile Screen Redesign
-**Estimated files**: 1-2 | **Risk**: Medium (new sections) | **Parallel**: Yes
+Tasks:
 
-**Goal**: Complete profile redesign per spec section 8.5.
+1. Redesign filter chips.
+   - `Trending`
+   - `Latest`
+   - `Recent Activity`
+   - proper active and inactive states
 
-**Tasks**:
+2. Redesign property feed cards.
+   - media header
+   - address row
+   - activity or status badge
+   - price row
+   - stat pills
 
-1. **Background**: `warm-50`
-2. **Header**: Notification bell (left) + 3-dot overflow menu (right)
-3. **Profile card**: White card, warm shadow
-   - UserAvatar (72px, gold circle)
-   - Display name (Inter 20/600)
-   - KarmaBadge pill
-   - "Edit display name" link (gold-500)
-4. **Stats grid**: 3 columns (Karma, Accuracy, Guesses)
-   - White cards with warm shadow
-   - Numbers: Inter 24/700 (Karma/Accuracy in gold-500, Guesses in warm-900)
-   - Labels: uppercase Inter 11/600 warm-500
-5. **Achievements row**: Trophy, flame, target, globe icons in gold-50 circles
-6. **Recent Activity log**: Activity entries with icons and timestamps
-   - Pull from `GET /users/me/activity` (Phase 5D)
-   - Show likes, comments, guesses with property names and timestamps
-7. **Settings dropdown**: From 3-dot button, white card with warm shadow, "Sign out" row
-8. **Unauthenticated state**: Large logo, "Join HuisHype" Outfit 20/600, description, gold CTA
+3. Add recent-activity card variant and corresponding data hook.
 
-**Files changed**:
-- `apps/app/app/(tabs)/profile.tsx` — major rewrite
-- `apps/app/src/hooks/useUserProfile.ts` — add activity endpoint call
+4. Redesign the saved screen using the same card system.
 
-**Verification**: Visual test for authenticated and unauthenticated states
+5. Add `NotificationBell` to Feed and Saved.
 
----
+6. Add empty states and unauthenticated states matching final visuals.
 
-### Phase 13: Animations
-**Estimated files**: 5-8 | **Risk**: Low (additive) | **Parallel**: Yes
+7. Ensure wide and landscape keep the same component system.
 
-**Goal**: Add all micro-interactions per spec section 10.2.
+Concrete file targets:
 
-**Tasks**:
+- `apps/app/src/components/FeedFilterChips.tsx`
+- `apps/app/src/components/PropertyFeedCard.tsx`
+- `apps/app/src/components/ActivityFeedCard.tsx`
+- `apps/app/app/(tabs)/saved.tsx`
+- feed screen and feed hooks
 
-1. **Tab capsule transition**: Gold fill slides between tabs, 200ms `withTiming` ease-out
-2. **Like bounce**: `withSequence(withSpring(1.3, { damping: 4 }), withSpring(1.0))` on heart icon
-3. **Save bounce**: Same as like bounce on bookmark icon
-4. **Hot pulse**: Ring scale 1→1.6, opacity 0.4→0, loop 1.5s
-5. **Filter chip press**: Scale 0.95 on press, 1.0 on release, 100ms
-6. **Card press**: Opacity 0.9 + scale 0.98 on press
-7. **Price label float**: Spring follow on slider thumb
-8. **Send button pulse**: Scale 0.9→1.0 spring when enabled
-9. **Reduced motion**: All animations check `useReducedMotion()` and fall back to instant
+Backend and data dependencies:
 
-**Files changed**: CustomTabBar, QuickActions, FeedFilterChips, PropertyFeedCard, PriceGuessSlider, CommentInput
+- feed response must include enough photo and metric data
+- activity feed response must exist
 
-**Verification**: Manual testing on device (animations are hard to visual-test automatically)
+Verification:
 
----
+- visual targets:
+  - `4. Feed - Trending Chosen.jpg`
+  - `5. Feed - Recent Activity Chosen.jpg`
+  - `6. Saved Screen.jpg`
+- web and Android screenshots
+- wide-web screenshots
 
-### Phase 14: Property Detail Full Page
-**Estimated files**: 5-8 | **Risk**: High (architecture change, new route) | **Requires**: Phase 5 backend
+## Phase 9: Profile, Notifications, Leaderboard, And Social Reputation
 
-**Goal**: Transform property detail from bottom-sheet-only to full-page scroll view per spec section 8.3.
+**Goal**: Deliver the final social reputation layer and account-adjacent surfaces.
 
-**BREAKING CHANGE**: Property detail becomes a full-page route. The bottom sheet stays for quick preview only (map tap → bottom sheet peek; feed card tap → full page).
+Tasks:
 
-**Tasks**:
+1. Redesign the profile screen.
+   - profile card
+   - stats grid
+   - achievements row
+   - recent activity log
+   - settings dropdown
 
-1. **Rewrite `property/[id].tsx`** as a full-page scroll view:
-   - Hero section: 240px full-width image, overlay buttons (back, share, like, photo count)
-   - Content padding: `[16, 16, 24, 16]`, 20px gap between sections
-   - Remove Stack.Screen header (back button is in hero overlay)
+2. Implement achievements backed by a real domain model.
 
-2. **Address + info pills section**:
-   - Street: Outfit 22/600 warm-900
-   - City: Outfit 15/500 warm-600
-   - Info pills: year built (calendar icon), floor area (ruler icon), view count (eye icon)
+3. Implement the recent activity log backed by API.
 
-3. **Crowd Estimate card**:
-   - Large price: Outfit 32/700 green
-   - Confidence badge: green pill
-   - Side-by-side WOZ + Asking price cards
+4. Build the notifications page.
 
-4. **Price comparison bar**: Dot markers for WOZ, Crowd, Asking, User guess
+5. Build the leaderboard page.
 
-5. **Listings section**: Source logo circles (Funda yellow, Pararius blue), listing URLs, "Add Listing"
+6. Add `NotificationBell` anywhere the design expects it.
 
-6. **Price guess section**: FMV visualization + "Make Your Guess" CTA → navigates to Price Guesses Page (Phase 16)
+7. Add navigation paths from profile or achievements to leaderboard where intended.
 
-7. **Comments section**: 2 recent comments + "View all X comments" → navigates to Comments Page (Phase 15)
+Concrete file targets:
 
-8. **Property info section**: Details card with metadata
-
-9. **Action row**: Like, Save, Share buttons with outlined style
-
-10. **Update navigation**: Feed card tap → `router.push('/property/[id]')` (full page, not bottom sheet)
-
-**Files changed**:
-- `apps/app/app/property/[id].tsx` — major rewrite
-- `apps/app/src/components/PropertyBottomSheet/PropertyContent.tsx` — extract shared sections
-- `apps/app/src/components/PropertyFeedCard.tsx` — navigation change
-- `apps/app/app/(tabs)/feed.tsx` — navigation change
-
-**Verification**: Visual test for property detail page with all sections
-
----
-
-### Phase 15: Comments Full Page
-**Estimated files**: 3-4 new | **Risk**: Medium | **Requires**: Phase 14
-
-**Goal**: Build dedicated full-screen comments page per spec section 7.8 / 8.9.
-
-**Tasks**:
-
-1. **New route**: `apps/app/app/comments/[propertyId].tsx`
-
-2. **Header** (56px): Back button (32px circle) + property thumbnail (48x36) + address + city
-
-3. **Sort toggle**: "Popular" / "Recent" toggle pills
-   - Active: gold-400 fill, warm-900 text
-   - Inactive: warm-200 fill, warm-600 text
-
-4. **Comment list**: Scrollable
-   - Avatar (34px UserAvatar), name (Inter 13/600), KarmaBadge, timestamp
-   - Comment text (Inter 13/400 warm-800)
-   - Reply link, heart button (unfilled/filled)
-   - Reply threads: 16px left indent, 2px left border warm-300
-
-5. **Input bar** (pinned bottom, 70px):
-   - Avatar (32px), pill input (rounded-full, warm-50 fill, warm-200 border)
-   - Gold send button (34px circle)
-
-6. **Navigation**: "View all comments" in property detail → `router.push('/comments/[propertyId]')`
-
-**Files to create**:
-- `apps/app/app/comments/[propertyId].tsx`
-- `apps/app/src/components/Comments/FullCommentsList.tsx` (reusable)
-- `apps/app/src/components/Comments/SortToggle.tsx`
-
-**Verification**: Visual test + unit tests for sort toggle
-
----
-
-### Phase 16: Price Guesses Full Page
-**Estimated files**: 3-4 new | **Risk**: Medium | **Requires**: Phase 14
-
-**Goal**: Build dedicated full-screen price guesses page per spec section 7.9 / 8.10.
-
-**Tasks**:
-
-1. **New route**: `apps/app/app/guesses/[propertyId].tsx`
-
-2. **Header** (48px): Back button (36px circle, warm-100 fill) + "Price Guesses" title
-
-3. **Property image card**: 150px height, rounded-2xl, gradient overlay, address text
-
-4. **Crowd estimate card**: Large FMV price, diff badge, confidence level
-
-5. **Distribution card**: Bar chart visualization with gold fills on warm-100 background
-
-6. **Recent guesses list**: Entries with accuracy icons (green check, orange alert)
-
-7. **CTA bar** (sticky bottom): "Make Your Guess" gold button (50px, rounded-[14px])
-   - Expands to show PriceGuessSlider when tapped
-
-8. **Navigation**: "Make Your Guess" in property detail → `router.push('/guesses/[propertyId]')`
-
-**Files to create**:
-- `apps/app/app/guesses/[propertyId].tsx`
-- `apps/app/src/components/PriceGuesses/GuessesList.tsx`
-- `apps/app/src/components/PriceGuesses/DistributionChart.tsx`
-
-**Verification**: Visual test + unit tests
-
----
-
-### Phase 17: Social Activity Feed
-**Estimated files**: 3-4 | **Risk**: Medium | **Requires**: Phase 5C backend
-
-**Goal**: Build "Recent Activity" feed variant per spec sections 7.12 / 8.8.
-
-**Tasks**:
-
-1. **Activity card component** (`ActivityFeedCard.tsx`):
-   - User row: avatar 36px + name + timestamp
-   - Action badge pill: "Liked" (pink), "Commented" (blue), "Guessed" (green)
-   - Property photo: 200px height
-   - Address row
-   - Metrics row: heart + comment counts
-
-2. **Feed screen update**:
-   - When "Recent Activity" chip selected, render activity cards instead of property cards
-   - Title changes to "Recent Activity" (from "Trending Properties")
-
-3. **Hooks**: `useActivityFeed()` — calls `GET /feed?algorithm=activity`
-
-**Files changed**:
-- NEW: `apps/app/src/components/ActivityFeedCard.tsx`
-- MODIFIED: `apps/app/app/(tabs)/feed.tsx` — conditional card rendering
-- MODIFIED: `apps/app/src/hooks/useFeed.ts` — add activity algorithm
-
-**Verification**: Visual test for activity feed cards
-
----
-
-### Phase 18: Notifications Page
-**Estimated files**: 4-5 new | **Risk**: Medium | **Requires**: Phase 5A backend
-
-**Goal**: Build notifications page per spec sections 7.10 / 8.11.
-
-**Tasks**:
-
-1. **New route**: `apps/app/app/notifications.tsx`
-
-2. **Header**: "Notifications" Inter 26/700 warm-900, "Mark all read" link (gold-700)
-
-3. **Section grouping**: "Today", "This Week", "Earlier" labels (uppercase Inter 13/600 warm-500)
-
-4. **Notification item**:
-   - Thumbnail (48x48, rounded-lg)
-   - Description (Inter 14/500 warm-800)
-   - Timestamp (Inter 12/400 warm-400)
-   - Unread: warm-100 background + 8px gold dot
-   - Read: transparent background
-
-5. **Notification bell component** (`NotificationBell.tsx`):
-   - Bell icon (Lucide `bell`, 22px, warm-700)
-   - Red dot badge (8px, `#EF4444`) when unread count > 0
-   - Navigates to notifications page on tap
-
-6. **Hook**: `useNotifications()` — calls `GET /notifications` + `GET /notifications/unread-count`
-
-7. **Integration**: Add NotificationBell to map screen header, feed screen header, saved screen header, profile screen header
-
-**Files to create**:
+- `apps/app/app/(tabs)/profile.tsx`
 - `apps/app/app/notifications.tsx`
-- `apps/app/src/components/ui/NotificationBell.tsx`
-- `apps/app/src/hooks/useNotifications.ts`
-
-**Verification**: Visual test for notifications page with multiple states
-
----
-
-### Phase 19: Community Leaderboard Page
-**Estimated files**: 3-4 new | **Risk**: Medium | **Requires**: Phase 5B backend
-
-**Goal**: Build leaderboard page per spec sections 7.11 / 8.12.
-
-**Tasks**:
-
-1. **New route**: `apps/app/app/leaderboard.tsx`
-
-2. **Header** (44px): Trophy icon (gold-500) + "Leaderboard" Outfit 22/600, period filter dropdown
-
-3. **Featured property card**: 180px image, "MOST DISCUSSED THIS WEEK" overlay
-
-4. **Podium section**:
-   - 1st place: Crown icon, 52px avatar with gold stroke, name, karma badge, points
-   - 2nd/3rd: 44px avatars, no crown
-
-5. **Rankings list**:
-   - Rows: rank number, 36px avatar, name, karma badge, points
-   - "Your Rank" row: highlighted with gold-50 fill and gold-200 border
-
-6. **Period filter**: Dropdown with "This Week", "This Month", "All Time"
-
-7. **Hook**: `useLeaderboard()` — calls `GET /leaderboard`
-
-8. **Navigation**: Accessible from profile screen (trophy icon in achievements row)
-
-**Files to create**:
 - `apps/app/app/leaderboard.tsx`
-- `apps/app/src/components/Leaderboard/Podium.tsx`
-- `apps/app/src/components/Leaderboard/RankingsList.tsx`
+- `apps/app/src/hooks/useNotifications.ts`
 - `apps/app/src/hooks/useLeaderboard.ts`
 
-**Verification**: Visual test for leaderboard with mock data
+Critical requirement:
 
----
+- do not fake achievements or activity rows in UI without shared or backend semantics
 
-### Phase 20: Visual Regression & Full Test Suite
-**Estimated files**: 20+ test files | **Risk**: Required | **Requires**: ALL previous phases
+Verification:
 
-**Goal**: Update all visual baselines and ensure full test suite passes.
+- visual targets:
+  - `7. Profile Screen.jpg`
+  - `8. Social Notifications.jpg`
+  - `9. Community Leaderboard.jpg`
+- web and Android screenshots
+- wide-web screenshots
 
-**Tasks**:
+## Phase 10: Auth, Identity, And Delivery Readiness
 
-1. **Update Playwright visual tests**:
-   - Update all screenshot baselines for new design
-   - Add new visual tests for: tab bar, search bar states, feed cards, preview cards, property detail page, comments page, price guesses page, profile screen, auth modal, notifications page, leaderboard page, saved screen states
+**Goal**: Make the final auth surface truthful and production-ready.
 
-2. **Update Playwright integration tests**: Verify navigation flows still work with new routes
+Tasks:
 
-3. **Update Maestro mobile tests**:
-   - Update all screenshot references
-   - Add flows for new screens (comments page, price guesses page, notifications, leaderboard)
-   - Update element selectors for new component structure
+1. Redesign `AuthModal`.
+   - final card styling
+   - Google button
+   - Apple button
+   - optional email entry state
 
-4. **Unit test updates**:
-   - Update component test snapshots
-   - Add tests for new components (CustomTabBar, UserAvatar, KarmaBadge, BlurContainer, NotificationBell)
-   - Update icon-related test mocks
+2. Finish Apple auth verification flow instead of leaving placeholder logic.
 
-5. **Full suite verification**:
-   ```bash
-   pnpm -C apps/app typecheck
-   pnpm -C apps/app test
-   pnpm -C services/api test
-   pnpm -C packages/shared test
-   pnpm -C apps/app exec playwright test --project=visual
-   pnpm -C apps/app exec playwright test --project=integration
-   pnpm -C apps/app exec playwright test --project=flows
-   ```
+3. Keep Google auth aligned with the final modal.
 
-6. **Visual verification agent loop**:
-   - For each design screen, take screenshot and compare against pen export
-   - Iterate until visual agent approves each screen
-   - Screens to verify:
-     1. Map Screen (with preview card)
-     2. Search Results overlay
-     3. Auth Modal
-     4. Feed - Trending
-     5. Feed - Recent Activity
-     6. Saved Screen
-     7. Profile Screen
-     8. Social Notifications
-     9. Community Leaderboard
-     10. Property Detail
-     11. Price Guesses Page
-     12. Comments Page
+4. If email magic link stays in scope:
+   - implement backend request and verify flow
+   - implement deep link handling
+   - add success and error states
 
-**Verification**: ALL tests green. No regressions.
+5. Ensure progressive auth gating still matches product behavior.
+   - browsing open
+   - save gated
+   - guess and comment may begin before submit gate
 
----
+6. Ensure auth modal can be triggered consistently from:
+   - map quick actions
+   - bottom sheet
+   - profile unauthenticated state
+   - saved unauthenticated state
 
-## Agent Team Structure
+Concrete file targets:
 
-### Recommended Agent Teams
+- `apps/app/src/components/AuthModal.tsx`
+- `apps/app/src/providers/AuthProvider.tsx`
+- auth deep-link route if email magic link is included
 
-```
-Lead Agent (orchestration only)
-├── Team A: Design System Foundation
-│   ├── Agent: Package installer + native rebuild (Phase 0)
-│   ├── Agent: Token swap + font loading (Phase 1)
-│   └── Agent: Shadows, Blur, Avatar, KarmaBadge (Phase 2)
-│
-├── Team B: Component Overhaul (parallel after Team A)
-│   ├── Agent: Icon migration (Phase 3) — mechanical, can be split
-│   ├── Agent: Tab bar rewrite (Phase 4)
-│   ├── Agent: Search bar + dropdown (Phase 6)
-│   ├── Agent: Filter chips (Phase 7)
-│   ├── Agent: Feed cards + preview card (Phase 8 + 9)
-│   ├── Agent: Auth modal (Phase 10)
-│   ├── Agent: Saved + Profile screens (Phase 11 + 12)
-│   └── Agent: Animations (Phase 13)
-│
-├── Team C: Backend (parallel with Teams A & B)
-│   ├── Agent: Notifications system (Phase 5A)
-│   ├── Agent: Leaderboard + Activity log (Phase 5B + 5D)
-│   ├── Agent: Activity feed algorithm (Phase 5C)
-│   └── Agent: Email auth (Phase 5E)
-│
-├── Team D: New Screens (after Teams B & C)
-│   ├── Agent: Property detail full page (Phase 14)
-│   ├── Agent: Comments full page (Phase 15)
-│   ├── Agent: Price guesses full page (Phase 16)
-│   ├── Agent: Social activity feed (Phase 17)
-│   ├── Agent: Notifications page (Phase 18)
-│   └── Agent: Leaderboard page (Phase 19)
-│
-└── Team E: Verification (after Team D)
-    ├── Agent: Test suite updates (Phase 20)
-    └── Agent: Visual regression loop (Phase 20)
-```
+Verification:
 
-### Parallelism Opportunities
+- visual target: `3. Auth Modal.jpg`
+- happy-path and failure-path tests
+- no placeholder Apple path remains
 
-| Phase Group | Can Run In Parallel |
-|-------------|-------------------|
-| 0 → 1 → 2 | Sequential (dependencies) |
-| 3, 4, 6, 7, 8, 9, 10, 11, 12, 13 | All parallel (after Phase 2) |
-| 5A, 5B, 5C, 5D, 5E | All parallel (independent backend work) |
-| 14, 15, 16 | Sequential within (14 first, then 15+16 parallel) |
-| 17, 18, 19 | All parallel (after respective backend phases) |
-| 20 | After everything else |
+## Phase 11: Backend Features, Contracts, And Async Delivery
 
----
+**Goal**: Provide all backend and data capabilities the final UI depends on.
 
-## Decisions Needed Before Execution
+### 11A. Notifications
 
-All decisions resolved:
+Database:
 
-1. **Email auth service**: **Resend** — use `resend` npm package for transactional email
-2. **Email auth scope**: **Full magic link flow** — complete backend + frontend implementation
-3. **Mic icon in search bar**: **Removed** — no mic icon, just search icon (left) and clear button (when text present)
-4. **Notification delivery**: **Push notifications included** — requires `expo-notifications` package + push token registration + server-side push delivery via Expo Push API
-5. **Property photos**: **PDOK aerial fallback + placeholder** — use listing `thumbnailUrl` if available, fall back to PDOK aerial (NL only), else show a warm gradient placeholder. No high-quality photo sourcing needed.
+- new `notifications` table with user, actor, type, property, target metadata, message, read state, and timestamps
+- index on user plus read plus created_at
 
----
+Routes:
+
+- `GET /notifications`
+- `GET /notifications/unread-count`
+- `PUT /notifications/read-all`
+- `PUT /notifications/:id/read`
+
+Delivery:
+
+- add `push_token` storage to users
+- register push token from app
+- send push via Expo server SDK when appropriate
+- include deep-link metadata for navigation
+
+### 11B. Leaderboard
+
+No required new table if current data supports it.
+
+Route:
+
+- `GET /leaderboard?period=week|month|all&limit=50`
+
+Response should include:
+
+- rankings
+- current user rank
+- featured property
+
+### 11C. Activity Feed
+
+Route:
+
+- `GET /feed?algorithm=activity`
+
+Requirements:
+
+- union across likes, comments, and guesses
+- actor payload
+- property payload
+- timestamp
+- pagination
+
+### 11D. User Activity
+
+Route:
+
+- `GET /users/me/activity`
+
+### 11E. Likes-Domain Cleanup
+
+Resolve one of the following explicitly:
+
+- refactor `reactions` into a simpler likes model
+- or keep DB shape but formalize a likes-only API contract
+
+Ambiguous naming across layers is not allowed to remain.
+
+### 11F. Achievements
+
+Requirements:
+
+- shared schema
+- deterministic rule calculation
+- API delivery
+
+### 11G. Email Auth
+
+If kept in scope:
+
+- `POST /auth/email/request`
+- `POST /auth/email/verify`
+- token table
+- delivery service
+- deep-link verification path
+
+### 11H. Async Or Queue Work
+
+Enable if needed for correctness:
+
+- email delivery
+- push fan-out
+- expensive notification fan-out
+- leaderboard recalculation if synchronous computation proves unstable
+
+Contract rule:
+
+- OpenAPI, generated client, mocks, and integration tests are updated in the same workstream, not after.
+
+Likely backend file targets:
+
+- migrations under `services/api/src/db/migrations/`
+- routes for notifications, leaderboard, email auth, and users
+- services for notifications, push, email, achievements, and feed activity logic
+
+Verification:
+
+- backend integration suite green
+- contract and client regeneration complete
+- mocks updated
+- deterministic fixtures for notification, activity, and leaderboard surfaces
+
+## Phase 12: Full-Screen Property, Comments, And Guesses Routes
+
+**Goal**: Ship the full-depth routes that correspond to the final design while preserving coherence with quick-preview.
+
+Tasks:
+
+1. Redesign `/property/[id]` as the full scroll page.
+   - hero media
+   - detail sections
+   - crowd estimate
+   - listing section
+   - comments preview
+   - guesses entry point
+   - action row
+
+2. Build `/comments/[propertyId]`.
+   - header
+   - sort toggle
+   - threaded comments list
+   - pinned input bar
+
+3. Build `/guesses/[propertyId]`.
+   - header
+   - property image card
+   - crowd estimate card
+   - distribution card
+   - recent guesses
+   - sticky CTA
+
+4. Wire navigation from:
+   - feed cards
+   - saved cards
+   - recent-activity cards
+   - notification rows
+   - profile activity rows
+   - property detail internal CTAs
+
+5. Reuse shared modules from phase 7 instead of reimplementing them.
+
+Concrete file targets:
+
+- `apps/app/app/property/[id].tsx`
+- `apps/app/app/comments/[propertyId].tsx`
+- `apps/app/app/guesses/[propertyId].tsx`
+- supporting components for full comments list, sort toggle, guesses list, and distribution chart
+
+Verification:
+
+- visual targets:
+  - `10. Property Detail — Full Scroll Content.jpg`
+  - `11. Price Guesses Page.jpg`
+  - `12. Comments Page.jpg`
+- web and Android screenshots
+- wide-web screenshots
+
+## Phase 13: Route Consolidation And Product-Surface Cleanup
+
+**Goal**: Remove ambiguous or duplicated surface ownership that would otherwise keep rotting after the overhaul.
+
+Tasks:
+
+1. Resolve `app/[...address].tsx`.
+   - convert to redirect or resolver into canonical routes
+   - or remove it if obsolete
+
+2. Remove placeholder city or postcode branches if they are not part of the final vision.
+
+3. Ensure one canonical path for:
+   - property detail
+   - comments page
+   - guesses page
+   - notifications page
+   - leaderboard page
+
+4. Remove dead or conflicting UI from old paths.
+
+Verification:
+
+- route tests pass
+- no duplicate unfinished property experiences remain
+
+## Phase 14: Accessibility, Motion, And Responsive Carry-Over
+
+**Goal**: Ensure the final visual system is polished, accessible, and credible beyond phone-sized screenshots.
+
+Tasks:
+
+1. Contrast audit against the final palette.
+2. Touch-target audit.
+3. Screen-reader labels for new controls and routes.
+4. Reduced-motion behavior for every new animation.
+5. Large-font and dynamic-text sanity checks.
+6. Wide-web and Android landscape layout checks for key surfaces.
+7. Country-aware copy and value fallback audit.
+   - official valuation labels
+   - listing-source visibility
+   - address formatting
+   - image fallback behavior outside NL
+
+Verification:
+
+- accessibility checks documented
+- responsive screenshots saved for key surfaces
+- no unintended NL-only labels leak into non-NL contexts
+
+## Phase 15: Visual-Agent Loop And Final Sign-Off
+
+**Goal**: Close the sprint only after iterative visual review on both web and native says the result is sufficient.
+
+Tasks:
+
+1. For each of the 15 visual targets:
+   - capture web artifact
+   - capture Android artifact
+   - compare against pen export
+   - if `NEEDS_WORK`, reopen the owning task
+
+2. For wide and landscape carry-over:
+   - capture wide web screenshots for major routed surfaces
+   - capture Android landscape smoke screenshots for map and at least one routed surface
+
+3. Run full verification:
+   - `pnpm -C apps/app typecheck`
+   - `pnpm -C apps/app test`
+   - `pnpm -C services/api test`
+   - `pnpm -C packages/shared test`
+   - `pnpm test:integration`
+   - `pnpm test:e2e:web`
+   - `pnpm test:e2e:mobile`
+
+4. Reconcile root scripts with actual required commands if any drift remains.
+
+5. Produce the final checklist confirming:
+   - all 15 visual targets approved
+   - no console or runtime errors during captures
+   - no unresolved route duplication
+   - no placeholder auth or profile behavior
+   - no test-command gaps
+
+## Visual Verification Workflow
+
+For every visual target, use this loop:
+
+1. `Analyzer`
+   - compare pen export to the latest web and native artifacts
+   - list concrete visual and behavioral gaps
+
+2. `Fixer`
+   - implement the gaps
+   - update tests
+   - regenerate artifacts
+
+3. `Visual Tester`
+   - compare pen export with both web and native artifacts
+   - return `SUFFICIENT` or `NEEDS_WORK`
+
+4. `Lead`
+   - reopen if `NEEDS_WORK`
+   - close only when both web and native are sufficient
+
+The sprint does not close based only on code review or a single-platform screenshot.
 
 ## Success Criteria
 
-Each screen must match the pen design export when verified by a visual agent:
+The sprint is complete only when all are true:
 
-| Screen | Pen Export | Verification Method |
-|--------|-----------|-------------------|
-| 1. Map Screen | `pen_screen_exports/1. Map Screen.jpg` | Playwright screenshot + visual agent |
-| 2. Search Results | `pen_screen_exports/2. Search Results.jpg` | Playwright screenshot + visual agent |
-| 3. Auth Modal | `pen_screen_exports/3. Auth Modal.jpg` | Playwright screenshot + visual agent |
-| 4. Feed - Trending | `pen_screen_exports/4. Feed - Trending Chosen.jpg` | Playwright screenshot + visual agent |
-| 5. Feed - Recent Activity | `pen_screen_exports/5. Feed - Recent Activity Chosen.jpg` | Playwright screenshot + visual agent |
-| 6. Saved Screen | `pen_screen_exports/6. Saved Screen.jpg` | Playwright screenshot + visual agent |
-| 7. Profile Screen | `pen_screen_exports/7. Profile Screen.jpg` | Playwright screenshot + visual agent |
-| 8. Social Notifications | `pen_screen_exports/8. Social Notifications.jpg` | Playwright screenshot + visual agent |
-| 9. Community Leaderboard | `pen_screen_exports/9. Community Leaderboard.jpg` | Playwright screenshot + visual agent |
-| 10. Property Detail | `pen_screen_exports/10. Property Detail Page.jpg` | Playwright screenshot + visual agent |
-| 11. Price Guesses | `pen_screen_exports/11. Price Guesses Page.jpg` | Playwright screenshot + visual agent |
-| 12. Comments | `pen_screen_exports/12. Comments Page.jpg` | Playwright screenshot + visual agent |
+- the shipped experience matches the 15 pen exports for their named states
+- web and Android native both pass the visual-review loop for those states
+- major routed surfaces also pass wide or landscape carry-over review
+- old unfinished or duplicate property paths are resolved
+- the design system is fully migrated away from the old blue and cool-gray language
+- quick-preview and full-detail routes feel like one system
+- all new backend features required by the UI are real, typed, mocked, and tested
+- root test scripts comply with project rules
+- no placeholder auth branches remain
+- no required final-vision features remain as "future work"
 
-Plus remaining screens from the pen file (13-15).
+## Immediate Execution Recommendation
 
-**All tests green** before sprint is considered complete:
-- `pnpm -C apps/app typecheck` — zero TS errors
-- `pnpm -C apps/app test` — all unit tests pass
-- `pnpm -C services/api test` — all API tests pass
-- `pnpm -C packages/shared test` — all shared tests pass
-- Playwright visual/integration/flows — all pass
-- Maestro mobile — all pass (0 FAILED)
+Start with these bundles in parallel:
+
+1. `Team A`
+   - phase 1 contract, tooling, and test hardening
+
+2. `Team B`
+   - phase 2 token migration
+   - phase 3 primitives
+
+3. `Team C`
+   - phase 4 map parity refactor discovery and implementation
+
+4. `Team E`
+   - backend design and implementation for notifications, activity, leaderboard, achievements, and auth deltas
+
+Once those stabilize:
+
+5. `Team C`
+   - phase 5 and phase 6 map-shell and overlay work
+
+6. `Team D`
+   - phase 8 and phase 9 social and account surfaces
+
+7. `Team F`
+   - phase 12 route assembly
+   - phase 13 cleanup
+
+Throughout the sprint:
+
+8. `Verification Team`
+   - maintain per-surface screenshot capture and visual review continuously instead of batching all review at the end
