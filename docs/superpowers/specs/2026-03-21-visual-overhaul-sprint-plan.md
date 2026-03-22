@@ -318,12 +318,15 @@ Tasks:
 
 1. Approve this merged plan as the active execution artifact.
 2. Freeze the canonical screen list and component-acceptance list from pen exports.
-3. Freeze the backend and client contract ownership model before UI work begins.
+3. Freeze the contract source-of-truth and derived-artifact ownership model before UI work begins.
+   - backend route schemas and Fastify/Zod registration are the canonical API contract source
+   - `services/api/openapi.json` is an exported artifact generated from the live Fastify OpenAPI document
+   - `packages/api-client/generated/api.ts` is a derived artifact generated from `services/api/openapi.json`
+   - `packages/mocks` is a derived artifact aligned to the same exported contract
    - auth contract ownership
    - feed contract ownership
    - reactions versus saves ownership
    - karma tier ownership
-   - generated client ownership
 4. Record the resolved decisions above.
 5. Create top-level tasks for all phases and sub-teams.
 6. Establish artifact conventions:
@@ -335,7 +338,7 @@ Verification:
 
 - task graph exists
 - each visual target has an owner
-- contract owners are named for auth, feed, reactions/saves, karma tiers, and generated client output
+- canonical contract owners are named for auth, feed, reactions/saves, and karma tiers, and derived-artifact owners are named for OpenAPI export, generated client output, and mocks
 
 ## Phase 1: Contract, Tooling, And Verification Hardening
 
@@ -343,28 +346,34 @@ Verification:
 
 Tasks:
 
-1. Fix OpenAPI export and generated client ownership.
-   - generate `services/api/openapi.json` from the canonical API source
+1. Fix OpenAPI export and generated-client derivation.
+   - treat backend route schemas in `services/api/src/routes/*` and Fastify/Zod registration as the canonical API contract source
+   - export `services/api/openapi.json` from the live Fastify OpenAPI document
    - regenerate `packages/api-client/generated/api.ts`
-   - remove placeholder path drift in `packages/api-client/src/client.ts`
-   - decide whether wrappers remain around the generated client or the generated client becomes primary
-   - confirm the generated client is the contract source used by later phases
+   - update `packages/api-client/src/index.ts` and `packages/api-client/src/client.ts` so exports and paths match the generated contract
+   - choose whether app code uses the generated client directly or a thin wrapper around it, but do not treat the generated client as the source of truth
 
-2. Realign `packages/mocks` to the live API base paths.
+2. Realign `packages/mocks` to the live API base paths and final feed contract.
    - fix base-path drift first
    - add or update handlers for feed variants
+   - define the exact backend query values for the final feed chips and remove stale feed values from mocks
    - add or update handlers for profile activity
    - add or update handlers for notifications
    - add or update handlers for leaderboard
    - add or update handlers for comments and guesses full-page routes
 
-3. Bring root scripts into compliance with `agent-rules/test-requirements.md`.
-   - `test:unit`
-   - `test:integration`
-   - `test:e2e:web`
-   - `test:e2e:mobile`
-   - `test:all`
-   - `test:e2e:mobile` must run a real mobile command, not an echo placeholder
+3. Bring root scripts into precise compliance with `agent-rules/test-requirements.md`.
+   - `test:unit` runs only unit suites and excludes backend integration and e2e
+   - `test:integration` runs backend integration tests from repo root
+   - `test:e2e:web` runs the root Playwright config
+   - `test:e2e:mobile` runs `maestro test apps/app/e2e/mobile/full-flow.yaml`
+   - `test:all` composes `test:unit`, `test:integration`, `test:e2e:web`, and `test:e2e:mobile`
+   - remove placeholder or misleading script behavior
+
+3A. Replace placeholder package tests or remove those packages from root verification until real checks exist.
+   - `packages/api-client`: add generation/export smoke coverage or type-level contract sanity tests
+   - `packages/mocks`: add handler wiring and route-alignment smoke tests
+   - `services/worker`: add at least a minimal smoke test, or explicitly exclude it from root `test:unit` until real tests exist
 
 4. Add deterministic visual fixtures.
    - fixed seed data
@@ -540,29 +549,67 @@ Tasks:
    - `apps/app/src/components/ui/BlurContainer.native.tsx`
    - `apps/app/src/components/ui/BlurContainer.web.tsx`
 
-3. Migrate icons from `@expo/vector-icons` to Lucide.
+3. Migrate icons from `@expo/vector-icons` to Phosphor (`phosphor-react-native` / `@phosphor-icons/react` for web).
 
-Primary mapping set:
+Phosphor icons support multiple weights: `thin`, `light`, `regular`, `bold`, `fill`, `duotone`. Default to `regular` for UI chrome and `bold` or `fill` for active/selected states.
 
-| Old | New |
-|-----|-----|
-| `heart-outline` | `Heart` |
-| `chatbubble-outline` | `MessageCircle` |
-| `close` / `close-circle` | `X` |
-| `search` | `Search` |
-| `location-outline` | `MapPin` |
-| `arrow-back` | `ChevronLeft` |
-| `share-social` | `Share2` |
-| `bookmark-outline` | `Bookmark` |
-| `person-outline` | `User` |
-| `send` | `Send` |
-| `eye-outline` | `Eye` |
-| `information-circle` | `Info` |
-| `trending-up` | `TrendingUp` |
-| `time-outline` | `Clock` |
-| `settings-outline` | `Settings` |
-| `log-out-outline` | `LogOut` |
-| `notifications-outline` | `Bell` |
+The pen file uses the `phosphor` icon font exclusively (54 unique icons, 8568 instances). The packages are `phosphor-react-native` (native) and `@phosphor-icons/react` (web).
+
+Primary mapping set (Ionicons/FontAwesome → Phosphor, verified against pen):
+
+| Old | Phosphor | Pen icon name |
+|-----|----------|---------------|
+| `heart-outline` | `Heart` (`fill` weight for active) | `heart` / `heart-fill` |
+| `chatbubble-outline` | `ChatCircle` | `chat-circle` |
+| `close` / `close-circle` | `X` | `x` |
+| `search` | `MagnifyingGlass` | `magnifying-glass` |
+| `location-outline` | `MapPin` | `map-pin` |
+| `arrow-back` | `CaretLeft` | `caret-left` |
+| `share-social` | `ShareNetwork` | `share-network` |
+| `bookmark-outline` | `BookmarkSimple` (`fill` weight for saved) | `bookmark-simple` |
+| `person-outline` | `User` | `user` |
+| `send` | `PaperPlaneTilt` | `paper-plane-tilt` |
+| `eye-outline` | `Eye` | `eye` |
+| `information-circle` | `Info` | `info` |
+| `trending-up` | `ChartLineUp` | `chart-line-up` |
+| `time-outline` / `calendar` | `Calendar` | `calendar` |
+| `log-out-outline` | `SignOut` | `sign-out` |
+| `notifications-outline` | `Bell` | `bell` |
+| `home` | `HouseLine` (`bold` weight for active tab) | `house-line-bold` |
+| `flame` | `Flame` | `flame` |
+| `star` | `Star` (`fill` weight for active) | `star` |
+| `list` | `List` | `list` |
+| `camera` | `Camera` | `camera` |
+| `plus` / `add` | `Plus` | `plus` |
+| `check` / `checkmark` | `Check` | `check` |
+| `warning` | `WarningCircle` | `warning-circle` |
+| `crown` | `Crown` | `crown` |
+| `trophy` | `Trophy` | `trophy` |
+
+Additional icons used in pen (no old equivalent — new for this sprint):
+
+| Phosphor | Pen icon name | Usage |
+|----------|---------------|-------|
+| `ArrowLeft` / `ArrowRight` | `arrow-left` / `arrow-right` | Back navigation, carousel arrows |
+| `ArrowSquareOut` | `arrow-square-out` | External link |
+| `Crosshair` | `crosshair` | Current-location button |
+| `DotsThreeVertical` | `dots-three-vertical` | Overflow/more menu |
+| `Envelope` | `envelope` | Email magic link auth |
+| `Tag` | `tag` | Price guess icon |
+| `Ruler` | `ruler` | Floor area metric |
+| `CurrencyEur` | `currency-eur` | Price/valuation |
+| `MapTrifold` | `map-trifold` (`bold` for active tab) | Map tab icon |
+| `Buildings` | `buildings` | Property/building context |
+| `Users` | `users` | Community/leaderboard |
+| `Medal` | `medal` | Achievement badge |
+| `ShieldCheck` | `shield-check` | Verified/trust badge |
+| `CheckCircle` | `check-circle` | Success/accurate state |
+| `CaretDown` / `CaretRight` | `caret-down` / `caret-right` | Dropdowns, expand/collapse |
+| `Globe` | `globe` | Country/international |
+| `Link` | `link` | URL/listing link |
+| `Thermometer` | `thermometer` | Activity level indicator |
+| `TrendDown` | `trend-down` | Price decrease indicator |
+| `ListBullets` | `list-bullets-bold` | Bullet list content |
 
 High-volume file targets include:
 
@@ -617,18 +664,22 @@ Tasks:
    - `apps/app/app/(tabs)/index.tsx`
    - `apps/app/app/(tabs)/index.web.tsx`
 
-2. Extract or align shared map interaction logic:
+2. Extract or align shared map interaction logic and state semantics, without collapsing the renderer shells into one implementation:
    - selection state
    - preview-group state
    - cluster paging
    - bottom-sheet state transitions
    - auth-gated action triggers
    - search-selection behavior
+   - keep separate platform renderer files:
+     - `apps/app/app/(tabs)/index.tsx`
+     - `apps/app/app/(tabs)/index.web.tsx`
 
 3. Define parity for events and state transitions:
    - same quick-action semantics
    - same preview persistence rules
    - same dismissal rules
+   - parity means shared behavior and event semantics, not a forced single-file map implementation
 
 4. Stabilize test IDs and selectors for map shell and preview interactions.
 
@@ -700,12 +751,14 @@ Tasks:
    - pointer triangle
    - stat pills
    - quick actions
-   - this becomes the shared single-property preview primitive/content used by both preview paths
+   - this becomes the shared single-property preview primitive/content used by both preview paths, not a separate runtime owner of map preview state
 
 2. Redesign the cluster preview card wrapper and paging model.
-   - `GroupPreviewCard` becomes the wrapper/composer around the shared single-property preview card
+   - `GroupPreviewCard` remains the canonical runtime owner/composer for geo-anchored map previews on both web and native
+   - single-property map previews should also flow through `GroupPreviewCard` when shown on-map
+   - `PropertyPreviewCard` may exist only as a presentational subcomponent or extracted content primitive if that reduces duplication
+   - do not reintroduce separate runtime preview ownership paths for `PropertyPreviewCard` and `GroupPreviewCard`
    - add cluster navigation, pagination, close controls, and map-specific affordances on top of the shared card
-   - avoid parallel redesign drift between `PropertyPreviewCard` and `GroupPreviewCard`
 
 3. Ensure quick-preview bottom sheet belongs to the same visual language as the full-page route.
 
@@ -780,11 +833,13 @@ Verification:
 
 Tasks:
 
-1. Redesign filter chips.
+1. Redesign and migrate feed filters.
    - `Trending`
    - `Latest`
    - `Recent Activity`
    - proper active and inactive states
+   - update the backend `/feed` contract, frontend `FeedFilter` type, hooks, mocks, Playwright, and Maestro in the same workstream
+   - remove `Controversial` and `Price Mismatch` from the canonical feed UI unless they are intentionally retained elsewhere
 
 2. Redesign property feed cards.
    - media header
@@ -813,8 +868,10 @@ Concrete file targets:
 
 Backend and data dependencies:
 
+- feed response and query contract must be updated to the final chip model before Phase 8 UI work is considered complete
 - feed response must include enough photo and metric data
 - activity feed response must exist
+- generated client, mocks, hooks, and tests must migrate together with the backend feed contract
 
 Verification:
 
@@ -923,8 +980,12 @@ Verification:
 
 Database:
 
-- new `notifications` table with user, actor, type, typed metadata, message, read state, and timestamps
-- index on user plus read plus created_at
+- new `notifications` table with `recipient_user_id`, `actor_user_id`, `event_type`, `property_id`, optional target ids (`comment_id`, `guess_id`, `reaction_id`), typed `payload` JSONB, `read_at`, and timestamps
+- do not persist final rendered localized notification text as the source of truth; derive display copy from `event_type + payload` at the API/client layer
+- if server-provided preview copy is needed, store a stable `message_key` plus template args rather than a localized message string
+- indexes:
+  - `(recipient_user_id, created_at DESC)`
+  - partial unread index on `(recipient_user_id, created_at DESC) WHERE read_at IS NULL`
 
 Routes:
 
@@ -952,7 +1013,9 @@ Response should include:
 
 - rankings
 - current user rank
-- featured property
+- optional `featuredProperty`
+- `featuredProperty` must be sourced from a deterministic scorer for the same requested period, based on weighted property engagement (`comments + guesses + property likes`)
+- if that scorer is not implemented in the same workstream, return `featuredProperty: null` and do not block leaderboard delivery on it
 
 ### 11C. Activity Event Surface
 
@@ -963,7 +1026,9 @@ Route:
 Requirements:
 
 - dedicated event surface rather than a feed algorithm branch
-- union across likes, comments, and guesses
+- include public social events only: property likes, comments, and price guesses
+- exclude saved/bookmark events from `GET /activity` because saves are private account state, not community activity
+- `GET /users/me/activity` may include private save events in addition to the public event types if the profile UX needs a full personal history
 - actor payload
 - property payload
 - timestamp
@@ -988,9 +1053,10 @@ Ambiguous naming across layers is not allowed to remain.
 
 Requirements:
 
-- shared schema
-- deterministic rule calculation
-- API delivery
+- shared achievement registry module with stable `achievement_key`, name, description, icon, and rule definition
+- persistence via `user_achievements` table with `user_id`, `achievement_key`, `awarded_at`, optional source event references, and `UNIQUE(user_id, achievement_key)`
+- deterministic award service that evaluates rules and records unlocks
+- API delivery that merges registry metadata with per-user unlock state
 
 ### 11G. Email Auth
 
@@ -1013,14 +1079,16 @@ Enable if needed for correctness:
 
 Contract rule:
 
-- OpenAPI, generated client, mocks, and integration tests are updated in the same workstream, not after.
-- activity, notification, and push-delivery contracts are updated before the related UI phases proceed.
+- backend route schemas are canonical; OpenAPI export, generated client, mocks, and integration tests are updated in the same workstream, not after.
+- activity, notification, push-delivery, and feed-filter contract migrations are updated before the related UI phases proceed.
 
 Likely backend file targets:
 
-- migrations under `services/api/src/db/migrations/`
-- routes for notifications, leaderboard, email auth, and users
-- services for notifications, push, email, achievements, and feed activity logic
+- migrations under `services/api/drizzle/`
+- route files under `services/api/src/routes/`
+- services under `services/api/src/services/`
+- shared contract updates in `packages/shared/` and `packages/api-client/`
+- services for notifications, push, email, achievements, and activity event logic
 
 Verification:
 
@@ -1031,11 +1099,11 @@ Verification:
 
 ## Phase 12: Full-Screen Property, Comments, And Guesses Routes
 
-**Goal**: Ship the full-depth routes that correspond to the final design while preserving coherence with quick-preview.
+**Goal**: Ship the one canonical full property page and its related routes while preserving coherence with quick-preview.
 
 Tasks:
 
-1. Redesign `/property/[id]` as the full scroll page.
+1. Redesign `/property/[id]` as the single canonical full scroll property page.
    - hero media
    - detail sections
    - crowd estimate
@@ -1043,6 +1111,8 @@ Tasks:
    - comments preview
    - guesses entry point
    - action row
+   - reuse the same property-detail content module used in the portrait bottom sheet and landscape side panel
+   - keep container-specific chrome only; do not create parallel full-page vs bottom-sheet detail implementations
 
 2. Build `/comments/[propertyId]`.
    - header
@@ -1067,6 +1137,8 @@ Tasks:
    - property detail internal CTAs
 
 5. Reuse shared modules from phase 7 instead of reimplementing them.
+   - the full property page, portrait bottom sheet, and landscape side panel all consume the same property-detail content system
+   - bottom sheet and side panel remain quick-preview containers/presentations of that shared content system
 
 Concrete file targets:
 
@@ -1083,6 +1155,7 @@ Verification:
   - `12. Comments Page.jpg`
 - web and Android screenshots
 - wide-web screenshots
+- no parallel property-detail container diverges in content semantics
 
 ## Phase 13: Route Consolidation And Product-Surface Cleanup
 
@@ -1091,8 +1164,9 @@ Verification:
 Tasks:
 
 1. Resolve `app/[...address].tsx`.
-   - convert to redirect or resolver into canonical routes
+   - convert to a redirect or resolver into canonical routes, with `/property/[id]` as the canonical full-page property route if the resolver remains
    - or remove it if obsolete
+   - do not allow `[...address]` to become a second property-detail implementation
 
 2. Remove placeholder city or postcode branches if they are not part of the final vision.
 
