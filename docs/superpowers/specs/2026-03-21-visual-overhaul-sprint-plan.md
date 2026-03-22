@@ -303,6 +303,7 @@ Then:
 
 Key dependency notes:
 
+- UI phases do not start until Phase 0 contract freeze and Phase 1 tooling hardening are complete.
 - `NotificationBell` belongs in primitives, not late-stage screen work.
 - Preview overlays and quick-preview parity depend on map controller parity plus shell work.
 - Property, comments, and guesses routes depend on shared property modules.
@@ -317,9 +318,15 @@ Tasks:
 
 1. Approve this merged plan as the active execution artifact.
 2. Freeze the canonical screen list and component-acceptance list from pen exports.
-3. Record the resolved decisions above.
-4. Create top-level tasks for all phases and sub-teams.
-5. Establish artifact conventions:
+3. Freeze the backend and client contract ownership model before UI work begins.
+   - auth contract ownership
+   - feed contract ownership
+   - reactions versus saves ownership
+   - karma tier ownership
+   - generated client ownership
+4. Record the resolved decisions above.
+5. Create top-level tasks for all phases and sub-teams.
+6. Establish artifact conventions:
    - `test-results/visual-overhaul/<surface>/web/*.png`
    - `test-results/visual-overhaul/<surface>/android/*.png`
    - `test-results/visual-overhaul/<surface>/notes.md`
@@ -328,25 +335,28 @@ Verification:
 
 - task graph exists
 - each visual target has an owner
+- contract owners are named for auth, feed, reactions/saves, karma tiers, and generated client output
 
 ## Phase 1: Contract, Tooling, And Verification Hardening
 
-**Goal**: Make the repo safe for parallel UI and backend work and compliant with project test rules.
+**Goal**: Repair the broken contract and verification pipeline first so every later phase can depend on it.
 
 Tasks:
 
-1. Fix OpenAPI contract generation and consumption.
-   - generate `services/api/openapi.json`
+1. Fix OpenAPI export and generated client ownership.
+   - generate `services/api/openapi.json` from the canonical API source
    - regenerate `packages/api-client/generated/api.ts`
    - remove placeholder path drift in `packages/api-client/src/client.ts`
    - decide whether wrappers remain around the generated client or the generated client becomes primary
+   - confirm the generated client is the contract source used by later phases
 
-2. Expand `packages/mocks`.
-   - add handlers for feed variants
-   - add handlers for profile activity
-   - add handlers for notifications
-   - add handlers for leaderboard
-   - add handlers for comments and guesses full-page routes
+2. Realign `packages/mocks` to the live API base paths.
+   - fix base-path drift first
+   - add or update handlers for feed variants
+   - add or update handlers for profile activity
+   - add or update handlers for notifications
+   - add or update handlers for leaderboard
+   - add or update handlers for comments and guesses full-page routes
 
 3. Bring root scripts into compliance with `agent-rules/test-requirements.md`.
    - `test:unit`
@@ -384,6 +394,7 @@ Verification:
 - `pnpm test:e2e:mobile` runs real mobile automation
 - generated client matches live API paths
 - mocks cover all new surfaces
+- phase 2 and later can rely on the contract and verification pipeline without temporary shims
 
 ## Phase 2: Style Normalization And Brand Token Foundation
 
@@ -912,7 +923,7 @@ Verification:
 
 Database:
 
-- new `notifications` table with user, actor, type, property, target metadata, message, read state, and timestamps
+- new `notifications` table with user, actor, type, typed metadata, message, read state, and timestamps
 - index on user plus read plus created_at
 
 Routes:
@@ -924,8 +935,8 @@ Routes:
 
 Delivery:
 
-- add `push_token` storage to users
-- register push token from app
+- add device-scoped push token storage
+- register push token from app against a device record, not a single user field
 - send push via Expo server SDK when appropriate
 - include deep-link metadata for navigation
 
@@ -943,14 +954,15 @@ Response should include:
 - current user rank
 - featured property
 
-### 11C. Activity Feed
+### 11C. Activity Event Surface
 
 Route:
 
-- `GET /feed?algorithm=activity`
+- `GET /activity`
 
 Requirements:
 
+- dedicated event surface rather than a feed algorithm branch
 - union across likes, comments, and guesses
 - actor payload
 - property payload
@@ -1002,6 +1014,7 @@ Enable if needed for correctness:
 Contract rule:
 
 - OpenAPI, generated client, mocks, and integration tests are updated in the same workstream, not after.
+- activity, notification, and push-delivery contracts are updated before the related UI phases proceed.
 
 Likely backend file targets:
 
