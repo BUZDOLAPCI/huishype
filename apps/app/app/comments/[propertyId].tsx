@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
+import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
 import { CommentCell, type CommentData as CommentCellData } from '@/src/components/CommentCell';
 import { CommentInput } from '@/src/components/CommentInput';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -194,16 +195,17 @@ export default function CommentsPage() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
-      >
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.headerBackButton}
+      <ResponsivePanel title="Comments">
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
+        >
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
+            <Pressable
+              onPress={() => router.back()}
+              style={styles.headerBackButton}
             testID="comments-back-button"
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -257,6 +259,7 @@ export default function CommentsPage() {
                   variant="full"
                   onLike={handleLike}
                   onReply={handleReply}
+                  likedCommentIds={likedComments}
                 />
               </View>
             )}
@@ -294,8 +297,9 @@ export default function CommentsPage() {
             currentUsername={user?.username}
             variant="full"
           />
-        </View>
-      </KeyboardAvoidingView>
+          </View>
+        </KeyboardAvoidingView>
+      </ResponsivePanel>
 
       <AuthModal
         visible={showAuthModal}

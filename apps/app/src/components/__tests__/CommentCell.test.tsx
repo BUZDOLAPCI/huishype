@@ -137,4 +137,45 @@ describe('CommentCell', () => {
     render(<CommentCell comment={noDisplayName} />);
     expect(screen.getByText('MarcoV')).toBeTruthy();
   });
+
+  it('renders reply liked state from likedCommentIds prop', () => {
+    const likedIds = new Set(['reply-1']);
+    render(
+      <CommentCell
+        comment={mockComment}
+        likedCommentIds={likedIds}
+        onLike={jest.fn()}
+      />
+    );
+    // Expand replies
+    fireEvent.press(screen.getByTestId('view-replies-button'));
+    // The reply's like button should show 'Unlike' (liked state)
+    const likeButtons = screen.getAllByTestId('comment-like-button');
+    // First is parent (not liked), second is reply (liked)
+    expect(likeButtons[0]).toHaveAccessibilityValue({});
+    expect(likeButtons[1].props.accessibilityLabel).toBe('Unlike');
+  });
+
+  it('renders parent liked state from likedCommentIds prop', () => {
+    const likedIds = new Set(['comment-1']);
+    render(
+      <CommentCell
+        comment={mockComment}
+        likedCommentIds={likedIds}
+        onLike={jest.fn()}
+      />
+    );
+    const likeButton = screen.getAllByTestId('comment-like-button')[0];
+    expect(likeButton.props.accessibilityLabel).toBe('Unlike');
+  });
+
+  it('uses comment.isLiked when likedCommentIds not provided', () => {
+    const likedComment: CommentData = {
+      ...mockComment,
+      isLiked: true,
+    };
+    render(<CommentCell comment={likedComment} onLike={jest.fn()} />);
+    const likeButton = screen.getAllByTestId('comment-like-button')[0];
+    expect(likeButton.props.accessibilityLabel).toBe('Unlike');
+  });
 });

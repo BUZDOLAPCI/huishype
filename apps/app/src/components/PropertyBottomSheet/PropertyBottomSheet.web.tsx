@@ -24,6 +24,7 @@ import { Icon } from '../ui/Icon';
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
+import { useIsLandscape } from '../../hooks/useIsLandscape';
 
 type SheetState = 'closed' | 'peek' | 'partial' | 'full';
 
@@ -42,25 +43,6 @@ function stateToIndex(state: SheetState): number {
     case 'partial': return 1;
     case 'full': return 2;
   }
-}
-
-/** Detect landscape orientation on web via window dimensions */
-function useIsLandscape(): boolean {
-  const [isLandscape, setIsLandscape] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return window.innerWidth > window.innerHeight;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleResize = () => {
-      setIsLandscape(window.innerWidth > window.innerHeight);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  return isLandscape;
 }
 
 // CSS for both panel modes — injected once into <head>

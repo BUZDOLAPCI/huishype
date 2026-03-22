@@ -27,6 +27,8 @@ export interface CommentProps {
   onReply: (commentId: string, username: string) => void;
   isReply?: boolean;
   isLiked?: boolean;
+  /** Set of comment IDs the current user has liked. Used to resolve liked state for replies. */
+  likedCommentIds?: Set<string>;
 }
 
 /**
@@ -113,6 +115,7 @@ export function Comment({
   onReply,
   isReply = false,
   isLiked = false,
+  likedCommentIds,
 }: CommentProps) {
   const [localIsLiked, setLocalIsLiked] = useState(isLiked);
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -232,7 +235,8 @@ export function Comment({
               onLike={onLike}
               onReply={onReply}
               isReply
-              isLiked={false} // TODO: Track liked state for replies
+              isLiked={likedCommentIds ? likedCommentIds.has(reply.id) : false}
+              likedCommentIds={likedCommentIds}
             />
           ))}
         </View>

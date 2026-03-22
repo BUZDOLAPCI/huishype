@@ -18,10 +18,12 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import { useIsLandscape } from '@/src/hooks/useIsLandscape';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
+import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
 import { FMVVisualization, type FMVData } from '@/src/components/FMVVisualization';
 import { PriceGuessSlider } from '@/src/components/PriceGuessSlider';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -219,6 +221,7 @@ export default function GuessesPage() {
   const { propertyId } = useLocalSearchParams<{ propertyId: string }>();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
+  const isLandscape = useIsLandscape();
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSlider, setShowSlider] = useState(false);
@@ -316,20 +319,23 @@ export default function GuessesPage() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.headerBackButton}
-            testID="guesses-back-button"
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Icon name="ArrowLeft" size={20} color="#504A42" />
-          </Pressable>
-          <Text style={styles.headerTitle}>Price Guesses</Text>
-        </View>
+      <ResponsivePanel title="Price Guesses">
+        <View style={styles.container}>
+          {/* Header — hidden in landscape since ResponsivePanel already shows the title */}
+          {!isLandscape && (
+            <View style={[styles.header, { paddingTop: topInset + 8 }]}>
+              <Pressable
+                onPress={() => router.back()}
+                style={styles.headerBackButton}
+                testID="guesses-back-button"
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+              >
+                <Icon name="ArrowLeft" size={20} color="#504A42" />
+              </Pressable>
+              <Text style={styles.headerTitle}>Price Guesses</Text>
+            </View>
+          )}
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -462,8 +468,9 @@ export default function GuessesPage() {
               <Text style={styles.ctaButtonText}>Make Your Guess</Text>
             </Pressable>
           </View>
-        )}
-      </View>
+          )}
+        </View>
+      </ResponsivePanel>
 
       <AuthModal
         visible={showAuthModal}

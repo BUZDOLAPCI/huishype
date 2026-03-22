@@ -573,6 +573,34 @@ describe('useMapInteraction', () => {
     });
   });
 
+  describe('quick-action navigation handlers', () => {
+    it('handleGuessPress navigates to /guesses/:propertyId', () => {
+      const { router } = require('expo-router');
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleGuessPress('prop-123');
+      });
+
+      expect(router.push).toHaveBeenCalledWith('/guesses/prop-123');
+    });
+
+    it('handleCommentPress navigates to /comments/:propertyId', () => {
+      const { router } = require('expo-router');
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleCommentPress('prop-456');
+      });
+
+      expect(router.push).toHaveBeenCalledWith('/comments/prop-456');
+    });
+  });
+
   describe('toGroupProperty', () => {
     it('converts a property-like object to GroupPreviewProperty', () => {
       const { result } = renderHook(() => useMapInteraction(), {

@@ -8,6 +8,7 @@
  * Platform renderers remain separate — this hook owns only the interaction model.
  */
 import { useRef, useCallback, useState, useEffect } from 'react';
+import { router } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -249,12 +250,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleGuessPress = useCallback((_propertyId: string) => {
-    // TODO: Open full guess modal
+  const handleGuessPress = useCallback((propertyId: string) => {
+    router.push(`/guesses/${propertyId}`);
   }, []);
 
-  const handleCommentPress = useCallback((_propertyId: string) => {
-    // TODO: Open comments section
+  const handleCommentPress = useCallback((propertyId: string) => {
+    router.push(`/comments/${propertyId}`);
   }, []);
 
   // ── Preview card interaction handlers ───────────────────────

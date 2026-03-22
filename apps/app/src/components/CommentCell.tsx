@@ -44,6 +44,8 @@ export interface CommentCellProps {
   onReply?: (commentId: string) => void;
   /** Called when "View N replies" is pressed. */
   onExpandReplies?: (commentId: string) => void;
+  /** Set of comment IDs the current user has liked. Overrides comment.isLiked when provided. */
+  likedCommentIds?: Set<string>;
   testID?: string;
 }
 
@@ -54,10 +56,12 @@ export function CommentCell({
   onLike,
   onReply,
   onExpandReplies,
+  likedCommentIds,
   testID,
 }: CommentCellProps) {
   const [showReplies, setShowReplies] = useState(false);
   const avatarSize: AvatarSize = isReply ? 'sm' : 'md';
+  const isLiked = likedCommentIds ? likedCommentIds.has(comment.id) : !!comment.isLiked;
 
   const handleToggleReplies = () => {
     if (onExpandReplies) {
@@ -109,19 +113,19 @@ export function CommentCell({
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             testID="comment-like-button"
             accessibilityRole="button"
-            accessibilityLabel={comment.isLiked ? 'Unlike' : 'Like'}
+            accessibilityLabel={isLiked ? 'Unlike' : 'Like'}
           >
             <Icon
               name="Heart"
               size="sm"
-              weight={comment.isLiked ? 'fill' : 'regular'}
-              color={comment.isLiked ? '#FF6B35' : '#9C958A'}
+              weight={isLiked ? 'fill' : 'regular'}
+              color={isLiked ? '#FF6B35' : '#9C958A'}
             />
             {comment.likeCount > 0 && (
               <Text
                 style={[
                   styles.actionCount,
-                  { color: comment.isLiked ? '#FF6B35' : '#9C958A' },
+                  { color: isLiked ? '#FF6B35' : '#9C958A' },
                 ]}
               >
                 {comment.likeCount}
@@ -171,6 +175,7 @@ export function CommentCell({
                 isReply
                 onLike={onLike}
                 onReply={onReply}
+                likedCommentIds={likedCommentIds}
               />
             ))}
           </>

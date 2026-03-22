@@ -30,10 +30,22 @@ const leaderboardEntrySchema = z.object({
   likeCount: z.number(),
 });
 
+const featuredPropertySchema = z.object({
+  id: z.string().uuid(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  countryCode: z.string(),
+  officialValuation: z.number().nullable(),
+  commentCount: z.number(),
+  likeCount: z.number(),
+  engagementScore: z.number(),
+}).nullable();
+
 const leaderboardResponseSchema = z.object({
   rankings: z.array(leaderboardEntrySchema),
   currentUserRank: leaderboardEntrySchema.nullable(),
-  featuredProperty: z.record(z.string(), z.any()).nullable(),
+  featuredProperty: featuredPropertySchema,
   period: z.enum(['week', 'month', 'all']),
 });
 
@@ -319,10 +331,76 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // TODO: Replace basic engagement scorer (comments + likes) with weighted
+      // algorithm factoring guess spread, view velocity, and recency decay
+      const featuredQuery = sql`
+        SELECT
+          p.id,
+          p.street || ' ' || p.house_number ||
+            CASE
+              WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
+              WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
+              ELSE '-' || p.house_number_addition
+            END AS address,
+          p.city,
+          p.postal_code,
+          p.country_code,
+          p.official_valuation,
+          COALESCE(c.cnt, 0)::int AS comment_count,
+          COALESCE(r.cnt, 0)::int AS like_count,
+          (COALESCE(c.cnt, 0) + COALESCE(r.cnt, 0))::int AS engagement_score
+        FROM properties p
+        LEFT JOIN (
+          SELECT sub.property_id, COUNT(*)::int AS cnt
+          FROM comments sub
+          WHERE 1=1 ${timeCondition}
+          GROUP BY sub.property_id
+        ) c ON c.property_id = p.id
+        LEFT JOIN (
+          SELECT sub.target_id AS property_id, COUNT(*)::int AS cnt
+          FROM reactions sub
+          WHERE sub.target_type = 'property' AND sub.reaction_type = 'like'
+            ${timeCondition}
+          GROUP BY sub.target_id
+        ) r ON r.property_id = p.id
+        WHERE COALESCE(c.cnt, 0) + COALESCE(r.cnt, 0) > 0
+        ORDER BY engagement_score DESC
+        LIMIT 1
+      `;
+
+      const featuredRows = await db.execute<{
+        id: string;
+        address: string;
+        city: string;
+        postal_code: string | null;
+        country_code: string;
+        official_valuation: number | null;
+        comment_count: number;
+        like_count: number;
+        engagement_score: number;
+      }>(featuredQuery);
+
+      const featuredRow = Array.from(featuredRows)[0];
+      const featuredProperty = featuredRow
+        ? {
+            id: featuredRow.id,
+            address: featuredRow.address,
+            city: featuredRow.city,
+            postalCode: featuredRow.postal_code,
+            countryCode: featuredRow.country_code,
+            officialValuation: featuredRow.official_valuation != null
+              ? Number(featuredRow.official_valuation)
+              : null,
+            commentCount: Number(featuredRow.comment_count),
+            likeCount: Number(featuredRow.like_count),
+            engagementScore: Number(featuredRow.engagement_score),
+          }
+        : null;
+
       return {
         rankings,
         currentUserRank,
-        featuredProperty: null, // Scorer not implemented in this workstream
+        featuredProperty,
         period,
       };
     }
