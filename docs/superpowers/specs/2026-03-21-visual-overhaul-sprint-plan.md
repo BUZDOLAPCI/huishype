@@ -689,8 +689,12 @@ Tasks:
    - pointer triangle
    - stat pills
    - quick actions
+   - this becomes the shared single-property preview primitive/content used by both preview paths
 
 2. Redesign the cluster preview card wrapper and paging model.
+   - `GroupPreviewCard` becomes the wrapper/composer around the shared single-property preview card
+   - add cluster navigation, pagination, close controls, and map-specific affordances on top of the shared card
+   - avoid parallel redesign drift between `PropertyPreviewCard` and `GroupPreviewCard`
 
 3. Ensure quick-preview bottom sheet belongs to the same visual language as the full-page route.
 
@@ -752,6 +756,7 @@ Tasks:
 5. Introduce achievement domain model and shared types from backend or shared package, not local UI constants.
 
 6. Prepare modules for both quick-preview and full-screen contexts.
+   - shared preview primitive lands before final cluster wrapper polish
 
 Verification:
 

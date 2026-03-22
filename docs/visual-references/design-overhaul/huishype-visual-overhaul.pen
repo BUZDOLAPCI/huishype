@@ -166,8 +166,8 @@
               "name": "locIcon",
               "width": 22,
               "height": 22,
-              "iconFontName": "locate",
-              "iconFontFamily": "lucide",
+              "iconFontName": "crosshair",
+              "iconFontFamily": "phosphor",
               "fill": "$warm-700"
             }
           ]
@@ -220,8 +220,8 @@
                   "name": "w1",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -231,7 +231,7 @@
                   "width": 18,
                   "height": 18,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -363,8 +363,8 @@
                   "name": "sIcn",
                   "width": 18,
                   "height": 18,
-                  "iconFontName": "search",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "magnifying-glass",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-400"
                 },
                 {
@@ -447,8 +447,8 @@
                       "name": "t1ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold-bold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -482,8 +482,8 @@
                       "name": "t2ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "list-bullets-bold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -517,8 +517,8 @@
                       "name": "t3ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -553,7 +553,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -639,8 +639,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -650,7 +650,7 @@
                   "width": 18,
                   "height": 18,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -706,7 +706,7 @@
                       "width": 22,
                       "height": 22,
                       "iconFontName": "bell",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     },
                     {
@@ -967,7 +967,7 @@
                               "width": 12,
                               "height": 12,
                               "iconFontName": "flame",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$white"
                             },
                             {
@@ -1015,8 +1015,8 @@
                               "name": "fmvIcon",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "house",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "house-line-bold",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             },
                             {
@@ -1088,7 +1088,7 @@
                                   "width": 14,
                                   "height": 14,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#E91E63"
                                 },
                                 {
@@ -1124,8 +1124,8 @@
                                   "name": "commentIcon",
                                   "width": 14,
                                   "height": 14,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#1E88E5"
                                 },
                                 {
@@ -1162,7 +1162,7 @@
                                   "width": 14,
                                   "height": 14,
                                   "iconFontName": "tag",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#4CAF50"
                                 },
                                 {
@@ -1199,7 +1199,7 @@
                                   "width": 14,
                                   "height": 14,
                                   "iconFontName": "eye",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -1278,8 +1278,8 @@
                       "name": "mapIcon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -1315,7 +1315,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -1349,8 +1349,8 @@
                       "name": "savedIcon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -1385,7 +1385,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -1458,8 +1458,8 @@
                   "name": "signalIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -1468,8 +1468,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -1479,7 +1479,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -1557,7 +1557,7 @@
                       "width": 22,
                       "height": 22,
                       "iconFontName": "bell",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     },
                     {
@@ -1686,7 +1686,7 @@
                               "width": 12,
                               "height": 12,
                               "iconFontName": "flame",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$white"
                             },
                             {
@@ -1734,8 +1734,8 @@
                               "name": "houseIcon",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "house",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "house-line-bold",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             },
                             {
@@ -1806,7 +1806,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#E91E63"
                                 },
                                 {
@@ -1842,8 +1842,8 @@
                                   "name": "i1b",
                                   "width": 16,
                                   "height": 16,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#1E88E5"
                                 },
                                 {
@@ -1880,7 +1880,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "tag",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#4CAF50"
                                 },
                                 {
@@ -1917,7 +1917,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "eye",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -2050,7 +2050,7 @@
                               "width": 12,
                               "height": 12,
                               "iconFontName": "thermometer",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$white"
                             },
                             {
@@ -2098,8 +2098,8 @@
                               "name": "houseIcon",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "house",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "house-line-bold",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             },
                             {
@@ -2170,7 +2170,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#E91E63"
                                 },
                                 {
@@ -2206,8 +2206,8 @@
                                   "name": "i2b",
                                   "width": 16,
                                   "height": 16,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#1E88E5"
                                 },
                                 {
@@ -2244,7 +2244,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "tag",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#4CAF50"
                                 },
                                 {
@@ -2281,7 +2281,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "eye",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -2400,8 +2400,8 @@
                           "name": "bkmkIcon",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "bookmark",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "bookmark-simple",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-400"
                         }
                       ]
@@ -2437,8 +2437,8 @@
                               "name": "houseIcon",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "house",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "house-line-bold",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             },
                             {
@@ -2509,7 +2509,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#E91E63"
                                 },
                                 {
@@ -2545,8 +2545,8 @@
                                   "name": "i3b",
                                   "width": 16,
                                   "height": 16,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#1E88E5"
                                 },
                                 {
@@ -2583,7 +2583,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "tag",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#4CAF50"
                                 },
                                 {
@@ -2620,7 +2620,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "eye",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -2692,8 +2692,8 @@
                       "name": "tab1Icn",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -2728,7 +2728,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -2763,8 +2763,8 @@
                       "name": "tab3Icn",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -2799,7 +2799,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -2870,8 +2870,8 @@
                   "name": "sig1",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -2880,8 +2880,8 @@
                   "name": "sig2",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -2891,7 +2891,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -2950,7 +2950,7 @@
                       "width": 22,
                       "height": 22,
                       "iconFontName": "bell",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     },
                     {
@@ -2982,8 +2982,8 @@
                       "name": "dotsIcon",
                       "width": 20,
                       "height": 20,
-                      "iconFontName": "ellipsis-vertical",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "dots-three-vertical",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-500"
                     }
                   ]
@@ -3008,7 +3008,7 @@
                   "width": 32,
                   "height": 32,
                   "iconFontName": "user",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$white"
                 }
               ]
@@ -3042,8 +3042,8 @@
                   "name": "badgeIcon",
                   "width": 14,
                   "height": 14,
-                  "iconFontName": "award",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "medal",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-700"
                 },
                 {
@@ -3300,7 +3300,7 @@
                               "width": 24,
                               "height": 24,
                               "iconFontName": "trophy",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             }
                           ]
@@ -3343,7 +3343,7 @@
                               "width": 24,
                               "height": 24,
                               "iconFontName": "flame",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             }
                           ]
@@ -3385,8 +3385,8 @@
                               "name": "i3",
                               "width": 24,
                               "height": 24,
-                              "iconFontName": "target",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "crosshair",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             }
                           ]
@@ -3429,7 +3429,7 @@
                               "width": 24,
                               "height": 24,
                               "iconFontName": "globe",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-500"
                             }
                           ]
@@ -3484,8 +3484,8 @@
                       "name": "ic1",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "message-circle",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "chat-circle",
+                      "iconFontFamily": "phosphor",
                       "fill": "$gold-500"
                     },
                     {
@@ -3516,8 +3516,8 @@
                       "name": "ch1",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "chevron-right",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "caret-right",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-300"
                     }
                   ]
@@ -3539,7 +3539,7 @@
                       "width": 14,
                       "height": 14,
                       "iconFontName": "heart",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$gold-500"
                     },
                     {
@@ -3570,8 +3570,8 @@
                       "name": "ch2",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "chevron-right",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "caret-right",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-300"
                     }
                   ]
@@ -3592,8 +3592,8 @@
                       "name": "ic3",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "target",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "crosshair",
+                      "iconFontFamily": "phosphor",
                       "fill": "$gold-500"
                     },
                     {
@@ -3624,8 +3624,8 @@
                       "name": "ch3",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "chevron-right",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "caret-right",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-300"
                     }
                   ]
@@ -3647,7 +3647,7 @@
                       "width": 14,
                       "height": 14,
                       "iconFontName": "eye",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$gold-500"
                     },
                     {
@@ -3678,8 +3678,8 @@
                       "name": "ch4",
                       "width": 14,
                       "height": 14,
-                      "iconFontName": "chevron-right",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "caret-right",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-300"
                     }
                   ]
@@ -3743,8 +3743,8 @@
                       "name": "tab1Icon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -3779,7 +3779,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -3813,8 +3813,8 @@
                       "name": "tab3Icon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -3850,7 +3850,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -3929,8 +3929,8 @@
                   "name": "signOutIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "log-out",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "sign-out",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-600"
                 },
                 {
@@ -4054,8 +4054,8 @@
                       "name": "t1ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -4090,7 +4090,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4124,8 +4124,8 @@
                       "name": "t3ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4160,7 +4160,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4262,7 +4262,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "x",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#71717A"
                         }
                       ]
@@ -4434,7 +4434,8 @@
                           "fill": "#9C958A",
                           "content": "or",
                           "fontFamily": "Inter",
-                          "fontSize": 13
+                          "fontSize": 13,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "rectangle",
@@ -4469,8 +4470,8 @@
                           "name": "devIcon",
                           "width": 16,
                           "height": 16,
-                          "iconFontName": "mail",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "envelope",
+                          "iconFontFamily": "phosphor",
                           "fill": "#B47712"
                         },
                         {
@@ -4583,8 +4584,8 @@
                       "name": "t1ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -4619,7 +4620,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4653,8 +4654,8 @@
                       "name": "t3ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4689,7 +4690,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -4791,7 +4792,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "x",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#71717A"
                         }
                       ]
@@ -4963,7 +4964,8 @@
                           "fill": "#9C958A",
                           "content": "or",
                           "fontFamily": "Inter",
-                          "fontSize": 13
+                          "fontSize": 13,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "rectangle",
@@ -4998,8 +5000,8 @@
                           "name": "devIcon",
                           "width": 16,
                           "height": 16,
-                          "iconFontName": "mail",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "envelope",
+                          "iconFontFamily": "phosphor",
                           "fill": "#B47712"
                         },
                         {
@@ -5112,8 +5114,8 @@
                       "name": "t1ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -5148,7 +5150,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -5182,8 +5184,8 @@
                       "name": "t3ai",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -5218,7 +5220,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -5320,7 +5322,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "x",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#71717A"
                         }
                       ]
@@ -5487,7 +5489,8 @@
                           "fill": "#9C958A",
                           "content": "or",
                           "fontFamily": "Inter",
-                          "fontSize": 13
+                          "fontSize": 13,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "rectangle",
@@ -5522,8 +5525,8 @@
                           "name": "devIcon",
                           "width": 16,
                           "height": 16,
-                          "iconFontName": "mail",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "envelope",
+                          "iconFontFamily": "phosphor",
                           "fill": "#B47712"
                         },
                         {
@@ -5592,8 +5595,8 @@
                   "name": "w1",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "#FFFFFF"
                 },
                 {
@@ -5603,7 +5606,7 @@
                   "width": 18,
                   "height": 18,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "#FFFFFF"
                 }
               ]
@@ -5754,8 +5757,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -5765,7 +5768,7 @@
                   "width": 18,
                   "height": 18,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -5887,8 +5890,8 @@
                   "name": "sIcon",
                   "width": 18,
                   "height": 18,
-                  "iconFontName": "search",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "magnifying-glass",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -5910,7 +5913,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "x",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-400"
                 }
               ]
@@ -5970,7 +5973,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "map-pin",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -6032,7 +6035,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "map-pin",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -6094,7 +6097,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "map-pin",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -6156,7 +6159,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "map-pin",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -6218,7 +6221,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "map-pin",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -6319,8 +6322,8 @@
                       "name": "t1i",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -6355,7 +6358,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -6389,8 +6392,8 @@
                       "name": "t3i",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -6425,7 +6428,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -6496,8 +6499,8 @@
                   "name": "sigIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -6506,8 +6509,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -6517,7 +6520,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -6573,7 +6576,7 @@
                       "width": 22,
                       "height": 22,
                       "iconFontName": "bell",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     },
                     {
@@ -6880,7 +6883,7 @@
                               "width": 14,
                               "height": 14,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#E53935"
                             },
                             {
@@ -6918,7 +6921,7 @@
                               "width": 15,
                               "height": 15,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$warm-400"
                             },
                             {
@@ -6946,8 +6949,8 @@
                               "name": "cmIc1",
                               "width": 15,
                               "height": 15,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "$info-blue"
                             },
                             {
@@ -7117,8 +7120,8 @@
                               "name": "bIcon2",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "\\$gold-700"
                             },
                             {
@@ -7182,7 +7185,7 @@
                               "width": 15,
                               "height": 15,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$warm-400"
                             },
                             {
@@ -7210,8 +7213,8 @@
                               "name": "cmIc2",
                               "width": 15,
                               "height": 15,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "$info-blue"
                             },
                             {
@@ -7382,7 +7385,7 @@
                               "width": 14,
                               "height": 14,
                               "iconFontName": "tag",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$gold-600"
                             },
                             {
@@ -7419,8 +7422,8 @@
                           "name": "prIc",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "euro",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "currency-eur",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-600"
                         },
                         {
@@ -7456,7 +7459,7 @@
                               "width": 15,
                               "height": 15,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$warm-400"
                             },
                             {
@@ -7484,8 +7487,8 @@
                               "name": "cmIc3",
                               "width": 15,
                               "height": 15,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "$info-blue"
                             },
                             {
@@ -7566,8 +7569,8 @@
                       "name": "t1Ic",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "map",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "map-trifold",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -7603,7 +7606,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "list",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$white"
                     },
                     {
@@ -7637,8 +7640,8 @@
                       "name": "t3Ic",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -7673,7 +7676,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "user",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -7698,8 +7701,8 @@
     {
       "type": "frame",
       "id": "idfEl",
-      "x": 868,
-      "y": 965,
+      "x": 917,
+      "y": 962,
       "name": "12. Comments Page",
       "clip": true,
       "width": 402,
@@ -7746,8 +7749,8 @@
                   "name": "sigIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -7756,8 +7759,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -7767,7 +7770,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -7804,7 +7807,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "arrow-left",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-800"
                 }
               ]
@@ -8285,7 +8288,7 @@
                                       "width": 18,
                                       "height": 18,
                                       "iconFontName": "heart",
-                                      "iconFontFamily": "lucide",
+                                      "iconFontFamily": "phosphor",
                                       "fill": "$warm-400"
                                     },
                                     {
@@ -8601,7 +8604,7 @@
                               "width": 18,
                               "height": 18,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$warm-400"
                             },
                             {
@@ -8649,8 +8652,8 @@
                           "name": "vrChevron",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "chevron-down",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "caret-down",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-600"
                         }
                       ]
@@ -8854,8 +8857,8 @@
                           "name": "viewArrow3",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "chevron-down",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "caret-down",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-600"
                         }
                       ]
@@ -8959,8 +8962,8 @@
                   "name": "sendIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "send",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "paper-plane-tilt",
+                  "iconFontFamily": "phosphor",
                   "fill": "$white"
                 }
               ]
@@ -9018,8 +9021,8 @@
                   "name": "sigIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -9028,8 +9031,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -9039,7 +9042,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -9077,7 +9080,7 @@
                   "width": 20,
                   "height": 20,
                   "iconFontName": "arrow-left",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-700"
                 }
               ]
@@ -9249,8 +9252,8 @@
                           "name": "diffIcon",
                           "width": 12,
                           "height": 12,
-                          "iconFontName": "trending-down",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "trend-down",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-700"
                         },
                         {
@@ -9351,7 +9354,7 @@
                       "width": 13,
                       "height": 13,
                       "iconFontName": "users",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     },
                     {
@@ -9754,8 +9757,8 @@
                       "name": "e1chk",
                       "width": 16,
                       "height": 16,
-                      "iconFontName": "circle-check",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "check-circle",
+                      "iconFontFamily": "phosphor",
                       "fill": "$crowd-green"
                     }
                   ]
@@ -9885,8 +9888,8 @@
                       "name": "e2chk",
                       "width": 16,
                       "height": 16,
-                      "iconFontName": "circle-check",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "check-circle",
+                      "iconFontFamily": "phosphor",
                       "fill": "$crowd-green"
                     }
                   ]
@@ -10016,8 +10019,8 @@
                       "name": "e3warn",
                       "width": 16,
                       "height": 16,
-                      "iconFontName": "circle-alert",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "warning-circle",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warning-orange"
                     }
                   ]
@@ -10147,8 +10150,8 @@
                       "name": "e4chk",
                       "width": 16,
                       "height": 16,
-                      "iconFontName": "circle-check",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "check-circle",
+                      "iconFontFamily": "phosphor",
                       "fill": "$crowd-green"
                     }
                   ]
@@ -10199,8 +10202,8 @@
                   "name": "ctaIcon",
                   "width": 18,
                   "height": 18,
-                  "iconFontName": "target",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "crosshair",
+                  "iconFontFamily": "phosphor",
                   "fill": "$white"
                 },
                 {
@@ -10270,8 +10273,8 @@
                   "name": "signalIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -10280,8 +10283,8 @@
                   "name": "wifiIcon",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -10291,7 +10294,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -10326,7 +10329,7 @@
                   "width": 24,
                   "height": 24,
                   "iconFontName": "arrow-left",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -10456,7 +10459,7 @@
                           "width": 14,
                           "height": 14,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -10557,8 +10560,8 @@
                           "name": "iconB",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -10659,8 +10662,8 @@
                           "name": "iconT3",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "target",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "crosshair",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -10795,7 +10798,7 @@
                           "width": 14,
                           "height": 14,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -10887,8 +10890,8 @@
                           "name": "iconC5",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -10981,8 +10984,8 @@
                           "name": "iconH6",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "house",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "house-line-bold",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -11116,8 +11119,8 @@
                           "name": "iconT7",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "target",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "crosshair",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -11210,7 +11213,7 @@
                           "width": 14,
                           "height": 14,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -11302,8 +11305,8 @@
                           "name": "iconC9",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -11395,8 +11398,8 @@
                           "name": "iconP10",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "trending-down",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "trend-down",
+                          "iconFontFamily": "phosphor",
                           "fill": "$white"
                         }
                       ]
@@ -11491,8 +11494,8 @@
                   "name": "sig",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "signal",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "cell-signal-full",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -11501,8 +11504,8 @@
                   "name": "wifi",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -11512,7 +11515,7 @@
                   "width": 16,
                   "height": 16,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -11546,7 +11549,7 @@
                   "width": 24,
                   "height": 24,
                   "iconFontName": "arrow-left",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -11556,7 +11559,7 @@
                   "width": 22,
                   "height": 22,
                   "iconFontName": "trophy",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$gold-500"
                 },
                 {
@@ -11601,8 +11604,8 @@
                   "name": "filterChev",
                   "width": 14,
                   "height": 14,
-                  "iconFontName": "chevron-down",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "caret-down",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-500"
                 }
               ]
@@ -11725,8 +11728,8 @@
                               "name": "fIcon1",
                               "width": 13,
                               "height": 13,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "#FFFFFFCC"
                             },
                             {
@@ -11755,7 +11758,7 @@
                               "width": 13,
                               "height": 13,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#FFFFFFCC"
                             },
                             {
@@ -11783,8 +11786,8 @@
                               "name": "fIcon3",
                               "width": 13,
                               "height": 13,
-                              "iconFontName": "target",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "crosshair",
+                              "iconFontFamily": "phosphor",
                               "fill": "#FFFFFFCC"
                             },
                             {
@@ -11982,7 +11985,7 @@
                           "width": 20,
                           "height": 20,
                           "iconFontName": "crown",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         },
                         {
@@ -12073,8 +12076,8 @@
                                   "name": "p1s1i",
                                   "width": 11,
                                   "height": 11,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$warm-400"
                                 },
                                 {
@@ -12102,8 +12105,8 @@
                                   "name": "p1s2i",
                                   "width": 11,
                                   "height": 11,
-                                  "iconFontName": "target",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "crosshair",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$warm-400"
                                 },
                                 {
@@ -12132,7 +12135,7 @@
                                   "width": 11,
                                   "height": 11,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$warm-400"
                                 },
                                 {
@@ -13008,8 +13011,8 @@
                   "name": "wifiIcn",
                   "width": 16,
                   "height": 16,
-                  "iconFontName": "wifi",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "wifi-high",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 },
                 {
@@ -13019,7 +13022,7 @@
                   "width": 18,
                   "height": 18,
                   "iconFontName": "battery-full",
-                  "iconFontFamily": "lucide",
+                  "iconFontFamily": "phosphor",
                   "fill": "$warm-900"
                 }
               ]
@@ -13078,8 +13081,8 @@
                       "name": "backIcon",
                       "width": 20,
                       "height": 20,
-                      "iconFontName": "chevron-left",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "caret-left",
+                      "iconFontFamily": "phosphor",
                       "fill": "#FFFFFF"
                     }
                   ]
@@ -13108,8 +13111,8 @@
                       "name": "shareIcon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "share-2",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "share-network",
+                      "iconFontFamily": "phosphor",
                       "fill": "#FFFFFF"
                     }
                   ]
@@ -13139,7 +13142,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "heart",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "#FFFFFF"
                     }
                   ]
@@ -13170,7 +13173,7 @@
                       "width": 14,
                       "height": 14,
                       "iconFontName": "camera",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "#FFFFFF"
                     },
                     {
@@ -13323,7 +13326,7 @@
                           "width": 13,
                           "height": 13,
                           "iconFontName": "calendar",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -13358,7 +13361,7 @@
                           "width": 13,
                           "height": 13,
                           "iconFontName": "ruler",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -13393,7 +13396,7 @@
                           "width": 13,
                           "height": 13,
                           "iconFontName": "eye",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -13468,7 +13471,7 @@
                                   "width": 16,
                                   "height": 16,
                                   "iconFontName": "users",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#3D8A5A"
                                 }
                               ]
@@ -13515,8 +13518,8 @@
                               "name": "badgeIcon",
                               "width": 14,
                               "height": 14,
-                              "iconFontName": "circle-check",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "check-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "#3D8A5A"
                             },
                             {
@@ -13586,8 +13589,8 @@
                                       "name": "wozIcon",
                                       "width": 14,
                                       "height": 14,
-                                      "iconFontName": "house",
-                                      "iconFontFamily": "lucide",
+                                      "iconFontName": "house-line-bold",
+                                      "iconFontFamily": "phosphor",
                                       "fill": "#42A5F5"
                                     }
                                   ]
@@ -13664,7 +13667,7 @@
                                       "width": 14,
                                       "height": 14,
                                       "iconFontName": "tag",
-                                      "iconFontFamily": "lucide",
+                                      "iconFontFamily": "phosphor",
                                       "fill": "#F5A623"
                                     }
                                   ]
@@ -13966,7 +13969,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "link",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-600"
                     },
                     {
@@ -14039,8 +14042,8 @@
                           "name": "fundaIco",
                           "width": 20,
                           "height": 20,
-                          "iconFontName": "house",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "house-line-bold",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         }
                       ]
@@ -14111,8 +14114,8 @@
                           "name": "fundaChev",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "external-link",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "arrow-square-out",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-400"
                         }
                       ]
@@ -14123,8 +14126,8 @@
                       "name": "menuDots",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "ellipsis-vertical",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "dots-three-vertical",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     }
                   ]
@@ -14162,8 +14165,8 @@
                           "name": "parIco",
                           "width": 20,
                           "height": 20,
-                          "iconFontName": "building",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "buildings",
+                          "iconFontFamily": "phosphor",
                           "fill": "$info-blue"
                         }
                       ]
@@ -14234,8 +14237,8 @@
                           "name": "parChev",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "external-link",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "arrow-square-out",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-400"
                         }
                       ]
@@ -14246,8 +14249,8 @@
                       "name": "menuDots",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "ellipsis-vertical",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "dots-three-vertical",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-400"
                     }
                   ]
@@ -14278,7 +14281,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "plus",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "#9C9B99"
                     },
                     {
@@ -14342,7 +14345,7 @@
                           "width": 12,
                           "height": 12,
                           "iconFontName": "check",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#3D8A5A"
                         },
                         {
@@ -14442,7 +14445,7 @@
                               "width": 12,
                               "height": 12,
                               "iconFontName": "shield-check",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#3D8A5A"
                             },
                             {
@@ -14784,8 +14787,8 @@
                           "name": "chk",
                           "width": 16,
                           "height": 16,
-                          "iconFontName": "circle-check",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "check-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "#3D8A5A"
                         },
                         {
@@ -14907,7 +14910,7 @@
                               "width": 14,
                               "height": 14,
                               "iconFontName": "users",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#9C9B99"
                             },
                             {
@@ -14949,7 +14952,7 @@
                               "width": 14,
                               "height": 14,
                               "iconFontName": "arrow-right",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#9C9B99"
                             }
                           ]
@@ -14990,8 +14993,8 @@
                           "name": "chatIcon",
                           "width": 20,
                           "height": 20,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "#1A1918"
                         },
                         {
@@ -15216,7 +15219,7 @@
                                       "width": 10,
                                       "height": 10,
                                       "iconFontName": "star",
-                                      "iconFontFamily": "lucide",
+                                      "iconFontFamily": "phosphor",
                                       "fill": "#3D8A5A"
                                     },
                                     {
@@ -15282,7 +15285,7 @@
                               "width": 16,
                               "height": 16,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#BEA3AB"
                             },
                             {
@@ -15310,8 +15313,8 @@
                               "name": "replyIcon1",
                               "width": 16,
                               "height": 16,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "#C9A96E"
                             },
                             {
@@ -15445,8 +15448,8 @@
                                       "name": "karmaIcon2",
                                       "width": 10,
                                       "height": 10,
-                                      "iconFontName": "award",
-                                      "iconFontFamily": "lucide",
+                                      "iconFontName": "medal",
+                                      "iconFontFamily": "phosphor",
                                       "fill": "#6D6C6A"
                                     },
                                     {
@@ -15512,7 +15515,7 @@
                               "width": 16,
                               "height": 16,
                               "iconFontName": "heart",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "#BEA3AB"
                             },
                             {
@@ -15540,8 +15543,8 @@
                               "name": "replyIcon2",
                               "width": 16,
                               "height": 16,
-                              "iconFontName": "message-circle",
-                              "iconFontFamily": "lucide",
+                              "iconFontName": "chat-circle",
+                              "iconFontFamily": "phosphor",
                               "fill": "#C9A96E"
                             },
                             {
@@ -15628,7 +15631,7 @@
                           "width": 16,
                           "height": 16,
                           "iconFontName": "user",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#9C9B99"
                         }
                       ]
@@ -15662,8 +15665,8 @@
                           "name": "sendIcon",
                           "width": 16,
                           "height": 16,
-                          "iconFontName": "send",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "paper-plane-tilt",
+                          "iconFontFamily": "phosphor",
                           "fill": "#FFFFFF"
                         }
                       ]
@@ -15695,7 +15698,7 @@
                       "width": 18,
                       "height": 18,
                       "iconFontName": "info",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-600"
                     },
                     {
@@ -15749,7 +15752,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "calendar",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -15800,8 +15803,8 @@
                           "name": "r2icon",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "move-diagonal",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "arrows-out-cardinal",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -15846,8 +15849,8 @@
                           "name": "r3icon",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "circle-check-big",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "check-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$warm-500"
                         },
                         {
@@ -15912,8 +15915,8 @@
                       "name": "statsIcon",
                       "width": 18,
                       "height": 18,
-                      "iconFontName": "activity",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "chart-line-up",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-500"
                     },
                     {
@@ -16095,7 +16098,7 @@
                       "width": 22,
                       "height": 22,
                       "iconFontName": "heart",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "#BEA3AB"
                     },
                     {
@@ -16136,8 +16139,8 @@
                       "name": "saveIcon",
                       "width": 22,
                       "height": 22,
-                      "iconFontName": "bookmark",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "bookmark-simple",
+                      "iconFontFamily": "phosphor",
                       "fill": "#6D6C6A"
                     },
                     {
@@ -16178,8 +16181,8 @@
                       "name": "shareIcon",
                       "width": 22,
                       "height": 22,
-                      "iconFontName": "share-2",
-                      "iconFontFamily": "lucide",
+                      "iconFontName": "share-network",
+                      "iconFontFamily": "phosphor",
                       "fill": "#6D6C6A"
                     },
                     {
@@ -16290,7 +16293,7 @@
                       "width": 14,
                       "height": 14,
                       "iconFontName": "x",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     }
                   ]
@@ -16408,7 +16411,7 @@
                           "width": 14,
                           "height": 14,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         },
                         {
@@ -16452,8 +16455,8 @@
                           "name": "ccIcon",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$info-blue"
                         },
                         {
@@ -16491,8 +16494,8 @@
                           "name": "hpI",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "house",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "house-line-bold",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         },
                         {
@@ -16560,7 +16563,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#BEA3AB"
                         },
                         {
@@ -16589,8 +16592,8 @@
                           "name": "commentIco",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "#9DB3A5"
                         },
                         {
@@ -16620,7 +16623,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "tag",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#B8B89A"
                         },
                         {
@@ -16752,7 +16755,7 @@
                       "width": 14,
                       "height": 14,
                       "iconFontName": "x",
-                      "iconFontFamily": "lucide",
+                      "iconFontFamily": "phosphor",
                       "fill": "$warm-700"
                     }
                   ]
@@ -16870,7 +16873,7 @@
                           "width": 14,
                           "height": 14,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         },
                         {
@@ -16914,8 +16917,8 @@
                           "name": "ccIcon",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "$info-blue"
                         },
                         {
@@ -16953,8 +16956,8 @@
                           "name": "hpI",
                           "width": 14,
                           "height": 14,
-                          "iconFontName": "house",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "house-line-bold",
+                          "iconFontFamily": "phosphor",
                           "fill": "$gold-500"
                         },
                         {
@@ -17022,7 +17025,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "heart",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#BEA3AB"
                         },
                         {
@@ -17051,8 +17054,8 @@
                           "name": "commentIco",
                           "width": 18,
                           "height": 18,
-                          "iconFontName": "message-circle",
-                          "iconFontFamily": "lucide",
+                          "iconFontName": "chat-circle",
+                          "iconFontFamily": "phosphor",
                           "fill": "#9DB3A5"
                         },
                         {
@@ -17082,7 +17085,7 @@
                           "width": 18,
                           "height": 18,
                           "iconFontName": "tag",
-                          "iconFontFamily": "lucide",
+                          "iconFontFamily": "phosphor",
                           "fill": "#B8B89A"
                         },
                         {
@@ -17157,8 +17160,8 @@
                   "name": "leftIcon",
                   "width": 18,
                   "height": 18,
-                  "iconFontName": "chevron-left",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "caret-left",
+                  "iconFontFamily": "phosphor",
                   "fill": "#FFFFFFBB"
                 }
               ]
@@ -17182,16 +17185,6 @@
                   "gap": 5,
                   "alignItems": "center",
                   "children": [
-                    {
-                      "type": "icon_font",
-                      "id": "DMu3K",
-                      "name": "counterIcon",
-                      "width": 12,
-                      "height": 12,
-                      "iconFontName": "gallery-horizontal-end",
-                      "iconFontFamily": "lucide",
-                      "fill": "#FFFFFFEE"
-                    },
                     {
                       "type": "text",
                       "id": "lI0vC",
@@ -17279,8 +17272,8 @@
                   "name": "rightIcon",
                   "width": 18,
                   "height": 18,
-                  "iconFontName": "chevron-right",
-                  "iconFontFamily": "lucide",
+                  "iconFontName": "caret-right",
+                  "iconFontFamily": "phosphor",
                   "fill": "#FFFFFFEE"
                 }
               ]
@@ -17381,7 +17374,7 @@
                               "width": 14,
                               "height": 14,
                               "iconFontName": "x",
-                              "iconFontFamily": "lucide",
+                              "iconFontFamily": "phosphor",
                               "fill": "$warm-700"
                             }
                           ]
@@ -17499,7 +17492,7 @@
                                   "width": 14,
                                   "height": 14,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -17543,8 +17536,8 @@
                                   "name": "ccIcon",
                                   "width": 14,
                                   "height": 14,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$info-blue"
                                 },
                                 {
@@ -17582,8 +17575,8 @@
                                   "name": "hpI",
                                   "width": 14,
                                   "height": 14,
-                                  "iconFontName": "house",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "house-line-bold",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "$gold-500"
                                 },
                                 {
@@ -17651,7 +17644,7 @@
                                   "width": 18,
                                   "height": 18,
                                   "iconFontName": "heart",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#BEA3AB"
                                 },
                                 {
@@ -17680,8 +17673,8 @@
                                   "name": "commentIco",
                                   "width": 18,
                                   "height": 18,
-                                  "iconFontName": "message-circle",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontName": "chat-circle",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#9DB3A5"
                                 },
                                 {
@@ -17711,7 +17704,7 @@
                                   "width": 18,
                                   "height": 18,
                                   "iconFontName": "tag",
-                                  "iconFontFamily": "lucide",
+                                  "iconFontFamily": "phosphor",
                                   "fill": "#B8B89A"
                                 },
                                 {
