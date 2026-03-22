@@ -506,7 +506,7 @@ Preferred winners:
 
 High-priority files:
 
-- `src/components/GroupPreviewCard.tsx`
+- `src/components/GroupPreviewCard/GroupPreviewCard.tsx`
 - `src/components/PropertyPreviewCard.tsx`
 - `app/(tabs)/index.web.tsx`
 - `app/[...address].tsx`
@@ -548,12 +548,15 @@ Tasks:
 2. Create blur containers for native and web.
    - `apps/app/src/components/ui/BlurContainer.native.tsx`
    - `apps/app/src/components/ui/BlurContainer.web.tsx`
+   - **Android caveat**: `expo-blur` uses `RenderEffect` (real blur) on SDK 31+ only. On the S10e debug device (SDK 30 / Android 11), it falls back to a flat semi-transparent overlay — no frosted-glass effect. This is expected; do not flag it as a bug during visual acceptance on that device.
 
 3. Migrate icons from `@expo/vector-icons` to Phosphor (`phosphor-react-native` / `@phosphor-icons/react` for web).
 
 Phosphor icons support multiple weights: `thin`, `light`, `regular`, `bold`, `fill`, `duotone`. Default to `regular` for UI chrome and `bold` or `fill` for active/selected states.
 
 The pen file uses the `phosphor` icon font exclusively (54 unique icons, 8568 instances). The packages are `phosphor-react-native` (native) and `@phosphor-icons/react` (web).
+
+**Build note**: After adding `phosphor-react-native`, run `npx expo prebuild --clean` and do a full rebuild. There is an open issue ([phosphor-react-native#82](https://github.com/duongdev/phosphor-react-native/issues/82)) where stale Fabric build artifacts cause a `topSvgLayout` event error on this exact stack (Expo SDK 54 / RN 0.81.5 / React 19). A clean prebuild resolves it. Also ensure `react-native-svg` is >= 15.12.1.
 
 Primary mapping set (Ionicons/FontAwesome → Phosphor, verified against pen):
 
@@ -1042,12 +1045,13 @@ Route:
 
 ### 11E. Likes-Domain Cleanup
 
-Resolve one of the following explicitly:
+The codebase has already converged on a likes-only API contract. All endpoints use `/like` paths (`POST/DELETE /properties/:id/like`, `POST/DELETE /comments/:id/like`), all frontend hooks are `usePropertyLike`, and the DB only inserts/queries `reactionType='like'`. The DB table is named `reactions` with a 4-type enum (`like`, `love`, `wow`, `angry`) but only `like` is ever used.
 
-- refactor `reactions` into a simpler likes model
-- or keep DB shape but formalize a likes-only API contract
+Remaining cleanup:
 
-Ambiguous naming across layers is not allowed to remain.
+- rename `services/api/src/routes/reactions.ts` to `likes.ts`
+- clean up stale `packages/shared/src/types/reaction.ts` (references unused `'share'` type and generic `Reaction`/`ReactionCounts` interfaces)
+- document the DB schema decision: keep `reactions` table as-is, likes-only contract at the API layer
 
 ### 11F. Achievements
 
