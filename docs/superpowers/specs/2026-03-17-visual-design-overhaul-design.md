@@ -560,32 +560,30 @@ import { BlurView } from 'expo-blur';
 
 ### 6.1 Library
 
-Migrate from `@expo/vector-icons` (Ionicons + FontAwesome) to **Lucide** (`lucide-react-native`). Lucide provides a consistent, modern stroke-based icon set with both outlined and filled variants where needed.
+Migrate from `@expo/vector-icons` (Ionicons + FontAwesome) to **Phosphor** (`phosphor-react-native` for native, `@phosphor-icons/react` for web). Phosphor provides a consistent, modern icon set with a powerful weight system (`thin`, `light`, `regular`, `bold`, `fill`, `duotone`) — no need for separate filled/outline variants or stroke-width hacks.
 
 ```bash
-npx expo install lucide-react-native react-native-svg
+pnpm -C apps/app add phosphor-react-native @phosphor-icons/react
 ```
 
-`react-native-svg` is a required peer dependency and is NOT currently installed — it must be added explicitly. Requires a native rebuild (`npx expo run:android`) after installation.
-
-**One exception**: Phosphor Icons for the filled heart icon in comment reactions. Use `phosphor-react-native` for `HeartFill` only.
+`react-native-svg` is a required peer dependency of `phosphor-react-native` and is NOT currently installed — it must be added explicitly. Requires a native rebuild (`npx expo run:android`) after installation.
 
 ```bash
-npx expo install phosphor-react-native
+npx expo install react-native-svg
 ```
 
 ### 6.2 Icon Style Rules
 
 | State | Style | Color |
 |-------|-------|-------|
-| Active tab | Lucide icon (stroke-width 2.5 or filled variant) | `#F5A623` (gold-500) |
-| Inactive tab | Lucide icon (stroke-width 1.5) | `#C7BFB3` (warm-400) |
-| Action icon (enabled) | Stroke-width 1.5 | `#504A42` (warm-700) |
-| Action icon (disabled) | Stroke-width 1.5 | `#C7BFB3` (warm-400) |
-| Heart (liked) | Phosphor `HeartFill` | `#FF6B35` (hot-red-500) |
-| Heart (not liked) | Lucide `Heart` (stroke only) | `#C7BFB3` (warm-400) |
-| Bookmark (saved) | Lucide `Bookmark` with `fill="currentColor"` | `#F5A623` (gold-500) |
-| Bookmark (not saved) | Lucide `Bookmark` (stroke only) | `#C7BFB3` (warm-400) |
+| Active tab | Phosphor icon, `bold` weight | `#F5A623` (gold-500) |
+| Inactive tab | Phosphor icon, `regular` weight | `#C7BFB3` (warm-400) |
+| Action icon (enabled) | Phosphor icon, `regular` weight | `#504A42` (warm-700) |
+| Action icon (disabled) | Phosphor icon, `regular` weight | `#C7BFB3` (warm-400) |
+| Heart (liked) | Phosphor `Heart`, `fill` weight | `#FF6B35` (hot-red-500) |
+| Heart (not liked) | Phosphor `Heart`, `regular` weight | `#C7BFB3` (warm-400) |
+| Bookmark (saved) | Phosphor `BookmarkSimple`, `fill` weight | `#F5A623` (gold-500) |
+| Bookmark (not saved) | Phosphor `BookmarkSimple`, `regular` weight | `#C7BFB3` (warm-400) |
 
 ### 6.3 Icon Size Scale
 
@@ -602,78 +600,77 @@ Pen measurements use smaller defaults than the old spec.
 
 ### 6.4 Tab Bar Icon Mapping
 
-| Tab | Lucide icon | Inactive | Active |
-|-----|-------------|----------|--------|
-| Map | `Map` | stroke-width 1.5 | stroke-width 2.5 |
-| Feed | `List` | stroke-width 1.5 | stroke-width 2.5 |
-| Saved | `Bookmark` | stroke-width 1.5 | stroke-width 2.5 + fill |
-| Profile | `User` | stroke-width 1.5 | stroke-width 2.5 |
+| Tab | Phosphor icon | Inactive | Active |
+|-----|---------------|----------|--------|
+| Map | `MapTrifold` | `regular` weight | `bold` weight |
+| Feed | `List` | `regular` weight | `bold` weight |
+| Saved | `BookmarkSimple` | `regular` weight | `fill` weight |
+| Profile | `User` | `regular` weight | `bold` weight |
 
 ### 6.5 Full Icon Catalog
 
-Icons observed in the pen designs, mapped to Lucide names:
+Icons observed in the pen designs, mapped to Phosphor names:
 
 **Navigation & Chrome**:
 - `ArrowLeft` — back navigation
 - `X` — close/dismiss
-- `Search` — search bar icon
+- `MagnifyingGlass` — search bar icon
 - `Bell` — notifications
-- `Settings` — settings gear
-- `ChevronRight` — list item disclosure
-- `ChevronDown` — dropdown indicator
-- `MoreHorizontal` — overflow menu
+- `GearSix` — settings
+- `CaretRight` — list item disclosure
+- `CaretDown` — dropdown indicator
+- `DotsThreeVertical` — overflow menu
 
 **Property & Real Estate**:
-- `Home` — property/house icon
+- `HouseLine` — property/house icon
 - `MapPin` — location marker
 - `Ruler` — floor area / square meters
 - `Calendar` — year built
-- `Bed` — bedrooms (where available)
-- `Bath` — bathrooms (where available)
-- `ExternalLink` — open listing in browser
+- `ArrowSquareOut` — open listing in browser
+- `CurrencyEur` — price/valuation
+- `Buildings` — property context
 
 **Social & Interaction**:
-- `Heart` — like (outlined)
-- `HeartFill` (Phosphor) — like (filled)
-- `Bookmark` — save
-- `MessageCircle` — comments
-- `Share2` — share
-- `Send` — send comment/message
-- `ThumbsUp` — comment reaction
-- `Flag` — report
+- `Heart` — like (regular = outlined, fill = filled)
+- `BookmarkSimple` — save (regular = outlined, fill = filled)
+- `ChatCircle` — comments
+- `ShareNetwork` — share
+- `PaperPlaneTilt` — send comment/message
+- `Tag` — price guess
 
 **User & Profile**:
 - `User` — profile, avatar placeholder
-- `LogIn` — sign in
-- `LogOut` — sign out
-- `Award` — karma/achievements
+- `SignOut` — sign out
+- `Medal` — achievements
 - `Trophy` — leaderboard
 - `Star` — rating/featured
-- `Edit3` — edit profile
+- `Crown` — leaderboard winner
+- `ShieldCheck` — verified
 
 **Map & Location**:
-- `Map` — map view
-- `Navigation` — current location / compass
+- `MapTrifold` — map view
+- `Crosshair` — current location
 - `Plus` — zoom in
-- `Minus` — zoom out
-- `Layers` — map layer toggle
-- `Filter` — filter toggle
+- `Globe` — international/country
 
 **Status & Info**:
-- `TrendingUp` — trending/hot
-- `Clock` — recent/time
-- `AlertCircle` — warning/error
+- `ChartLineUp` — trending
+- `Flame` — hot/trending badge
+- `Calendar` — recent/time
+- `WarningCircle` — warning/error
 - `Info` — informational
 - `CheckCircle` — success/verified
 - `Eye` — view count
+- `Thermometer` — activity level
+- `TrendDown` — price decrease
 
 ### 6.6 Migration Notes
 
-When replacing `@expo/vector-icons` with Lucide:
+When replacing `@expo/vector-icons` with Phosphor:
 
-1. **Import change**: `import { Ionicons } from '@expo/vector-icons'` becomes `import { IconName } from 'lucide-react-native'`
-2. **Props change**: `<Ionicons name="map-outline" size={24} color="#ccc" />` becomes `<Map size={24} color="#ccc" strokeWidth={1.5} />`
-3. **No filled/outline variants**: Lucide uses a single component per icon. Control visual weight via `strokeWidth` (1.5 for light/inactive, 2 or 2.5 for bold/active) and `fill` prop for filled appearance.
+1. **Import change**: `import { Ionicons } from '@expo/vector-icons'` becomes `import { Heart, ChatCircle, PaperPlaneTilt } from 'phosphor-react-native'` (native) or `from '@phosphor-icons/react'` (web).
+2. **Props change**: `<Ionicons name="map-outline" size={24} color="#ccc" />` becomes `<Heart size={24} color="#ccc" weight="regular" />` — use the `weight` prop instead of `strokeWidth`.
+3. **Filled/outline via weight**: Phosphor uses the `weight` prop: `regular` for outline, `bold` for emphasis, `fill` for solid filled. No need for separate fill prop hacks.
 4. **Do not remove `@expo/vector-icons`** from `package.json` until all icon references are migrated. Expo Router's tab bar may still use it internally.
 
 
@@ -681,7 +678,7 @@ When replacing `@expo/vector-icons` with Lucide:
 
 This section specifies every UI component with pixel-precise values extracted from the finalized Pen design file. All components use the color palette from Section 1, the typography from Section 2, and the spacing/radius/shadow scales from Sections 3-5.
 
-**Font families**: Inter (primary UI), Outfit (accent for titles and prices), DM Sans (search results). **Icon library**: Lucide (replaces Ionicons/FontAwesome from the old spec).
+**Font families**: Inter (primary UI), Outfit (accent for titles and prices), DM Sans (search results). **Icon library**: Phosphor (replaces Ionicons/FontAwesome from the old spec).
 
 ---
 
@@ -717,7 +714,7 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Corner radius | 26px | Capsule shape (never visible without fill) |
 | Gap | 4px | Between icon and label |
 | Fill | None (transparent) | |
-| Icon | Lucide, 18px, `$warm-400` (`#C7BFB3`) | |
+| Icon | Phosphor, 18px, `$warm-400` (`#C7BFB3`) | |
 | Label | Inter 10/600, letterSpacing 0.5, uppercase, `$warm-400` | |
 
 **Tab item (active)**:
@@ -726,16 +723,16 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 |----------|-------|-------|
 | Fill | `$gold-500` (`#F5A623`) | Gold capsule background |
 | Corner radius | 26px | |
-| Icon | Lucide, 18px, `#FFFFFF` | White on gold |
+| Icon | Phosphor, 18px, `#FFFFFF` | White on gold |
 | Label | Inter 10/600, letterSpacing 0.5, uppercase, `#FFFFFF` | White on gold |
 
-**Tab icon mapping** (Lucide names):
+**Tab icon mapping** (Phosphor names):
 
 | Tab | Icon name |
 |-----|-----------|
-| Map | `map` |
+| Map | `map-trifold` |
 | Feed | `list` |
-| Saved | `bookmark` |
+| Saved | `bookmark-simple` |
 | Profile | `user` |
 
 **Implementation notes**:
@@ -743,7 +740,7 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 - Backdrop blur on native requires `expo-blur` (`BlurView`). On web, use CSS `backdrop-filter: blur(20px)`.
 - On the map screen the pill is translucent (`#FFFFFFCC`); on Feed, Saved, Profile it is opaque (`#FFFFFF`).
 - Update `Colors.ts`: `tint: '#F5A623'`, `tabIconDefault: '#C7BFB3'`.
-- Font migration: From Ionicons/FontAwesome to **Lucide** (`lucide-react-native`).
+- Font migration: From Ionicons/FontAwesome to **Phosphor** (`phosphor-react-native` / `@phosphor-icons/react`).
 
 ---
 
@@ -766,12 +763,11 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Fill | `#FFFFFFCC` | Translucent white (over map) |
 | Stroke | 1px inside, `$warm-300` (`#E8E0D4`) | |
 | Padding | `[0, 14]` (vertical, horizontal) | |
-| Gap | 10px | Between icon, text, and mic icon |
+| Gap | 10px | Between icon and text |
 | Backdrop blur | radius 15 | |
 | Shadow | blur 10, color `#00000012`, offset (0, 2) | |
-| Search icon | Lucide `search`, 18px, `$warm-400` (`#C7BFB3`) | Left side |
+| Search icon | Phosphor `magnifying-glass`, 18px, `$warm-400` (`#C7BFB3`) | Left side |
 | Placeholder | Inter 14/400, `$warm-400` (`#C7BFB3`), "Search address..." | |
-| Mic icon | Lucide `mic`, 18px, `$warm-400` (`#C7BFB3`) | Right side |
 
 **Input field (active/focused)**:
 
@@ -780,9 +776,9 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Fill | `#FFFFFF` | Solid white |
 | Stroke | 2px inside, `$gold-400` (`#F7C948`) | Gold focus ring |
 | Shadow | blur 8, color `#F7C94830`, offset (0, 0) | Gold glow effect |
-| Search icon | Lucide `search`, 18px, `$gold-500` (`#F5A623`) | Turns gold |
+| Search icon | Phosphor `magnifying-glass`, 18px, `$gold-500` (`#F5A623`) | Turns gold |
 | Text | DM Sans 14/400, `$warm-900` (`#2D2926`) | |
-| Clear button | Lucide `x`, 16px, `$warm-400` (`#C7BFB3`) | Appears when text present |
+| Clear button | Phosphor `x`, 16px, `$warm-400` (`#C7BFB3`) | Appears when text present |
 
 ---
 
@@ -805,7 +801,7 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Layout | Horizontal, vertically centered | |
 | Gap | 12px | Between icon and text |
 | Padding | `[14, 16]` (vertical, horizontal) | |
-| Pin icon | Lucide `map-pin`, 20px, `$gold-500` (`#F5A623`) | |
+| Pin icon | Phosphor `map-pin`, 20px, `$gold-500` (`#F5A623`) | |
 | Address text | DM Sans 14/500, `$warm-900` (`#2D2926`) | |
 | City text | DM Sans 12/400, `$warm-500` (`#9C958A`) | Below address |
 | Divider | 1px, `$warm-200` (`#F5F0E8`) | Between rows, full width |
@@ -888,7 +884,7 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Fill | `$hot-red` (`#FF6B35`) | |
 | Padding | `[4, 8]` (vertical, horizontal) | |
 | Gap | 4px | Between flame icon and text |
-| Icon | Lucide `flame`, 12px, `#FFFFFF` | |
+| Icon | Phosphor `flame`, 12px, `#FFFFFF` | |
 | Text | Inter 11/600, `#FFFFFF` | |
 
 **Price row** (space-between layout):
@@ -896,7 +892,7 @@ The tab bar is a **floating translucent pill** — not a standard flat tab bar. 
 | Property | Value | Notes |
 |----------|-------|-------|
 | Left side | "Asking Price" Inter 13/400 `$warm-500` + formatted price | |
-| Right side | Lucide `house` 14px `$gold-500` + price Inter 16/700 `$warm-900` | House icon inline before price |
+| Right side | Phosphor `house-line` 14px `$gold-500` + price Inter 16/700 `$warm-900` | House icon inline before price |
 
 **Stats section**:
 
@@ -954,7 +950,7 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 | Stroke | 1px inside, `$warm-200` (`#F5F0E8`) | |
 | Backdrop blur | radius 12 | |
 | Shadow | blur 4, color `#00000012` | |
-| Icon | Lucide `x`, 14px, `$warm-700` (`#504A42`) | |
+| Icon | Phosphor `x`, 14px, `$warm-700` (`#504A42`) | |
 
 **Body section**:
 
@@ -984,10 +980,10 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 |----------|-------|-------|
 | Gap | 5px | Between price elements |
 | Padding | `[2, 0, 0, 0]` (top only) | |
-| Crowd price pill | cornerRadius 10, fill `#F5A62318`, padding `[3, 7]`, Lucide `heart` 14px `$gold-500`, value Inter 13/600 `$gold-600` (`#DE911D`) | |
+| Crowd price pill | cornerRadius 10, fill `#F5A62318`, padding `[3, 7]`, Phosphor `heart` 14px `$gold-500`, value Inter 13/600 `$gold-600` (`#DE911D`) | |
 | Separator | `"\|"` character, `$warm-300` (`#E8E0D4`) | |
-| Comment count | cornerRadius 10, fill `#42A5F518`, Lucide `message-circle` 14px `$info-blue` (`#42A5F5`), text Inter 13/600 `#1E88E5` | |
-| House price | Lucide `house` 14px `$gold-500`, Inter 15/700 `$warm-900` | |
+| Comment count | cornerRadius 10, fill `#42A5F518`, Phosphor `chat-circle` 14px `$info-blue` (`#42A5F5`), text Inter 13/600 `#1E88E5` | |
+| House price | Phosphor `house-line` 14px `$gold-500`, Inter 15/700 `$warm-900` | |
 
 **Quick actions row**:
 
@@ -1001,9 +997,9 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 
 | Action | Icon | Icon size | Icon color | Count font | Count color |
 |--------|------|-----------|------------|------------|-------------|
-| Like | Lucide `heart` | 18px | `#BEA3AB` | Inter 13/600 | `#BEA3AB` |
-| Comment | Lucide `message-circle` | 18px | `#9DB3A5` | Inter 13/600 | `#9DB3A5` |
-| Guess | Lucide `tag` | 18px | `#B8B89A` | Inter 13/600 | `#B8B89A` |
+| Like | Phosphor `heart` | 18px | `#BEA3AB` | Inter 13/600 | `#BEA3AB` |
+| Comment | Phosphor `chat-circle` | 18px | `#9DB3A5` | Inter 13/600 | `#9DB3A5` |
+| Guess | Phosphor `tag` | 18px | `#B8B89A` | Inter 13/600 | `#B8B89A` |
 
 **Arrow pointer**:
 
@@ -1037,9 +1033,9 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 
 | Button | Icon | Icon size | Color | Position |
 |--------|------|-----------|-------|----------|
-| Back | Lucide `chevron-left` | 20px | `#FFFFFF` | x=16, y=16 |
-| Share | Lucide `share-2` | 18px | `#FFFFFF` | x=306, y=16 |
-| Like | Lucide `heart` | 18px | `#FFFFFF` | x=350, y=16 |
+| Back | Phosphor `caret-left` | 20px | `#FFFFFF` | x=16, y=16 |
+| Share | Phosphor `share-network` | 18px | `#FFFFFF` | x=306, y=16 |
+| Like | Phosphor `heart` | 18px | `#FFFFFF` | x=350, y=16 |
 
 **Photo count badge**:
 
@@ -1048,7 +1044,7 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 | Corner radius | 100 (full pill) | |
 | Fill | `#00000040` | |
 | Backdrop blur | radius 12 | |
-| Icon | Lucide `camera`, 14px, `#FFFFFF` | |
+| Icon | Phosphor `camera`, 14px, `#FFFFFF` | |
 | Text | Outfit 12/600, `#FFFFFF` | |
 
 **Content area**:
@@ -1073,7 +1069,7 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 | Fill | `$warm-200` (`#F5F0E8`) | |
 | Padding | `[4, 10]` (vertical, horizontal) | |
 | Gap | 4px | Between icon and text |
-| Icons | Lucide (`calendar` / `ruler` / `eye`), 13px, `$warm-500` (`#9C958A`) | |
+| Icons | Phosphor (`calendar` / `ruler` / `eye`), 13px, `$warm-500` (`#9C958A`) | |
 | Text | Outfit 12/500, `$warm-700` (`#504A42`) | |
 
 **Crowd Estimate card**:
@@ -1151,7 +1147,7 @@ The preview card is geo-anchored to a map feature with an arrow pointer.
 |----------|-------|-------|
 | Size | 34px circle | |
 | Fill | `$gold-500` (`#F5A623`) | |
-| Icon | Lucide `send`, 16px, `#FFFFFF` | |
+| Icon | Phosphor `paper-plane-tilt`, 16px, `#FFFFFF` | |
 
 **Property Info section**:
 
@@ -1191,7 +1187,7 @@ Full-screen comments view, no tab bar visible.
 
 | Element | Spec | Notes |
 |---------|------|-------|
-| Back button | 32x32 circle, Lucide `arrow-left` 20px, `$warm-800` (`#3D3832`) | |
+| Back button | 32x32 circle, Phosphor `arrow-left` 20px, `$warm-800` (`#3D3832`) | |
 | Property thumbnail | 48x36px, cornerRadius 6, image fill | |
 | Address | Inter 14/600, `$warm-900` (`#2D2926`) | |
 | City | Inter 12/400, `$warm-500` (`#9C958A`) | |
@@ -1225,8 +1221,8 @@ Full-screen comments view, no tab bar visible.
 | Timestamp | Inter 11/400, `$warm-400` (`#C7BFB3`) |
 | Comment text | Inter 13/400, `$warm-800` (`#3D3832`), lineHeight 1.45 |
 | Reply link | Inter 13/500, `$warm-500` (`#9C958A`) |
-| Heart (unfilled) | Lucide `heart`, 16px, `$warm-400` (`#C7BFB3`) |
-| Heart (filled/liked) | Phosphor `heart-fill`, 18px, `$hot-red` (`#FF6B35`) |
+| Heart (unfilled) | Phosphor `heart`, `regular` weight, 16px, `$warm-400` (`#C7BFB3`) |
+| Heart (filled/liked) | Phosphor `heart`, `fill` weight, 18px, `$hot-red` (`#FF6B35`) |
 
 **Reply thread**:
 
@@ -1250,7 +1246,7 @@ Full-screen comments view, no tab bar visible.
 | Avatar | 32x32, cornerRadius 16 (circle) |
 | Input container | cornerRadius 100 (full pill), fill `$warm-50` (`#FFFBF5`), stroke 1px `$warm-200`, padding `[0, 14]`, height 38px |
 | Placeholder | Inter 13/400, `$warm-400` (`#C7BFB3`) |
-| Send button | 34x34 circle, fill `$gold-500` (`#F5A623`), Lucide `send` 16px `#FFFFFF` |
+| Send button | 34x34 circle, fill `$gold-500` (`#F5A623`), Phosphor `paper-plane-tilt` 16px `#FFFFFF` |
 
 ---
 
@@ -1264,7 +1260,7 @@ Full-screen view, no tab bar.
 |----------|-------|-------|
 | Padding | `[0, 16]` | |
 | Gap | 12px | |
-| Back button | 36x36 circle, fill `$warm-100` (`#FFF8F0`), Lucide `arrow-left` 20px `$warm-700` | |
+| Back button | 36x36 circle, fill `$warm-100` (`#FFF8F0`), Phosphor `arrow-left` 20px `$warm-700` | |
 | Title | Inter 18/600, `$warm-900`, letterSpacing -0.2, "Price Guesses" | |
 
 **Image card**:
@@ -1297,8 +1293,8 @@ Full-screen view, no tab bar.
 |----------|-------|-------|
 | Entry corner radius | 12px | |
 | Shadow | blur 6 | Subtle |
-| Accurate icon | Lucide `circle-check`, `$crowd-green` (`#4CAF50`) | |
-| Inaccurate icon | Lucide `circle-alert`, `$warning-orange` (`#FF9500`) | |
+| Accurate icon | Phosphor `check-circle`, `$crowd-green` (`#4CAF50`) | |
+| Inaccurate icon | Phosphor `warning-circle`, `$warning-orange` (`#FF9500`) | |
 
 **CTA bar** (sticky bottom):
 
@@ -1310,7 +1306,7 @@ Full-screen view, no tab bar.
 | Button corner radius | 14px | |
 | Button fill | `$gold-500` (`#F5A623`) | |
 | Button height | 50px | |
-| Button icon | Lucide `target`, 18px, `#FFFFFF` | |
+| Button icon | Phosphor `crosshair`, 18px, `#FFFFFF` | |
 | Button text | Inter 16/600, `#FFFFFF` | "Make Your Guess" |
 
 ---
@@ -1365,7 +1361,7 @@ Full-screen view, no tab bar.
 |----------|-------|-------|
 | Padding | `[0, 20]` | |
 | Layout | Space-between | |
-| Trophy icon | Lucide `trophy`, 22px, `$gold-500` | Left of title |
+| Trophy icon | Phosphor `trophy`, 22px, `$gold-500` | Left of title |
 | Title | Outfit 22/600, `$warm-900`, letterSpacing -0.3, "Leaderboard" | |
 | Period filter | cornerRadius 12, fill `$warm-100`, padding `[6, 12]`, Inter 12/500 `$warm-600` | Dropdown trigger |
 
@@ -1387,7 +1383,7 @@ Full-screen view, no tab bar.
 | Card corner radius | 16px | |
 | Fill | `#FFFFFF` | |
 | Shadow | warm-md | |
-| Crown | Lucide `crown`, 20px, `$gold-500` | Above avatar |
+| Crown | Phosphor `crown`, 20px, `$gold-500` | Above avatar |
 | Avatar | 52px circle, 2px stroke `$gold-400` | |
 | Name | Inter 14/700 | |
 | Badge | fill `#FFF3C4` | Karma tier badge |
@@ -1453,7 +1449,7 @@ Same structural layout as Feed (section 7.5) with a different card format.
 | Commented | `#EFF6FF` | `$info-blue` (`#42A5F5`) |
 | Guessed | `#ECFDF5` | `$crowd-green` (`#4CAF50`) |
 
-**Metrics row**: Lucide `heart` 15px `$warm-400` + count, Lucide `message-circle` 15px `$info-blue` + count.
+**Metrics row**: Phosphor `heart` 15px `$warm-400` + count, Phosphor `chat-circle` 15px `$info-blue` + count.
 
 ---
 
@@ -1490,7 +1486,7 @@ Same structural layout as Feed (section 7.5) with a different card format.
 | Size | 36x36px | |
 | Corner radius | 18px (circle) | |
 | Fill | `#F4F4F5` | Intentionally cool gray (see note below) |
-| Icon | Lucide `x`, 18px, `#71717A` | Cool gray icon — matches auth modal's intentional cool gray aesthetic (Section 1.6) |
+| Icon | Phosphor `x`, 18px, `#71717A` | Cool gray icon — matches auth modal's intentional cool gray aesthetic (Section 1.6) |
 
 **Logo**: 64x64px, cornerRadius 16.
 
@@ -1529,7 +1525,7 @@ Same structural layout as Feed (section 7.5) with a different card format.
 | Corner radius | 10px | |
 | Fill | `$gold-50` (`#FFFBEB`) | |
 | Stroke | 1px, `$gold-400` (`#F7C948`) | |
-| Icon | Lucide `mail`, 16px, `$gold-700` (`#B47712`) | |
+| Icon | Phosphor `envelope`, 16px, `$gold-700` (`#B47712`) | |
 | Text | Inter 14/500, `$gold-700` (`#B47712`) | |
 
 > **Design intent**: The close button and auth provider buttons intentionally use cool grays (`#F4F4F5`, `#E4E4E7`, `#1A1A1A`) rather than the warm system. This matches the platform-native feel of Google and Apple sign-in UI. This is a deliberate departure from the warm palette used everywhere else.
@@ -1547,7 +1543,7 @@ Same structural layout as Feed (section 7.5) with a different card format.
 | Backdrop blur | radius 12 | |
 | Shadow (primary) | blur 8, color `#00000018` | |
 | Shadow (secondary) | blur 3, color `#00000010` | |
-| Icon | Lucide `locate`, 22px, `$warm-700` (`#504A42`) | |
+| Icon | Phosphor `crosshair`, 22px, `$warm-700` (`#504A42`) | |
 
 ---
 
@@ -1578,7 +1574,7 @@ Same structural layout as Feed (section 7.5) with a different card format.
 
 | Property | Value | Notes |
 |----------|-------|-------|
-| Bell icon | Lucide `bell`, 22px, `$warm-700` (`#504A42`) | |
+| Bell icon | Phosphor `bell`, 22px, `$warm-700` (`#504A42`) | |
 | Button size | 32x32px, cornerRadius 16 (circle) | |
 | Red dot size | 8px circle | |
 | Red dot color | `#EF4444` | Standard notification red |
@@ -1665,7 +1661,7 @@ Replace current blue distribution bar with gold-warm palette:
 | Price label | Floating pill above thumb, warm-sm shadow | |
 | Price label text | Outfit 17/600, `$warm-900` | |
 | Reference markers | Small dots on track | WOZ: `#D89575` (warm coral), Asking: `#9C9B99`, FMV: `$gold-500` |
-| Submit button | Full width, 50px height, cornerRadius 14, fill `#3D8A5A`, Lucide `target` 18px white + Inter 16/600 `#FFFFFF` | Green "Submit Your Guess" per pen |
+| Submit button | Full width, 50px height, cornerRadius 14, fill `#3D8A5A`, Phosphor `crosshair` 18px white + Inter 16/600 `#FFFFFF` | Green "Submit Your Guess" per pen |
 | Submit disabled | Fill `$warm-300`, text `$warm-400` | |
 
 ---
@@ -1686,7 +1682,7 @@ The primary screen. A full-bleed map canvas with floating UI overlays.
 | Status bar | Dark icons | Light content mode over map |
 | Top gradient | Fade overlay | 180px, `#FFFFFFBB` to transparent (Section 7.15) |
 | Header | Brand row | Transparent background, no border. Padding `[0, 20]`. Left: HuisHype logo 28px + brand text Inter 22/700 `$gold-500`. Right: city name Inter 18/600 `$warm-800`. |
-| Search bar | Floating | y=106, translucent `#FFFFFFCC`, backdrop blur, `$warm-300` border, Lucide `search` + `mic` icons (Section 7.2) |
+| Search bar | Floating | y=106, translucent `#FFFFFFCC`, backdrop blur, `$warm-300` border, Phosphor `magnifying-glass` icon (Section 7.2) |
 | Map content | Interactive | 3D buildings, paper trees, property nodes, cluster markers |
 | Preview card | Geo-anchored | 270px wide, arrow pointer toward map feature, spring entrance animation (Section 7.6) |
 | Location button | Bottom-right | 44px translucent circle, backdrop blur (Section 7.14) |
@@ -1754,9 +1750,9 @@ Same overall layout structure as Feed.
 | Cards | Property cards | Same component as feed cards (Section 7.5) |
 | Tab bar | Floating pill | Solid white, gold active capsule on "Saved" tab |
 
-**Empty state (unauthenticated)**: Centered Lucide `bookmark` icon (`$gold-400`, 48px), "Sign in to save properties" Inter 17/600 `$warm-700`, gold CTA button.
+**Empty state (unauthenticated)**: Centered Phosphor `bookmark-simple` icon (`$gold-400`, 48px), "Sign in to save properties" Inter 17/600 `$warm-700`, gold CTA button.
 
-**Empty state (authenticated, no saves)**: Lucide `bookmark` outline (`$warm-300`, 48px), "No saved properties yet" Inter 17/600 `$warm-700`, "Explore the map to find homes you love" Inter 15/400 `$warm-500`.
+**Empty state (authenticated, no saves)**: Phosphor `bookmark-simple` outline (`$warm-300`, 48px), "No saved properties yet" Inter 17/600 `$warm-700`, "Explore the map to find homes you love" Inter 15/400 `$warm-500`.
 
 ---
 
@@ -1772,7 +1768,7 @@ Same overall layout structure as Feed.
 | Recent Activity | Log rows | Activity entries with icons and timestamps |
 | Tab bar | Floating pill | Solid white, gold active capsule on "Profile" tab |
 
-**Dropdown menu** (from 3-dot button): Floating white card with warm-md shadow, "Sign out" row with Lucide `log-out` icon.
+**Dropdown menu** (from 3-dot button): Floating white card with warm-md shadow, "Sign out" row with Phosphor `sign-out` icon.
 
 **Unauthenticated state**: Large logo (80px), "Join HuisHype" Outfit 20/600, description text Inter 15/400 `$warm-500`, gold CTA button.
 
@@ -1842,7 +1838,7 @@ Full-screen view. No tab bar visible.
 | Crowd estimate | Card | Crowd FMV price, diff badge, confidence. |
 | Distribution | Card | Bar chart visualization with `$gold-500` fills on `$warm-100` background. |
 | Recent guesses | List | cornerRadius 12 entries with accuracy indicators (green check / orange alert). |
-| CTA bar | Sticky bottom | "Make Your Guess" gold button, 50px height, Lucide `target` icon. See Section 7.9. |
+| CTA bar | Sticky bottom | "Make Your Guess" gold button, 50px height, Phosphor `crosshair` icon. See Section 7.9. |
 
 ---
 
@@ -1864,7 +1860,7 @@ Full-screen view. No tab bar visible.
 
 | Layer | Element | Spec |
 |-------|---------|------|
-| Header | 44px bar | Lucide `trophy` 22px `$gold-500` + "Leaderboard" Outfit 22/600. Period filter dropdown (right). See Section 7.11. |
+| Header | 44px bar | Phosphor `trophy` 22px `$gold-500` + "Leaderboard" Outfit 22/600. Period filter dropdown (right). See Section 7.11. |
 | Featured | Property card | 180px image card with "MOST DISCUSSED THIS WEEK" text overlay. |
 | Podium | Top 3 | 1st place: crown icon, 52px avatar with gold stroke, name, karma badge, points. 2nd/3rd: 44px avatars, no crown. See Section 7.11. |
 | Rankings | Full list | Rows with rank number, 36px avatar, name, karma badge, points. "Your Rank" row highlighted with `$gold-50` fill and `$gold-200` stroke. |
@@ -1973,11 +1969,11 @@ npx expo install expo-blur
 npx expo install @expo-google-fonts/inter @expo-google-fonts/outfit @expo-google-fonts/dm-sans expo-font
 
 # Icon library — replaces Ionicons and FontAwesome throughout
-pnpm -C apps/app add lucide-react-native
+pnpm -C apps/app add phosphor-react-native @phosphor-icons/react
 
-# SVG runtime — peer dependency of lucide-react-native
+# SVG runtime — peer dependency of phosphor-react-native
 # Already a transitive dep (via other packages) but must be explicitly installed
-pnpm -C apps/app add react-native-svg
+npx expo install react-native-svg
 ```
 
 After installation:
@@ -2324,7 +2320,7 @@ Execute the overhaul in this order to minimize breakage and allow incremental te
 | 2 | **Design tokens** | `tailwind.config.js`, `Colors.ts`, `global.css` | Low — existing `primary-*` classes auto-remap to gold |
 | 3 | **Font loading** | `_layout.tsx` | Low — additive, fallback to system font if loading fails |
 | 4 | **Shadow + blur helpers** | New `src/lib/shadows.ts`, new `src/components/ui/BlurContainer.{native,web}.tsx` | Low — additive, no existing code changes |
-| 5 | **Icon migration** | All components using Ionicons/FontAwesome -> Lucide | Medium — many files touched, but mechanical replacement |
+| 5 | **Icon migration** | All components using Ionicons/FontAwesome -> Phosphor | Medium — many files touched, but mechanical replacement |
 | 6 | **Tab bar** | `(tabs)/_layout.tsx` — full rewrite to floating pill with backdrop blur, gold capsule active | Medium — high-visibility, custom component replaces Expo Router defaults |
 | 7 | **Search bar** | `SearchBar.tsx`, `SearchResults.tsx` | Low — isolated component |
 | 8 | **Feed filter chips** | `FeedFilterChips.tsx` | Low — small component |
@@ -2382,7 +2378,9 @@ These literal hex values appear across component files and must be replaced with
 
 ### 11.10 Icon Migration Guide
 
-The entire app migrates from `@expo/vector-icons` (Ionicons + FontAwesome) to `lucide-react-native`. Lucide uses SVG-based components (not icon fonts), providing consistent rendering and tree-shaking.
+The entire app migrates from `@expo/vector-icons` (Ionicons + FontAwesome) to Phosphor Icons. Phosphor uses SVG-based components (not icon fonts), providing consistent rendering and tree-shaking. The weight system (`thin`, `light`, `regular`, `bold`, `fill`, `duotone`) replaces the stroke-width and fill-prop patterns used by other icon libraries.
+
+**Package**: `phosphor-react-native` (native) / `@phosphor-icons/react` (web).
 
 **Import pattern**:
 
@@ -2391,59 +2389,67 @@ The entire app migrates from `@expo/vector-icons` (Ionicons + FontAwesome) to `l
 import { Ionicons } from '@expo/vector-icons';
 // <Ionicons name="heart-outline" size={18} color="#C7BFB3" />
 
-// New:
-import { Heart, MessageCircle, Send } from 'lucide-react-native';
-// <Heart size={18} color="#C7BFB3" />
-// For filled: <Heart size={18} color="#FF6B35" fill="#FF6B35" />
+// New (native):
+import { Heart, ChatCircle, PaperPlaneTilt } from 'phosphor-react-native';
+// <Heart size={18} color="#C7BFB3" weight="regular" />
+// For filled: <Heart size={18} color="#FF6B35" weight="fill" />
+
+// New (web):
+import { Heart, ChatCircle, PaperPlaneTilt } from '@phosphor-icons/react';
+// Same props API
 ```
 
-**Ionicons -> Lucide mapping**:
+**Ionicons -> Phosphor mapping**:
 
-| Ionicons name | Lucide component | Notes |
-|---------------|------------------|-------|
-| `heart-outline` | `Heart` | Outline by default |
-| `heart` | `Heart` | Add `fill="currentColor"` or `fill="#FF6B35"` for filled |
-| `chatbubble-outline` | `MessageCircle` | |
-| `chatbubble` | `MessageCircle` | Add `fill` for filled |
+| Ionicons name | Phosphor component | Notes |
+|---------------|-------------------|-------|
+| `heart-outline` | `Heart` | `weight="regular"` (outline) |
+| `heart` | `Heart` | `weight="fill"` for filled |
+| `chatbubble-outline` | `ChatCircle` | `weight="regular"` |
+| `chatbubble` | `ChatCircle` | `weight="fill"` for filled |
 | `close` | `X` | |
-| `search` | `Search` | |
+| `search` | `MagnifyingGlass` | |
 | `location-outline` | `MapPin` | |
-| `arrow-back` | `ArrowLeft` or `ChevronLeft` | Use `ChevronLeft` for back navigation |
-| `share-social` | `Share2` | |
-| `bookmark-outline` | `Bookmark` | Outline by default |
-| `bookmark` | `Bookmark` | Add `fill` for filled |
-| `person-outline` | `User` | |
-| `person` | `User` | Add `fill` for filled |
-| `send` | `Send` | |
+| `arrow-back` | `ArrowLeft` or `CaretLeft` | Use `CaretLeft` for back navigation |
+| `share-social` | `ShareNetwork` | |
+| `bookmark-outline` | `BookmarkSimple` | `weight="regular"` (outline) |
+| `bookmark` | `BookmarkSimple` | `weight="fill"` for filled |
+| `person-outline` | `User` | `weight="regular"` |
+| `person` | `User` | `weight="fill"` for filled |
+| `send` | `PaperPlaneTilt` | |
 | `eye-outline` | `Eye` | |
 | `information-circle-outline` | `Info` | |
-| `chevron-down` | `ChevronDown` | |
-| `chevron-up` | `ChevronUp` | |
-| `time-outline` | `Clock` | |
+| `chevron-down` | `CaretDown` | |
+| `chevron-up` | `CaretUp` | |
+| `time-outline` | `Calendar` | |
 | `star-outline` | `Star` | |
-| `trending-up` | `TrendingUp` | |
-| `ellipsis-horizontal` | `MoreHorizontal` | |
-| `settings-outline` | `Settings` | |
-| `log-out-outline` | `LogOut` | |
+| `trending-up` | `ChartLineUp` | |
+| `ellipsis-horizontal` | `DotsThreeVertical` | |
+| `settings-outline` | `GearSix` | |
+| `log-out-outline` | `SignOut` | |
 | `notifications-outline` | `Bell` | |
 
-**FontAwesome -> Lucide mapping** (tab bar):
+**FontAwesome -> Phosphor mapping** (tab bar):
 
-| FontAwesome name | Lucide component | Notes |
-|------------------|------------------|-------|
-| `map` | `Map` | |
-| `list` | `LayoutList` | |
-| `bookmark` | `Bookmark` | |
+| FontAwesome name | Phosphor component | Notes |
+|------------------|-------------------|-------|
+| `map` | `MapTrifold` | |
+| `list` | `List` | |
+| `bookmark` | `BookmarkSimple` | |
 | `user` | `User` | |
 
-**Filled vs outline**: Lucide icons are outline by default. To get a filled variant, pass both `color` and `fill` props with the same value:
+**Weight system**: Phosphor uses the `weight` prop to control visual style. No need for separate `fill` prop hacks:
 ```tsx
-<Heart size={18} color="#FF6B35" fill="#FF6B35" />   // Filled heart
-<Heart size={18} color="#C7BFB3" />                   // Outline heart
-<Bookmark size={18} color="#F5A623" fill="#F5A623" /> // Filled bookmark
+<Heart size={18} color="#FF6B35" weight="fill" />       // Filled heart
+<Heart size={18} color="#C7BFB3" weight="regular" />     // Outline heart
+<BookmarkSimple size={18} color="#F5A623" weight="fill" /> // Filled bookmark
+<MapTrifold size={18} color="#F5A623" weight="bold" />    // Bold map icon (active tab)
+<MapTrifold size={18} color="#C7BFB3" weight="regular" /> // Regular map icon (inactive tab)
 ```
 
-**Accessibility**: Every interactive Lucide icon must be wrapped in a `Pressable` (or `TouchableOpacity`) with `accessibilityLabel`. Decorative icons should have `accessibilityElementsHidden={true}` (native) or `aria-hidden="true"` (web).
+Available weights: `thin`, `light`, `regular`, `bold`, `fill`, `duotone`.
+
+**Accessibility**: Every interactive Phosphor icon must be wrapped in a `Pressable` (or `TouchableOpacity`) with `accessibilityLabel`. Decorative icons should have `accessibilityElementsHidden={true}` (native) or `aria-hidden="true"` (web).
 
 **Size constants**: Use the scale from section 6.3:
 
@@ -2517,8 +2523,8 @@ Every component listed in section 11.8's phase table must be verified against th
 - [ ] Font weights are applied via `font-sans-*` / `font-display-*` classes, not `font-bold` / `font-semibold` (NativeWind limitation)
 
 ### Icons
-- [ ] Icons use Lucide components (not Ionicons or FontAwesome)
-- [ ] Filled variants use `fill` prop (not a separate icon name)
+- [ ] Icons use Phosphor components (not Ionicons or FontAwesome)
+- [ ] Filled variants use `weight="fill"` prop (not a separate icon name)
 - [ ] Icon sizes follow the xs/sm/md/lg/xl scale
 - [ ] Interactive icons have `accessibilityLabel`
 
@@ -2587,13 +2593,13 @@ All text/background combinations must meet WCAG AA (4.5:1 for body text, 3:1 for
 ### Screen Reader
 
 - No change to existing `accessibilityLabel` and `accessibilityRole` assignments
-- **New requirement**: All Lucide icon buttons must include `accessibilityLabel` on the wrapping `Pressable`:
+- **New requirement**: All Phosphor icon buttons must include `accessibilityLabel` on the wrapping `Pressable`:
   - Like button: `accessibilityLabel="Like"` / `accessibilityLabel="Unlike"`
   - Save button: `accessibilityLabel="Save"` / `accessibilityLabel="Unsave"`
   - Share button: `accessibilityLabel="Share"`
   - Close button: `accessibilityLabel="Close"`
   - Send button: `accessibilityLabel="Send comment"`
-- Decorative Lucide icons (inline with text) should have `accessibilityElementsHidden={true}` on native and `aria-hidden="true"` on web
+- Decorative Phosphor icons (inline with text) should have `accessibilityElementsHidden={true}` on native and `aria-hidden="true"` on web
 - Karma badge text is read as part of the username group, not as a separate element
 - Activity level indicators (Hot/Warm/Quiet dots) should have `accessibilityLabel` with the level name
 
