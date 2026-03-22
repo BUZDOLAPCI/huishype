@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Image, ScrollView, Text, View, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Icon } from '../ui/Icon';
+import { MetricPills } from '../MetricPills';
 import type { SectionProps } from './types';
 import { getPropertyThumbnailUrl } from '../../lib/propertyThumbnail';
 import type { CountryCode } from '@huishype/shared';
@@ -48,20 +49,21 @@ function SatelliteImageWithPin({ lat, lon, countryCode }: SatelliteImageWithPinP
         testID="property-header-aerial-image"
       />
 
-      {/* Centered marker pin - white pin with shadow for visibility */}
+      {/* Centered marker pin */}
       <View style={styles.markerContainer} testID="property-header-marker">
         <View style={styles.markerShadow}>
-          <Ionicons
-            name="location-sharp"
-            size={48}
-            color="#ffffff"
-            style={styles.markerIcon}
-          />
+          <Icon name="MapPin" size="2xl" weight="fill" color="#FFFFFF" />
         </View>
       </View>
     </View>
   );
 }
+
+const ACTIVITY_CONFIG = {
+  hot: { dot: '#FF6B35', label: 'Hot', desc: 'Lots of activity this week', textColor: '#C43E00', bg: '#FFF5F0' },
+  warm: { dot: '#F5A623', label: 'Active', desc: 'Some recent activity', textColor: '#B47712', bg: '#FFFBEB' },
+  cold: { dot: '#C7BFB3', label: 'Quiet', desc: 'No recent activity', textColor: '#9C958A', bg: '#F5F0E8' },
+} as const;
 
 export function PropertyHeader({ property }: SectionProps) {
   const hasPhotos = property.photos && property.photos.length > 0;
@@ -72,23 +74,7 @@ export function PropertyHeader({ property }: SectionProps) {
   const lon = hasCoordinates ? coordinates[0] : null;
   const lat = hasCoordinates ? coordinates[1] : null;
 
-  const activityColors = {
-    hot: 'bg-red-500',
-    warm: 'bg-orange-400',
-    cold: 'bg-gray-300',
-  };
-
-  const activityLabels = {
-    hot: 'Hot',
-    warm: 'Active',
-    cold: 'Quiet',
-  };
-
-  const activityDescriptions = {
-    hot: 'Lots of activity this week',
-    warm: 'Some recent activity',
-    cold: 'No recent activity',
-  };
+  const activity = ACTIVITY_CONFIG[property.activityLevel];
 
   return (
     <View>
@@ -108,7 +94,7 @@ export function PropertyHeader({ property }: SectionProps) {
             <View key={index} className="w-screen h-48 px-4">
               <Image
                 source={{ uri: photo }}
-                className="w-full h-full rounded-xl bg-gray-200"
+                className="w-full h-full rounded-xl bg-warm-200"
                 resizeMode="cover"
               />
             </View>
@@ -144,45 +130,38 @@ export function PropertyHeader({ property }: SectionProps) {
       <View className="px-4 pt-4">
         <View className="flex-row items-start justify-between">
           <View className="flex-1 mr-3">
-            <Text className="text-xl font-bold text-gray-900" numberOfLines={2}>
+            <Text className="text-xl font-bold text-warm-900" numberOfLines={2}>
               {property.address}
             </Text>
-            <Text className="text-base text-gray-500 mt-1">
+            <Text className="text-base text-warm-500 mt-1">
               {property.city}
               {property.postalCode ? `, ${property.postalCode}` : ''}
             </Text>
           </View>
 
-          {/* Activity indicator with description */}
+          {/* Activity indicator */}
           <View className="items-end">
-            <View className="flex-row items-center bg-gray-50 px-3 py-1.5 rounded-full">
-              <View className={`w-2 h-2 rounded-full ${activityColors[property.activityLevel]} mr-1.5`} />
-              <Text className="text-xs text-gray-600">{activityLabels[property.activityLevel]}</Text>
+            <View
+              style={{ backgroundColor: activity.bg }}
+              className="flex-row items-center px-3 py-1.5 rounded-full"
+            >
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: activity.dot, marginRight: 6 }} />
+              <Text style={{ fontSize: 12, color: activity.textColor }}>{activity.label}</Text>
             </View>
-            <Text className="text-[10px] text-gray-400 mt-0.5 mr-1">{activityDescriptions[property.activityLevel]}</Text>
+            <Text style={{ fontSize: 10, color: '#C7BFB3', marginTop: 2, marginRight: 4 }}>{activity.desc}</Text>
           </View>
         </View>
 
-        {/* Property badges */}
-        <View className="flex-row flex-wrap gap-2 mt-3">
-          {property.yearBuilt && (
-            <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
-              <Ionicons name="calendar-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">Built {property.yearBuilt}</Text>
-            </View>
-          )}
-          {property.floorAreaM2 && (
-            <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
-              <Ionicons name="resize-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">{property.floorAreaM2} m{'\u00B2'}</Text>
-            </View>
-          )}
-          {property.viewCount > 0 && (
-            <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
-              <Ionicons name="eye-outline" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-600 ml-1">{property.viewCount} {property.viewCount === 1 ? 'view' : 'views'}</Text>
-            </View>
-          )}
+        {/* Property metric pills */}
+        <View className="mt-3">
+          <MetricPills
+            info={{
+              yearBuilt: property.yearBuilt,
+              floorAreaM2: property.floorAreaM2,
+              viewCount: property.viewCount,
+            }}
+            variant="info"
+          />
         </View>
       </View>
     </View>
@@ -195,7 +174,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#F9FAFB', // Light gray background
+    backgroundColor: '#FFFBF5',
   },
   aerialImage: {
     ...StyleSheet.absoluteFillObject,
@@ -219,9 +198,5 @@ const styles = StyleSheet.create({
     // Shadow for better visibility on aerial imagery
     boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.4)',
     elevation: 5,
-  },
-  markerIcon: {
-    // Offset the icon slightly up so the pin tip points to the center
-    marginBottom: 24,
   },
 });

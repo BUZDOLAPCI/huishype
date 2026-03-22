@@ -344,12 +344,13 @@ describe('formatKarma', () => {
 // ---------------------------------------------------------------------------
 
 describe('getKarmaRank', () => {
-  it('returns Newbie for < 50', () => expect(getKarmaRank(0)).toBe('Newbie'));
-  it('returns Regular for >= 50', () => expect(getKarmaRank(50)).toBe('Regular'));
-  it('returns Trusted for >= 250', () => expect(getKarmaRank(250)).toBe('Trusted'));
-  it('returns Expert for >= 1000', () => expect(getKarmaRank(1000)).toBe('Expert'));
-  it('returns Master for >= 5000', () => expect(getKarmaRank(5000)).toBe('Master'));
-  it('returns Legend for >= 10000', () => expect(getKarmaRank(10000)).toBe('Legend'));
+  it('returns Newcomer for < 10', () => expect(getKarmaRank(0)).toBe('Newcomer'));
+  it('returns Contributor for >= 10', () => expect(getKarmaRank(10)).toBe('Contributor'));
+  it('returns Rising Star for >= 50', () => expect(getKarmaRank(50)).toBe('Rising Star'));
+  it('returns Local Expert for >= 100', () => expect(getKarmaRank(100)).toBe('Local Expert'));
+  it('returns Expert for >= 200', () => expect(getKarmaRank(200)).toBe('Expert'));
+  it('returns Local Legend for >= 500', () => expect(getKarmaRank(500)).toBe('Local Legend'));
+  it('returns Master for >= 1000', () => expect(getKarmaRank(1000)).toBe('Master'));
 });
 
 // ---------------------------------------------------------------------------

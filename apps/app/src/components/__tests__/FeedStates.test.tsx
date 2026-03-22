@@ -1,9 +1,6 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
-// Mock FontAwesome before importing components
-jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
-
 import { FeedLoadingState, FeedLoadingMore } from '../FeedLoadingState';
 import { FeedErrorState } from '../FeedErrorState';
 import { FeedEmptyState } from '../FeedEmptyState';
@@ -80,15 +77,9 @@ describe('FeedEmptyState', () => {
     expect(getByText('No trending properties at the moment.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "controversial" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="controversial" />);
+  it('shows filter-specific message for "activity" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="activity" />);
 
-    expect(getByText('No controversial properties found yet. Submit guesses to get started!')).toBeTruthy();
-  });
-
-  it('shows filter-specific message for "price-mismatch" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="price-mismatch" />);
-
-    expect(getByText('No properties with price mismatches found.')).toBeTruthy();
+    expect(getByText('No recent activity yet. Be the first to like, comment, or guess!')).toBeTruthy();
   });
 });

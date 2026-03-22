@@ -14,6 +14,7 @@ jest.mock('expo-router', () => ({
   },
   router: {
     back: jest.fn(),
+    push: jest.fn(),
   },
 }));
 
@@ -94,6 +95,8 @@ describe('app/property/[id]', () => {
       property,
       manageInteractionsInternally: true,
       onAuthRequired: expect.any(Function),
+      onViewAllComments: expect.any(Function),
+      onViewAllGuesses: expect.any(Function),
     }));
 
     expect(screen.getByText('Auth modal closed')).toBeTruthy();

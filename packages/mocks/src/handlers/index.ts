@@ -1,18 +1,31 @@
 /**
  * MSW Handler exports
+ *
+ * All handlers use paths matching the live Fastify routes (no /api/v1 prefix).
+ * See services/api/openapi.json for the canonical path list.
  */
 
-import { authHandlers } from './auth';
-import { propertyHandlers } from './properties';
-import { guessHandlers } from './guesses';
-import { commentHandlers } from './comments';
-import { geocodeHandlers } from './geocode';
+import { authHandlers } from './auth.js';
+import { propertyHandlers } from './properties.js';
+import { guessHandlers } from './guesses.js';
+import { commentHandlers } from './comments.js';
+import { geocodeHandlers } from './geocode.js';
+import { feedHandlers } from './feed.js';
+import { userHandlers } from './users.js';
+import { listingHandlers } from './listings.js';
 
 /**
- * All API mock handlers combined
+ * All API mock handlers combined.
+ *
+ * Handler order matters: more specific paths must come before parameterized ones.
+ * The property handlers are ordered so /properties/resolve, /properties/nearby,
+ * /properties/batch come before /properties/:id.
  */
 export const handlers = [
   ...authHandlers,
+  ...userHandlers,
+  ...feedHandlers,
+  ...listingHandlers,
   ...propertyHandlers,
   ...guessHandlers,
   ...commentHandlers,
@@ -20,11 +33,14 @@ export const handlers = [
 ];
 
 // Export individual handler groups for selective use
-export { authHandlers } from './auth';
-export { propertyHandlers } from './properties';
-export { guessHandlers } from './guesses';
-export { commentHandlers } from './comments';
-export { geocodeHandlers, mockGeocodeSuggestions, addMockGeocodeSuggestion, clearMockGeocodeSuggestions } from './geocode';
+export { authHandlers } from './auth.js';
+export { propertyHandlers } from './properties.js';
+export { guessHandlers } from './guesses.js';
+export { commentHandlers } from './comments.js';
+export { geocodeHandlers, mockGeocodeSuggestions, addMockGeocodeSuggestion, clearMockGeocodeSuggestions } from './geocode.js';
+export { feedHandlers } from './feed.js';
+export { userHandlers } from './users.js';
+export { listingHandlers } from './listings.js';
 
 // Export auth helpers
-export { validateMockToken, getMockAuthUser } from './auth';
+export { validateMockToken, getMockAuthUser, resetMockSessions } from './auth.js';

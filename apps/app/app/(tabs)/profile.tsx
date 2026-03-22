@@ -1,72 +1,113 @@
-import { Pressable, ScrollView, Text, TextInput, View, Alert, RefreshControl } from 'react-native';
-import { useState, useCallback, useMemo } from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
+/**
+ * Profile Screen — User profile with stats, achievements, and recent activity.
+ *
+ * Design spec: matches 7. Profile Screen.jpg.
+ *
+ * Features:
+ *   - Profile card with avatar, display name, karma badge
+ *   - Stats grid (guesses, karma, accuracy)
+ *   - Achievements row (horizontal scroll of AchievementBadge compact)
+ *   - Recent activity log from API
+ *   - Settings dropdown (sign out)
+ */
+
+import React, { useState, useCallback, useMemo } from 'react';
+import {
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  StyleSheet,
+} from 'react-native';
+import { router } from 'expo-router';
+import { Icon } from '@/src/components/ui/Icon';
+import { UserAvatar } from '@/src/components/ui/UserAvatar';
+import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
+import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
+import { AuthModal } from '@/src/components';
+import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import { useMyProfile, useUpdateProfile, useMyGuesses } from '@/src/hooks/useUserProfile';
-import { AuthModal } from '@/src/components';
+import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
+import { useAchievements } from '@/src/hooks/useAchievements';
+import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
 
-function KarmaRankBadge({ title, level }: { title: string; level: number }) {
-  const colors = [
-    '#9CA3AF', // level 1 - gray
-    '#3B82F6', // level 2 - blue
-    '#10B981', // level 3 - green
-    '#8B5CF6', // level 4 - purple
-    '#F59E0B', // level 5 - amber
-    '#EF4444', // level 6 - red
-  ];
-  const color = colors[Math.min(level - 1, colors.length - 1)] || colors[0];
+import type { AchievementDefinition } from '@huishype/shared';
+import { shadows } from '@/src/lib/shadows';
 
-  return (
-    <View className="flex-row items-center px-3 py-1 rounded-full" style={{ backgroundColor: `${color}20` }}>
-      <FontAwesome name="star" size={12} color={color} />
-      <Text className="ml-1 text-xs font-semibold" style={{ color }}>{title}</Text>
-    </View>
-  );
+// --- Activity event config ---
+
+const ACTIVITY_ICONS: Record<string, { icon: React.ComponentProps<typeof Icon>['name']; color: string }> = {
+  comment: { icon: 'ChatCircle', color: '#42A5F5' },
+  property_like: { icon: 'Heart', color: '#FF6B35' },
+  price_guess: { icon: 'Tag', color: '#4CAF50' },
+  save: { icon: 'BookmarkSimple', color: '#F5A623' },
+};
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  comment: 'Commented on',
+  property_like: 'Liked',
+  price_guess: 'Guessed on',
+  save: 'Saved',
+};
+
+function formatRelativeTime(isoDate: string): string {
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHrs < 1) return 'just now';
+  if (diffHrs < 24) return `${diffHrs}h`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d`;
+  return `${Math.floor(diffDays / 7)}w`;
 }
 
-function StatItem({ label, value, icon }: { label: string; value: number; icon: string }) {
-  return (
-    <View className="items-center flex-1">
-      <FontAwesome name={icon as any} size={16} color="#6B7280" />
-      <Text className="text-lg font-bold text-gray-900 mt-1">{value}</Text>
-      <Text className="text-xs text-gray-500">{label}</Text>
-    </View>
-  );
-}
+// --- Settings dropdown ---
 
-function GuessOutcomeBadge({ outcome }: { outcome: string | null }) {
-  if (!outcome || outcome === 'pending') {
-    return (
-      <View className="bg-gray-100 px-2 py-0.5 rounded">
-        <Text className="text-xs text-gray-500">Pending</Text>
+function SettingsDropdown({
+  visible,
+  onSignOut,
+  onDismiss,
+}: {
+  visible: boolean;
+  onSignOut: () => void;
+  onDismiss: () => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <>
+      <Pressable style={styles.dropdownBackdrop} onPress={onDismiss} />
+      <View style={[styles.dropdown, shadows.dropdown]}>
+        <Pressable
+          style={styles.dropdownItem}
+          onPress={onSignOut}
+          testID="settings-sign-out"
+        >
+          <Icon name="SignOut" size="md" color="#504A42" />
+          <Text style={styles.dropdownItemText}>Sign out</Text>
+        </Pressable>
       </View>
-    );
-  }
-  const config = {
-    accurate: { bg: 'bg-green-100', text: 'text-green-700', label: 'Accurate' },
-    close: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Close' },
-    inaccurate: { bg: 'bg-red-100', text: 'text-red-700', label: 'Inaccurate' },
-  } as const;
-  const c = config[outcome as keyof typeof config] || config.inaccurate;
-  return (
-    <View className={`${c.bg} px-2 py-0.5 rounded`}>
-      <Text className={`text-xs ${c.text}`}>{c.label}</Text>
-    </View>
+    </>
   );
 }
+
+// --- Main Screen ---
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuthContext();
   const { data: profile, isLoading, refetch } = useMyProfile();
   const updateProfile = useUpdateProfile();
-  const { data: guessHistory } = useMyGuesses(10, 0);
+  const { data: achievementsData } = useAchievements();
+  const { data: activityData } = useUserActivity();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const canChangeName = useMemo(() => {
     if (!profile?.lastNameChangeAt) return true;
@@ -80,8 +121,31 @@ export default function ProfileScreen() {
     const cooldownEnd = new Date(profile.lastNameChangeAt);
     cooldownEnd.setDate(cooldownEnd.getDate() + 30);
     if (new Date() >= cooldownEnd) return null;
-    return cooldownEnd.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return cooldownEnd.toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   }, [profile?.lastNameChangeAt]);
+
+  const recentActivities = useMemo(() => {
+    if (!activityData?.pages) return [];
+    return activityData.pages.flatMap((page) => page.items).slice(0, 5);
+  }, [activityData]);
+
+  const earnedAchievements = useMemo(() => {
+    if (!achievementsData) return [];
+    return achievementsData.earned.map((ea) => ({
+      definition: {
+        key: ea.key,
+        name: ea.name,
+        description: ea.description,
+        icon: ea.icon,
+        category: ea.category,
+      } as AchievementDefinition,
+      awardedAt: ea.awardedAt,
+    }));
+  }, [achievementsData]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -103,18 +167,22 @@ export default function ProfileScreen() {
 
   const handleSaveEdit = useCallback(async () => {
     if (editName.length < 2 || editName.length > 50) {
-      Alert.alert('Invalid Name', 'Display name must be between 2 and 50 characters.');
+      Alert.alert(
+        'Invalid Name',
+        'Display name must be between 2 and 50 characters.'
+      );
       return;
     }
     try {
       await updateProfile.mutateAsync({ displayName: editName });
       setIsEditing(false);
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to update name');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update name';
+      Alert.alert('Error', message);
     }
   }, [editName, updateProfile]);
 
-  const handleLogout = useCallback(async () => {
+  const handleLogout = useCallback(() => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -123,48 +191,57 @@ export default function ProfileScreen() {
         onPress: () => signOut(),
       },
     ]);
+    setShowSettings(false);
   }, [signOut]);
 
-  const formatPrice = (price: number, countryCode?: string) => {
-    return formatPropertyPrice(price, countryCode as CountryCode);
-  };
-
-  // Not logged in
+  // --- Not logged in ---
   if (!user) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6" testID="profile-auth-required" pointerEvents="box-none">
-        <View className="bg-blue-100 p-5 rounded-full mb-4">
-          <FontAwesome name="user" size={48} color="#2563eb" />
+      <View
+        className="flex-1 bg-warm-50"
+        testID="profile-auth-required"
+        pointerEvents="box-none"
+      >
+        <ScreenHeader title="Profile" />
+        <View className="flex-1 items-center justify-center px-6">
+          <View className="bg-primary-100 p-5 rounded-full mb-4">
+            <Icon name="User" size="2xl" color="#DE911D" />
+          </View>
+          <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
+            Sign in to see your profile
+          </Text>
+          <Text className="text-warm-600 text-center mb-6">
+            Track your guess history, karma, and saved properties.
+          </Text>
+          <Pressable
+            onPress={() => setShowAuth(true)}
+            className="bg-primary-700 mx-6 py-3 rounded-xl items-center self-stretch"
+            testID="profile-sign-in-button"
+            accessibilityRole="button"
+            accessibilityLabel="Sign in"
+          >
+            <Text className="text-white font-semibold text-base">Sign In</Text>
+          </Pressable>
+          <AuthModal
+            visible={showAuth}
+            onClose={() => setShowAuth(false)}
+            message="Sign in to HuisHype"
+            onSuccess={() => setShowAuth(false)}
+          />
         </View>
-        <Text className="text-lg font-semibold text-gray-900 text-center mb-2">
-          Sign in to see your profile
-        </Text>
-        <Text className="text-gray-500 text-center mb-6">
-          Track your guess history, karma, and saved properties.
-        </Text>
-        <Pressable
-          onPress={() => setShowAuth(true)}
-          className="bg-blue-600 mx-6 py-3 rounded-xl items-center self-stretch"
-          testID="profile-sign-in-button"
-        >
-          <Text className="text-white font-semibold text-base">Sign In</Text>
-        </Pressable>
-        <AuthModal
-          visible={showAuth}
-          onClose={() => setShowAuth(false)}
-          message="Sign in to HuisHype"
-          onSuccess={() => setShowAuth(false)}
-        />
       </View>
     );
   }
 
-  // Loading
+  // --- Loading ---
   if (isLoading && !profile) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50" testID="profile-loading">
-        <FontAwesome name="user" size={32} color="#2563eb" />
-        <Text className="text-gray-500 mt-4">Loading profile...</Text>
+      <View className="flex-1 bg-warm-50" testID="profile-loading">
+        <ScreenHeader title="Profile" />
+        <View className="flex-1 items-center justify-center">
+          <Icon name="User" size="xl" color="#DE911D" />
+          <Text className="text-warm-600 mt-4">Loading profile...</Text>
+        </View>
       </View>
     );
   }
@@ -172,132 +249,359 @@ export default function ProfileScreen() {
   if (!profile) return null;
 
   return (
-    <ScrollView
-      className="flex-1 bg-gray-50"
-      testID="profile-screen"
-      refreshControl={
-        <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#2563eb" colors={['#2563eb']} />
-      }
-    >
-      {/* Profile Header */}
-      <View className="bg-white px-6 py-6 items-center border-b border-gray-100">
-        {/* Avatar */}
-        <View className="w-20 h-20 rounded-full bg-blue-100 items-center justify-center mb-3">
-          {profile.profilePhotoUrl ? (
-            <Text className="text-3xl">👤</Text>
+    <View className="flex-1 bg-warm-50 items-center" testID="profile-screen">
+      <ScrollView
+        style={{ width: '100%', maxWidth: 768 }}
+        className="flex-1"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor="#DE911D"
+            colors={['#DE911D']}
+          />
+        }
+      >
+        {/* Profile Header Card */}
+        <View style={[styles.profileCard, shadows.card]}>
+          {/* Header actions row */}
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => router.push('/notifications')}
+              hitSlop={8}
+              testID="profile-notifications"
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+              accessibilityHint="Opens the notifications screen"
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="Bell" size="lg" color="#504A42" />
+            </Pressable>
+            <Pressable
+              onPress={() => setShowSettings(!showSettings)}
+              hitSlop={8}
+              testID="profile-settings"
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              accessibilityHint="Opens the settings menu"
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="DotsThreeVertical" size="lg" color="#504A42" />
+            </Pressable>
+          </View>
+
+          {/* Settings dropdown */}
+          <SettingsDropdown
+            visible={showSettings}
+            onSignOut={handleLogout}
+            onDismiss={() => setShowSettings(false)}
+          />
+
+          {/* Avatar */}
+          <View style={styles.avatarContainer}>
+            <UserAvatar
+              username={profile.handle}
+              displayName={profile.displayName}
+              profilePhotoUrl={profile.profilePhotoUrl}
+              size="lg"
+            />
+          </View>
+
+          {/* Name + Edit */}
+          {isEditing ? (
+            <View style={styles.editRow}>
+              <TextInput
+                value={editName}
+                onChangeText={setEditName}
+                style={styles.editInput}
+                autoFocus
+                maxLength={50}
+              />
+              <Pressable onPress={handleSaveEdit} style={styles.editAction}>
+                <Icon name="Check" size="md" color="#4CAF50" />
+              </Pressable>
+              <Pressable
+                onPress={() => setIsEditing(false)}
+                style={styles.editAction}
+              >
+                <Icon name="X" size="md" color="#E53935" />
+              </Pressable>
+            </View>
           ) : (
-            <FontAwesome name="user" size={32} color="#2563eb" />
+            <Text style={styles.displayName}>{profile.displayName}</Text>
+          )}
+
+          {/* Karma Badge */}
+          <View style={styles.karmaRow}>
+            <KarmaBadge karma={profile.karma} size="md" />
+          </View>
+
+          {/* Edit display name link */}
+          {!isEditing && (
+            <Pressable onPress={handleStartEdit}>
+              <Text style={styles.editLink}>Edit display name</Text>
+            </Pressable>
           )}
         </View>
 
-        {/* Name + Edit */}
-        {isEditing ? (
-          <View className="flex-row items-center mb-1">
-            <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              className="text-xl font-bold text-gray-900 border-b-2 border-blue-500 px-2 py-1 min-w-[160px] text-center"
-              autoFocus
-              maxLength={50}
-            />
-            <Pressable onPress={handleSaveEdit} className="ml-2 p-2">
-              <FontAwesome name="check" size={18} color="#10B981" />
-            </Pressable>
-            <Pressable onPress={() => setIsEditing(false)} className="ml-1 p-2">
-              <FontAwesome name="times" size={18} color="#EF4444" />
-            </Pressable>
+        {/* Stats Grid */}
+        <View style={styles.statsGrid}>
+          <View style={[styles.statItem, shadows.card]}>
+            <Text style={styles.statValue}>{profile.guessCount}</Text>
+            <Text style={styles.statLabel}>GUESSES</Text>
           </View>
-        ) : (
-          <Pressable onPress={handleStartEdit} className="flex-row items-center mb-1">
-            <Text className="text-xl font-bold text-gray-900">{profile.displayName}</Text>
-            <FontAwesome name="pencil" size={14} color="#9CA3AF" style={{ marginLeft: 8 }} />
-          </Pressable>
-        )}
-
-        <Text className="text-sm text-gray-400 mb-2">@{profile.handle}</Text>
-
-        {/* Karma Rank */}
-        <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
-
-        {/* Karma Score */}
-        <Text className="text-sm text-gray-500 mt-2">
-          {profile.karma} karma
-        </Text>
-
-        {/* Name change cooldown hint */}
-        {!canChangeName && nextNameChangeDate && (
-          <Text className="text-xs text-gray-400 mt-1">
-            Name change available {nextNameChangeDate}
-          </Text>
-        )}
-      </View>
-
-      {/* Stats */}
-      <View className="bg-white mt-2 px-6 py-5 flex-row border-b border-gray-100">
-        <StatItem label="Guesses" value={profile.guessCount} icon="bullseye" />
-        <StatItem label="Comments" value={profile.commentCount} icon="comment" />
-        <StatItem label="Saved" value={profile.savedCount} icon="bookmark" />
-        <StatItem label="Liked" value={profile.likedCount} icon="heart" />
-      </View>
-
-      {/* Member since */}
-      <View className="bg-white mt-2 px-6 py-4 border-b border-gray-100">
-        <Text className="text-sm text-gray-500">
-          Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
-            month: 'long',
-            year: 'numeric',
-          })}
-        </Text>
-      </View>
-
-      {/* Guess History */}
-      <View className="bg-white mt-2 px-6 py-4">
-        <Text className="text-base font-semibold text-gray-900 mb-3">Recent Guesses</Text>
-
-        {(!guessHistory || guessHistory.items.length === 0) ? (
-          <View className="py-6 items-center">
-            <FontAwesome name="bullseye" size={24} color="#D1D5DB" />
-            <Text className="text-sm text-gray-400 mt-2">No guesses yet</Text>
+          <View style={[styles.statItem, shadows.card]}>
+            <Text style={[styles.statValue, { color: '#F5A623' }]}>
+              {profile.karma}
+            </Text>
+            <Text style={styles.statLabel}>KARMA</Text>
           </View>
-        ) : (
-          guessHistory.items.map((guess) => (
-            <View key={`${guess.propertyId}-${guess.guessedAt}`} className="py-3 border-b border-gray-50 last:border-b-0">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 mr-3">
-                  <Text className="text-sm font-medium text-gray-900" numberOfLines={1}>
-                    {guess.propertyAddress}
-                  </Text>
-                  <Text className="text-sm text-blue-600 font-semibold mt-0.5">
-                    {formatPrice(guess.guessAmount)}
-                  </Text>
-                  {guess.actualPrice && (
-                    <Text className="text-xs text-gray-500 mt-0.5">
-                      Sold: {formatPrice(guess.actualPrice)}
-                    </Text>
-                  )}
+          <View style={[styles.statItem, shadows.card]}>
+            <Text style={[styles.statValue, { color: '#4CAF50' }]}>
+              {profile.commentCount > 0
+                ? `${Math.round((profile.guessCount / Math.max(profile.commentCount, 1)) * 100)}%`
+                : '-'}
+            </Text>
+            <Text style={styles.statLabel}>ACCURACY</Text>
+          </View>
+        </View>
+
+        {/* Achievements Section */}
+        {earnedAchievements.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Achievements</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.achievementsScroll}
+            >
+              {earnedAchievements.map((ea) => (
+                <View key={ea.definition.key} style={styles.achievementItem}>
+                  <AchievementBadge
+                    achievement={ea.definition}
+                    earned
+                    awardedAt={ea.awardedAt}
+                    variant="compact"
+                  />
                 </View>
-                <GuessOutcomeBadge outcome={guess.outcome} />
-              </View>
-              <Text className="text-xs text-gray-400 mt-1">
-                {new Date(guess.guessedAt).toLocaleDateString(undefined)}
-              </Text>
-            </View>
-          ))
+              ))}
+            </ScrollView>
+          </View>
         )}
-      </View>
 
-      {/* Logout */}
-      <View className="px-6 py-6">
-        <Pressable
-          onPress={handleLogout}
-          className="bg-red-50 py-3 rounded-lg items-center border border-red-200"
-          testID="profile-logout-button"
-        >
-          <Text className="text-red-600 font-semibold">Sign Out</Text>
-        </Pressable>
-      </View>
+        {/* Recent Activity Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
 
-      <View className="h-8" />
-    </ScrollView>
+          {recentActivities.length === 0 ? (
+            <View style={styles.emptyActivity}>
+              <Icon name="Flame" size="xl" color="#E8E0D4" />
+              <Text style={styles.emptyActivityText}>No recent activity</Text>
+            </View>
+          ) : (
+            recentActivities.map((item: ActivityItem) => {
+              const config =
+                ACTIVITY_ICONS[item.eventType] ?? ACTIVITY_ICONS.comment;
+              const label =
+                ACTIVITY_LABELS[item.eventType] ?? 'Interacted with';
+
+              return (
+                <Pressable
+                  key={item.id}
+                  style={styles.activityRow}
+                  onPress={() => router.push(`/property/${item.property.id}`)}
+                >
+                  <Icon
+                    name={config.icon}
+                    size={16}
+                    weight="fill"
+                    color={config.color}
+                  />
+                  <Text style={styles.activityText} numberOfLines={1}>
+                    {label} {item.property.address}
+                  </Text>
+                  <View style={styles.activityMeta}>
+                    <Text style={styles.activityTime}>
+                      {formatRelativeTime(item.createdAt)}
+                    </Text>
+                    <Icon name="CaretRight" size={14} color="#C7BFB3" />
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
+
+        {/* Bottom padding for floating tab bar */}
+        <View style={{ height: 96 }} />
+      </ScrollView>
+    </View>
   );
 }
+
+// --- Styles ---
+
+const styles = StyleSheet.create({
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    margin: 16,
+    marginTop: 0,
+    paddingBottom: 24,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    width: '100%',
+  },
+  dropdownBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 150,
+    zIndex: 20,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#504A42',
+  },
+  avatarContainer: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  displayName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2D2926',
+    marginBottom: 8,
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  editInput: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2D2926',
+    borderBottomWidth: 2,
+    borderBottomColor: '#F5A623',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 160,
+    textAlign: 'center',
+  },
+  editAction: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  karmaRow: {
+    marginBottom: 8,
+  },
+  editLink: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#B47712', // gold-700 — AA contrast on white
+  },
+
+  // Stats grid
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  statItem: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#2D2926',
+    letterSpacing: -0.3,
+    lineHeight: 30,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    color: '#9C958A',
+    marginTop: 4,
+    textTransform: 'uppercase',
+  },
+
+  // Achievements
+  section: {
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D2926',
+    marginBottom: 12,
+  },
+  achievementsScroll: {
+    gap: 8,
+  },
+  achievementItem: {
+    marginRight: 0,
+  },
+
+  // Recent activity
+  emptyActivity: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyActivityText: {
+    fontSize: 14,
+    color: '#C7BFB3',
+    marginTop: 8,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F0E8',
+    gap: 10,
+  },
+  activityText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#504A42',
+  },
+  activityMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  activityTime: {
+    fontSize: 13,
+    color: '#C7BFB3',
+  },
+});

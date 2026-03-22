@@ -1,0 +1,275 @@
+/**
+ * Deterministic visual fixtures for screenshot-based testing.
+ *
+ * All timestamps, IDs, and ordering are fixed so visual tests produce
+ * identical results across runs. Import these instead of the base fixtures
+ * when deterministic output matters (Playwright screenshots, visual regression).
+ *
+ * Key guarantees:
+ * - Fixed ISO timestamps (no Date.now())
+ * - Stable sort order (explicit ordering fields where needed)
+ * - Stable image URLs (use placeholder service with fixed seeds)
+ * - Deterministic user/property/comment IDs
+ */
+
+// ============================================
+// Fixed timestamps
+// ============================================
+
+/** Epoch used as "now" for all visual fixtures: 2025-01-15T12:00:00Z */
+export const VISUAL_FIXTURE_NOW = '2025-01-15T12:00:00.000Z';
+
+/** Helper to create a fixed timestamp relative to VISUAL_FIXTURE_NOW */
+export function fixedTimestamp(daysAgo: number, hoursAgo: number = 0): string {
+  const base = new Date(VISUAL_FIXTURE_NOW);
+  base.setDate(base.getDate() - daysAgo);
+  base.setHours(base.getHours() - hoursAgo);
+  return base.toISOString();
+}
+
+// ============================================
+// Notification fixtures
+// ============================================
+
+export interface MockNotification {
+  id: string;
+  type: 'comment_reply' | 'guess_result' | 'property_update' | 'like' | 'achievement';
+  title: string;
+  body: string;
+  imageUrl?: string;
+  propertyId?: string;
+  userId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export const mockNotifications: MockNotification[] = [
+  {
+    id: 'notif-001',
+    type: 'comment_reply',
+    title: 'Maria Bakker replied to your comment',
+    body: 'Eens! Maar de historische waarde van dit pand is wel uniek.',
+    imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
+    propertyId: 'prop-001',
+    userId: 'user-002',
+    read: false,
+    createdAt: fixedTimestamp(0, 2),
+  },
+  {
+    id: 'notif-002',
+    type: 'like',
+    title: 'Sophie Meijer liked your guess',
+    body: 'Your price guess on Prinsengracht 263 received a like',
+    imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
+    propertyId: 'prop-001',
+    userId: 'user-004',
+    read: false,
+    createdAt: fixedTimestamp(0, 5),
+  },
+  {
+    id: 'notif-003',
+    type: 'property_update',
+    title: 'Price changed on Herengracht 502',
+    body: 'The asking price was reduced from \u20AC2,200,000 to \u20AC2,100,000',
+    propertyId: 'prop-002',
+    read: true,
+    createdAt: fixedTimestamp(1, 3),
+  },
+  {
+    id: 'notif-004',
+    type: 'guess_result',
+    title: 'Your guess was close!',
+    body: 'Coolsingel 40 sold for \u20AC460,000 \u2014 your guess was within 3%',
+    propertyId: 'prop-003',
+    read: true,
+    createdAt: fixedTimestamp(2, 0),
+  },
+  {
+    id: 'notif-005',
+    type: 'achievement',
+    title: 'Achievement unlocked: Sharp Eye',
+    body: 'You guessed within 5% accuracy on 5 properties',
+    read: true,
+    createdAt: fixedTimestamp(3, 6),
+  },
+  {
+    id: 'notif-006',
+    type: 'comment_reply',
+    title: 'Pieter Jansen replied to your comment',
+    body: 'Zou het pand ook voor verhuur geschikt zijn?',
+    imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
+    propertyId: 'prop-001',
+    userId: 'user-003',
+    read: true,
+    createdAt: fixedTimestamp(4, 1),
+  },
+];
+
+// ============================================
+// Leaderboard fixtures
+// ============================================
+
+export interface MockLeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string;
+  profilePhotoUrl?: string;
+  karma: number;
+  karmaRank: string;
+  totalGuesses: number;
+  averageAccuracy?: number;
+  isCurrentUser: boolean;
+}
+
+export const mockLeaderboard: MockLeaderboardEntry[] = [
+  {
+    rank: 1,
+    userId: 'user-004',
+    displayName: 'Sophie Meijer',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
+    karma: 5200,
+    karmaRank: 'Master',
+    totalGuesses: 112,
+    averageAccuracy: 91.2,
+    isCurrentUser: false,
+  },
+  {
+    rank: 2,
+    userId: 'user-001',
+    displayName: 'Jan de Vries',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
+    karma: 2500,
+    karmaRank: 'Expert',
+    totalGuesses: 45,
+    averageAccuracy: 87.5,
+    isCurrentUser: true,
+  },
+  {
+    rank: 3,
+    userId: 'user-006',
+    displayName: 'Emma van Dijk',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
+    karma: 1800,
+    karmaRank: 'Expert',
+    totalGuesses: 67,
+    averageAccuracy: 84.1,
+    isCurrentUser: false,
+  },
+  {
+    rank: 4,
+    userId: 'user-002',
+    displayName: 'Maria Bakker',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
+    karma: 850,
+    karmaRank: 'Local Legend',
+    totalGuesses: 23,
+    averageAccuracy: 72.3,
+    isCurrentUser: false,
+  },
+  {
+    rank: 5,
+    userId: 'user-007',
+    displayName: 'Lars Hendriks',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
+    karma: 620,
+    karmaRank: 'Local Legend',
+    totalGuesses: 31,
+    averageAccuracy: 68.9,
+    isCurrentUser: false,
+  },
+  {
+    rank: 6,
+    userId: 'user-008',
+    displayName: 'Anna de Groot',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
+    karma: 450,
+    karmaRank: 'Expert',
+    totalGuesses: 19,
+    averageAccuracy: 65.4,
+    isCurrentUser: false,
+  },
+  {
+    rank: 7,
+    userId: 'user-003',
+    displayName: 'Pieter Jansen',
+    profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
+    karma: 125,
+    karmaRank: 'Expert',
+    totalGuesses: 8,
+    averageAccuracy: 65.0,
+    isCurrentUser: false,
+  },
+];
+
+// ============================================
+// Profile activity fixtures
+// ============================================
+
+export interface MockActivityItem {
+  id: string;
+  type: 'guess' | 'comment' | 'like' | 'save';
+  description: string;
+  propertyAddress: string;
+  propertyId: string;
+  createdAt: string;
+}
+
+export const mockProfileActivity: MockActivityItem[] = [
+  {
+    id: 'activity-001',
+    type: 'guess',
+    description: 'Guessed \u20AC2,850,000 on Prinsengracht 263',
+    propertyAddress: 'Prinsengracht 263, Amsterdam',
+    propertyId: 'prop-001',
+    createdAt: fixedTimestamp(0, 3),
+  },
+  {
+    id: 'activity-002',
+    type: 'comment',
+    description: 'Commented on Herengracht 502',
+    propertyAddress: 'Herengracht 502, Amsterdam',
+    propertyId: 'prop-002',
+    createdAt: fixedTimestamp(1, 1),
+  },
+  {
+    id: 'activity-003',
+    type: 'like',
+    description: 'Liked Coolsingel 40',
+    propertyAddress: 'Coolsingel 40, Rotterdam',
+    propertyId: 'prop-003',
+    createdAt: fixedTimestamp(2, 5),
+  },
+  {
+    id: 'activity-004',
+    type: 'save',
+    description: 'Saved Lange Voorhout 102',
+    propertyAddress: 'Lange Voorhout 102, Den Haag',
+    propertyId: 'prop-004',
+    createdAt: fixedTimestamp(3, 2),
+  },
+  {
+    id: 'activity-005',
+    type: 'guess',
+    description: 'Guessed \u20AC1,800,000 on Herengracht 502',
+    propertyAddress: 'Herengracht 502, Amsterdam',
+    propertyId: 'prop-002',
+    createdAt: fixedTimestamp(5, 0),
+  },
+];
+
+// ============================================
+// Stable image placeholders
+// ============================================
+
+/**
+ * Placeholder image URLs using fixed seeds for deterministic rendering.
+ * These don't depend on external services being available.
+ */
+export const PLACEHOLDER_IMAGES = {
+  /** Property photo placeholder (warm orange/brown tone) */
+  property: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23E8D5B7" width="400" height="300"/%3E%3Ctext x="200" y="150" text-anchor="middle" fill="%23A0845C" font-size="18"%3EProperty Photo%3C/text%3E%3C/svg%3E',
+  /** Avatar placeholder */
+  avatar: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48"%3E%3Ccircle cx="24" cy="24" r="24" fill="%23C7D2FE"/%3E%3Ctext x="24" y="28" text-anchor="middle" fill="%234F46E5" font-size="16"%3EU%3C/text%3E%3C/svg%3E',
+  /** Map thumbnail placeholder */
+  mapThumbnail: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23D1FAE5" width="200" height="200"/%3E%3Ctext x="100" y="100" text-anchor="middle" fill="%23065F46" font-size="14"%3EMap%3C/text%3E%3C/svg%3E',
+} as const;

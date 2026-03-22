@@ -93,6 +93,12 @@ const BackHandler = {
   removeEventListener: jest.fn(),
 };
 
+const AccessibilityInfo = {
+  isReduceMotionEnabled: jest.fn(() => Promise.resolve(false)),
+  addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  removeEventListener: jest.fn(),
+};
+
 const Platform = {
   OS: 'ios',
   select: (obj) => obj.ios || obj.default,
@@ -141,4 +147,5 @@ module.exports = {
   TextInput,
   Modal,
   BackHandler,
+  AccessibilityInfo,
 };

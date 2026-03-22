@@ -20,7 +20,7 @@ import {
   useEffect,
 } from 'react';
 import { ScrollView, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Icon } from '../ui/Icon';
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
@@ -151,7 +151,7 @@ if (typeof document !== 'undefined') {
       align-items: center;
       justify-content: space-between;
       padding: 12px 16px;
-      border-bottom: 1px solid #F3F4F6;
+      border-bottom: 1px solid #FFF8F0;
       flex-shrink: 0;
     }
     .web-property-panel-close {
@@ -161,13 +161,13 @@ if (typeof document !== 'undefined') {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #F3F4F6;
+      background: #FFF8F0;
       border: none;
       cursor: pointer;
       transition: background 0.15s ease;
     }
     .web-property-panel-close:hover {
-      background: #E5E7EB;
+      background: #F5F0E8;
     }
 
     /* Drag handle for portrait bottom sheet */
@@ -186,7 +186,7 @@ if (typeof document !== 'undefined') {
       width: 40px;
       height: 4px;
       border-radius: 2px;
-      background: #D1D5DB;
+      background: #E8E0D4;
     }
   `;
 }
@@ -508,7 +508,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
           {/* Header bar */}
           <div className="web-property-panel-header">
-            <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827' }}>
+            <Text className="text-base font-semibold text-warm-900">
               Property Details
             </Text>
             <button
@@ -517,7 +517,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               data-testid="web-panel-close"
               aria-label="Close panel"
             >
-              <Ionicons name="close" size={20} color="#6B7280" />
+              <Icon name="X" size="md" color="#9C958A" />
             </button>
           </div>
 

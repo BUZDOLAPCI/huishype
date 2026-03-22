@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Platform, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Icon } from './ui/Icon';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -17,6 +17,8 @@ import type { PriceGuess } from '../hooks/usePriceGuess';
 
 const MIN_GUESSES_FOR_CONSENSUS = 3;
 
+export type ConsensusAlignmentVariant = 'compact' | 'full';
+
 export interface ConsensusAlignmentProps {
   userGuess: number;
   crowdEstimate: number;
@@ -26,6 +28,8 @@ export interface ConsensusAlignmentProps {
   guesses?: PriceGuess[];
   countryCode?: string;
   isVisible?: boolean;
+  /** Display variant. Default 'full'. */
+  variant?: ConsensusAlignmentVariant;
   testID?: string;
 }
 
@@ -52,9 +56,11 @@ export function calculateAlignmentPercentage(userGuess: number, guesses: PriceGu
 }
 
 // Get alignment category and styling
+import type { IconName } from './ui/Icon';
+
 function getAlignmentInfo(userGuess: number, crowdEstimate: number): {
   category: 'aligned' | 'close' | 'different';
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IconName;
   iconColor: string;
   bgColor: string;
   borderColor: string;
@@ -64,7 +70,7 @@ function getAlignmentInfo(userGuess: number, crowdEstimate: number): {
   if (percentDiff <= 5) {
     return {
       category: 'aligned',
-      icon: 'checkmark-circle',
+      icon: 'CheckCircle',
       iconColor: '#22C55E',
       bgColor: 'bg-green-50',
       borderColor: 'border-green-200',
@@ -73,15 +79,15 @@ function getAlignmentInfo(userGuess: number, crowdEstimate: number): {
   if (percentDiff <= 15) {
     return {
       category: 'close',
-      icon: 'information-circle',
-      iconColor: '#3B82F6',
-      bgColor: 'bg-blue-50',
-      borderColor: 'border-blue-200',
+      icon: 'Info',
+      iconColor: '#F5A623',
+      bgColor: 'bg-primary-50',
+      borderColor: 'border-primary-200',
     };
   }
   return {
     category: 'different',
-    icon: 'trending-up',
+    icon: 'ChartLineUp',
     iconColor: '#F59E0B',
     bgColor: 'bg-amber-50',
     borderColor: 'border-amber-200',
@@ -122,6 +128,7 @@ export function ConsensusAlignment({
   guesses,
   countryCode,
   isVisible = true,
+  variant = 'full',
   testID = 'consensus-alignment',
 }: ConsensusAlignmentProps) {
   // Animation values
@@ -198,7 +205,7 @@ export function ConsensusAlignment({
       <View className="flex-row items-start">
         {/* Icon */}
         <Animated.View style={iconStyle} className="mr-3 mt-0.5">
-          <Ionicons
+          <Icon
             name={alignmentInfo.icon}
             size={28}
             color={alignmentInfo.iconColor}
@@ -207,19 +214,19 @@ export function ConsensusAlignment({
 
         {/* Text content */}
         <Animated.View style={textStyle} className="flex-1">
-          <Text className="text-base font-semibold text-gray-800 mb-1" testID="consensus-message">
+          <Text className="text-base font-semibold text-warm-800 mb-1" testID="consensus-message">
             {message}
           </Text>
 
           {/* Secondary info */}
           <View className="space-y-1">
             {percentileRank !== undefined && (
-              <Text className="text-sm text-gray-500">
+              <Text className="text-sm text-warm-500">
                 Your guess is higher than {Math.round(percentileRank)}% of predictions
               </Text>
             )}
 
-            <Text className="text-xs text-gray-400 mt-1">
+            <Text className="text-xs text-warm-400 mt-1">
               Based on {guessCount} guess{guessCount === 1 ? '' : 'es'}
             </Text>
           </View>
@@ -227,15 +234,15 @@ export function ConsensusAlignment({
           {/* Visual representation */}
           {hasEnoughGuesses && alignmentInfo.category !== 'different' && (
             <View className="flex-row items-center mt-3">
-              <View className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <View className="flex-1 h-1.5 bg-warm-200 rounded-full overflow-hidden">
                 <View
                   className={`h-full rounded-full ${
-                    alignmentInfo.category === 'aligned' ? 'bg-green-500' : 'bg-blue-500'
+                    alignmentInfo.category === 'aligned' ? 'bg-green-500' : 'bg-primary-500'
                   }`}
                   style={{ width: `${alignmentPercentage}%` }}
                 />
               </View>
-              <Text className="text-xs font-medium text-gray-500 ml-2">
+              <Text className="text-xs font-medium text-warm-500 ml-2">
                 {Math.round(alignmentPercentage)}%
               </Text>
             </View>
@@ -243,17 +250,17 @@ export function ConsensusAlignment({
 
           {/* Price comparison for "different" category */}
           {hasEnoughGuesses && alignmentInfo.category === 'different' && (
-            <View className="flex-row items-center justify-between mt-3 bg-white/50 rounded-lg p-2">
+            <View className="flex-row items-center justify-between mt-3 bg-surface-card/50 rounded-lg p-2">
               <View className="items-center">
-                <Text className="text-xs text-gray-400">Your guess</Text>
-                <Text className="text-sm font-semibold text-gray-700">
+                <Text className="text-xs text-warm-400">Your guess</Text>
+                <Text className="text-sm font-semibold text-warm-700">
                   {formatPrice(userGuess, countryCode)}
                 </Text>
               </View>
-              <Ionicons name="swap-horizontal" size={20} color="#9CA3AF" />
+              <Icon name="ArrowRight" size={20} color="#C7BFB3" />
               <View className="items-center">
-                <Text className="text-xs text-gray-400">Crowd estimate</Text>
-                <Text className="text-sm font-semibold text-gray-700">
+                <Text className="text-xs text-warm-400">Crowd estimate</Text>
+                <Text className="text-sm font-semibold text-warm-700">
                   {formatPrice(crowdEstimate, countryCode)}
                 </Text>
               </View>

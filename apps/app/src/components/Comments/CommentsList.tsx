@@ -144,7 +144,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
 
   // Render separator
   const renderSeparator = useCallback(
-    () => <View className="h-px bg-gray-100" />,
+    () => <View className="h-px bg-warm-100" />,
     []
   );
 
@@ -153,7 +153,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
     if (!isFetchingNextPage) return null;
     return (
       <View className="py-4 items-center">
-        <ActivityIndicator size="small" color="#3B82F6" />
+        <ActivityIndicator size="small" color="#F5A623" />
       </View>
     );
   }, [isFetchingNextPage]);
@@ -163,9 +163,9 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
     if (isLoading) return null;
     return (
       <View className="py-12 items-center">
-        <Ionicons name="chatbubble-ellipses-outline" size={48} color="#D1D5DB" />
-        <Text className="text-gray-500 mt-3 text-base">No comments yet</Text>
-        <Text className="text-gray-400 text-sm mt-1">
+        <Ionicons name="chatbubble-ellipses-outline" size={48} color="#E8E0D4" />
+        <Text className="text-warm-500 mt-3 text-base">No comments yet</Text>
+        <Text className="text-warm-400 text-sm mt-1">
           Be the first to share your thoughts!
         </Text>
       </View>
@@ -175,33 +175,33 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
   // Render header with sort toggle
   const renderHeader = useCallback(
     () => (
-      <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
+      <View className="flex-row items-center justify-between px-4 py-3 border-b border-warm-100">
         <View className="flex-row items-center">
-          <Ionicons name="chatbubbles" size={20} color="#3B82F6" />
-          <Text className="text-lg font-semibold text-gray-900 ml-2">
+          <Ionicons name="chatbubbles" size={20} color="#F5A623" />
+          <Text className="text-lg font-semibold text-warm-900 ml-2">
             Comments
           </Text>
           {totalComments > 0 && (
-            <View className="ml-2 bg-gray-100 px-2 py-0.5 rounded-full">
-              <Text className="text-xs text-gray-600">{totalComments}</Text>
+            <View className="ml-2 bg-warm-100 px-2 py-0.5 rounded-full">
+              <Text className="text-xs text-warm-600">{totalComments}</Text>
             </View>
           )}
         </View>
 
         {/* Sort toggle */}
-        <View className="flex-row bg-gray-100 rounded-lg p-0.5">
+        <View className="flex-row bg-warm-100 rounded-lg p-0.5">
           <Pressable
             onPress={() => handleSortChange('recent')}
             className={`px-3 py-1.5 rounded-md ${
-              sortBy === 'recent' ? 'bg-white shadow-sm' : ''
+              sortBy === 'recent' ? 'bg-surface-card shadow-sm' : ''
             }`}
             testID="sort-recent"
           >
             <Text
               className={`text-sm ${
                 sortBy === 'recent'
-                  ? 'text-gray-900 font-medium'
-                  : 'text-gray-500'
+                  ? 'text-warm-900 font-medium'
+                  : 'text-warm-500'
               }`}
             >
               Recent
@@ -210,15 +210,15 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           <Pressable
             onPress={() => handleSortChange('popular')}
             className={`px-3 py-1.5 rounded-md ${
-              sortBy === 'popular' ? 'bg-white shadow-sm' : ''
+              sortBy === 'popular' ? 'bg-surface-card shadow-sm' : ''
             }`}
             testID="sort-popular"
           >
             <Text
               className={`text-sm ${
                 sortBy === 'popular'
-                  ? 'text-gray-900 font-medium'
-                  : 'text-gray-500'
+                  ? 'text-warm-900 font-medium'
+                  : 'text-warm-500'
               }`}
             >
               Popular
@@ -235,10 +235,10 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
     return (
       <View className="flex-1 py-12 items-center justify-center">
         <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
-        <Text className="text-gray-700 mt-3 text-base">
+        <Text className="text-warm-700 mt-3 text-base">
           Failed to load comments
         </Text>
-        <Text className="text-gray-500 text-sm mt-1">
+        <Text className="text-warm-500 text-sm mt-1">
           {error?.message || 'Please try again'}
         </Text>
         <Pressable
@@ -257,15 +257,15 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
       <View className="flex-1">
         {renderHeader()}
         <View className="flex-1 py-12 items-center justify-center">
-          <ActivityIndicator size="large" color="#3B82F6" />
-          <Text className="text-gray-500 mt-3">Loading comments...</Text>
+          <ActivityIndicator size="large" color="#F5A623" />
+          <Text className="text-warm-500 mt-3">Loading comments...</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-surface-card">
       {renderHeader()}
 
       <FlatList
@@ -281,8 +281,8 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            colors={['#3B82F6']}
-            tintColor="#3B82F6"
+            colors={['#F5A623']}
+            tintColor="#F5A623"
           />
         }
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}

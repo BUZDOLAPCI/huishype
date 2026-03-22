@@ -12,6 +12,12 @@ export interface GroupPreviewProperty {
   thumbnailUrl?: string | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
+  /** Like count for stat pills. */
+  likeCount?: number;
+  /** Comment count for stat pills. */
+  commentCount?: number;
+  /** Guess count for stat pills. */
+  guessCount?: number;
 }
 
 export interface GroupPreviewCardProps {

@@ -12,13 +12,18 @@ import { authRoutes } from './routes/auth.js';
 import { propertyRoutes } from './routes/properties.js';
 import { guessRoutes } from './routes/guesses.js';
 import { commentRoutes } from './routes/comments.js';
-import { reactionRoutes } from './routes/reactions.js';
+import { likeRoutes } from './routes/likes.js';
 import { tileRoutes } from './routes/tiles.js';
 import { listingRoutes } from './routes/listings.js';
 import { viewRoutes } from './routes/views.js';
 import { userRoutes } from './routes/users.js';
 import { feedRoutes } from './routes/feed.js';
 import { geocodeRoutes } from './routes/geocode.js';
+import { notificationRoutes } from './routes/notifications.js';
+import { leaderboardRoutes } from './routes/leaderboard.js';
+import { activityRoutes } from './routes/activity.js';
+import { achievementRoutes } from './routes/achievements.js';
+import { emailAuthRoutes } from './routes/email-auth.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -58,13 +63,18 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(propertyRoutes);
   await app.register(guessRoutes);
   await app.register(commentRoutes);
-  await app.register(reactionRoutes);
+  await app.register(likeRoutes);
   await app.register(tileRoutes);
   await app.register(listingRoutes);
   await app.register(viewRoutes);
   await app.register(userRoutes);
   await app.register(feedRoutes);
   await app.register(geocodeRoutes);
+  await app.register(notificationRoutes);
+  await app.register(leaderboardRoutes);
+  await app.register(activityRoutes);
+  await app.register(achievementRoutes);
+  await app.register(emailAuthRoutes);
 
   // Add global error handler
   app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {

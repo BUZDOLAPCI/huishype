@@ -12,6 +12,8 @@
 const mockSignInWithGoogle = jest.fn();
 const mockSignInWithApple = jest.fn();
 const mockSignInWithMockToken = jest.fn();
+const mockRequestEmailLink = jest.fn();
+const mockVerifyEmailToken = jest.fn();
 const mockClearError = jest.fn();
 
 let mockUseAuthReturn: Record<string, unknown> = {};
@@ -20,9 +22,11 @@ jest.mock('../../hooks/useAuth', () => ({
   useAuth: () => mockUseAuthReturn,
 }));
 
+
+
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { Platform, BackHandler } from 'react-native';
+import { BackHandler } from 'react-native';
 import { AuthModal } from '../AuthModal';
 
 function setAuthDefaults(overrides: Record<string, unknown> = {}) {
@@ -30,6 +34,8 @@ function setAuthDefaults(overrides: Record<string, unknown> = {}) {
     signInWithGoogle: mockSignInWithGoogle,
     signInWithApple: mockSignInWithApple,
     signInWithMockToken: mockSignInWithMockToken,
+    requestEmailLink: mockRequestEmailLink,
+    verifyEmailToken: mockVerifyEmailToken,
     isSigningIn: false,
     error: null,
     clearError: mockClearError,
@@ -50,9 +56,16 @@ describe('AuthModal', () => {
   });
 
   describe('rendering', () => {
-    it('renders sign-in message with default text', () => {
+    it('renders welcome title', () => {
       const { getByText } = render(<AuthModal {...defaultProps} />);
-      expect(getByText('Sign in to continue')).toBeTruthy();
+      expect(getByText('Welcome to HuisHype')).toBeTruthy();
+    });
+
+    it('renders default subtitle when no message provided', () => {
+      const { getByText } = render(<AuthModal {...defaultProps} />);
+      expect(
+        getByText('Sign in to save properties, guess prices, and join the conversation')
+      ).toBeTruthy();
     });
 
     it('renders custom message when provided', () => {
@@ -60,11 +73,6 @@ describe('AuthModal', () => {
         <AuthModal {...defaultProps} message="Sign in to save this property" />
       );
       expect(getByText('Sign in to save this property')).toBeTruthy();
-    });
-
-    it('renders header title', () => {
-      const { getByText } = render(<AuthModal {...defaultProps} />);
-      expect(getByText('Sign In')).toBeTruthy();
     });
 
     it('renders Google Sign In button', () => {
@@ -75,8 +83,7 @@ describe('AuthModal', () => {
       expect(getByText('Continue with Google')).toBeTruthy();
     });
 
-    it('renders Apple Sign In button on iOS', () => {
-      Platform.OS = 'ios';
+    it('renders Apple Sign In button on all platforms', () => {
       const { getByLabelText, getByText } = render(
         <AuthModal {...defaultProps} />
       );
@@ -84,12 +91,17 @@ describe('AuthModal', () => {
       expect(getByText('Continue with Apple')).toBeTruthy();
     });
 
-    it('does not render Apple Sign In button on Android', () => {
-      Platform.OS = 'android';
-      const { queryByLabelText } = render(<AuthModal {...defaultProps} />);
-      expect(queryByLabelText('Sign in with Apple')).toBeNull();
-      // Restore default
-      Platform.OS = 'ios';
+    it('renders Email button', () => {
+      const { getByLabelText, getByText } = render(
+        <AuthModal {...defaultProps} />
+      );
+      expect(getByLabelText('Continue with email')).toBeTruthy();
+      expect(getByText('Continue with Email')).toBeTruthy();
+    });
+
+    it('renders "or" divider', () => {
+      const { getByText } = render(<AuthModal {...defaultProps} />);
+      expect(getByText('or')).toBeTruthy();
     });
 
     it('renders Dev Login button when __DEV__ is true', () => {
@@ -105,17 +117,11 @@ describe('AuthModal', () => {
       expect(getByLabelText('Close')).toBeTruthy();
     });
 
-    it('renders brand elements', () => {
-      const { getByText } = render(<AuthModal {...defaultProps} />);
-      expect(getByText('HuisHype')).toBeTruthy();
-      expect(getByText('Social Real Estate')).toBeTruthy();
-    });
-
     it('returns null when not visible', () => {
       const { queryByText } = render(
         <AuthModal {...defaultProps} visible={false} />
       );
-      expect(queryByText('Sign In')).toBeNull();
+      expect(queryByText('Welcome to HuisHype')).toBeNull();
       expect(queryByText('Continue with Google')).toBeNull();
     });
   });
@@ -167,7 +173,6 @@ describe('AuthModal', () => {
 
   describe('Apple Sign In', () => {
     it('calls signInWithApple when button is pressed', async () => {
-      Platform.OS = 'ios';
       mockSignInWithApple.mockResolvedValue(undefined);
       const { getByLabelText } = render(<AuthModal {...defaultProps} />);
 
@@ -179,7 +184,6 @@ describe('AuthModal', () => {
     });
 
     it('calls onAuthStarting, onSuccess and onClose after successful Apple sign in', async () => {
-      Platform.OS = 'ios';
       mockSignInWithApple.mockResolvedValue(undefined);
       const onSuccess = jest.fn();
       const { getByLabelText } = render(
@@ -193,6 +197,93 @@ describe('AuthModal', () => {
         expect(onSuccess).toHaveBeenCalledTimes(1);
         expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe('Email magic link', () => {
+    it('navigates to email input view when email button is pressed', () => {
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+
+      expect(getByText('Sign in with Email')).toBeTruthy();
+      expect(getByLabelText('Email address')).toBeTruthy();
+    });
+
+    it('shows validation error for invalid email', async () => {
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+
+      const input = getByLabelText('Email address');
+      fireEvent.changeText(input, 'not-an-email');
+
+      fireEvent.press(getByLabelText('Send magic link'));
+
+      expect(getByText('Please enter a valid email address')).toBeTruthy();
+    });
+
+    it('calls requestEmailLink with valid email', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      const { getByLabelText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+
+      const input = getByLabelText('Email address');
+      fireEvent.changeText(input, 'test@example.com');
+      fireEvent.press(getByLabelText('Send magic link'));
+
+      await waitFor(() => {
+        expect(mockRequestEmailLink).toHaveBeenCalledWith('test@example.com');
+      });
+    });
+
+    it('shows email sent confirmation view after successful request', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+
+      const input = getByLabelText('Email address');
+      fireEvent.changeText(input, 'user@test.com');
+      fireEvent.press(getByLabelText('Send magic link'));
+
+      await waitFor(() => {
+        expect(getByText('Check your email')).toBeTruthy();
+        expect(getByText('user@test.com')).toBeTruthy();
+      });
+    });
+
+    it('shows rate limit error', async () => {
+      mockRequestEmailLink.mockRejectedValue(
+        new Error('Too many requests. Please try again later.')
+      );
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+
+      const input = getByLabelText('Email address');
+      fireEvent.changeText(input, 'test@example.com');
+      fireEvent.press(getByLabelText('Send magic link'));
+
+      await waitFor(() => {
+        expect(
+          getByText('Too many requests. Please try again later.')
+        ).toBeTruthy();
+      });
+    });
+
+    it('navigates back from email input to main view', () => {
+      const { getByLabelText, getByText, queryByText } = render(
+        <AuthModal {...defaultProps} />
+      );
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      expect(getByText('Sign in with Email')).toBeTruthy();
+
+      fireEvent.press(getByLabelText('Back to sign in options'));
+      expect(queryByText('Sign in with Email')).toBeNull();
+      expect(getByText('Welcome to HuisHype')).toBeTruthy();
     });
   });
 

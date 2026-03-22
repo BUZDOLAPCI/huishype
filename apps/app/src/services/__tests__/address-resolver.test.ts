@@ -3,12 +3,7 @@
  */
 
 import {
-  resolveUrlParams,
   searchAddresses,
-  normalizeForUrl,
-  createAddressUrl,
-  determineViewType,
-  type AddressUrlParams,
   type ResolvedAddress,
 } from '../address-resolver';
 import { apiGeocoder } from '../api-geocoder';
@@ -42,157 +37,6 @@ function createMockSuggestion(overrides?: Partial<GeocodeSuggestion>): GeocodeSu
 describe('address-resolver', () => {
   beforeEach(() => {
     mockSearch.mockClear();
-  });
-
-  describe('normalizeForUrl', () => {
-    it('converts to lowercase', () => {
-      expect(normalizeForUrl('Eindhoven')).toBe('eindhoven');
-    });
-
-    it('removes diacritics', () => {
-      expect(normalizeForUrl('Groningen')).toBe('groningen');
-    });
-
-    it('replaces spaces with dashes', () => {
-      expect(normalizeForUrl('Den Haag')).toBe('den-haag');
-    });
-
-    it('removes special characters', () => {
-      expect(normalizeForUrl("'s-Hertogenbosch")).toBe('s-hertogenbosch');
-    });
-
-    it('handles postal codes', () => {
-      expect(normalizeForUrl('5651 HP')).toBe('5651-hp');
-      expect(normalizeForUrl('5651HP')).toBe('5651hp');
-    });
-  });
-
-  describe('createAddressUrl', () => {
-    it('creates correct URL from resolved address', () => {
-      const address: ResolvedAddress = {
-        bagId: 'test-id',
-        formattedAddress: 'Deflectiespoelstraat 16, 5651HP Eindhoven',
-        lat: 51.43,
-        lon: 5.456,
-        details: {
-          city: 'Eindhoven',
-          zip: '5651HP',
-          street: 'Deflectiespoelstraat',
-          number: '16',
-        },
-      };
-
-      expect(createAddressUrl(address)).toBe('/eindhoven/5651hp/deflectiespoelstraat/16');
-    });
-
-    it('handles multi-word street names', () => {
-      const address: ResolvedAddress = {
-        bagId: 'test-id',
-        formattedAddress: 'Van Gogh Straat 42, 1000AB Amsterdam',
-        lat: 52.37,
-        lon: 4.89,
-        details: {
-          city: 'Amsterdam',
-          zip: '1000AB',
-          street: 'Van Gogh Straat',
-          number: '42',
-        },
-      };
-
-      expect(createAddressUrl(address)).toBe('/amsterdam/1000ab/van-gogh-straat/42');
-    });
-  });
-
-  describe('determineViewType', () => {
-    it('returns "invalid" for empty params', () => {
-      expect(determineViewType({})).toBe('invalid');
-    });
-
-    it('returns "city" for city-only params', () => {
-      expect(determineViewType({ city: 'eindhoven' })).toBe('city');
-    });
-
-    it('returns "postcode" for city + zipcode params', () => {
-      expect(determineViewType({ city: 'eindhoven', zipcode: '5651hp' })).toBe('postcode');
-    });
-
-    it('returns "postcode" when missing housenumber', () => {
-      expect(
-        determineViewType({ city: 'eindhoven', zipcode: '5651hp', street: 'deflectiespoelstraat' })
-      ).toBe('postcode');
-    });
-
-    it('returns "property" for full address params', () => {
-      expect(
-        determineViewType({
-          city: 'eindhoven',
-          zipcode: '5651hp',
-          street: 'deflectiespoelstraat',
-          housenumber: '16',
-        })
-      ).toBe('property');
-    });
-  });
-
-  describe('resolveUrlParams', () => {
-    it('returns null for empty params', async () => {
-      const result = await resolveUrlParams({});
-      expect(result).toBeNull();
-      expect(mockSearch).not.toHaveBeenCalled();
-    });
-
-    it('calls geocoder with correct query for zipcode + housenumber', async () => {
-      mockSearch.mockResolvedValueOnce([createMockSuggestion()]);
-
-      const params: AddressUrlParams = {
-        city: 'eindhoven',
-        zipcode: '5651hp',
-        street: 'deflectiespoelstraat',
-        housenumber: '16',
-      };
-
-      const result = await resolveUrlParams(params);
-
-      expect(mockSearch).toHaveBeenCalledWith('5651HP 16', { limit: 1 });
-      expect(result).toEqual({
-        bagId: 'W_12345',
-        formattedAddress: 'Deflectiespoelstraat 16, 5651HP Eindhoven',
-        lat: 51.4300456,
-        lon: 5.4557789,
-        details: {
-          city: 'Eindhoven',
-          zip: '5651HP',
-          street: 'Deflectiespoelstraat',
-          number: '16',
-        },
-      });
-    });
-
-    it('returns null when geocoder returns no results', async () => {
-      mockSearch.mockResolvedValueOnce([]);
-
-      const params: AddressUrlParams = {
-        city: 'eindhoven',
-        zipcode: '9999xx',
-        street: 'fakestraat',
-        housenumber: '999',
-      };
-
-      const result = await resolveUrlParams(params);
-      expect(result).toBeNull();
-    });
-
-    it('returns null on geocoder error', async () => {
-      mockSearch.mockRejectedValueOnce(new Error('Network error'));
-
-      const params: AddressUrlParams = {
-        zipcode: '5651hp',
-        housenumber: '16',
-      };
-
-      const result = await resolveUrlParams(params);
-      expect(result).toBeNull();
-    });
   });
 
   describe('searchAddresses', () => {
@@ -242,6 +86,12 @@ describe('address-resolver', () => {
       const result = await searchAddresses('test');
       expect(result[0].lon).toBe(5.456);
       expect(result[0].lat).toBe(51.43);
+    });
+
+    it('returns empty array for empty query', async () => {
+      const result = await searchAddresses('');
+      expect(result).toEqual([]);
+      expect(mockSearch).not.toHaveBeenCalled();
     });
   });
 });

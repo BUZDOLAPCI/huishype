@@ -36,21 +36,21 @@ function formatPrice(price: number): string {
 // Skeleton loading component
 function LoadingSkeleton() {
   return (
-    <View className="px-4 py-4 border-t border-gray-100">
+    <View className="px-4 py-4 border-t border-warm-100">
       <View className="flex-row items-center mb-3">
-        <View className="w-5 h-5 bg-gray-200 rounded animate-pulse" />
-        <View className="h-5 w-32 bg-gray-200 rounded ml-2 animate-pulse" />
+        <View className="w-5 h-5 bg-warm-200 rounded animate-pulse" />
+        <View className="h-5 w-32 bg-warm-200 rounded ml-2 animate-pulse" />
       </View>
-      <View className="h-4 w-full bg-gray-200 rounded mb-4 animate-pulse" />
-      <View className="bg-gray-50 rounded-xl p-4 mb-3">
-        <View className="h-8 w-40 bg-gray-200 rounded mb-4 mx-auto animate-pulse" />
-        <View className="h-3 bg-gray-200 rounded-full mb-4 animate-pulse" />
+      <View className="h-4 w-full bg-warm-200 rounded mb-4 animate-pulse" />
+      <View className="bg-warm-50 rounded-xl p-4 mb-3">
+        <View className="h-8 w-40 bg-warm-200 rounded mb-4 mx-auto animate-pulse" />
+        <View className="h-3 bg-warm-200 rounded-full mb-4 animate-pulse" />
         <View className="flex-row justify-center gap-2 mb-4">
           {[1, 2, 3, 4].map((i) => (
-            <View key={i} className="h-8 w-12 bg-gray-200 rounded animate-pulse" />
+            <View key={i} className="h-8 w-12 bg-warm-200 rounded animate-pulse" />
           ))}
         </View>
-        <View className="h-12 bg-gray-200 rounded-xl animate-pulse" />
+        <View className="h-12 bg-warm-200 rounded-xl animate-pulse" />
       </View>
     </View>
   );
@@ -78,19 +78,21 @@ function CooldownMessage({ cooldownEndsAt }: { cooldownEndsAt: string }) {
 // Login prompt component
 function LoginPrompt({ onLogin }: { onLogin: () => void }) {
   return (
-    <View className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
+    <View className="bg-warm-50 border border-warm-200 rounded-xl p-4 mb-4">
       <View className="flex-row items-center mb-2">
-        <Ionicons name="person-outline" size={20} color="#6B7280" />
-        <Text className="text-sm font-medium text-gray-700 ml-2">
+        <Ionicons name="person-outline" size={20} color="#9C958A" />
+        <Text className="text-sm font-medium text-warm-700 ml-2">
           Sign in to submit your guess
         </Text>
       </View>
-      <Text className="text-xs text-gray-500 mb-3">
+      <Text className="text-xs text-warm-500 mb-3">
         Your guess will be saved and you can track your prediction accuracy.
       </Text>
       <Pressable
         onPress={onLogin}
-        className="bg-primary-600 py-2.5 rounded-lg items-center active:bg-primary-700"
+        className="bg-primary-700 py-2.5 rounded-lg items-center active:bg-primary-800"
+        accessibilityRole="button"
+        accessibilityLabel="Sign in to submit your guess"
       >
         <Text className="text-white font-medium text-sm">Sign In</Text>
       </Pressable>
@@ -194,11 +196,11 @@ export function PriceGuessSection({
   }
 
   return (
-    <View className="px-4 py-4 border-t border-gray-100" testID="price-guess-section">
+    <View className="px-4 py-4 border-t border-warm-100" testID="price-guess-section">
       {/* Header */}
       <View className="flex-row items-center mb-3">
-        <Ionicons name="pricetag" size={20} color="#3B82F6" />
-        <Text className="text-lg font-semibold text-gray-900 ml-2">
+        <Ionicons name="pricetag" size={20} color="#F5A623" />
+        <Text className="text-lg font-semibold text-warm-900 ml-2">
           Guess the Price
         </Text>
         {hasExistingGuess && (
@@ -211,7 +213,7 @@ export function PriceGuessSection({
       </View>
 
       {/* Description */}
-      <Text className="text-sm text-gray-500 mb-4">
+      <Text className="text-sm text-warm-500 mb-4">
         What do you think this property is worth? Submit your guess and see how
         it compares to others.
       </Text>
@@ -271,9 +273,9 @@ export function PriceGuessSection({
       {hasExistingGuess && guessData?.userGuess && (
         <View className="mt-3 flex-row items-center justify-center">
           <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-          <Text className="text-sm text-gray-500 ml-1">
+          <Text className="text-sm text-warm-500 ml-1">
             Your current guess:{' '}
-            <Text className="font-semibold text-gray-700">
+            <Text className="font-semibold text-warm-700">
               {formatPrice(guessData.userGuess.guessedPrice)}
             </Text>
           </Text>
@@ -282,7 +284,7 @@ export function PriceGuessSection({
 
       {/* Guess count */}
       {property.guessCount > 0 && (
-        <Text className="text-xs text-gray-400 text-center mt-2">
+        <Text className="text-xs text-warm-400 text-center mt-2">
           {property.guessCount} {property.guessCount === 1 ? 'person has' : 'people have'} guessed
         </Text>
       )}

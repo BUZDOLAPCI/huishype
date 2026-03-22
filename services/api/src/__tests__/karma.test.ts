@@ -10,43 +10,48 @@ import {
 
 describe('Karma Service', () => {
   describe('getKarmaRank', () => {
-    it('returns Nieuwkomer for 0 karma', () => {
-      expect(getKarmaRank(0)).toEqual({ title: 'Nieuwkomer', level: 1 });
+    it('returns Newcomer for 0 karma', () => {
+      expect(getKarmaRank(0)).toEqual({ title: 'Newcomer', level: 1 });
     });
 
-    it('returns Nieuwkomer for karma 1-9', () => {
-      expect(getKarmaRank(1)).toEqual({ title: 'Nieuwkomer', level: 1 });
-      expect(getKarmaRank(9)).toEqual({ title: 'Nieuwkomer', level: 1 });
+    it('returns Newcomer for karma 1-9', () => {
+      expect(getKarmaRank(1)).toEqual({ title: 'Newcomer', level: 1 });
+      expect(getKarmaRank(9)).toEqual({ title: 'Newcomer', level: 1 });
     });
 
-    it('returns Bewoner for karma 10-49', () => {
-      expect(getKarmaRank(10)).toEqual({ title: 'Bewoner', level: 2 });
-      expect(getKarmaRank(49)).toEqual({ title: 'Bewoner', level: 2 });
+    it('returns Contributor for karma 10-49', () => {
+      expect(getKarmaRank(10)).toEqual({ title: 'Contributor', level: 2 });
+      expect(getKarmaRank(49)).toEqual({ title: 'Contributor', level: 2 });
     });
 
-    it('returns Kenner for karma 50-99', () => {
-      expect(getKarmaRank(50)).toEqual({ title: 'Kenner', level: 3 });
-      expect(getKarmaRank(99)).toEqual({ title: 'Kenner', level: 3 });
+    it('returns Rising Star for karma 50-99', () => {
+      expect(getKarmaRank(50)).toEqual({ title: 'Rising Star', level: 3 });
+      expect(getKarmaRank(99)).toEqual({ title: 'Rising Star', level: 3 });
     });
 
-    it('returns Specialist for karma 100-199', () => {
-      expect(getKarmaRank(100)).toEqual({ title: 'Specialist', level: 4 });
-      expect(getKarmaRank(199)).toEqual({ title: 'Specialist', level: 4 });
+    it('returns Local Expert for karma 100-199', () => {
+      expect(getKarmaRank(100)).toEqual({ title: 'Local Expert', level: 4 });
+      expect(getKarmaRank(199)).toEqual({ title: 'Local Expert', level: 4 });
     });
 
-    it('returns Meester for karma 200-499', () => {
-      expect(getKarmaRank(200)).toEqual({ title: 'Meester', level: 5 });
-      expect(getKarmaRank(499)).toEqual({ title: 'Meester', level: 5 });
+    it('returns Expert for karma 200-499', () => {
+      expect(getKarmaRank(200)).toEqual({ title: 'Expert', level: 5 });
+      expect(getKarmaRank(499)).toEqual({ title: 'Expert', level: 5 });
     });
 
-    it('returns Legende for karma 500+', () => {
-      expect(getKarmaRank(500)).toEqual({ title: 'Legende', level: 6 });
-      expect(getKarmaRank(10000)).toEqual({ title: 'Legende', level: 6 });
+    it('returns Local Legend for karma 500-999', () => {
+      expect(getKarmaRank(500)).toEqual({ title: 'Local Legend', level: 6 });
+      expect(getKarmaRank(999)).toEqual({ title: 'Local Legend', level: 6 });
     });
 
-    it('treats negative karma as 0 (Nieuwkomer)', () => {
-      expect(getKarmaRank(-50)).toEqual({ title: 'Nieuwkomer', level: 1 });
-      expect(getKarmaRank(-1000)).toEqual({ title: 'Nieuwkomer', level: 1 });
+    it('returns Master for karma 1000+', () => {
+      expect(getKarmaRank(1000)).toEqual({ title: 'Master', level: 7 });
+      expect(getKarmaRank(10000)).toEqual({ title: 'Master', level: 7 });
+    });
+
+    it('treats negative karma as 0 (Newcomer)', () => {
+      expect(getKarmaRank(-50)).toEqual({ title: 'Newcomer', level: 1 });
+      expect(getKarmaRank(-1000)).toEqual({ title: 'Newcomer', level: 1 });
     });
   });
 
@@ -296,8 +301,8 @@ describe('Karma Service', () => {
       }
     });
 
-    it('has 6 karma ranks in descending order', () => {
-      expect(KARMA_CONSTANTS.KARMA_RANKS).toHaveLength(6);
+    it('has 7 karma ranks in descending order', () => {
+      expect(KARMA_CONSTANTS.KARMA_RANKS).toHaveLength(7);
       for (let i = 0; i < KARMA_CONSTANTS.KARMA_RANKS.length - 1; i++) {
         expect(KARMA_CONSTANTS.KARMA_RANKS[i].minKarma).toBeGreaterThan(
           KARMA_CONSTANTS.KARMA_RANKS[i + 1].minKarma

@@ -12,12 +12,12 @@ function DetailRow({ icon, label, value }: DetailRowProps) {
   if (value === null || value === undefined) return null;
 
   return (
-    <View className="flex-row items-center py-2 border-b border-gray-50">
+    <View className="flex-row items-center py-2 border-b border-warm-50">
       <View className="w-8 items-center">
-        <Ionicons name={icon} size={16} color="#6B7280" />
+        <Ionicons name={icon} size={16} color="#9C958A" />
       </View>
-      <Text className="flex-1 text-gray-500 text-sm">{label}</Text>
-      <Text className="text-gray-900 text-sm font-medium" numberOfLines={1}>
+      <Text className="flex-1 text-warm-500 text-sm">{label}</Text>
+      <Text className="text-warm-900 text-sm font-medium" numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -38,13 +38,13 @@ export function PropertyDetails({ property }: SectionProps) {
   };
 
   return (
-    <View className="px-4 py-4 border-t border-gray-100">
+    <View className="px-4 py-4 border-t border-warm-100">
       <View className="flex-row items-center mb-3">
-        <Ionicons name="information-circle" size={20} color="#3B82F6" />
-        <Text className="text-lg font-semibold text-gray-900 ml-2">Property Details</Text>
+        <Ionicons name="information-circle" size={20} color="#F5A623" />
+        <Text className="text-lg font-semibold text-warm-900 ml-2">Property Details</Text>
       </View>
 
-      <View className="bg-gray-50 rounded-xl p-3">
+      <View className="bg-warm-50 rounded-xl p-3">
         <DetailRow
           icon="calendar-outline"
           label="Year Built"
@@ -60,9 +60,9 @@ export function PropertyDetails({ property }: SectionProps) {
         {property.status && (
           <View className="flex-row items-center py-2">
             <View className="w-8 items-center">
-              <Ionicons name="checkmark-circle-outline" size={16} color="#6B7280" />
+              <Ionicons name="checkmark-circle-outline" size={16} color="#9C958A" />
             </View>
-            <Text className="flex-1 text-gray-500 text-sm">Status</Text>
+            <Text className="flex-1 text-warm-500 text-sm">Status</Text>
             <Text className={`text-sm font-medium ${statusColors[property.status]}`}>
               {statusLabels[property.status]}
             </Text>
@@ -71,31 +71,31 @@ export function PropertyDetails({ property }: SectionProps) {
       </View>
 
       {/* Activity Stats */}
-      <View className="flex-row justify-around mt-4 pt-4 border-t border-gray-100">
+      <View className="flex-row justify-around mt-4 pt-4 border-t border-warm-100">
         {property.viewCount > 0 && (
           <View className="items-center">
-            <Text className="text-lg font-bold text-gray-900">{property.viewCount}</Text>
-            <Text className="text-xs text-gray-400">{property.viewCount === 1 ? 'View' : 'Views'}</Text>
+            <Text className="text-lg font-bold text-warm-900">{property.viewCount}</Text>
+            <Text className="text-xs text-warm-400">{property.viewCount === 1 ? 'View' : 'Views'}</Text>
           </View>
         )}
         <View className="items-center">
           {property.guessCount > 0 ? (
             <>
-              <Text className="text-lg font-bold text-gray-900">{property.guessCount}</Text>
-              <Text className="text-xs text-gray-400">{property.guessCount === 1 ? 'Guess' : 'Guesses'}</Text>
+              <Text className="text-lg font-bold text-warm-900">{property.guessCount}</Text>
+              <Text className="text-xs text-warm-400">{property.guessCount === 1 ? 'Guess' : 'Guesses'}</Text>
             </>
           ) : (
-            <Text className="text-xs text-gray-400">Be the first to guess</Text>
+            <Text className="text-xs text-warm-400">Be the first to guess</Text>
           )}
         </View>
         <View className="items-center">
           {property.commentCount > 0 ? (
             <>
-              <Text className="text-lg font-bold text-gray-900">{property.commentCount}</Text>
-              <Text className="text-xs text-gray-400">{property.commentCount === 1 ? 'Comment' : 'Comments'}</Text>
+              <Text className="text-lg font-bold text-warm-900">{property.commentCount}</Text>
+              <Text className="text-xs text-warm-400">{property.commentCount === 1 ? 'Comment' : 'Comments'}</Text>
             </>
           ) : (
-            <Text className="text-xs text-gray-400">Start the conversation</Text>
+            <Text className="text-xs text-warm-400">Start the conversation</Text>
           )}
         </View>
       </View>

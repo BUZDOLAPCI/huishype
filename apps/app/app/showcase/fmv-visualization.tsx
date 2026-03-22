@@ -73,22 +73,22 @@ export default function FMVVisualizationShowcase() {
           title: 'FMV Visualization Demo',
         }}
       />
-      <ScrollView className="flex-1 bg-gray-100" testID="fmv-visualization-showcase">
+      <ScrollView className="flex-1 bg-warm-100" testID="fmv-visualization-showcase">
         <View className="p-4">
-          <Text className="text-2xl font-bold text-gray-900 mb-2">
+          <Text className="text-2xl font-bold text-warm-900 mb-2">
             FMV Distribution Curve
           </Text>
-          <Text className="text-gray-500 mb-6">
+          <Text className="text-warm-500 mb-6">
             This demonstrates the Fair Market Value (FMV) Visualization component
             that shows crowd-estimated property values with distribution curves.
           </Text>
 
           {/* High Confidence State */}
           <View className="mb-6" testID="fmv-high-confidence-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               1. High Confidence (23 guesses)
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               Strong consensus with wide participation. Shows asking price comparison and user guess marker.
             </Text>
             <FMVVisualization
@@ -102,10 +102,10 @@ export default function FMVVisualizationShowcase() {
 
           {/* Medium Confidence State */}
           <View className="mb-6" testID="fmv-medium-confidence-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               2. Medium Confidence (7 guesses)
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               Building consensus. Asking price is below estimate (good deal indicator).
             </Text>
             <FMVVisualization
@@ -118,10 +118,10 @@ export default function FMVVisualizationShowcase() {
 
           {/* Low Confidence State */}
           <View className="mb-6" testID="fmv-low-confidence-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               3. Low Confidence (2 guesses)
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               Early stage - needs more guesses. Shows narrow distribution with WOZ anchoring.
             </Text>
             <FMVVisualization
@@ -133,10 +133,10 @@ export default function FMVVisualizationShowcase() {
 
           {/* Wide Distribution State */}
           <View className="mb-6" testID="fmv-wide-distribution-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               4. Wide Distribution (Polarizing)
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               Controversial property with wide range of opinions. User guess significantly below median.
             </Text>
             <FMVVisualization
@@ -150,10 +150,10 @@ export default function FMVVisualizationShowcase() {
 
           {/* No Data State */}
           <View className="mb-6" testID="fmv-no-data-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               5. No Data State
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               No guesses yet - encourages user to be the first.
             </Text>
             <FMVVisualization
@@ -164,10 +164,10 @@ export default function FMVVisualizationShowcase() {
 
           {/* Loading State */}
           <View className="mb-6" testID="fmv-loading-state">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               6. Loading State
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               Skeleton placeholder while fetching data.
             </Text>
             <Pressable
@@ -186,44 +186,44 @@ export default function FMVVisualizationShowcase() {
           </View>
 
           {/* Context: What this component does */}
-          <View className="bg-white rounded-xl p-4 mb-6 border border-gray-200">
-            <Text className="text-base font-semibold text-gray-800 mb-2">
+          <View className="bg-surface-card rounded-xl p-4 mb-6 border border-warm-200">
+            <Text className="text-base font-semibold text-warm-800 mb-2">
               About FMV Visualization
             </Text>
-            <Text className="text-sm text-gray-600 leading-5 mb-3">
+            <Text className="text-sm text-warm-600 leading-5 mb-3">
               The FMV (Fair Market Value) Visualization shows the crowd-estimated
               property value based on user price guesses. It is central to user
               engagement and data generation in HuisHype.
             </Text>
             <View className="space-y-2">
-              <Text className="text-sm font-medium text-gray-700 mb-1">Key Features:</Text>
+              <Text className="text-sm font-medium text-warm-700 mb-1">Key Features:</Text>
               <View className="flex-row items-start">
                 <Text className="text-primary-600 mr-2">1.</Text>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   Weighted FMV value - Credibility-weighted crowd estimate
                 </Text>
               </View>
               <View className="flex-row items-start">
                 <Text className="text-primary-600 mr-2">2.</Text>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   Distribution curve - Shows range (min/max) and median
                 </Text>
               </View>
               <View className="flex-row items-start">
                 <Text className="text-primary-600 mr-2">3.</Text>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   Confidence indicator - Low/Medium/High based on guess count
                 </Text>
               </View>
               <View className="flex-row items-start">
                 <Text className="text-primary-600 mr-2">4.</Text>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   Price comparisons - vs. asking price and user guess
                 </Text>
               </View>
               <View className="flex-row items-start">
                 <Text className="text-primary-600 mr-2">5.</Text>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   Reference markers - User, Ask, and Median positions on bar
                 </Text>
               </View>
@@ -231,8 +231,8 @@ export default function FMVVisualizationShowcase() {
           </View>
 
           {/* Confidence Level Legend */}
-          <View className="bg-white rounded-xl p-4 mb-6 border border-gray-200">
-            <Text className="text-base font-semibold text-gray-800 mb-3">
+          <View className="bg-surface-card rounded-xl p-4 mb-6 border border-warm-200">
+            <Text className="text-base font-semibold text-warm-800 mb-3">
               Confidence Levels
             </Text>
             <View className="space-y-3">
@@ -240,15 +240,15 @@ export default function FMVVisualizationShowcase() {
                 <View className="w-20 h-6 bg-yellow-100 rounded-full items-center justify-center mr-3">
                   <Text className="text-xs font-medium text-yellow-700">Low</Text>
                 </View>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   1-2 guesses - Anchored closer to WOZ value
                 </Text>
               </View>
               <View className="flex-row items-center">
-                <View className="w-20 h-6 bg-blue-100 rounded-full items-center justify-center mr-3">
-                  <Text className="text-xs font-medium text-blue-700">Medium</Text>
+                <View className="w-20 h-6 bg-primary-100 rounded-full items-center justify-center mr-3">
+                  <Text className="text-xs font-medium text-primary-700">Medium</Text>
                 </View>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   3-9 guesses - Building consensus
                 </Text>
               </View>
@@ -256,7 +256,7 @@ export default function FMVVisualizationShowcase() {
                 <View className="w-20 h-6 bg-green-100 rounded-full items-center justify-center mr-3">
                   <Text className="text-xs font-medium text-green-700">High</Text>
                 </View>
-                <Text className="text-sm text-gray-600 flex-1">
+                <Text className="text-sm text-warm-600 flex-1">
                   10+ guesses - Strong consensus
                 </Text>
               </View>

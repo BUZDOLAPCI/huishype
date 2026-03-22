@@ -16,7 +16,7 @@ export function PropertyMarker({
   const activityStyles = {
     hot: 'bg-red-500 border-red-600',
     warm: 'bg-orange-400 border-orange-500',
-    cold: 'bg-gray-400 border-gray-500',
+    cold: 'bg-warm-400 border-warm-500',
   };
 
   const activeStyles = isActive

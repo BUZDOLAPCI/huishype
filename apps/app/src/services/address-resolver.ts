@@ -1,11 +1,8 @@
 /**
  * Address Resolver Service
  *
- * Resolves addresses using the backend geocode proxy (Photon-backed).
- * Provides search and URL-based resolution for the app.
- *
- * URL Structure: /{city}/{zipcode}/{street}/{house_number}
- * Example: /eindhoven/5651hp/deflectiespoelstraat/16
+ * Provides geocoding-based address search for the search bar autocomplete.
+ * Uses the backend geocode proxy (Photon-backed).
  */
 
 import { apiGeocoder } from './api-geocoder';
@@ -28,39 +25,6 @@ export interface ResolvedAddress {
 }
 
 /**
- * URL parameters from Expo Router
- */
-export interface AddressUrlParams {
-  city?: string;
-  zipcode?: string;
-  street?: string;
-  housenumber?: string;
-}
-
-/**
- * Normalize strings for URL comparison
- * - Lowercase
- * - Remove diacritics
- * - Replace spaces with dashes
- */
-export function normalizeForUrl(str: string): string {
-  return str
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '');
-}
-
-/**
- * Create URL-friendly path from address components
- */
-export function createAddressUrl(address: ResolvedAddress): string {
-  const { city, zip, street, number } = address.details;
-  return `/${normalizeForUrl(city)}/${normalizeForUrl(zip)}/${normalizeForUrl(street)}/${number}`;
-}
-
-/**
  * Map a GeocodeSuggestion to our ResolvedAddress format
  */
 function toResolvedAddress(suggestion: GeocodeSuggestion): ResolvedAddress {
@@ -76,55 +40,6 @@ function toResolvedAddress(suggestion: GeocodeSuggestion): ResolvedAddress {
       number: suggestion.houseNumber || '',
     },
   };
-}
-
-/**
- * Build a free text query from URL parameters
- */
-function buildSearchQuery(params: AddressUrlParams): string {
-  const parts: string[] = [];
-
-  if (params.zipcode && params.housenumber) {
-    parts.push(params.zipcode.toUpperCase());
-    parts.push(params.housenumber);
-  } else if (params.city && params.street && params.housenumber) {
-    parts.push(params.street.replace(/-/g, ' '));
-    parts.push(params.housenumber);
-    parts.push(params.city);
-  } else if (params.city && params.zipcode) {
-    parts.push(params.city);
-    parts.push(params.zipcode.toUpperCase());
-  } else if (params.city) {
-    parts.push(params.city);
-  }
-
-  return parts.join(' ');
-}
-
-/**
- * Resolve URL parameters to a full address using the geocoder.
- *
- * @param params URL parameters from Expo Router
- * @returns ResolvedAddress or null if not found
- */
-export async function resolveUrlParams(params: AddressUrlParams): Promise<ResolvedAddress | null> {
-  const query = buildSearchQuery(params);
-
-  if (!query) {
-    return null;
-  }
-
-  try {
-    const results = await apiGeocoder.search(query, { limit: 1 });
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    return toResolvedAddress(results[0]);
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -155,16 +70,4 @@ export async function searchAddresses(
   } catch {
     return [];
   }
-}
-
-/**
- * Determine the view type based on URL parameters
- */
-export type AddressViewType = 'city' | 'postcode' | 'street' | 'property' | 'invalid';
-
-export function determineViewType(params: AddressUrlParams): AddressViewType {
-  if (!params.city) return 'invalid';
-  if (!params.zipcode) return 'city';
-  if (!params.street || !params.housenumber) return 'postcode';
-  return 'property';
 }

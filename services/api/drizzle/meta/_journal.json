@@ -8,6 +8,13 @@
       "when": 1773221110736,
       "tag": "0000_whole_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774396800000,
+      "tag": "0001_backend_features",
+      "breakpoints": true
     }
   ]
 }

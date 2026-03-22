@@ -1,26 +1,22 @@
 import { db } from '../db/index.js';
 import { priceGuesses, priceHistory, users } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
+import { KARMA_TIERS, getKarmaTier } from '@huishype/shared';
 
 // --- Karma Rank Titles ---
+// Uses the unified tier definitions from @huishype/shared.
+// The KARMA_RANKS alias is kept for backward-compatibility with
+// KARMA_CONSTANTS consumers.
 
-const KARMA_RANKS = [
-  { minKarma: 500, title: 'Legende', level: 6 },
-  { minKarma: 200, title: 'Meester', level: 5 },
-  { minKarma: 100, title: 'Specialist', level: 4 },
-  { minKarma: 50, title: 'Kenner', level: 3 },
-  { minKarma: 10, title: 'Bewoner', level: 2 },
-  { minKarma: 0, title: 'Nieuwkomer', level: 1 },
-] as const;
+const KARMA_RANKS = KARMA_TIERS.map(t => ({
+  minKarma: t.minKarma,
+  title: t.label,
+  level: t.level,
+}));
 
 export function getKarmaRank(karma: number): { title: string; level: number } {
-  const publicKarma = Math.max(0, karma);
-  for (const rank of KARMA_RANKS) {
-    if (publicKarma >= rank.minKarma) {
-      return { title: rank.title, level: rank.level };
-    }
-  }
-  return { title: 'Nieuwkomer', level: 1 };
+  const tier = getKarmaTier(karma);
+  return { title: tier.label, level: tier.level };
 }
 
 // --- Guess Accuracy Scoring ---

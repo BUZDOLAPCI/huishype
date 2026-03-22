@@ -90,8 +90,8 @@ describe('FMVVisualization', () => {
 
     render(<FMVVisualization fmv={highConfidenceFMV} />);
 
-    expect(screen.getByText('High')).toBeTruthy();
-    expect(screen.getByText('Strong consensus')).toBeTruthy();
+    expect(screen.getByText('High confidence')).toBeTruthy();
+    expect(screen.getByText('High confidence (15 guesses)')).toBeTruthy();
   });
 
   it('displays min and max distribution values', () => {
@@ -125,14 +125,14 @@ describe('FMVVisualization', () => {
   it('shows official valuation when provided', () => {
     render(<FMVVisualization fmv={mockFMV} officialValuation={320000} />);
 
-    expect(screen.getByText(/Official Valuation:/)).toBeTruthy();
-    expect(screen.getByText(/320.000/)).toBeTruthy();
+    expect(screen.getByText('Official Valuation')).toBeTruthy();
+    expect(screen.getAllByText(/320.000/).length).toBeGreaterThan(0);
   });
 
   it('shows WOZ label when countryCode is NL', () => {
     render(<FMVVisualization fmv={mockFMV} officialValuation={320000} countryCode="NL" />);
 
-    expect(screen.getByText(/WOZ Value:/)).toBeTruthy();
+    expect(screen.getByText('WOZ Value')).toBeTruthy();
   });
 
   it('uses custom testID when provided', () => {

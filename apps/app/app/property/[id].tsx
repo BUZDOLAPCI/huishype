@@ -1,34 +1,35 @@
 import { useState, useCallback } from 'react';
-import { ScrollView, View, Pressable, ActivityIndicator, Text } from 'react-native';
+import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
 import { AuthModal } from '@/src/components';
 import { PropertyContent } from '@/src/components/PropertyBottomSheet/PropertyContent';
 
 function PropertyDetailSkeleton() {
   return (
-    <View className="flex-1 bg-white items-center justify-center">
-      <ActivityIndicator size="large" color="#3B82F6" />
-      <Text className="text-gray-500 mt-4">Loading property...</Text>
+    <View style={styles.skeletonContainer}>
+      <ActivityIndicator size="large" color="#F5A623" />
+      <Text style={styles.skeletonText}>Loading property...</Text>
     </View>
   );
 }
 
 function PropertyNotFound() {
   return (
-    <View className="flex-1 bg-white items-center justify-center px-8">
-      <Ionicons name="home-outline" size={64} color="#D1D5DB" />
-      <Text className="text-gray-900 text-xl font-semibold mt-4">Property not found</Text>
-      <Text className="text-gray-500 text-center mt-2">
+    <View style={styles.notFoundContainer}>
+      <Icon name="HouseLine" size={64} color="#E8E0D4" />
+      <Text style={styles.notFoundTitle}>Property not found</Text>
+      <Text style={styles.notFoundMessage}>
         The property you're looking for doesn't exist or has been removed.
       </Text>
       <Pressable
         onPress={() => router.back()}
-        className="mt-6 bg-primary-600 px-6 py-3 rounded-xl"
+        style={styles.goBackButton}
       >
-        <Text className="text-white font-semibold">Go Back</Text>
+        <Text style={styles.goBackText}>Go Back</Text>
       </Pressable>
     </View>
   );
@@ -36,25 +37,34 @@ function PropertyNotFound() {
 
 export default function PropertyDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const { data: property, isLoading, error } = useProperty(id ?? null);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
   const handleAuthRequired = useCallback(() => setShowAuthModal(true), []);
 
+  // Navigation handlers for sub-routes
+  const handleViewAllComments = useCallback((propertyId: string) => {
+    router.push(`/comments/${propertyId}`);
+  }, []);
+
+  const handleViewAllGuesses = useCallback((propertyId: string) => {
+    router.push(`/guesses/${propertyId}`);
+  }, []);
+
+  const topInset = Platform.OS === 'web' ? 16 : insets.top;
+
   if (isLoading) {
     return (
       <>
-        <Stack.Screen
-          options={{
-            headerTitle: 'Property Details',
-            headerLeft: () => (
-              <Pressable onPress={() => router.back()} className="p-2">
-                <Ionicons name="close" size={24} color="#666" />
-              </Pressable>
-            ),
-          }}
-        />
+        <Stack.Screen options={{ headerShown: false }} />
+        {/* Floating back button */}
+        <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={styles.floatingButton}>
+            <Icon name="ArrowLeft" size={20} color="#FFFFFF" />
+          </Pressable>
+        </View>
         <PropertyDetailSkeleton />
       </>
     );
@@ -63,16 +73,12 @@ export default function PropertyDetailScreen() {
   if (error || !property) {
     return (
       <>
-        <Stack.Screen
-          options={{
-            headerTitle: 'Property Details',
-            headerLeft: () => (
-              <Pressable onPress={() => router.back()} className="p-2">
-                <Ionicons name="close" size={24} color="#666" />
-              </Pressable>
-            ),
-          }}
-        />
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={styles.floatingButton}>
+            <Icon name="ArrowLeft" size={20} color="#3D3832" />
+          </Pressable>
+        </View>
         <PropertyNotFound />
       </>
     );
@@ -80,25 +86,39 @@ export default function PropertyDetailScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerTitle: property.address,
-          headerLeft: () => (
-            <Pressable onPress={() => router.back()} className="p-2">
-              <Ionicons name="close" size={24} color="#666" />
-            </Pressable>
-          ),
-        }}
-      />
-      <ScrollView className="flex-1 bg-white" showsVerticalScrollIndicator={false}>
-        <PropertyContent
-          property={property}
-          manageInteractionsInternally
-          onAuthRequired={handleAuthRequired}
-        />
-        {/* Bottom padding */}
-        <View className="h-10" />
-      </ScrollView>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.container}>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        >
+          <PropertyContent
+            property={property}
+            manageInteractionsInternally
+            onAuthRequired={handleAuthRequired}
+            onViewAllComments={handleViewAllComments}
+            onViewAllGuesses={handleViewAllGuesses}
+          />
+        </ScrollView>
+
+        {/* Floating overlay buttons on top of hero image */}
+        <View
+          style={[styles.floatingBackRow, { top: topInset + 8 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.floatingButton}
+            testID="property-back-button"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Icon name="CaretLeft" size={20} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </View>
 
       {/* Auth Modal */}
       <AuthModal
@@ -108,3 +128,72 @@ export default function PropertyDetailScreen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  skeletonContainer: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skeletonText: {
+    color: '#9C958A',
+    marginTop: 16,
+    fontSize: 15,
+  },
+  notFoundContainer: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  notFoundTitle: {
+    color: '#2D2926',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  notFoundMessage: {
+    color: '#9C958A',
+    textAlign: 'center',
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  goBackButton: {
+    marginTop: 24,
+    backgroundColor: '#F5A623',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  goBackText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  floatingBackRow: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  floatingButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

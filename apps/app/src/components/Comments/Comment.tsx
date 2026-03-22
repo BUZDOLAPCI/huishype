@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Pressable, Text, View, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KarmaBadge } from './KarmaBadge';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 export interface CommentUser {
   id: string;
@@ -74,7 +75,7 @@ function UserAvatar({ user, size = 32 }: { user: CommentUser; size?: number }) {
 
   // Generate a consistent background color based on username
   const colors = [
-    'bg-blue-500',
+    'bg-primary-500',
     'bg-green-500',
     'bg-purple-500',
     'bg-pink-500',
@@ -115,6 +116,7 @@ export function Comment({
 }: CommentProps) {
   const [localIsLiked, setLocalIsLiked] = useState(isLiked);
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const reducedMotion = useReducedMotion();
 
   // Sync local state with prop when it changes
   useEffect(() => {
@@ -122,23 +124,25 @@ export function Comment({
   }, [isLiked]);
 
   const handleLike = useCallback(() => {
-    // Animate the heart
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 1.3,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Animate the heart (skip when reduced motion is preferred)
+    if (!reducedMotion) {
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1.3,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
 
     setLocalIsLiked((prev) => !prev);
     onLike(comment.id);
-  }, [comment.id, onLike, scaleAnim]);
+  }, [comment.id, onLike, scaleAnim, reducedMotion]);
 
   const handleReply = useCallback(() => {
     onReply(comment.id, comment.user.username);
@@ -149,47 +153,52 @@ export function Comment({
   return (
     <View testID={isReply ? 'comment-reply' : 'comment'}>
       <View
-        className={`py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-gray-200' : ''}`}
+        className={`py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}
       >
         {/* Header: Avatar, Username, Badge, Timestamp */}
         <View className="flex-row items-center mb-2">
           <UserAvatar user={comment.user} size={isReply ? 28 : 32} />
           <View className="ml-2 flex-1">
             <View className="flex-row items-center flex-wrap">
-              <Text className="font-semibold text-gray-900 mr-1.5">
+              <Text className="font-semibold text-warm-900 mr-1.5">
                 {displayName}
               </Text>
               <KarmaBadge karma={comment.user.karma} size="sm" />
             </View>
-            <Text className="text-xs text-gray-400 mt-0.5">
+            <Text className="text-xs text-warm-400 mt-0.5">
               @{comment.user.username}
             </Text>
           </View>
-          <Text className="text-xs text-gray-400">
+          <Text className="text-xs text-warm-400">
             {formatRelativeTime(comment.createdAt)}
           </Text>
         </View>
 
         {/* Comment Content */}
-        <Text className="text-gray-800 mb-2 leading-5">{comment.content}</Text>
+        <Text className="text-warm-800 mb-2 leading-5">{comment.content}</Text>
 
         {/* Actions: Like, Reply */}
         <View className="flex-row items-center gap-4">
           <Pressable
             onPress={handleLike}
             className="flex-row items-center"
+            style={{ minHeight: 44, minWidth: 44, paddingVertical: 8 }}
+            hitSlop={4}
             testID="like-button"
+            accessibilityRole="button"
+            accessibilityLabel={localIsLiked ? 'Unlike comment' : 'Like comment'}
+            accessibilityState={{ selected: localIsLiked }}
           >
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
               <Ionicons
                 name={localIsLiked ? 'heart' : 'heart-outline'}
                 size={18}
-                color={localIsLiked ? '#EF4444' : '#6B7280'}
+                color={localIsLiked ? '#EF4444' : '#9C958A'}
               />
             </Animated.View>
             <Text
               className={`ml-1 text-sm ${
-                localIsLiked ? 'text-red-500' : 'text-gray-500'
+                localIsLiked ? 'text-red-500' : 'text-warm-500'
               }`}
             >
               {comment.likeCount > 0 ? comment.likeCount : ''}
@@ -200,10 +209,14 @@ export function Comment({
             <Pressable
               onPress={handleReply}
               className="flex-row items-center"
+              style={{ minHeight: 44, minWidth: 44, paddingVertical: 8 }}
+              hitSlop={4}
               testID="reply-button"
+              accessibilityRole="button"
+              accessibilityLabel={`Reply to ${displayName}`}
             >
-              <Ionicons name="chatbubble-outline" size={16} color="#6B7280" />
-              <Text className="ml-1 text-sm text-gray-500">Reply</Text>
+              <Ionicons name="chatbubble-outline" size={16} color="#9C958A" />
+              <Text className="ml-1 text-sm text-warm-500">Reply</Text>
             </Pressable>
           )}
         </View>

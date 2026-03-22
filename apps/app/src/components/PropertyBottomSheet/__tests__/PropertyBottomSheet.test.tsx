@@ -247,7 +247,8 @@ describe('PropertyBottomSheet', () => {
   it('renders building year badge', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
-    expect(screen.getByText('Built 1985')).toBeTruthy();
+    // MetricPills shows year as plain number (may appear in both header and details)
+    expect(screen.getAllByText('1985').length).toBeGreaterThan(0);
   });
 
   it('renders surface area badge', () => {

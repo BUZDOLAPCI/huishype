@@ -72,7 +72,7 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
         {/* Loading indicator */}
         {loading && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#ffffff" />
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         )}
 
@@ -90,7 +90,7 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
             <Ionicons
               name="location-sharp"
               size={48}
-              color="#ffffff"
+              color="#FFFFFF"
               style={styles.markerIcon}
             />
           </View>
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#1A1A2E',
   },
   imageContainer: {
     position: 'relative',
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   errorText: {
-    color: '#888',
+    color: '#888888',
     fontSize: 14,
   },
   markerContainer: {
@@ -160,12 +160,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   addressBar: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#1A1A2E',
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
   addressText: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',

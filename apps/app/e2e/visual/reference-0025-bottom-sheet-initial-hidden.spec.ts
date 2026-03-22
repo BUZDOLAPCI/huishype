@@ -142,7 +142,7 @@ async function checkBottomSheetVisibility(page: Page): Promise<{
 
     // Check for drag handle indicator (typically a small gray bar)
     // @gorhom/bottom-sheet uses specific styling for the handle
-    const handleElements = Array.from(document.querySelectorAll('[style*="background-color: rgb(209, 213, 219)"], [style*="#D1D5DB"]'));
+    const handleElements = Array.from(document.querySelectorAll('[style*="background-color: rgb(232, 224, 212)"], [style*="#E8E0D4"]'));
     let handleVisible = false;
 
     for (let i = 0; i < handleElements.length; i++) {

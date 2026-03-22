@@ -1,18 +1,28 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+/**
+ * FeedFilterChips — Horizontal filter chips for the feed screen.
+ *
+ * Three chips: Trending, Latest, Recent Activity.
+ * Uses the Chip primitive with gold active state.
+ *
+ * Design spec: Section 7.4 (Feed Filter Chips).
+ */
+
+import React from 'react';
+import { ScrollView, Text, View, StyleSheet } from 'react-native';
+import { Chip } from './ui/Chip';
+import { Icon } from './ui/Icon';
 import type { FeedFilter } from '../hooks/useFeed';
 
-interface FilterChip {
+interface FilterChipDef {
   key: FeedFilter;
   label: string;
-  icon?: keyof typeof FontAwesome.glyphMap;
+  leadingIcon?: boolean;
 }
 
-const FILTER_CHIPS: FilterChip[] = [
-  { key: 'trending', label: 'Trending', icon: 'fire' },
-  { key: 'recent', label: 'Recent', icon: 'clock-o' },
-  { key: 'controversial', label: 'Controversial', icon: 'bolt' },
-  { key: 'price-mismatch', label: 'Price Mismatch', icon: 'exchange' },
+const FILTER_CHIPS: FilterChipDef[] = [
+  { key: 'trending', label: 'Trending', leadingIcon: true },
+  { key: 'recent', label: 'Latest' },
+  { key: 'activity', label: 'Recent Activity' },
 ];
 
 interface FeedFilterChipsProps {
@@ -20,50 +30,58 @@ interface FeedFilterChipsProps {
   onFilterChange: (filter: FeedFilter) => void;
 }
 
-/**
- * FeedFilterChips - Horizontal scrollable filter chips for the feed
- */
 export function FeedFilterChips({
   activeFilter,
   onFilterChange,
 }: FeedFilterChipsProps) {
   return (
-    <View className="bg-white border-b border-gray-100">
+    <View style={styles.container}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
+        contentContainerStyle={styles.scrollContent}
       >
         {FILTER_CHIPS.map((chip) => {
           const isActive = activeFilter === chip.key;
           return (
-            <Pressable
+            <Chip
               key={chip.key}
+              label={chip.label}
+              active={isActive}
               onPress={() => onFilterChange(chip.key)}
-              className={`flex-row items-center px-4 py-2 rounded-full mr-2 ${
-                isActive ? 'bg-primary-600' : 'bg-gray-100'
-              }`}
+              leading={
+                chip.leadingIcon ? (
+                  <Icon
+                    name="Flame"
+                    size={14}
+                    weight="fill"
+                    color={isActive ? '#FFFFFF' : '#B47712'}
+                  />
+                ) : undefined
+              }
               testID={`filter-chip-${chip.key}`}
-            >
-              {chip.icon && (
-                <FontAwesome
-                  name={chip.icon}
-                  size={12}
-                  color={isActive ? 'white' : '#4B5563'}
-                  style={{ marginRight: 6 }}
-                />
-              )}
-              <Text
-                className={`text-sm font-medium ${
-                  isActive ? 'text-white' : 'text-gray-700'
-                }`}
-              >
-                {chip.label}
-              </Text>
-            </Pressable>
+            />
           );
         })}
+        <Text style={styles.overflow}>...</Text>
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    paddingVertical: 8,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    gap: 10,
+    alignItems: 'center',
+  },
+  overflow: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#C7BFB3', // warm-400
+    marginLeft: 4,
+  },
+});

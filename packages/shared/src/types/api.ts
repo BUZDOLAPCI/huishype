@@ -9,6 +9,10 @@ import type { User, UserProfile, UserSession } from './user.js';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
 import type { CommentThread, Comment } from './comment.js';
 import type { ReactionCounts } from './reaction.js';
+import type { NotificationsResponse, UnreadCountResponse } from './notification.js';
+import type { AchievementsResponse } from './achievement.js';
+import type { ActivityResponse } from './activity.js';
+import type { LeaderboardResponse } from './leaderboard.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary, MapProperty, PropertyCluster };
@@ -17,6 +21,10 @@ export type { User, UserProfile, UserSession };
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
 export type { ReactionCounts };
+export type { NotificationsResponse, UnreadCountResponse };
+export type { AchievementsResponse };
+export type { ActivityResponse };
+export type { LeaderboardResponse };
 
 // ============================================
 // Common API Types
@@ -277,3 +285,60 @@ export interface GetSavedPropertiesRequest {
 }
 
 export type GetSavedPropertiesResponse = PaginatedResponse<PropertySummary>;
+
+// ============================================
+// Notification API Types
+// ============================================
+
+export type GetNotificationsResponse = NotificationsResponse;
+export type GetUnreadCountResponse = UnreadCountResponse;
+
+export interface MarkReadResponse {
+  success: boolean;
+}
+
+export interface MarkAllReadResponse {
+  markedCount: number;
+}
+
+export interface RegisterPushTokenRequest {
+  token: string;
+  deviceId: string;
+  platform: 'ios' | 'android' | 'web';
+}
+
+// ============================================
+// Leaderboard API Types
+// ============================================
+
+export type GetLeaderboardResponse = LeaderboardResponse;
+
+// ============================================
+// Activity API Types
+// ============================================
+
+export type GetActivityResponse = ActivityResponse;
+export type GetUserActivityResponse = ActivityResponse;
+
+// ============================================
+// Achievement API Types
+// ============================================
+
+export type GetAchievementsResponse = AchievementsResponse;
+
+// ============================================
+// Email Auth API Types
+// ============================================
+
+export interface EmailAuthRequestBody {
+  email: string;
+}
+
+export interface EmailAuthRequestResponse {
+  message: string;
+  token?: string;
+}
+
+export interface EmailAuthVerifyBody {
+  token: string;
+}

@@ -1,10 +1,13 @@
 /**
  * Comment API mock handlers
+ *
+ * Paths match the live Fastify routes (no /api/v1 prefix).
+ * See services/api/openapi.json for canonical paths.
  */
 
 import { http, HttpResponse } from 'msw';
-import { mockComments, getMockProperty } from '../data/fixtures';
-import { getMockAuthUser } from './auth';
+import { mockComments, getMockProperty } from '../data/fixtures.js';
+import { getMockAuthUser } from './auth.js';
 import type {
   GetCommentsResponse,
   CreateCommentResponse,
@@ -12,16 +15,14 @@ import type {
   CommentWithReplies,
 } from '@huishype/shared';
 
-const API_BASE = '/api/v1';
-
 // In-memory store for new comments during mock session
 const sessionComments: CommentWithReplies[] = [];
 
 export const commentHandlers = [
   /**
-   * GET /properties/:propertyId/comments - Get comments for a property
+   * GET /properties/:id/comments - Get comments for a property
    */
-  http.get(`${API_BASE}/properties/:propertyId/comments`, ({ params, request }) => {
+  http.get('/properties/:propertyId/comments', ({ params, request }) => {
     const { propertyId } = params;
     const url = new URL(request.url);
     const sort = url.searchParams.get('sort') || 'popular_recent';
@@ -36,12 +37,10 @@ export const commentHandlers = [
       );
     }
 
-    // Get comments for this property
     let comments = [...mockComments, ...sessionComments].filter(
       (c) => c.propertyId === propertyId && !c.parentId
     );
 
-    // Sort comments
     switch (sort) {
       case 'newest':
         comments.sort(
@@ -58,7 +57,6 @@ export const commentHandlers = [
         break;
       case 'popular_recent':
       default:
-        // TikTok-style: newer popular comments on top
         comments.sort((a, b) => {
           const recencyA = new Date(a.createdAt).getTime();
           const recencyB = new Date(b.createdAt).getTime();
@@ -68,7 +66,6 @@ export const commentHandlers = [
         });
     }
 
-    // Handle cursor pagination
     if (cursor) {
       const cursorIndex = comments.findIndex((c) => c.id === cursor);
       if (cursorIndex !== -1) {
@@ -79,7 +76,6 @@ export const commentHandlers = [
     const hasMore = comments.length > limit;
     comments = comments.slice(0, limit);
 
-    // Count total including replies
     const allComments = [...mockComments, ...sessionComments].filter(
       (c) => c.propertyId === propertyId
     );
@@ -97,9 +93,9 @@ export const commentHandlers = [
   }),
 
   /**
-   * POST /properties/:propertyId/comments - Create a comment
+   * POST /properties/:id/comments - Create a comment
    */
-  http.post(`${API_BASE}/properties/:propertyId/comments`, async ({ params, request }) => {
+  http.post('/properties/:propertyId/comments', async ({ params, request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
 
     if (!authUser) {
@@ -121,7 +117,6 @@ export const commentHandlers = [
       );
     }
 
-    // Validate content
     if (!content || content.trim().length === 0) {
       return HttpResponse.json(
         { code: 'INVALID_CONTENT', message: 'Comment cannot be empty' },
@@ -136,7 +131,6 @@ export const commentHandlers = [
       );
     }
 
-    // If replying, validate parent exists and get mentioned user
     let mentionedUser: { id: string; username: string } | undefined;
     if (parentId) {
       const parentComment = [...mockComments, ...sessionComments].find(
@@ -148,7 +142,6 @@ export const commentHandlers = [
           { status: 404 }
         );
       }
-      // Can't reply to a reply (max 1 level deep)
       if (parentComment.parentId) {
         return HttpResponse.json(
           { code: 'NESTED_REPLY', message: 'Cannot reply to a reply' },
@@ -183,7 +176,6 @@ export const commentHandlers = [
       replyCount: 0,
     };
 
-    // If it's a top-level comment, add to session comments
     if (!parentId) {
       sessionComments.push({ ...newComment, replies: [] });
     }
@@ -196,11 +188,10 @@ export const commentHandlers = [
   }),
 
   /**
-   * PATCH /comments/:commentId - Update a comment
+   * POST /comments/:id/like - Like a comment
    */
-  http.patch(`${API_BASE}/comments/:commentId`, async ({ params, request }) => {
+  http.post('/comments/:commentId/like', ({ params, request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
-
     if (!authUser) {
       return HttpResponse.json(
         { code: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -209,102 +200,6 @@ export const commentHandlers = [
     }
 
     const { commentId } = params;
-    const body = await request.json() as { content: string };
-    const { content } = body;
-
-    // Find comment
-    const comment =
-      mockComments.find((c) => c.id === commentId) ||
-      sessionComments.find((c) => c.id === commentId);
-
-    if (!comment) {
-      return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Comment not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify ownership
-    if (comment.userId !== authUser.id) {
-      return HttpResponse.json(
-        { code: 'FORBIDDEN', message: 'You can only edit your own comments' },
-        { status: 403 }
-      );
-    }
-
-    // Validate content
-    if (!content || content.trim().length === 0) {
-      return HttpResponse.json(
-        { code: 'INVALID_CONTENT', message: 'Comment cannot be empty' },
-        { status: 400 }
-      );
-    }
-
-    const updatedComment: Comment = {
-      ...comment,
-      content: content.trim(),
-      isEdited: true,
-      editedAt: new Date().toISOString(),
-    };
-
-    return HttpResponse.json({ comment: updatedComment });
-  }),
-
-  /**
-   * DELETE /comments/:commentId - Delete a comment
-   */
-  http.delete(`${API_BASE}/comments/:commentId`, ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
-
-    if (!authUser) {
-      return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
-    const { commentId } = params;
-
-    // Find comment
-    const comment =
-      mockComments.find((c) => c.id === commentId) ||
-      sessionComments.find((c) => c.id === commentId);
-
-    if (!comment) {
-      return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Comment not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify ownership
-    if (comment.userId !== authUser.id) {
-      return HttpResponse.json(
-        { code: 'FORBIDDEN', message: 'You can only delete your own comments' },
-        { status: 403 }
-      );
-    }
-
-    // In real impl would delete from DB
-    return new HttpResponse(null, { status: 204 });
-  }),
-
-  /**
-   * POST /comments/:commentId/like - Toggle like on a comment
-   */
-  http.post(`${API_BASE}/comments/:commentId/like`, ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
-
-    if (!authUser) {
-      return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
-    const { commentId } = params;
-
-    // Find comment
     const comment =
       mockComments.find((c) => c.id === commentId) ||
       mockComments.flatMap((c) => c.replies).find((c) => c.id === commentId) ||
@@ -317,7 +212,6 @@ export const commentHandlers = [
       );
     }
 
-    // Toggle like (in real impl would check DB)
     const isLiked = !comment.isLikedByCurrentUser;
     const likeCount = isLiked ? comment.likes + 1 : comment.likes - 1;
 
@@ -325,5 +219,20 @@ export const commentHandlers = [
       isLiked,
       likeCount: Math.max(0, likeCount),
     });
+  }),
+
+  /**
+   * DELETE /comments/:id/like - Unlike a comment
+   */
+  http.delete('/comments/:commentId/like', ({ request }) => {
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    if (!authUser) {
+      return HttpResponse.json(
+        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

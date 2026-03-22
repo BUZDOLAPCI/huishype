@@ -55,6 +55,10 @@ export interface PropertyContentProps {
   onGuessPress?: (id: string) => void;
   onCommentPress?: (id: string) => void;
 
+  // Navigation to full-page routes
+  onViewAllComments?: (id: string) => void;
+  onViewAllGuesses?: (id: string) => void;
+
   // Layout measurement callbacks — containers that need scroll-to-section
   // (native sheet, web panel) provide these; detail page omits them.
   onGuessSectionLayout?: (y: number) => void;
@@ -83,6 +87,8 @@ interface PropertyContentSectionsProps {
   onAuthRequired?: () => void;
   onGuessPress?: (id: string) => void;
   onCommentPress?: (id: string) => void;
+  onViewAllComments?: (id: string) => void;
+  onViewAllGuesses?: (id: string) => void;
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
 }
@@ -96,6 +102,8 @@ function PropertyContentSections({
   onAuthRequired,
   onGuessPress,
   onCommentPress,
+  onViewAllComments,
+  onViewAllGuesses,
   onGuessSectionLayout,
   onCommentsSectionLayout,
 }: PropertyContentSectionsProps) {
@@ -151,6 +159,7 @@ function PropertyContentSections({
           <CommentsSection
             property={property}
             onAddComment={() => onCommentPress?.(property.id)}
+            onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
             onAuthRequired={onAuthRequired}
           />
         </View>
@@ -210,6 +219,8 @@ export function PropertyContent({
   onAuthRequired,
   onGuessPress,
   onCommentPress,
+  onViewAllComments,
+  onViewAllGuesses,
   onGuessSectionLayout,
   onCommentsSectionLayout,
   isVisible = true,
@@ -256,6 +267,8 @@ export function PropertyContent({
         onAuthRequired={onAuthRequired}
         onGuessPress={onGuessPress}
         onCommentPress={onCommentPress}
+        onViewAllComments={onViewAllComments}
+        onViewAllGuesses={onViewAllGuesses}
         onGuessSectionLayout={onGuessSectionLayout}
         onCommentsSectionLayout={onCommentsSectionLayout}
       />

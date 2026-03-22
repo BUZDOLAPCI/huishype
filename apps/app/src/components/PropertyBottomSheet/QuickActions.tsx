@@ -1,6 +1,14 @@
-import { Pressable, Share, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+/**
+ * PropertyBottomSheet QuickActions — Uses the shared QuickActions module
+ * to maintain visual language parity between preview cards and detail view.
+ *
+ * Replaces the old Ionicons-based implementation with Phosphor icons
+ * from the shared QuickActions component.
+ */
+import { View } from 'react-native';
+import { QuickActions as SharedQuickActions } from '../QuickActions';
 import type { SectionProps } from './types';
+import { Share } from 'react-native';
 
 interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
@@ -27,48 +35,18 @@ export function QuickActions({
   };
 
   return (
-    <View className="px-4 py-3 border-t border-gray-100">
-      <View className="flex-row justify-around">
-        {/* Save button */}
-        <Pressable
-          onPress={onSave}
-          className="flex-1 flex-row items-center justify-center py-3 mx-1 bg-gray-50 rounded-xl active:bg-gray-100"
-          testID="quick-action-save"
-        >
-          <Ionicons
-            name={property.isSaved ? 'bookmark' : 'bookmark-outline'}
-            size={22}
-            color={property.isSaved ? '#3B82F6' : '#6B7280'}
-          />
-          <Text className={`ml-2 font-medium ${property.isSaved ? 'text-primary-600' : 'text-gray-600'}`}>
-            {property.isSaved ? 'Saved' : 'Save'}
-          </Text>
-        </Pressable>
-
-        {/* Share button */}
-        <Pressable
-          onPress={handleShare}
-          className="flex-1 flex-row items-center justify-center py-3 mx-1 bg-gray-50 rounded-xl active:bg-gray-100"
-        >
-          <Ionicons name="share-outline" size={22} color="#6B7280" />
-          <Text className="ml-2 font-medium text-gray-600">Share</Text>
-        </Pressable>
-
-        {/* Like button */}
-        <Pressable
-          onPress={onLike}
-          className="flex-1 flex-row items-center justify-center py-3 mx-1 bg-gray-50 rounded-xl active:bg-gray-100"
-        >
-          <Ionicons
-            name={property.isLiked ? 'heart' : 'heart-outline'}
-            size={22}
-            color={property.isLiked ? '#EF4444' : '#6B7280'}
-          />
-          <Text className={`ml-2 font-medium ${property.isLiked ? 'text-red-500' : 'text-gray-600'}`}>
-            {property.isLiked ? 'Liked' : 'Like'}
-          </Text>
-        </Pressable>
-      </View>
+    <View className="px-4 py-3 border-t border-warm-100">
+      <SharedQuickActions
+        isLiked={property.isLiked}
+        isSaved={property.isSaved}
+        likeCount={property.likeCount}
+        commentCount={property.commentCount}
+        guessCount={property.guessCount}
+        onLike={onLike}
+        onSave={onSave}
+        onShare={handleShare}
+        variant="full"
+      />
     </View>
   );
 }

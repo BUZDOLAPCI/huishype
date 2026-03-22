@@ -111,21 +111,19 @@ test.describe('Feed Filtering', () => {
 
     // Check for other filter chips
     const recentFilter = page.locator('[data-testid="filter-chip-recent"]');
-    const controversialFilter = page.locator('[data-testid="filter-chip-controversial"]');
-    const priceMismatchFilter = page.locator('[data-testid="filter-chip-price-mismatch"]');
+    const activityFilter = page.locator('[data-testid="filter-chip-activity"]');
 
     const chipVisibility = {
       trending: await trendingFilter.isVisible().catch(() => false),
       recent: await recentFilter.isVisible().catch(() => false),
-      controversial: await controversialFilter.isVisible().catch(() => false),
-      'price-mismatch': await priceMismatchFilter.isVisible().catch(() => false),
+      activity: await activityFilter.isVisible().catch(() => false),
     };
     console.log('Filter chip visibility:', chipVisibility);
 
-    // All 4 filter chips should be visible
+    // All 3 filter chips should be visible
     expect(chipVisibility.trending).toBe(true);
     expect(chipVisibility.recent).toBe(true);
-    expect(chipVisibility.controversial).toBe(true);
+    expect(chipVisibility.activity).toBe(true);
 
     // Check how many property cards loaded
     const propertyCards = page.locator('[data-testid="property-feed-card"]');
@@ -160,18 +158,18 @@ test.describe('Feed Filtering', () => {
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-recent.png` });
     }
 
-    // Click "Controversial" filter
-    const controversialFilter = page.locator('[data-testid="filter-chip-controversial"]');
-    const controversialVisible = await controversialFilter.isVisible().catch(() => false);
+    // Click "Recent Activity" filter
+    const activityFilter = page.locator('[data-testid="filter-chip-activity"]');
+    const activityVisible = await activityFilter.isVisible().catch(() => false);
 
-    if (controversialVisible) {
-      await controversialFilter.click();
+    if (activityVisible) {
+      await activityFilter.click();
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-controversial.png` });
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
     }
 
     // Click back to "Trending" filter
-    if (recentVisible || controversialVisible) {
+    if (recentVisible || activityVisible) {
       await trendingFilter.click();
       await page.waitForTimeout(2000);
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });

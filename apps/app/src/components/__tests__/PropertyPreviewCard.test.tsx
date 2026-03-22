@@ -20,17 +20,11 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
   });
 
-  it('displays valuation label correctly (generic without countryCode)', () => {
+  it('displays formatted price when official valuation is present', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 
-    // Without countryCode, uses generic "Val." label
-    expect(screen.getByText('Val.')).toBeTruthy();
-  });
-
-  it('displays WOZ label when countryCode is NL', () => {
-    render(<PropertyPreviewCard property={{ ...mockProperty, countryCode: 'NL' }} />);
-
-    expect(screen.getByText('WOZ')).toBeTruthy();
+    // Price is rendered as formatted value (e.g., "€ 350.000")
+    expect(screen.getByText(/350/)).toBeTruthy();
   });
 
   it('shows activity indicator based on activity level', () => {
@@ -71,13 +65,7 @@ describe('PropertyPreviewCard', () => {
     const onLike = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onLike={onLike} />);
 
-    // Find the pressable that contains "Like" text and press it
-    const likeButton = screen.getByText('Like').parent;
-    if (likeButton) {
-      fireEvent.press(likeButton);
-    } else {
-      fireEvent.press(screen.getByText('Like'));
-    }
+    fireEvent.press(screen.getByTestId('group-preview-like-button'));
 
     expect(onLike).toHaveBeenCalledTimes(1);
   });
@@ -86,13 +74,7 @@ describe('PropertyPreviewCard', () => {
     const onComment = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onComment={onComment} />);
 
-    // Find the pressable that contains "Comment" text and press it
-    const commentButton = screen.getByText('Comment').parent;
-    if (commentButton) {
-      fireEvent.press(commentButton);
-    } else {
-      fireEvent.press(screen.getByText('Comment'));
-    }
+    fireEvent.press(screen.getByTestId('group-preview-comment-button'));
 
     expect(onComment).toHaveBeenCalledTimes(1);
   });
@@ -101,13 +83,7 @@ describe('PropertyPreviewCard', () => {
     const onGuess = jest.fn();
     render(<PropertyPreviewCard property={mockProperty} onGuess={onGuess} />);
 
-    // Find the pressable that contains "Guess" text and press it
-    const guessButton = screen.getByText('Guess').parent;
-    if (guessButton) {
-      fireEvent.press(guessButton);
-    } else {
-      fireEvent.press(screen.getByText('Guess'));
-    }
+    fireEvent.press(screen.getByTestId('group-preview-guess-button'));
 
     expect(onGuess).toHaveBeenCalledTimes(1);
   });
@@ -142,9 +118,6 @@ describe('PropertyPreviewCard', () => {
 
     // Should render without crashing
     expect(screen.getByText('Teststraat 123')).toBeTruthy();
-    // Valuation label should not be present
-    expect(screen.queryByText('Val.')).toBeNull();
-    expect(screen.queryByText('WOZ')).toBeNull();
   });
 
   it('displays asking price when provided', () => {
@@ -155,8 +128,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithAskingPrice} />);
 
-    // Component uses abbreviated label "Ask" instead of "Asking Price"
-    expect(screen.getByText('Ask')).toBeTruthy();
+    // Should render the formatted asking price
+    expect(screen.getByText(/395/)).toBeTruthy();
   });
 
   it('displays FMV when provided', () => {
@@ -166,8 +139,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithFmv} />);
 
-    // Component uses abbreviated label "FMV" instead of "Crowd FMV"
-    expect(screen.getByText('FMV')).toBeTruthy();
+    // FMV takes priority — should render the formatted FMV price
+    expect(screen.getByText(/380/)).toBeTruthy();
   });
 
   it('prefers FMV over asking price over official valuation', () => {
@@ -179,8 +152,8 @@ describe('PropertyPreviewCard', () => {
     };
     render(<PropertyPreviewCard property={propertyWithAllPrices} />);
 
-    // Should show FMV label when all prices are available (abbreviated)
-    expect(screen.getByText('FMV')).toBeTruthy();
+    // Should show FMV price (380) not asking (395) or valuation (350)
+    expect(screen.getByText(/380/)).toBeTruthy();
   });
 
   it('defaults to cold activity level when not specified', () => {
@@ -192,5 +165,56 @@ describe('PropertyPreviewCard', () => {
     render(<PropertyPreviewCard property={propertyWithoutActivityLevel} />);
 
     expect(screen.getByText('Quiet')).toBeTruthy();
+  });
+
+  it('shows close button when showCloseButton is true', () => {
+    const onClose = jest.fn();
+    render(
+      <PropertyPreviewCard
+        property={mockProperty}
+        showCloseButton={true}
+        onClose={onClose}
+      />
+    );
+
+    const closeButton = screen.getByTestId('property-preview-close-button');
+    expect(closeButton).toBeTruthy();
+    fireEvent.press(closeButton);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides close button by default', () => {
+    render(<PropertyPreviewCard property={mockProperty} />);
+
+    expect(screen.queryByTestId('property-preview-close-button')).toBeNull();
+  });
+
+  it('renders arrow when showArrow is true', () => {
+    render(
+      <PropertyPreviewCard property={mockProperty} showArrow={true} />
+    );
+
+    expect(screen.getByTestId('property-preview-arrow')).toBeTruthy();
+  });
+
+  it('shows "Liked" state correctly', () => {
+    render(
+      <PropertyPreviewCard property={mockProperty} isLiked={true} />
+    );
+
+    expect(screen.getByText('Liked')).toBeTruthy();
+    expect(screen.queryByText('Like')).toBeNull();
+  });
+
+  it('renders stat pills when like/comment counts are provided', () => {
+    const propertyWithStats: PropertyPreviewData = {
+      ...mockProperty,
+      likeCount: 415000,
+      commentCount: 12,
+    };
+    render(<PropertyPreviewCard property={propertyWithStats} />);
+
+    expect(screen.getByText('415K')).toBeTruthy();
+    expect(screen.getByText('12')).toBeTruthy();
   });
 });

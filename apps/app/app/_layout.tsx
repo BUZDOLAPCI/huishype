@@ -1,6 +1,20 @@
 import '../global.css';
 
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
+import {
+  Outfit_500Medium,
+  Outfit_600SemiBold,
+  Outfit_700Bold,
+} from '@expo-google-fonts/outfit';
+import {
+  DMSans_400Regular,
+  DMSans_500Medium,
+} from '@expo-google-fonts/dm-sans';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -19,7 +33,6 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
   initialRouteName: '(tabs)',
 };
 
@@ -29,7 +42,15 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-    ...FontAwesome.font,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Outfit_500Medium,
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+    DMSans_400Regular,
+    DMSans_500Medium,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
@@ -60,9 +81,10 @@ function RootLayoutNav() {
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack>
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="property/[id]" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="[...address]" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="property/[id]" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="comments/[propertyId]" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="guesses/[propertyId]" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="[...address]" options={{ presentation: 'modal', headerShown: false }} />
             </Stack>
           </ThemeProvider>
         </AuthProvider>

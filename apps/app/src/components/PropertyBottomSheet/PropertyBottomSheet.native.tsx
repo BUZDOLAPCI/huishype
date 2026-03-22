@@ -118,7 +118,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         backdropComponent={renderBackdrop}
         onChange={handleSheetChange}
         backgroundStyle={{ backgroundColor: 'white' }}
-        handleIndicatorStyle={{ backgroundColor: '#D1D5DB', width: 40 }}
+        handleIndicatorStyle={{ backgroundColor: '#E8E0D4', width: 40 }}
         style={{ zIndex: 1000 }}
       >
         <BottomSheetScrollView

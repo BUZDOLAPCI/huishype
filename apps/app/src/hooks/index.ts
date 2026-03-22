@@ -44,7 +44,6 @@ export {
   type CommentSortBy,
 } from './useComments';
 export {
-  useResolveAddress,
   useAddressSearch,
   addressKeys,
 } from './useAddressResolver';
@@ -81,3 +80,48 @@ export {
   type GuessHistoryItem,
   type GuessHistoryResponse,
 } from './useUserProfile';
+export {
+  useMapInteraction,
+  getActivityLevel,
+  estimateZoomForBbox,
+  type PreviewGroup,
+  type MapCameraCommands,
+  type UseMapInteractionReturn,
+  type ToGroupPropertyInput,
+} from './useMapInteraction';
+export { useReducedMotion } from './useReducedMotion';
+export {
+  useNotifications,
+  useUnreadNotificationCount,
+  useMarkAllRead,
+  useMarkNotificationRead,
+  notificationKeys,
+  type NotificationItem,
+  type NotificationActor,
+} from './useNotifications';
+export {
+  useLeaderboard,
+  leaderboardKeys,
+  type LeaderboardPeriod,
+  type LeaderboardEntry,
+  type LeaderboardResponse,
+  type LeaderboardKarmaRank,
+} from './useLeaderboard';
+export {
+  useAchievements,
+  achievementKeys,
+  type AchievementsResponse,
+  type EarnedAchievement,
+} from './useAchievements';
+export {
+  useUserActivity,
+  userActivityKeys,
+  type ActivityItem,
+  type ActivityActor,
+  type ActivityProperty,
+  type ActivityEventType,
+} from './useUserActivity';
+export {
+  useActivityFeed,
+  activityFeedKeys,
+} from './useActivityFeed';

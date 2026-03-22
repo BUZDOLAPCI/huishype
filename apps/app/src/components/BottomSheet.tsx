@@ -43,7 +43,7 @@ export const BottomSheet = forwardRef<BottomSheetLib, BottomSheetProps>(
         backdropComponent={renderBackdrop}
         onClose={onClose}
         backgroundStyle={{ backgroundColor: 'white' }}
-        handleIndicatorStyle={{ backgroundColor: '#D1D5DB' }}
+        handleIndicatorStyle={{ backgroundColor: '#E8E0D4' }}
       >
         <BottomSheetView className="flex-1 px-4">{children}</BottomSheetView>
       </BottomSheetLib>

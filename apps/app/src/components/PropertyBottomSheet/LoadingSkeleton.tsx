@@ -25,7 +25,7 @@ function SkeletonBlock({ className }: { className: string }) {
 
   return (
     <Animated.View
-      className={`bg-gray-200 rounded ${className}`}
+      className={`bg-warm-200 rounded ${className}`}
       style={animatedStyle}
     />
   );

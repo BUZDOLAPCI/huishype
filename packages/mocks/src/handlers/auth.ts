@@ -1,48 +1,35 @@
 /**
  * Auth API mock handlers
+ *
+ * Paths match the live Fastify routes (no /api/v1 prefix).
+ * See services/api/openapi.json for canonical paths.
  */
 
 import { http, HttpResponse } from 'msw';
-import { mockUsers, mockUserProfiles } from '../data/fixtures';
+import { mockUsers, mockUserProfiles } from '../data/fixtures.js';
 import type { AuthLoginResponse, AuthRefreshResponse } from '@huishype/shared';
-
-const API_BASE = '/api/v1';
 
 // Simulated token storage for mock sessions
 let mockSessions: Map<string, { userId: string; expiresAt: Date }> = new Map();
 
-export const authHandlers = [
-  /**
-   * POST /auth/login - Login with OAuth provider
-   */
-  http.post(`${API_BASE}/auth/login`, async ({ request }) => {
-    const body = await request.json() as { provider: string; idToken: string };
+function buildLoginHandler(path: string) {
+  return http.post(path, async ({ request }) => {
+    const body = await request.json() as { idToken: string };
 
-    // Simulate validation
-    if (!body.provider || !body.idToken) {
+    if (!body.idToken) {
       return HttpResponse.json(
-        { code: 'INVALID_REQUEST', message: 'Missing provider or idToken' },
+        { code: 'INVALID_REQUEST', message: 'Missing idToken' },
         { status: 400 }
       );
     }
 
-    if (!['google', 'apple'].includes(body.provider)) {
-      return HttpResponse.json(
-        { code: 'INVALID_PROVIDER', message: 'Invalid auth provider' },
-        { status: 400 }
-      );
-    }
-
-    // Simulate token validation - in real world this would verify with Google/Apple
-    // For mock, we'll create/return a user based on the idToken
     const isNewUser = body.idToken.includes('new');
-    const user = isNewUser ? mockUsers[4] : mockUsers[0]; // newuser or jandevries
+    const user = isNewUser ? mockUsers[4] : mockUsers[0];
 
     const accessToken = `mock-access-token-${Date.now()}`;
     const refreshToken = `mock-refresh-token-${Date.now()}`;
-    const expiresAt = new Date(Date.now() + 3600000).toISOString(); // 1 hour
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
 
-    // Store session
     mockSessions.set(accessToken, {
       userId: user.id,
       expiresAt: new Date(expiresAt),
@@ -59,12 +46,24 @@ export const authHandlers = [
     };
 
     return HttpResponse.json(response);
-  }),
+  });
+}
+
+export const authHandlers = [
+  /**
+   * POST /auth/google - Login with Google
+   */
+  buildLoginHandler('/auth/google'),
+
+  /**
+   * POST /auth/apple - Login with Apple
+   */
+  buildLoginHandler('/auth/apple'),
 
   /**
    * POST /auth/refresh - Refresh access token
    */
-  http.post(`${API_BASE}/auth/refresh`, async ({ request }) => {
+  http.post('/auth/refresh', async ({ request }) => {
     const body = await request.json() as { refreshToken: string };
 
     if (!body.refreshToken) {
@@ -74,7 +73,6 @@ export const authHandlers = [
       );
     }
 
-    // Simulate refresh token validation
     if (!body.refreshToken.startsWith('mock-refresh-token-')) {
       return HttpResponse.json(
         { code: 'INVALID_TOKEN', message: 'Invalid refresh token' },
@@ -85,7 +83,6 @@ export const authHandlers = [
     const newAccessToken = `mock-access-token-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 3600000).toISOString();
 
-    // Store new session
     mockSessions.set(newAccessToken, {
       userId: 'user-001',
       expiresAt: new Date(expiresAt),
@@ -102,7 +99,7 @@ export const authHandlers = [
   /**
    * POST /auth/logout - Logout
    */
-  http.post(`${API_BASE}/auth/logout`, async ({ request }) => {
+  http.post('/auth/logout', async ({ request }) => {
     const authHeader = request.headers.get('Authorization');
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
@@ -110,6 +107,22 @@ export const authHandlers = [
     }
 
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  /**
+   * GET /auth/me - Get current auth user
+   */
+  http.get('/auth/me', ({ request }) => {
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+
+    if (!authUser) {
+      return HttpResponse.json(
+        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    return HttpResponse.json(authUser);
   }),
 ];
 
@@ -141,4 +154,11 @@ export function getMockAuthUser(authHeader: string | null) {
   if (!session) return null;
 
   return mockUserProfiles.find((u) => u.id === session.userId);
+}
+
+/**
+ * Reset mock session state (for test isolation)
+ */
+export function resetMockSessions() {
+  mockSessions = new Map();
 }

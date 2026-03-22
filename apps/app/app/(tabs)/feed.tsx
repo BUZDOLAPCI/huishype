@@ -1,8 +1,16 @@
+/**
+ * Feed Screen — Browse properties with Trending, Latest, and Recent Activity tabs.
+ *
+ * Trending and Latest use the /feed endpoint via useInfiniteFeed.
+ * Recent Activity uses the /activity endpoint via useActivityFeed.
+ */
+
+import React, { useState, useCallback, useMemo } from 'react';
 import { FlatList, RefreshControl, View } from 'react-native';
-import { useState, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 
 import {
+  ActivityFeedCard,
   FeedEmptyState,
   FeedErrorState,
   FeedFilterChips,
@@ -10,34 +18,55 @@ import {
   FeedLoadingMore,
   PropertyFeedCard,
 } from '@/src/components';
-import { useInfiniteFeed, type FeedFilter, type FeedProperty } from '@/src/hooks';
+import {
+  useInfiniteFeed,
+  useActivityFeed,
+  type FeedFilter,
+  type FeedProperty,
+  type ActivityItem,
+} from '@/src/hooks';
+import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
+
+// --- Header title per filter ---
+
+const FILTER_TITLES: Record<FeedFilter, string> = {
+  trending: 'Trending Properties',
+  recent: 'Latest Properties',
+  activity: 'Recent Activity',
+};
 
 export default function FeedScreen() {
   const [activeFilter, setActiveFilter] = useState<FeedFilter>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteFeed(activeFilter);
+  // Property feed (trending/recent)
+  const isPropertyFeed = activeFilter !== 'activity';
+  const feedQuery = useInfiniteFeed(
+    isPropertyFeed ? activeFilter : 'trending'
+  );
 
-  // Flatten paginated data into a single array
+  // Activity feed
+  const activityQuery = useActivityFeed();
+
   const properties = useMemo(() => {
-    if (!data?.pages) return [];
-    return data.pages.flatMap((page) => page.properties);
-  }, [data]);
+    if (!isPropertyFeed) return [];
+    if (!feedQuery.data?.pages) return [];
+    return feedQuery.data.pages.flatMap((page) => page.properties);
+  }, [feedQuery.data, isPropertyFeed]);
+
+  const activities = useMemo(() => {
+    if (isPropertyFeed) return [];
+    if (!activityQuery.data?.pages) return [];
+    return activityQuery.data.pages.flatMap((page) => page.items);
+  }, [activityQuery.data, isPropertyFeed]);
+
+  const activeQuery = isPropertyFeed ? feedQuery : activityQuery;
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await refetch();
+    await activeQuery.refetch();
     setIsRefreshing(false);
-  }, [refetch]);
+  }, [activeQuery]);
 
   const handleFilterChange = useCallback((filter: FeedFilter) => {
     setActiveFilter(filter);
@@ -48,12 +77,14 @@ export default function FeedScreen() {
   }, []);
 
   const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
+    if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
+      activeQuery.fetchNextPage();
     }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [activeQuery]);
 
-  const renderItem = useCallback(
+  // --- Property feed render ---
+
+  const renderPropertyItem = useCallback(
     ({ item }: { item: FeedProperty }) => (
       <PropertyFeedCard
         id={item.id}
@@ -65,6 +96,7 @@ export default function FeedScreen() {
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}
+        likeCount={item.likeCount}
         commentCount={item.commentCount}
         guessCount={item.guessCount}
         viewCount={item.viewCount}
@@ -76,19 +108,52 @@ export default function FeedScreen() {
     [handlePropertyPress]
   );
 
-  const keyExtractor = useCallback((item: FeedProperty) => item.id, []);
+  // --- Activity feed render ---
+
+  const renderActivityItem = useCallback(
+    ({ item }: { item: ActivityItem }) => (
+      <ActivityFeedCard
+        id={item.id}
+        eventType={item.eventType}
+        actor={item.actor}
+        property={item.property}
+        createdAt={item.createdAt}
+        onPress={() => handlePropertyPress(item.property.id)}
+      />
+    ),
+    [handlePropertyPress]
+  );
+
+  const propertyKeyExtractor = useCallback(
+    (item: FeedProperty) => item.id,
+    []
+  );
+  const activityKeyExtractor = useCallback(
+    (item: ActivityItem) => item.id,
+    []
+  );
 
   const ListFooterComponent = useCallback(() => {
-    if (isFetchingNextPage) {
+    if (activeQuery.isFetchingNextPage) {
       return <FeedLoadingMore />;
     }
     return null;
-  }, [isFetchingNextPage]);
+  }, [activeQuery.isFetchingNextPage]);
+
+  const refreshControl = (
+    <RefreshControl
+      refreshing={isRefreshing}
+      onRefresh={onRefresh}
+      tintColor="#DE911D"
+      colors={['#DE911D']}
+    />
+  );
 
   // Loading state
-  if (isLoading && !isRefreshing) {
+  if (activeQuery.isLoading && !isRefreshing) {
     return (
-      <View className="flex-1 bg-gray-50">
+      <View className="flex-1 bg-warm-50">
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
@@ -99,25 +164,31 @@ export default function FeedScreen() {
   }
 
   // Error state
-  if (isError) {
+  if (activeQuery.isError) {
     return (
-      <View className="flex-1 bg-gray-50">
+      <View className="flex-1 bg-warm-50">
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
         />
         <FeedErrorState
-          message={error?.message || 'Failed to load properties'}
-          onRetry={refetch}
+          message={activeQuery.error?.message || 'Failed to load'}
+          onRetry={activeQuery.refetch}
         />
       </View>
     );
   }
 
   // Empty state
-  if (properties.length === 0) {
+  const isEmpty = isPropertyFeed
+    ? properties.length === 0
+    : activities.length === 0;
+
+  if (isEmpty) {
     return (
-      <View className="flex-1 bg-gray-50">
+      <View className="flex-1 bg-warm-50">
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
@@ -128,30 +199,42 @@ export default function FeedScreen() {
   }
 
   return (
-    <View className="flex-1 bg-gray-50" testID="feed-screen">
-      <FeedFilterChips
-        activeFilter={activeFilter}
-        onFilterChange={handleFilterChange}
-      />
-      <FlatList
-        data={properties}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingVertical: 8 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor="#2563eb"
-            colors={['#2563eb']}
+    <View className="flex-1 bg-warm-50 items-center" testID="feed-screen">
+      <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
+        <FeedFilterChips
+          activeFilter={activeFilter}
+          onFilterChange={handleFilterChange}
+        />
+
+        {isPropertyFeed ? (
+          <FlatList
+            data={properties}
+            keyExtractor={propertyKeyExtractor}
+            renderItem={renderPropertyItem}
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 96 }}
+            refreshControl={refreshControl}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={ListFooterComponent}
+            showsVerticalScrollIndicator={false}
+            testID="feed-list"
           />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={ListFooterComponent}
-        showsVerticalScrollIndicator={false}
-        testID="feed-list"
-      />
+        ) : (
+          <FlatList
+            data={activities}
+            keyExtractor={activityKeyExtractor}
+            renderItem={renderActivityItem}
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 96 }}
+            refreshControl={refreshControl}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={ListFooterComponent}
+            showsVerticalScrollIndicator={false}
+            testID="activity-feed-list"
+          />
+        )}
+      </View>
     </View>
   );
 }

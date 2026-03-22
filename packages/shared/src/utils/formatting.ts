@@ -323,19 +323,23 @@ export function formatKarma(karma: number): string {
 }
 
 /**
- * Get karma rank title based on score
+ * Get karma rank title based on score.
+ * Delegates to the unified KARMA_TIERS to keep a single source of truth.
  * @param karma - Karma points
  * @returns Rank title
  */
 export function getKarmaRank(
   karma: number
-): 'Newbie' | 'Regular' | 'Trusted' | 'Expert' | 'Master' | 'Legend' {
-  if (karma >= 10000) return 'Legend';
-  if (karma >= 5000) return 'Master';
-  if (karma >= 1000) return 'Expert';
-  if (karma >= 250) return 'Trusted';
-  if (karma >= 50) return 'Regular';
-  return 'Newbie';
+): import('../types/user.js').KarmaRank {
+  // Inline lookup to avoid circular dependency with karma-tiers.ts.
+  // The thresholds must stay in sync with KARMA_TIERS.
+  if (karma >= 1000) return 'Master';
+  if (karma >= 500) return 'Local Legend';
+  if (karma >= 200) return 'Expert';
+  if (karma >= 100) return 'Local Expert';
+  if (karma >= 50) return 'Rising Star';
+  if (karma >= 10) return 'Contributor';
+  return 'Newcomer';
 }
 
 /**

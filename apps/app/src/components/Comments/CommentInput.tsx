@@ -71,18 +71,18 @@ export function CommentInput({
     ? 'text-red-500'
     : content.length > maxLength * 0.9
     ? 'text-amber-500'
-    : 'text-gray-400';
+    : 'text-warm-400';
 
   return (
-    <View className="border-t border-gray-200 bg-white px-4 py-3">
+    <View className="border-t border-warm-200 bg-surface-card px-4 py-3">
       {/* Reply indicator */}
       {replyTo && (
         <View
-          className="flex-row items-center mb-2 bg-gray-100 rounded-lg px-3 py-2"
+          className="flex-row items-center mb-2 bg-warm-100 rounded-lg px-3 py-2"
           testID="reply-indicator"
         >
-          <Ionicons name="return-down-forward" size={16} color="#6B7280" />
-          <Text className="flex-1 ml-2 text-gray-600 text-sm">
+          <Ionicons name="return-down-forward" size={16} color="#9C958A" />
+          <Text className="flex-1 ml-2 text-warm-600 text-sm">
             Replying to <Text className="font-semibold">@{replyTo.username}</Text>
           </Text>
           <Pressable
@@ -90,24 +90,24 @@ export function CommentInput({
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             testID="cancel-reply-button"
           >
-            <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+            <Ionicons name="close-circle" size={20} color="#C7BFB3" />
           </Pressable>
         </View>
       )}
 
       {/* Input area */}
       <View className="flex-row items-end">
-        <View className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5">
+        <View className="flex-1 bg-warm-100 rounded-xl px-4 py-2.5">
           <TextInput
             ref={inputRef}
             value={content}
             onChangeText={setContent}
             placeholder={replyTo ? `Reply to @${replyTo.username}...` : placeholder}
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor="#C7BFB3"
             multiline
             maxLength={maxLength + 50} // Allow typing over limit to show error
             editable={!isSubmitting}
-            className="text-gray-900 text-base max-h-24"
+            className="text-warm-900 text-base max-h-24"
             testID="comment-input"
           />
 
@@ -124,17 +124,17 @@ export function CommentInput({
           onPress={handleSubmit}
           disabled={!canSubmit}
           className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${
-            canSubmit ? 'bg-primary-500' : 'bg-gray-200'
+            canSubmit ? 'bg-primary-500' : 'bg-warm-200'
           }`}
           testID="submit-button"
         >
           {isSubmitting ? (
-            <Ionicons name="hourglass-outline" size={20} color="#9CA3AF" />
+            <Ionicons name="hourglass-outline" size={20} color="#C7BFB3" />
           ) : (
             <Ionicons
               name="send"
               size={18}
-              color={canSubmit ? '#FFFFFF' : '#9CA3AF'}
+              color={canSubmit ? '#FFFFFF' : '#C7BFB3'}
             />
           )}
         </Pressable>

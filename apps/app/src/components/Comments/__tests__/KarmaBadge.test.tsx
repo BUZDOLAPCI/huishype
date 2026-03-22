@@ -4,83 +4,107 @@ import { KarmaBadge, getKarmaConfig } from '../KarmaBadge';
 
 describe('KarmaBadge', () => {
   describe('getKarmaConfig', () => {
-    it('returns Newbie for karma 0-10', () => {
-      expect(getKarmaConfig(0).label).toBe('Newbie');
-      expect(getKarmaConfig(5).label).toBe('Newbie');
-      expect(getKarmaConfig(10).label).toBe('Newbie');
+    it('returns Newcomer for karma 0-9', () => {
+      expect(getKarmaConfig(0).label).toBe('Newcomer');
+      expect(getKarmaConfig(5).label).toBe('Newcomer');
+      expect(getKarmaConfig(9).label).toBe('Newcomer');
     });
 
-    it('returns Regular for karma 11-50', () => {
-      expect(getKarmaConfig(11).label).toBe('Regular');
-      expect(getKarmaConfig(30).label).toBe('Regular');
-      expect(getKarmaConfig(50).label).toBe('Regular');
+    it('returns Contributor for karma 10-49', () => {
+      expect(getKarmaConfig(10).label).toBe('Contributor');
+      expect(getKarmaConfig(30).label).toBe('Contributor');
+      expect(getKarmaConfig(49).label).toBe('Contributor');
     });
 
-    it('returns Trusted for karma 51-100', () => {
-      expect(getKarmaConfig(51).label).toBe('Trusted');
-      expect(getKarmaConfig(75).label).toBe('Trusted');
-      expect(getKarmaConfig(100).label).toBe('Trusted');
+    it('returns Rising Star for karma 50-99', () => {
+      expect(getKarmaConfig(50).label).toBe('Rising Star');
+      expect(getKarmaConfig(75).label).toBe('Rising Star');
+      expect(getKarmaConfig(99).label).toBe('Rising Star');
     });
 
-    it('returns Expert for karma 101-499', () => {
-      expect(getKarmaConfig(101).label).toBe('Expert');
+    it('returns Local Expert for karma 100-199', () => {
+      expect(getKarmaConfig(100).label).toBe('Local Expert');
+      expect(getKarmaConfig(150).label).toBe('Local Expert');
+      expect(getKarmaConfig(199).label).toBe('Local Expert');
+    });
+
+    it('returns Expert for karma 200-499', () => {
+      expect(getKarmaConfig(200).label).toBe('Expert');
       expect(getKarmaConfig(300).label).toBe('Expert');
       expect(getKarmaConfig(499).label).toBe('Expert');
     });
 
-    it('returns Legend for karma 500 and over', () => {
-      expect(getKarmaConfig(500).label).toBe('Legend');
-      expect(getKarmaConfig(1000).label).toBe('Legend');
-      expect(getKarmaConfig(10000).label).toBe('Legend');
+    it('returns Local Legend for karma 500-999', () => {
+      expect(getKarmaConfig(500).label).toBe('Local Legend');
+      expect(getKarmaConfig(750).label).toBe('Local Legend');
+      expect(getKarmaConfig(999).label).toBe('Local Legend');
     });
 
-    it('returns correct colors for each rank', () => {
-      // Newbie - gray
-      expect(getKarmaConfig(5).bgColor).toContain('gray');
-      expect(getKarmaConfig(5).textColor).toContain('gray');
+    it('returns Master for karma 1000+', () => {
+      expect(getKarmaConfig(1000).label).toBe('Master');
+      expect(getKarmaConfig(5000).label).toBe('Master');
+      expect(getKarmaConfig(10000).label).toBe('Master');
+    });
 
-      // Regular - green
-      expect(getKarmaConfig(25).bgColor).toContain('green');
-      expect(getKarmaConfig(25).textColor).toContain('green');
+    it('returns correct level for each tier', () => {
+      expect(getKarmaConfig(0).level).toBe(1);
+      expect(getKarmaConfig(10).level).toBe(2);
+      expect(getKarmaConfig(50).level).toBe(3);
+      expect(getKarmaConfig(100).level).toBe(4);
+      expect(getKarmaConfig(200).level).toBe(5);
+      expect(getKarmaConfig(500).level).toBe(6);
+      expect(getKarmaConfig(1000).level).toBe(7);
+    });
 
-      // Trusted - blue
-      expect(getKarmaConfig(75).bgColor).toContain('blue');
-      expect(getKarmaConfig(75).textColor).toContain('blue');
+    it('returns Newcomer for negative karma (clamped to 0)', () => {
+      expect(getKarmaConfig(-5).label).toBe('Newcomer');
+      expect(getKarmaConfig(-100).label).toBe('Newcomer');
+    });
 
-      // Expert - purple
-      expect(getKarmaConfig(200).bgColor).toContain('purple');
-      expect(getKarmaConfig(200).textColor).toContain('purple');
-
-      // Legend - amber/gold
-      expect(getKarmaConfig(600).bgColor).toContain('amber');
-      expect(getKarmaConfig(600).textColor).toContain('amber');
+    it('returns non-empty colour strings for all tiers', () => {
+      const checkpoints = [0, 10, 50, 100, 200, 500, 1000];
+      for (const karma of checkpoints) {
+        const config = getKarmaConfig(karma);
+        expect(config.bgColor).toBeTruthy();
+        expect(config.textColor).toBeTruthy();
+      }
     });
   });
 
   describe('KarmaBadge component', () => {
-    it('renders the correct label for Newbie', () => {
+    it('renders the correct label for Newcomer', () => {
       const { getByText } = render(<KarmaBadge karma={5} />);
-      expect(getByText('Newbie')).toBeTruthy();
+      expect(getByText('Newcomer')).toBeTruthy();
     });
 
-    it('renders the correct label for Regular', () => {
+    it('renders the correct label for Contributor', () => {
       const { getByText } = render(<KarmaBadge karma={25} />);
-      expect(getByText('Regular')).toBeTruthy();
+      expect(getByText('Contributor')).toBeTruthy();
     });
 
-    it('renders the correct label for Trusted', () => {
+    it('renders the correct label for Rising Star', () => {
       const { getByText } = render(<KarmaBadge karma={75} />);
-      expect(getByText('Trusted')).toBeTruthy();
+      expect(getByText('Rising Star')).toBeTruthy();
+    });
+
+    it('renders the correct label for Local Expert', () => {
+      const { getByText } = render(<KarmaBadge karma={150} />);
+      expect(getByText('Local Expert')).toBeTruthy();
     });
 
     it('renders the correct label for Expert', () => {
-      const { getByText } = render(<KarmaBadge karma={200} />);
+      const { getByText } = render(<KarmaBadge karma={300} />);
       expect(getByText('Expert')).toBeTruthy();
     });
 
-    it('renders the correct label for Legend', () => {
+    it('renders the correct label for Local Legend', () => {
       const { getByText } = render(<KarmaBadge karma={600} />);
-      expect(getByText('Legend')).toBeTruthy();
+      expect(getByText('Local Legend')).toBeTruthy();
+    });
+
+    it('renders the correct label for Master', () => {
+      const { getByText } = render(<KarmaBadge karma={1500} />);
+      expect(getByText('Master')).toBeTruthy();
     });
 
     it('renders with testID', () => {

@@ -397,7 +397,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           handleDiv.style.cssText = `
             width: 40px;
             height: 4px;
-            background: #D1D5DB;
+            background: #E8E0D4;
             border-radius: 2px;
             margin: 12px auto;
           `;

@@ -7,7 +7,7 @@
     "dev": "echo 'TODO: Setup worker dev mode'",
     "build": "tsc",
     "lint": "eslint .",
-    "test": "echo 'TODO: Setup tests'",
+    "test": "echo 'No tests yet — worker service is a stub'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {},

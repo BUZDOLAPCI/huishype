@@ -3,23 +3,36 @@ import {
   Pressable,
   Text,
   View,
-  Image,
   Platform,
   Animated,
   PanResponder,
+  StyleSheet,
 } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
+import { Icon } from '../ui/Icon';
+import { PropertyPreviewCard } from '../PropertyPreviewCard';
 import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
-const CARD_WIDTH = 320;
-const THUMBNAIL_SIZE = 56;
+const CARD_WIDTH = 270;
 
 /** Maximum movement (px) to still count as a tap, not a drag. */
 const TAP_MOVE_THRESHOLD = 40;
 /** Maximum duration (ms) for a touch to count as a tap. */
 const TAP_DURATION_THRESHOLD = 500;
+
+// ─── Warm palette constants ──────────────────────────────────────────────
+
+const COLORS = {
+  white: '#FFFFFF',
+  warm200: '#F5F0E8',
+  warm400: '#C7BFB3',
+  warm700: '#504A42',
+  warm800: '#3D3832',
+  warm900: '#2D2926',
+  gold500: '#F5A623',
+  gold600: '#DE911D',
+} as const;
 
 // ─── Coordinate-based hit-testing types ──────────────────────────────────
 
@@ -50,32 +63,6 @@ function pointInRect(px: number, py: number, rect: Rect): boolean {
     py <= rect.y + rect.height
   );
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────
-
-function formatPrice(value: number | null | undefined, countryCode?: string): string | null {
-  if (value === null || value === undefined) return null;
-  return formatPropertyPrice(value, countryCode as CountryCode);
-}
-
-function getPriceLabel(property: GroupPreviewProperty): string {
-  if (property.fmv != null) return 'FMV';
-  if (property.askingPrice != null) return 'Ask';
-  if (property.officialValuation != null) {
-    return property.countryCode === 'NL' ? 'WOZ' : 'Val.';
-  }
-  return '';
-}
-
-function getDisplayPrice(property: GroupPreviewProperty): number | null {
-  return property.fmv ?? property.askingPrice ?? property.officialValuation ?? null;
-}
-
-const ACTIVITY_CONFIG = {
-  hot: { color: '#EF4444', label: 'Hot', bg: '#EF4444' },
-  warm: { color: '#FB923C', label: 'Active', bg: '#FB923C' },
-  cold: { color: '#D1D5DB', label: 'Quiet', bg: '#D1D5DB' },
-} as const;
 
 /** Minimum horizontal movement (px) before a swipe gesture is recognized. */
 const SWIPE_THRESHOLD = 40;
@@ -261,227 +248,12 @@ function useMarkerHitTest(translateX: Animated.Value) {
   };
 }
 
-// ─── PropertyCardContent ─────────────────────────────────────────────────
-
-/** Single property card content — shared between single and cluster modes. */
-function PropertyCardContent({
-  property,
-  isLiked = false,
-  onPress,
-  onLike,
-  onComment,
-  onGuess,
-  zoneRef,
-  zoneLayout,
-}: {
-  property: GroupPreviewProperty;
-  isLiked: boolean;
-  onPress?: () => void;
-  onLike?: () => void;
-  onComment?: () => void;
-  onGuess?: () => void;
-  /** Callback ref generator for native hit-testing zones (undefined on web). */
-  zoneRef?: (zone: HitZone) => (node: any) => void;
-  /** Layout handler generator for native hit-testing zones (undefined on web). */
-  zoneLayout?: (zone: HitZone) => () => void;
-}) {
-  const displayPrice = getDisplayPrice(property);
-  const priceLabel = getPriceLabel(property);
-  const formattedPrice = formatPrice(displayPrice, property.countryCode);
-  const activity = ACTIVITY_CONFIG[property.activityLevel ?? 'cold'];
-
-  return (
-    <Pressable
-      onPress={onPress}
-      ref={zoneRef?.('cardBody')}
-      onLayout={zoneLayout?.('cardBody')}
-      collapsable={zoneRef ? false : undefined}
-      style={{
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
-        width: '100%',
-      }}
-      testID="group-preview-property-card"
-    >
-      {/* Top: Thumbnail + Info */}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-        {/* Thumbnail */}
-        <View
-          style={{
-            width: THUMBNAIL_SIZE,
-            height: THUMBNAIL_SIZE,
-            minWidth: THUMBNAIL_SIZE,
-            borderRadius: 8,
-            backgroundColor: '#E5E7EB',
-            overflow: 'hidden',
-            flexShrink: 0,
-            marginRight: 10,
-          }}
-        >
-          {property.thumbnailUrl ? (
-            <Image
-              source={{ uri: property.thumbnailUrl }}
-              style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }}
-              resizeMode="cover"
-              testID="group-preview-thumbnail"
-            />
-          ) : (
-            <View
-              style={{
-                width: THUMBNAIL_SIZE,
-                height: THUMBNAIL_SIZE,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Ionicons name="home-outline" size={22} color="#9CA3AF" />
-            </View>
-          )}
-        </View>
-
-        {/* Address + Price */}
-        <View style={{ flex: 1, justifyContent: 'center' }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 2,
-            }}
-          >
-            <Text
-              style={{ flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' }}
-              numberOfLines={1}
-            >
-              {property.address}
-            </Text>
-            {/* Activity dot + label */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-              <View
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 4,
-                  backgroundColor: activity.bg,
-                  marginRight: 3,
-                }}
-              />
-              <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{activity.label}</Text>
-            </View>
-          </View>
-
-          <Text style={{ fontSize: 13, color: '#6B7280' }} numberOfLines={1}>
-            {property.city}
-            {property.postalCode ? `, ${property.postalCode}` : ''}
-          </Text>
-
-          {formattedPrice && (
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 3 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: '#2563EB' }}>
-                {formattedPrice}
-              </Text>
-              <Text style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 4 }}>
-                {priceLabel}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Quick actions */}
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-around',
-          borderTopWidth: 1,
-          borderTopColor: '#F3F4F6',
-          paddingTop: 8,
-          marginTop: 10,
-        }}
-      >
-        <Pressable
-          onPress={() => onLike?.()}
-          ref={zoneRef?.('like')}
-          onLayout={zoneLayout?.('like')}
-          collapsable={zoneRef ? false : undefined}
-          style={{
-            minHeight: 40,
-            minWidth: 40,
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 14,
-            paddingVertical: 6,
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          testID="group-preview-like-button"
-        >
-          <Ionicons
-            name={isLiked ? 'heart' : 'heart-outline'}
-            size={18}
-            color={isLiked ? '#EF4444' : '#6B7280'}
-          />
-          <Text
-            style={{
-              marginLeft: 4,
-              fontSize: 13,
-              color: isLiked ? '#EF4444' : '#4B5563',
-            }}
-          >
-            {isLiked ? 'Liked' : 'Like'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => onComment?.()}
-          ref={zoneRef?.('comment')}
-          onLayout={zoneLayout?.('comment')}
-          collapsable={zoneRef ? false : undefined}
-          style={{
-            minHeight: 40,
-            minWidth: 40,
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 14,
-            paddingVertical: 6,
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          testID="group-preview-comment-button"
-        >
-          <Ionicons name="chatbubble-outline" size={18} color="#6B7280" />
-          <Text style={{ marginLeft: 4, fontSize: 13, color: '#4B5563' }}>Comment</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => onGuess?.()}
-          ref={zoneRef?.('guess')}
-          onLayout={zoneLayout?.('guess')}
-          collapsable={zoneRef ? false : undefined}
-          style={{
-            minHeight: 40,
-            minWidth: 40,
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 14,
-            paddingVertical: 6,
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          testID="group-preview-guess-button"
-        >
-          <Ionicons name="pricetag-outline" size={18} color="#6B7280" />
-          <Text style={{ marginLeft: 4, fontSize: 13, color: '#4B5563' }}>Guess</Text>
-        </Pressable>
-      </View>
-    </Pressable>
-  );
-}
-
 // ─── GroupPreviewCard ────────────────────────────────────────────────────
 
 /**
  * GroupPreviewCard — unified preview card for both single properties and clusters.
  *
- * - Single (1 property): shows card content + close button
+ * - Single (1 property): shows PropertyPreviewCard content + close button
  * - Cluster (>1 properties): adds left/right arrows, page indicator, swipe gestures
  * - Optional arrow pointer to visually connect to map marker
  *
@@ -510,6 +282,7 @@ export function GroupPreviewCard({
   const currentProperty = properties[currentIndex];
 
   const isNative = Platform.OS !== 'web';
+  const reducedMotion = useReducedMotion();
 
   const canGoLeft = currentIndex > 0;
   const canGoRight = currentIndex < properties.length - 1;
@@ -519,25 +292,33 @@ export function GroupPreviewCard({
 
   const goLeft = useCallback(() => {
     if (!canGoLeft) return;
-    translateX.setValue(-40);
-    Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: true,
-      friction: 8,
-    }).start();
+    if (reducedMotion) {
+      translateX.setValue(0);
+    } else {
+      translateX.setValue(-40);
+      Animated.spring(translateX, {
+        toValue: 0,
+        useNativeDriver: true,
+        friction: 8,
+      }).start();
+    }
     onIndexChange?.(currentIndex - 1);
-  }, [canGoLeft, currentIndex, onIndexChange, translateX]);
+  }, [canGoLeft, currentIndex, onIndexChange, translateX, reducedMotion]);
 
   const goRight = useCallback(() => {
     if (!canGoRight) return;
-    translateX.setValue(40);
-    Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: true,
-      friction: 8,
-    }).start();
+    if (reducedMotion) {
+      translateX.setValue(0);
+    } else {
+      translateX.setValue(40);
+      Animated.spring(translateX, {
+        toValue: 0,
+        useNativeDriver: true,
+        friction: 8,
+      }).start();
+    }
     onIndexChange?.(currentIndex + 1);
-  }, [canGoRight, currentIndex, onIndexChange, translateX]);
+  }, [canGoRight, currentIndex, onIndexChange, translateX, reducedMotion]);
 
   // Refs to hold latest navigation state — read inside PanResponder to avoid stale closures
   const canGoLeftRef = useRef(canGoLeft);
@@ -694,35 +475,38 @@ export function GroupPreviewCard({
 
   const arrowUp = arrowDirection === 'up';
 
+  // Convert GroupPreviewProperty to PropertyPreviewData for the content card
+  const previewData = {
+    id: currentProperty.id,
+    address: currentProperty.address,
+    city: currentProperty.city,
+    postalCode: currentProperty.postalCode,
+    countryCode: currentProperty.countryCode,
+    officialValuation: currentProperty.officialValuation,
+    askingPrice: currentProperty.askingPrice,
+    fmv: currentProperty.fmv,
+    activityLevel: currentProperty.activityLevel,
+    activityScore: currentProperty.activityScore,
+    thumbnailUrl: currentProperty.thumbnailUrl,
+    likeCount: currentProperty.likeCount,
+    commentCount: currentProperty.commentCount,
+    guessCount: currentProperty.guessCount,
+  };
+
   const cardBody = (
     <View
-      style={{
-        width: CARD_WIDTH,
-        maxWidth: '80%',
-        alignSelf: 'center',
-        position: 'relative',
-        overflow: 'visible',
-      }}
+      style={styles.outerWrapper}
       testID="group-preview-card"
     >
       {/* Arrow pointing up */}
       {showArrow && arrowUp && (
         <View
-          style={{
-            alignSelf: 'center',
-            width: 0,
-            height: 0,
-            borderLeftWidth: 10,
-            borderRightWidth: 10,
-            borderBottomWidth: 10,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: '#FFFFFF',
-            marginBottom: -1,
-            ...(Platform.OS === 'web'
-              ? { filter: 'drop-shadow(0px -2px 3px rgba(0,0,0,0.08))' }
-              : {}),
-          }}
+          style={[
+            styles.arrowUp,
+            Platform.OS === 'web'
+              ? { filter: 'drop-shadow(0px -2px 3px rgba(0,0,0,0.08))' } as any
+              : {},
+          ]}
           testID="group-preview-arrow-up"
         />
       )}
@@ -730,55 +514,12 @@ export function GroupPreviewCard({
       {/* Main card container with shadow (L2 — overlay captures touches on native) */}
       <View
         ref={isNative ? l2Ref : undefined}
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: 14,
-          boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.18)',
-          elevation: 6,
-          overflow: 'hidden',
-          position: 'relative',
-        }}
+        style={styles.cardContainer}
         collapsable={false}
       >
-        {/* Close button - top right corner */}
-        <Pressable
-          onPress={onClose}
-          ref={isNative ? hitTest.zoneRef('close') : undefined}
-          onLayout={isNative ? hitTest.zoneLayout('close') : undefined}
-          collapsable={isNative ? false : undefined}
-          style={{
-            position: 'absolute',
-            top: 6,
-            right: 6,
-            zIndex: 20,
-            width: 28,
-            height: 28,
-            borderRadius: 14,
-            backgroundColor: 'rgba(0,0,0,0.35)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          testID="group-preview-close-button"
-          accessibilityLabel="Close preview"
-          accessibilityRole="button"
-        >
-          <Ionicons name="close" size={16} color="#FFFFFF" />
-        </Pressable>
-
-        {/* Cluster navigation header */}
+        {/* Cluster navigation header — above the card content */}
         {isCluster && (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingTop: 10,
-              paddingBottom: 2,
-              paddingHorizontal: 40, // space for close button
-              gap: 8,
-            }}
-          >
+          <View style={styles.clusterHeader}>
             {/* Left arrow */}
             <Pressable
               onPress={goLeft}
@@ -786,39 +527,28 @@ export function GroupPreviewCard({
               onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
               collapsable={isNative ? false : undefined}
               disabled={!canGoLeft}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: canGoLeft ? '#F97316' : '#E5E7EB',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              hitSlop={6}
+              style={[
+                styles.navArrow,
+                { backgroundColor: canGoLeft ? COLORS.gold500 : COLORS.warm200 },
+              ]}
               testID="group-preview-nav-left"
               accessibilityLabel="Previous property"
+              accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
               accessibilityRole="button"
+              accessibilityState={{ disabled: !canGoLeft }}
             >
-              <Ionicons
-                name="chevron-back"
-                size={18}
-                color={canGoLeft ? '#FFFFFF' : '#9CA3AF'}
+              <Icon
+                name="CaretLeft"
+                size="md"
+                color={canGoLeft ? COLORS.white : COLORS.warm400}
               />
             </Pressable>
 
-            {/* Page indicator */}
-            <View
-              style={{
-                backgroundColor: '#1F2937',
-                borderRadius: 10,
-                paddingHorizontal: 12,
-                paddingVertical: 4,
-              }}
-              testID="group-preview-page-indicator"
-            >
-              <Text
-                style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}
-                testID="group-preview-page-text"
-              >
+            {/* Page indicator pill */}
+            <View style={styles.pageIndicator} testID="group-preview-page-indicator">
+              <Icon name="ListBullets" size={14} color={COLORS.white} />
+              <Text style={styles.pageText} testID="group-preview-page-text">
                 {currentIndex + 1} of {properties.length}
               </Text>
             </View>
@@ -830,22 +560,21 @@ export function GroupPreviewCard({
               onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
               collapsable={isNative ? false : undefined}
               disabled={!canGoRight}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: canGoRight ? '#F97316' : '#E5E7EB',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              hitSlop={6}
+              style={[
+                styles.navArrow,
+                { backgroundColor: canGoRight ? COLORS.gold500 : COLORS.warm200 },
+              ]}
               testID="group-preview-nav-right"
               accessibilityLabel="Next property"
+              accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
               accessibilityRole="button"
+              accessibilityState={{ disabled: !canGoRight }}
             >
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={canGoRight ? '#FFFFFF' : '#9CA3AF'}
+              <Icon
+                name="CaretRight"
+                size="md"
+                color={canGoRight ? COLORS.white : COLORS.warm400}
               />
             </Pressable>
           </View>
@@ -854,37 +583,93 @@ export function GroupPreviewCard({
         {/* Property card content with swipe */}
         <Animated.View
           style={[
-            { paddingHorizontal: 0, paddingTop: isCluster ? 4 : 0 },
             isCluster ? { transform: [{ translateX }] } : {},
           ]}
           {...(isCluster && !isNative ? panResponder.panHandlers : {})}
         >
-          <PropertyCardContent
-            property={currentProperty}
-            isLiked={isLiked}
-            onPress={() => onPropertyTap?.(currentProperty)}
-            onLike={() => onLike?.(currentProperty)}
-            onComment={() => onComment?.(currentProperty)}
-            onGuess={() => onGuess?.(currentProperty)}
-            zoneRef={isNative ? hitTest.zoneRef : undefined}
-            zoneLayout={isNative ? hitTest.zoneLayout : undefined}
-          />
+          <View
+            ref={isNative ? hitTest.zoneRef('cardBody') : undefined}
+            onLayout={isNative ? hitTest.zoneLayout('cardBody') : undefined}
+            collapsable={isNative ? false : undefined}
+          >
+            <PropertyPreviewCard
+              property={previewData}
+              isLiked={isLiked}
+              onPress={() => onPropertyTap?.(currentProperty)}
+              onLike={() => onLike?.(currentProperty)}
+              onComment={() => onComment?.(currentProperty)}
+              onGuess={() => onGuess?.(currentProperty)}
+              onClose={onClose}
+              showCloseButton={!isCluster}
+            />
+          </View>
+
+          {/* Hit-test zone refs for native action buttons — wrapped around the actual Pressables
+              inside PropertyPreviewCard. Since PropertyPreviewCard renders the buttons,
+              we register hit zones via overlay refs on the outer action row. */}
+          {isNative && (
+            <>
+              <View
+                ref={hitTest.zoneRef('like')}
+                onLayout={hitTest.zoneLayout('like')}
+                collapsable={false}
+                style={styles.hitZoneMarker}
+                testID="group-preview-like-hitzone"
+              />
+              <View
+                ref={hitTest.zoneRef('comment')}
+                onLayout={hitTest.zoneLayout('comment')}
+                collapsable={false}
+                style={styles.hitZoneMarker}
+                testID="group-preview-comment-hitzone"
+              />
+              <View
+                ref={hitTest.zoneRef('guess')}
+                onLayout={hitTest.zoneLayout('guess')}
+                collapsable={false}
+                style={styles.hitZoneMarker}
+                testID="group-preview-guess-hitzone"
+              />
+            </>
+          )}
         </Animated.View>
+
+        {/* Close button — in cluster mode, positioned over the image area */}
+        {isCluster && (
+          <Pressable
+            onPress={onClose}
+            ref={isNative ? hitTest.zoneRef('close') : undefined}
+            onLayout={isNative ? hitTest.zoneLayout('close') : undefined}
+            collapsable={isNative ? false : undefined}
+            style={styles.clusterCloseButton}
+            hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
+            testID="group-preview-close-button"
+            accessibilityLabel="Close preview"
+            accessibilityHint="Closes this property preview card"
+            accessibilityRole="button"
+          >
+            <Icon name="X" size={14} color={COLORS.warm700} />
+          </Pressable>
+        )}
+
+        {/* For single property mode, register the close button from PropertyPreviewCard
+            for hit testing (it renders inside PropertyPreviewCard) */}
+        {!isCluster && isNative && (
+          <View
+            ref={hitTest.zoneRef('close')}
+            onLayout={hitTest.zoneLayout('close')}
+            collapsable={false}
+            style={styles.hitZoneMarker}
+            testID="group-preview-close-hitzone"
+          />
+        )}
 
         {/* Transparent touch overlay — captures ALL touches on native (Android
             inside MapLibre Marker). locationX/locationY from this overlay are
             L2-relative, matching measureLayout zone bounds exactly. */}
         {isNative && (
           <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 100,
-              backgroundColor: 'transparent',
-            }}
+            style={styles.touchOverlay}
             collapsable={false}
             onTouchStart={onOverlayTouchStart}
             onTouchMove={onOverlayTouchMove}
@@ -897,21 +682,12 @@ export function GroupPreviewCard({
       {/* Arrow pointing down */}
       {showArrow && !arrowUp && (
         <View
-          style={{
-            alignSelf: 'center',
-            width: 0,
-            height: 0,
-            borderLeftWidth: 10,
-            borderRightWidth: 10,
-            borderTopWidth: 10,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderTopColor: '#FFFFFF',
-            marginTop: -1,
-            ...(Platform.OS === 'web'
-              ? { filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.08))' }
-              : {}),
-          }}
+          style={[
+            styles.arrowDown,
+            Platform.OS === 'web'
+              ? { filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.08))' } as any
+              : {},
+          ]}
           testID="group-preview-arrow-down"
         />
       )}
@@ -920,3 +696,130 @@ export function GroupPreviewCard({
 
   return cardBody;
 }
+
+// ─── Styles ──────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  outerWrapper: {
+    width: CARD_WIDTH,
+    maxWidth: '85%',
+    alignSelf: 'center',
+    position: 'relative',
+    overflow: 'visible',
+  },
+  cardContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    // Preview shadow from design spec
+    ...Platform.select({
+      ios: {
+        shadowColor: '#B47712',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
+      },
+      android: { elevation: 6 },
+      default: {},
+    }),
+    // Web shadow
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0px 4px 20px rgba(180, 119, 18, 0.12)' } as any
+      : {}),
+  },
+
+  // Cluster header
+  clusterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  navArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.warm800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    gap: 5,
+  },
+  pageText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Close button for cluster mode
+  clusterCloseButton: {
+    position: 'absolute',
+    // Position over image area, accounting for cluster header height (~48px)
+    top: 53,
+    right: 5,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderWidth: 1,
+    borderColor: '#F5F0E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+
+  // Touch overlay for native hit-testing
+  touchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    backgroundColor: 'transparent',
+  },
+
+  // Hidden hit-zone marker (zero-size, for native measureLayout registration)
+  hitZoneMarker: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
+
+  // Arrow pointers
+  arrowUp: {
+    alignSelf: 'center',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#FFFFFF',
+    marginBottom: -1,
+  },
+  arrowDown: {
+    alignSelf: 'center',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#FFFFFF',
+    marginTop: -1,
+  },
+});

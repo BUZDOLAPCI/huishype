@@ -14,6 +14,7 @@ import {
   customType,
   serial,
   real,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -364,6 +365,100 @@ export const savedProperties = pgTable(
   ]
 );
 
+// Notification event types
+export const notificationEventTypeEnum = pgEnum('notification_event_type', [
+  'property_comment',       // Someone commented on a property you interacted with
+  'comment_reply',          // Someone replied to your comment
+  'comment_like',           // Someone liked your comment
+  'property_like',          // Someone liked a property you own/listed
+  'property_guess',         // Someone guessed on a property you interacted with
+  'achievement_unlocked',   // You unlocked an achievement
+]);
+
+// Notifications table
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    actorUserId: uuid('actor_user_id')
+      .references(() => users.id, { onDelete: 'set null' }),
+    eventType: notificationEventTypeEnum('event_type').notNull(),
+    propertyId: uuid('property_id')
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    commentId: uuid('comment_id'),
+    guessId: uuid('guess_id'),
+    reactionId: uuid('reaction_id'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().default({}),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('notifications_recipient_created_idx').on(table.recipientUserId, table.createdAt),
+    index('notifications_recipient_unread_idx')
+      .on(table.recipientUserId, table.createdAt)
+      .where(sql`read_at IS NULL`),
+  ]
+);
+
+// Push Tokens table (device-scoped)
+export const pushTokens = pgTable(
+  'push_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    deviceId: varchar('device_id', { length: 255 }).notNull(),
+    platform: varchar('platform', { length: 20 }).notNull(), // 'ios' | 'android' | 'web'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('push_tokens_user_id_idx').on(table.userId),
+    uniqueIndex('push_tokens_device_idx').on(table.userId, table.deviceId),
+  ]
+);
+
+// User Achievements table
+export const userAchievements = pgTable(
+  'user_achievements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    achievementKey: varchar('achievement_key', { length: 100 }).notNull(),
+    awardedAt: timestamp('awarded_at', { withTimezone: true }).notNull().defaultNow(),
+    sourceEventType: varchar('source_event_type', { length: 50 }),
+    sourceEventId: uuid('source_event_id'),
+  },
+  (table) => [
+    uniqueIndex('user_achievements_unique_idx').on(table.userId, table.achievementKey),
+    index('user_achievements_user_id_idx').on(table.userId),
+  ]
+);
+
+// Email Auth Tokens table (magic link verification)
+export const emailAuthTokens = pgTable(
+  'email_auth_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: varchar('email', { length: 255 }).notNull(),
+    token: varchar('token', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('email_auth_tokens_email_idx').on(table.email),
+    index('email_auth_tokens_token_idx').on(table.token),
+  ]
+);
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   priceGuesses: many(priceGuesses),
@@ -372,6 +467,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   savedProperties: many(savedProperties),
   listings: many(listings),
   propertyViews: many(propertyViews),
+  notifications: many(notifications, { relationName: 'recipientNotifications' }),
+  pushTokens: many(pushTokens),
+  achievements: many(userAchievements),
 }));
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
@@ -491,3 +589,48 @@ export type NewPriceHistory = typeof priceHistory.$inferInsert;
 
 export type PropertyView = typeof propertyViews.$inferSelect;
 export type NewPropertyView = typeof propertyViews.$inferInsert;
+
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
+
+export type PushToken = typeof pushTokens.$inferSelect;
+export type NewPushToken = typeof pushTokens.$inferInsert;
+
+export type UserAchievement = typeof userAchievements.$inferSelect;
+export type NewUserAchievement = typeof userAchievements.$inferInsert;
+
+export type EmailAuthToken = typeof emailAuthTokens.$inferSelect;
+export type NewEmailAuthToken = typeof emailAuthTokens.$inferInsert;
+
+// Notification relations
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  recipient: one(users, {
+    fields: [notifications.recipientUserId],
+    references: [users.id],
+    relationName: 'recipientNotifications',
+  }),
+  actor: one(users, {
+    fields: [notifications.actorUserId],
+    references: [users.id],
+  }),
+  property: one(properties, {
+    fields: [notifications.propertyId],
+    references: [properties.id],
+  }),
+}));
+
+// Push token relations
+export const pushTokensRelations = relations(pushTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [pushTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+// User achievement relations
+export const userAchievementsRelations = relations(userAchievements, ({ one }) => ({
+  user: one(users, {
+    fields: [userAchievements.userId],
+    references: [users.id],
+  }),
+}));

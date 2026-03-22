@@ -2,32 +2,26 @@
  * HuisHype API Client
  *
  * A typed wrapper for the HuisHype API.
- * When the OpenAPI spec is available, this will use openapi-fetch for type-safe calls.
- * For now, it provides a typed fetch wrapper.
+ * Paths are derived from the OpenAPI spec exported from the live Fastify server.
+ * The generated types in ../generated/api.ts are the contract reference.
+ *
+ * The app can use this client directly or its own fetch utilities —
+ * the generated types are the source of truth, not this wrapper.
  */
 
 import type {
-  AuthLoginRequest,
   AuthLoginResponse,
-  AuthRefreshRequest,
   AuthRefreshResponse,
   PropertyResolveResponse,
   GetPropertyResponse,
   GetMapPropertiesRequest,
   GetMapPropertiesResponse,
-  SubmitListingRequest,
-  SubmitListingResponse,
-  GetListingsRequest,
-  GetListingsResponse,
-  SubmitGuessRequest,
   SubmitGuessResponse,
   UpdateGuessRequest,
   GetCommentsRequest,
   GetCommentsResponse,
   CreateCommentRequest,
   CreateCommentResponse,
-  GetFeedRequest,
-  GetFeedResponse,
   GetSavedPropertiesRequest,
   GetSavedPropertiesResponse,
   GetUserProfileResponse,
@@ -39,7 +33,7 @@ import type {
  * API client configuration options
  */
 export interface ApiClientOptions {
-  /** Base URL for the API */
+  /** Base URL for the API (e.g. http://localhost:3100) */
   baseUrl: string;
   /** Access token for authenticated requests */
   accessToken?: string;
@@ -72,7 +66,10 @@ export class ApiError extends Error {
 }
 
 /**
- * Type-safe API client for HuisHype
+ * Type-safe API client for HuisHype.
+ *
+ * All paths below match the live Fastify routes (no /api/v1 prefix).
+ * See services/api/openapi.json for the canonical path list.
  */
 export class HuisHypeApiClient {
   private baseUrl: string;
@@ -82,37 +79,25 @@ export class HuisHypeApiClient {
   private onAuthError?: () => void;
 
   constructor(options: ApiClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.accessToken = options.accessToken;
     this.onTokenRefresh = options.onTokenRefresh;
     this.onAuthError = options.onAuthError;
   }
 
-  /**
-   * Set the access token for authenticated requests
-   */
   setAccessToken(token: string): void {
     this.accessToken = token;
   }
 
-  /**
-   * Set the refresh token
-   */
   setRefreshToken(token: string): void {
     this.refreshToken = token;
   }
 
-  /**
-   * Clear authentication tokens
-   */
   clearTokens(): void {
     this.accessToken = undefined;
     this.refreshToken = undefined;
   }
 
-  /**
-   * Make an authenticated API request
-   */
   private async request<T>(
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     path: string,
@@ -124,7 +109,6 @@ export class HuisHypeApiClient {
   ): Promise<T> {
     const { body, query, requiresAuth = false } = options || {};
 
-    // Build URL with query params
     let url = `${this.baseUrl}${path}`;
     if (query) {
       const params = new URLSearchParams();
@@ -139,7 +123,6 @@ export class HuisHypeApiClient {
       }
     }
 
-    // Build headers
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -150,14 +133,12 @@ export class HuisHypeApiClient {
       throw new ApiError('Authentication required', 'UNAUTHORIZED', 401);
     }
 
-    // Make request
     const response = await fetch(url, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    // Handle response
     if (!response.ok) {
       let errorData: { code?: string; message?: string; details?: Record<string, unknown> } = {};
       try {
@@ -179,7 +160,6 @@ export class HuisHypeApiClient {
       );
     }
 
-    // Handle 204 No Content
     if (response.status === 204) {
       return undefined as T;
     }
@@ -188,311 +168,229 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Auth Endpoints
+  // Auth Endpoints  (paths: /auth/google, /auth/apple, /auth/refresh, /auth/logout, /auth/me)
   // ============================================
 
-  /**
-   * Login with OAuth provider
-   */
-  async login(request: AuthLoginRequest): Promise<AuthLoginResponse> {
-    const data = await this.request<AuthLoginResponse>('POST', '/api/v1/auth/login', {
-      body: request,
+  async loginGoogle(idToken: string): Promise<AuthLoginResponse> {
+    const data = await this.request<AuthLoginResponse>('POST', '/auth/google', {
+      body: { idToken },
     });
-
-    // Store tokens
     if (data?.session) {
       this.setAccessToken(data.session.accessToken);
       this.setRefreshToken(data.session.refreshToken);
     }
-
     return data;
   }
 
-  /**
-   * Refresh the access token
-   */
+  async loginApple(idToken: string): Promise<AuthLoginResponse> {
+    const data = await this.request<AuthLoginResponse>('POST', '/auth/apple', {
+      body: { idToken },
+    });
+    if (data?.session) {
+      this.setAccessToken(data.session.accessToken);
+      this.setRefreshToken(data.session.refreshToken);
+    }
+    return data;
+  }
+
+  /** @deprecated Use loginGoogle or loginApple instead. Kept for backward compat. */
+  async login(request: { provider: 'google' | 'apple'; idToken: string }): Promise<AuthLoginResponse> {
+    return request.provider === 'google'
+      ? this.loginGoogle(request.idToken)
+      : this.loginApple(request.idToken);
+  }
+
   async refreshAccessToken(): Promise<AuthRefreshResponse> {
     if (!this.refreshToken) {
       throw new ApiError('No refresh token available', 'NO_REFRESH_TOKEN', 401);
     }
-
-    const data = await this.request<AuthRefreshResponse>('POST', '/api/v1/auth/refresh', {
-      body: { refreshToken: this.refreshToken } as AuthRefreshRequest,
+    const data = await this.request<AuthRefreshResponse>('POST', '/auth/refresh', {
+      body: { refreshToken: this.refreshToken },
     });
-
     if (data?.accessToken) {
       this.setAccessToken(data.accessToken);
       this.onTokenRefresh?.(data.accessToken);
     }
-
     return data;
   }
 
-  /**
-   * Logout
-   */
   async logout(): Promise<void> {
-    await this.request<void>('POST', '/api/v1/auth/logout', {
+    await this.request<void>('POST', '/auth/logout', {
       body: { refreshToken: this.refreshToken },
     });
     this.clearTokens();
   }
 
-  // ============================================
-  // User Endpoints
-  // ============================================
-
-  /**
-   * Get current user profile
-   */
-  async getProfile(): Promise<GetUserProfileResponse> {
-    return this.request<GetUserProfileResponse>('GET', '/api/v1/users/me', {
+  async getAuthMe(): Promise<GetUserProfileResponse> {
+    return this.request<GetUserProfileResponse>('GET', '/auth/me', {
       requiresAuth: true,
     });
   }
 
-  /**
-   * Update user profile
-   */
+  // ============================================
+  // User Endpoints  (paths: /users/me, /users/me/profile, /users/:id/profile, /users/me/guesses)
+  // ============================================
+
+  async getProfile(): Promise<GetUserProfileResponse> {
+    return this.request<GetUserProfileResponse>('GET', '/users/me', {
+      requiresAuth: true,
+    });
+  }
+
   async updateProfile(request: UpdateUserProfileRequest): Promise<UpdateUserProfileResponse> {
-    return this.request<UpdateUserProfileResponse>('PATCH', '/api/v1/users/me', {
+    return this.request<UpdateUserProfileResponse>('PUT', '/users/me/profile', {
       body: request,
       requiresAuth: true,
     });
   }
 
-  /**
-   * Get user by ID
-   */
   async getUser(userId: string): Promise<GetUserProfileResponse> {
-    return this.request<GetUserProfileResponse>('GET', `/api/v1/users/${userId}`);
+    return this.request<GetUserProfileResponse>('GET', `/users/${userId}/profile`);
   }
 
   // ============================================
-  // Property Endpoints
+  // Property Endpoints  (paths: /properties, /properties/resolve, /properties/nearby, /properties/batch, /properties/:id)
   // ============================================
 
-  /**
-   * Resolve a Dutch address to a local property
-   */
   async resolveProperty(
     postalCode: string,
     houseNumber: string,
     houseNumberAddition?: string
   ): Promise<PropertyResolveResponse> {
-    return this.request<PropertyResolveResponse>('GET', '/api/v1/properties/resolve', {
-      query: {
-        postalCode,
-        houseNumber,
-        houseNumberAddition,
-      },
+    return this.request<PropertyResolveResponse>('GET', '/properties/resolve', {
+      query: { postalCode, houseNumber, houseNumberAddition },
     });
   }
 
-  /**
-   * Get property details
-   */
   async getProperty(propertyId: string): Promise<GetPropertyResponse> {
-    return this.request<GetPropertyResponse>('GET', `/api/v1/properties/${propertyId}`);
+    return this.request<GetPropertyResponse>('GET', `/properties/${propertyId}`);
   }
 
-  /**
-   * Get properties for map display
-   */
   async getMapProperties(request: GetMapPropertiesRequest): Promise<GetMapPropertiesResponse> {
-    return this.request<GetMapPropertiesResponse>('POST', '/api/v1/properties/map', {
+    return this.request<GetMapPropertiesResponse>('POST', '/properties/map', {
       body: request,
     });
   }
 
   // ============================================
-  // Listing Endpoints
+  // Guess Endpoints  (paths: /properties/:id/guesses)
   // ============================================
 
-  /**
-   * Submit a new listing URL
-   */
-  async submitListing(request: SubmitListingRequest): Promise<SubmitListingResponse> {
-    return this.request<SubmitListingResponse>('POST', '/api/v1/listings', {
+  async submitGuess(request: { propertyId: string; guessedPrice: number }): Promise<SubmitGuessResponse> {
+    return this.request<SubmitGuessResponse>('POST', `/properties/${request.propertyId}/guesses`, {
+      body: { guessedPrice: request.guessedPrice },
+      requiresAuth: true,
+    });
+  }
+
+  async updateGuess(propertyId: string, _guessId: string, request: UpdateGuessRequest): Promise<SubmitGuessResponse> {
+    // The API uses POST /properties/:id/guesses for both create and update
+    return this.request<SubmitGuessResponse>('POST', `/properties/${propertyId}/guesses`, {
       body: request,
       requiresAuth: true,
     });
   }
 
-  /**
-   * Get listings feed
-   */
-  async getListings(request: GetListingsRequest): Promise<GetListingsResponse> {
-    return this.request<GetListingsResponse>('GET', '/api/v1/listings', {
-      query: {
-        page: request.page,
-        pageSize: request.pageSize,
-        sort: request.sort,
-        city: request.city,
-        minPrice: request.minPrice,
-        maxPrice: request.maxPrice,
-      },
-    });
-  }
-
   // ============================================
-  // Guess Endpoints
+  // Comment Endpoints  (paths: /properties/:id/comments, /comments/:id/like)
   // ============================================
 
-  /**
-   * Submit a price guess
-   */
-  async submitGuess(request: SubmitGuessRequest): Promise<SubmitGuessResponse> {
-    return this.request<SubmitGuessResponse>('POST', '/api/v1/guesses', {
-      body: request,
-      requiresAuth: true,
-    });
-  }
-
-  /**
-   * Update an existing guess
-   */
-  async updateGuess(guessId: string, request: UpdateGuessRequest): Promise<SubmitGuessResponse> {
-    return this.request<SubmitGuessResponse>('PATCH', `/api/v1/guesses/${guessId}`, {
-      body: request,
-      requiresAuth: true,
-    });
-  }
-
-  /**
-   * Get user's guess for a property
-   */
-  async getMyGuess(propertyId: string): Promise<SubmitGuessResponse | null> {
-    try {
-      return await this.request<SubmitGuessResponse>(
-        'GET',
-        `/api/v1/properties/${propertyId}/my-guess`,
-        { requiresAuth: true }
-      );
-    } catch (error) {
-      if (error instanceof ApiError && error.code === 'NOT_FOUND') {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  // ============================================
-  // Comment Endpoints
-  // ============================================
-
-  /**
-   * Get comments for a property
-   */
   async getComments(request: GetCommentsRequest): Promise<GetCommentsResponse> {
     const { propertyId, sort, cursor, limit } = request;
     return this.request<GetCommentsResponse>(
       'GET',
-      `/api/v1/properties/${propertyId}/comments`,
+      `/properties/${propertyId}/comments`,
       { query: { sort, cursor, limit } }
     );
   }
 
-  /**
-   * Create a comment
-   */
   async createComment(request: CreateCommentRequest): Promise<CreateCommentResponse> {
     const { propertyId, ...body } = request;
     return this.request<CreateCommentResponse>(
       'POST',
-      `/api/v1/properties/${propertyId}/comments`,
+      `/properties/${propertyId}/comments`,
       { body, requiresAuth: true }
     );
   }
 
-  /**
-   * Delete a comment
-   */
-  async deleteComment(commentId: string): Promise<void> {
-    return this.request<void>('DELETE', `/api/v1/comments/${commentId}`, {
-      requiresAuth: true,
-    });
-  }
-
-  /**
-   * Like/unlike a comment
-   */
   async toggleCommentLike(commentId: string): Promise<{ isLiked: boolean; likeCount: number }> {
     return this.request<{ isLiked: boolean; likeCount: number }>(
       'POST',
-      `/api/v1/comments/${commentId}/like`,
+      `/comments/${commentId}/like`,
       { requiresAuth: true }
     );
   }
 
   // ============================================
-  // Feed Endpoints
+  // Feed Endpoint  (path: /feed)
   // ============================================
 
-  /**
-   * Get feed
-   */
-  async getFeed(request: GetFeedRequest): Promise<GetFeedResponse> {
-    const { type, page, pageSize, city } = request;
-    return this.request<GetFeedResponse>('GET', `/api/v1/feed/${type}`, {
-      query: { page, pageSize, city },
-    });
-  }
-
-  // ============================================
-  // Saved Properties Endpoints
-  // ============================================
-
-  /**
-   * Get saved properties
-   */
-  async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
-    return this.request<GetSavedPropertiesResponse>('GET', '/api/v1/saved-properties', {
+  async getFeed(params: {
+    filter?: 'trending' | 'recent' | 'controversial' | 'price-mismatch';
+    page?: number;
+    limit?: number;
+    lat?: number;
+    lon?: number;
+    country?: string;
+  }): Promise<unknown> {
+    return this.request<unknown>('GET', '/feed', {
       query: {
-        page: request.page,
-        pageSize: request.pageSize,
+        filter: params.filter,
+        page: params.page,
+        limit: params.limit,
+        lat: params.lat,
+        lon: params.lon,
+        country: params.country,
       },
+    });
+  }
+
+  // ============================================
+  // Saved Properties Endpoints  (paths: /properties/:id/save, /saved-properties)
+  // ============================================
+
+  async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
+    return this.request<GetSavedPropertiesResponse>('GET', '/saved-properties', {
+      query: { page: request.page, pageSize: request.pageSize },
       requiresAuth: true,
     });
   }
 
   // ============================================
-  // Like / Save Endpoints
+  // Like / Save Endpoints  (paths: /properties/:id/like, /properties/:id/save)
   // ============================================
 
-  /**
-   * Like a property
-   */
   async likeProperty(propertyId: string): Promise<void> {
-    return this.request<void>('POST', `/api/v1/properties/${propertyId}/like`, {
+    return this.request<void>('POST', `/properties/${propertyId}/like`, {
       requiresAuth: true,
     });
   }
 
-  /**
-   * Unlike a property
-   */
   async unlikeProperty(propertyId: string): Promise<void> {
-    return this.request<void>('DELETE', `/api/v1/properties/${propertyId}/like`, {
+    return this.request<void>('DELETE', `/properties/${propertyId}/like`, {
       requiresAuth: true,
     });
   }
 
-  /**
-   * Save a property
-   */
   async saveProperty(propertyId: string): Promise<void> {
-    return this.request<void>('POST', `/api/v1/properties/${propertyId}/save`, {
+    return this.request<void>('POST', `/properties/${propertyId}/save`, {
       requiresAuth: true,
     });
   }
 
-  /**
-   * Unsave a property
-   */
   async unsaveProperty(propertyId: string): Promise<void> {
-    return this.request<void>('DELETE', `/api/v1/properties/${propertyId}/save`, {
+    return this.request<void>('DELETE', `/properties/${propertyId}/save`, {
       requiresAuth: true,
+    });
+  }
+
+  // ============================================
+  // View Endpoint  (path: /properties/:id/view)
+  // ============================================
+
+  async trackView(propertyId: string): Promise<void> {
+    return this.request<void>('POST', `/properties/${propertyId}/view`, {
+      body: {},
     });
   }
 }

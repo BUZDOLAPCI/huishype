@@ -314,7 +314,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Number of reply buttons found: ${replyButtonCount}`);
 
     // Check for karma badges
-    const karmaLabels = ['Newbie', 'Regular', 'Trusted', 'Expert', 'Legend'];
+    const karmaLabels = ['Newcomer', 'Contributor', 'Rising Star', 'Local Expert', 'Expert', 'Local Legend', 'Master'];
     for (const label of karmaLabels) {
       const badge = page.locator(`text=${label}`);
       const isVisible = await badge.first().isVisible().catch(() => false);

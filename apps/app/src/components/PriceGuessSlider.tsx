@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Icon } from './ui/Icon';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -19,6 +19,8 @@ import {
 import * as Haptics from 'expo-haptics';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
+export type PriceGuessSliderVariant = 'compact' | 'full';
+
 export interface PriceGuessSliderProps {
   propertyId: string;
   countryCode?: string;
@@ -30,6 +32,8 @@ export interface PriceGuessSliderProps {
   onGuessSubmit: (price: number) => void;
   disabled?: boolean;
   isSubmitting?: boolean;
+  /** Display variant. Default 'full'. */
+  variant?: PriceGuessSliderVariant;
   testID?: string;
 }
 
@@ -138,6 +142,7 @@ export function PriceGuessSlider({
   onGuessSubmit,
   disabled = false,
   isSubmitting = false,
+  variant = 'full',
   testID = 'price-guess-slider',
 }: PriceGuessSliderProps) {
   // Initial price - prefer user's existing guess, then WOZ, then middle of range
@@ -349,15 +354,15 @@ export function PriceGuessSlider({
 
   return (
     <GestureHandlerRootView>
-      <View className="p-4 bg-white rounded-xl" testID={testID}>
+      <View className="p-4 bg-surface-card rounded-xl" testID={testID}>
         {/* Header */}
-        <Text className="text-lg font-semibold text-gray-900 mb-1">
+        <Text className="text-lg font-semibold text-warm-900 mb-1">
           What do you think this property is worth?
         </Text>
 
         {/* Reference values */}
         {officialValuation && (
-          <Text className="text-sm text-gray-500 mb-4">
+          <Text className="text-sm text-warm-500 mb-4">
             {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
           </Text>
         )}
@@ -365,7 +370,7 @@ export function PriceGuessSlider({
         {/* Price Display */}
         <Animated.View style={priceAnimatedStyle} className="items-center mb-6">
           <Text
-            className={`text-4xl font-bold ${disabled ? 'text-gray-400' : 'text-primary-600'}`}
+            className={`text-4xl font-bold ${disabled ? 'text-warm-400' : 'text-primary-600'}`}
             testID="price-display"
           >
             {formatPrice(guessedPrice, countryCode)}
@@ -395,19 +400,18 @@ export function PriceGuessSlider({
             <ReferenceMarker
               position={fmvPosition}
               label="FMV"
-              color="text-blue-500"
+              color="text-primary-500"
             />
           )}
 
           {/* Slider track container - overflow visible for thumb */}
           <GestureDetector gesture={composedGestures}>
             <View
-              className="rounded-full"
+              className="rounded-full bg-warm-200"
               style={{
                 overflow: 'visible',
                 position: 'relative',
                 height: 12,
-                backgroundColor: '#E5E7EB', // gray-200
               }}
             >
               {/* Fill */}
@@ -420,7 +424,7 @@ export function PriceGuessSlider({
                     left: 0,
                     top: 0,
                     height: 12,
-                    backgroundColor: disabled ? '#D1D5DB' : '#3B82F6', // gray-300 or primary-500
+                    backgroundColor: disabled ? '#E8E0D4' : '#F5A623',
                   }
                 ]}
               />
@@ -437,16 +441,16 @@ export function PriceGuessSlider({
                     height: 32,
                     zIndex: 10,
                     backgroundColor: disabled
-                      ? '#9CA3AF'  // gray-400
+                      ? '#C7BFB3'
                       : isNearWOZ
-                        ? '#8B5CF6' // purple-500
-                        : '#2563EB', // primary-600
+                        ? '#8B5CF6'
+                        : '#DE911D',
                   },
                 ]}
                 testID="slider-thumb"
               >
                 <View className="flex-1 items-center justify-center">
-                  <View className="w-1 h-3 bg-white/50 rounded-full" />
+                  <View className="w-1 h-3 bg-surface-card/50 rounded-full" />
                 </View>
               </Animated.View>
             </View>
@@ -454,8 +458,8 @@ export function PriceGuessSlider({
 
           {/* Min/Max labels */}
           <View className="flex-row justify-between mt-2">
-            <Text className="text-xs text-gray-400">{formatPrice(MIN_PRICE, countryCode)}</Text>
-            <Text className="text-xs text-gray-400">{formatPrice(MAX_PRICE, countryCode)}</Text>
+            <Text className="text-xs text-warm-400">{formatPrice(MIN_PRICE, countryCode)}</Text>
+            <Text className="text-xs text-warm-400">{formatPrice(MAX_PRICE, countryCode)}</Text>
           </View>
         </View>
 
@@ -467,12 +471,12 @@ export function PriceGuessSlider({
               onPress={() => handleQuickAdjust(delta)}
               disabled={disabled}
               className={`px-3 py-2 rounded-lg ${
-                disabled ? 'bg-gray-100' : 'bg-gray-100 active:bg-gray-200'
+                disabled ? 'bg-warm-100' : 'bg-warm-100 active:bg-warm-200'
               }`}
               testID={`adjust-${delta > 0 ? 'plus' : 'minus'}-${Math.abs(delta / 1000)}k`}
             >
               <Text
-                className={`text-sm font-medium ${disabled ? 'text-gray-300' : 'text-gray-700'}`}
+                className={`text-sm font-medium ${disabled ? 'text-warm-300' : 'text-warm-700'}`}
               >
                 {delta > 0 ? '+' : ''}
                 {(delta / 1000).toFixed(0)}k
@@ -488,40 +492,25 @@ export function PriceGuessSlider({
           testID="submit-guess-button"
         >
           <Animated.View
-            className={`rounded-xl items-center flex-row justify-center ${
+            className={`rounded-xl items-center flex-row justify-center py-3.5 ${
               disabled || isSubmitting
-                ? 'bg-gray-200'
-                : 'bg-primary-600 active:bg-primary-700'
+                ? 'bg-warm-200'
+                : 'bg-primary-700 active:bg-primary-800'
             }`}
-            style={[
-              submitAnimatedStyle,
-              {
-                paddingVertical: 14,
-                backgroundColor: disabled || isSubmitting ? '#E5E7EB' : '#2563EB',
-                borderRadius: 12,
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'row',
-              },
-            ]}
+            style={submitAnimatedStyle}
           >
             {isSubmitting ? (
-              <View className="flex-row items-center" style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="hourglass-outline" size={20} color="#9CA3AF" />
-                <Text className="text-gray-500 font-semibold text-base ml-2" style={{ color: '#6B7280', fontWeight: '600', fontSize: 16, marginLeft: 8 }}>
+              <View className="flex-row items-center">
+                <Icon name="Calendar" size={20} color="#C7BFB3" />
+                <Text className="text-warm-500 font-semibold text-base ml-2">
                   Submitting...
                 </Text>
               </View>
             ) : (
               <Text
                 className={`font-semibold text-base ${
-                  disabled ? 'text-gray-400' : 'text-white'
+                  disabled ? 'text-warm-400' : 'text-white'
                 }`}
-                style={{
-                  color: disabled ? '#9CA3AF' : '#FFFFFF',
-                  fontWeight: '600',
-                  fontSize: 16,
-                }}
               >
                 Submit Guess
               </Text>

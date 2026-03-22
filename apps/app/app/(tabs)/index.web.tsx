@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Text, View } from 'react-native';
 import * as maplibregl from 'maplibre-gl';
@@ -9,15 +9,13 @@ import {
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
-import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
-import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
-import { useProperty } from '@/src/hooks/useProperties';
-import { usePropertyLike } from '@/src/hooks/usePropertyLike';
-import { usePropertySave } from '@/src/hooks/usePropertySave';
-import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
+import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
+import { API_URL, fetchBatchProperties } from '@/src/utils/api';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
-import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
+import { MapGradient } from '@/src/components/navigation/MapGradient';
+import { LocationButton } from '@/src/components/navigation/LocationButton';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -180,7 +178,7 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
       width: 32px;
       height: 32px;
       border-radius: 50%;
-      background-color: #3B82F6;
+      background-color: #F5A623;
       opacity: 0.4;
       animation: pulse-ring 1.5s ease-in-out infinite;
     }
@@ -192,7 +190,7 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
       width: 18px;
       height: 18px;
       border-radius: 50%;
-      background-color: #3B82F6;
+      background-color: #F5A623;
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     }
@@ -220,71 +218,24 @@ function createSelectedMarkerElement(): HTMLDivElement {
   return container;
 }
 
-/**
- * Convert a Property (or BatchProperty) to GroupPreviewProperty for the unified preview card.
- */
-function toGroupPreviewProperty(
-  p: {
-    id: string;
-    address: string;
-    city: string;
-    postalCode?: string | null;
-    officialValuation?: number | null;
-    askingPrice?: number | null;
-    geometry?: { type: 'Point'; coordinates: [number, number] } | null;
-    yearBuilt?: number | null;
-    floorAreaM2?: number | null;
-  },
-  activityScore?: number
-): GroupPreviewProperty {
-  const level: 'hot' | 'warm' | 'cold' =
-    activityScore != null
-      ? activityScore >= 50
-        ? 'hot'
-        : activityScore > 0
-          ? 'warm'
-          : 'cold'
-      : 'cold';
-  return {
-    id: p.id,
-    address: p.address,
-    city: p.city,
-    postalCode: p.postalCode,
-    officialValuation: p.officialValuation,
-    askingPrice: p.askingPrice,
-    thumbnailUrl: getPropertyThumbnailFromGeometry(
-      (p.geometry as { type: 'Point'; coordinates: [number, number] }) ?? null
-    ),
-    activityLevel: level,
-    activityScore,
-    yearBuilt: p.yearBuilt ?? null,
-    floorAreaM2: p.floorAreaM2 ?? null,
-  };
-}
+// Property layer IDs for click handling
+const PROPERTY_LAYER_IDS = [
+  'property-clusters',
+  'single-active-points',
+  'active-nodes',
+  'ghost-nodes',
+];
 
 export default function MapScreen() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const previewMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
 
-  // Unified preview state: null = no preview, array of 1 = single, >1 = cluster
-  const [previewGroup, setPreviewGroup] = useState<{
-    properties: GroupPreviewProperty[];
-    coordinate: [number, number];
-  } | null>(null);
-  const [previewIndex, setPreviewIndex] = useState(0);
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
   const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
-
-  // Refs for building single-property preview when useProperty data arrives
-  const pendingSinglePreview = useRef(false);
-  const clickCoordRef = useRef<[number, number] | null>(null);
-  const clickActivityRef = useRef(0);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -294,29 +245,30 @@ export default function MapScreen() {
   // Flag to prevent general click handler from overriding layer-specific click handler
   const propertyClickHandled = useRef(false);
 
-  // Auth modal state
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMessage, setAuthMessage] = useState('Sign in to continue');
+  // Shared map interaction state and logic
+  const interaction = useMapInteraction();
 
-  // Track bottom sheet index for preview card persistence logic
-  // -1 = closed, 0 = peek, 1 = partial, 2 = full
-  const sheetIndexRef = useRef<number>(-1);
+  // Refs for building single-property preview when useProperty data arrives (web deferred pattern)
+  const pendingSinglePreview = useRef(false);
+  const clickCoordRef = useRef<[number, number] | null>(null);
+  const clickActivityRef = useRef(0);
 
-  // Fetch selected property details
-  const { data: selectedProperty, isLoading: propertyLoading } =
-    useProperty(selectedPropertyId);
-
-  // Property like hook
-  const { isLiked, toggleLike } = usePropertyLike({
-    propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to like this property'),
-  });
-
-  // Property save hook
-  const { isSaved, toggleSave } = usePropertySave({
-    propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
-  });
+  // Build a camera adapter for the shared hook (wraps maplibregl.Map)
+  const cameraCommands: MapCameraCommands = useMemo(() => ({
+    flyTo: (opts) => {
+      mapRef.current?.flyTo({
+        center: opts.center,
+        zoom: opts.zoom,
+        duration: opts.duration,
+      });
+    },
+    fitBounds: (bounds, opts) => {
+      mapRef.current?.fitBounds(
+        [[bounds[0], bounds[1]], [bounds[2], bounds[3]]],
+        { padding: opts.padding, maxZoom: 18 },
+      );
+    },
+  }), []);
 
   // Initialize map
   useEffect(() => {
@@ -325,16 +277,12 @@ export default function MapScreen() {
     let cancelled = false;
     let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 
-    // Fetch the merged style from our API (which already includes property layers,
-    // 3D buildings, self-hosted font glyphs, self-hosted sprites, and pre-filtered
-    // layers with missing sprite references removed).
     async function initMap() {
       let style: maplibregl.StyleSpecification | string = STYLE_URL;
       try {
         const res = await fetch(STYLE_URL);
         style = await res.json();
       } catch {
-        // If fetch fails, fall back to the URL and let MapLibre handle it
         style = STYLE_URL;
       }
 
@@ -383,8 +331,8 @@ export default function MapScreen() {
 
       // Expose bottom sheet ref for testing
       if (typeof window !== 'undefined') {
-        (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef =
-          bottomSheetRef;
+        (window as unknown as { __bottomSheetRef: typeof interaction.bottomSheetRef }).__bottomSheetRef =
+          interaction.bottomSheetRef;
       }
 
       // Expose auth modal trigger for testing
@@ -392,8 +340,7 @@ export default function MapScreen() {
         (
           window as unknown as { __triggerAuthModal: (message?: string) => void }
         ).__triggerAuthModal = (message?: string) => {
-          setAuthMessage(message || 'Sign in to continue');
-          setShowAuthModal(true);
+          interaction.handleAuthRequired(message);
         };
       }
 
@@ -412,7 +359,6 @@ export default function MapScreen() {
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
-        // NOTE: 3D buildings, property layers, and paper-trees are already provided by /tiles/style.json
 
         setTimeout(() => {
           map.resize();
@@ -429,31 +375,12 @@ export default function MapScreen() {
       });
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
-      map.on('dragstart', () => {
-        isDragging.current = true;
-      });
-      map.on('dragend', () => {
-        // Small delay to prevent the click event that follows dragend from closing the preview
-        setTimeout(() => {
-          isDragging.current = false;
-        }, 100);
-      });
-      map.on('zoomstart', () => {
-        isZooming.current = true;
-      });
-      map.on('zoomend', () => {
-        setTimeout(() => {
-          isZooming.current = false;
-        }, 100);
-      });
-      map.on('rotatestart', () => {
-        isRotating.current = true;
-      });
-      map.on('rotateend', () => {
-        setTimeout(() => {
-          isRotating.current = false;
-        }, 100);
-      });
+      map.on('dragstart', () => { isDragging.current = true; });
+      map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
+      map.on('zoomstart', () => { isZooming.current = true; });
+      map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
+      map.on('rotatestart', () => { isRotating.current = true; });
+      map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 
       // Handle click on property points
       const handlePropertyClick = async (
@@ -461,78 +388,22 @@ export default function MapScreen() {
       ) => {
         if (!e.features?.length) return;
 
-        // Mark click as handled so the general click handler doesn't override our state
         propertyClickHandled.current = true;
 
         const feature = e.features[0];
         const properties = feature.properties;
-
         if (!properties) return;
 
-        // Check if cluster
         const isCluster =
           properties.point_count !== undefined && properties.point_count > 1;
 
         if (isCluster) {
-          const pointCount = properties.point_count as number;
-          const propertyIdsStr = properties.property_ids as string | undefined;
-
-          if (pointCount <= LARGE_CLUSTER_THRESHOLD && propertyIdsStr) {
-            // Small cluster: batch fetch and show GroupPreviewCard
-            const propertyIds = propertyIdsStr.split(',').filter(Boolean);
-            const geom = feature.geometry;
-            const coord = geom.type === 'Point'
-              ? (geom.coordinates as [number, number])
-              : null;
-
-            if (coord) {
-              pendingSinglePreview.current = false;
-              try {
-                const batchProps = await fetchBatchProperties(propertyIds);
-                const gpps = batchProps.map((p) => toGroupPreviewProperty(p));
-                if (gpps.length > 0) {
-                  setPreviewGroup({ properties: gpps, coordinate: coord });
-                  setPreviewIndex(0);
-                  setSelectedPropertyId(gpps[0].id);
-                }
-              } catch (err) {
-                console.warn('[HuisHype] Failed to fetch cluster:', err);
-              }
-            }
-          } else {
-            // Large cluster: fit bounds to show all members
-            const bboxWest = properties.bbox_west as number | undefined;
-            const bboxSouth = properties.bbox_south as number | undefined;
-            const bboxEast = properties.bbox_east as number | undefined;
-            const bboxNorth = properties.bbox_north as number | undefined;
-
-            if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
-              const currentZoom = map.getZoom();
-              const bounds: [[number, number], [number, number]] = [[bboxWest, bboxSouth], [bboxEast, bboxNorth]];
-              const target = map.cameraForBounds(bounds, { padding: 80, maxZoom: 18 });
-
-              if (target && target.zoom != null && target.zoom > currentZoom + 0.5) {
-                // fitBounds will meaningfully zoom in — use it
-                map.fitBounds(bounds, { padding: 80, maxZoom: 18 });
-              } else {
-                // fitBounds would barely zoom in, stay, or zoom out — force zoom in
-                const center: [number, number] = [(bboxWest + bboxEast) / 2, (bboxSouth + bboxNorth) / 2];
-                map.easeTo({
-                  center,
-                  zoom: Math.min(currentZoom + 2, 18),
-                });
-              }
-            } else {
-              // Fallback if bbox not in tile
-              const geom = feature.geometry;
-              if (geom.type === 'Point') {
-                map.easeTo({
-                  center: geom.coordinates as [number, number],
-                  zoom: Math.min(map.getZoom() + 2, 18),
-                });
-              }
-            }
-          }
+          // Use the shared hook's feature-press logic
+          await interaction.handleFeaturePress(
+            e.features as unknown as GeoJSON.Feature[],
+            map.getZoom(),
+            cameraCommands,
+          );
         } else {
           // Individual property — at z>=17, features have `id` directly.
           // At z<17, single-point clusters (point_count=1) from the
@@ -540,7 +411,6 @@ export default function MapScreen() {
           const propertyId =
             (properties.id as string) ||
             (properties.property_ids as string | undefined)?.split(',')[0];
-          // z17+ tiles use activityScore/hasListing; z0-z16 clustered tiles use max_activity/has_active_children
           const activityScore = (properties.activityScore as number) ??
             (properties.max_activity as number) ?? 0;
 
@@ -554,89 +424,48 @@ export default function MapScreen() {
               pendingSinglePreview.current = true;
             }
 
-            setSelectedPropertyId(propertyId);
+            interaction.setSelectedPropertyId(propertyId);
           }
         }
       };
 
       // Handle map click to close preview - only on true background taps
-      // CRITICAL: Preview card should only close when:
-      // 1. User taps on empty map background AND
-      // 2. Bottom sheet is NOT expanded (i.e., in peek state index 0 or closed index -1)
-      map.on('click', (e: maplibregl.MapMouseEvent) => {
-        // If a layer-specific handler already processed this click, skip
+      map.on('click', (_e: maplibregl.MapMouseEvent) => {
         if (propertyClickHandled.current) {
           propertyClickHandled.current = false;
           return;
         }
 
-        // Don't close preview if a gesture just ended (pan, zoom, or rotate)
         if (isDragging.current || isZooming.current || isRotating.current) {
           return;
         }
 
         // Only query layers that exist to avoid MapLibre errors
-        const layerIds = [
-          'property-clusters',
-          'single-active-points',
-          'active-nodes',
-          'ghost-nodes',
-        ].filter((layerId) => map.getLayer(layerId));
-
-        // If no layers exist yet, don't query
+        const layerIds = PROPERTY_LAYER_IDS.filter((layerId) => map.getLayer(layerId));
         if (layerIds.length === 0) return;
 
-        const features = map.queryRenderedFeatures(e.point, {
-          layers: layerIds,
-        });
+        const features = map.queryRenderedFeatures(_e.point, { layers: layerIds });
 
-        // Only close preview on true empty background tap (no features at click point)
-        // AND only if bottom sheet is NOT expanded (peek or closed state)
         if (features.length === 0) {
-          // Check if bottom sheet is expanded (index > 0 means partial or full)
-          // If expanded, don't close preview - user intent is to dismiss sheet, not deselect property
-          // Use window global as backup since closure might not capture ref updates
-          const currentSheetIndex = typeof window !== 'undefined' && (window as unknown as { __sheetIndex?: number }).__sheetIndex !== undefined
-            ? (window as unknown as { __sheetIndex: number }).__sheetIndex
-            : sheetIndexRef.current;
-          if (currentSheetIndex <= 0) {
-            // Sheet is in peek (0) or closed (-1) state - safe to close preview
-            setPreviewGroup(null);
-          }
-          // If sheet is expanded (1 or 2), the backdrop click will close the sheet
-          // but we DON'T close the preview card - it should persist
+          interaction.handleEmptyMapTap();
         }
       });
 
       // Named cursor handlers so they can be properly removed/re-added
-      const handleMouseEnter = () => {
-        map.getCanvas().style.cursor = 'pointer';
-      };
-      const handleMouseLeave = () => {
-        map.getCanvas().style.cursor = '';
-      };
+      const handleMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+      const handleMouseLeave = () => { map.getCanvas().style.cursor = ''; };
 
       // Wait for layers to be added
-      let layerHandlersAttached = new Set<string>();
+      const layerHandlersAttached = new Set<string>();
       map.on('sourcedata', () => {
-        // Attach click handlers once source is loaded
-        const propertyLayers = [
-          'property-clusters',
-          'single-active-points',
-          'active-nodes',
-          'ghost-nodes',
-        ];
-
-        propertyLayers.forEach((layerId) => {
+        PROPERTY_LAYER_IDS.forEach((layerId) => {
           if (map.getLayer(layerId)) {
             if (!layerHandlersAttached.has(layerId)) {
               layerHandlersAttached.add(layerId);
             }
-            // Remove existing handlers before re-adding
             map.off('click', layerId, handlePropertyClick);
             map.off('mouseenter', layerId, handleMouseEnter);
             map.off('mouseleave', layerId, handleMouseLeave);
-            // Add handlers
             map.on('click', layerId, handlePropertyClick);
             map.on('mouseenter', layerId, handleMouseEnter);
             map.on('mouseleave', layerId, handleMouseLeave);
@@ -659,151 +488,60 @@ export default function MapScreen() {
     };
   }, []);
 
-  // Handle bottom sheet index changes for preview card persistence logic
-  const handleSheetIndexChange = useCallback((index: number) => {
-    sheetIndexRef.current = index;
-    // Expose for testing
-    if (typeof window !== 'undefined') {
-      (window as unknown as { __sheetIndex: number }).__sheetIndex = index;
-    }
-  }, []);
-
-  // Handle bottom sheet close - called when sheet index changes to -1 (fully closed)
-  // CRITICAL: Preview card should STAY OPEN when sheet is dismissed.
-  // The preview only closes when user explicitly taps empty map background while sheet is in peek/closed state.
-  const handleSheetClose = useCallback(() => {
-    // Don't clear previewGroup — preview card stays visible
-  }, []);
-
-  // Close the GroupPreviewCard (dismiss geo-anchored card)
-  const handleClosePreview = useCallback(() => {
-    setPreviewGroup(null);
-  }, []);
-
-  // GroupPreviewCard: property tap → open side panel
-  const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {
-    setSelectedPropertyId(property.id);
-    bottomSheetRef.current?.snapToIndex(1);
-  }, []);
-
-  // GroupPreviewCard: like button
-  const handlePreviewLike = useCallback((_property: GroupPreviewProperty) => {
-    toggleLike();
-  }, [toggleLike]);
-
-  // GroupPreviewCard: comment button
-  const handlePreviewComment = useCallback((_property: GroupPreviewProperty) => {
-    bottomSheetRef.current?.scrollToComments();
-  }, []);
-
-  // GroupPreviewCard: guess button
-  const handlePreviewGuess = useCallback((_property: GroupPreviewProperty) => {
-    bottomSheetRef.current?.scrollToGuess();
-  }, []);
-
-  // GroupPreviewCard: index change (cluster navigation)
-  const handlePreviewIndexChange = useCallback((index: number) => {
-    setPreviewIndex(index);
-    if (previewGroup && previewGroup.properties[index]) {
-      setSelectedPropertyId(previewGroup.properties[index].id);
-    }
-  }, [previewGroup]);
-
-  const handleSave = useCallback((_propertyId?: string) => {
-    toggleSave();
-  }, [toggleSave]);
-
-  const handleShare = useCallback((_propertyId: string) => {
-    // Sharing not yet implemented on web
-  }, []);
-
-  const handleLike = useCallback((_propertyId?: string) => {
-    toggleLike();
-  }, [toggleLike]);
-
-  const handleGuessPress = useCallback((_propertyId: string) => {
-    // TODO: Open full guess modal
-  }, []);
-
-  const handleCommentPress = useCallback((_propertyId: string) => {
-    // TODO: Open comments section
-  }, []);
-
-  // Auth handlers
-  const handleAuthRequired = useCallback((message?: string) => {
-    setAuthMessage(message || 'Sign in to continue');
-    setShowAuthModal(true);
-  }, []);
-
-  const handleAuthModalClose = useCallback(() => {
-    setShowAuthModal(false);
-  }, []);
-
-  const handleAuthSuccess = useCallback(() => {
-    setShowAuthModal(false);
-  }, []);
-
-  // Search bar callbacks
-  const handlePropertyResolved = useCallback((property: PropertyResolveResult) => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const { lon, lat } = property.coordinates;
-    const coord: [number, number] = [lon, lat];
-
-    map.flyTo({
-      center: coord,
-      zoom: 17,
-      duration: 1000,
-    });
-
-    // Set up for single property preview (builds when useProperty data arrives)
-    setSelectedPropertyId(property.id);
-    pendingSinglePreview.current = true;
-    clickCoordRef.current = coord;
-    clickActivityRef.current = 0;
-  }, []);
-
-  const handleLocationResolved = useCallback((coordinates: { lon: number; lat: number }, _address: string) => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    map.flyTo({
-      center: [coordinates.lon, coordinates.lat],
-      zoom: 17,
-      duration: 1000,
-    });
-  }, []);
-
-  // Build previewGroup from selectedProperty when single-property click data arrives
+  // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
-    if (selectedProperty && pendingSinglePreview.current && clickCoordRef.current) {
-      const gpp = toGroupPreviewProperty(selectedProperty, clickActivityRef.current);
-      setPreviewGroup({ properties: [gpp], coordinate: clickCoordRef.current });
-      setPreviewIndex(0);
+    if (interaction.selectedProperty && pendingSinglePreview.current && clickCoordRef.current) {
+      const gpp = interaction.toGroupProperty(
+        interaction.selectedProperty,
+        clickActivityRef.current,
+      );
+      interaction.setPreviewGroup({ properties: [gpp], coordinate: clickCoordRef.current });
+      interaction.setCurrentPreviewIndex(0);
       pendingSinglePreview.current = false;
     }
-  }, [selectedProperty]);
+  }, [interaction.selectedProperty]);
+
+  // Search bar callbacks (adapting shared hook to local camera commands)
+  const handlePropertyResolved = useCallback(
+    (property: Parameters<typeof interaction.handlePropertyResolved>[0]) => {
+      // On web, single-property search also uses the deferred pattern
+      const { lon, lat } = property.coordinates;
+      const coord: [number, number] = [lon, lat];
+
+      cameraCommands.flyTo({ center: coord, zoom: 17, duration: 1000 });
+
+      interaction.setSelectedPropertyId(property.id);
+      pendingSinglePreview.current = true;
+      clickCoordRef.current = coord;
+      clickActivityRef.current = 0;
+    },
+    [cameraCommands, interaction.setSelectedPropertyId],
+  );
+
+  const handleLocationResolved = useCallback(
+    (coordinates: { lon: number; lat: number }, address: string) => {
+      interaction.handleLocationResolved(coordinates, address, cameraCommands);
+    },
+    [interaction.handleLocationResolved, cameraCommands],
+  );
 
   // Manage selected marker with pulsing animation
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove existing selected marker
     if (selectedMarkerRef.current) {
       selectedMarkerRef.current.remove();
       selectedMarkerRef.current = null;
     }
 
-    // Add new selected marker if we have a coordinate
-    if (previewGroup) {
+    if (interaction.previewGroup) {
       const markerElement = createSelectedMarkerElement();
       const marker = new maplibregl.Marker({
         element: markerElement,
         anchor: 'center',
       })
-        .setLngLat(previewGroup.coordinate)
+        .setLngLat(interaction.previewGroup.coordinate)
         .addTo(map);
 
       selectedMarkerRef.current = marker;
@@ -815,23 +553,22 @@ export default function MapScreen() {
         selectedMarkerRef.current = null;
       }
     };
-  }, [previewGroup]);
+  }, [interaction.previewGroup]);
 
   // Manage the GroupPreviewCard via MapLibre Marker + React Portal
   useEffect(() => {
     const map = mapRef.current;
 
-    // Clean up previous preview marker
     if (previewMarkerRef.current) {
       previewMarkerRef.current.remove();
       previewMarkerRef.current = null;
     }
     setPortalTarget(null);
 
-    if (!map || !previewGroup) return;
+    if (!map || !interaction.previewGroup) return;
 
     // Calculate anchor direction based on screen position
-    const screenPoint = map.project(previewGroup.coordinate);
+    const screenPoint = map.project(interaction.previewGroup.coordinate);
     const cardHeight = 200;
     const topMargin = 80;
     const shouldShowBelow = screenPoint.y < (cardHeight + topMargin);
@@ -839,10 +576,6 @@ export default function MapScreen() {
     setArrowDirection(shouldShowBelow ? 'up' : 'down');
 
     // Create container element for the React Portal
-    // IMPORTANT: Do NOT apply CSS animations with `transform` on this element.
-    // MapLibre Marker positions it via inline `transform: translate(...)`.
-    // A CSS animation with `forwards` fill mode would override that transform,
-    // breaking geo-anchoring. Animation is applied to inner wrapper instead.
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
     container.style.zIndex = '1000';
@@ -859,7 +592,7 @@ export default function MapScreen() {
       anchor: shouldShowBelow ? 'top' : 'bottom',
       offset: shouldShowBelow ? [0, 20] : [0, -20],
     })
-      .setLngLat(previewGroup.coordinate)
+      .setLngLat(interaction.previewGroup.coordinate)
       .addTo(map);
 
     previewMarkerRef.current = marker;
@@ -869,10 +602,10 @@ export default function MapScreen() {
       marker.remove();
       previewMarkerRef.current = null;
     };
-  }, [previewGroup]);
+  }, [interaction.previewGroup]);
 
   return (
-    <View className="flex-1 bg-gray-100">
+    <View className="flex-1 bg-warm-100">
       {/* Map View */}
       <View className="flex-1" style={{ position: 'relative' }}>
         <div
@@ -892,7 +625,7 @@ export default function MapScreen() {
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
-            className="absolute inset-0 items-center justify-center bg-gray-100"
+            className="absolute inset-0 items-center justify-center bg-warm-100"
             style={{
               position: 'absolute',
               top: 0,
@@ -906,15 +639,24 @@ export default function MapScreen() {
           >
             <View className="items-center">
               <View
-                className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"
+                className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full"
                 style={{
                   animation: 'spin 1s linear infinite',
                 } as any}
               />
-              <Text className="text-gray-600 mt-3 text-base">Loading map...</Text>
+              <Text className="text-warm-600 mt-3 text-base">Loading map...</Text>
             </View>
           </View>
         )}
+
+        {/* Top gradient — fades behind header/search */}
+        <MapGradient position="top" testID="map-gradient-top" />
+
+        {/* Bottom gradient — fades behind tab bar */}
+        <MapGradient position="bottom" testID="map-gradient-bottom" />
+
+        {/* Map Header Row — brand mark + city name */}
+        <MapHeaderRow cityName="Eindhoven" />
 
         {/* Search Bar */}
         <SearchBar
@@ -924,25 +666,32 @@ export default function MapScreen() {
 
         {/* Zoom level indicator (dev only) */}
         {__DEV__ && (
-          <View className="absolute top-4 left-4 bg-white/90 px-3 py-2 rounded-full shadow-md">
-            <Text className="text-sm text-gray-700">Zoom: {currentZoom.toFixed(1)}</Text>
+          <View
+            className="bg-surface-card/90 px-3 py-2 rounded-full shadow-md"
+            style={{ position: 'absolute', top: 120, left: 16, zIndex: 50 } as any}
+          >
+            <Text className="text-sm text-warm-700">Zoom: {currentZoom.toFixed(1)}</Text>
           </View>
         )}
 
+        {/* Location button — bottom-right of map, above tab bar */}
+        <View style={{ position: 'absolute', bottom: 100, right: 16, zIndex: 10 } as any}>
+          <LocationButton testID="location-button" />
+        </View>
+
         {/* GroupPreviewCard rendered via MapLibre Marker + React Portal (geo-anchored) */}
-        {/* Inner div carries the popIn animation so the marker container's transform is free for MapLibre */}
-        {portalTarget && previewGroup && createPortal(
+        {portalTarget && interaction.previewGroup && createPortal(
           <div style={{ animation: 'popIn 0.3s ease-out forwards' }}>
             <GroupPreviewCard
-              properties={previewGroup.properties}
-              currentIndex={previewIndex}
-              onIndexChange={handlePreviewIndexChange}
-              onClose={handleClosePreview}
-              onPropertyTap={handlePreviewPropertyTap}
-              onLike={handlePreviewLike}
-              onComment={handlePreviewComment}
-              onGuess={handlePreviewGuess}
-              isLiked={isLiked}
+              properties={interaction.previewGroup.properties}
+              currentIndex={interaction.currentPreviewIndex}
+              onIndexChange={interaction.setCurrentPreviewIndex}
+              onClose={interaction.handleClosePreview}
+              onPropertyTap={interaction.handlePreviewPropertyTap}
+              onLike={interaction.handleLike}
+              onComment={interaction.handleComment}
+              onGuess={interaction.handleGuess}
+              isLiked={interaction.isLiked}
               showArrow
               arrowDirection={arrowDirection}
             />
@@ -954,28 +703,28 @@ export default function MapScreen() {
 
       {/* Property details side panel (unified PropertyBottomSheet resolves to .web.tsx) */}
       <PropertyBottomSheet
-        ref={bottomSheetRef}
-        property={selectedProperty ?? null}
-        isLoading={propertyLoading}
-        isLiked={isLiked}
-        isSaved={isSaved}
-        isPreviewCardVisible={!!previewGroup}
-        onClose={handleSheetClose}
-        onSheetChange={handleSheetIndexChange}
-        onSave={handleSave}
-        onShare={handleShare}
-        onLike={handleLike}
-        onGuessPress={handleGuessPress}
-        onCommentPress={handleCommentPress}
-        onAuthRequired={() => handleAuthRequired('Sign in to post your comment')}
+        ref={interaction.bottomSheetRef}
+        property={interaction.selectedProperty ?? null}
+        isLoading={interaction.selectedPropertyLoading}
+        isLiked={interaction.isLiked}
+        isSaved={interaction.isSaved}
+        isPreviewCardVisible={!!interaction.previewGroup}
+        onClose={interaction.handleSheetClose}
+        onSheetChange={interaction.handleSheetIndexChange}
+        onSave={interaction.handleSave}
+        onShare={interaction.handleShare}
+        onLike={interaction.handleLike}
+        onGuessPress={interaction.handleGuessPress}
+        onCommentPress={interaction.handleCommentPress}
+        onAuthRequired={() => interaction.handleAuthRequired('Sign in to post your comment')}
       />
 
       {/* Auth Modal */}
       <AuthModal
-        visible={showAuthModal}
-        onClose={handleAuthModalClose}
-        message={authMessage}
-        onSuccess={handleAuthSuccess}
+        visible={interaction.showAuthModal}
+        onClose={interaction.handleAuthModalClose}
+        message={interaction.authMessage}
+        onSuccess={interaction.handleAuthSuccess}
       />
     </View>
   );

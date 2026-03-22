@@ -1,9 +1,6 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
-// Mock FontAwesome before importing the component
-jest.mock('@expo/vector-icons/FontAwesome', () => 'FontAwesome');
-
 import { FeedFilterChips } from '../FeedFilterChips';
 
 describe('FeedFilterChips', () => {
@@ -19,9 +16,8 @@ describe('FeedFilterChips', () => {
     );
 
     expect(getByText('Trending')).toBeTruthy();
-    expect(getByText('Recent')).toBeTruthy();
-    expect(getByText('Controversial')).toBeTruthy();
-    expect(getByText('Price Mismatch')).toBeTruthy();
+    expect(getByText('Latest')).toBeTruthy();
+    expect(getByText('Recent Activity')).toBeTruthy();
   });
 
   it('calls onFilterChange when a chip is pressed', () => {
@@ -33,16 +29,13 @@ describe('FeedFilterChips', () => {
     expect(mockOnFilterChange).toHaveBeenCalledWith('recent');
   });
 
-  it('calls onFilterChange with correct filter value', () => {
+  it('calls onFilterChange with activity filter value', () => {
     const { getByTestId } = render(
       <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-controversial'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('controversial');
-
-    fireEvent.press(getByTestId('filter-chip-price-mismatch'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('price-mismatch');
+    fireEvent.press(getByTestId('filter-chip-activity'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('activity');
   });
 
   it('renders with trending filter active', () => {
@@ -53,7 +46,6 @@ describe('FeedFilterChips', () => {
       />
     );
 
-    // The active chip should render without errors
     expect(getByTestId('filter-chip-trending')).toBeTruthy();
   });
 });

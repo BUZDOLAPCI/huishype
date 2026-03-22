@@ -179,14 +179,14 @@ export function ListingSubmissionSheet({
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1 bg-white"
+        className="flex-1 bg-surface-card"
       >
         {/* Header */}
-        <View className="flex-row items-center justify-between px-4 pt-4 pb-3 border-b border-gray-100">
+        <View className="flex-row items-center justify-between px-4 pt-4 pb-3 border-b border-warm-100">
           <Pressable onPress={handleClose} className="p-1">
-            <Ionicons name="close" size={24} color="#6B7280" />
+            <Ionicons name="close" size={24} color="#9C958A" />
           </Pressable>
-          <Text className="text-lg font-semibold text-gray-900">Add Listing</Text>
+          <Text className="text-lg font-semibold text-warm-900">Add Listing</Text>
           <View className="w-8" />
         </View>
 
@@ -194,15 +194,15 @@ export function ListingSubmissionSheet({
           {/* Step 1: URL Input */}
           {(step === 'input' || (step === 'preview' && !previewData)) && (
             <View>
-              <Text className="text-sm text-gray-600 mb-2">
+              <Text className="text-sm text-warm-600 mb-2">
                 Paste a link to a property listing on Funda or Pararius.
               </Text>
-              <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-200 px-3">
-                <Ionicons name="link-outline" size={20} color="#9CA3AF" />
+              <View className="flex-row items-center bg-warm-50 rounded-xl border border-warm-200 px-3">
+                <Ionicons name="link-outline" size={20} color="#C7BFB3" />
                 <TextInput
-                  className="flex-1 py-3 px-2 text-base text-gray-900"
+                  className="flex-1 py-3 px-2 text-base text-warm-900"
                   placeholder="Paste a Funda or Pararius link"
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor="#C7BFB3"
                   value={url}
                   onChangeText={(text) => {
                     setUrl(text);
@@ -229,8 +229,8 @@ export function ListingSubmissionSheet({
                 disabled={isLoadingPreview || !url.trim()}
                 className={`mt-4 py-3 rounded-xl items-center ${
                   isLoadingPreview || !url.trim()
-                    ? 'bg-blue-200'
-                    : 'bg-blue-500 active:bg-blue-600'
+                    ? 'bg-primary-200'
+                    : 'bg-primary-500 active:bg-primary-600'
                 }`}
               >
                 {isLoadingPreview ? (
@@ -246,12 +246,12 @@ export function ListingSubmissionSheet({
           {step === 'preview' && previewData && (
             <View>
               <Pressable onPress={handleBack} className="flex-row items-center mb-4">
-                <Ionicons name="arrow-back" size={20} color="#3B82F6" />
-                <Text className="text-blue-500 ml-1 text-sm">Change URL</Text>
+                <Ionicons name="arrow-back" size={20} color="#F5A623" />
+                <Text className="text-primary-500 ml-1 text-sm">Change URL</Text>
               </Pressable>
 
               {/* Preview Card */}
-              <View className="bg-gray-50 rounded-xl overflow-hidden border border-gray-200">
+              <View className="bg-warm-50 rounded-xl overflow-hidden border border-warm-200">
                 {previewData.ogImage && (
                   <Image
                     source={{ uri: previewData.ogImage }}
@@ -261,7 +261,7 @@ export function ListingSubmissionSheet({
                 )}
                 <View className="p-3">
                   {previewData.ogTitle && (
-                    <Text className="text-base font-semibold text-gray-900 mb-1">
+                    <Text className="text-base font-semibold text-warm-900 mb-1">
                       {previewData.ogTitle}
                     </Text>
                   )}
@@ -272,8 +272,8 @@ export function ListingSubmissionSheet({
                           previewData.sourceName === 'funda'
                             ? '#F97316'
                             : previewData.sourceName === 'pararius'
-                              ? '#2563EB'
-                              : '#6B7280',
+                              ? '#DE911D'
+                              : '#9C958A',
                       }}
                       className="px-2 py-0.5 rounded-full"
                     >
@@ -309,7 +309,7 @@ export function ListingSubmissionSheet({
               {/* Confirm Button */}
               <Pressable
                 onPress={handleSubmit}
-                className="mt-4 py-3 rounded-xl items-center bg-blue-500 active:bg-blue-600"
+                className="mt-4 py-3 rounded-xl items-center bg-primary-500 active:bg-primary-600"
               >
                 <Text className="text-white font-semibold text-base">Confirm & Add Listing</Text>
               </Pressable>
@@ -319,8 +319,8 @@ export function ListingSubmissionSheet({
           {/* Submitting State */}
           {step === 'submitting' && (
             <View className="flex-1 items-center justify-center py-12">
-              <ActivityIndicator size="large" color="#3B82F6" />
-              <Text className="text-gray-500 mt-3">Submitting listing...</Text>
+              <ActivityIndicator size="large" color="#F5A623" />
+              <Text className="text-warm-500 mt-3">Submitting listing...</Text>
             </View>
           )}
 
@@ -330,8 +330,8 @@ export function ListingSubmissionSheet({
               <View className="w-16 h-16 rounded-full bg-green-100 items-center justify-center mb-3">
                 <Ionicons name="checkmark" size={32} color="#22C55E" />
               </View>
-              <Text className="text-lg font-semibold text-gray-900">Listing Added</Text>
-              <Text className="text-sm text-gray-500 mt-1">
+              <Text className="text-lg font-semibold text-warm-900">Listing Added</Text>
+              <Text className="text-sm text-warm-500 mt-1">
                 The listing has been linked to this property.
               </Text>
             </View>
@@ -343,18 +343,18 @@ export function ListingSubmissionSheet({
               <View className="w-16 h-16 rounded-full bg-red-100 items-center justify-center mb-3">
                 <Ionicons name="alert-circle" size={32} color="#EF4444" />
               </View>
-              <Text className="text-lg font-semibold text-gray-900">Something went wrong</Text>
+              <Text className="text-lg font-semibold text-warm-900">Something went wrong</Text>
               <Text className="text-sm text-red-500 mt-1 text-center px-4">
                 {error || 'An unexpected error occurred.'}
               </Text>
               <Pressable
                 onPress={() => setStep('preview')}
-                className="mt-4 px-6 py-2.5 rounded-xl bg-gray-100 active:bg-gray-200"
+                className="mt-4 px-6 py-2.5 rounded-xl bg-warm-100 active:bg-warm-200"
               >
-                <Text className="text-gray-700 font-medium">Try Again</Text>
+                <Text className="text-warm-700 font-medium">Try Again</Text>
               </Pressable>
               <Pressable onPress={handleClose} className="mt-2 px-6 py-2.5">
-                <Text className="text-gray-400 text-sm">Cancel</Text>
+                <Text className="text-warm-400 text-sm">Cancel</Text>
               </Pressable>
             </View>
           )}

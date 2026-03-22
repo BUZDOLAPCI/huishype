@@ -64,3 +64,18 @@ export {
   getValuationLabel,
   truncateText,
 } from './formatting.js';
+
+// Karma tiers (unified source of truth)
+export {
+  KARMA_TIERS,
+  getKarmaTier,
+  type KarmaTier,
+} from './karma-tiers.js';
+
+// Achievement registry (unified source of truth)
+export {
+  ACHIEVEMENT_REGISTRY,
+  getAchievementByKey,
+  getAchievementsByCategory,
+  ACHIEVEMENT_CATEGORY_LABELS,
+} from './achievement-registry.js';

@@ -3,15 +3,18 @@
  */
 
 /**
- * Karma rank titles based on credibility score
+ * Karma rank titles based on credibility score.
+ * 7 tiers per the visual design spec (Section 1.10).
+ * Must match KARMA_TIERS in utils/karma-tiers.ts.
  */
 export type KarmaRank =
-  | 'Newbie'
-  | 'Regular'
-  | 'Trusted'
+  | 'Newcomer'
+  | 'Contributor'
+  | 'Rising Star'
+  | 'Local Expert'
   | 'Expert'
-  | 'Master'
-  | 'Legend';
+  | 'Local Legend'
+  | 'Master';
 
 /**
  * Core user information

@@ -69,8 +69,9 @@ export type {
   CommentNotification,
 } from './comment.js';
 
-// Reaction types
+// Like types (renamed from Reaction — DB table is still `reactions`, API contract is likes-only)
 export type {
+  LikeStatus,
   Reaction,
   ReactionType,
   ReactionCounts,
@@ -78,6 +79,39 @@ export type {
   CommentLike,
   ToggleCommentLikeResponse,
 } from './reaction.js';
+
+// Notification types
+export type {
+  NotificationEventType,
+  NotificationActor,
+  NotificationItem,
+  NotificationsResponse,
+  UnreadCountResponse,
+} from './notification.js';
+
+// Achievement types
+export type {
+  AchievementCategory,
+  AchievementDefinition,
+  EarnedAchievement,
+  AchievementsResponse,
+} from './achievement.js';
+
+// Activity types
+export type {
+  ActivityEventType,
+  ActivityActor,
+  ActivityProperty,
+  ActivityItem,
+  ActivityResponse,
+} from './activity.js';
+
+// Leaderboard types
+export type {
+  LeaderboardPeriod,
+  LeaderboardEntry,
+  LeaderboardResponse,
+} from './leaderboard.js';
 
 // Geocoding types
 export type { GeocodeSuggestion } from './geocoding.js';
@@ -118,7 +152,7 @@ export type {
   UpdateCommentResponse,
   DeleteCommentResponse,
   LikeCommentResponse,
-  // Reaction
+  // Reaction / Likes
   // Feed
   FeedType,
   GetFeedRequest,
@@ -126,4 +160,21 @@ export type {
   // Saved
   GetSavedPropertiesRequest,
   GetSavedPropertiesResponse,
+  // Notification
+  GetNotificationsResponse,
+  GetUnreadCountResponse,
+  MarkReadResponse,
+  MarkAllReadResponse,
+  RegisterPushTokenRequest,
+  // Leaderboard
+  GetLeaderboardResponse,
+  // Activity
+  GetActivityResponse,
+  GetUserActivityResponse,
+  // Achievement
+  GetAchievementsResponse,
+  // Email Auth
+  EmailAuthRequestBody,
+  EmailAuthRequestResponse,
+  EmailAuthVerifyBody,
 } from './api.js';

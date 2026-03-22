@@ -1,8 +1,20 @@
-import { Image, Pressable, Text, View } from 'react-native';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+/**
+ * PropertyFeedCard — Feed card with property photo, address, price, and stat pills.
+ *
+ * Uses PropertyMediaCard variant='full' patterns but implements the exact
+ * feed card spec from Section 7.5.
+ *
+ * Design spec: Section 7.5 (Feed Card).
+ */
+
+import React from 'react';
+import { Image, Pressable, Text, View, StyleSheet } from 'react-native';
+import { Icon } from './ui/Icon';
+import { MetricPills } from './MetricPills';
+import { Card } from './ui/Card';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
-interface PropertyFeedCardProps {
+export interface PropertyFeedCardProps {
   id: string;
   address: string;
   city: string;
@@ -13,6 +25,7 @@ interface PropertyFeedCardProps {
   askingPrice?: number;
   fmvValue?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
+  likeCount?: number;
   commentCount?: number;
   guessCount?: number;
   viewCount?: number;
@@ -21,19 +34,20 @@ interface PropertyFeedCardProps {
   onPress?: () => void;
 }
 
-/**
- * Format price using country config
- */
-function formatPrice(value: number | null | undefined, countryCode?: string): string {
-  if (value === null || value === undefined) {
-    return '-';
-  }
+function formatPrice(
+  value: number | null | undefined,
+  countryCode?: string
+): string {
+  if (value === null || value === undefined) return '-';
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
-/**
- * PropertyFeedCard - Social-style property card for the feed
- */
+const ACTIVITY_CONFIG = {
+  hot: { bg: '#FF6B35', label: 'Hot', iconName: 'Flame' as const },
+  warm: { bg: '#F5A623', label: 'Active', iconName: 'Flame' as const },
+  cold: { bg: '#C7BFB3', label: '', iconName: undefined },
+} as const;
+
 export function PropertyFeedCard({
   address,
   city,
@@ -44,201 +58,229 @@ export function PropertyFeedCard({
   askingPrice,
   fmvValue,
   activityLevel = 'cold',
+  likeCount = 0,
   commentCount = 0,
   guessCount = 0,
   viewCount = 0,
-  yearBuilt,
-  floorAreaM2,
   onPress,
 }: PropertyFeedCardProps) {
+  const activityConfig = ACTIVITY_CONFIG[activityLevel];
 
-  const activityColors = {
-    hot: 'bg-red-500',
-    warm: 'bg-orange-400',
-    cold: 'bg-gray-300',
-  };
-
-  const activityLabels = {
-    hot: 'Hot',
-    warm: 'Active',
-    cold: '',
-  };
-
-  // Calculate price difference if both asking and FMV exist
-  const priceDifference =
-    askingPrice && fmvValue ? ((askingPrice - fmvValue) / fmvValue) * 100 : null;
+  // Determine the primary display price
+  const primaryPrice = fmvValue ?? officialValuation;
 
   return (
     <Pressable
       onPress={onPress}
-      className="bg-white rounded-xl shadow-sm mb-4 mx-4 overflow-hidden active:opacity-90"
-      testID="property-feed-card"
+      style={styles.pressable}
+      accessibilityRole="button"
+      accessibilityLabel={`${address}, ${city}${askingPrice ? `, asking ${formatPrice(askingPrice, countryCode)}` : ''}`}
+      accessibilityHint="Opens property details"
     >
-      {/* Image section */}
-      <View className="relative">
-        {photoUrl ? (
-          <Image
-            source={{ uri: photoUrl }}
-            className="w-full h-48"
-            resizeMode="cover"
-            testID="property-image"
-          />
-        ) : (
-          <View className="w-full h-48 bg-gray-200 items-center justify-center">
-            <FontAwesome name="home" size={48} color="#9CA3AF" />
-            <Text className="text-gray-400 mt-2">No image available</Text>
-          </View>
-        )}
-
-        {/* Activity badge */}
-        {activityLevel !== 'cold' && (
-          <View
-            className={`absolute top-3 left-3 px-3 py-1 rounded-full ${activityColors[activityLevel]}`}
-          >
-            <Text className="text-white text-xs font-semibold">
-              {activityLabels[activityLevel]}
-            </Text>
-          </View>
-        )}
-
-        {/* View count overlay - only show when there are views */}
-        {viewCount > 0 && (
-          <View className="absolute bottom-3 right-3 bg-black/60 px-2 py-1 rounded-md flex-row items-center">
-            <FontAwesome name="eye" size={12} color="white" />
-            <Text className="text-white text-xs ml-1">{viewCount}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Content section */}
-      <View className="p-4">
-        {/* Address and activity indicator */}
-        <View className="flex-row items-start justify-between mb-1">
-          <View className="flex-1 mr-2">
-            <Text
-              className="text-lg font-semibold text-gray-900"
-              numberOfLines={1}
-              testID="property-address"
-            >
-              {address}
-            </Text>
-            <Text className="text-sm text-gray-500">
-              {city}
-              {postalCode ? `, ${postalCode}` : ''}
-            </Text>
-          </View>
-          <View
-            className={`w-3 h-3 rounded-full mt-2 ${activityColors[activityLevel]}`}
-          />
-        </View>
-
-        {/* Property details badges */}
-        {(yearBuilt || floorAreaM2) && (
-          <View className="flex-row mt-2 mb-3">
-            {yearBuilt && (
-              <View className="bg-gray-100 px-2 py-1 rounded-md mr-2">
-                <Text className="text-xs text-gray-600">
-                  <FontAwesome name="calendar" size={10} color="#6B7280" />{' '}
-                  {yearBuilt}
-                </Text>
-              </View>
-            )}
-            {floorAreaM2 && (
-              <View className="bg-gray-100 px-2 py-1 rounded-md">
-                <Text className="text-xs text-gray-600">
-                  {floorAreaM2} m{'\u00B2'}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Price section */}
-        <View className="flex-row justify-between items-end mt-2 mb-3">
-          <View className="flex-1">
-            {/* Official Valuation */}
-            {officialValuation && (
-              <View className="mb-1">
-                <Text className="text-xs text-gray-400">{getValuationLabel(countryCode)}</Text>
-                <Text className="text-base font-medium text-gray-600">
-                  {formatPrice(officialValuation, countryCode)}
-                </Text>
-              </View>
-            )}
-
-            {/* Asking Price (if available) */}
-            {askingPrice && (
-              <View className="mb-1">
-                <Text className="text-xs text-gray-400">Asking Price</Text>
-                <Text className="text-base font-semibold text-gray-800">
-                  {formatPrice(askingPrice, countryCode)}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* FMV (primary price display) */}
-          <View className="items-end">
-            {fmvValue ? (
-              <>
-                <Text className="text-xs text-gray-400">Crowd FMV</Text>
-                <Text className="text-xl font-bold text-primary-600">
-                  {formatPrice(fmvValue, countryCode)}
-                </Text>
-                {priceDifference !== null && (
-                  <Text
-                    className={`text-xs font-medium ${
-                      priceDifference > 3
-                        ? 'text-red-500'
-                        : priceDifference < -3
-                          ? 'text-green-600'
-                          : 'text-gray-500'
-                    }`}
-                    testID="fmv-comparison"
-                  >
-                    {priceDifference > 3
-                      ? `Asking ${priceDifference.toFixed(1)}% above FMV`
-                      : priceDifference < -3
-                        ? `Asking ${Math.abs(priceDifference).toFixed(1)}% below FMV`
-                        : '~Fair price'}
-                  </Text>
-                )}
-              </>
-            ) : officialValuation ? (
-              <>
-                <Text className="text-xs text-gray-400">Est. Value</Text>
-                <Text className="text-xl font-bold text-primary-600">
-                  {formatPrice(officialValuation, countryCode)}
-                </Text>
-              </>
-            ) : null}
-          </View>
-        </View>
-
-        {/* Activity stats */}
-        <View className="flex-row justify-between pt-3 border-t border-gray-100">
-          <View className="flex-row items-center">
-            <FontAwesome name="comments-o" size={14} color={commentCount > 0 ? '#6B7280' : '#9CA3AF'} />
-            <Text className={`text-sm ml-1 ${commentCount > 0 ? 'text-gray-500' : 'text-gray-400'}`}>
-              {commentCount > 0 ? commentCount : 'Start the conversation'}
-            </Text>
-          </View>
-          <View className="flex-row items-center">
-            <FontAwesome name="bar-chart" size={14} color={guessCount > 0 ? '#6B7280' : '#9CA3AF'} />
-            <Text className={`text-sm ml-1 ${guessCount > 0 ? 'text-gray-500' : 'text-gray-400'}`}>
-              {guessCount > 0
-                ? `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'}`
-                : 'Be the first to guess'}
-            </Text>
-          </View>
-          {viewCount > 0 && (
-            <View className="flex-row items-center">
-              <FontAwesome name="eye" size={14} color="#6B7280" />
-              <Text className="text-sm text-gray-500 ml-1">{viewCount}</Text>
+      <Card shadow="card" testID="property-feed-card">
+        {/* Image section */}
+        <View style={styles.imageWrapper}>
+          {photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={styles.image}
+              resizeMode="cover"
+              testID="property-image"
+            />
+          ) : (
+            <View style={styles.placeholder}>
+              <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+              <Text style={styles.placeholderText}>No image available</Text>
             </View>
           )}
         </View>
-      </View>
+
+        {/* Content section */}
+        <View style={styles.body}>
+          {/* Address row with activity badge */}
+          <View style={styles.addressRow}>
+            <View style={styles.addressContent}>
+              <Text
+                style={styles.street}
+                numberOfLines={1}
+                testID="property-address"
+              >
+                {address}
+              </Text>
+              <Text style={styles.city} numberOfLines={1}>
+                {city}
+              </Text>
+            </View>
+
+            {/* Activity badge */}
+            {activityLevel !== 'cold' && (
+              <View
+                style={[styles.activityBadge, { backgroundColor: activityConfig.bg }]}
+                testID="activity-badge"
+              >
+                {activityConfig.iconName && (
+                  <Icon
+                    name={activityConfig.iconName}
+                    size={12}
+                    color="#FFFFFF"
+                  />
+                )}
+                <Text style={styles.activityBadgeText}>
+                  {activityConfig.label}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Price row */}
+          <View style={styles.priceRow}>
+            <View>
+              {askingPrice != null && askingPrice > 0 && (
+                <>
+                  <Text style={styles.priceLabel}>Asking Price</Text>
+                  <Text style={styles.askingPrice}>
+                    {formatPrice(askingPrice, countryCode)}
+                  </Text>
+                </>
+              )}
+              {!askingPrice && officialValuation != null && officialValuation > 0 && (
+                <>
+                  <Text style={styles.priceLabel}>
+                    {getValuationLabel(countryCode)}
+                  </Text>
+                  <Text style={styles.askingPrice}>
+                    {formatPrice(officialValuation, countryCode)}
+                  </Text>
+                </>
+              )}
+            </View>
+
+            {primaryPrice != null && primaryPrice > 0 && (
+              <View style={styles.primaryPriceContainer}>
+                <View style={styles.primaryPriceRow}>
+                  <Icon name="HouseLine" size={14} color="#F5A623" />
+                  <Text style={styles.primaryPrice}>
+                    {formatPrice(primaryPrice, countryCode)}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Stat pills */}
+          <View style={styles.statDivider} />
+          <MetricPills
+            stats={{
+              likeCount,
+              commentCount,
+              guessCount,
+              viewCount,
+            }}
+            variant="stats"
+            testID="feed-card-stats"
+          />
+        </View>
+      </Card>
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  pressable: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  imageWrapper: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  image: {
+    width: '100%',
+    height: 180,
+  },
+  placeholder: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#F5F0E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderText: {
+    color: '#C7BFB3',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  body: {
+    padding: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 8,
+  },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  addressContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  street: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D2926', // warm-900
+    fontFamily: 'Inter_600SemiBold',
+  },
+  city: {
+    fontSize: 13,
+    color: '#736C62', // warm-600 — AA contrast on white (5.0:1)
+    marginTop: 2,
+  },
+  activityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  activityBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: 4,
+  },
+  priceLabel: {
+    fontSize: 13,
+    color: '#736C62', // warm-600 — AA contrast on white
+  },
+  askingPrice: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#736C62', // warm-600
+    marginTop: 2,
+  },
+  primaryPriceContainer: {
+    alignItems: 'flex-end',
+  },
+  primaryPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  primaryPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2D2926', // warm-900
+  },
+  statDivider: {
+    height: 1,
+    backgroundColor: '#F5F0E8', // warm-200
+    marginTop: 4,
+  },
+});

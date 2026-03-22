@@ -131,7 +131,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Comments section visible: ${isCommentsVisible}`);
 
     // Look for karma badge labels (from expectation requirements)
-    const allKarmaLabels = ['Newbie', 'Regular', 'Trusted', 'Expert', 'Legend', 'Active', 'New'];
+    const allKarmaLabels = ['Newcomer', 'Contributor', 'Rising Star', 'Local Expert', 'Expert', 'Local Legend', 'Master', 'Active', 'New'];
     let foundBadges: string[] = [];
 
     for (const label of allKarmaLabels) {
@@ -214,7 +214,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     // Check for karma badge labels (the old CommentList uses Expert, Trusted, Active, New)
-    const karmaLabels = ['Expert', 'Trusted', 'Active', 'New'];
+    const karmaLabels = ['Expert', 'Local Expert', 'Local Legend', 'Master', 'Active', 'New'];
     for (const label of karmaLabels) {
       const badge = page.locator(`text=${label}`);
       const isVisible = await badge.first().isVisible().catch(() => false);

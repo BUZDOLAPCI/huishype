@@ -7,8 +7,10 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 
-// Feed filter types — match the backend enum exactly
-export type FeedFilter = 'trending' | 'recent' | 'controversial' | 'price-mismatch';
+// Feed filter types
+// 'trending' and 'recent' map to the backend /feed endpoint.
+// 'activity' maps to the public /activity endpoint (handled separately in the feed screen).
+export type FeedFilter = 'trending' | 'recent' | 'activity';
 
 // Item returned by GET /feed
 export interface FeedProperty {

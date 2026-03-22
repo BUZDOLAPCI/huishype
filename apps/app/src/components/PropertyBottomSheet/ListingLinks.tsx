@@ -29,9 +29,9 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
       case 'funda':
         return { name: 'Funda', color: '#F97316', icon: 'home' as const };
       case 'pararius':
-        return { name: 'Pararius', color: '#2563EB', icon: 'business' as const };
+        return { name: 'Pararius', color: '#DE911D', icon: 'business' as const };
       default:
-        return { name: 'Listing', color: '#6B7280', icon: 'link' as const };
+        return { name: 'Listing', color: '#9C958A', icon: 'link' as const };
     }
   };
 
@@ -48,17 +48,17 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
       case 'rented':
         return { text: 'Rented', color: '#F59E0B' };
       case 'withdrawn':
-        return { text: 'Withdrawn', color: '#6B7280' };
+        return { text: 'Withdrawn', color: '#9C958A' };
       default:
         return null;
     }
   };
 
   return (
-    <View className="px-4 py-4 border-t border-gray-100">
+    <View className="px-4 py-4 border-t border-warm-100">
       <View className="flex-row items-center mb-3">
-        <Ionicons name="link" size={20} color="#3B82F6" />
-        <Text className="text-lg font-semibold text-gray-900 ml-2">
+        <Ionicons name="link" size={20} color="#F5A623" />
+        <Text className="text-lg font-semibold text-warm-900 ml-2">
           Listings{hasListings ? ` (${listings.length})` : ''}
         </Text>
       </View>
@@ -73,7 +73,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
             <Pressable
               key={listing.id}
               onPress={() => handleOpenLink(listing.sourceUrl, listing.sourceName)}
-              className="flex-row items-center p-3 mb-2 rounded-xl bg-gray-50 active:bg-gray-100"
+              className="flex-row items-center p-3 mb-2 rounded-xl bg-warm-50 active:bg-warm-100"
             >
               <View
                 style={{ backgroundColor: sourceInfo.color }}
@@ -82,11 +82,11 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
                 <Ionicons name={sourceInfo.icon} size={20} color="white" />
               </View>
               <View className="flex-1 ml-3">
-                <Text className="text-sm font-semibold text-gray-900">
+                <Text className="text-sm font-semibold text-warm-900">
                   {sourceInfo.name}
                 </Text>
                 {price && (
-                  <Text className="text-sm text-gray-600">{price}</Text>
+                  <Text className="text-sm text-warm-600">{price}</Text>
                 )}
               </View>
               {statusBadge && (
@@ -99,7 +99,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
                   </Text>
                 </View>
               )}
-              <Ionicons name="open-outline" size={16} color="#9CA3AF" />
+              <Ionicons name="open-outline" size={16} color="#C7BFB3" />
             </Pressable>
           );
         })}
@@ -107,10 +107,10 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
       {onAddListing && (
         <Pressable
           onPress={onAddListing}
-          className="flex-row items-center justify-center p-3 rounded-xl border border-dashed border-gray-300 active:bg-gray-50"
+          className="flex-row items-center justify-center p-3 rounded-xl border border-dashed border-warm-300 active:bg-warm-50"
         >
-          <Ionicons name="add-circle-outline" size={20} color="#6B7280" />
-          <Text className="text-sm text-gray-500 font-medium ml-1.5">Add listing</Text>
+          <Ionicons name="add-circle-outline" size={20} color="#9C958A" />
+          <Text className="text-sm text-warm-500 font-medium ml-1.5">Add listing</Text>
         </Pressable>
       )}
     </View>

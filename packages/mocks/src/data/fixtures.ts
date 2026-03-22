@@ -41,7 +41,7 @@ export const mockUsers: User[] = [
     displayName: 'Maria Bakker',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     karma: 850,
-    karmaRank: 'Trusted',
+    karmaRank: 'Local Legend',
     isPlus: false,
     createdAt: '2024-03-20T14:15:00Z',
   },
@@ -51,7 +51,7 @@ export const mockUsers: User[] = [
     displayName: 'Pieter Jansen',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     karma: 125,
-    karmaRank: 'Regular',
+    karmaRank: 'Local Expert',
     isPlus: false,
     createdAt: '2024-06-01T09:00:00Z',
   },
@@ -70,7 +70,7 @@ export const mockUsers: User[] = [
     username: 'newuser',
     displayName: 'New User',
     karma: 0,
-    karmaRank: 'Newbie',
+    karmaRank: 'Newcomer',
     isPlus: false,
     createdAt: '2024-12-01T12:00:00Z',
   },
@@ -258,6 +258,9 @@ export const mockPropertyDetails: PropertyDetail[] = mockProperties.map(
         createdAt: '2024-11-15T10:00:00Z',
       },
     ],
+    likeCount: [312, 178, 45, 456, 5][index],
+    isLiked: index === 0,
+    isSaved: index < 2,
   })
 );
 
@@ -419,7 +422,7 @@ export const mockComments: CommentWithReplies[] = [
           profilePhotoUrl:
             'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
           karma: 850,
-          karmaRank: 'Trusted',
+          karmaRank: 'Local Expert',
         },
         parentId: 'comment-001',
         mentionedUser: { id: 'user-001', username: 'jandevries' },
@@ -463,7 +466,7 @@ export const mockComments: CommentWithReplies[] = [
       profilePhotoUrl:
         'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
       karma: 125,
-      karmaRank: 'Regular',
+      karmaRank: 'Contributor',
     },
     content:
       'Zou het pand ook voor verhuur geschikt zijn? Lijkt me een goede investering.',

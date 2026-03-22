@@ -37,24 +37,26 @@ describe('GroupPreviewCard', () => {
       expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
     });
 
-    it('displays valuation price with generic label (no countryCode)', () => {
+    it('displays formatted valuation price', () => {
       render(
         <GroupPreviewCard
           properties={[makeProperty({ officialValuation: 350000 })]}
           onClose={jest.fn()}
         />
       );
-      expect(screen.getByText('Val.')).toBeTruthy();
+      // Price is rendered as formatted value
+      expect(screen.getByText(/350/)).toBeTruthy();
     });
 
-    it('displays WOZ label when countryCode is NL', () => {
+    it('displays formatted asking price when no FMV', () => {
       render(
         <GroupPreviewCard
-          properties={[makeProperty({ officialValuation: 350000, countryCode: 'NL' })]}
+          properties={[makeProperty({ fmv: null, askingPrice: 395000, officialValuation: 350000 })]}
           onClose={jest.fn()}
         />
       );
-      expect(screen.getByText('WOZ')).toBeTruthy();
+      // Asking price takes priority over valuation
+      expect(screen.getByText(/395/)).toBeTruthy();
     });
 
     it('prefers FMV over asking price over valuation', () => {
@@ -66,20 +68,8 @@ describe('GroupPreviewCard', () => {
           onClose={jest.fn()}
         />
       );
-      expect(screen.getByText('FMV')).toBeTruthy();
-      expect(screen.queryByText('Ask')).toBeNull();
-      expect(screen.queryByText('Val.')).toBeNull();
-      expect(screen.queryByText('WOZ')).toBeNull();
-    });
-
-    it('shows asking price label when no FMV', () => {
-      render(
-        <GroupPreviewCard
-          properties={[makeProperty({ fmv: null, askingPrice: 395000, officialValuation: 350000 })]}
-          onClose={jest.fn()}
-        />
-      );
-      expect(screen.getByText('Ask')).toBeTruthy();
+      // FMV price should be shown
+      expect(screen.getByText(/400/)).toBeTruthy();
     });
 
     it('handles property without postal code', () => {
@@ -101,13 +91,9 @@ describe('GroupPreviewCard', () => {
       );
       // Should render without crashing
       expect(screen.getByText('Teststraat 42')).toBeTruthy();
-      expect(screen.queryByText('Val.')).toBeNull();
-      expect(screen.queryByText('WOZ')).toBeNull();
-      expect(screen.queryByText('Ask')).toBeNull();
-      expect(screen.queryByText('FMV')).toBeNull();
     });
 
-    it('renders close button and fires onClose', () => {
+    it('fires onClose when close button on the card is pressed', () => {
       const onClose = jest.fn();
       render(
         <GroupPreviewCard
@@ -115,7 +101,8 @@ describe('GroupPreviewCard', () => {
           onClose={onClose}
         />
       );
-      const closeBtn = screen.getByTestId('group-preview-close-button');
+      // In single mode, close button is rendered inside PropertyPreviewCard
+      const closeBtn = screen.getByTestId('property-preview-close-button');
       fireEvent.press(closeBtn);
       expect(onClose).toHaveBeenCalledTimes(1);
     });
@@ -440,7 +427,7 @@ describe('GroupPreviewCard', () => {
           onClose={jest.fn()}
         />
       );
-      expect(screen.getByTestId('group-preview-thumbnail')).toBeTruthy();
+      expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
     });
 
     it('shows arrow with cluster', () => {

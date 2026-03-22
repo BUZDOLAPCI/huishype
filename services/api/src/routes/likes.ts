@@ -29,7 +29,12 @@ const errorResponseSchema = z.object({
   message: z.string(),
 });
 
-export async function reactionRoutes(app: FastifyInstance) {
+/**
+ * Likes routes — the API contract is likes-only.
+ * The DB table is still named `reactions` (with a 4-type enum) but only `like` is used.
+ * This file was renamed from reactions.ts to reflect the actual domain.
+ */
+export async function likeRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
   // GET /comments/:id/like - Check if user liked a comment and get like count
@@ -38,7 +43,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     {
       onRequest: [app.optionalAuth],
       schema: {
-        tags: ['reactions'],
+        tags: ['likes'],
         summary: 'Check if comment is liked',
         description: 'Get the like status and count for a comment. Returns liked=false if not authenticated.',
         params: commentParamsSchema,
@@ -92,7 +97,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
-        tags: ['reactions'],
+        tags: ['likes'],
         summary: 'Like a comment',
         description: 'Add a like reaction to a comment. Returns 409 if already liked.',
         params: commentParamsSchema,
@@ -163,7 +168,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
-        tags: ['reactions'],
+        tags: ['likes'],
         summary: 'Unlike a comment',
         description: 'Remove a like reaction from a comment. Returns 404 if not previously liked.',
         params: commentParamsSchema,
@@ -231,7 +236,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
-        tags: ['reactions'],
+        tags: ['likes'],
         summary: 'Like a property',
         description: 'Add a like reaction to a property. Returns 409 if already liked.',
         params: propertyParamsSchema,
@@ -322,7 +327,7 @@ export async function reactionRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
-        tags: ['reactions'],
+        tags: ['likes'],
         summary: 'Unlike a property',
         description: 'Remove a like reaction from a property. Returns 404 if not previously liked.',
         params: propertyParamsSchema,

@@ -6,11 +6,11 @@ import { ActivityIndicator, Text, View } from 'react-native';
 export function FeedLoadingState() {
   return (
     <View
-      className="flex-1 items-center justify-center bg-gray-50"
+      className="flex-1 items-center justify-center bg-warm-50"
       testID="feed-loading"
     >
-      <ActivityIndicator size="large" color="#2563eb" />
-      <Text className="text-gray-500 mt-4">Loading properties...</Text>
+      <ActivityIndicator size="large" color="#DE911D" />
+      <Text className="text-warm-500 mt-4">Loading properties...</Text>
     </View>
   );
 }
@@ -21,7 +21,7 @@ export function FeedLoadingState() {
 export function FeedLoadingMore() {
   return (
     <View className="py-4 items-center" testID="feed-loading-more">
-      <ActivityIndicator size="small" color="#2563eb" />
+      <ActivityIndicator size="small" color="#DE911D" />
     </View>
   );
 }

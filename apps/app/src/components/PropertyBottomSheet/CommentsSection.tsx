@@ -144,31 +144,31 @@ export function CommentsSection({
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <View className="px-4 py-4 border-t border-gray-100">
+    <View className="px-4 py-4 border-t border-warm-100">
       {/* Header */}
       <View className="flex-row items-center justify-between mb-3">
         <View className="flex-row items-center">
-          <Ionicons name="chatbubbles" size={20} color="#3B82F6" />
-          <Text className="text-lg font-semibold text-gray-900 ml-2">Comments</Text>
+          <Ionicons name="chatbubbles" size={20} color="#F5A623" />
+          <Text className="text-lg font-semibold text-warm-900 ml-2">Comments</Text>
           {totalComments > 0 && (
-            <View className="ml-2 bg-gray-100 px-2 py-0.5 rounded-full">
-              <Text className="text-xs text-gray-600">{totalComments}</Text>
+            <View className="ml-2 bg-warm-100 px-2 py-0.5 rounded-full">
+              <Text className="text-xs text-warm-600">{totalComments}</Text>
             </View>
           )}
         </View>
 
         {/* Sort toggle */}
         {totalComments > 0 && (
-          <View className="flex-row bg-gray-100 rounded-lg p-0.5">
+          <View className="flex-row bg-warm-100 rounded-lg p-0.5">
             <Pressable
               onPress={() => handleSortChange('recent')}
               className={`px-2.5 py-1 rounded-md ${
-                sortBy === 'recent' ? 'bg-white shadow-sm' : ''
+                sortBy === 'recent' ? 'bg-surface-card shadow-sm' : ''
               }`}
             >
               <Text
                 className={`text-xs ${
-                  sortBy === 'recent' ? 'text-gray-900 font-medium' : 'text-gray-500'
+                  sortBy === 'recent' ? 'text-warm-900 font-medium' : 'text-warm-500'
                 }`}
               >
                 Recent
@@ -177,12 +177,12 @@ export function CommentsSection({
             <Pressable
               onPress={() => handleSortChange('popular')}
               className={`px-2.5 py-1 rounded-md ${
-                sortBy === 'popular' ? 'bg-white shadow-sm' : ''
+                sortBy === 'popular' ? 'bg-surface-card shadow-sm' : ''
               }`}
             >
               <Text
                 className={`text-xs ${
-                  sortBy === 'popular' ? 'text-gray-900 font-medium' : 'text-gray-500'
+                  sortBy === 'popular' ? 'text-warm-900 font-medium' : 'text-warm-500'
                 }`}
               >
                 Popular
@@ -195,8 +195,8 @@ export function CommentsSection({
       {/* Loading state */}
       {isLoading && (
         <View className="py-8 items-center">
-          <ActivityIndicator size="small" color="#3B82F6" />
-          <Text className="text-gray-500 text-sm mt-2">Loading comments...</Text>
+          <ActivityIndicator size="small" color="#F5A623" />
+          <Text className="text-warm-500 text-sm mt-2">Loading comments...</Text>
         </View>
       )}
 
@@ -216,10 +216,10 @@ export function CommentsSection({
 
       {/* Empty state */}
       {!isLoading && !isError && allComments.length === 0 && (
-        <View className="bg-gray-50 rounded-xl p-4 items-center">
-          <Ionicons name="chatbubble-ellipses-outline" size={32} color="#9CA3AF" />
-          <Text className="text-gray-500 mt-2">No comments yet</Text>
-          <Text className="text-xs text-gray-400 mt-1">
+        <View className="bg-warm-50 rounded-xl p-4 items-center">
+          <Ionicons name="chatbubble-ellipses-outline" size={32} color="#C7BFB3" />
+          <Text className="text-warm-500 mt-2">No comments yet</Text>
+          <Text className="text-xs text-warm-400 mt-1">
             Be the first to share your thoughts!
           </Text>
         </View>
@@ -230,7 +230,7 @@ export function CommentsSection({
         <View>
           {displayedComments.map((comment, index) => (
             <View key={comment.id}>
-              {index > 0 && <View className="h-px bg-gray-100" />}
+              {index > 0 && <View className="h-px bg-warm-100" />}
               <Comment
                 comment={comment}
                 onLike={handleLike}
@@ -244,10 +244,10 @@ export function CommentsSection({
           {(hasMoreComments || hasNextPage) && (
             <Pressable
               onPress={handleViewAll}
-              className="py-3 items-center border-t border-gray-100 mt-2"
+              className="py-3 items-center border-t border-warm-100 mt-2"
             >
               {isFetchingNextPage ? (
-                <ActivityIndicator size="small" color="#3B82F6" />
+                <ActivityIndicator size="small" color="#F5A623" />
               ) : (
                 <Text className="text-primary-600 text-sm font-medium">
                   {hasMoreComments

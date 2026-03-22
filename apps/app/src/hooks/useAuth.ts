@@ -23,6 +23,10 @@ export interface UseAuthReturn {
   signInWithApple: () => Promise<void>;
   /** Sign in with a mock token (dev only) */
   signInWithMockToken: (token: string) => Promise<void>;
+  /** Request an email magic link */
+  requestEmailLink: (email: string) => Promise<void>;
+  /** Verify an email magic link token */
+  verifyEmailToken: (token: string) => Promise<void>;
   /** Sign out */
   signOut: () => Promise<void>;
   /** Get current access token (refreshes if needed) */
@@ -109,6 +113,32 @@ export function useAuth(): UseAuthReturn {
     }
   }, [auth, queryClient]);
 
+  const requestEmailLink = useCallback(async (email: string) => {
+    setError(null);
+    try {
+      await auth.requestEmailLink(email);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to send magic link');
+      setError(error);
+      throw error;
+    }
+  }, [auth]);
+
+  const verifyEmailToken = useCallback(async (token: string) => {
+    setError(null);
+    setIsSigningIn(true);
+    try {
+      await auth.verifyEmailToken(token);
+      await queryClient.invalidateQueries({ queryKey: authKeys.user() });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Invalid or expired link');
+      setError(error);
+      throw error;
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [auth, queryClient]);
+
   const signOut = useCallback(async () => {
     setError(null);
     try {
@@ -134,6 +164,8 @@ export function useAuth(): UseAuthReturn {
     signInWithGoogle,
     signInWithApple,
     signInWithMockToken,
+    requestEmailLink,
+    verifyEmailToken,
     signOut,
     getAccessToken: auth.getAccessToken,
     error,

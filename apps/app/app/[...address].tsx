@@ -1,59 +1,35 @@
 /**
- * Catch-All Address Route
+ * Catch-All Address Route — Resolver/Redirect
  *
- * Handles hierarchical URL structure:
- * - /{city}/ -> City View (heatmap)
- * - /{city}/{zipcode}/ -> Postcode View (neighborhood stats)
- * - /{city}/{zipcode}/{street}/{housenumber} -> Property Detail View
+ * Resolves hierarchical URL addresses to the canonical /property/[id] route.
  *
+ * URL structure: /{city}/{zipcode}/{street}/{housenumber}
  * Example: /eindhoven/5651hp/deflectiespoelstraat/16
+ *
+ * When a full property address is provided (all 4 segments), this route:
+ * 1. Geocodes the address via the Photon backend
+ * 2. Resolves the geocoded result to a local property via /properties/resolve
+ * 3. Redirects to /property/[id] if found
+ * 4. Shows a not-found screen otherwise
+ *
+ * Partial URLs (city-only, city+postcode) redirect to the map tab since
+ * city/postcode browsing is not a supported surface.
  */
 
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View, Pressable, ActivityIndicator, Share } from 'react-native';
+import { ActivityIndicator, Text, View, Pressable, StyleSheet } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { formatPrice, formatPostalCode, getValuationLabel } from '@huishype/shared';
 
-import { PriceGuessSlider, CommentList } from '@/src/components';
-import {
-  resolveUrlParams,
-  determineViewType,
-  type ResolvedAddress,
-  type AddressUrlParams,
-  type AddressViewType,
-} from '@/src/services/address-resolver';
+import { Icon } from '@/src/components/ui/Icon';
+import { resolveProperty } from '@/src/utils/api';
+import { apiGeocoder } from '@/src/services/api-geocoder';
 
-// Mock comments data (same as property/[id].tsx for consistency)
-const MOCK_COMMENTS = [
-  {
-    id: '1',
-    author: 'Jan de Vries',
-    authorKarma: 2500,
-    content: 'This is way overpriced for this area. The WOZ value tells the real story.',
-    likes: 45,
-    createdAt: '2h ago',
-    replies: [
-      {
-        id: '1-1',
-        author: 'Maria Bakker',
-        authorKarma: 85,
-        content: '@JandeVries I disagree, the renovations add significant value',
-        likes: 12,
-        createdAt: '1h ago',
-      },
-    ],
-  },
-  {
-    id: '2',
-    author: 'Pieter Jansen',
-    authorKarma: 125,
-    content: 'Great location though. Close to everything you need.',
-    likes: 23,
-    createdAt: '4h ago',
-  },
-];
+interface AddressUrlParams {
+  city?: string;
+  zipcode?: string;
+  street?: string;
+  housenumber?: string;
+}
 
 /**
  * Parse the catch-all address segments into structured params
@@ -70,357 +46,183 @@ function parseAddressSegments(segments: string | string[]): AddressUrlParams {
 }
 
 /**
- * Loading skeleton for address resolution
+ * Build a free text query from URL parameters for geocoding
  */
-function AddressLoadingSkeleton() {
-  return (
-    <View className="flex-1 bg-white items-center justify-center">
-      <ActivityIndicator size="large" color="#3B82F6" />
-      <Text className="text-gray-500 mt-4">Resolving address...</Text>
-    </View>
-  );
+function buildSearchQuery(params: AddressUrlParams): string {
+  const parts: string[] = [];
+
+  if (params.zipcode && params.housenumber) {
+    parts.push(params.zipcode.toUpperCase());
+    parts.push(params.housenumber);
+  } else if (params.city && params.street && params.housenumber) {
+    parts.push(params.street.replace(/-/g, ' '));
+    parts.push(params.housenumber);
+    parts.push(params.city);
+  }
+
+  return parts.join(' ');
 }
 
 /**
- * 404 - Address not found
+ * Determines whether the URL has enough segments for a property resolution.
  */
-function AddressNotFound({ params }: { params: AddressUrlParams }) {
-  const addressString = [params.city, params.zipcode, params.street, params.housenumber]
-    .filter(Boolean)
-    .join(' / ');
-
-  return (
-    <View className="flex-1 bg-white items-center justify-center px-8">
-      <Ionicons name="search-outline" size={64} color="#D1D5DB" />
-      <Text className="text-gray-900 text-xl font-semibold mt-4">Address not found</Text>
-      <Text className="text-gray-500 text-center mt-2">
-        We couldn't find an address matching:{'\n'}
-        <Text className="font-medium">{addressString}</Text>
-      </Text>
-      <Pressable
-        onPress={() => router.replace('/')}
-        className="mt-6 bg-primary-600 px-6 py-3 rounded-xl"
-      >
-        <Text className="text-white font-semibold">Go to Map</Text>
-      </Pressable>
-    </View>
-  );
+function isPropertyAddress(params: AddressUrlParams): boolean {
+  return !!(params.city && params.zipcode && params.street && params.housenumber);
 }
 
 /**
- * City View - Shows city heatmap (placeholder)
- */
-function CityView({ city }: { city: string }) {
-  const displayCity = city.charAt(0).toUpperCase() + city.slice(1);
-
-  return (
-    <View className="flex-1 bg-white">
-      <View className="p-6">
-        <Text className="text-3xl font-bold text-gray-900">{displayCity}</Text>
-        <Text className="text-gray-500 mt-2">City Overview</Text>
-      </View>
-
-      <View className="flex-1 items-center justify-center px-8">
-        <Ionicons name="map-outline" size={64} color="#D1D5DB" />
-        <Text className="text-gray-500 text-center mt-4">
-          City heatmap view coming soon.{'\n'}
-          Navigate to a specific address to see property details.
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/**
- * Postcode View - Shows neighborhood stats (placeholder)
- */
-function PostcodeView({ city, zipcode }: { city: string; zipcode: string }) {
-  const displayCity = city.charAt(0).toUpperCase() + city.slice(1);
-  const displayZip = zipcode.toUpperCase();
-
-  return (
-    <View className="flex-1 bg-white">
-      <View className="p-6">
-        <Text className="text-3xl font-bold text-gray-900">{displayZip}</Text>
-        <Text className="text-gray-500 mt-2">{displayCity}</Text>
-      </View>
-
-      <View className="flex-1 items-center justify-center px-8">
-        <Ionicons name="stats-chart-outline" size={64} color="#D1D5DB" />
-        <Text className="text-gray-500 text-center mt-4">
-          Neighborhood statistics coming soon.{'\n'}
-          Navigate to a specific address to see property details.
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/**
- * Property Detail View - Full property page with resolved address
- */
-function PropertyDetailView({ address }: { address: ResolvedAddress }) {
-  const handleLikeComment = (_commentId: string) => {
-    // TODO: Wire up comment like API
-  };
-
-  const handleReplyComment = (_commentId: string) => {
-    // TODO: Wire up comment reply API
-  };
-
-  const handleSubmitGuess = (_price: number) => {
-    // TODO: Wire up guess submission API
-  };
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `Check out this property: ${address.formattedAddress}`,
-        title: `${address.details.street} ${address.details.number} - HuisHype`,
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
-  };
-
-  const handleSave = () => {
-    // TODO: Wire up save API
-  };
-
-  const handleLike = () => {
-    // TODO: Wire up like API
-  };
-
-  // Format the address title like the reference: "Street Number" with "Zip City" below
-  const streetWithNumber = `${address.details.street} ${address.details.number}`;
-  // Format postal code using country-aware formatting
-  const formattedZip = formatPostalCode(address.details.zip);
-  const zipWithCity = `${formattedZip} ${address.details.city}`;
-
-  return (
-    <ScrollView className="flex-1 bg-white">
-      {/* Property header image */}
-      <View className="bg-gray-200 h-56 items-center justify-center">
-        <Ionicons name="image-outline" size={48} color="#9CA3AF" />
-        <Text className="text-gray-400 mt-2">Property Photo</Text>
-      </View>
-
-      <View className="p-4">
-        {/* Address header - styled like reference (address-styling.png) */}
-        <View className="mb-4">
-          <Text className="text-2xl font-bold text-gray-900" testID="address-title">
-            {streetWithNumber}
-          </Text>
-          <Text className="text-gray-500 mt-1" testID="address-subtitle">
-            {zipWithCity}
-          </Text>
-        </View>
-
-        {/* Property ID badge */}
-        <View className="flex-row flex-wrap gap-2 mb-4">
-          <View className="flex-row items-center bg-gray-100 px-3 py-1.5 rounded-full">
-            <Ionicons name="barcode-outline" size={14} color="#6B7280" />
-            <Text className="text-sm text-gray-600 ml-1" numberOfLines={1}>
-              {address.bagId}
-            </Text>
-          </View>
-        </View>
-
-        {/* Quick stats */}
-        <View className="flex-row flex-wrap mb-6 bg-gray-50 rounded-xl p-4">
-          <View className="w-1/2 mb-3">
-            <Text className="text-xs text-gray-400">{getValuationLabel()}</Text>
-            <Text className="text-lg font-semibold text-gray-700">--</Text>
-          </View>
-          <View className="w-1/2 mb-3">
-            <Text className="text-xs text-gray-400">Asking Price</Text>
-            <Text className="text-lg font-semibold text-gray-700">--</Text>
-          </View>
-          <View className="w-1/2">
-            <Text className="text-xs text-gray-400">Crowd FMV</Text>
-            <Text className="text-lg font-bold text-primary-600">--</Text>
-          </View>
-          <View className="w-1/2">
-            <Text className="text-xs text-gray-400">Guesses</Text>
-            <Text className="text-lg font-semibold text-gray-700">0</Text>
-          </View>
-        </View>
-
-        {/* Quick Actions */}
-        <View className="flex-row justify-around mb-6 py-3 border-y border-gray-100">
-          <Pressable onPress={handleSave} className="flex-row items-center px-4 py-2">
-            <Ionicons name="bookmark-outline" size={22} color="#6B7280" />
-            <Text className="ml-2 text-gray-600">Save</Text>
-          </Pressable>
-          <Pressable onPress={handleShare} className="flex-row items-center px-4 py-2">
-            <Ionicons name="share-outline" size={22} color="#6B7280" />
-            <Text className="ml-2 text-gray-600">Share</Text>
-          </Pressable>
-          <Pressable onPress={handleLike} className="flex-row items-center px-4 py-2">
-            <Ionicons name="heart-outline" size={22} color="#6B7280" />
-            <Text className="ml-2 text-gray-600">Like</Text>
-          </Pressable>
-        </View>
-
-        {/* External listing link - placeholder */}
-        <View className="mb-6">
-          <Pressable disabled className="flex-row items-center justify-center bg-gray-200 py-3 rounded-xl">
-            <Ionicons name="link-outline" size={16} color="#9CA3AF" />
-            <Text className="text-gray-400 font-semibold ml-2">No listing available</Text>
-          </Pressable>
-        </View>
-
-        {/* Price guess section */}
-        <View className="mb-6">
-          <PriceGuessSlider
-            propertyId={address.bagId}
-            officialValuation={undefined}
-            onGuessSubmit={handleSubmitGuess}
-          />
-        </View>
-
-        {/* Property Details */}
-        <View className="border-t border-gray-100 pt-4 mb-6">
-          <View className="flex-row items-center mb-3">
-            <Ionicons name="information-circle" size={20} color="#3B82F6" />
-            <Text className="text-lg font-semibold text-gray-900 ml-2">Property Details</Text>
-          </View>
-          <View className="bg-gray-50 rounded-xl p-3">
-            <View className="flex-row items-center py-2 border-b border-gray-100">
-              <View className="w-8 items-center">
-                <Ionicons name="location-outline" size={16} color="#6B7280" />
-              </View>
-              <Text className="flex-1 text-gray-500 text-sm">Full Address</Text>
-              <Text className="text-gray-900 text-sm font-medium" numberOfLines={1}>
-                {address.formattedAddress}
-              </Text>
-            </View>
-            <View className="flex-row items-center py-2 border-b border-gray-100">
-              <View className="w-8 items-center">
-                <Ionicons name="navigate-outline" size={16} color="#6B7280" />
-              </View>
-              <Text className="flex-1 text-gray-500 text-sm">Coordinates</Text>
-              <Text className="text-gray-900 text-sm font-medium">
-                {address.lat.toFixed(6)}, {address.lon.toFixed(6)}
-              </Text>
-            </View>
-            <View className="flex-row items-center py-2">
-              <View className="w-8 items-center">
-                <Ionicons name="barcode-outline" size={16} color="#6B7280" />
-              </View>
-              <Text className="flex-1 text-gray-500 text-sm">Property ID</Text>
-              <Text className="text-gray-900 text-sm font-medium" numberOfLines={1}>
-                {address.bagId}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Comments section */}
-        <View className="border-t border-gray-100 pt-4">
-          <View className="flex-row items-center mb-4">
-            <Ionicons name="chatbubbles" size={20} color="#3B82F6" />
-            <Text className="text-lg font-semibold text-gray-900 ml-2">
-              Comments ({MOCK_COMMENTS.length})
-            </Text>
-          </View>
-          <CommentList
-            comments={MOCK_COMMENTS}
-            onLike={handleLikeComment}
-            onReply={handleReplyComment}
-          />
-        </View>
-      </View>
-    </ScrollView>
-  );
-}
-
-/**
- * Main Address Route Component
+ * Main Address Route — resolves addresses and redirects to canonical routes.
  */
 export default function AddressScreen() {
   const params = useLocalSearchParams<{ address: string | string[] }>();
   const addressParams = parseAddressSegments(params.address || []);
-  const viewType = determineViewType(addressParams);
+  const [error, setError] = useState<string | null>(null);
 
-  // Resolve address using geocoding backend (Photon)
-  const {
-    data: resolvedAddress,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ['address', addressParams],
-    queryFn: () => resolveUrlParams(addressParams),
-    enabled: viewType === 'property',
-    retry: 1,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-  });
-
-  // Determine header title
-  const getHeaderTitle = (): string => {
-    if (viewType === 'city') return addressParams.city || 'City';
-    if (viewType === 'postcode') return addressParams.zipcode?.toUpperCase() || 'Area';
-    if (resolvedAddress) {
-      return `${resolvedAddress.details.street} ${resolvedAddress.details.number}`;
+  useEffect(() => {
+    // Partial URLs (city-only, city+postcode) — redirect to map.
+    // City/postcode browsing is not a supported product surface.
+    if (!isPropertyAddress(addressParams)) {
+      router.replace('/');
+      return;
     }
-    return 'Property';
-  };
 
-  // Render appropriate view based on URL depth
-  const renderContent = () => {
-    switch (viewType) {
-      case 'city':
-        return <CityView city={addressParams.city!} />;
+    // Full property address — resolve and redirect
+    let cancelled = false;
 
-      case 'postcode':
-        return <PostcodeView city={addressParams.city!} zipcode={addressParams.zipcode!} />;
-
-      case 'property':
-        if (isLoading) {
-          return <AddressLoadingSkeleton />;
+    async function resolve() {
+      try {
+        // Step 1: Geocode the address
+        const query = buildSearchQuery(addressParams);
+        if (!query) {
+          if (!cancelled) setError('Invalid address');
+          return;
         }
-        if (error || !resolvedAddress) {
-          return <AddressNotFound params={addressParams} />;
-        }
-        return <PropertyDetailView address={resolvedAddress} />;
 
-      default:
-        return <AddressNotFound params={addressParams} />;
+        const results = await apiGeocoder.search(query, { limit: 1 });
+        if (cancelled) return;
+
+        if (results.length === 0) {
+          setError('Address not found');
+          return;
+        }
+
+        const geocoded = results[0];
+        const postalCode = geocoded.postalCode;
+        const houseNumber = geocoded.houseNumber;
+
+        if (!postalCode || !houseNumber) {
+          setError('Address not found in our database');
+          return;
+        }
+
+        // Step 2: Resolve to local property
+        const property = await resolveProperty(postalCode, houseNumber);
+        if (cancelled) return;
+
+        if (property) {
+          // Redirect to canonical property route
+          router.replace(`/property/${property.id}`);
+        } else {
+          setError('Property not found in our database');
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Failed to resolve address');
+        }
+      }
     }
-  };
 
+    resolve();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addressParams.city, addressParams.zipcode, addressParams.street, addressParams.housenumber]);
+
+  // Error state — address could not be resolved
+  if (error) {
+    const addressString = [
+      addressParams.city,
+      addressParams.zipcode,
+      addressParams.street,
+      addressParams.housenumber,
+    ]
+      .filter(Boolean)
+      .join(' / ');
+
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.container}>
+          <Icon name="HouseLine" size={64} color="#E8E0D4" />
+          <Text style={styles.title}>Address not found</Text>
+          <Text style={styles.message}>
+            We couldn't find a property matching:{'\n'}
+            <Text style={styles.address}>{addressString}</Text>
+          </Text>
+          <Pressable
+            onPress={() => router.replace('/')}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Go to Map</Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  }
+
+  // Loading state — resolving address
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerTitle: getHeaderTitle(),
-          headerLeft: () => (
-            <Pressable onPress={() => router.back()} className="p-2">
-              <Ionicons name="close" size={24} color="#666" />
-            </Pressable>
-          ),
-          headerRight:
-            viewType === 'property' && resolvedAddress
-              ? () => (
-                  <Pressable
-                    onPress={async () => {
-                      try {
-                        await Share.share({
-                          message: `Check out this property: ${resolvedAddress.formattedAddress}`,
-                        });
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    }}
-                    className="p-2"
-                  >
-                    <Ionicons name="share-outline" size={24} color="#666" />
-                  </Pressable>
-                )
-              : undefined,
-        }}
-      />
-      {renderContent()}
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#F5A623" />
+        <Text style={styles.loadingText}>Resolving address...</Text>
+      </View>
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  title: {
+    color: '#2D2926',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  message: {
+    color: '#9C958A',
+    textAlign: 'center',
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  address: {
+    fontWeight: '500',
+    color: '#6B6560',
+  },
+  button: {
+    marginTop: 24,
+    backgroundColor: '#F5A623',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  loadingText: {
+    color: '#9C958A',
+    marginTop: 16,
+    fontSize: 15,
+  },
+});

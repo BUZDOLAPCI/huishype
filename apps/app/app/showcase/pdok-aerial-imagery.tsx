@@ -49,22 +49,22 @@ export default function PDOKAerialImageryShowcase() {
           title: 'PDOK Aerial Imagery Demo',
         }}
       />
-      <ScrollView className="flex-1 bg-gray-100" testID="pdok-aerial-imagery-showcase">
+      <ScrollView className="flex-1 bg-warm-100" testID="pdok-aerial-imagery-showcase">
         <View className="p-4">
-          <Text className="text-2xl font-bold text-gray-900 mb-2">
+          <Text className="text-2xl font-bold text-warm-900 mb-2">
             PDOK Aerial Imagery
           </Text>
-          <Text className="text-gray-500 mb-6">
+          <Text className="text-warm-500 mb-6">
             High-resolution aerial photography from the Dutch government PDOK service.
             These images serve as fallback hero images for properties without listing photos.
           </Text>
 
           {/* Primary Test Location - Tegenbosch (reference expectation) */}
           <View className="mb-6" testID="pdok-tegenbosch-section">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               1. {TEST_LOCATIONS[0].name}
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               {TEST_LOCATIONS[0].description}
             </Text>
             <AerialImageCard
@@ -77,10 +77,10 @@ export default function PDOKAerialImageryShowcase() {
 
           {/* Secondary Location - Dom Tower */}
           <View className="mb-6" testID="pdok-dom-tower-section">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               2. {TEST_LOCATIONS[1].name}
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               {TEST_LOCATIONS[1].description}
             </Text>
             <AerialImageCard
@@ -93,10 +93,10 @@ export default function PDOKAerialImageryShowcase() {
 
           {/* Additional Test Location */}
           <View className="mb-6" testID="pdok-deflectiespoelstraat-section">
-            <Text className="text-lg font-semibold text-gray-800 mb-2">
+            <Text className="text-lg font-semibold text-warm-800 mb-2">
               3. {TEST_LOCATIONS[2].name}
             </Text>
-            <Text className="text-sm text-gray-500 mb-3">
+            <Text className="text-sm text-warm-500 mb-3">
               {TEST_LOCATIONS[2].description}
             </Text>
             <AerialImageCard
@@ -108,42 +108,42 @@ export default function PDOKAerialImageryShowcase() {
           </View>
 
           {/* Technical Info */}
-          <View className="bg-white rounded-xl p-4 mb-6 border border-gray-200">
-            <Text className="text-base font-semibold text-gray-800 mb-2">
+          <View className="bg-surface-card rounded-xl p-4 mb-6 border border-warm-200">
+            <Text className="text-base font-semibold text-warm-800 mb-2">
               Technical Details
             </Text>
-            <Text className="text-sm text-gray-600 leading-5 mb-3">
+            <Text className="text-sm text-warm-600 leading-5 mb-3">
               The aerial images are fetched from the PDOK WMS (Web Map Service) using
               the Actueel_orthoHR layer which provides 7.5cm resolution imagery.
             </Text>
             <View className="space-y-2">
               <View className="flex-row">
-                <Text className="text-sm text-gray-500 w-32">Service:</Text>
-                <Text className="text-sm text-gray-700 flex-1">
+                <Text className="text-sm text-warm-500 w-32">Service:</Text>
+                <Text className="text-sm text-warm-700 flex-1">
                   PDOK Luchtfoto RGB
                 </Text>
               </View>
               <View className="flex-row">
-                <Text className="text-sm text-gray-500 w-32">Layer:</Text>
-                <Text className="text-sm text-gray-700 flex-1">
+                <Text className="text-sm text-warm-500 w-32">Layer:</Text>
+                <Text className="text-sm text-warm-700 flex-1">
                   Actueel_orthoHR
                 </Text>
               </View>
               <View className="flex-row">
-                <Text className="text-sm text-gray-500 w-32">Projection:</Text>
-                <Text className="text-sm text-gray-700 flex-1">
+                <Text className="text-sm text-warm-500 w-32">Projection:</Text>
+                <Text className="text-sm text-warm-700 flex-1">
                   EPSG:28992 (RD New)
                 </Text>
               </View>
               <View className="flex-row">
-                <Text className="text-sm text-gray-500 w-32">Resolution:</Text>
-                <Text className="text-sm text-gray-700 flex-1">
+                <Text className="text-sm text-warm-500 w-32">Resolution:</Text>
+                <Text className="text-sm text-warm-700 flex-1">
                   800x600 pixels (4:3)
                 </Text>
               </View>
               <View className="flex-row">
-                <Text className="text-sm text-gray-500 w-32">Coverage:</Text>
-                <Text className="text-sm text-gray-700 flex-1">
+                <Text className="text-sm text-warm-500 w-32">Coverage:</Text>
+                <Text className="text-sm text-warm-700 flex-1">
                   ~45m x 45m area
                 </Text>
               </View>

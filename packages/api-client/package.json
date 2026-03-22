@@ -16,15 +16,16 @@
     "build": "tsc",
     "generate": "openapi-typescript ../../services/api/openapi.json -o ./generated/api.ts",
     "lint": "eslint .",
-    "test": "echo 'TODO: Setup tests'",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@huishype/shared": "workspace:*"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.4.4",
     "openapi-fetch": "^0.13.5",
-    "typescript": "^5.7.3"
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
   }
 }

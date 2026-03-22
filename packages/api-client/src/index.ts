@@ -1,16 +1,25 @@
 /**
  * @huishype/api-client
  *
- * Generated OpenAPI client for HuisHype API
- * Uses openapi-typescript for type generation and openapi-fetch for requests
+ * Typed API client for HuisHype.
+ *
+ * Contract pipeline:
+ *   1. Backend route schemas (services/api/src/routes/*) are the canonical source
+ *   2. services/api/openapi.json is exported from the live Fastify OpenAPI document
+ *   3. packages/api-client/generated/api.ts is derived from that spec
+ *   4. This package re-exports the generated types and a thin client wrapper
+ *
+ * Regenerate after any route schema change:
+ *   pnpm --filter @huishype/api openapi:export
+ *   pnpm --filter @huishype/api-client generate
  */
 
 // Export the client class and factory
-export { HuisHypeApiClient, createApiClient, ApiError } from './client';
-export type { ApiClientOptions } from './client';
+export { HuisHypeApiClient, createApiClient, ApiError } from './client.js';
+export type { ApiClientOptions } from './client.js';
 
-// Re-export generated types when available
-// export type * from '../generated/api';
+// Re-export generated OpenAPI types so consumers can reference them
+export type { paths, operations, components } from '../generated/api.js';
 
 // Package metadata
 export const PACKAGE_NAME = '@huishype/api-client';

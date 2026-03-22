@@ -50,6 +50,8 @@ export interface AuthContextValue extends AuthState {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signInWithMockToken: (token: string) => Promise<void>;
+  requestEmailLink: (email: string) => Promise<void>;
+  verifyEmailToken: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
@@ -448,6 +450,87 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   /**
+   * Verify an email magic link token.
+   *
+   * Calls POST /auth/email/verify and stores the returned session.
+   * This is invoked either from deep-link handling (production) or
+   * automatically in dev mode after requestEmailLink.
+   */
+  const verifyEmailToken = useCallback(
+    async (token: string) => {
+      try {
+        setState((prev) => ({ ...prev, isLoading: true }));
+
+        const response = await fetch(`${API_BASE_URL}/auth/email/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json()) as { error: string; message: string };
+          throw new Error(errorData.message || 'Invalid or expired link');
+        }
+
+        const data = (await response.json()) as {
+          session: {
+            user: AuthUser;
+            accessToken: string;
+            refreshToken: string;
+            expiresAt: string;
+          };
+          isNewUser: boolean;
+        };
+
+        await storeAuthData(
+          data.session.accessToken,
+          data.session.refreshToken,
+          data.session.user,
+          data.session.expiresAt
+        );
+      } catch (error) {
+        console.error('Email token verification failed:', error);
+        setState((prev) => ({ ...prev, isLoading: false }));
+        throw error;
+      }
+    },
+    [storeAuthData]
+  );
+
+  /**
+   * Request an email magic link.
+   *
+   * Calls POST /auth/email/request. In dev mode the backend returns
+   * the token directly (no email sent). In production the user clicks
+   * the link in the email which deep-links back to the app calling
+   * verifyEmailToken.
+   */
+  const requestEmailLink = useCallback(async (email: string) => {
+    const response = await fetch(`${API_BASE_URL}/auth/email/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    if (response.status === 429) {
+      const data = (await response.json()) as { error: string; message: string };
+      throw new Error(data.message || 'Too many requests. Please try again later.');
+    }
+
+    if (!response.ok) {
+      throw new Error('Failed to send magic link. Please try again.');
+    }
+
+    // In dev mode the backend returns the token — we can auto-verify
+    if (__DEV__) {
+      const data = (await response.json()) as { message: string; token?: string };
+      if (data.token) {
+        await verifyEmailToken(data.token);
+      }
+    }
+  }, [verifyEmailToken]);
+
+  /**
    * Sign out
    */
   const signOut = useCallback(async () => {
@@ -540,6 +623,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signInWithGoogle,
     signInWithApple,
     signInWithMockToken,
+    requestEmailLink,
+    verifyEmailToken,
     signOut,
     refreshAuth,
     getAccessToken,
