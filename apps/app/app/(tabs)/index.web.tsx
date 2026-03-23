@@ -10,7 +10,7 @@ import {
   PropertyBottomSheet,
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
-import { useMapCityName } from '@/src/hooks/useMapCityName';
+import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { API_URL, fetchBatchProperties } from '@/src/utils/api';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
@@ -218,21 +218,6 @@ function createSelectedMarkerElement(): HTMLDivElement {
   container.appendChild(dot);
 
   return container;
-}
-
-/**
- * Extract city name from a formatted geocoder address string.
- * Addresses are formatted as "Street Number, PostalCode City" or "Name, City".
- * Returns the city portion or null.
- */
-function extractCityFromAddress(address: string): string | null {
-  const parts = address.split(',').map(p => p.trim());
-  if (parts.length < 2) return null;
-  const lastPart = parts[parts.length - 1];
-  // The last part may be "PostalCode City" — strip leading postal code tokens.
-  // Postal codes can be like "5641 HN" (NL), "75001" (FR), "10115" (DE).
-  const stripped = lastPart.replace(/^\d[\w\s]*?\s(?=[A-Z])/u, '').trim();
-  return stripped || lastPart;
 }
 
 // Property layer IDs for click handling
@@ -782,6 +767,7 @@ export default function MapScreen() {
         onClose={interaction.handleAuthModalClose}
         message={interaction.authMessage}
         onSuccess={interaction.handleAuthSuccess}
+        onAuthStarting={interaction.handleAuthStarting}
       />
     </View>
   );

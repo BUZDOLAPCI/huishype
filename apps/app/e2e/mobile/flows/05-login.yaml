@@ -88,3 +88,18 @@ appId: nl.huishype.app
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/logged-in.png
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/post-login-map.png
+
+# Verify auth succeeded: navigate to Profile and confirm sign-in button is gone
+- tapOn:
+    text: 'Profile'
+- waitForAnimationToEnd
+
+# The sign-in button should NOT be visible if login succeeded
+- assertNotVisible:
+    id: 'profile-sign-in-button'
+    timeout: 5000
+
+# Return to Map tab for the next flow
+- tapOn:
+    text: 'Map'
+- waitForAnimationToEnd

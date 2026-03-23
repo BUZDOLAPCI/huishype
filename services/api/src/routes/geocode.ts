@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { GeocodeSuggestion } from '@huishype/shared';
@@ -42,6 +43,27 @@ const reverseQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lang: z.string().optional(),
 });
+
+const geocodeSuggestionSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  street: z.string().optional(),
+  houseNumber: z.string().optional(),
+  postalCode: z.string().optional(),
+  city: z.string().optional(),
+  region: z.string().optional(),
+  countryCode: z.string().optional(),
+  coordinates: z.tuple([z.number(), z.number()]),
+});
+
+const reverseGeocodeResponseSchema = z.nullable(
+  z.object({
+    city: z.string().nullable(),
+    state: z.string().nullable(),
+    country: z.string().nullable(),
+    countryCode: z.string().nullable(),
+  })
+);
 
 /**
  * Format a Photon feature into a human-readable display name.
@@ -91,100 +113,114 @@ function transformFeature(feature: PhotonFeature): GeocodeSuggestion {
   };
 }
 
-export async function geocodeRoutes(app: FastifyInstance) {
+export async function geocodeRoutes(fastify: FastifyInstance) {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   /**
    * GET /geocode/search
    * Proxies to Photon and reformats the response.
    */
-  app.get('/geocode/search', async (request, reply) => {
-    const parseResult = searchQuerySchema.safeParse(request.query);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: 'VALIDATION_ERROR',
-        message: 'Invalid query parameters',
-        details: parseResult.error.issues,
-      });
-    }
+  app.get(
+    '/geocode/search',
+    {
+      schema: {
+        tags: ['Geocode'],
+        summary: 'Forward geocode search',
+        description: 'Proxies to Photon geocoder and returns formatted address suggestions.',
+        querystring: searchQuerySchema,
+        response: {
+          200: z.array(geocodeSuggestionSchema),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { q, limit, lang, countrycode } = request.query;
 
-    const { q, limit, lang, countrycode } = parseResult.data;
+      // Build Photon query parameters
+      const photonParams = new URLSearchParams({ q, limit: String(limit) });
+      if (lang) photonParams.set('lang', lang);
+      if (countrycode) photonParams.set('countrycode', countrycode);
 
-    // Build Photon query parameters
-    const photonParams = new URLSearchParams({ q, limit: String(limit) });
-    if (lang) photonParams.set('lang', lang);
-    if (countrycode) photonParams.set('countrycode', countrycode);
+      try {
+        const photonUrl = `${config.photon.url}/api?${photonParams.toString()}`;
+        const response = await fetch(photonUrl, {
+          signal: AbortSignal.timeout(5000),
+        });
 
-    try {
-      const photonUrl = `${config.photon.url}/api?${photonParams.toString()}`;
-      const response = await fetch(photonUrl, {
-        signal: AbortSignal.timeout(5000),
-      });
+        if (!response.ok) {
+          app.log.warn(`Photon returned ${response.status}: ${response.statusText}`);
+          return reply.send([]);
+        }
 
-      if (!response.ok) {
-        app.log.warn(`Photon returned ${response.status}: ${response.statusText}`);
+        const data = await response.json() as PhotonResponse;
+        const suggestions = data.features.map(transformFeature);
+
+        return reply.send(suggestions);
+      } catch (error) {
+        // Photon unreachable — return empty results gracefully
+        app.log.warn({ err: error }, 'Photon geocoder unreachable');
         return reply.send([]);
       }
-
-      const data = await response.json() as PhotonResponse;
-      const suggestions = data.features.map(transformFeature);
-
-      return reply.send(suggestions);
-    } catch (error) {
-      // Photon unreachable — return empty results gracefully
-      app.log.warn({ err: error }, 'Photon geocoder unreachable');
-      return reply.send([]);
     }
-  });
+  );
 
   /**
    * GET /geocode/reverse
    * Reverse geocodes a coordinate to a city/town name via Photon.
    * Returns { city, state, country, countryCode } or null if nothing found.
    */
-  app.get('/geocode/reverse', async (request, reply) => {
-    const parseResult = reverseQuerySchema.safeParse(request.query);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: 'VALIDATION_ERROR',
-        message: 'Invalid query parameters',
-        details: parseResult.error.issues,
+  app.get(
+    '/geocode/reverse',
+    {
+      schema: {
+        tags: ['Geocode'],
+        summary: 'Reverse geocode coordinates',
+        description:
+          'Reverse geocodes a coordinate to a city/town name via Photon. ' +
+          'Returns { city, state, country, countryCode } or null if nothing found.',
+        querystring: reverseQuerySchema,
+        response: {
+          200: reverseGeocodeResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { lon, lat, lang } = request.query;
+
+      const photonParams = new URLSearchParams({
+        lon: String(lon),
+        lat: String(lat),
       });
-    }
+      if (lang) photonParams.set('lang', lang);
 
-    const { lon, lat, lang } = parseResult.data;
+      try {
+        const photonUrl = `${config.photon.url}/reverse?${photonParams.toString()}`;
+        const response = await fetch(photonUrl, {
+          signal: AbortSignal.timeout(3000),
+        });
 
-    const photonParams = new URLSearchParams({
-      lon: String(lon),
-      lat: String(lat),
-    });
-    if (lang) photonParams.set('lang', lang);
+        if (!response.ok) {
+          app.log.warn(`Photon reverse returned ${response.status}: ${response.statusText}`);
+          return reply.send(null);
+        }
 
-    try {
-      const photonUrl = `${config.photon.url}/reverse?${photonParams.toString()}`;
-      const response = await fetch(photonUrl, {
-        signal: AbortSignal.timeout(3000),
-      });
+        const data = await response.json() as PhotonResponse;
+        if (!data.features || data.features.length === 0) {
+          return reply.send(null);
+        }
 
-      if (!response.ok) {
-        app.log.warn(`Photon reverse returned ${response.status}: ${response.statusText}`);
+        // Return the city/town from the nearest feature
+        const props = data.features[0].properties;
+        return reply.send({
+          city: props.city || props.name || null,
+          state: props.state || null,
+          country: props.country || null,
+          countryCode: props.countrycode || null,
+        });
+      } catch (error) {
+        app.log.warn({ err: error }, 'Photon reverse geocoder unreachable');
         return reply.send(null);
       }
-
-      const data = await response.json() as PhotonResponse;
-      if (!data.features || data.features.length === 0) {
-        return reply.send(null);
-      }
-
-      // Return the city/town from the nearest feature
-      const props = data.features[0].properties;
-      return reply.send({
-        city: props.city || props.name || null,
-        state: props.state || null,
-        country: props.country || null,
-        countryCode: props.countrycode || null,
-      });
-    } catch (error) {
-      app.log.warn({ err: error }, 'Photon reverse geocoder unreachable');
-      return reply.send(null);
     }
-  });
+  );
 }

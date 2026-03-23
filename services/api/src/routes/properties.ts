@@ -308,6 +308,24 @@ function buildRadiusConditions(lon: number, lat: number, radiusMeters: number) {
   ];
 }
 
+/**
+ * Engagement count SQL fragment — single lateral subquery replacing 4 correlated
+ * subqueries (comments was counted twice: once for activity_score, once for
+ * comment_count; same for price_guesses).
+ */
+const engagementJoin = sql`LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(c.cnt, 0)::int AS comment_count,
+    COALESCE(g.cnt, 0)::int AS guess_count,
+    COALESCE(lk.cnt, 0)::int AS like_count,
+    (COALESCE(c.cnt, 0) + COALESCE(g.cnt, 0))::int AS activity_score
+  FROM
+    (SELECT 1) AS _dummy
+    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM comments WHERE property_id = p.id) c ON true
+    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM price_guesses WHERE property_id = p.id) g ON true
+    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') lk ON true
+) eng ON true`;
+
 // Row type for cluster detection queries
 type ClusterDetectionRow = {
   id: string;
@@ -384,10 +402,10 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         l.asking_price,
-        ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
-        (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
-        (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-        (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+        eng.activity_score,
+        eng.like_count,
+        eng.comment_count,
+        eng.guess_count,
         ST_Distance(
           p.geometry::geography,
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -400,6 +418,7 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         WHERE property_id = p.id AND status = 'active'
         ORDER BY created_at DESC LIMIT 1
       ) l ON true
+      ${engagementJoin}
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
         AND ST_DWithin(
@@ -433,10 +452,10 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         l.asking_price,
-        ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
-        (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
-        (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-        (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+        eng.activity_score,
+        eng.like_count,
+        eng.comment_count,
+        eng.guess_count,
         ST_Distance(
           p.geometry::geography,
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -449,6 +468,7 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         WHERE property_id = p.id AND status = 'active'
         ORDER BY created_at DESC LIMIT 1
       ) l ON true
+      ${engagementJoin}
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
         AND ST_DWithin(
@@ -583,7 +603,8 @@ export async function propertyRoutes(app: FastifyInstance) {
       // Bounding box query (requires PostGIS)
       if (bbox) {
         const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
-        if (minLon && minLat && maxLon && maxLat) {
+        if (minLon != null && minLat != null && maxLon != null && maxLat != null
+            && !Number.isNaN(minLon) && !Number.isNaN(minLat) && !Number.isNaN(maxLon) && !Number.isNaN(maxLat)) {
           conditions.push(
             sql`ST_Within(p.geometry, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326))`
           );
@@ -632,6 +653,30 @@ export async function propertyRoutes(app: FastifyInstance) {
         created_at: string;
         updated_at: string;
       }>(sql`
+        WITH page_rows AS (
+          SELECT
+            p.id,
+            p.national_id,
+            p.country_code,
+            p.region,
+            p.street,
+            p.house_number,
+            p.house_number_addition,
+            p.city,
+            p.postal_code,
+            p.geometry,
+            p.year_built,
+            p.floor_area_m2,
+            p.status,
+            p.official_valuation,
+            p.created_at,
+            p.updated_at
+          FROM properties p
+          ${whereFragment}
+          ORDER BY p.created_at
+          LIMIT ${limit}
+          OFFSET ${offset}
+        )
         SELECT
           p.id,
           p.national_id,
@@ -650,21 +695,19 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
-          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          eng.like_count,
+          eng.comment_count,
+          eng.guess_count,
           p.created_at,
           p.updated_at
-        FROM properties p
+        FROM page_rows p
         LEFT JOIN LATERAL (
           SELECT id, asking_price FROM listings
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
-        ${whereFragment}
+        ${engagementJoin}
         ORDER BY p.created_at
-        LIMIT ${limit}
-        OFFSET ${offset}
       `);
 
       const results = Array.from(rows).map((r) => ({
@@ -909,10 +952,10 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
-          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
-          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          eng.activity_score,
+          eng.like_count,
+          eng.comment_count,
+          eng.guess_count,
           ST_Distance(
             p.geometry::geography,
             ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -925,6 +968,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
+        ${engagementJoin}
         WHERE p.geometry IS NOT NULL
           AND p.status = 'active'
           AND ST_DWithin(
@@ -1036,9 +1080,9 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
-          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          eng.like_count,
+          eng.comment_count,
+          eng.guess_count,
           p.created_at,
           p.updated_at
         FROM properties p
@@ -1047,6 +1091,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
+        ${engagementJoin}
         WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
       `);
 
@@ -1145,14 +1190,14 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
+          eng.like_count,
           EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
           EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
           (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id) AS view_count,
           (SELECT COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int FROM property_views WHERE property_id=p.id) AS unique_viewers,
           (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id AND viewed_at > NOW() - INTERVAL '7 days') AS recent_views,
-          (SELECT COUNT(*)::int FROM comments WHERE property_id=p.id) AS comment_count,
-          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id=p.id) AS guess_count,
+          eng.comment_count,
+          eng.guess_count,
           p.created_at,
           p.updated_at
         FROM properties p
@@ -1161,6 +1206,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
+        ${engagementJoin}
         WHERE p.id = ${id}
         LIMIT 1
       `);
@@ -1399,8 +1445,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
-          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
-          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
+          eng.comment_count,
+          eng.guess_count,
           sp.created_at AS saved_at,
           p.created_at,
           p.updated_at
@@ -1411,6 +1457,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
+        ${engagementJoin}
         WHERE sp.user_id = ${userId}
         ORDER BY sp.created_at DESC
         LIMIT ${limit}

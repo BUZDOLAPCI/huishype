@@ -16,11 +16,11 @@
  *   test-results/visual-overhaul/<surface>/notes.md
  */
 
-import { Page, test as base } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+import { test as base } from '@playwright/test';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { ConsoleCollector, KNOWN_ACCEPTABLE_ERRORS } from './visual-test-helpers.js';
+import { ConsoleCollector, KNOWN_ACCEPTABLE_ERRORS } from './visual-test-helpers';
 
 // ============================================
 // Viewport presets
@@ -41,7 +41,7 @@ export type ViewportName = keyof typeof VIEWPORTS;
 // Output directory
 // ============================================
 
-const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const HARNESS_DIR = __dirname;
 const REPO_ROOT = path.resolve(HARNESS_DIR, '../../../../../');
 
 /** Root directory for visual overhaul screenshots */
@@ -287,3 +287,154 @@ export const test = base.extend<{
     collector.detach();
   },
 });
+
+// ============================================
+// Map interaction helpers
+// ============================================
+
+export interface ClickOnPropertyMarkerResult {
+  success: boolean;
+  featureCount: number;
+  screenX?: number;
+  screenY?: number;
+  propertyId?: string;
+  pointCount?: number;
+  reason?: string;
+}
+
+/**
+ * Find and click on a property marker on the MapLibre map.
+ *
+ * Uses queryRenderedFeatures to locate an on-screen marker near the center of
+ * the viewport, then performs a real Playwright mouse click at that position.
+ *
+ * @param page  Playwright Page with a loaded MapLibre map instance on window.__mapInstance
+ * @returns     Result indicating success, feature count, and screen coordinates
+ */
+export async function clickOnPropertyMarker(page: Page): Promise<ClickOnPropertyMarkerResult> {
+  const result = await page.evaluate(() => {
+    const mapInstance = (window as any).__mapInstance;
+    if (!mapInstance || !mapInstance.isStyleLoaded()) {
+      return { success: false, featureCount: 0, reason: 'Map not ready' };
+    }
+
+    const canvas = mapInstance.getCanvas();
+    if (!canvas) {
+      return { success: false, featureCount: 0, reason: 'No canvas' };
+    }
+
+    const layerNames = ['single-active-points', 'active-nodes', 'ghost-nodes'];
+    let allFeatures: any[] = [];
+
+    for (const layerName of layerNames) {
+      try {
+        if (mapInstance.getLayer(layerName)) {
+          const features = mapInstance.queryRenderedFeatures(
+            [[0, 0], [canvas.width, canvas.height]],
+            { layers: [layerName] }
+          ) || [];
+          allFeatures = allFeatures.concat(features);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    if (allFeatures.length === 0) {
+      return { success: false, featureCount: 0, reason: 'No features found' };
+    }
+
+    const canvasCenterX = canvas.width / 2;
+    const canvasCenterY = canvas.height / 2;
+    const edgeMargin = 40;
+
+    const candidates = allFeatures
+      .filter((feature: any) =>
+        feature.geometry?.type === 'Point' &&
+        (!feature.properties?.point_count || feature.properties.point_count === 1)
+      )
+      .map((feature: any) => {
+        const coordinates = feature.geometry.coordinates;
+        const point = mapInstance.project(coordinates);
+        const inBounds =
+          point.x >= edgeMargin &&
+          point.x <= canvas.width - edgeMargin &&
+          point.y >= edgeMargin &&
+          point.y <= canvas.height - edgeMargin;
+
+        return {
+          feature,
+          coordinates,
+          point,
+          inBounds,
+          distanceToCenter:
+            Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
+        };
+      })
+      .filter((candidate: any) => candidate.inBounds)
+      .sort((a: any, b: any) => a.distanceToCenter - b.distanceToCenter);
+
+    const candidate = candidates[0];
+    if (!candidate) {
+      return { success: false, featureCount: allFeatures.length, reason: 'No non-cluster point feature found' };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      success: true,
+      featureCount: allFeatures.length,
+      screenX: rect.left + candidate.point.x,
+      screenY: rect.top + candidate.point.y,
+      propertyId: candidate.feature.properties?.id,
+    };
+  });
+
+  console.log(`Click result: ${JSON.stringify(result)}`);
+
+  if (result.success) {
+    if (result.screenX !== undefined && result.screenY !== undefined) {
+      await page.mouse.move(result.screenX, result.screenY);
+      await page.mouse.click(result.screenX, result.screenY);
+    }
+    await page.waitForTimeout(500);
+  }
+
+  return {
+    success: result.success,
+    featureCount: result.featureCount,
+    screenX: result.screenX,
+    screenY: result.screenY,
+    propertyId: result.propertyId,
+    reason: result.reason,
+  };
+}
+
+async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.click({ force: true });
+      await page.waitForTimeout(250);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function dismissPreviewCard(page: Page): Promise<boolean> {
+  return clickFirstVisible(page, [
+    '[data-testid="property-preview-close-button"]',
+    '[data-testid="group-preview-close-button"]',
+    '[data-testid="group-preview-close-hitzone"]',
+  ]);
+}
+
+export async function clickPreviewAction(
+  page: Page,
+  action: 'like' | 'comment' | 'guess'
+): Promise<boolean> {
+  return clickFirstVisible(page, [
+    `[data-testid="group-preview-${action}-button"]`,
+    `[data-testid="group-preview-${action}-hitzone"]`,
+  ]);
+}

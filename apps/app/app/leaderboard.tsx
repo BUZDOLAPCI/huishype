@@ -322,13 +322,6 @@ export default function LeaderboardScreen() {
         return (
           <View style={styles.rankingsHeader}>
             <Text style={styles.rankingsHeaderText}>ALL RANKINGS</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Sort rankings by karma"
-              style={{ minHeight: 44, justifyContent: 'center' }}
-            >
-              <Text style={styles.sortLink}>By Karma</Text>
-            </Pressable>
           </View>
         );
       }
@@ -670,12 +663,6 @@ const styles = StyleSheet.create({
     color: '#9C958A',
     textTransform: 'uppercase',
   },
-  sortLink: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#B47712', // gold-700 — AA contrast on warm-50
-  },
-
   // Ranking row
   rankingRow: {
     flexDirection: 'row',

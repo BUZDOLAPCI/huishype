@@ -6,7 +6,8 @@
  * array structure and fixture data integrity only.
  */
 
-import { describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
+import { server } from '../server.js';
 import {
   handlers,
   authHandlers,
@@ -40,6 +41,59 @@ import {
   getMockComments,
   getMockGuesses,
 } from '../data/fixtures.js';
+
+describe('Mock handler runtime parity', () => {
+  beforeAll(() => {
+    server.listen({ onUnhandledRequest: 'error' });
+  });
+
+  afterEach(() => {
+    server.resetHandlers();
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('returns the live /auth/me response envelope', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+
+    const meResponse = await fetch('http://localhost/auth/me', {
+      headers: {
+        Authorization: `Bearer ${loginBody.session.accessToken as string}`,
+      },
+    });
+    const meBody = await meResponse.json();
+
+    expect(meResponse.status).toBe(200);
+    expect(meBody).toHaveProperty('user');
+    expect(meBody.user).toHaveProperty('id');
+    expect(meBody.user).toHaveProperty('username');
+  });
+
+  it('matches live geocode validation for empty query and oversized limit', async () => {
+    const emptyQueryResponse = await fetch('http://localhost/geocode/search?q=');
+    const emptyQueryBody = await emptyQueryResponse.json();
+    expect(emptyQueryResponse.status).toBe(400);
+    expect(emptyQueryBody).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Invalid query parameters',
+    });
+
+    const oversizedLimitResponse = await fetch('http://localhost/geocode/search?q=test&limit=21');
+    const oversizedLimitBody = await oversizedLimitResponse.json();
+    expect(oversizedLimitResponse.status).toBe(400);
+    expect(oversizedLimitBody).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Invalid query parameters',
+    });
+  });
+});
 
 describe('Handler wiring', () => {
   it('exports a non-empty combined handlers array', () => {

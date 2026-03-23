@@ -21,7 +21,7 @@ import {
   GroupPreviewCard,
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
-import { useMapCityName } from '@/src/hooks/useMapCityName';
+import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { fetchNearbyCluster } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
@@ -40,21 +40,6 @@ const COLORS = {
   gray800: '#3D3832',    // warm-800
   blue500: '#F5A623',    // primary-500 (gold)
 } as const;
-
-/**
- * Extract city name from a formatted geocoder address string.
- * Addresses are formatted as "Street Number, PostalCode City" or "Name, City".
- * Returns the city portion or null.
- */
-function extractCityFromAddress(address: string): string | null {
-  const parts = address.split(',').map(p => p.trim());
-  if (parts.length < 2) return null;
-  const lastPart = parts[parts.length - 1];
-  // The last part may be "PostalCode City" — strip leading postal code tokens.
-  // Postal codes can be like "5641 HN" (NL), "75001" (FR), "10115" (DE).
-  const stripped = lastPart.replace(/^\d[\w\s]*?\s(?=[A-Z])/u, '').trim();
-  return stripped || lastPart;
-}
 
 // Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
 // after a card touch (e.g. user lifts finger outside the map gesture area),

@@ -13,7 +13,7 @@ import type { AuthLoginResponse, AuthRefreshResponse } from '@huishype/shared';
 let mockSessions: Map<string, { userId: string; expiresAt: Date }> = new Map();
 
 function buildLoginHandler(path: string) {
-  return http.post(path, async ({ request }) => {
+  return http.post(`*${path}`, async ({ request }) => {
     const body = await request.json() as { idToken: string };
 
     if (!body.idToken) {
@@ -63,7 +63,7 @@ export const authHandlers = [
   /**
    * POST /auth/refresh - Refresh access token
    */
-  http.post('/auth/refresh', async ({ request }) => {
+  http.post('*/auth/refresh', async ({ request }) => {
     const body = await request.json() as { refreshToken: string };
 
     if (!body.refreshToken) {
@@ -99,7 +99,7 @@ export const authHandlers = [
   /**
    * POST /auth/logout - Logout
    */
-  http.post('/auth/logout', async ({ request }) => {
+  http.post('*/auth/logout', async ({ request }) => {
     const authHeader = request.headers.get('Authorization');
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
@@ -112,17 +112,17 @@ export const authHandlers = [
   /**
    * GET /auth/me - Get current auth user
    */
-  http.get('/auth/me', ({ request }) => {
+  http.get('*/auth/me', ({ request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
 
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
 
-    return HttpResponse.json(authUser);
+    return HttpResponse.json({ user: authUser });
   }),
 ];
 
@@ -154,6 +154,13 @@ export function getMockAuthUser(authHeader: string | null) {
   if (!session) return null;
 
   return mockUserProfiles.find((u) => u.id === session.userId);
+}
+
+/**
+ * Register a mock session (used by other auth handlers like email-auth)
+ */
+export function registerMockSession(accessToken: string, userId: string, expiresAt: Date) {
+  mockSessions.set(accessToken, { userId, expiresAt });
 }
 
 /**

@@ -14,6 +14,10 @@ import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { waitForMapIdle } from './helpers/visual-test-helpers';
+import {
+  clickOnPropertyMarker,
+  clickPreviewAction,
+} from './helpers/screenshot-harness';
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -42,106 +46,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Increase test timeout for this visual test
 test.setTimeout(120000);
-
-/**
- * Helper function to find and click on a property marker
- * Uses the map's queryRenderedFeatures to find marker screen positions
- * and fires the map's click event directly for reliable interaction
- */
-async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; featureCount: number }> {
-  // Try to find and click a property marker using map's fire event
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, featureCount: 0, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, featureCount: 0, reason: 'No canvas' };
-    }
-
-    // Query features with bounding box for the entire canvas
-    let allFeatures: any[] = [];
-    try {
-      const ghostFeatures = mapInstance.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: ['ghost-nodes'] }
-      ) || [];
-      allFeatures = allFeatures.concat(ghostFeatures);
-    } catch (e) { /* ignore */ }
-
-    try {
-      const activeFeatures = mapInstance.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: ['active-nodes'] }
-      ) || [];
-      allFeatures = allFeatures.concat(activeFeatures);
-    } catch (e) { /* ignore */ }
-
-    // Also try clusters if no individual points
-    if (allFeatures.length === 0) {
-      try {
-        const clusterFeatures = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['property-clusters'] }
-        ) || [];
-        allFeatures = allFeatures.concat(clusterFeatures);
-      } catch (e) { /* ignore */ }
-    }
-
-    if (allFeatures.length === 0) {
-      return { success: false, featureCount: 0, reason: 'No features found' };
-    }
-
-    // Get the first feature and its coordinates
-    const feature = allFeatures[0];
-    if (!feature.geometry || feature.geometry.type !== 'Point') {
-      return { success: false, featureCount: allFeatures.length, reason: 'Invalid geometry' };
-    }
-
-    const coordinates = feature.geometry.coordinates;
-    const point = mapInstance.project(coordinates);
-    const rect = canvas.getBoundingClientRect();
-
-    // Create a click event
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + point.x,
-      clientY: rect.top + point.y,
-      view: window
-    });
-
-    // Fire the click event on the map to trigger the marker click handler
-    mapInstance.fire('click', {
-      point: { x: point.x, y: point.y },
-      lngLat: { lng: coordinates[0], lat: coordinates[1] },
-      originalEvent: clickEvent,
-      features: [feature]
-    });
-
-    return {
-      success: true,
-      featureCount: allFeatures.length,
-      screenX: point.x,
-      screenY: point.y,
-      propertyId: feature.properties?.id
-    };
-  });
-
-  console.log(`Click result: ${JSON.stringify(result)}`);
-
-  if (result.success) {
-    // Also click with Playwright for double-insurance
-    if (result.screenX && result.screenY) {
-      await page.mouse.click(result.screenX, result.screenY);
-    }
-    await page.waitForTimeout(500);
-  }
-
-  return { success: result.success, featureCount: result.featureCount };
-}
 
 /**
  * Helper function to wait for map to be ready with properties loaded
@@ -242,6 +146,19 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   });
 
   return result;
+}
+
+async function collapseWebPanelToPreviewOnly(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as any).__bottomSheetRef?.current?.close?.();
+  });
+
+  await page.waitForFunction(() => {
+    const backdrop = document.querySelector('[data-testid="web-panel-backdrop"]');
+    if (!backdrop) return true;
+    const style = window.getComputedStyle(backdrop);
+    return !backdrop.classList.contains('open') || style.pointerEvents === 'none' || parseFloat(style.opacity || '0') < 0.1;
+  }, { timeout: 5000 }).catch(() => {});
 }
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -554,19 +471,19 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (previewVisible) {
       // Verify Like button exists
-      const likeButton = page.locator('text=Like');
+      const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
       const hasLike = await likeButton.first().isVisible().catch(() => false);
       console.log(`Like button visible: ${hasLike}`);
       expect(hasLike, 'Like button should be visible').toBe(true);
 
       // Verify Comment button exists
-      const commentButton = page.locator('text=Comment');
+      const commentButton = page.locator('[data-testid="group-preview-comment-button"]').first();
       const hasComment = await commentButton.first().isVisible().catch(() => false);
       console.log(`Comment button visible: ${hasComment}`);
       expect(hasComment, 'Comment button should be visible').toBe(true);
 
       // Verify Guess button exists
-      const guessButton = page.locator('text=Guess');
+      const guessButton = page.locator('[data-testid="group-preview-guess-button"]').first();
       const hasGuess = await guessButton.first().isVisible().catch(() => false);
       console.log(`Guess button visible: ${hasGuess}`);
       expect(hasGuess, 'Guess button should be visible').toBe(true);
@@ -612,18 +529,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     if (previewVisible) {
-      // On web, clicking a marker opens WebPropertyPanel with backdrop that intercepts clicks.
-      // Close the panel first so we can interact with the preview card buttons.
-      await page.evaluate(() => {
-        const ref = (window as any).__bottomSheetRef?.current;
-        if (ref) ref.close();
-      });
-      await page.waitForTimeout(1000);
+      await collapseWebPanelToPreviewOnly(page);
 
       // Test Like button click (triggers auth modal since user is not authenticated)
-      const likeButton = page.locator('text=Like').first();
-      if (await likeButton.isVisible()) {
-        await likeButton.click();
+      const likeClicked = await clickPreviewAction(page, 'like');
+      if (likeClicked) {
         console.log('Like button clicked - triggers auth modal (unauthenticated)');
         await page.waitForTimeout(500);
 
@@ -642,9 +552,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
 
       // Test Comment button click (should open bottom sheet)
-      const commentButton = page.locator('text=Comment').first();
-      if (await commentButton.isVisible()) {
-        await commentButton.click();
+      const commentClicked = await clickPreviewAction(page, 'comment');
+      if (commentClicked) {
         console.log('Comment button clicked - should open bottom sheet');
         await page.waitForTimeout(1000);
 

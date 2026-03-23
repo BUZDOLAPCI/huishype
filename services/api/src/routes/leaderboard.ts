@@ -85,10 +85,13 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
 
       // Time window for week/month filters
       let timeCondition = sql``;
+      let propertyViewTimeCondition = sql``;
       if (period === 'week') {
         timeCondition = sql`AND sub.created_at > NOW() - INTERVAL '7 days'`;
+        propertyViewTimeCondition = sql`AND sub.viewed_at > NOW() - INTERVAL '7 days'`;
       } else if (period === 'month') {
         timeCondition = sql`AND sub.created_at > NOW() - INTERVAL '30 days'`;
+        propertyViewTimeCondition = sql`AND sub.viewed_at > NOW() - INTERVAL '30 days'`;
       }
 
       // For 'all' period, rank by karma directly. For week/month, rank by recent activity score.
@@ -331,9 +334,72 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // TODO: Replace basic engagement scorer (comments + likes) with weighted
-      // algorithm factoring guess spread, view velocity, and recency decay
       const featuredQuery = sql`
+        WITH featured_events AS (
+          SELECT
+            sub.property_id,
+            COUNT(*)::int AS comment_count,
+            0::int AS like_count,
+            0::int AS guess_count,
+            0::int AS view_count,
+            MAX(sub.created_at) AS last_at
+          FROM comments sub
+          WHERE 1=1 ${timeCondition}
+          GROUP BY sub.property_id
+
+          UNION ALL
+
+          SELECT
+            sub.target_id AS property_id,
+            0::int AS comment_count,
+            COUNT(*)::int AS like_count,
+            0::int AS guess_count,
+            0::int AS view_count,
+            MAX(sub.created_at) AS last_at
+          FROM reactions sub
+          WHERE sub.target_type = 'property'
+            AND sub.reaction_type = 'like'
+            ${timeCondition}
+          GROUP BY sub.target_id
+
+          UNION ALL
+
+          SELECT
+            sub.property_id,
+            0::int AS comment_count,
+            0::int AS like_count,
+            COUNT(*)::int AS guess_count,
+            0::int AS view_count,
+            MAX(sub.created_at) AS last_at
+          FROM price_guesses sub
+          WHERE sub.is_meme_guess = false
+            ${timeCondition}
+          GROUP BY sub.property_id
+
+          UNION ALL
+
+          SELECT
+            sub.property_id,
+            0::int AS comment_count,
+            0::int AS like_count,
+            0::int AS guess_count,
+            COUNT(*)::int AS view_count,
+            MAX(sub.viewed_at) AS last_at
+          FROM property_views sub
+          WHERE 1=1 ${propertyViewTimeCondition}
+          GROUP BY sub.property_id
+        ),
+        featured_scores AS (
+          SELECT
+            property_id,
+            SUM(comment_count)::int AS comment_count,
+            SUM(like_count)::int AS like_count,
+            SUM(guess_count)::int AS guess_count,
+            SUM(view_count)::int AS view_count,
+            MAX(last_at) AS latest_activity_at
+          FROM featured_events
+          GROUP BY property_id
+        )
         SELECT
           p.id,
           p.street || ' ' || p.house_number ||
@@ -346,25 +412,24 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
           p.postal_code,
           p.country_code,
           p.official_valuation,
-          COALESCE(c.cnt, 0)::int AS comment_count,
-          COALESCE(r.cnt, 0)::int AS like_count,
-          (COALESCE(c.cnt, 0) + COALESCE(r.cnt, 0))::int AS engagement_score
-        FROM properties p
-        LEFT JOIN (
-          SELECT sub.property_id, COUNT(*)::int AS cnt
-          FROM comments sub
-          WHERE 1=1 ${timeCondition}
-          GROUP BY sub.property_id
-        ) c ON c.property_id = p.id
-        LEFT JOIN (
-          SELECT sub.target_id AS property_id, COUNT(*)::int AS cnt
-          FROM reactions sub
-          WHERE sub.target_type = 'property' AND sub.reaction_type = 'like'
-            ${timeCondition}
-          GROUP BY sub.target_id
-        ) r ON r.property_id = p.id
-        WHERE COALESCE(c.cnt, 0) + COALESCE(r.cnt, 0) > 0
-        ORDER BY engagement_score DESC
+          fs.comment_count,
+          fs.like_count,
+          (
+            (fs.comment_count * 5)
+            + (fs.guess_count * 4)
+            + (fs.like_count * 2)
+            + (LEAST(fs.view_count, 40) * 0.25)
+            + CASE
+                WHEN fs.latest_activity_at IS NULL THEN 0
+                ELSE GREATEST(
+                  0,
+                  14 - (EXTRACT(EPOCH FROM (NOW() - fs.latest_activity_at)) / 86400.0)
+                )
+              END
+          )::float8 AS engagement_score
+        FROM featured_scores fs
+        JOIN properties p ON p.id = fs.property_id
+        ORDER BY engagement_score DESC, fs.latest_activity_at DESC
         LIMIT 1
       `;
 

@@ -9,6 +9,18 @@ import { db } from '../db/index.js';
 import { notifications, pushTokens } from '../db/schema.js';
 import { eq, and, sql, isNull } from 'drizzle-orm';
 
+/** Minimal logger interface matching Fastify's log methods. */
+interface Logger {
+  warn: (msgOrObj: unknown, ...args: unknown[]) => void;
+}
+
+let _logger: Logger = console;
+
+/** Inject the Fastify logger so service functions use structured logging. */
+export function setNotificationLogger(logger: Logger): void {
+  _logger = logger;
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────
 
 export type NotificationEventType =
@@ -251,9 +263,9 @@ export async function sendPushToUser(
     });
 
     if (!response.ok) {
-      console.warn(`Push delivery failed for user ${userId}: ${response.status}`);
+      _logger.warn(`Push delivery failed for user ${userId}: ${response.status}`);
     }
   } catch (err) {
-    console.warn(`Push delivery error for user ${userId}:`, err);
+    _logger.warn({ err, userId }, `Push delivery error for user ${userId}`);
   }
 }

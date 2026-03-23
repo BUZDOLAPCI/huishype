@@ -180,9 +180,14 @@ export async function userRoutes(fastify: FastifyInstance) {
               )
             )::float8 AS average_accuracy
             FROM price_guesses pg
-            INNER JOIN price_history ph
-              ON ph.property_id = pg.property_id
-             AND ph.event_type = 'sold'
+            INNER JOIN LATERAL (
+              SELECT sold.price
+              FROM price_history sold
+              WHERE sold.property_id = pg.property_id
+                AND sold.event_type = 'sold'
+              ORDER BY sold.price_date DESC, sold.created_at DESC
+              LIMIT 1
+            ) ph ON true
             WHERE pg.user_id = ${userId}
               AND pg.is_meme_guess = false
           `),

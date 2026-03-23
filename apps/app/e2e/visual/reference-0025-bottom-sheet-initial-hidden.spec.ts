@@ -11,6 +11,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { clickOnPropertyMarker, dismissPreviewCard } from './helpers/screenshot-harness';
 
 test.use({ trace: 'off', video: 'off' });
 
@@ -51,78 +52,12 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   await waitForMapIdle(page, 10000);
 }
 
-async function clickOnPropertyMarker(page: Page): Promise<boolean> {
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, reason: 'map-not-ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, reason: 'no-canvas' };
-    }
-
-    const layers = ['ghost-nodes', 'active-nodes', 'single-active-points']
-      .filter((layer) => mapInstance.getLayer(layer));
-
-    let features: any[] = [];
-    try {
-      features = mapInstance.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers }
-      ) || [];
-    } catch {
-      return { success: false, reason: 'query-failed' };
-    }
-
-    const feature = features.find((item: any) =>
-      item.geometry?.type === 'Point' &&
-      (!item.properties?.point_count || item.properties.point_count === 1)
-    );
-
-    if (!feature) {
-      return { success: false, reason: 'no-point-feature' };
-    }
-
-    const coordinates = feature.geometry.coordinates;
-    const point = mapInstance.project(coordinates);
-    const rect = canvas.getBoundingClientRect();
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + point.x,
-      clientY: rect.top + point.y,
-      view: window,
-    });
-
-    mapInstance.fire('click', {
-      point: { x: point.x, y: point.y },
-      lngLat: { lng: coordinates[0], lat: coordinates[1] },
-      originalEvent: clickEvent,
-      features: [feature],
-    });
-
-    return {
-      success: true,
-      screenX: point.x,
-      screenY: point.y,
-    };
-  });
-
-  if (!result.success) {
-    console.log(`Marker click setup failed: ${result.reason}`);
-    return false;
-  }
-
-  await page.mouse.click(result.screenX, result.screenY);
-  await page.waitForTimeout(800);
-  return true;
-}
 
 async function getPanelState(page: Page): Promise<{ previewVisible: boolean; panelVisible: boolean; backdropVisible: boolean }> {
   return page.evaluate(() => {
-    const preview = document.querySelector('[data-testid="group-preview-card"]') as HTMLElement | null;
+    const preview = document.querySelector(
+      '[data-testid="group-preview-card"], [data-testid="property-preview-card"]'
+    ) as HTMLElement | null;
     const panel = document.querySelector('[data-testid="web-property-panel"]') as HTMLElement | null;
     const backdrop = document.querySelector('[data-testid="web-panel-backdrop"]') as HTMLElement | null;
 
@@ -207,8 +142,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await waitForMapReady(page);
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
 
-    const clicked = await clickOnPropertyMarker(page);
-    expect(clicked, 'Expected to find a property marker').toBe(true);
+    const clickResult = await clickOnPropertyMarker(page);
+    expect(clickResult.success, 'Expected to find a property marker').toBe(true);
+    await page.waitForTimeout(500);
 
     const state = await getPanelState(page);
     expect(state.previewVisible).toBe(true);
@@ -228,10 +164,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await waitForMapReady(page);
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
 
-    const clicked = await clickOnPropertyMarker(page);
-    expect(clicked, 'Expected to find a property marker').toBe(true);
+    const clickResult = await clickOnPropertyMarker(page);
+    expect(clickResult.success, 'Expected to find a property marker').toBe(true);
+    await page.waitForTimeout(500);
 
-    await page.locator('[data-testid="group-preview-close-button"]').click();
+    const dismissed = await dismissPreviewCard(page);
+    expect(dismissed, 'Expected a visible preview close control').toBe(true);
     await page.waitForTimeout(800);
 
     const state = await getPanelState(page);

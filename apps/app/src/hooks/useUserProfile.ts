@@ -129,11 +129,15 @@ export function usePublicProfile(userId: string | null) {
 
 /** Fetch the authenticated user's full profile */
 export function useMyProfile() {
-  const { accessToken, isAuthenticated } = useAuthContext();
+  const { getAccessToken, isAuthenticated, accessToken } = useAuthContext();
 
   return useQuery({
     queryKey: userKeys.me(),
-    queryFn: () => fetchMyProfile(accessToken!),
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return fetchMyProfile(token);
+    },
     enabled: isAuthenticated && !!accessToken,
   });
 }
@@ -141,11 +145,14 @@ export function useMyProfile() {
 /** Update authenticated user's profile */
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
-  const { accessToken } = useAuthContext();
+  const { getAccessToken } = useAuthContext();
 
   return useMutation({
-    mutationFn: (data: { displayName?: string; profilePhotoUrl?: string }) =>
-      updateMyProfile(accessToken!, data),
+    mutationFn: async (data: { displayName?: string; profilePhotoUrl?: string }) => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return updateMyProfile(token, data);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.me() });
     },
@@ -154,11 +161,15 @@ export function useUpdateProfile() {
 
 /** Fetch authenticated user's guess history */
 export function useMyGuesses(limit = 20, offset = 0) {
-  const { accessToken, isAuthenticated } = useAuthContext();
+  const { getAccessToken, isAuthenticated, accessToken } = useAuthContext();
 
   return useQuery({
     queryKey: userKeys.myGuesses(limit, offset),
-    queryFn: () => fetchMyGuesses(accessToken!, limit, offset),
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return fetchMyGuesses(token, limit, offset);
+    },
     enabled: isAuthenticated && !!accessToken,
   });
 }

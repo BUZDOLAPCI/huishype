@@ -18,6 +18,7 @@ import {
   getAccessTokenExpiry,
 } from '../plugins/auth.js';
 import { getKarmaRank } from '../services/karma.js';
+import { withGeneratedUniqueUsername } from '../utils/username.js';
 
 // Validation schemas
 const refreshSchema = z.object({
@@ -38,16 +39,6 @@ interface AppleTokenClaims {
   sub: string;
   email?: string;
   email_verified?: string | boolean;
-}
-
-// Helper to generate a unique username
-function generateUsername(): string {
-  const adjectives = ['happy', 'clever', 'swift', 'bright', 'calm', 'bold', 'keen', 'quick'];
-  const nouns = ['huis', 'woning', 'pand', 'villa', 'flat', 'kamer', 'gracht', 'straat'];
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const num = Math.floor(Math.random() * 9999);
-  return `${adj}${noun}${num}`;
 }
 
 function decodeJwtSegment<T>(token: string, index: number): T | null {
@@ -309,20 +300,20 @@ export async function authRoutes(fastify: FastifyInstance) {
       if (!user) {
         // Create new user
         isNewUser = true;
-        const username = generateUsername();
-        const displayName = googleUser.name || username;
+        user = await withGeneratedUniqueUsername(async (username) => {
+          const displayName = googleUser.name || username;
+          const [newUser] = await db
+            .insert(users)
+            .values({
+              googleId: googleUser.googleId,
+              email: googleUser.email,
+              username,
+              displayName,
+            })
+            .returning();
 
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            googleId: googleUser.googleId,
-            email: googleUser.email,
-            username,
-            displayName,
-          })
-          .returning();
-
-        user = newUser;
+          return newUser;
+        });
       } else if (!user.googleId) {
         // Link Google account to existing user
         await db
@@ -429,23 +420,24 @@ export async function authRoutes(fastify: FastifyInstance) {
               'Apple did not provide an email for this sign-in. Sign in with Apple again and share your email address.',
           });
         }
+        const email = appleUser.email;
 
         // Create new user
         isNewUser = true;
-        const username = generateUsername();
-        const displayName = appleUser.name || username;
+        user = await withGeneratedUniqueUsername(async (username) => {
+          const displayName = appleUser.name || username;
+          const [newUser] = await db
+            .insert(users)
+            .values({
+              appleId: appleUser.appleId,
+              email,
+              username,
+              displayName,
+            })
+            .returning();
 
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            appleId: appleUser.appleId,
-            email: appleUser.email,
-            username,
-            displayName,
-          })
-          .returning();
-
-        user = newUser;
+          return newUser;
+        });
       } else if (!user.appleId) {
         // Link Apple account to existing user
         await db

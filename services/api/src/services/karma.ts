@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { priceGuesses, priceHistory, users } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { users } from '../db/schema.js';
+import { eq, sql } from 'drizzle-orm';
 import { KARMA_TIERS, getKarmaTier } from '@huishype/shared';
 
 // --- Karma Rank Titles ---
@@ -114,32 +114,33 @@ export function calculateKarma(
 export async function calculateKarmaForUser(
   userId: string
 ): Promise<{ karma: number; internalKarma: number }> {
-  // Fetch all user guesses that have a corresponding 'sold' price_history event
-  const resolvedRows = await db
-    .select({
-      guessedPrice: priceGuesses.guessedPrice,
-      actualPrice: priceHistory.price,
-      createdAt: priceGuesses.createdAt,
-    })
-    .from(priceGuesses)
-    .innerJoin(
-      priceHistory,
-      and(
-        eq(priceGuesses.propertyId, priceHistory.propertyId),
-        eq(priceHistory.eventType, 'sold')
-      )
-    )
-    .where(
-      and(
-        eq(priceGuesses.userId, userId),
-        eq(priceGuesses.isMemeGuess, false)
-      )
-    )
-    .orderBy(priceGuesses.createdAt);
+  // Resolve each guess against the latest sold price for that property exactly once.
+  const resolvedRows = await db.execute<{
+    guessed_price: number;
+    actual_price: number;
+    created_at: Date;
+  }>(sql`
+    SELECT
+      pg.guessed_price,
+      sold.price AS actual_price,
+      pg.created_at
+    FROM price_guesses pg
+    INNER JOIN LATERAL (
+      SELECT ph.price
+      FROM price_history ph
+      WHERE ph.property_id = pg.property_id
+        AND ph.event_type = 'sold'
+      ORDER BY ph.price_date DESC, ph.created_at DESC
+      LIMIT 1
+    ) sold ON true
+    WHERE pg.user_id = ${userId}
+      AND pg.is_meme_guess = false
+    ORDER BY pg.created_at
+  `);
 
-  const resolvedGuesses: ResolvedGuess[] = resolvedRows.map((row, index) => ({
-    guessedPrice: Number(row.guessedPrice),
-    actualPrice: Number(row.actualPrice),
+  const resolvedGuesses: ResolvedGuess[] = Array.from(resolvedRows).map((row, index) => ({
+    guessedPrice: Number(row.guessed_price),
+    actualPrice: Number(row.actual_price),
     guessIndex: index,
   }));
 

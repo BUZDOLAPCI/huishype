@@ -13,8 +13,12 @@ const queryClient = postgres(config.database.url, {
 // Create the drizzle database instance with schema
 export const db = drizzle(queryClient, { schema });
 
-// Export for use in tests or graceful shutdown
+// Export for use in tests or graceful shutdown.
+// Idempotent: safe to call multiple times (e.g. app.close() + jest teardown).
+let connectionClosed = false;
 export const closeConnection = async () => {
+  if (connectionClosed) return;
+  connectionClosed = true;
   await queryClient.end();
 };
 

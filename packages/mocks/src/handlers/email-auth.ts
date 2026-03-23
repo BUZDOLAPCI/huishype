@@ -7,6 +7,7 @@
 
 import { http, HttpResponse } from 'msw';
 import { mockUsers } from '../data/fixtures.js';
+import { registerMockSession } from './auth.js';
 import type { AuthLoginResponse } from '@huishype/shared';
 
 // In-memory token storage for mock email auth
@@ -17,7 +18,7 @@ export const emailAuthHandlers = [
   /**
    * POST /auth/email/request — request a magic link
    */
-  http.post('/auth/email/request', async ({ request }) => {
+  http.post('*/auth/email/request', async ({ request }) => {
     const body = await request.json() as { email: string };
 
     if (!body.email || !body.email.includes('@')) {
@@ -46,7 +47,7 @@ export const emailAuthHandlers = [
   /**
    * POST /auth/email/verify — verify magic link token
    */
-  http.post('/auth/email/verify', async ({ request }) => {
+  http.post('*/auth/email/verify', async ({ request }) => {
     const body = await request.json() as { token: string };
 
     if (!body.token || body.token.length !== 64) {
@@ -88,6 +89,9 @@ export const emailAuthHandlers = [
     const accessToken = `mock-access-token-email-${Date.now()}`;
     const refreshToken = `mock-refresh-token-email-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 3600000).toISOString();
+
+    // Register the session so subsequent auth-gated requests succeed
+    registerMockSession(accessToken, user.id, new Date(expiresAt));
 
     const response: {
       session: AuthLoginResponse['session'];

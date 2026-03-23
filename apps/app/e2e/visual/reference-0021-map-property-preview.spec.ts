@@ -15,6 +15,7 @@
 import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { clickOnPropertyMarker } from './helpers/screenshot-harness';
 import fs from 'fs';
 
 /**
@@ -100,93 +101,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Increase test timeout for this visual test
 test.setTimeout(120000);
-
-/**
- * Helper function to find and click on a property marker
- * Uses the map's queryRenderedFeatures to find marker screen positions
- * Web layer names: 'property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'
- */
-async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; featureCount: number }> {
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, featureCount: 0, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, featureCount: 0, reason: 'No canvas' };
-    }
-
-    // Query features with bounding box for the entire canvas
-    // Web version layer names (different from React Native version)
-    const layerNames = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'];
-    let allFeatures: any[] = [];
-
-    for (const layerName of layerNames) {
-      try {
-        if (mapInstance.getLayer(layerName)) {
-          const features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: [layerName] }
-          ) || [];
-          allFeatures = allFeatures.concat(features);
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    if (allFeatures.length === 0) {
-      return { success: false, featureCount: 0, reason: 'No features found' };
-    }
-
-    // Get the first non-cluster feature (individual property)
-    const feature = allFeatures.find((f: any) => !f.properties?.point_count || f.properties.point_count === 1) || allFeatures[0];
-    if (!feature.geometry || feature.geometry.type !== 'Point') {
-      return { success: false, featureCount: allFeatures.length, reason: 'Invalid geometry' };
-    }
-
-    const coordinates = feature.geometry.coordinates;
-    const point = mapInstance.project(coordinates);
-    const rect = canvas.getBoundingClientRect();
-
-    // Create a click event
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + point.x,
-      clientY: rect.top + point.y,
-      view: window
-    });
-
-    // Fire the click event on the map to trigger the marker click handler
-    mapInstance.fire('click', {
-      point: { x: point.x, y: point.y },
-      lngLat: { lng: coordinates[0], lat: coordinates[1] },
-      originalEvent: clickEvent,
-      features: [feature]
-    });
-
-    return {
-      success: true,
-      featureCount: allFeatures.length,
-      screenX: point.x,
-      screenY: point.y,
-      propertyId: feature.properties?.id
-    };
-  });
-
-  console.log(`Click result: ${JSON.stringify(result)}`);
-
-  if (result.success) {
-    // Also click with Playwright for double-insurance
-    if (result.screenX && result.screenY) {
-      await page.mouse.click(result.screenX, result.screenY);
-    }
-    await page.waitForTimeout(500);
-  }
-
-  return { success: result.success, featureCount: result.featureCount };
-}
 
 /**
  * Helper function to wait for map to be ready
@@ -571,19 +485,19 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       expect(hasPrice || hasEuro, 'Price should be visible on preview card (mock property has WOZ value)').toBe(true);
 
       // Verify Like button exists
-      const likeButton = page.locator('text=Like');
+      const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
       const hasLike = await likeButton.first().isVisible().catch(() => false);
       console.log(`Like button visible: ${hasLike}`);
       expect(hasLike, 'Like button should be visible').toBe(true);
 
       // Verify Comment button exists
-      const commentButton = page.locator('text=Comment');
+      const commentButton = page.locator('[data-testid="group-preview-comment-button"]').first();
       const hasComment = await commentButton.first().isVisible().catch(() => false);
       console.log(`Comment button visible: ${hasComment}`);
       expect(hasComment, 'Comment button should be visible').toBe(true);
 
       // Verify Guess button exists
-      const guessButton = page.locator('text=Guess');
+      const guessButton = page.locator('[data-testid="group-preview-guess-button"]').first();
       const hasGuess = await guessButton.first().isVisible().catch(() => false);
       console.log(`Guess button visible: ${hasGuess}`);
       expect(hasGuess, 'Guess button should be visible').toBe(true);

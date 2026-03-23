@@ -35,7 +35,7 @@ appId: nl.huishype.app
     text: '.*guesses.*'
     optional: true
 
-- takeScreenshot: test-results/visual-overhaul/feed-recent-activity/android/feed-recent-activity-filter.png
+- takeScreenshot: test-results/visual-overhaul/feed-latest/android/feed-latest-filter.png
 
 # Switch back to "Trending" filter
 - tapOn: 'Trending'

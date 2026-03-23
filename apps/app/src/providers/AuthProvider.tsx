@@ -17,6 +17,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import { Linking, Platform } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import type { User } from '@huishype/shared';
 import { API_URL } from '../utils/api';
 
@@ -117,6 +118,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   });
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshAuthRef = useRef<() => Promise<boolean>>(null!);
 
   /**
    * Store auth data securely
@@ -173,7 +175,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   /**
-   * Schedule token refresh before expiry
+   * Schedule token refresh before expiry.
+   * Uses refreshAuthRef so the timer always calls the CURRENT refreshAuth,
+   * not the one captured at first render (avoids stale closure).
    */
   const scheduleTokenRefresh = useCallback((expiresAt: string) => {
     if (refreshTimerRef.current) {
@@ -187,7 +191,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     if (refreshTime > 0) {
       refreshTimerRef.current = setTimeout(() => {
-        refreshAuth();
+        refreshAuthRef.current();
       }, refreshTime);
     }
   }, []);
@@ -237,6 +241,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return false;
     }
   }, [clearAuthData, scheduleTokenRefresh]);
+
+  // Keep the ref in sync so scheduleTokenRefresh's timer always calls the latest refreshAuth
+  refreshAuthRef.current = refreshAuth;
 
   /**
    * Get the current access token, refreshing if necessary
@@ -361,7 +368,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           responseType: AuthSession.ResponseType.IdToken,
           extraParams: {
             response_mode: 'fragment',
-            nonce: `${Date.now()}`,
+            nonce: Crypto.randomUUID(),
           },
         });
 

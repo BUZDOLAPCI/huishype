@@ -16,6 +16,7 @@
 import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { clickOnPropertyMarker, clickPreviewAction } from './helpers/screenshot-harness';
 import fs from 'fs';
 
 /**
@@ -94,85 +95,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 test.setTimeout(120000);
 
 /**
- * Helper function to find and click on a property marker
- */
-async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; featureCount: number; screenX?: number; screenY?: number }> {
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, featureCount: 0, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, featureCount: 0, reason: 'No canvas' };
-    }
-
-    const layerNames = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'];
-    let allFeatures: any[] = [];
-
-    for (const layerName of layerNames) {
-      try {
-        if (mapInstance.getLayer(layerName)) {
-          const features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: [layerName] }
-          ) || [];
-          allFeatures = allFeatures.concat(features);
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    if (allFeatures.length === 0) {
-      return { success: false, featureCount: 0, reason: 'No features found' };
-    }
-
-    const feature = allFeatures.find((f: any) => !f.properties?.point_count || f.properties.point_count === 1) || allFeatures[0];
-    if (!feature.geometry || feature.geometry.type !== 'Point') {
-      return { success: false, featureCount: allFeatures.length, reason: 'Invalid geometry' };
-    }
-
-    const coordinates = feature.geometry.coordinates;
-    const point = mapInstance.project(coordinates);
-    const rect = canvas.getBoundingClientRect();
-
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + point.x,
-      clientY: rect.top + point.y,
-      view: window
-    });
-
-    mapInstance.fire('click', {
-      point: { x: point.x, y: point.y },
-      lngLat: { lng: coordinates[0], lat: coordinates[1] },
-      originalEvent: clickEvent,
-      features: [feature]
-    });
-
-    return {
-      success: true,
-      featureCount: allFeatures.length,
-      screenX: point.x,
-      screenY: point.y,
-      propertyId: feature.properties?.id
-    };
-  });
-
-  console.log(`Click result: ${JSON.stringify(result)}`);
-
-  if (result.success) {
-    if (result.screenX && result.screenY) {
-      await page.mouse.click(result.screenX, result.screenY);
-    }
-    await page.waitForTimeout(500);
-  }
-
-  return { success: result.success, featureCount: result.featureCount, screenX: result.screenX, screenY: result.screenY };
-}
-
-/**
  * Helper function to wait for map to be ready
  */
 async function waitForMapReady(page: Page): Promise<void> {
@@ -183,6 +105,19 @@ async function waitForMapReady(page: Page): Promise<void> {
 
   // Wait for map to be idle (all tiles fully rendered)
   await waitForMapIdle(page, 10000);
+}
+
+async function collapseWebPanelToPreviewOnly(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as any).__bottomSheetRef?.current?.close?.();
+  });
+
+  await page.waitForFunction(() => {
+    const backdrop = document.querySelector('[data-testid="web-panel-backdrop"]');
+    if (!backdrop) return true;
+    const style = window.getComputedStyle(backdrop);
+    return !backdrop.classList.contains('open') || style.pointerEvents === 'none' || parseFloat(style.opacity || '0') < 0.1;
+  }, { timeout: 5000 }).catch(() => {});
 }
 
 /**
@@ -528,49 +463,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for property data
     await page.waitForTimeout(2000);
 
-    // Click the Comment button
-    const commentButton = page.locator('[data-action="comment"]');
-    const hasCommentButton = await commentButton.isVisible().catch(() => false);
-    console.log(`Comment button visible: ${hasCommentButton}`);
+    await collapseWebPanelToPreviewOnly(page);
+    const commentClicked = await clickPreviewAction(page, 'comment');
+    expect(commentClicked, 'Comment button should be clickable from the preview card').toBe(true);
+    await page.waitForTimeout(500);
 
-    if (hasCommentButton) {
-      // On web, clicking a marker auto-opens the WebPropertyPanel whose backdrop
-      // covers the preview card. Close the panel first so we can interact with
-      // the preview card's Comment button, then verify the preview persists.
-      const backdrop = page.locator('[data-testid="web-panel-backdrop"]');
-      const backdropOpen = await backdrop.evaluate((el) => el.classList.contains('open')).catch(() => false);
-      if (backdropOpen) {
-        await backdrop.click();
-        await page.waitForTimeout(500);
-      }
+    // After clicking Comment, the web panel re-opens; the preview should still exist.
+    const previewCountAfterComment = await previewCard.count();
+    console.log(`Preview count after Comment click: ${previewCountAfterComment}`);
 
-      await commentButton.click();
-      await page.waitForTimeout(500);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-after-comment-click.png`,
+      fullPage: false,
+    });
 
-      // After clicking Comment, the WebPropertyPanel re-opens (scrollToComments).
-      // The preview card is still in the DOM but may be behind the panel backdrop,
-      // so check DOM presence via count() rather than isVisible().
-      const previewCountAfterComment = await previewCard.count();
-      console.log(`Preview count after Comment click: ${previewCountAfterComment}`);
-
-      // Take screenshot
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-after-comment-click.png`,
-        fullPage: false,
-      });
-
-      expect(previewCountAfterComment, 'Preview card should STAY in DOM when Comment button is clicked').toBeGreaterThan(0);
-    } else {
-      // Try alternative locator for Comment button
-      const altCommentButton = page.locator('text=Comment');
-      const hasAltComment = await altCommentButton.first().isVisible().catch(() => false);
-      if (hasAltComment) {
-        await altCommentButton.first().click({ force: true });
-        await page.waitForTimeout(500);
-        const previewCountAfterComment = await previewCard.count();
-        expect(previewCountAfterComment, 'Preview card should STAY in DOM when Comment button is clicked').toBeGreaterThan(0);
-      }
-    }
+    expect(previewCountAfterComment, 'Preview card should STAY in DOM when Comment button is clicked').toBeGreaterThan(0);
   });
 
   test('verify preview card persists when Guess button is clicked', async ({ page }) => {
@@ -631,49 +538,20 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for property data
     await page.waitForTimeout(2000);
 
-    // Click the Guess button
-    const guessButton = page.locator('[data-action="guess"]');
-    const hasGuessButton = await guessButton.isVisible().catch(() => false);
-    console.log(`Guess button visible: ${hasGuessButton}`);
+    await collapseWebPanelToPreviewOnly(page);
+    const guessClicked = await clickPreviewAction(page, 'guess');
+    expect(guessClicked, 'Guess button should be clickable from the preview card').toBe(true);
+    await page.waitForTimeout(500);
 
-    if (hasGuessButton) {
-      // On web, clicking a marker auto-opens the WebPropertyPanel whose backdrop
-      // covers the preview card. Close the panel first so we can interact with
-      // the preview card's Guess button, then verify the preview persists.
-      const backdrop = page.locator('[data-testid="web-panel-backdrop"]');
-      const backdropOpen = await backdrop.evaluate((el) => el.classList.contains('open')).catch(() => false);
-      if (backdropOpen) {
-        await backdrop.click();
-        await page.waitForTimeout(500);
-      }
+    const previewCountAfterGuess = await previewCard.count();
+    console.log(`Preview count after Guess click: ${previewCountAfterGuess}`);
 
-      await guessButton.click();
-      await page.waitForTimeout(500);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-after-guess-click.png`,
+      fullPage: false,
+    });
 
-      // After clicking Guess, the WebPropertyPanel re-opens (scrollToGuess).
-      // The preview card is still in the DOM but may be behind the panel backdrop,
-      // so check DOM presence via count() rather than isVisible().
-      const previewCountAfterGuess = await previewCard.count();
-      console.log(`Preview count after Guess click: ${previewCountAfterGuess}`);
-
-      // Take screenshot
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-after-guess-click.png`,
-        fullPage: false,
-      });
-
-      expect(previewCountAfterGuess, 'Preview card should STAY in DOM when Guess button is clicked').toBeGreaterThan(0);
-    } else {
-      // Try alternative locator
-      const altGuessButton = page.locator('text=Guess');
-      const hasAltGuess = await altGuessButton.first().isVisible().catch(() => false);
-      if (hasAltGuess) {
-        await altGuessButton.first().click({ force: true });
-        await page.waitForTimeout(500);
-        const previewCountAfterGuess = await previewCard.count();
-        expect(previewCountAfterGuess, 'Preview card should STAY in DOM when Guess button is clicked').toBeGreaterThan(0);
-      }
-    }
+    expect(previewCountAfterGuess, 'Preview card should STAY in DOM when Guess button is clicked').toBeGreaterThan(0);
   });
 
   test('verify preview card closes ONLY on empty map background tap', async ({ page }) => {

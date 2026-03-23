@@ -52,8 +52,11 @@ export interface LeaderboardResponse {
 
 export const leaderboardKeys = {
   all: ['leaderboard'] as const,
-  list: (period: LeaderboardPeriod) =>
-    [...leaderboardKeys.all, { period }] as const,
+  list: (
+    period: LeaderboardPeriod,
+    limit: number,
+    viewerId: string | null
+  ) => [...leaderboardKeys.all, { period, limit, viewerId }] as const,
 };
 
 // --- API Function ---
@@ -89,11 +92,14 @@ async function fetchLeaderboard(
 
 /** Fetch leaderboard rankings for a given period. */
 export function useLeaderboard(period: LeaderboardPeriod = 'all', limit = 50) {
-  const { accessToken } = useAuthContext();
+  const { getAccessToken, user } = useAuthContext();
 
   return useQuery({
-    queryKey: leaderboardKeys.list(period),
-    queryFn: () => fetchLeaderboard(period, limit, accessToken),
+    queryKey: leaderboardKeys.list(period, limit, user?.id ?? null),
+    queryFn: async () => {
+      const token = await getAccessToken();
+      return fetchLeaderboard(period, limit, token);
+    },
     staleTime: 60 * 1000, // 1 minute
   });
 }

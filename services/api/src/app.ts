@@ -25,6 +25,7 @@ import { activityRoutes } from './routes/activity.js';
 import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
 import { closeConnection } from './db/index.js';
+import { setNotificationLogger } from './services/notifications.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -35,6 +36,9 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   const app = Fastify({
     logger: options.logger ?? config.isDev,
   });
+
+  // Wire Fastify logger into notification service for structured logging
+  setNotificationLogger(app.log);
 
   // Close the database connection pool when the app shuts down.
   // This ensures tests calling app.close() also release the pool,

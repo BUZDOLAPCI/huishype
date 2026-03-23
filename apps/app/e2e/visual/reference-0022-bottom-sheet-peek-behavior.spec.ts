@@ -14,6 +14,7 @@ import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { clickOnPropertyMarker } from './helpers/screenshot-harness';
 
 /**
  * Mock property data with price information for testing
@@ -89,85 +90,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Increase test timeout
 test.setTimeout(120000);
-
-/**
- * Helper function to find and click on a property marker
- */
-async function clickOnPropertyMarker(page: Page): Promise<{ success: boolean; featureCount: number }> {
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, featureCount: 0, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, featureCount: 0, reason: 'No canvas' };
-    }
-
-    const layerNames = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'];
-    let allFeatures: any[] = [];
-
-    for (const layerName of layerNames) {
-      try {
-        if (mapInstance.getLayer(layerName)) {
-          const features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: [layerName] }
-          ) || [];
-          allFeatures = allFeatures.concat(features);
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    if (allFeatures.length === 0) {
-      return { success: false, featureCount: 0, reason: 'No features found' };
-    }
-
-    const feature = allFeatures.find((f: any) => !f.properties?.point_count || f.properties.point_count === 1) || allFeatures[0];
-    if (!feature.geometry || feature.geometry.type !== 'Point') {
-      return { success: false, featureCount: allFeatures.length, reason: 'Invalid geometry' };
-    }
-
-    const coordinates = feature.geometry.coordinates;
-    const point = mapInstance.project(coordinates);
-    const rect = canvas.getBoundingClientRect();
-
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + point.x,
-      clientY: rect.top + point.y,
-      view: window
-    });
-
-    mapInstance.fire('click', {
-      point: { x: point.x, y: point.y },
-      lngLat: { lng: coordinates[0], lat: coordinates[1] },
-      originalEvent: clickEvent,
-      features: [feature]
-    });
-
-    return {
-      success: true,
-      featureCount: allFeatures.length,
-      screenX: point.x,
-      screenY: point.y,
-      propertyId: feature.properties?.id
-    };
-  });
-
-  console.log(`Click result: ${JSON.stringify(result)}`);
-
-  if (result.success) {
-    if (result.screenX && result.screenY) {
-      await page.mouse.click(result.screenX, result.screenY);
-    }
-    await page.waitForTimeout(500);
-  }
-
-  return { success: result.success, featureCount: result.featureCount };
-}
 
 /**
  * Helper function to wait for map to be ready
@@ -660,7 +582,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Selected marker visible: ${hasSelectedMarker}`);
 
       // Verify preview card elements
-      const likeButton = page.locator('text=Like');
+      const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
       const hasLike = await likeButton.first().isVisible().catch(() => false);
       console.log(`Like button visible: ${hasLike}`);
       expect(hasLike, 'Like button should be visible in preview card').toBe(true);

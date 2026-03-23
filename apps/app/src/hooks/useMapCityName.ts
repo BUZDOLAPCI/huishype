@@ -14,6 +14,38 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { apiGeocoder } from '@/src/services/api-geocoder';
 
+/**
+ * Extract city name from a formatted geocoder address string.
+ * Addresses are formatted as "Street Number, PostalCode City" or "Name, City".
+ * Returns the city portion or null.
+ *
+ * Handles European postal code formats:
+ *   NL: "5641 HN" (digits + space + letters)
+ *   FR: "75001" (5 digits)
+ *   DE: "10115" (5 digits)
+ *   SE: "211 22" (3 digits + space + 2 digits)
+ *   PL: "90-001" (digits + hyphen + digits)
+ *   CH: "8001" (4 digits)
+ *
+ * Uses Unicode-aware matching so city names with non-ASCII capitals
+ * (München, Zürich, Malmö, Łódź, etc.) are handled correctly.
+ */
+export function extractCityFromAddress(address: string): string | null {
+  const parts = address.split(',').map(p => p.trim());
+  if (parts.length < 2) return null;
+  const lastPart = parts[parts.length - 1];
+  // Strip a leading postal code: starts with a digit, followed by any combination
+  // of digits, letters, hyphens, and spaces that form the postal code, then a
+  // space before the city name (which starts with a Unicode letter).
+  // The greedy quantifier in the postal code portion ensures we consume the
+  // entire postal code (e.g. "5641 HN " not just "5641 ").
+  const stripped = lastPart.replace(
+    /^(?:\d[\d\w\s-]*|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s+(?=\p{L})/iu,
+    '',
+  ).trim();
+  return stripped || lastPart;
+}
+
 /** How long to wait after the last viewport change before reverse geocoding. */
 const REVERSE_GEOCODE_DEBOUNCE_MS = 500;
 

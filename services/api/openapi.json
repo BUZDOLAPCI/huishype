@@ -6350,9 +6350,52 @@
     },
     "/geocode/reverse": {
       "get": {
+        "summary": "Reverse geocode coordinates",
+        "tags": ["Geocode"],
+        "description": "Reverse geocodes a coordinate to a city/town name via Photon. Returns { city, state, country, countryCode } or null if nothing found.",
+        "parameters": [
+          {
+            "schema": { "type": "number", "minimum": -180, "maximum": 180 },
+            "in": "query",
+            "name": "lon",
+            "required": true
+          },
+          {
+            "schema": { "type": "number", "minimum": -90, "maximum": 90 },
+            "in": "query",
+            "name": "lat",
+            "required": true
+          },
+          {
+            "schema": { "type": "string" },
+            "in": "query",
+            "name": "lang",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Reverse geocode result or null if no match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "city": { "type": ["string", "null"] },
+                        "state": { "type": ["string", "null"] },
+                        "country": { "type": ["string", "null"] },
+                        "countryCode": { "type": ["string", "null"] }
+                      },
+                      "required": ["city", "state", "country", "countryCode"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              }
+            }
           }
         }
       }

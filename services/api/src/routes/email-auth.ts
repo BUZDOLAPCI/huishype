@@ -22,6 +22,7 @@ import {
   getAccessTokenExpiry,
 } from '../plugins/auth.js';
 import { getKarmaRank } from '../services/karma.js';
+import { withGeneratedUniqueUsername } from '../utils/username.js';
 
 // Token is valid for 15 minutes
 const TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -31,13 +32,14 @@ function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-function generateUsername(): string {
-  const adjectives = ['happy', 'clever', 'swift', 'bright', 'calm', 'bold', 'keen', 'quick'];
-  const nouns = ['huis', 'woning', 'pand', 'villa', 'flat', 'kamer', 'gracht', 'straat'];
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const num = Math.floor(Math.random() * 9999);
-  return `${adj}${noun}${num}`;
+/** Escape a string for safe interpolation into HTML content. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function buildMagicLink(token: string): string {
@@ -68,7 +70,7 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
       subject: 'Your HuisHype sign-in link',
       html: [
         '<p>Use the link below to sign in to HuisHype.</p>',
-        `<p><a href="${magicLink}">${magicLink}</a></p>`,
+        `<p><a href="${escapeHtml(magicLink)}">${escapeHtml(magicLink)}</a></p>`,
         '<p>This link expires in 15 minutes.</p>',
       ].join(''),
     }),
@@ -260,18 +262,18 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
 
       if (!user) {
         isNewUser = true;
-        const username = generateUsername();
+        user = await withGeneratedUniqueUsername(async (username) => {
+          const [newUser] = await db
+            .insert(users)
+            .values({
+              email: tokenRow.email,
+              username,
+              displayName: tokenRow.email.split('@')[0],
+            })
+            .returning();
 
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            email: tokenRow.email,
-            username,
-            displayName: tokenRow.email.split('@')[0],
-          })
-          .returning();
-
-        user = newUser;
+          return newUser;
+        });
       }
 
       // Generate tokens

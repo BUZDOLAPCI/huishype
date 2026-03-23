@@ -148,32 +148,24 @@ test.describe('Feed Filtering', () => {
     // Take initial screenshot
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
-    // Click "Latest" filter
+    // Click "Latest" filter — assert it exists before interacting
     const latestFilter = page.locator('[data-testid="filter-chip-recent"]');
-    const latestVisible = await latestFilter.isVisible().catch(() => false);
+    await expect(latestFilter, '"Latest" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    await latestFilter.click();
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
 
-    if (latestVisible) {
-      await latestFilter.click();
-      await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
-    }
-
-    // Click "Recent Activity" filter
+    // Click "Recent Activity" filter — assert it exists before interacting
     const activityFilter = page.locator('[data-testid="filter-chip-activity"]');
-    const activityVisible = await activityFilter.isVisible().catch(() => false);
-
-    if (activityVisible) {
-      await activityFilter.click();
-      await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
-    }
+    await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    await activityFilter.click();
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
 
     // Click back to "Trending" filter
-    if (latestVisible || activityVisible) {
-      await trendingFilter.click();
-      await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
-    }
+    await trendingFilter.click();
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
   });
 
   test('property card has expected content structure', async ({ page }) => {
