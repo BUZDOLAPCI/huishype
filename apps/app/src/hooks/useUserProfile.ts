@@ -28,6 +28,7 @@ export interface PublicProfile {
 
 export interface MyProfile extends PublicProfile {
   email: string;
+  averageAccuracy?: number;
   savedCount: number;
   likedCount: number;
   lastNameChangeAt: string | null;

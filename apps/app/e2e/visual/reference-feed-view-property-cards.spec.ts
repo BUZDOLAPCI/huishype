@@ -136,16 +136,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Found ${cardCount} property feed cards`);
 
     // Check for filter chips
-    const allFilter = page.getByText('All');
-    const newFilter = page.getByText('New');
     const trendingFilter = page.getByText('Trending');
+    const latestFilter = page.getByText('Latest');
+    const activityFilter = page.getByText('Recent Activity');
 
-    const allVisible = await allFilter.isVisible().catch(() => false);
-    const newVisible = await newFilter.isVisible().catch(() => false);
+    const latestVisible = await latestFilter.isVisible().catch(() => false);
+    const activityVisible = await activityFilter.isVisible().catch(() => false);
     const trendingVisible = await trendingFilter.isVisible().catch(() => false);
 
     console.log(
-      `Filter chips visible: All=${allVisible}, New=${newVisible}, Trending=${trendingVisible}`
+      `Filter chips visible: Latest=${latestVisible}, Recent Activity=${activityVisible}, Trending=${trendingVisible}`
     );
   });
 
@@ -221,15 +221,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await feedScreen.waitFor({ timeout: 10000 }).catch(() => null);
 
     // Try to find filter chips
-    const allFilter = page.getByText('All');
     const trendingFilter = page.getByText('Trending');
-    const newFilter = page.getByText('New');
+    const latestFilter = page.getByText('Latest');
+    const activityFilter = page.getByText('Recent Activity');
 
     // Check filter visibility
     const filtersVisible = {
-      all: await allFilter.isVisible().catch(() => false),
       trending: await trendingFilter.isVisible().catch(() => false),
-      new: await newFilter.isVisible().catch(() => false),
+      latest: await latestFilter.isVisible().catch(() => false),
+      activity: await activityFilter.isVisible().catch(() => false),
     };
 
     console.log('Filter visibility:', filtersVisible);
@@ -245,13 +245,23 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       });
     }
 
-    // If new filter is visible, click it
-    if (filtersVisible.new) {
-      await newFilter.click();
+    // If latest filter is visible, click it
+    if (filtersVisible.latest) {
+      await latestFilter.click();
       await page.waitForTimeout(1000);
 
       await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-new-filter.png`,
+        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-latest-filter.png`,
+        fullPage: false,
+      });
+    }
+
+    if (filtersVisible.activity) {
+      await activityFilter.click();
+      await page.waitForTimeout(1000);
+
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-recent-activity-filter.png`,
         fullPage: false,
       });
     }

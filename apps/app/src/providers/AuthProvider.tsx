@@ -16,7 +16,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as AuthSession from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import type { User } from '@huishype/shared';
 import { API_URL } from '../utils/api';
 
@@ -33,6 +33,10 @@ const API_BASE_URL = API_URL;
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
+const APPLE_CLIENT_ID =
+  process.env.EXPO_PUBLIC_APPLE_CLIENT_ID ||
+  process.env.EXPO_PUBLIC_APPLE_SERVICE_ID ||
+  'nl.huishype.app';
 
 // Types
 export interface AuthUser extends User {
@@ -81,6 +85,22 @@ async function deleteSecureItem(key: string): Promise<void> {
     localStorage.removeItem(key);
   } else {
     await SecureStore.deleteItemAsync(key);
+  }
+}
+
+function extractEmailTokenFromUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    return new URL(url).searchParams.get('emailToken');
+  } catch {
+    const queryIndex = url.indexOf('?');
+    if (queryIndex === -1) {
+      return null;
+    }
+    return new URLSearchParams(url.slice(queryIndex + 1)).get('emailToken');
   }
 }
 
@@ -327,7 +347,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setState((prev) => ({ ...prev, isLoading: true }));
 
       if (Platform.OS === 'web') {
-        throw new Error('Apple Sign In is not available on web');
+        const discovery = {
+          authorizationEndpoint: 'https://appleid.apple.com/auth/authorize',
+        };
+        const redirectUri = AuthSession.makeRedirectUri({
+          scheme: 'huishype',
+          path: 'auth/callback',
+        });
+        const request = new AuthSession.AuthRequest({
+          clientId: APPLE_CLIENT_ID,
+          scopes: ['name', 'email'],
+          redirectUri,
+          responseType: AuthSession.ResponseType.IdToken,
+          extraParams: {
+            response_mode: 'fragment',
+            nonce: `${Date.now()}`,
+          },
+        });
+
+        const result = await request.promptAsync(discovery);
+        if (result.type !== 'success') {
+          setState((prev) => ({ ...prev, isLoading: false }));
+          return;
+        }
+
+        const params = result.params as { id_token?: string };
+        if (!params.id_token) {
+          throw new Error('No identity token received from Apple');
+        }
+
+        const response = await fetch(`${API_BASE_URL}/auth/apple`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ idToken: params.id_token }),
+        });
+
+        if (!response.ok) {
+          const error = (await response.json()) as { message?: string };
+          throw new Error(error.message || 'Authentication failed');
+        }
+
+        const data = (await response.json()) as {
+          session: {
+            user: AuthUser;
+            accessToken: string;
+            refreshToken: string;
+            expiresAt: string;
+          };
+          isNewUser: boolean;
+        };
+
+        await storeAuthData(
+          data.session.accessToken,
+          data.session.refreshToken,
+          data.session.user,
+          data.session.expiresAt
+        );
+        return;
       }
 
       // Check if Apple authentication is available
@@ -530,6 +608,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [verifyEmailToken]);
 
+  const handleIncomingAuthUrl = useCallback(
+    async (url: string | null) => {
+      const emailToken = extractEmailTokenFromUrl(url);
+      if (!emailToken) {
+        return;
+      }
+
+      try {
+        await verifyEmailToken(emailToken);
+      } catch (error) {
+        console.error('Failed to process incoming email auth link:', error);
+      }
+    },
+    [verifyEmailToken]
+  );
+
   /**
    * Sign out
    */
@@ -617,6 +711,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
   }, [refreshAuth, scheduleTokenRefresh]);
+
+  useEffect(() => {
+    let active = true;
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (active) {
+          void handleIncomingAuthUrl(url);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to read initial auth URL:', error);
+      });
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleIncomingAuthUrl(url);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [handleIncomingAuthUrl]);
 
   const value: AuthContextValue = {
     ...state,

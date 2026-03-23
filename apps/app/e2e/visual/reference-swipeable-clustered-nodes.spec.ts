@@ -1,29 +1,15 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   createVisualTestContext,
-  VisualTestContext,
+  type VisualTestContext,
   waitForMapStyleLoaded,
+  waitForMapIdle,
 } from './helpers/visual-test-helpers';
-import * as fs from 'fs';
-import * as path from 'path';
-
-/**
- * Reference Expectation Test: swipeable-clustered-nodes
- *
- * Verifies that when a cluster is clicked on the map, a paginated preview
- * panel appears showing "X of Y" navigation with swipeable property cards.
- *
- * Expected behavior (from expectation.md):
- * - Clicking a cluster with multiple nodes shows a preview panel
- * - Panel has pagination: left arrow, "X of Y" indicator, right arrow
- * - Panel has close button (X)
- * - Can navigate between properties with arrows
- * - Property details are shown (address, price, etc.)
- */
+import fs from 'fs';
+import path from 'path';
 
 const SCREENSHOT_DIR = 'test-results/reference-expectations/swipeable-clustered-nodes';
 
-// Ensure screenshot directory exists
 test.beforeAll(async () => {
   const baseDir = path.resolve(SCREENSHOT_DIR);
   if (!fs.existsSync(baseDir)) {
@@ -31,55 +17,76 @@ test.beforeAll(async () => {
   }
 });
 
-/**
- * Helper to set map zoom level via the exposed map instance
- */
 async function setMapZoom(page: Page, zoom: number): Promise<void> {
-  await page.evaluate((z) => {
-    const map = (window as unknown as { __mapInstance?: { setZoom: (z: number) => void; setPitch: (p: number) => void } }).__mapInstance;
-    if (map) {
-      map.setZoom(z);
-      // Reset pitch to 0 for easier clicking
-      map.setPitch(0);
-    }
+  await page.evaluate((targetZoom) => {
+    const map = (window as any).__mapInstance;
+    if (!map) return;
+    map.setPitch(0);
+    map.setZoom(targetZoom);
   }, zoom);
-  await page.waitForTimeout(1500); // Wait for map to settle
+  await waitForMapIdle(page, 10000);
+  await page.waitForTimeout(800);
 }
 
-/**
- * Helper to get the current map zoom level
- */
-async function getMapZoom(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const map = (window as unknown as { __mapInstance?: { getZoom: () => number } }).__mapInstance;
-    return map ? map.getZoom() : 0;
-  });
-}
+async function clickOnCluster(page: Page): Promise<{ success: boolean; pointCount?: number }> {
+  const result = await page.evaluate(() => {
+    const map = (window as any).__mapInstance;
+    if (!map || !map.isStyleLoaded()) {
+      return { success: false, reason: 'map-not-ready' };
+    }
 
-/**
- * Helper to get the screen position of the map center
- */
-async function getMapCenterScreenPosition(page: Page): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(() => {
-    const map = (window as unknown as {
-      __mapInstance?: {
-        getCenter: () => { lng: number; lat: number };
-        project: (lngLat: { lng: number; lat: number }) => { x: number; y: number };
-        getContainer: () => HTMLElement;
-      }
-    }).__mapInstance;
-    if (!map) return null;
+    const canvas = map.getCanvas();
+    if (!canvas || !map.getLayer('property-clusters')) {
+      return { success: false, reason: 'cluster-layer-missing' };
+    }
 
-    const center = map.getCenter();
-    const point = map.project(center);
-    const container = map.getContainer();
-    const rect = container.getBoundingClientRect();
+    const features = map.queryRenderedFeatures(
+      [[0, 0], [canvas.width, canvas.height]],
+      { layers: ['property-clusters'] }
+    ) || [];
+
+    const cluster = features.find((feature: any) =>
+      feature.geometry?.type === 'Point' &&
+      Number(feature.properties?.point_count || 0) > 1
+    );
+
+    if (!cluster) {
+      return { success: false, reason: 'no-cluster-found' };
+    }
+
+    const coordinates = cluster.geometry.coordinates;
+    const point = map.project(coordinates);
+    const rect = canvas.getBoundingClientRect();
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + point.x,
+      clientY: rect.top + point.y,
+      view: window,
+    });
+
+    map.fire('click', {
+      point: { x: point.x, y: point.y },
+      lngLat: { lng: coordinates[0], lat: coordinates[1] },
+      originalEvent: clickEvent,
+      features: [cluster],
+    });
 
     return {
-      x: rect.left + point.x,
-      y: rect.top + point.y,
+      success: true,
+      pointCount: Number(cluster.properties?.point_count || 0),
+      screenX: point.x,
+      screenY: point.y,
     };
   });
+
+  if (!result.success) {
+    console.log(`Cluster click setup failed: ${result.reason}`);
+    return { success: false };
+  }
+
+  await page.waitForTimeout(1000);
+  return { success: true, pointCount: result.pointCount };
 }
 
 test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
@@ -96,178 +103,35 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     ctx = createVisualTestContext(page, 'swipeable-clustered-nodes');
     ctx.start();
 
-    // Navigate to the app
     await page.goto('/');
     await ctx.validator.waitForReady();
-
-    // Wait for map to be ready
     await waitForMapStyleLoaded(page);
+    await setMapZoom(page, 11);
 
-    // Find the map canvas
-    const mapCanvas = page.locator('canvas').first();
-    const isMapVisible = await mapCanvas.isVisible().catch(() => false);
+    const clickResult = await clickOnCluster(page);
+    expect(clickResult.success, 'Expected to find a rendered cluster').toBe(true);
 
-    expect(isMapVisible, 'Map canvas should be visible').toBe(true);
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    await expect(clusterPreview).toBeVisible({ timeout: 10000 });
 
-    if (isMapVisible) {
-      const box = await mapCanvas.boundingBox();
-      expect(box, 'Map should have bounding box').not.toBeNull();
+    const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+    const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
+    const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
+    const closeButton = page.locator('[data-testid="group-preview-close-button"]');
 
-      if (box) {
-        // Take screenshot of initial map state
-        await page.screenshot({
-          path: path.join(SCREENSHOT_DIR, '01-initial-map-state.png'),
-          fullPage: true,
-        });
+    await expect(pageIndicator).toBeVisible();
+    await expect(leftNav).toBeVisible();
+    await expect(rightNav).toBeVisible();
+    await expect(closeButton).toBeVisible();
 
-        // Get initial zoom and log it
-        const initialZoom = await getMapZoom(page);
-        console.log(`Initial zoom level: ${initialZoom}`);
+    const pageText = await pageIndicator.textContent();
+    expect(pageText).toMatch(/\d+ of \d+/);
 
-        // Set zoom to level 11 which should show clusters (clusterMaxZoom is 14)
-        // Also resets pitch to 0 for easier clicking
-        await setMapZoom(page, 11);
-        await page.waitForTimeout(2000);
+    await page.screenshot({
+      path: path.join(SCREENSHOT_DIR, 'swipeable-clustered-nodes-current.png'),
+      fullPage: true,
+    });
 
-        const newZoom = await getMapZoom(page);
-        console.log(`Zoom level after setting: ${newZoom}`);
-
-        // Take screenshot after zoom out
-        await page.screenshot({
-          path: path.join(SCREENSHOT_DIR, '02-zoomed-out-with-clusters.png'),
-          fullPage: true,
-        });
-
-        // Get the map center screen position for more accurate clicking
-        const mapCenter = await getMapCenterScreenPosition(page);
-        console.log(`Map center screen position: ${JSON.stringify(mapCenter)}`);
-
-        // Try clicking in multiple positions to find a cluster
-        const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-        let foundCluster = false;
-
-        // Grid of positions to try - start with map center if available
-        const positions: Array<{ x: number; y: number; absolute?: boolean }> = [];
-
-        // Add map center as first position if available
-        if (mapCenter) {
-          positions.push({ x: mapCenter.x, y: mapCenter.y, absolute: true });
-        }
-
-        // Add relative positions as fallback
-        positions.push(
-          { x: 0.5, y: 0.5 },   // canvas center
-          { x: 0.45, y: 0.45 },
-          { x: 0.55, y: 0.55 },
-          { x: 0.4, y: 0.5 },
-          { x: 0.6, y: 0.5 },
-          { x: 0.5, y: 0.4 },
-          { x: 0.5, y: 0.6 },
-        );
-
-        for (const pos of positions) {
-          let clickX: number;
-          let clickY: number;
-
-          if (pos.absolute) {
-            clickX = pos.x;
-            clickY = pos.y;
-          } else {
-            clickX = box.x + box.width * pos.x;
-            clickY = box.y + box.height * pos.y;
-          }
-
-          console.log(`Clicking at (${clickX.toFixed(0)}, ${clickY.toFixed(0)})`);
-          await page.mouse.click(clickX, clickY);
-          await page.waitForTimeout(800);
-
-          const visible = await clusterPreview.isVisible().catch(() => false);
-          if (visible) {
-            foundCluster = true;
-            console.log(`Found cluster at relative position (${pos.x}, ${pos.y})`);
-
-            // Take screenshot after click
-            await page.screenshot({
-              path: path.join(SCREENSHOT_DIR, '03-after-cluster-click.png'),
-              fullPage: true,
-            });
-
-            // Verify pagination elements
-            const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
-            const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
-            const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
-            const closeButton = page.locator('[data-testid="group-preview-close-button"]');
-
-            // Check all pagination elements exist
-            expect(await pageIndicator.isVisible(), 'Page indicator should be visible').toBe(true);
-            expect(await leftNav.isVisible(), 'Left navigation should be visible').toBe(true);
-            expect(await rightNav.isVisible(), 'Right navigation should be visible').toBe(true);
-            expect(await closeButton.isVisible(), 'Close button should be visible').toBe(true);
-
-            // Get the page indicator text (e.g., "1 of 5")
-            const pageText = await pageIndicator.textContent();
-            console.log(`Page indicator shows: "${pageText}"`);
-
-            // Verify format matches "X of Y"
-            expect(pageText).toMatch(/\d+ of \d+/);
-
-            // Take screenshot with cluster preview visible
-            await page.screenshot({
-              path: path.join(SCREENSHOT_DIR, 'swipeable-clustered-nodes-current.png'),
-              fullPage: true,
-            });
-
-            // Test navigation: click right arrow if available
-            const rightNavEnabled = !(await rightNav.getAttribute('disabled'));
-            if (rightNavEnabled) {
-              await rightNav.click();
-              await page.waitForTimeout(500);
-
-              // Take screenshot after navigation
-              await page.screenshot({
-                path: path.join(SCREENSHOT_DIR, '04-after-nav-right.png'),
-                fullPage: true,
-              });
-
-              // Verify page indicator changed
-              const newPageText = await pageIndicator.textContent();
-              console.log(`After right nav, page indicator shows: "${newPageText}"`);
-            }
-
-            // Test close button
-            await closeButton.click();
-            await page.waitForTimeout(500);
-
-            const previewGone = !(await clusterPreview.isVisible().catch(() => false));
-            expect(previewGone, 'Cluster preview should close after clicking X').toBe(true);
-
-            // Take screenshot after close
-            await page.screenshot({
-              path: path.join(SCREENSHOT_DIR, '05-after-close.png'),
-              fullPage: true,
-            });
-
-            break;
-          }
-        }
-
-        if (!foundCluster) {
-          // Take screenshot showing current state
-          await page.screenshot({
-            path: path.join(SCREENSHOT_DIR, 'swipeable-clustered-nodes-current.png'),
-            fullPage: true,
-          });
-          console.log(
-            'Note: Could not find a cluster to click. This may be because:\n' +
-              '1. Zoom level is too high (no clusters visible)\n' +
-              '2. API did not return enough properties\n' +
-              '3. Properties are not clustered at this zoom level'
-          );
-        }
-      }
-    }
-
-    // Assert no critical console errors
     ctx.assertNoCriticalErrors();
   });
 
@@ -278,68 +142,28 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     await page.goto('/');
     await ctx.validator.waitForReady();
     await waitForMapStyleLoaded(page);
+    await setMapZoom(page, 11);
 
-    const mapCanvas = page.locator('canvas').first();
-    const box = await mapCanvas.boundingBox();
+    const clickResult = await clickOnCluster(page);
+    expect(clickResult.success, 'Expected to find a rendered cluster').toBe(true);
 
-    if (box) {
-      // Zoom out to see clusters using map API
-      await setMapZoom(page, 11);
-      await page.waitForTimeout(2000);
+    const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+    const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
+    const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
 
-      // Try multiple positions to find a cluster
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      let foundCluster = false;
+    await expect(pageIndicator).toBeVisible({ timeout: 10000 });
+    const initialText = await pageIndicator.textContent();
 
-      const positions = [
-        { x: 0.5, y: 0.5 },
-        { x: 0.4, y: 0.4 },
-        { x: 0.6, y: 0.6 },
-      ];
+    await rightNav.click();
+    await page.waitForTimeout(500);
+    const afterRightText = await pageIndicator.textContent();
 
-      for (const pos of positions) {
-        await page.mouse.click(box.x + box.width * pos.x, box.y + box.height * pos.y);
-        await page.waitForTimeout(800);
+    await leftNav.click();
+    await page.waitForTimeout(500);
+    const afterLeftText = await pageIndicator.textContent();
 
-        const isVisible = await clusterPreview.isVisible().catch(() => false);
-        if (isVisible) {
-          foundCluster = true;
-
-          const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
-          const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
-          const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
-
-          // Get initial page
-          const initialText = await pageIndicator.textContent();
-          console.log(`Initial page: ${initialText}`);
-
-          // Navigate right if possible
-          const rightNavEnabled = !(await rightNav.getAttribute('disabled'));
-          if (rightNavEnabled) {
-            await rightNav.click();
-            await page.waitForTimeout(500);
-
-            const afterRightText = await pageIndicator.textContent();
-            console.log(`After right click: ${afterRightText}`);
-
-            // Navigate left
-            await leftNav.click();
-            await page.waitForTimeout(500);
-
-            const afterLeftText = await pageIndicator.textContent();
-            console.log(`After left click: ${afterLeftText}`);
-
-            // Should be back to initial
-            expect(afterLeftText).toBe(initialText);
-          }
-          break;
-        }
-      }
-
-      if (!foundCluster) {
-        console.log('No cluster found for navigation test');
-      }
-    }
+    expect(afterRightText).not.toBe(initialText);
+    expect(afterLeftText).toBe(initialText);
 
     ctx.assertNoCriticalErrors();
   });
@@ -351,55 +175,25 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     await page.goto('/');
     await ctx.validator.waitForReady();
     await waitForMapStyleLoaded(page);
+    await setMapZoom(page, 11);
 
-    const mapCanvas = page.locator('canvas').first();
-    const box = await mapCanvas.boundingBox();
+    const clickResult = await clickOnCluster(page);
+    expect(clickResult.success, 'Expected to find a rendered cluster').toBe(true);
 
-    if (box) {
-      // Zoom out to see clusters using map API
-      await setMapZoom(page, 11);
-      await page.waitForTimeout(2000);
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    await expect(clusterPreview).toBeVisible({ timeout: 10000 });
 
-      // Try multiple positions to find a cluster
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      let foundCluster = false;
+    await page.locator('[data-testid="group-preview-touch-overlay"]').click();
+    await page.waitForTimeout(1000);
 
-      const positions = [
-        { x: 0.5, y: 0.5 },
-        { x: 0.4, y: 0.4 },
-        { x: 0.6, y: 0.6 },
-      ];
+    const panel = page.locator('[data-testid="web-property-panel"]');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await expect(panel.getByText('Property Details').first()).toBeVisible();
 
-      for (const pos of positions) {
-        await page.mouse.click(box.x + box.width * pos.x, box.y + box.height * pos.y);
-        await page.waitForTimeout(800);
-
-        const isVisible = await clusterPreview.isVisible().catch(() => false);
-        if (isVisible) {
-          foundCluster = true;
-
-          // Click on the property card
-          const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
-          await propertyCard.click();
-          await page.waitForTimeout(1000);
-
-          // Cluster preview should close
-          const previewStillVisible = await clusterPreview.isVisible().catch(() => false);
-          expect(previewStillVisible, 'Cluster preview should close after property tap').toBe(false);
-
-          // Take screenshot showing what happened
-          await page.screenshot({
-            path: path.join(SCREENSHOT_DIR, '06-after-property-tap.png'),
-            fullPage: true,
-          });
-          break;
-        }
-      }
-
-      if (!foundCluster) {
-        console.log('No cluster found for property tap test');
-      }
-    }
+    await page.screenshot({
+      path: path.join(SCREENSHOT_DIR, '06-after-property-tap.png'),
+      fullPage: true,
+    });
 
     ctx.assertNoCriticalErrors();
   });

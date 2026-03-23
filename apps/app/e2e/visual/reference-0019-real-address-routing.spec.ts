@@ -144,20 +144,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: true,
     });
 
-    // Verify the address title is displayed correctly (like reference: "Street Number")
+    await expect(page).toHaveURL(/\/property\//, { timeout: 10000 });
+
+    // Verify the canonical property page is displayed correctly.
     const addressTitle = page.getByText('Deflectiespoelstraat 16').first();
     await expect(addressTitle).toBeVisible({ timeout: 10000 });
 
-    // Verify the subtitle shows zip and city (like reference: "5651 HP Eindhoven")
-    // The text should contain "5651HP" and "Eindhoven" - check using testID or text content
-    const addressSubtitle = page.locator('text=/5651HP.*Eindhoven/i').or(
-      page.locator('[data-testid="address-subtitle"]')
-    ).first();
+    const addressSubtitle = page.getByText(/5651\s*HP Eindhoven/i).first();
     await expect(addressSubtitle).toBeVisible({ timeout: 5000 });
 
-    // Verify geocoder ID is displayed (Photon format: osm_type + "_" + osm_id, e.g. "W_123456")
-    const geocoderId = page.locator('text=/W_123456/').first();
-    await expect(geocoderId).toBeVisible({ timeout: 5000 });
+    const propertyHeader = page.getByTestId('property-header-carousel');
+    await expect(propertyHeader).toBeVisible({ timeout: 5000 });
 
     // Verify no "loading" or error states
     const loadingState = page.getByText('Resolving address');
@@ -181,12 +178,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     });
 
     // Verify city view is shown (not property detail)
-    const cityHeader = page.getByText('Eindhoven').first();
+    const cityHeader = page.getByTestId('address-city-title');
     await expect(cityHeader).toBeVisible({ timeout: 5000 });
+    await expect(cityHeader).toHaveText('Eindhoven');
 
-    // Should show "City Overview" or similar placeholder text
-    const cityViewIndicator = page.getByText(/City Overview|city heatmap|coming soon/i).first();
-    await expect(cityViewIndicator).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('address-city-message')).toHaveText(
+      /Browse homes and local activity across Eindhoven/i
+    );
+    await expect(page.getByTestId('address-city-detail')).toHaveText(
+      /Open the map to explore listings and property activity across this city/i
+    );
+    await expect(page.getByTestId('address-city-go-to-map')).toHaveText(/Browse City Map/i);
   });
 
   test('display postcode view for partial URL (city + zipcode)', async ({ page }) => {
@@ -203,12 +205,19 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     });
 
     // Verify postcode view is shown
-    const postcodeHeader = page.getByText('5651HP').first();
+    const postcodeHeader = page.getByTestId('address-postcode-title');
     await expect(postcodeHeader).toBeVisible({ timeout: 5000 });
+    await expect(postcodeHeader).toHaveText('5651HP');
 
-    // Should show neighborhood stats or similar
-    const postcodeViewIndicator = page.getByText(/Neighborhood|statistics|coming soon|Eindhoven/i).first();
-    await expect(postcodeViewIndicator).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('address-postcode-message')).toHaveText(
+      /Browse homes around 5651HP Eindhoven/i
+    );
+    await expect(page.getByTestId('address-postcode-detail')).toHaveText(
+      /Open the map to explore listings and property activity in this postcode/i
+    );
+    await expect(page.getByTestId('address-postcode-go-to-map')).toHaveText(
+      /Browse Postcode Map/i
+    );
   });
 
   test('show 404 for non-existent address', async ({ page }) => {
@@ -276,9 +285,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const addressTitle = page.locator('text=Deflectiespoelstraat 16').first();
     await expect(addressTitle).toBeVisible({ timeout: 10000 });
 
-    // Verify coordinates are displayed (proves geocoder resolution worked)
-    const coordinates = page.locator('text=/51\\.4.*5\\.4/').first();
-    await expect(coordinates).toBeVisible({ timeout: 5000 });
+    // Verify the resolved property page is visible.
+    await expect(page.getByTestId('property-header-carousel')).toBeVisible({ timeout: 5000 });
+    await expect(page).toHaveURL(/\/property\//, { timeout: 10000 });
 
     // Take final screenshot
     await page.screenshot({

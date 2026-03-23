@@ -5,32 +5,32 @@ appId: nl.huishype.app
 # This is a sub-flow; app is already launched by the orchestrator.
 
 # Verify the tab bar is visible
-- assertVisible: "Map"
-- assertVisible: "Feed"
+- assertVisible: 'Map'
+- assertVisible: 'Feed'
 
 # Verify the map loaded (zoom indicator appears once map renders)
 - extendedWaitUntil:
-    visible: "Zoom.*"
+    visible: 'Zoom.*'
     timeout: 20000
 
-- takeScreenshot: maestro-screenshots/full_flow_01_app_launched
+- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-app-launched.png
 
 # Test zoom-in control
 - tapOn:
-    text: "+"
+    text: '+'
 - waitForAnimationToEnd
 
 # Verify zoom increased (zoom indicator still visible)
 - assertVisible:
-    text: "Zoom.*"
+    text: 'Zoom.*'
 
 # Test zoom-out control (uses Unicode MINUS SIGN, target by testID)
 - tapOn:
-    id: "zoom-out-button"
+    id: 'zoom-out-button'
 - waitForAnimationToEnd
 
 # Verify zoom indicator still present after zoom out
 - assertVisible:
-    text: "Zoom.*"
+    text: 'Zoom.*'
 
-- takeScreenshot: maestro-screenshots/full_flow_01_zoom_controls_verified
+- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-zoom-controls-verified.png

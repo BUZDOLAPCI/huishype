@@ -29,10 +29,22 @@ export interface LeaderboardEntry {
   likeCount: number;
 }
 
+export interface FeaturedProperty {
+  id: string;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  countryCode: string;
+  officialValuation: number | null;
+  commentCount: number;
+  likeCount: number;
+  engagementScore: number;
+}
+
 export interface LeaderboardResponse {
   rankings: LeaderboardEntry[];
   currentUserRank: LeaderboardEntry | null;
-  featuredProperty: Record<string, unknown> | null;
+  featuredProperty: FeaturedProperty | null;
   period: LeaderboardPeriod;
 }
 

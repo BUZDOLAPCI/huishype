@@ -40,6 +40,7 @@ const publicProfileSchema = z.object({
 
 const myProfileSchema = publicProfileSchema.extend({
   email: z.string(),
+  averageAccuracy: z.number().nullable(),
   savedCount: z.number(),
   likedCount: z.number(),
   lastNameChangeAt: z.string().datetime().nullable(),
@@ -162,15 +163,33 @@ export async function userRoutes(fastify: FastifyInstance) {
       }
 
       // Count guesses, comments, saved, liked in parallel
-      const [guessCountResult, commentCountResult, savedCountResult, likedCountResult] =
+      const [guessCountResult, commentCountResult, savedCountResult, likedCountResult, averageAccuracyResult] =
         await Promise.all([
           db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
           db.select({ value: count() }).from(comments).where(eq(comments.userId, userId)),
           db.select({ value: count() }).from(savedProperties).where(eq(savedProperties.userId, userId)),
           db.select({ value: count() }).from(reactions).where(eq(reactions.userId, userId)),
+          db.execute<{ average_accuracy: number | null }>(sql`
+            SELECT AVG(
+              GREATEST(
+                0,
+                100 - (
+                  ABS(pg.guessed_price - ph.price)::numeric
+                  / NULLIF(ph.price, 0)
+                ) * 100
+              )
+            )::float8 AS average_accuracy
+            FROM price_guesses pg
+            INNER JOIN price_history ph
+              ON ph.property_id = pg.property_id
+             AND ph.event_type = 'sold'
+            WHERE pg.user_id = ${userId}
+              AND pg.is_meme_guess = false
+          `),
         ]);
 
       const rank = getKarmaRank(user.karma);
+      const averageAccuracy = Array.from(averageAccuracyResult)[0]?.average_accuracy ?? null;
 
       return {
         id: user.id,
@@ -183,6 +202,8 @@ export async function userRoutes(fastify: FastifyInstance) {
         karmaRank: rank,
         guessCount: Number(guessCountResult[0].value),
         commentCount: Number(commentCountResult[0].value),
+        averageAccuracy:
+          averageAccuracy != null ? Math.max(0, Math.min(100, Number(averageAccuracy))) : null,
         savedCount: Number(savedCountResult[0].value),
         likedCount: Number(likedCountResult[0].value),
         lastNameChangeAt: user.lastDisplayNameChangeAt?.toISOString() ?? null,

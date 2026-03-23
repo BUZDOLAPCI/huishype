@@ -30,21 +30,21 @@ appId: nl.huishype.app
 # Handle Expo Dev Client server picker (after clearState, always shown)
 # Match both emulator (10.0.2.2:8081) and physical device (localhost:8081)
 - tapOn:
-    text: ".*10.0.2.2:8081.*"
+    text: '.*10.0.2.2:8081.*'
     optional: true
 - tapOn:
-    text: ".*localhost:8081.*"
+    text: '.*localhost:8081.*'
     optional: true
 
 # Wait for the app to connect and show HuisHype header (dev client or app)
 - extendedWaitUntil:
-    visible: "HuisHype"
+    visible: 'HuisHype'
     timeout: 120000
 
 # Dismiss Expo developer menu onboarding popup if it appears
 # This popup blocks the app with "Continue" button after first server connection
 - tapOn:
-    text: "Continue"
+    text: 'Continue'
     optional: true
 - waitForAnimationToEnd
 
@@ -55,7 +55,7 @@ appId: nl.huishype.app
 
 # Tap on the map area to dismiss any remaining overlay
 - tapOn:
-    point: "50%,30%"
+    point: '50%,30%'
     optional: true
 
 # Wait for any dismissal animation
@@ -63,7 +63,7 @@ appId: nl.huishype.app
 
 # Wait for the map to fully load (JS bundle cold start after clearState can take 2+ min)
 - extendedWaitUntil:
-    visible: "Zoom.*"
+    visible: 'Zoom.*'
     timeout: 180000
 
 # === UNAUTHENTICATED PHASES ===

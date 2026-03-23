@@ -114,14 +114,18 @@ test.describe('Search Navigation Flow', () => {
     const searchInput = page.locator('[data-testid="search-bar-input"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
 
-    // Click to focus, then type to trigger React Native Web onChangeText
-    // Using pressSequentially ensures proper input events fire
+    // Click to focus and wait for focus to take effect
     await searchInput.click();
+    await searchInput.focus();
+
+    // Type to trigger React Native Web onChangeText
+    // Using pressSequentially ensures proper input events fire
     await searchInput.pressSequentially('Eindhoven Markt', { delay: 30 });
 
     // Wait for geocoder results to appear (debounce 300ms + network round trip)
+    // Use 30s timeout — Photon geocoder can be slow under load
     const resultItem = page.locator('[data-testid="search-result-item"]');
-    await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
+    await expect(resultItem.first()).toBeVisible({ timeout: 30000 });
 
     // Should have at least 1 result
     const resultCount = await resultItem.count();
@@ -147,34 +151,56 @@ test.describe('Search Navigation Flow', () => {
     const searchInput = page.locator('[data-testid="search-bar-input"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
 
-    // Search for the property by postal code and house number
-    const searchQuery = `${testProp.postalCode} ${testProp.houseNumber}`;
+    // Search by street address + city (Photon geocoder doesn't support bare postal codes)
+    const searchQuery = `${testProp.address}, ${testProp.city}`;
+    console.log(`Searching for: "${searchQuery}"`);
     await searchInput.click();
+    await searchInput.focus();
     await searchInput.pressSequentially(searchQuery, { delay: 30 });
 
     // Wait for geocoder autocomplete results
+    // Use 30s timeout — Photon geocoder can be slow under load
     const resultItem = page.locator('[data-testid="search-result-item"]');
-    await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
+    await expect(resultItem.first()).toBeVisible({ timeout: 30000 });
+    const matchingResult = resultItem.filter({ hasText: testProp.address }).first();
 
-    // Record initial zoom before clicking the result
-    const initialZoom = await page.evaluate(() => {
-      const map = (window as unknown as { __mapInstance: { getZoom(): number } })
+    // Record initial center before clicking the result
+    const initialCenter = await page.evaluate(() => {
+      const map = (window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } })
         .__mapInstance;
-      return map?.getZoom?.() ?? 0;
+      const c = map?.getCenter?.();
+      return c ? { lng: c.lng, lat: c.lat } : null;
     });
+    expect(initialCenter).toBeTruthy();
 
-    // Click the first result
-    await resultItem.first().click();
+    const resolveResponsePromise = page.waitForResponse((response) =>
+      response.url().includes('/properties/resolve?') &&
+      response.request().method() === 'GET'
+    );
+
+    await matchingResult.click();
+
+    const resolveResponse = await resolveResponsePromise;
+    expect(resolveResponse.status()).toBe(200);
+    const resolvedProperty = await resolveResponse.json() as { id: string };
+    expect(resolvedProperty.id).toBe(testProp.id);
 
     // The click triggers an async flow: handleResultPress -> resolveProperty (HTTP) -> onPropertyResolved -> flyTo
-    // We need to wait for the zoom to actually change (flyTo target is zoom 17)
+    // Wait for the camera center to change (flyTo moves to the property location).
+    // We check center change rather than zoom, because the initial zoom may already be
+    // at or above the flyTo target (e.g. debug camera starts at z20.1, flyTo targets z17).
     await page.waitForFunction(
-      (initZoom: number) => {
-        const map = (window as unknown as { __mapInstance: { getZoom(): number } }).__mapInstance;
-        return map && map.getZoom() > initZoom + 1;
+      (init: { lng: number; lat: number }) => {
+        const map = (window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }).__mapInstance;
+        if (!map) return false;
+        const center = map.getCenter();
+        return (
+          Math.abs(center.lng - init.lng) > 0.001 ||
+          Math.abs(center.lat - init.lat) > 0.001
+        );
       },
-      initialZoom,
-      { timeout: 15000, polling: 200 }
+      initialCenter!,
+      { timeout: 20000, polling: 200 }
     );
 
     // Now wait for the fly animation to finish (map stops moving)
@@ -183,7 +209,7 @@ test.describe('Search Navigation Flow', () => {
       return map && !map.isMoving();
     }, { timeout: 10000 });
 
-    // Verify the camera has moved (zoom should be ~17 after flyTo)
+    // Verify the camera is at a reasonable zoom after flyTo (target is z17)
     const zoom = await page.evaluate(() => {
       const map = (window as unknown as { __mapInstance: { getZoom(): number } })
         .__mapInstance;
@@ -194,13 +220,11 @@ test.describe('Search Navigation Flow', () => {
     // Wait for tiles to load at new position
     await waitForMapIdle(page, 10000);
 
-    // Check if preview card or selected marker appeared
-    // The marker appears once React state updates (selectedCoordinate + showPreview)
-    // The popup requires property data to load via React Query
     const selectedMarker = page.locator('[data-testid="selected-marker"]');
-    await expect(selectedMarker).toBeVisible({ timeout: 10000 });
-
-    console.log('After search: marker visible, property resolved successfully');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
+    await expect(selectedMarker).toBeVisible({ timeout: 5000 });
+    await expect(previewCard).toBeVisible({ timeout: 5000 });
+    await expect(previewCard).toContainText(testProp.address);
   });
 
   test('search for non-existent local property handles gracefully', async ({
@@ -217,11 +241,13 @@ test.describe('Search Navigation Flow', () => {
     // Search for a real Dutch address that likely exists in the geocoder
     // but might not be in our local Eindhoven-only database
     await searchInput.click();
+    await searchInput.focus();
     await searchInput.pressSequentially('Amsterdam Damrak 1', { delay: 30 });
 
     // Wait for geocoder results
+    // Use 30s timeout — Photon geocoder can be slow under load
     const resultItem = page.locator('[data-testid="search-result-item"]');
-    await expect(resultItem.first()).toBeVisible({ timeout: 15000 });
+    await expect(resultItem.first()).toBeVisible({ timeout: 30000 });
 
     // Get initial map center before selecting
     const initialCenter = await page.evaluate(() => {
@@ -235,11 +261,9 @@ test.describe('Search Navigation Flow', () => {
     });
     expect(initialCenter).toBeTruthy();
 
-    // Click the first result
     await resultItem.first().click();
 
-    // The click triggers an async flow: handleResultPress -> resolveProperty (HTTP) ->
-    // onLocationResolved (fallback for non-local) -> flyTo
+    // The click triggers an async flow: handleResultPress -> fallback onLocationResolved -> flyTo
     // We must wait for the center to actually change before checking isMoving,
     // otherwise isMoving() returns false because flyTo hasn't started yet.
     await page.waitForFunction(
@@ -266,10 +290,8 @@ test.describe('Search Navigation Flow', () => {
       return map && !map.isMoving();
     }, { timeout: 10000 });
 
-    // No crash - graceful handling verified
-    console.log(
-      'Non-local search: camera moved gracefully without errors'
-    );
+    await expect(page.locator('[data-testid="selected-marker"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="group-preview-card"]')).toHaveCount(0);
   });
 
   test('clear search resets the search bar', async ({ page }) => {

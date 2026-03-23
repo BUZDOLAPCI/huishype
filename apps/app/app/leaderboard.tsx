@@ -29,7 +29,10 @@ import {
   useLeaderboard,
   type LeaderboardPeriod,
   type LeaderboardEntry,
+  type FeaturedProperty,
 } from '@/src/hooks/useLeaderboard';
+import { formatPropertyPrice } from '@huishype/shared';
+import type { CountryCode } from '@huishype/shared/config';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { shadows } from '@/src/lib/shadows';
 
@@ -191,6 +194,75 @@ function RankingRow({
   );
 }
 
+// --- Featured Property Card ---
+
+function FeaturedPropertyCard({
+  property,
+  period,
+}: {
+  property: FeaturedProperty;
+  period: LeaderboardPeriod;
+}) {
+  const periodLabel =
+    period === 'week'
+      ? 'This week'
+      : period === 'month'
+        ? 'This month'
+        : 'All time';
+
+  return (
+    <Pressable
+      style={[styles.featuredCard, shadows.card]}
+      onPress={() => router.push(`/property/${property.id}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
+    >
+      <View style={styles.featuredBackdrop}>
+        <View style={styles.featuredGlowLarge} />
+        <View style={styles.featuredGlowSmall} />
+        <View style={styles.featuredRing} />
+      </View>
+
+      <View style={styles.featuredBadge}>
+        <Text style={styles.featuredBadgeText}>{`MOST DISCUSSED · ${periodLabel}`}</Text>
+      </View>
+
+      <View style={styles.featuredGradient} />
+
+      {/* Content overlay */}
+      <View style={styles.featuredContent}>
+        <View style={styles.featuredTextBlock}>
+          <Text style={styles.featuredAddress} numberOfLines={1}>
+            {property.address}
+          </Text>
+          <Text style={styles.featuredCity} numberOfLines={1}>
+            {property.city}
+            {property.officialValuation
+              ? ` · ${formatPropertyPrice(property.officialValuation, property.countryCode as CountryCode)}`
+              : ''}
+          </Text>
+        </View>
+        <View style={styles.featuredStats}>
+          <View style={styles.featuredStatPill}>
+            <Icon name="Star" size={13} weight="fill" color="#FFFFFF" />
+            <Text style={styles.featuredStatText}>
+              {Math.round(property.engagementScore)}
+            </Text>
+          </View>
+          <View style={styles.featuredStatPill}>
+            <Icon name="ChatCircle" size={13} color="#FFFFFF" />
+            <Text style={styles.featuredStatText}>{property.commentCount}</Text>
+          </View>
+          <View style={styles.featuredStatPill}>
+            <Icon name="Heart" size={13} color="#FFFFFF" />
+            <Text style={styles.featuredStatText}>{property.likeCount}</Text>
+          </View>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 // --- Main Screen ---
 
 type ListItem =
@@ -203,7 +275,7 @@ export default function LeaderboardScreen() {
   const { user } = useAuthContext();
   const [period, setPeriod] = useState<LeaderboardPeriod>('week');
 
-  const { data, isLoading, refetch } = useLeaderboard(period);
+  const { data, isLoading } = useLeaderboard(period);
 
   const currentUserId = user?.id ?? null;
 
@@ -291,14 +363,6 @@ export default function LeaderboardScreen() {
           <Icon name="Trophy" size="lg" weight="fill" color="#F5A623" />
           <Text style={styles.headerTitle}>Leaderboard</Text>
         </View>
-
-        {/* Period filter */}
-        <Pressable style={styles.periodDropdown}>
-          <Text style={styles.periodDropdownText}>
-            {PERIODS.find((p) => p.key === period)?.label}
-          </Text>
-          <Icon name="CaretDown" size={14} color="#736C62" />
-        </Pressable>
       </View>
 
       {/* Period chips */}
@@ -317,8 +381,10 @@ export default function LeaderboardScreen() {
       {/* Featured property */}
       {data?.featuredProperty && (
         <View style={styles.featuredSection}>
-          <Text style={styles.sectionLabel}>MOST DISCUSSED THIS WEEK</Text>
-          {/* Featured property card would go here */}
+          <Text style={styles.sectionLabel}>
+            {`MOST DISCUSSED${period === 'week' ? ' THIS WEEK' : period === 'month' ? ' THIS MONTH' : ''}`}
+          </Text>
+          <FeaturedPropertyCard property={data.featuredProperty} period={period} />
         </View>
       )}
 
@@ -376,20 +442,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     fontFamily: 'Outfit_600SemiBold',
   },
-  periodDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 4,
-  },
-  periodDropdownText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#736C62',
-  },
   periodChips: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -409,6 +461,118 @@ const styles = StyleSheet.create({
     color: '#9C958A',
     textTransform: 'uppercase',
     marginBottom: 8,
+  },
+  featuredCard: {
+    height: 180,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#2D2926',
+    position: 'relative',
+  },
+  featuredBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#2D2926',
+  },
+  featuredGlowLarge: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(245, 166, 35, 0.18)',
+    top: -72,
+    right: -48,
+  },
+  featuredGlowSmall: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    bottom: -32,
+    left: -12,
+  },
+  featuredRing: {
+    position: 'absolute',
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    right: 18,
+    top: 22,
+  },
+  featuredBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    zIndex: 2,
+    backgroundColor: 'rgba(245, 166, 35, 0.92)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  featuredBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+  },
+  featuredGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 100,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  featuredContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  featuredTextBlock: {
+    flex: 1,
+    marginRight: 12,
+  },
+  featuredAddress: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Outfit_700Bold',
+  },
+  featuredCity: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
+  },
+  featuredStats: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  featuredStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  featuredStatText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 
   // Podium

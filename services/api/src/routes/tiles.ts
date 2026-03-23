@@ -629,7 +629,7 @@ function build3DBuildingsLayer(): Record<string, unknown> {
 }
 
 /**
- * Build the paper-trees symbol layer for native rendering.
+ * Build the paper-trees symbol layer shared by web and native rendering.
  * Uses tree-0 through tree-15 sprites from the sprite sheet.
  * Positioned after 3D buildings for visual layering.
  */
@@ -949,7 +949,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
         // Add paper-trees symbol layer AFTER sprite filtering to preserve
         // the raw concat expression (coalesce+image wrapper breaks on native).
-        // On web, BillboardCustomLayer replaces this with WebGL depth-tested rendering.
+        // Both web and native render the server-provided symbol layer directly.
         const buildings3DIndex = filteredLayers.findIndex(l => l.id === '3d-buildings');
         const paperTreesLayer = buildPaperTreesLayer();
         if (buildings3DIndex !== -1) {
@@ -1395,9 +1395,23 @@ async function getIndividualPointsMVT(
         p.floor_area_m2,
         p.year_built,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
-        COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score
+        l.asking_price,
+        COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score,
+        COALESCE(like_counts.cnt, 0) as like_count,
+        COALESCE(comment_counts.cnt, 0) as comment_count,
+        COALESCE(guess_counts.cnt, 0) as guess_count
       FROM properties p
-      LEFT JOIN listings l ON l.property_id = p.id AND l.status = 'active'
+      LEFT JOIN LATERAL (
+        SELECT id, asking_price FROM listings
+        WHERE property_id = p.id AND status = 'active'
+        ORDER BY created_at DESC LIMIT 1
+      ) l ON true
+      LEFT JOIN (
+        SELECT target_id, COUNT(*) as cnt
+        FROM reactions
+        WHERE target_type = 'property' AND reaction_type = 'like'
+        GROUP BY target_id
+      ) like_counts ON like_counts.target_id = p.id
       LEFT JOIN (
         SELECT property_id, COUNT(*) as cnt
         FROM comments
@@ -1430,10 +1444,14 @@ async function getIndividualPointsMVT(
         city,
         postal_code as "postalCode",
         official_valuation as "officialValuation",
+        asking_price as "askingPrice",
         floor_area_m2 as "floorAreaM2",
         year_built as "yearBuilt",
         has_listing as "hasListing",
         activity_score as "activityScore",
+        like_count as "likeCount",
+        comment_count as "commentCount",
+        guess_count as "guessCount",
         NOT has_listing AND activity_score = 0 as is_ghost
       FROM property_data
     )

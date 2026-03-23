@@ -211,63 +211,31 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
  * Helper to check if backdrop is visible (darkened overlay)
  */
 async function isBackdropVisible(page: Page): Promise<boolean> {
-  // Check for backdrop elements from both @gorhom/bottom-sheet and WebPropertyPanel
   const backdropInfo = await page.evaluate(() => {
-    // Check WebPropertyPanel backdrop first (web-specific)
-    const webPanelBackdrop = document.querySelector('[data-testid="web-panel-backdrop"]');
-    if (webPanelBackdrop) {
-      const style = window.getComputedStyle(webPanelBackdrop);
-      const opacity = parseFloat(style.opacity);
-      // WebPropertyPanel backdrop uses CSS opacity to show/hide;
-      // opacity > 0.1 means the panel is open and backdrop is visible
-      if (opacity > 0.1) {
-        return { hasBackdropElements: true, hasVisibleBackdrop: true, source: 'web-panel-backdrop' };
-      }
-      // Also check for the .open class as a secondary signal
-      if (webPanelBackdrop.classList.contains('open')) {
-        return { hasBackdropElements: true, hasVisibleBackdrop: true, source: 'web-panel-backdrop-open-class' };
-      }
+    const element = document.querySelector('[data-testid="web-panel-backdrop"]') as HTMLElement | null;
+    if (!element) {
+      return {
+        hasBackdropElements: false,
+        hasVisibleBackdrop: false,
+        source: 'missing-web-panel-backdrop',
+        opacity: 0,
+        className: '',
+      };
     }
 
-    // Look for @gorhom/bottom-sheet backdrop elements
-    const backdropElements = document.querySelectorAll('[data-state="open"], [aria-modal="true"], .bottom-sheet-backdrop');
-
-    // Also look for elements with semi-transparent backgrounds
-    const allElements = Array.from(document.querySelectorAll('*'));
-    let hasVisibleBackdrop = false;
-
-    for (const el of allElements) {
-      const style = window.getComputedStyle(el);
-      const bgColor = style.backgroundColor;
-      const elOpacity = parseFloat(style.opacity);
-
-      // Skip elements that are hidden via CSS opacity (e.g., WebPropertyPanel backdrop when closed)
-      if (elOpacity < 0.1) continue;
-
-      // Check for rgba with alpha > 0.1 (indicating visible backdrop)
-      const rgbaMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),?\s*([\d.]+)?\)/);
-      if (rgbaMatch) {
-        const r = parseInt(rgbaMatch[1]);
-        const g = parseInt(rgbaMatch[2]);
-        const b = parseInt(rgbaMatch[3]);
-        const a = parseFloat(rgbaMatch[4] || '1');
-
-        // Dark backdrop typically has low RGB values and alpha between 0.1-0.5
-        if (r < 50 && g < 50 && b < 50 && a > 0.1 && a < 0.6) {
-          const rect = el.getBoundingClientRect();
-          // Must cover significant portion of screen to be a backdrop
-          if (rect.width > 200 && rect.height > 200) {
-            hasVisibleBackdrop = true;
-            break;
-          }
-        }
-      }
-    }
+    const style = window.getComputedStyle(element);
+    const opacity = parseFloat(style.opacity || '0');
+    const hasVisibleBackdrop =
+      element.classList.contains('open') &&
+      style.pointerEvents !== 'none' &&
+      opacity > 0.1;
 
     return {
-      hasBackdropElements: backdropElements.length > 0,
+      hasBackdropElements: true,
       hasVisibleBackdrop,
-      source: hasVisibleBackdrop ? 'generic-scan' : 'none'
+      source: 'web-panel-backdrop',
+      opacity,
+      className: element.className,
     };
   });
 
@@ -575,6 +543,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Wait for bottom sheet expansion animation
       await page.waitForTimeout(2000);
 
+      await page.waitForFunction(() => {
+        const backdrop = document.querySelector('[data-testid="web-panel-backdrop"]');
+        if (!backdrop) return false;
+        const style = window.getComputedStyle(backdrop);
+        return backdrop.classList.contains('open') && parseFloat(style.opacity || '0') > 0.1;
+      }, { timeout: 5000 });
+
       // Take screenshot after expansion
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-expanded-state.png`,
@@ -616,8 +591,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       expect(sheetExpanded, 'Bottom sheet should expand after clicking preview card').toBe(true);
 
       // After expansion, backdrop SHOULD be visible (partial/full state)
-      // Note: This depends on the exact snap point reached
       console.log(`Backdrop visible after expansion: ${expandedBackdrop}`);
+      expect(expandedBackdrop, 'Map should darken when the web property panel is expanded').toBe(true);
     }
 
     expect(previewVisible || clickResult.featureCount > 0, 'Should have property markers on map').toBe(true);

@@ -2,8 +2,7 @@
  * Auth Flow E2E Tests
  *
  * Tests the web authentication flow:
- * - Login button is visible in the header
- * - Auth modal opens on login click
+ * - Profile tab unauthenticated state opens the real AuthModal UI
  * - Auth API endpoints work correctly (google, refresh, me, logout)
  * - Unauthenticated users get 401 on protected routes
  */
@@ -64,25 +63,22 @@ test.describe('Auth Flow', () => {
     ).toHaveLength(0);
   });
 
-  test('Login button is visible in header on map page', async ({ page }) => {
-    await page.goto('/');
+  test('Unauthenticated profile opens the auth modal', async ({ page }) => {
+    await page.goto('/profile');
     await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="profile-auth-required"]', { timeout: 30000 });
 
-    // Check for login button in header
-    const loginButton = page.locator('[data-testid="header-login-button"]');
-    const userAvatar = page.locator('[data-testid="header-user-avatar"]');
+    const signInButton = page.locator('[data-testid="profile-sign-in-button"]');
+    await expect(signInButton).toBeVisible({ timeout: 10000 });
+    await signInButton.click();
 
-    const hasLogin = await loginButton.isVisible().catch(() => false);
-    const hasAvatar = await userAvatar.isVisible().catch(() => false);
+    const authModal = page.locator('[data-testid="auth-modal-overlay"]');
+    await expect(authModal).toBeVisible({ timeout: 10000 });
+    await expect(page.getByLabel('Sign in with Google')).toBeVisible();
+    await expect(page.getByLabel('Sign in with Apple')).toBeVisible();
+    await expect(page.getByLabel('Continue with email')).toBeVisible();
 
-    // Either login button (not authenticated) or avatar (authenticated) should be visible
-    expect(
-      hasLogin || hasAvatar,
-      'Header should show login button or user avatar'
-    ).toBe(true);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-header-state.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-profile-state.png` });
   });
 
   test('Auth API: mock Google login creates new user', async ({ request }) => {

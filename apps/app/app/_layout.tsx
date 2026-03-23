@@ -85,6 +85,8 @@ function RootLayoutNav() {
               <Stack.Screen name="comments/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
               <Stack.Screen name="guesses/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
               <Stack.Screen name="[...address]" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
+              <Stack.Screen name="notifications" options={{ headerShown: false }} />
             </Stack>
           </ThemeProvider>
         </AuthProvider>

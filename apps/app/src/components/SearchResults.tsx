@@ -136,7 +136,7 @@ export function SearchResults({
       <FlatList
         data={results}
         renderItem={renderItem}
-        keyExtractor={(item) => item.bagId}
+        keyExtractor={(item, index) => `${item.bagId}-${index}`}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={results.length > 4}
       />

@@ -36,7 +36,19 @@ export const config = {
     accessTokenExpiresIn: '15m', // 15 minutes
     refreshTokenExpiresIn: '7d', // 7 days
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-    appleClientId: process.env.APPLE_CLIENT_ID || 'nl.huishype.app',
+    appleClientId:
+      process.env.APPLE_CLIENT_ID ||
+      process.env.EXPO_PUBLIC_APPLE_CLIENT_ID ||
+      'nl.huishype.app',
+    magicLinkBaseUrl:
+      process.env.MAGIC_LINK_BASE_URL ||
+      process.env.APP_URL ||
+      'huishype://auth/callback',
+  },
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY || '',
+    fromAddress: process.env.EMAIL_FROM || '',
+    replyTo: process.env.EMAIL_REPLY_TO || '',
   },
   photon: {
     url: process.env.PHOTON_URL || 'http://localhost:2322',

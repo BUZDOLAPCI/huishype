@@ -24,6 +24,7 @@ import { leaderboardRoutes } from './routes/leaderboard.js';
 import { activityRoutes } from './routes/activity.js';
 import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
+import { closeConnection } from './db/index.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -33,6 +34,13 @@ export type AppOptions = {
 export async function buildApp(options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? config.isDev,
+  });
+
+  // Close the database connection pool when the app shuts down.
+  // This ensures tests calling app.close() also release the pool,
+  // preventing Jest worker leak warnings.
+  app.addHook('onClose', async () => {
+    await closeConnection();
   });
 
   // Set up Zod type provider for automatic validation

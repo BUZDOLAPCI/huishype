@@ -148,30 +148,128 @@ export async function fetchNearbyProperty(
 
 export type PropertyResolveResult = PropertyResolveResponse;
 
+export interface PropertyResolveRequest {
+  postalCode: string;
+  houseNumber: string | number;
+  houseNumberAddition?: string | null;
+  countryCode?: string | null;
+  street?: string | null;
+  city?: string | null;
+}
+
+function normalizePostalCodeForCompare(value: string): string {
+  return value.replace(/\s/g, '').toUpperCase();
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function containsComparableText(haystack: string, needle: string): boolean {
+  return (
+    haystack === needle ||
+    haystack.startsWith(`${needle} `) ||
+    haystack.endsWith(` ${needle}`) ||
+    haystack.includes(` ${needle} `)
+  );
+}
+
+function resolvedPropertyMatchesRequest(
+  result: PropertyResolveResult,
+  request: PropertyResolveRequest,
+): boolean {
+  if (
+    normalizePostalCodeForCompare(result.postalCode) !==
+    normalizePostalCodeForCompare(request.postalCode)
+  ) {
+    return false;
+  }
+
+  if (
+    request.city &&
+    normalizeComparableText(result.city) !== normalizeComparableText(request.city)
+  ) {
+    return false;
+  }
+
+  const normalizedResultAddress = normalizeComparableText(result.address);
+
+  if (request.street) {
+    const normalizedStreet = normalizeComparableText(request.street);
+    if (
+      normalizedStreet &&
+      !containsComparableText(normalizedResultAddress, normalizedStreet) &&
+      !normalizedResultAddress.includes(`${normalizedStreet} `)
+    ) {
+      return false;
+    }
+  }
+
+  const houseNumber = String(request.houseNumber).trim();
+  const houseCandidates = request.houseNumberAddition
+    ? [
+        `${houseNumber}${request.houseNumberAddition}`,
+        `${houseNumber} ${request.houseNumberAddition}`,
+        `${houseNumber}-${request.houseNumberAddition}`,
+      ]
+    : [houseNumber];
+
+  const hasMatchingHouseToken = houseCandidates.some((candidate) => {
+    const normalizedCandidate = normalizeComparableText(candidate);
+    return (
+      !!normalizedCandidate &&
+      (containsComparableText(normalizedResultAddress, normalizedCandidate) ||
+        normalizedResultAddress.includes(`${normalizedCandidate} `))
+    );
+  });
+
+  return hasMatchingHouseToken;
+}
+
 /**
- * Resolve a Dutch address (postal code + house number) to a local property.
- * Returns null if the property is not found (404).
+ * Resolve a canonical address to a local property.
+ * Returns null if the property is not found or the resolved property does not
+ * match the structured address that was requested.
  *
  * This is an imperative async function (NOT a hook) — call it from search
  * result tap handlers.
  */
 export async function resolveProperty(
-  postalCode: string,
-  houseNumber: string,
-  houseNumberAddition?: string,
+  request: PropertyResolveRequest,
 ): Promise<PropertyResolveResult | null> {
   try {
     const params = new URLSearchParams({
-      postalCode,
-      houseNumber,
+      postalCode: request.postalCode,
+      houseNumber: String(request.houseNumber),
     });
-    if (houseNumberAddition) {
-      params.set('houseNumberAddition', houseNumberAddition);
+    if (request.houseNumberAddition) {
+      params.set('houseNumberAddition', request.houseNumberAddition);
+    }
+    if (request.countryCode) {
+      params.set('countryCode', request.countryCode);
+    }
+    if (request.street) {
+      params.set('street', request.street);
+    }
+    if (request.city) {
+      params.set('city', request.city);
     }
 
     const result = await apiFetch<PropertyResolveResult>(
       `/properties/resolve?${params.toString()}`,
     );
+    if (!resolvedPropertyMatchesRequest(result, request)) {
+      console.warn('[HuisHype] resolveProperty mismatch for canonical input:', {
+        request,
+        result,
+      });
+      return null;
+    }
     return result;
   } catch (err) {
     // 404 means property not found — return null
@@ -205,6 +303,9 @@ export type NearbyClusterResult =
       hasListing: boolean;
       askingPrice: number | null;
       activityScore: number;
+      likeCount: number;
+      commentCount: number;
+      guessCount: number;
       distanceMeters: number;
       geometry: { type: 'Point'; coordinates: [number, number] } | null;
     };
@@ -246,6 +347,7 @@ export interface BatchProperty {
   officialValuation: number | null;
   hasListing: boolean;
   askingPrice: number | null;
+  likeCount: number;
   commentCount: number;
   guessCount: number;
   createdAt: string;

@@ -12,17 +12,23 @@
  * 3. Redirects to /property/[id] if found
  * 4. Shows a not-found screen otherwise
  *
- * Partial URLs (city-only, city+postcode) redirect to the map tab since
- * city/postcode browsing is not a supported surface.
+ * Partial URLs (city-only, city+postcode) render lightweight city/postcode
+ * surfaces instead of navigating away during initial app boot.
  */
 
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View, Pressable, StyleSheet } from 'react-native';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import {
+  useLocalSearchParams,
+  Stack,
+  router,
+  useRootNavigationState,
+} from 'expo-router';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { resolveProperty } from '@/src/utils/api';
 import { apiGeocoder } from '@/src/services/api-geocoder';
+import { splitHouseNumber } from '@/src/services/address-resolver';
 
 interface AddressUrlParams {
   city?: string;
@@ -30,6 +36,8 @@ interface AddressUrlParams {
   street?: string;
   housenumber?: string;
 }
+
+type AddressSurface = 'city' | 'postcode' | 'property' | 'invalid';
 
 /**
  * Parse the catch-all address segments into structured params
@@ -70,19 +78,105 @@ function isPropertyAddress(params: AddressUrlParams): boolean {
   return !!(params.city && params.zipcode && params.street && params.housenumber);
 }
 
+function getAddressSurface(params: AddressUrlParams): AddressSurface {
+  if (isPropertyAddress(params)) {
+    return 'property';
+  }
+
+  if (params.city && params.zipcode) {
+    return 'postcode';
+  }
+
+  if (params.city) {
+    return 'city';
+  }
+
+  return 'invalid';
+}
+
+function formatZipcode(zipcode: string | undefined): string {
+  return zipcode?.toUpperCase() ?? '';
+}
+
+function formatCityName(city: string | undefined): string {
+  if (!city) return '';
+
+  return city
+    .split(/([\s-])/)
+    .map((part) => {
+      if (part === ' ' || part === '-') {
+        return part;
+      }
+
+      if (!part) {
+        return part;
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join('');
+}
+
+function PartialAddressScreen({
+  surface,
+  params,
+}: {
+  surface: Exclude<AddressSurface, 'property' | 'invalid'>;
+  params: AddressUrlParams;
+}) {
+  const cityName = formatCityName(params.city);
+  const title = surface === 'postcode' ? formatZipcode(params.zipcode) : cityName;
+  const subtitle =
+    surface === 'postcode'
+      ? `Browse homes around ${formatZipcode(params.zipcode)} ${cityName}`.trim()
+      : `Browse homes and local activity across ${cityName || 'this city'}`;
+  const detail =
+    surface === 'postcode'
+      ? 'Open the map to explore listings and property activity in this postcode.'
+      : 'Open the map to explore listings and property activity across this city.';
+  const buttonLabel =
+    surface === 'postcode' ? 'Browse Postcode Map' : 'Browse City Map';
+
+  return (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={styles.container}>
+        <Icon name="HouseLine" size={64} color="#E8E0D4" />
+        <Text style={styles.title} testID={`address-${surface}-title`}>
+          {title}
+        </Text>
+        <Text style={styles.message} testID={`address-${surface}-message`}>
+          {subtitle}
+        </Text>
+        <Text style={styles.detail} testID={`address-${surface}-detail`}>
+          {detail}
+        </Text>
+        <Pressable
+          onPress={() => router.replace('/')}
+          style={styles.button}
+          testID={`address-${surface}-go-to-map`}
+        >
+          <Text style={styles.buttonText}>{buttonLabel}</Text>
+        </Pressable>
+      </View>
+    </>
+  );
+}
+
 /**
  * Main Address Route — resolves addresses and redirects to canonical routes.
  */
 export default function AddressScreen() {
   const params = useLocalSearchParams<{ address: string | string[] }>();
   const addressParams = parseAddressSegments(params.address || []);
+  const rootNavigationState = useRootNavigationState();
+  const addressSurface = getAddressSurface(addressParams);
   const [error, setError] = useState<string | null>(null);
 
+  const navigationReady = Boolean(rootNavigationState?.key);
+
   useEffect(() => {
-    // Partial URLs (city-only, city+postcode) — redirect to map.
-    // City/postcode browsing is not a supported product surface.
-    if (!isPropertyAddress(addressParams)) {
-      router.replace('/');
+    if (!navigationReady || addressSurface !== 'property') {
       return;
     }
 
@@ -108,7 +202,8 @@ export default function AddressScreen() {
 
         const geocoded = results[0];
         const postalCode = geocoded.postalCode;
-        const houseNumber = geocoded.houseNumber;
+        const houseNumberParts = splitHouseNumber(geocoded.houseNumber);
+        const houseNumber = houseNumberParts.houseNumber;
 
         if (!postalCode || !houseNumber) {
           setError('Address not found in our database');
@@ -116,7 +211,14 @@ export default function AddressScreen() {
         }
 
         // Step 2: Resolve to local property
-        const property = await resolveProperty(postalCode, houseNumber);
+        const property = await resolveProperty({
+          postalCode,
+          houseNumber,
+          houseNumberAddition: houseNumberParts.houseNumberAddition,
+          countryCode: geocoded.countryCode,
+          street: geocoded.street,
+          city: geocoded.city,
+        });
         if (cancelled) return;
 
         if (property) {
@@ -137,7 +239,49 @@ export default function AddressScreen() {
     return () => {
       cancelled = true;
     };
-  }, [addressParams.city, addressParams.zipcode, addressParams.street, addressParams.housenumber]);
+  }, [
+    addressParams.city,
+    addressParams.zipcode,
+    addressParams.street,
+    addressParams.housenumber,
+    addressSurface,
+    navigationReady,
+  ]);
+
+  if (addressSurface === 'city' || addressSurface === 'postcode') {
+    return <PartialAddressScreen surface={addressSurface} params={addressParams} />;
+  }
+
+  if (addressSurface === 'invalid') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.container}>
+          <Icon name="HouseLine" size={64} color="#E8E0D4" />
+          <Text style={styles.title}>Address not found</Text>
+          <Text style={styles.message}>This URL does not contain a valid address.</Text>
+          <Pressable
+            onPress={() => router.replace('/')}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Go to Map</Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  }
+
+  if (!navigationReady) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.container}>
+          <ActivityIndicator size="large" color="#F5A623" />
+          <Text style={styles.loadingText}>Resolving address...</Text>
+        </View>
+      </>
+    );
+  }
 
   // Error state — address could not be resolved
   if (error) {
@@ -207,6 +351,12 @@ const styles = StyleSheet.create({
   address: {
     fontWeight: '500',
     color: '#6B6560',
+  },
+  detail: {
+    color: '#9C958A',
+    marginTop: 4,
+    fontSize: 13,
+    textAlign: 'center',
   },
   button: {
     marginTop: 24,

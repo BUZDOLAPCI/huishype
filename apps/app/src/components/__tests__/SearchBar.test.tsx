@@ -29,6 +29,9 @@ function createMockAddress(overrides?: Partial<ResolvedAddress>): ResolvedAddres
       zip: '5651HA',
       street: 'Teststraat',
       number: '42',
+      houseNumber: '42',
+      houseNumberAddition: null,
+      countryCode: 'NL',
     },
     ...overrides,
   };
@@ -196,7 +199,14 @@ describe('SearchBar', () => {
       });
 
       await waitFor(() => {
-        expect(mockResolveProperty).toHaveBeenCalledWith('5651HA', '42');
+        expect(mockResolveProperty).toHaveBeenCalledWith({
+          postalCode: '5651HA',
+          houseNumber: '42',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+          street: 'Teststraat',
+          city: 'Eindhoven',
+        });
         expect(onPropertyResolved).toHaveBeenCalledWith(mockProperty);
       });
     }
@@ -237,6 +247,7 @@ describe('SearchBar', () => {
         expect(onLocationResolved).toHaveBeenCalledWith(
           { lon: TEST_LNG, lat: TEST_LAT },
           'Teststraat 42, 5651HA Eindhoven',
+          mockAddress,
         );
       });
     }

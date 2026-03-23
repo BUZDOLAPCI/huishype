@@ -11,7 +11,6 @@ describe('Notification routes', () => {
   let userId: string;
   let accessToken: string;
   let actorId: string;
-  let actorToken: string;
   const testUserIds: string[] = [];
 
   beforeAll(async () => {
@@ -38,7 +37,6 @@ describe('Notification routes', () => {
     });
     const actorBody = JSON.parse(actorResp.body);
     actorId = actorBody.session.user.id;
-    actorToken = actorBody.session.accessToken;
     testUserIds.push(actorId);
   });
 

@@ -11,14 +11,11 @@
  * - Login via Google or Apple account
  *
  * Visual Requirements from expectation.md:
- * - Modal slides up from bottom (pageSheet style)
- * - Clean white background
- * - Header with close button (X), "Sign In" title centered
- * - Brand section with HuisHype logo (orange square with "H")
- * - App name "HuisHype" in bold with "Social Real Estate" subtitle
+ * - Centered warm card on dark backdrop
+ * - Close button in the top-right corner
+ * - HuisHype logo + "Welcome to HuisHype" title
  * - Contextual message explaining why sign-in is needed
- * - Google Sign-In button (white bg, gray border, Google "G" logo)
- * - Terms of Service and Privacy Policy links at bottom
+ * - Google, Apple, and Email sign-in actions
  *
  * Screenshot saved to: test-results/reference-expectations/auth-modal-signin/
  */
@@ -211,16 +208,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     // Check if auth modal appeared
-    const authModalTitle = page.locator('text=Sign In');
+    const authModal = page.locator('[data-testid="auth-modal-overlay"]');
     const googleButton = page.locator('text=Continue with Google');
 
-    const authModalVisible = await authModalTitle.first().isVisible().catch(() => false);
+    const authModalVisible = await authModal.first().isVisible().catch(() => false);
     const googleButtonVisible = await googleButton.first().isVisible().catch(() => false);
 
-    console.log(`Auth modal "Sign In" title visible: ${authModalVisible}`);
+    console.log(`Auth modal overlay visible: ${authModalVisible}`);
     console.log(`Google sign-in button visible: ${googleButtonVisible}`);
 
-    // Take screenshot - but NOT to -current.png (that's saved by the direct trigger test)
+    // Take screenshot - but NOT to -current.png (that's saved by the profile sign-in test)
     // This test validates the map interaction flow even if it doesn't always succeed
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-map-interaction.png`,
@@ -229,45 +226,33 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify auth modal elements if visible
     if (authModalVisible) {
-      await expect(page.locator('text=Sign In').first()).toBeVisible();
+      await expect(authModal.first()).toBeVisible();
+      await expect(page.locator('text=Welcome to HuisHype').first()).toBeVisible();
       await expect(page.locator('text=Continue with Google').first()).toBeVisible();
-      await expect(page.locator('text=HuisHype').first()).toBeVisible();
-      await expect(page.locator('text=Social Real Estate').first()).toBeVisible();
+      await expect(page.locator('text=Continue with Apple').first()).toBeVisible();
+      await expect(page.locator('text=Continue with Email').first()).toBeVisible();
 
-      console.log('Auth modal successfully displayed with all expected elements');
+      console.log('Auth modal successfully displayed with the current sign-in options');
     }
 
     // Basic assertions
     await expect(page.locator('body')).toBeVisible();
   });
 
-  test('verify auth modal visual elements via direct trigger', async ({ page }) => {
-    // Navigate to map
-    await page.goto('/');
+  test('verify auth modal visual elements via profile sign-in entry', async ({ page }) => {
+    await page.goto('/profile');
     await page.waitForLoadState('networkidle');
 
-    // Wait for map to load
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
-
-    // Directly trigger the auth modal using the exposed test helper
-    // This is more reliable than trying to interact with the map
-    const triggered = await page.evaluate(() => {
-      const triggerFn = (window as unknown as { __triggerAuthModal?: (message?: string) => void }).__triggerAuthModal;
-      if (triggerFn) {
-        triggerFn('Sign in to post your comment');
-        return true;
-      }
-      return false;
-    });
-
-    console.log(`Auth modal triggered via JS: ${triggered}`);
+    const profileSignIn = page.locator('[data-testid="profile-sign-in-button"]');
+    await expect(profileSignIn).toBeVisible({ timeout: 10000 });
+    await profileSignIn.click();
 
     // Wait for modal to appear
     await page.waitForTimeout(1000);
 
     // Check and document auth modal elements
-    const authModalVisible = await page.locator('text=Sign In').first().isVisible().catch(() => false);
+    const authModal = page.locator('[data-testid="auth-modal-overlay"]');
+    const authModalVisible = await authModal.first().isVisible().catch(() => false);
 
     if (authModalVisible) {
       console.log('=== Auth Modal Visual Verification ===');
@@ -278,16 +263,19 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const brandName = page.locator('text=HuisHype');
       console.log(`Brand name visible: ${await brandName.first().isVisible().catch(() => false)}`);
 
-      const tagline = page.locator('text=Social Real Estate');
-      console.log(`Tagline visible: ${await tagline.first().isVisible().catch(() => false)}`);
+      const title = page.locator('text=Welcome to HuisHype');
+      console.log(`Title visible: ${await title.first().isVisible().catch(() => false)}`);
 
       const googleBtn = page.locator('text=Continue with Google');
       console.log(`Google button visible: ${await googleBtn.first().isVisible().catch(() => false)}`);
 
-      const termsText = page.locator('text=Terms of Service');
-      console.log(`Terms visible: ${await termsText.first().isVisible().catch(() => false)}`);
+      const appleBtn = page.locator('text=Continue with Apple');
+      console.log(`Apple button visible: ${await appleBtn.first().isVisible().catch(() => false)}`);
 
-      const contextMessage = page.locator('text=Sign in to post your comment');
+      const emailBtn = page.locator('text=Continue with Email');
+      console.log(`Email button visible: ${await emailBtn.first().isVisible().catch(() => false)}`);
+
+      const contextMessage = page.locator('text=Sign in to HuisHype');
       console.log(`Context message visible: ${await contextMessage.first().isVisible().catch(() => false)}`);
 
       console.log('=====================================');
@@ -299,14 +287,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       });
 
       // Verify all expected elements
-      await expect(page.locator('text=Sign In').first()).toBeVisible();
+      await expect(authModal.first()).toBeVisible();
+      await expect(page.locator('text=Welcome to HuisHype').first()).toBeVisible();
       await expect(page.locator('text=Continue with Google').first()).toBeVisible();
+      await expect(page.locator('text=Continue with Apple').first()).toBeVisible();
+      await expect(page.locator('text=Continue with Email').first()).toBeVisible();
       await expect(page.locator('text=HuisHype').first()).toBeVisible();
-      await expect(page.locator('text=Social Real Estate').first()).toBeVisible();
-      await expect(page.locator('text=Terms of Service').first()).toBeVisible();
-      await expect(page.locator('text=Privacy Policy').first()).toBeVisible();
     } else {
-      console.log('Auth modal not visible - check if __triggerAuthModal is exposed');
+      console.log('Auth modal not visible after profile sign-in entry');
       // Take screenshot anyway for debugging
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-elements.png`,
@@ -318,27 +306,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify auth modal close functionality', async ({ page }) => {
-    // Navigate to map
-    await page.goto('/');
+    await page.goto('/profile');
     await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await page.waitForTimeout(3000);
-
-    // Directly trigger the auth modal using the exposed test helper
-    const triggered = await page.evaluate(() => {
-      const triggerFn = (window as unknown as { __triggerAuthModal?: (message?: string) => void }).__triggerAuthModal;
-      if (triggerFn) {
-        triggerFn('Sign in to save this property');
-        return true;
-      }
-      return false;
-    });
-
-    console.log(`Auth modal triggered via JS: ${triggered}`);
+    const profileSignIn = page.locator('[data-testid="profile-sign-in-button"]');
+    await expect(profileSignIn).toBeVisible({ timeout: 10000 });
+    await profileSignIn.click();
     await page.waitForTimeout(1000);
 
     // Check if auth modal appeared and try to close it
-    const authModalVisible = await page.locator('text=Sign In').first().isVisible().catch(() => false);
+    const authModal = page.locator('[data-testid="auth-modal-overlay"]');
+    const authModalVisible = await authModal.first().isVisible().catch(() => false);
 
     if (authModalVisible) {
       console.log('Auth modal opened successfully');
@@ -356,12 +333,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         await page.waitForTimeout(1000);
 
         // Verify modal is closed
-        const modalStillVisible = await page.locator('text=Continue with Google').first().isVisible().catch(() => false);
+        const modalStillVisible = await authModal.first().isVisible().catch(() => false);
         console.log(`Modal closed after clicking X: ${!modalStillVisible}`);
         expect(modalStillVisible).toBe(false);
       }
     } else {
-      console.log('Auth modal not visible - check if __triggerAuthModal is exposed');
+      console.log('Auth modal not visible after profile sign-in entry');
     }
 
     // Take screenshot after closing

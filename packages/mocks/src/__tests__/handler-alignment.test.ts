@@ -17,6 +17,11 @@ import {
   feedHandlers,
   userHandlers,
   listingHandlers,
+  notificationHandlers,
+  leaderboardHandlers,
+  activityHandlers,
+  achievementHandlers,
+  emailAuthHandlers,
 } from '../handlers/index.js';
 import {
   mockUsers,
@@ -52,6 +57,11 @@ describe('Handler wiring', () => {
       ...guessHandlers,
       ...commentHandlers,
       ...geocodeHandlers,
+      ...notificationHandlers,
+      ...leaderboardHandlers,
+      ...activityHandlers,
+      ...achievementHandlers,
+      ...emailAuthHandlers,
     ];
     expect(handlers.length).toBe(allGrouped.length);
   });
@@ -65,6 +75,11 @@ describe('Handler wiring', () => {
     expect(feedHandlers.length).toBeGreaterThan(0);
     expect(userHandlers.length).toBeGreaterThan(0);
     expect(listingHandlers.length).toBeGreaterThan(0);
+    expect(notificationHandlers.length).toBeGreaterThan(0);
+    expect(leaderboardHandlers.length).toBeGreaterThan(0);
+    expect(activityHandlers.length).toBeGreaterThan(0);
+    expect(achievementHandlers.length).toBeGreaterThan(0);
+    expect(emailAuthHandlers.length).toBeGreaterThan(0);
   });
 });
 

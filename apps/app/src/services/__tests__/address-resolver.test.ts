@@ -4,6 +4,7 @@
 
 import {
   searchAddresses,
+  splitHouseNumber,
   type ResolvedAddress,
 } from '../address-resolver';
 import { apiGeocoder } from '../api-geocoder';
@@ -62,6 +63,17 @@ describe('address-resolver', () => {
       expect(result[1].bagId).toBe('W_2');
     });
 
+    it('deduplicates suggestions with the same geocoder id', async () => {
+      mockSearch.mockResolvedValueOnce([
+        createMockSuggestion({ id: 'W_1' }),
+        createMockSuggestion({ id: 'W_1', displayName: 'Duplicate address' }),
+      ]);
+
+      const result = await searchAddresses('duplicate test');
+      expect(result).toHaveLength(1);
+      expect(result[0].bagId).toBe('W_1');
+    });
+
     it('passes countryCode option to geocoder', async () => {
       mockSearch.mockResolvedValueOnce([]);
 
@@ -88,10 +100,47 @@ describe('address-resolver', () => {
       expect(result[0].lat).toBe(51.43);
     });
 
+    it('preserves structured house number and country metadata', async () => {
+      mockSearch.mockResolvedValueOnce([
+        createMockSuggestion({
+          houseNumber: '16 A',
+          countryCode: 'de',
+        }),
+      ]);
+
+      const result = await searchAddresses('test');
+      expect(result[0].details.houseNumber).toBe('16');
+      expect(result[0].details.houseNumberAddition).toBe('A');
+      expect(result[0].details.countryCode).toBe('DE');
+    });
+
     it('returns empty array for empty query', async () => {
       const result = await searchAddresses('');
       expect(result).toEqual([]);
       expect(mockSearch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('splitHouseNumber', () => {
+    it('splits a compact suffix addition', () => {
+      expect(splitHouseNumber('16A')).toEqual({
+        houseNumber: '16',
+        houseNumberAddition: 'A',
+      });
+    });
+
+    it('splits a spaced addition', () => {
+      expect(splitHouseNumber('16 bis')).toEqual({
+        houseNumber: '16',
+        houseNumberAddition: 'bis',
+      });
+    });
+
+    it('returns null parts for unparseable input', () => {
+      expect(splitHouseNumber('ABCD')).toEqual({
+        houseNumber: null,
+        houseNumberAddition: null,
+      });
     });
   });
 });

@@ -13,6 +13,11 @@ import { geocodeHandlers } from './geocode.js';
 import { feedHandlers } from './feed.js';
 import { userHandlers } from './users.js';
 import { listingHandlers } from './listings.js';
+import { notificationHandlers } from './notifications.js';
+import { leaderboardHandlers } from './leaderboard.js';
+import { activityHandlers } from './activity.js';
+import { achievementHandlers } from './achievements.js';
+import { emailAuthHandlers } from './email-auth.js';
 
 /**
  * All API mock handlers combined.
@@ -23,6 +28,7 @@ import { listingHandlers } from './listings.js';
  */
 export const handlers = [
   ...authHandlers,
+  ...emailAuthHandlers,
   ...userHandlers,
   ...feedHandlers,
   ...listingHandlers,
@@ -30,6 +36,10 @@ export const handlers = [
   ...guessHandlers,
   ...commentHandlers,
   ...geocodeHandlers,
+  ...notificationHandlers,
+  ...leaderboardHandlers,
+  ...activityHandlers,
+  ...achievementHandlers,
 ];
 
 // Export individual handler groups for selective use
@@ -41,6 +51,11 @@ export { geocodeHandlers, mockGeocodeSuggestions, addMockGeocodeSuggestion, clea
 export { feedHandlers } from './feed.js';
 export { userHandlers } from './users.js';
 export { listingHandlers } from './listings.js';
+export { notificationHandlers } from './notifications.js';
+export { leaderboardHandlers } from './leaderboard.js';
+export { activityHandlers } from './activity.js';
+export { achievementHandlers } from './achievements.js';
+export { emailAuthHandlers } from './email-auth.js';
 
 // Export auth helpers
 export { validateMockToken, getMockAuthUser, resetMockSessions } from './auth.js';

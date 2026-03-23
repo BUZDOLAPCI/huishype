@@ -37,6 +37,12 @@ const searchQuerySchema = z.object({
   countrycode: z.string().optional(),
 });
 
+const reverseQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  lang: z.string().optional(),
+});
+
 /**
  * Format a Photon feature into a human-readable display name.
  * Constructs "Street HouseNumber, PostalCode City" style strings.
@@ -126,6 +132,59 @@ export async function geocodeRoutes(app: FastifyInstance) {
       // Photon unreachable — return empty results gracefully
       app.log.warn({ err: error }, 'Photon geocoder unreachable');
       return reply.send([]);
+    }
+  });
+
+  /**
+   * GET /geocode/reverse
+   * Reverse geocodes a coordinate to a city/town name via Photon.
+   * Returns { city, state, country, countryCode } or null if nothing found.
+   */
+  app.get('/geocode/reverse', async (request, reply) => {
+    const parseResult = reverseQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: 'VALIDATION_ERROR',
+        message: 'Invalid query parameters',
+        details: parseResult.error.issues,
+      });
+    }
+
+    const { lon, lat, lang } = parseResult.data;
+
+    const photonParams = new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+    });
+    if (lang) photonParams.set('lang', lang);
+
+    try {
+      const photonUrl = `${config.photon.url}/reverse?${photonParams.toString()}`;
+      const response = await fetch(photonUrl, {
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (!response.ok) {
+        app.log.warn(`Photon reverse returned ${response.status}: ${response.statusText}`);
+        return reply.send(null);
+      }
+
+      const data = await response.json() as PhotonResponse;
+      if (!data.features || data.features.length === 0) {
+        return reply.send(null);
+      }
+
+      // Return the city/town from the nearest feature
+      const props = data.features[0].properties;
+      return reply.send({
+        city: props.city || props.name || null,
+        state: props.state || null,
+        country: props.country || null,
+        countryCode: props.countrycode || null,
+      });
+    } catch (error) {
+      app.log.warn({ err: error }, 'Photon reverse geocoder unreachable');
+      return reply.send(null);
     }
   });
 }

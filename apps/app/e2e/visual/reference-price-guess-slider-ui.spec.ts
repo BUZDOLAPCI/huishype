@@ -231,7 +231,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(500);
 
     // Check for Price Guess Slider elements
-    const priceHeader = page.locator('text=What do you think this property is worth?');
+    const priceHeader = page.locator('[data-testid="price-guess-header"]');
     const hasHeader = await priceHeader.isVisible().catch(() => false);
     console.log(`"What do you think..." header visible: ${hasHeader}`);
 
@@ -276,8 +276,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Slider thumb visible: ${hasSliderThumb}`);
 
     // Check for min/max labels
-    const minLabel = page.locator('text=\u20AC50.000');
-    const maxLabel = page.locator('text=\u20AC2.000.000');
+    const minLabel = page.locator('[data-testid="price-range-min"]');
+    const maxLabel = page.locator('[data-testid="price-range-max"]');
     const hasMinLabel = await minLabel.first().isVisible().catch(() => false);
     const hasMaxLabel = await maxLabel.first().isVisible().catch(() => false);
     console.log(`Min/Max labels: min=${hasMinLabel}, max=${hasMaxLabel}`);

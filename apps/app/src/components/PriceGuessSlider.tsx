@@ -64,6 +64,11 @@ function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
+function formatLabelPrice(price: number, countryCode?: string): string {
+  // Keep the compact labels easy to match in the UI and tests.
+  return formatPrice(price, countryCode).replace(/[\s\u00A0\u202F]/g, '');
+}
+
 // Check if two positions are "near" each other (within 3%)
 function isNear(pos1: number, pos2: number, threshold = 0.03): boolean {
   return Math.abs(pos1 - pos2) <= threshold;
@@ -356,7 +361,10 @@ export function PriceGuessSlider({
     <GestureHandlerRootView>
       <View className="p-4 bg-surface-card rounded-xl" testID={testID}>
         {/* Header */}
-        <Text className="text-lg font-semibold text-warm-900 mb-1">
+        <Text
+          className="text-lg font-semibold text-warm-900 mb-1"
+          testID="price-guess-header"
+        >
           What do you think this property is worth?
         </Text>
 
@@ -456,12 +464,16 @@ export function PriceGuessSlider({
             </View>
           </GestureDetector>
 
-          {/* Min/Max labels */}
-          <View className="flex-row justify-between mt-2">
-            <Text className="text-xs text-warm-400">{formatPrice(MIN_PRICE, countryCode)}</Text>
-            <Text className="text-xs text-warm-400">{formatPrice(MAX_PRICE, countryCode)}</Text>
-          </View>
+        {/* Min/Max labels */}
+        <View className="flex-row justify-between mt-2">
+            <Text className="text-xs text-warm-400" testID="price-range-min">
+              {formatLabelPrice(MIN_PRICE, countryCode)}
+            </Text>
+            <Text className="text-xs text-warm-400" testID="price-range-max">
+              {formatLabelPrice(MAX_PRICE, countryCode)}
+            </Text>
         </View>
+      </View>
 
         {/* Quick adjustment buttons */}
         <View className="flex-row justify-center gap-2 mb-4">

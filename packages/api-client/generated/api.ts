@@ -459,6 +459,8 @@ export interface paths {
                                 officialValuation: number | null;
                                 hasListing: boolean;
                                 askingPrice: number | null;
+                                /** @description Total number of likes */
+                                likeCount: number;
                                 commentCount: number;
                                 guessCount: number;
                                 /** Format: date-time */
@@ -494,7 +496,7 @@ export interface paths {
         };
         /**
          * Resolve address to property
-         * @description Resolve a Dutch address (postal code + house number) to a local property UUID and coordinates. Uses the existing unique index on (postal_code, house_number, house_number_addition).
+         * @description Resolve a canonical address to a local property UUID and coordinates. Matches the multi-country uniqueness model on country code, street, postal code, house number, and house number addition.
          */
         get: {
             parameters: {
@@ -503,6 +505,8 @@ export interface paths {
                     houseNumber: number;
                     houseNumberAddition?: string;
                     countryCode?: string;
+                    street?: string;
+                    city?: string;
                 };
                 header?: never;
                 path?: never;
@@ -545,6 +549,18 @@ export interface paths {
                 };
                 /** @description Default Response */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -608,7 +624,11 @@ export interface paths {
                             postalCode: string | null;
                             officialValuation: number | null;
                             hasListing: boolean;
+                            askingPrice: number | null;
                             activityScore: number;
+                            likeCount: number;
+                            commentCount: number;
+                            guessCount: number;
                             distanceMeters: number;
                             geometry: {
                                 /** @enum {string} */
@@ -651,7 +671,11 @@ export interface paths {
                             postalCode: string | null;
                             officialValuation: number | null;
                             hasListing: boolean;
+                            askingPrice: number | null;
                             activityScore: number;
+                            likeCount: number;
+                            commentCount: number;
+                            guessCount: number;
                             distanceMeters: number;
                             geometry: {
                                 /** @enum {string} */
@@ -734,6 +758,8 @@ export interface paths {
                             officialValuation: number | null;
                             hasListing: boolean;
                             askingPrice: number | null;
+                            /** @description Total number of likes */
+                            likeCount: number;
                             commentCount: number;
                             guessCount: number;
                             /** Format: date-time */
@@ -2737,6 +2763,7 @@ export interface paths {
                             /** Format: date-time */
                             joinedAt: string;
                             email: string;
+                            averageAccuracy: number | null;
                             savedCount: number;
                             likedCount: number;
                             lastNameChangeAt: string | null;
@@ -3017,6 +3044,876 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/geocode/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get notifications for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                eventType: string;
+                                propertyId: string | null;
+                                commentId: string | null;
+                                guessId: string | null;
+                                reactionId: string | null;
+                                payload: {
+                                    [key: string]: unknown;
+                                };
+                                readAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                actor: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                } | null;
+                            }[];
+                            pagination: {
+                                total: number;
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get unread notification count */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            count: number;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark all notifications as read */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            markedCount: number;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark a single notification as read */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/push-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a push notification token for a device */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                        deviceId: string;
+                        /** @enum {string} */
+                        platform: "ios" | "android" | "web";
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get leaderboard rankings
+         * @description Rankings by karma (all-time) or by recent engagement activity (week/month). If authenticated, includes the current user's rank.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    period?: "week" | "month" | "all";
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rankings: {
+                                rank: number;
+                                /** Format: uuid */
+                                userId: string;
+                                displayName: string;
+                                handle: string;
+                                profilePhotoUrl: string | null;
+                                karma: number;
+                                karmaRank: {
+                                    title: string;
+                                    level: number;
+                                };
+                                guessCount: number;
+                                commentCount: number;
+                                likeCount: number;
+                            }[];
+                            currentUserRank: {
+                                rank: number;
+                                /** Format: uuid */
+                                userId: string;
+                                displayName: string;
+                                handle: string;
+                                profilePhotoUrl: string | null;
+                                karma: number;
+                                karmaRank: {
+                                    title: string;
+                                    level: number;
+                                };
+                                guessCount: number;
+                                commentCount: number;
+                                likeCount: number;
+                            } | null;
+                            featuredProperty: {
+                                /** Format: uuid */
+                                id: string;
+                                address: string;
+                                city: string;
+                                postalCode: string | null;
+                                countryCode: string;
+                                officialValuation: number | null;
+                                commentCount: number;
+                                likeCount: number;
+                                engagementScore: number;
+                            } | null;
+                            /** @enum {string} */
+                            period: "week" | "month" | "all";
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public activity feed
+         * @description Recent social events: property likes, comments, and price guesses. Excludes saved/bookmark events (private account state).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                /** @enum {string} */
+                                eventType: "property_like" | "comment" | "price_guess" | "save";
+                                actor: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    displayName: string;
+                                    handle: string;
+                                    profilePhotoUrl: string | null;
+                                };
+                                property: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    city: string;
+                                    thumbnailUrl: string | null;
+                                };
+                                /** Format: date-time */
+                                createdAt: string;
+                                meta: {
+                                    [key: string]: unknown;
+                                } | null;
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get personal activity history
+         * @description All activity by the current user including private save events.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                /** @enum {string} */
+                                eventType: "property_like" | "comment" | "price_guess" | "save";
+                                actor: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    displayName: string;
+                                    handle: string;
+                                    profilePhotoUrl: string | null;
+                                };
+                                property: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    city: string;
+                                    thumbnailUrl: string | null;
+                                };
+                                /** Format: date-time */
+                                createdAt: string;
+                                meta: {
+                                    [key: string]: unknown;
+                                } | null;
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/achievements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all achievements with unlock state
+         * @description Returns earned and available achievements for the current user.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            earned: {
+                                key: string;
+                                name: string;
+                                description: string;
+                                icon: string;
+                                /** @enum {string} */
+                                category: "social" | "guessing" | "exploration" | "milestone";
+                                /** Format: date-time */
+                                awardedAt: string;
+                            }[];
+                            available: {
+                                key: string;
+                                name: string;
+                                description: string;
+                                icon: string;
+                                /** @enum {string} */
+                                category: "social" | "guessing" | "exploration" | "milestone";
+                            }[];
+                            totalAvailable: number;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/achievements/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get achievement registry
+         * @description Returns all available achievement definitions without user state.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            achievements: {
+                                key: string;
+                                name: string;
+                                description: string;
+                                icon: string;
+                                /** @enum {string} */
+                                category: "social" | "guessing" | "exploration" | "milestone";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/email/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request email magic link
+         * @description Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token in the response.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            token?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/email/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify email magic link
+         * @description Validates the token, creates or finds the user, returns a session.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    isPlus: boolean;
+                                    createdAt: string;
+                                };
+                                accessToken: string;
+                                refreshToken: string;
+                                expiresAt: string;
+                            };
+                            isNewUser: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;

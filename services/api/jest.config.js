@@ -18,6 +18,9 @@ export default {
       },
     ],
   },
+  // Close the DB connection pool after all tests in each worker to prevent
+  // "worker has failed to exit gracefully" warnings.
+  setupFilesAfterEnv: ['<rootDir>/jest.teardown.cjs'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',

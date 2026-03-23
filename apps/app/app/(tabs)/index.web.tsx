@@ -10,12 +10,14 @@ import {
   PropertyBottomSheet,
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
+import { useMapCityName } from '@/src/hooks/useMapCityName';
 import { API_URL, fetchBatchProperties } from '@/src/utils/api';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import type { ResolvedAddress } from '@/src/services/address-resolver';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -218,6 +220,21 @@ function createSelectedMarkerElement(): HTMLDivElement {
   return container;
 }
 
+/**
+ * Extract city name from a formatted geocoder address string.
+ * Addresses are formatted as "Street Number, PostalCode City" or "Name, City".
+ * Returns the city portion or null.
+ */
+function extractCityFromAddress(address: string): string | null {
+  const parts = address.split(',').map(p => p.trim());
+  if (parts.length < 2) return null;
+  const lastPart = parts[parts.length - 1];
+  // The last part may be "PostalCode City" — strip leading postal code tokens.
+  // Postal codes can be like "5641 HN" (NL), "75001" (FR), "10115" (DE).
+  const stripped = lastPart.replace(/^\d[\w\s]*?\s(?=[A-Z])/u, '').trim();
+  return stripped || lastPart;
+}
+
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [
   'property-clusters',
@@ -244,9 +261,18 @@ export default function MapScreen() {
 
   // Flag to prevent general click handler from overriding layer-specific click handler
   const propertyClickHandled = useRef(false);
+  const propertyClickResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
+  const interactionRef = useRef(interaction);
+  interactionRef.current = interaction;
+
+  // Dynamic city name for the map header
+  const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  // Ref bridge so the map init effect (which runs once) can call the latest onViewportCenterChanged
+  const onViewportCenterChangedRef = useRef(onViewportCenterChanged);
+  onViewportCenterChangedRef.current = onViewportCenterChanged;
 
   // Refs for building single-property preview when useProperty data arrives (web deferred pattern)
   const pendingSinglePreview = useRef(false);
@@ -374,6 +400,16 @@ export default function MapScreen() {
         setCurrentZoom(map.getZoom());
       });
 
+      // Track viewport center for dynamic city name (reverse geocoding)
+      // Fire on 'moveend' — covers pan, zoom, fly, programmatic camera moves.
+      map.on('moveend', () => {
+        const center = map.getCenter();
+        onViewportCenterChangedRef.current(center.lng, center.lat);
+      });
+
+      // Trigger initial reverse geocode for the default camera position
+      onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
       map.on('dragstart', () => { isDragging.current = true; });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
@@ -386,9 +422,17 @@ export default function MapScreen() {
       const handlePropertyClick = async (
         e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
       ) => {
+        const currentInteraction = interactionRef.current;
         if (!e.features?.length) return;
 
         propertyClickHandled.current = true;
+        if (propertyClickResetTimer.current) {
+          clearTimeout(propertyClickResetTimer.current);
+        }
+        propertyClickResetTimer.current = setTimeout(() => {
+          propertyClickHandled.current = false;
+          propertyClickResetTimer.current = null;
+        }, 0);
 
         const feature = e.features[0];
         const properties = feature.properties;
@@ -399,7 +443,7 @@ export default function MapScreen() {
 
         if (isCluster) {
           // Use the shared hook's feature-press logic
-          await interaction.handleFeaturePress(
+          await currentInteraction.handleFeaturePress(
             e.features as unknown as GeoJSON.Feature[],
             map.getZoom(),
             cameraCommands,
@@ -424,15 +468,18 @@ export default function MapScreen() {
               pendingSinglePreview.current = true;
             }
 
-            interaction.setSelectedPropertyId(propertyId);
+            currentInteraction.setSelectedPropertyId(propertyId);
           }
         }
       };
 
-      // Handle map click to close preview - only on true background taps
+      // Handle any unhandled map click as a background tap.
+      // Layer-specific property handlers set `propertyClickHandled`, so
+      // re-querying rendered features here only creates false negatives
+      // when dense tiles overlap the clicked background point.
       map.on('click', (_e: maplibregl.MapMouseEvent) => {
+        const currentInteraction = interactionRef.current;
         if (propertyClickHandled.current) {
-          propertyClickHandled.current = false;
           return;
         }
 
@@ -440,15 +487,7 @@ export default function MapScreen() {
           return;
         }
 
-        // Only query layers that exist to avoid MapLibre errors
-        const layerIds = PROPERTY_LAYER_IDS.filter((layerId) => map.getLayer(layerId));
-        if (layerIds.length === 0) return;
-
-        const features = map.queryRenderedFeatures(_e.point, { layers: layerIds });
-
-        if (features.length === 0) {
-          interaction.handleEmptyMapTap();
-        }
+        currentInteraction.handleEmptyMapTap();
       });
 
       // Named cursor handlers so they can be properly removed/re-added
@@ -485,6 +524,10 @@ export default function MapScreen() {
         mapRef.current.remove();
         mapRef.current = null;
       }
+      if (propertyClickResetTimer.current) {
+        clearTimeout(propertyClickResetTimer.current);
+        propertyClickResetTimer.current = null;
+      }
     };
   }, []);
 
@@ -514,15 +557,29 @@ export default function MapScreen() {
       pendingSinglePreview.current = true;
       clickCoordRef.current = coord;
       clickActivityRef.current = 0;
+
+      // Set the search city from the resolved property
+      if (property.city) {
+        setSearchCity(property.city, coord);
+      }
     },
-    [cameraCommands, interaction.setSelectedPropertyId],
+    [cameraCommands, interaction.setSelectedPropertyId, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
-    (coordinates: { lon: number; lat: number }, address: string) => {
+    (
+      coordinates: { lon: number; lat: number },
+      address: string,
+      resolvedAddress?: ResolvedAddress,
+    ) => {
       interaction.handleLocationResolved(coordinates, address, cameraCommands);
+      const cityFromAddress =
+        resolvedAddress?.details.city || extractCityFromAddress(address);
+      if (cityFromAddress) {
+        setSearchCity(cityFromAddress, [coordinates.lon, coordinates.lat]);
+      }
     },
-    [interaction.handleLocationResolved, cameraCommands],
+    [interaction.handleLocationResolved, cameraCommands, setSearchCity],
   );
 
   // Manage selected marker with pulsing animation
@@ -582,7 +639,7 @@ export default function MapScreen() {
     container.setAttribute('data-testid', 'group-preview-marker-container');
 
     // Prevent map interaction when interacting with the preview card
-    ['mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'wheel', 'dblclick'].forEach(evt => {
+    ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mousemove', 'mouseup', 'click', 'touchstart', 'touchmove', 'touchend', 'wheel', 'dblclick'].forEach(evt => {
       container.addEventListener(evt, (e) => e.stopPropagation());
     });
 
@@ -656,7 +713,7 @@ export default function MapScreen() {
         <MapGradient position="bottom" testID="map-gradient-bottom" />
 
         {/* Map Header Row — brand mark + city name */}
-        <MapHeaderRow cityName="Eindhoven" />
+        <MapHeaderRow cityName={cityName ?? undefined} />
 
         {/* Search Bar */}
         <SearchBar

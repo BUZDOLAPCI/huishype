@@ -75,7 +75,7 @@ const EXPECTATION_NAME = '0023-preview-card-persistence';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // Center coordinates where seeded data exists
-const CENTER_COORDINATES: [number, number] = [5.746, 51.400];
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = 17;
 
 // Known acceptable console errors - MINIMAL list
@@ -758,6 +758,28 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const sheetIndexAfterClose = await page.evaluate(() => (window as any).__sheetIndex);
     console.log(`Sheet index after panel close: ${sheetIndexAfterClose}`);
 
+    // Instrument the map click handler to confirm whether the background tap
+    // reaches MapLibre and what features are found at the chosen point.
+    await page.evaluate(() => {
+      const mapInstance = (window as any).__mapInstance;
+      if (!mapInstance) return;
+      (window as any).__mapClickFired = false;
+      (window as any).__mapClickDebug = {};
+      const debugHandler = (e: any) => {
+        const layerNames = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'];
+        const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
+        const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
+        (window as any).__mapClickFired = true;
+        (window as any).__mapClickDebug = {
+          point: e.point,
+          featuresFound: features.length,
+          sheetIndex: (window as any).__sheetIndex,
+        };
+      };
+      mapInstance.on('click', debugHandler);
+      (window as any).__debugHandler = debugHandler;
+    });
+
     // Now simulate empty-background tap. We need to click the actual canvas at a point
     // that: (a) has no property features, (b) is not covered by the popup DOM element,
     // (c) is not covered by other UI overlays (search bar, zoom debug, header, etc.)
@@ -780,19 +802,32 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const width = canvas.width;
       const height = canvas.height;
 
-      // Generate test points in the interior of the canvas, avoiding edges where
-      // overlays (search bar, zoom debug, header) are likely positioned
-      const margin = Math.min(width, height) * 0.15;
-      const testPoints = [
-        // Center-ish points, offset to avoid the popup area
-        { x: margin, y: height - margin },
-        { x: width - margin, y: height - margin },
-        { x: margin, y: height / 2 },
-        { x: width - margin, y: height / 2 },
-        { x: width / 2, y: height - margin },
-        { x: width / 3, y: height * 0.7 },
-        { x: 2 * width / 3, y: height * 0.7 },
-      ];
+      // Generate a denser set of candidate points across the interior of the
+      // canvas, avoiding the edges where map chrome and header overlays live.
+      const margin = Math.min(width, height) * 0.12;
+      const testPoints: Array<{ x: number; y: number }> = [];
+
+      const xSteps = 16;
+      const ySteps = 12;
+      for (let xi = 0; xi <= xSteps; xi++) {
+        for (let yi = 0; yi <= ySteps; yi++) {
+          testPoints.push({
+            x: margin + ((width - margin * 2) * xi) / xSteps,
+            y: margin + ((height - margin * 2) * yi) / ySteps,
+          });
+        }
+      }
+
+      // A few hand-picked points near the lower half of the map help when the
+      // property density is high around the center but the background is still
+      // open toward the edges.
+      testPoints.push(
+        { x: width * 0.18, y: height * 0.78 },
+        { x: width * 0.82, y: height * 0.78 },
+        { x: width * 0.18, y: height * 0.58 },
+        { x: width * 0.82, y: height * 0.58 },
+        { x: width * 0.50, y: height * 0.84 },
+      );
 
       for (const point of testPoints) {
         const screenX = rect.left + point.x;
@@ -885,6 +920,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     // Verify preview card is NOW closed
+    const mapClickFired = await page.evaluate(() => (window as any).__mapClickFired);
+    const mapClickDebug = await page.evaluate(() => (window as any).__mapClickDebug);
+    console.log(`Map click fired: ${mapClickFired}`);
+    console.log(`Map click debug: ${JSON.stringify(mapClickDebug)}`);
     const previewVisibleAfterBackgroundTap = await previewCard.isVisible().catch(() => false);
     console.log(`Preview visible after background tap: ${previewVisibleAfterBackgroundTap}`);
 

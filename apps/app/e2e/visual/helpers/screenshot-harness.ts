@@ -12,10 +12,14 @@
  *
  * Output convention:
  *   test-results/visual-overhaul/<surface>/web/<viewport>-<name>.png
+ *   test-results/visual-overhaul/<surface>/android/<name>.png
+ *   test-results/visual-overhaul/<surface>/notes.md
  */
 
 import { Page, test as base } from '@playwright/test';
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { ConsoleCollector, KNOWN_ACCEPTABLE_ERRORS } from './visual-test-helpers.js';
 
 // ============================================
@@ -37,8 +41,86 @@ export type ViewportName = keyof typeof VIEWPORTS;
 // Output directory
 // ============================================
 
+const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(HARNESS_DIR, '../../../../../');
+
 /** Root directory for visual overhaul screenshots */
-export const VISUAL_OVERHAUL_DIR = 'test-results/visual-overhaul';
+export const VISUAL_OVERHAUL_DIR = path.join(REPO_ROOT, 'test-results', 'visual-overhaul');
+
+export type SurfacePlatform = 'web' | 'android';
+
+export interface SurfaceNoteOptions {
+  platform: SurfacePlatform;
+  files?: string[];
+  title?: string;
+  note?: string | string[];
+}
+
+function asArray(value?: string | string[]): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return Array.isArray(value)
+    ? value.filter(Boolean)
+    : [value];
+}
+
+function toRelativeArtifactPath(filePath: string): string {
+  return path.relative(REPO_ROOT, filePath).replace(/\\/g, '/');
+}
+
+export function surfacePath(surface: string): string {
+  return path.join(VISUAL_OVERHAUL_DIR, surface);
+}
+
+export function platformPath(surface: string, platform: SurfacePlatform): string {
+  return path.join(surfacePath(surface), platform);
+}
+
+export function notesPath(surface: string): string {
+  return path.join(surfacePath(surface), 'notes.md');
+}
+
+export async function ensureVisualOverhaulSurface(surface: string): Promise<void> {
+  await Promise.all([
+    fs.mkdir(platformPath(surface, 'web'), { recursive: true }),
+    fs.mkdir(platformPath(surface, 'android'), { recursive: true }),
+  ]);
+
+  const surfaceNotesPath = notesPath(surface);
+  try {
+    await fs.access(surfaceNotesPath);
+  } catch {
+    const title = `# ${surface}\n\n`;
+    const intro =
+      'Visual overhaul evidence log for this surface.\n\n' +
+      'Each entry records generated or imported artifacts under this directory.\n';
+    await fs.writeFile(surfaceNotesPath, title + intro, 'utf8');
+  }
+}
+
+export async function appendSurfaceNote(
+  surface: string,
+  options: SurfaceNoteOptions,
+): Promise<void> {
+  await ensureVisualOverhaulSurface(surface);
+
+  const fileLines = (options.files ?? [])
+    .map((file) => `- Artifact: \`${toRelativeArtifactPath(file)}\``);
+  const noteLines = asArray(options.note).map((line) => `- ${line}`);
+  const title = options.title ?? `${options.platform.toUpperCase()} capture`;
+
+  const lines = [
+    '',
+    `## ${new Date().toISOString()} - ${title}`,
+    `- Platform: \`${options.platform}\``,
+    ...fileLines,
+    ...noteLines,
+  ];
+
+  await fs.appendFile(notesPath(surface), `${lines.join('\n')}\n`, 'utf8');
+}
 
 /** Build the output path for a screenshot */
 export function screenshotPath(
@@ -46,7 +128,7 @@ export function screenshotPath(
   viewport: ViewportName,
   name: string,
 ): string {
-  return path.join(VISUAL_OVERHAUL_DIR, surface, 'web', `${viewport}-${name}.png`);
+  return path.join(platformPath(surface, 'web'), `${viewport}-${name}.png`);
 }
 
 // ============================================
@@ -60,6 +142,8 @@ export interface CaptureOptions {
   fullPage?: boolean;
   /** Fail the test if critical console errors fire during capture (default: true) */
   failOnConsoleErrors?: boolean;
+  /** Additional lines to append to the surface notes log */
+  note?: string | string[];
 }
 
 /**
@@ -81,7 +165,10 @@ export async function captureScreenshot(
     settleMs = 1000,
     fullPage = false,
     failOnConsoleErrors = true,
+    note,
   } = opts;
+
+  await ensureVisualOverhaulSurface(surface);
 
   const collector = new ConsoleCollector();
   if (failOnConsoleErrors) {
@@ -100,6 +187,19 @@ export async function captureScreenshot(
   // Take screenshot
   const outPath = screenshotPath(surface, viewport, name);
   await page.screenshot({ path: outPath, fullPage });
+
+  await appendSurfaceNote(surface, {
+    platform: 'web',
+    title: `WEB ${viewport} capture`,
+    files: [outPath],
+    note: [
+      `Viewport: \`${viewport}\` (${vp.width}x${vp.height})`,
+      ...(failOnConsoleErrors
+        ? ['Console guard: enabled']
+        : ['Console guard: disabled']),
+      ...asArray(note),
+    ],
+  });
 
   // Check for critical console errors
   if (failOnConsoleErrors) {
@@ -149,7 +249,7 @@ export async function captureDualViewport(
  *   android_screenshot → save to the same path
  */
 export function androidScreenshotPath(surface: string, name: string): string {
-  return path.join(VISUAL_OVERHAUL_DIR, surface, 'android', `${name}.png`);
+  return path.join(platformPath(surface, 'android'), `${name}.png`);
 }
 
 // ============================================

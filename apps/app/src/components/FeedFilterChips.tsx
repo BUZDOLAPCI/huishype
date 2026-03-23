@@ -63,7 +63,6 @@ export function FeedFilterChips({
             />
           );
         })}
-        <Text style={styles.overflow}>...</Text>
       </ScrollView>
     </View>
   );
@@ -77,11 +76,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 10,
     alignItems: 'center',
-  },
-  overflow: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#C7BFB3', // warm-400
-    marginLeft: 4,
   },
 });

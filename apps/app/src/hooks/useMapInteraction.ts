@@ -11,7 +11,7 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
-import { useProperty } from '@/src/hooks/useProperties';
+import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
@@ -105,12 +105,17 @@ export interface ToGroupPropertyInput {
   address: string;
   city: string;
   postalCode?: string | null;
+  countryCode?: string | null;
   officialValuation?: number | null;
   askingPrice?: number | null;
+  fmv?: number | PropertyFmvData | null;
   activityScore?: number;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  guessCount?: number | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -141,8 +146,10 @@ function convertToGroupProperty(
     address: p.address,
     city: p.city,
     postalCode: p.postalCode,
+    countryCode: p.countryCode ?? undefined,
     officialValuation: p.officialValuation,
     askingPrice: p.askingPrice ?? null,
+    fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
     activityLevel: getActivityLevel(score),
     activityScore: score,
     thumbnailUrl: p.geometry
@@ -150,6 +157,9 @@ function convertToGroupProperty(
       : null,
     yearBuilt: p.yearBuilt ?? null,
     floorAreaM2: p.floorAreaM2 ?? null,
+    likeCount: p.likeCount ?? 0,
+    commentCount: p.commentCount ?? 0,
+    guessCount: p.guessCount ?? 0,
   };
 }
 
@@ -381,6 +391,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
               ),
               yearBuilt: null,
               floorAreaM2: null,
+              likeCount: (properties.likeCount as number) ?? 0,
+              commentCount: (properties.commentCount as number) ?? 0,
+              guessCount: (properties.guessCount as number) ?? 0,
             }],
             coordinate: coord,
           });
@@ -413,6 +426,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
               thumbnailUrl: getPropertyThumbnailFromGeometry(
                 { type: 'Point', coordinates: coord },
               ),
+              likeCount: result.likeCount ?? 0,
+              commentCount: result.commentCount ?? 0,
+              guessCount: result.guessCount ?? 0,
             }],
             coordinate: coord,
           });

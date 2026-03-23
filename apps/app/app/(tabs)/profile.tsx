@@ -358,8 +358,8 @@ export default function ProfileScreen() {
           </View>
           <View style={[styles.statItem, shadows.card]}>
             <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-              {profile.commentCount > 0
-                ? `${Math.round((profile.guessCount / Math.max(profile.commentCount, 1)) * 100)}%`
+              {profile.averageAccuracy != null
+                ? `${Math.round(profile.averageAccuracy)}%`
                 : '-'}
             </Text>
             <Text style={styles.statLabel}>ACCURACY</Text>

@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { eq, or } from 'drizzle-orm';
+import { createPublicKey, createVerify, type JsonWebKey } from 'node:crypto';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { config } from '../config.js';
@@ -23,6 +24,22 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
+interface AppleTokenHeader {
+  alg: string;
+  kid: string;
+  typ?: string;
+}
+
+interface AppleTokenClaims {
+  iss: string;
+  aud: string | string[];
+  exp: number;
+  iat?: number;
+  sub: string;
+  email?: string;
+  email_verified?: string | boolean;
+}
+
 // Helper to generate a unique username
 function generateUsername(): string {
   const adjectives = ['happy', 'clever', 'swift', 'bright', 'calm', 'bold', 'keen', 'quick'];
@@ -31,6 +48,85 @@ function generateUsername(): string {
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
   const num = Math.floor(Math.random() * 9999);
   return `${adj}${noun}${num}`;
+}
+
+function decodeJwtSegment<T>(token: string, index: number): T | null {
+  const segment = token.split('.')[index];
+  if (!segment) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAppleSigningKey(kid: string) {
+  const response = await fetch('https://appleid.apple.com/auth/keys', {
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) {
+    return null;
+  }
+
+  const body = (await response.json()) as {
+    keys?: Array<JsonWebKey & { kid?: string }>;
+  };
+  const jwk = body.keys?.find((candidate) => candidate.kid === kid);
+  if (!jwk) {
+    return null;
+  }
+
+  return createPublicKey({
+    key: jwk,
+    format: 'jwk',
+  });
+}
+
+async function verifyAppleJwt(idToken: string): Promise<AppleTokenClaims | null> {
+  const header = decodeJwtSegment<AppleTokenHeader>(idToken, 0);
+  const claims = decodeJwtSegment<AppleTokenClaims>(idToken, 1);
+
+  if (!header || !claims || header.alg !== 'RS256' || !header.kid) {
+    return null;
+  }
+
+  const expectedAudience = config.auth.appleClientId;
+  const audienceMatches = Array.isArray(claims.aud)
+    ? claims.aud.includes(expectedAudience)
+    : claims.aud === expectedAudience;
+
+  if (
+    claims.iss !== 'https://appleid.apple.com' ||
+    !audienceMatches ||
+    claims.exp * 1000 <= Date.now() ||
+    !claims.sub
+  ) {
+    return null;
+  }
+
+  const signingKey = await fetchAppleSigningKey(header.kid);
+  if (!signingKey) {
+    return null;
+  }
+
+  const [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
+  if (!encodedHeader || !encodedPayload || !encodedSignature) {
+    return null;
+  }
+
+  const verifier = createVerify('RSA-SHA256');
+  verifier.update(`${encodedHeader}.${encodedPayload}`);
+  verifier.end();
+
+  const valid = verifier.verify(
+    signingKey,
+    Buffer.from(encodedSignature, 'base64url'),
+  );
+
+  return valid ? claims : null;
 }
 
 /**
@@ -103,7 +199,7 @@ async function validateGoogleToken(
  */
 async function validateAppleToken(
   idToken: string
-): Promise<{ email: string; appleId: string; name?: string } | null> {
+): Promise<{ email: string | null; appleId: string; name?: string } | null> {
   if (config.isDev === true) {
     // Mock validation for development
     if (idToken.startsWith('mock-apple-')) {
@@ -126,18 +222,17 @@ async function validateAppleToken(
     };
   }
 
-  // Production: Verify with Apple
-  // Apple's verification is more complex and requires JWT verification
-  // For now, we'll return null in production until properly implemented
-  // TODO: Implement Apple token verification using apple-signin-auth or similar
   try {
-    // This is a placeholder for Apple token verification
-    // In production, you would:
-    // 1. Fetch Apple's public keys from https://appleid.apple.com/auth/keys
-    // 2. Verify the JWT signature
-    // 3. Validate the claims (iss, aud, exp)
-    console.warn('Apple token verification not fully implemented for production');
-    return null;
+    const claims = await verifyAppleJwt(idToken);
+    if (!claims) {
+      return null;
+    }
+
+    return {
+      email: claims.email?.toLowerCase() ?? null,
+      appleId: claims.sub,
+      name: claims.email?.split('@')[0],
+    };
   } catch {
     return null;
   }
@@ -250,7 +345,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
-            isPlus: false, // TODO: Check subscription status
+            isPlus: false,
             createdAt: user.createdAt.toISOString(),
           },
           accessToken,
@@ -317,17 +412,24 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Check if user exists by Apple ID or email
+      // Check if user exists by Apple ID or email when Apple returned one.
       let user = await db.query.users.findFirst({
-        where: or(
-          eq(users.appleId, appleUser.appleId),
-          eq(users.email, appleUser.email)
-        ),
+        where: appleUser.email
+          ? or(eq(users.appleId, appleUser.appleId), eq(users.email, appleUser.email))
+          : eq(users.appleId, appleUser.appleId),
       });
 
       let isNewUser = false;
 
       if (!user) {
+        if (!appleUser.email) {
+          return reply.status(400).send({
+            error: 'EMAIL_REQUIRED',
+            message:
+              'Apple did not provide an email for this sign-in. Sign in with Apple again and share your email address.',
+          });
+        }
+
         // Create new user
         isNewUser = true;
         const username = generateUsername();
@@ -366,7 +468,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
-            isPlus: false, // TODO: Check subscription status
+            isPlus: false,
             createdAt: user.createdAt.toISOString(),
           },
           accessToken,
@@ -524,7 +626,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           email: user.email,
           karma: user.karma,
           karmaRank: getKarmaRank(user.karma).title,
-          isPlus: false, // TODO: Check subscription status
+          isPlus: false,
           createdAt: user.createdAt.toISOString(),
         },
       };

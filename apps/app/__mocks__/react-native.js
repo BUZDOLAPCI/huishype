@@ -94,7 +94,14 @@ const BackHandler = {
 };
 
 const AccessibilityInfo = {
-  isReduceMotionEnabled: jest.fn(() => Promise.resolve(false)),
+  // Synchronous thenable so .then(setReducedMotion) runs inside act(),
+  // avoiding spurious act() warnings from the useReducedMotion hook.
+  isReduceMotionEnabled: jest.fn(() => ({
+    then(cb) {
+      cb(false);
+      return { catch() {} };
+    },
+  })),
   addEventListener: jest.fn(() => ({ remove: jest.fn() })),
   removeEventListener: jest.fn(),
 };

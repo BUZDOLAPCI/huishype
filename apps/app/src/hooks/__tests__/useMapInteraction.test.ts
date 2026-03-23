@@ -9,6 +9,18 @@ import {
 } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
 import type { NearbyClusterResult } from '../../utils/api';
+import { fetchBatchProperties } from '../../utils/api';
+
+jest.mock('../useProperties', () => {
+  const actual = jest.requireActual('../useProperties');
+  return {
+    ...actual,
+    useProperty: jest.fn(() => ({
+      data: null,
+      isLoading: false,
+    })),
+  };
+});
 
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
@@ -29,10 +41,6 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-// Mock fetch
-const mockFetch = jest.fn();
-global.fetch = mockFetch;
-
 // Mock API
 jest.mock('../../utils/api', () => ({
   API_URL: 'http://localhost:3100',
@@ -45,6 +53,8 @@ jest.mock('../../utils/api', () => ({
   fetchBatchProperties: jest.fn().mockResolvedValue([]),
   fetchNearbyCluster: jest.fn().mockResolvedValue(null),
 }));
+
+const mockFetchBatchProperties = fetchBatchProperties as jest.Mock;
 
 // Mock propertyThumbnail
 jest.mock('../../lib/propertyThumbnail', () => ({
@@ -118,11 +128,7 @@ describe('useMapInteraction', () => {
     });
     mockAuthUser = mockUser;
     jest.clearAllMocks();
-    // Default: useProperty returns nothing (no fetch response)
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => null,
-    });
+    mockFetchBatchProperties.mockResolvedValue([]);
   });
 
   describe('selection state', () => {
@@ -480,6 +486,9 @@ describe('useMapInteraction', () => {
         hasListing: true,
         askingPrice: 300000,
         activityScore: 25,
+        likeCount: 3,
+        commentCount: 5,
+        guessCount: 2,
         distanceMeters: 10,
         geometry: { type: 'Point', coordinates: [4.9, 52.37] },
       };
@@ -515,6 +524,49 @@ describe('useMapInteraction', () => {
       const calledFit = (camera.fitBounds as jest.Mock).mock.calls.length > 0;
       const calledFly = (camera.flyTo as jest.Mock).mock.calls.length > 0;
       expect(calledFit || calledFly).toBe(true);
+    });
+  });
+
+  describe('openClusterPreviewAtCoord', () => {
+    it('preserves stat pills and pricing data for grouped previews', async () => {
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'prop-1',
+          nationalId: null,
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: true,
+          askingPrice: 300000,
+          likeCount: 3,
+          commentCount: 5,
+          guessCount: 2,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.openClusterPreviewAtCoord(['prop-1'], [4.9, 52.37]);
+      });
+
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'prop-1',
+        askingPrice: 300000,
+        officialValuation: 250000,
+        likeCount: 3,
+        commentCount: 5,
+        guessCount: 2,
+      });
     });
   });
 

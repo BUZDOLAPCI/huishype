@@ -148,14 +148,14 @@ test.describe('Feed Filtering', () => {
     // Take initial screenshot
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
-    // Click "Recent" filter
-    const recentFilter = page.locator('[data-testid="filter-chip-recent"]');
-    const recentVisible = await recentFilter.isVisible().catch(() => false);
+    // Click "Latest" filter
+    const latestFilter = page.locator('[data-testid="filter-chip-recent"]');
+    const latestVisible = await latestFilter.isVisible().catch(() => false);
 
-    if (recentVisible) {
-      await recentFilter.click();
+    if (latestVisible) {
+      await latestFilter.click();
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-recent.png` });
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
     }
 
     // Click "Recent Activity" filter
@@ -169,7 +169,7 @@ test.describe('Feed Filtering', () => {
     }
 
     // Click back to "Trending" filter
-    if (recentVisible || activityVisible) {
+    if (latestVisible || activityVisible) {
       await trendingFilter.click();
       await page.waitForTimeout(2000);
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });

@@ -21,6 +21,11 @@ export {
   feedHandlers,
   userHandlers,
   listingHandlers,
+  notificationHandlers,
+  leaderboardHandlers,
+  activityHandlers,
+  achievementHandlers,
+  emailAuthHandlers,
 } from './handlers/index.js';
 
 // Export auth helpers

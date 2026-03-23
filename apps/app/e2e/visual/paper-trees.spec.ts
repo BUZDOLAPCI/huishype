@@ -84,24 +84,29 @@ test.describe(`Paper Mario Trees`, () => {
     );
 
     await waitForMapIdle(page);
-    // Extra settle time for custom WebGL layer to render
+    // Extra settle time for the symbol layer to render
     await page.waitForTimeout(3000);
 
-    // Verify tree-source and layers exist
+    // Verify tree source and symbol layer exist
     const layerInfo = await page.evaluate(() => {
       const map = (window as any).__mapInstance;
       const style = map.getStyle();
       const sources = Object.keys(style.sources);
       const hasTreeSource = sources.includes('tree-source');
-      const hasLoaderLayer = !!map.getLayer('tree-source-loader');
       const hasPaperTrees = !!map.getLayer('paper-trees');
+      const treeLayerIndex = style.layers.findIndex((layer: any) => layer.id === 'paper-trees');
+      const buildingLayerIndex = style.layers.findIndex((layer: any) => layer.id === '3d-buildings');
       const zoom = map.getZoom();
-      return { hasTreeSource, hasLoaderLayer, hasPaperTrees, zoom };
+      return { hasTreeSource, hasPaperTrees, treeLayerIndex, buildingLayerIndex, zoom };
     });
 
     expect(layerInfo.hasTreeSource, 'tree-source should exist').toBe(true);
-    expect(layerInfo.hasLoaderLayer, 'tree-source-loader layer should exist').toBe(true);
-    expect(layerInfo.hasPaperTrees, 'paper-trees custom layer should exist').toBe(true);
+    expect(layerInfo.hasPaperTrees, 'paper-trees layer should exist').toBe(true);
+    expect(layerInfo.treeLayerIndex, 'paper-trees layer should be in the style').toBeGreaterThanOrEqual(0);
+    expect(layerInfo.buildingLayerIndex, '3d-buildings layer should be in the style').toBeGreaterThanOrEqual(0);
+    expect(layerInfo.treeLayerIndex, 'paper-trees should render above 3d-buildings').toBeGreaterThan(
+      layerInfo.buildingLayerIndex
+    );
     expect(layerInfo.zoom).toBeGreaterThanOrEqual(15);
 
     // Query tree features to confirm tiles loaded
@@ -145,7 +150,7 @@ test.describe(`Paper Mario Trees`, () => {
     await waitForMapIdle(page);
     await page.waitForTimeout(2000);
 
-    // tree-source-loader has minzoom:15, so no tiles fetched at z14
+    // tree-source has minzoom:15, so no tiles fetched at z14
     const featureCount = await page.evaluate(() => {
       const map = (window as any).__mapInstance;
       const features = map.querySourceFeatures('tree-source', {

@@ -61,6 +61,11 @@ describe('Tree tiles endpoint', () => {
     expect(style.sources['tree-source'].tiles[0]).toContain('/tiles/trees/{z}/{x}/{y}.pbf');
     expect(style.sources['tree-source'].minzoom).toBe(15);
     expect(style.sources['tree-source'].maxzoom).toBe(20);
+    const treeLayerIndex = style.layers.findIndex((layer: { id?: string }) => layer.id === 'paper-trees');
+    const buildings3DIndex = style.layers.findIndex((layer: { id?: string }) => layer.id === '3d-buildings');
+    expect(treeLayerIndex).toBeGreaterThanOrEqual(0);
+    expect(buildings3DIndex).toBeGreaterThanOrEqual(0);
+    expect(treeLayerIndex).toBeGreaterThan(buildings3DIndex);
   });
 
   it('tall_buildings table exists and tree tile query works with exclusion', async () => {

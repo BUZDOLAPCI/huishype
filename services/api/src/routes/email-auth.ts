@@ -25,6 +25,7 @@ import { getKarmaRank } from '../services/karma.js';
 
 // Token is valid for 15 minutes
 const TOKEN_TTL_MS = 15 * 60 * 1000;
+const RESEND_API_URL = 'https://api.resend.com/emails';
 
 function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -37,6 +38,47 @@ function generateUsername(): string {
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
   const num = Math.floor(Math.random() * 9999);
   return `${adj}${noun}${num}`;
+}
+
+function buildMagicLink(token: string): string {
+  if (!config.auth.magicLinkBaseUrl) {
+    throw new Error('Magic link base URL is not configured');
+  }
+
+  const url = new URL(config.auth.magicLinkBaseUrl);
+  url.searchParams.set('emailToken', token);
+  return url.toString();
+}
+
+async function sendMagicLinkEmail(email: string, magicLink: string): Promise<void> {
+  if (!config.email.resendApiKey || !config.email.fromAddress) {
+    throw new Error('Email delivery is not configured');
+  }
+
+  const response = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.email.resendApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: config.email.fromAddress,
+      to: [email],
+      reply_to: config.email.replyTo || undefined,
+      subject: 'Your HuisHype sign-in link',
+      html: [
+        '<p>Use the link below to sign in to HuisHype.</p>',
+        `<p><a href="${magicLink}">${magicLink}</a></p>`,
+        '<p>This link expires in 15 minutes.</p>',
+      ].join(''),
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Resend rejected the request (${response.status}): ${detail}`);
+  }
 }
 
 export async function emailAuthRoutes(fastify: FastifyInstance) {
@@ -62,6 +104,10 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
             message: z.string(),
             /** Only present in dev mode */
             token: z.string().optional(),
+          }),
+          503: z.object({
+            error: z.string(),
+            message: z.string(),
           }),
           429: z.object({
             error: z.string(),
@@ -99,15 +145,6 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
         expiresAt,
       });
 
-      // In production, send email here.
-      // For now, log a warning and return success.
-      if (config.isDev !== true) {
-        console.warn(
-          `Email auth: delivery not configured. Token for ${normalizedEmail} not sent. ` +
-            'Configure an email provider (SendGrid, SES, etc.) to enable magic link delivery.'
-        );
-      }
-
       const response: { message: string; token?: string } = {
         message: 'If an account with this email exists, a magic link has been sent.',
       };
@@ -115,6 +152,18 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
       // In dev mode, return the token directly for testing
       if (config.isDev === true) {
         response.token = token;
+        return response;
+      }
+
+      try {
+        const magicLink = buildMagicLink(token);
+        await sendMagicLinkEmail(normalizedEmail, magicLink);
+      } catch (error) {
+        app.log.error({ err: error, email: normalizedEmail }, 'Failed to deliver magic link email');
+        return reply.status(503).send({
+          error: 'EMAIL_DELIVERY_UNAVAILABLE',
+          message: 'Email sign-in is not configured for this environment.',
+        });
       }
 
       return response;

@@ -48,7 +48,11 @@ export interface SearchBarProps {
    * Called when a search result is tapped but the property is NOT found
    * in our local database. Falls back to geocoder coordinates.
    */
-  onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
+  onLocationResolved: (
+    coordinates: { lon: number; lat: number },
+    address: string,
+    resolvedAddress?: ResolvedAddress,
+  ) => void;
 }
 
 const DEBOUNCE_MS = 300;
@@ -116,12 +120,18 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
       setIsResolving(true);
 
       try {
-        // Extract postal code and house number from geocoder result
         const postalCode = address.details.zip;
-        const houseNumber = address.details.number;
+        const houseNumber = address.details.houseNumber;
 
         if (postalCode && houseNumber) {
-          const property = await resolveProperty(postalCode, houseNumber);
+          const property = await resolveProperty({
+            postalCode,
+            houseNumber,
+            houseNumberAddition: address.details.houseNumberAddition,
+            countryCode: address.details.countryCode,
+            street: address.details.street,
+            city: address.details.city,
+          });
 
           if (property) {
             onPropertyResolved(property);
@@ -130,6 +140,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
             onLocationResolved(
               { lon: address.lon, lat: address.lat },
               address.formattedAddress,
+              address,
             );
           }
         } else {
@@ -137,6 +148,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
           onLocationResolved(
             { lon: address.lon, lat: address.lat },
             address.formattedAddress,
+            address,
           );
         }
       } catch (error) {
@@ -145,6 +157,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
         onLocationResolved(
           { lon: address.lon, lat: address.lat },
           address.formattedAddress,
+          address,
         );
       } finally {
         setIsResolving(false);

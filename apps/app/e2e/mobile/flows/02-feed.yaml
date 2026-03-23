@@ -5,46 +5,45 @@ appId: nl.huishype.app
 # This is a sub-flow; app is on the Map tab.
 
 # Navigate to Feed tab
-- tapOn: "Feed"
+- tapOn: 'Feed'
 
 # Wait for feed to load - filter chips should be visible
-# Default active filter is "Trending" (no "All" chip exists)
+# Default active filter is "Trending"
 - extendedWaitUntil:
-    visible: "Trending"
+    visible: 'Trending'
     timeout: 30000
 
 # Assert filter chips visible
-- assertVisible: "Trending"
-- assertVisible: "Recent"
-- assertVisible: "Controversial"
-- assertVisible: "Price Mismatch"
+- assertVisible: 'Trending'
+- assertVisible: 'Latest'
+- assertVisible: 'Recent Activity'
 
-- takeScreenshot: maestro-screenshots/full_flow_02_feed_filters
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
 
 # Verify property cards are displayed (guesses count is always present)
 # Feed API call may take time on device — wait for cards to load
 - extendedWaitUntil:
-    visible: ".*guesses.*"
+    visible: '.*guesses.*'
     timeout: 30000
 
-# Tap "Recent" filter to test filter switching
-- tapOn: "Recent"
+# Tap "Latest" filter to test filter switching
+- tapOn: 'Latest'
 - waitForAnimationToEnd
 
 # Verify cards still render after filter change
 - assertVisible:
-    text: ".*guesses.*"
+    text: '.*guesses.*'
     optional: true
 
-- takeScreenshot: maestro-screenshots/full_flow_02_recent_filter
+- takeScreenshot: test-results/visual-overhaul/feed-recent-activity/android/feed-recent-activity-filter.png
 
 # Switch back to "Trending" filter
-- tapOn: "Trending"
+- tapOn: 'Trending'
 - waitForAnimationToEnd
 
 # Scroll down to test pagination
 - scroll
-- takeScreenshot: maestro-screenshots/full_flow_02_scrolled_down
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-scrolled-down.png
 
 # Scroll back up
 - swipe:
@@ -60,18 +59,18 @@ appId: nl.huishype.app
 
 # Tap on a property card to view details
 - tapOn:
-    point: "50%,40%"
+    point: '50%,40%'
     optional: true
 - waitForAnimationToEnd
 
-- takeScreenshot: maestro-screenshots/full_flow_02_feed_card_tap
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-card-tap.png
 
 # If property detail screen appeared, verify it has elements
 - assertVisible:
-    text: "Save"
+    text: 'Save'
     optional: true
 - assertVisible:
-    text: "Share"
+    text: 'Share'
     optional: true
 
 # Navigate back (Android back button)
@@ -80,11 +79,11 @@ appId: nl.huishype.app
 
 # Wait for feed to be visible again
 - extendedWaitUntil:
-    visible: "Trending"
+    visible: 'Trending'
     timeout: 10000
 
 # Switch back to Map tab
-- tapOn: "Map"
+- tapOn: 'Map'
 - extendedWaitUntil:
-    visible: "Zoom.*"
+    visible: 'Zoom.*'
     timeout: 10000

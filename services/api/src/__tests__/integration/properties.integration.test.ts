@@ -126,6 +126,26 @@ describe('Property routes', () => {
       expect(body.data.length).toBeGreaterThan(0);
     });
 
+    it('should support lat/lon radius queries', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties?lat=52.3676&lon=4.9041&radius=5000&limit=10',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.data.length).toBeGreaterThan(0);
+      expect(body.meta.limit).toBe(10);
+      expect(body.meta.total).toBeGreaterThanOrEqual(body.data.length);
+
+      for (const prop of body.data) {
+        expect(prop).toHaveProperty('id');
+        expect(prop).toHaveProperty('address');
+        expect(prop).toHaveProperty('city');
+      }
+    });
+
     it('should return 400 for limit > 100', async () => {
       const response = await app.inject({
         method: 'GET',

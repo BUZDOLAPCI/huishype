@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { FlatList, RefreshControl, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
 
 import {
@@ -26,6 +26,9 @@ import {
   type ActivityItem,
 } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
+import { Icon } from '@/src/components/ui/Icon';
+import { NotificationBell } from '@/src/components/ui/NotificationBell';
+import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 
 // --- Header title per filter ---
 
@@ -38,6 +41,35 @@ const FILTER_TITLES: Record<FeedFilter, string> = {
 export default function FeedScreen() {
   const [activeFilter, setActiveFilter] = useState<FeedFilter>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { data: unreadCount } = useUnreadNotificationCount();
+
+  const headerRightAction = useMemo(
+    () => (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <Pressable
+          onPress={() => router.push('/leaderboard')}
+          hitSlop={8}
+          testID="feed-leaderboard-button"
+          accessibilityRole="button"
+          accessibilityLabel="Leaderboard"
+          accessibilityHint="Opens the community leaderboard"
+          style={{
+            minWidth: 44,
+            minHeight: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="Trophy" size="lg" weight="regular" color="#504A42" />
+        </Pressable>
+        <NotificationBell
+          unreadCount={unreadCount ?? 0}
+          onPress={() => router.push('/notifications')}
+        />
+      </View>
+    ),
+    [unreadCount]
+  );
 
   // Property feed (trending/recent)
   const isPropertyFeed = activeFilter !== 'activity';
@@ -153,7 +185,7 @@ export default function FeedScreen() {
   if (activeQuery.isLoading && !isRefreshing) {
     return (
       <View className="flex-1 bg-warm-50">
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
@@ -167,7 +199,7 @@ export default function FeedScreen() {
   if (activeQuery.isError) {
     return (
       <View className="flex-1 bg-warm-50">
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
@@ -188,7 +220,7 @@ export default function FeedScreen() {
   if (isEmpty) {
     return (
       <View className="flex-1 bg-warm-50">
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
@@ -201,7 +233,7 @@ export default function FeedScreen() {
   return (
     <View className="flex-1 bg-warm-50 items-center" testID="feed-screen">
       <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} />
+        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}

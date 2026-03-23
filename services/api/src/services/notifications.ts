@@ -6,8 +6,8 @@
  */
 
 import { db } from '../db/index.js';
-import { notifications, pushTokens, users } from '../db/schema.js';
-import { eq, and, sql, isNull, desc } from 'drizzle-orm';
+import { notifications, pushTokens } from '../db/schema.js';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 
 // ─── Types ─────────────────────────────────────────────────────────────
 

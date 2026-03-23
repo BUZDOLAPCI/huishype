@@ -9,6 +9,14 @@
 import { API_URL } from '../utils/api';
 import type { IGeocoder, GeocodeSuggestion } from './geocoder';
 
+/** Reverse geocode result — city/town name for the map header. */
+export interface ReverseGeocodeResult {
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  countryCode: string | null;
+}
+
 export class ApiGeocoder implements IGeocoder {
   async search(
     query: string,
@@ -31,6 +39,36 @@ export class ApiGeocoder implements IGeocoder {
       return data;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Reverse geocode a coordinate to get the city/town name.
+   * Returns null if geocoding fails or no result found.
+   */
+  async reverse(
+    lon: number,
+    lat: number,
+    options?: { lang?: string; signal?: AbortSignal },
+  ): Promise<ReverseGeocodeResult | null> {
+    const params = new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+    });
+    if (options?.lang) params.set('lang', options.lang);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/geocode/reverse?${params.toString()}`,
+        { signal: options?.signal },
+      );
+
+      if (!response.ok) return null;
+
+      const data: ReverseGeocodeResult | null = await response.json();
+      return data;
+    } catch {
+      return null;
     }
   }
 }

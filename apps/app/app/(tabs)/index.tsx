@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Text, View, ActivityIndicator, Pressable, type NativeSyntheticEvent } from 'react-native';
+import { Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -21,12 +21,14 @@ import {
   GroupPreviewCard,
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
+import { useMapCityName } from '@/src/hooks/useMapCityName';
 import { fetchNearbyCluster } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import type { ResolvedAddress } from '@/src/services/address-resolver';
 
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
@@ -38,6 +40,21 @@ const COLORS = {
   gray800: '#3D3832',    // warm-800
   blue500: '#F5A623',    // primary-500 (gold)
 } as const;
+
+/**
+ * Extract city name from a formatted geocoder address string.
+ * Addresses are formatted as "Street Number, PostalCode City" or "Name, City".
+ * Returns the city portion or null.
+ */
+function extractCityFromAddress(address: string): string | null {
+  const parts = address.split(',').map(p => p.trim());
+  if (parts.length < 2) return null;
+  const lastPart = parts[parts.length - 1];
+  // The last part may be "PostalCode City" — strip leading postal code tokens.
+  // Postal codes can be like "5641 HN" (NL), "75001" (FR), "10115" (DE).
+  const stripped = lastPart.replace(/^\d[\w\s]*?\s(?=[A-Z])/u, '').trim();
+  return stripped || lastPart;
+}
 
 // Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
 // after a card touch (e.g. user lifts finger outside the map gesture area),
@@ -116,7 +133,7 @@ const PROPERTY_LAYER_IDS = [
 ];
 
 export default function MapScreen() {
-  const [contentSize, setContentSize] = useState({ width: 0, height: 0 });
+  const [hasLayout, setHasLayout] = useState(false);
   // Merged style as JS object (base map + property vector tiles)
   const mergedStyle = useMergedMapStyle();
   const mapRef = useRef<MapRef>(null);
@@ -126,6 +143,15 @@ export default function MapScreen() {
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
+
+  // Dynamic city name for the map header
+  const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+
+  // Trigger initial reverse geocode for the default center
+  useEffect(() => {
+    onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Timeout fallback: dismiss loading overlay after 10s even if onDidFinishLoadingMap doesn't fire
   useEffect(() => {
@@ -158,15 +184,19 @@ export default function MapScreen() {
     },
   }), []);
 
-  // Handle map region change to track zoom level
+  // Handle map region change to track zoom level and update city name
   const handleRegionChange = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
-      const { zoom } = event.nativeEvent;
+      const { zoom, center } = event.nativeEvent;
       if (zoom !== undefined) {
         setCurrentZoom(zoom);
       }
+      // Update city name via reverse geocoding of the viewport center
+      if (center) {
+        onViewportCenterChanged(center[0], center[1]);
+      }
     },
-    []
+    [onViewportCenterChanged]
   );
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
@@ -225,15 +255,28 @@ export default function MapScreen() {
   const handlePropertyResolved = useCallback(
     (property: Parameters<typeof interaction.handlePropertyResolved>[0]) => {
       interaction.handlePropertyResolved(property, cameraCommands);
+      // Set the search city from the resolved property
+      if (property.city) {
+        setSearchCity(property.city, [property.coordinates.lon, property.coordinates.lat]);
+      }
     },
-    [interaction.handlePropertyResolved, cameraCommands],
+    [interaction.handlePropertyResolved, cameraCommands, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
-    (coordinates: { lon: number; lat: number }, address: string) => {
+    (
+      coordinates: { lon: number; lat: number },
+      address: string,
+      resolvedAddress?: ResolvedAddress,
+    ) => {
       interaction.handleLocationResolved(coordinates, address, cameraCommands);
+      const cityFromAddress =
+        resolvedAddress?.details.city || extractCityFromAddress(address);
+      if (cityFromAddress) {
+        setSearchCity(cityFromAddress, [coordinates.lon, coordinates.lat]);
+      }
     },
-    [interaction.handleLocationResolved, cameraCommands],
+    [interaction.handleLocationResolved, cameraCommands, setSearchCity],
   );
 
   // Zoom control handlers
@@ -275,14 +318,13 @@ export default function MapScreen() {
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
       {/* Map View */}
-      <View style={{ flex: 1 }} onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        setContentSize({ width, height });
+      <View style={{ flex: 1 }} onLayout={() => {
+        if (!hasLayout) setHasLayout(true);
       }}>
-        {contentSize.width > 0 && mergedStyle && (
+        {hasLayout && mergedStyle && (
         <Map
           ref={mapRef}
-          style={{ position: 'absolute', width: contentSize.width, height: contentSize.height }}
+          style={StyleSheet.absoluteFillObject}
           mapStyle={mergedStyle as any}
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
@@ -302,9 +344,9 @@ export default function MapScreen() {
             }}
           />
 
-          {/* Paper Mario trees come from the server-side style.json as a symbol layer
-              (paper-trees). On web, BillboardCustomLayer replaces it with WebGL depth-tested
-              rendering. On native, the symbol layer renders tree sprites from the sprite sheet. */}
+          {/* Paper Mario trees come from the server-side style.json as the shared
+              paper-trees symbol layer. Both web and native render the tree sprites
+              directly from the sprite sheet. */}
 
           {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),
@@ -356,7 +398,7 @@ export default function MapScreen() {
         <MapGradient position="bottom" testID="map-gradient-bottom" />
 
         {/* Map Header Row — brand mark + city name */}
-        <MapHeaderRow cityName="Eindhoven" />
+        <MapHeaderRow cityName={cityName ?? undefined} />
 
         {/* Search Bar */}
         <SearchBar

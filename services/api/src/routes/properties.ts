@@ -32,6 +32,7 @@ const propertySchema = z.object({
   officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
+  likeCount: z.number().describe('Total number of likes'),
   commentCount: z.number(),
   guessCount: z.number(),
   createdAt: z.string().datetime(),
@@ -173,6 +174,8 @@ const resolveQuerySchema = z.object({
   houseNumber: z.coerce.number().int().positive(),
   houseNumberAddition: z.string().optional(),
   countryCode: z.string().length(2).toUpperCase().default('NL'),
+  street: z.string().min(1).optional(),
+  city: z.string().min(1).optional(),
 });
 
 const resolveResponseSchema = z.object({
@@ -187,6 +190,15 @@ const resolveResponseSchema = z.object({
   hasListing: z.boolean(),
   officialValuation: z.number().nullable(),
 });
+
+function normalizeComparableAddressPart(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
+    .trim()
+    .toUpperCase();
+}
 
 // Schema for /properties/nearby endpoint
 const nearbyQuerySchema = z.object({
@@ -207,7 +219,11 @@ const nearbyPropertySchema = z.object({
   postalCode: z.string().nullable(),
   officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
+  askingPrice: z.number().nullable(),
   activityScore: z.number(),
+  likeCount: z.number(),
+  commentCount: z.number(),
+  guessCount: z.number(),
   distanceMeters: z.number(),
   geometry: coordinateSchema.nullable(),
 });
@@ -235,7 +251,11 @@ const singleResultSchema = z.object({
   postalCode: z.string().nullable(),
   officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
+  askingPrice: z.number().nullable(),
   activityScore: z.number(),
+  likeCount: z.number(),
+  commentCount: z.number(),
+  guessCount: z.number(),
   distanceMeters: z.number(),
   geometry: coordinateSchema.nullable(),
 });
@@ -261,6 +281,33 @@ function getGridCellSize(zoom: number): number {
   return baseCellSize * 0.5;
 }
 
+/**
+ * Build an index-friendly bounding box and exact radius filter for point searches.
+ *
+ * The geometry column is stored in EPSG:4326, so we prefilter with a geometry
+ * bounding box that can use the existing GiST index before applying the exact
+ * geography distance check for meter-accurate results.
+ */
+function buildRadiusConditions(lon: number, lat: number, radiusMeters: number) {
+  const latRadiusDegrees = radiusMeters / 110574;
+  const lonScale = Math.max(Math.cos((lat * Math.PI) / 180), 0.000001);
+  const lonRadiusDegrees = radiusMeters / (111320 * lonScale);
+
+  const minLon = Math.max(-180, lon - lonRadiusDegrees);
+  const maxLon = Math.min(180, lon + lonRadiusDegrees);
+  const minLat = Math.max(-90, lat - latRadiusDegrees);
+  const maxLat = Math.min(90, lat + latRadiusDegrees);
+
+  return [
+    sql`p.geometry && ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326)`,
+    sql`ST_DWithin(
+      p.geometry::geography,
+      ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
+      ${radiusMeters}
+    )`,
+  ];
+}
+
 // Row type for cluster detection queries
 type ClusterDetectionRow = {
   id: string;
@@ -272,7 +319,11 @@ type ClusterDetectionRow = {
   postal_code: string | null;
   official_valuation: number | null;
   has_listing: boolean;
+  asking_price: number | null;
   activity_score: number;
+  like_count: number;
+  comment_count: number;
+  guess_count: number;
   distance_meters: number;
   lon: number;
   lat: number;
@@ -300,7 +351,11 @@ function mapToSingleResult(r: ClusterDetectionRow) {
     postalCode: r.postal_code,
     officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
     hasListing: r.has_listing,
+    askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
     activityScore: Number(r.activity_score),
+    likeCount: Number(r.like_count),
+    commentCount: Number(r.comment_count),
+    guessCount: Number(r.guess_count),
     distanceMeters: Number(r.distance_meters),
     geometry:
       r.lon != null && r.lat != null
@@ -328,7 +383,11 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.postal_code,
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+        l.asking_price,
         ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
+        (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
+        (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+        (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
         ST_Distance(
           p.geometry::geography,
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -337,9 +396,9 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         ST_Y(p.geometry) AS lat
       FROM properties p
       LEFT JOIN LATERAL (
-        SELECT id FROM listings
+        SELECT id, asking_price FROM listings
         WHERE property_id = p.id AND status = 'active'
-        LIMIT 1
+        ORDER BY created_at DESC LIMIT 1
       ) l ON true
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
@@ -373,7 +432,11 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.postal_code,
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+        l.asking_price,
         ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
+        (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
+        (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+        (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
         ST_Distance(
           p.geometry::geography,
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -382,9 +445,9 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         ST_Y(p.geometry) AS lat
       FROM properties p
       LEFT JOIN LATERAL (
-        SELECT id FROM listings
+        SELECT id, asking_price FROM listings
         WHERE property_id = p.id AND status = 'active'
-        LIMIT 1
+        ORDER BY created_at DESC LIMIT 1
       ) l ON true
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
@@ -529,13 +592,7 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       // Point + radius query (requires PostGIS)
       if (lat !== undefined && lon !== undefined) {
-        conditions.push(
-          sql`ST_DWithin(
-            p.geometry::geography,
-            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
-            ${radius}
-          )`
-        );
+        conditions.push(...buildRadiusConditions(lon, lat, radius));
       }
 
       const whereFragment = conditions.length > 0
@@ -569,6 +626,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        like_count: number;
         comment_count: number;
         guess_count: number;
         created_at: string;
@@ -592,6 +650,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
           (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
           (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
           p.created_at,
@@ -612,6 +671,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         ...mapPropertyRow(r),
         hasListing: r.has_listing,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
       }));
@@ -628,7 +688,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /properties/resolve - Resolve a Dutch address to a local property
+  // GET /properties/resolve - Resolve an address to a local property
   typedApp.get(
     '/properties/resolve',
     {
@@ -636,12 +696,16 @@ export async function propertyRoutes(app: FastifyInstance) {
         tags: ['properties'],
         summary: 'Resolve address to property',
         description:
-          'Resolve a Dutch address (postal code + house number) to a local property UUID and coordinates. ' +
-          'Uses the existing unique index on (postal_code, house_number, house_number_addition).',
+          'Resolve a canonical address to a local property UUID and coordinates. ' +
+          'Matches the multi-country uniqueness model on country code, street, postal code, house number, and house number addition.',
         querystring: resolveQuerySchema,
         response: {
           200: resolveResponseSchema,
           400: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+          409: z.object({
             error: z.string(),
             message: z.string(),
           }),
@@ -653,7 +717,14 @@ export async function propertyRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { postalCode, houseNumber, houseNumberAddition, countryCode: rawCC } = request.query;
+      const {
+        postalCode,
+        houseNumber,
+        houseNumberAddition,
+        countryCode: rawCC,
+        street,
+        city,
+      } = request.query;
 
       // Validate country code against config registry
       if (!isValidCountryCode(rawCC)) {
@@ -677,9 +748,12 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       // Normalize addition: trim, uppercase, treat empty as null
       const normalizedAddition = houseNumberAddition?.trim().toUpperCase() || null;
+      const normalizedStreet = normalizeComparableAddressPart(street);
+      const normalizedCity = normalizeComparableAddressPart(city);
 
-      // Exact match using the unique index on (postal_code, house_number, house_number_addition)
-      // Note: DB stores empty string '' for no addition (not NULL), so we match both
+      // Exact match using the canonical address key. Country is always part of the
+      // predicate; street/city are applied in-memory because the candidate set at a
+      // fixed postal code + house number + addition is intentionally tiny.
       const additionCondition = normalizedAddition
         ? sql`p.house_number_addition = ${normalizedAddition}`
         : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
@@ -715,21 +789,38 @@ export async function propertyRoutes(app: FastifyInstance) {
           WHERE property_id = p.id AND status = 'active'
           LIMIT 1
         ) l ON true
-        WHERE p.postal_code = ${normalizedPostalCode}
+        WHERE p.country_code = ${cc}
+          AND p.postal_code = ${normalizedPostalCode}
           AND p.house_number = ${houseNumber}
           AND ${additionCondition}
-        LIMIT 1
+        LIMIT 10
       `);
 
       const result = Array.from(rows);
-      if (result.length === 0) {
+
+      const narrowed = result.filter((row) => {
+        const streetMatches = !normalizedStreet
+          || normalizeComparableAddressPart(row.street) === normalizedStreet;
+        const cityMatches = !normalizedCity
+          || normalizeComparableAddressPart(row.city) === normalizedCity;
+        return streetMatches && cityMatches;
+      });
+
+      if (narrowed.length === 0) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
-          message: `No property found for ${normalizedPostalCode} ${houseNumber}${normalizedAddition ?? ''}`,
+          message: `No property found for ${cc} ${normalizedPostalCode} ${houseNumber}${normalizedAddition ?? ''}`,
         });
       }
 
-      const r = result[0];
+      if (narrowed.length > 1) {
+        return reply.status(409).send({
+          error: 'AMBIGUOUS_ADDRESS',
+          message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
+        });
+      }
+
+      const r = narrowed[0];
       return reply.send({
         id: r.id,
         address: formatDisplayAddress(
@@ -798,7 +889,11 @@ export async function propertyRoutes(app: FastifyInstance) {
         postal_code: string | null;
         official_valuation: number | null;
         has_listing: boolean;
+        asking_price: number | null;
         activity_score: number;
+        like_count: number;
+        comment_count: number;
+        guess_count: number;
         distance_meters: number;
         lon: number;
         lat: number;
@@ -813,7 +908,11 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+          l.asking_price,
           ((SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) + (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id))::int AS activity_score,
+          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
+          (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
+          (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
           ST_Distance(
             p.geometry::geography,
             ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
@@ -822,9 +921,9 @@ export async function propertyRoutes(app: FastifyInstance) {
           ST_Y(p.geometry) AS lat
         FROM properties p
         LEFT JOIN LATERAL (
-          SELECT id FROM listings
+          SELECT id, asking_price FROM listings
           WHERE property_id = p.id AND status = 'active'
-          LIMIT 1
+          ORDER BY created_at DESC LIMIT 1
         ) l ON true
         WHERE p.geometry IS NOT NULL
           AND p.status = 'active'
@@ -856,7 +955,11 @@ export async function propertyRoutes(app: FastifyInstance) {
         postalCode: r.postal_code,
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
         hasListing: r.has_listing,
+        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         activityScore: Number(r.activity_score),
+        likeCount: Number(r.like_count),
+        commentCount: Number(r.comment_count),
+        guessCount: Number(r.guess_count),
         distanceMeters: Number(r.distance_meters),
         geometry:
           r.lon != null && r.lat != null
@@ -909,6 +1012,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        like_count: number;
         comment_count: number;
         guess_count: number;
         created_at: string;
@@ -932,6 +1036,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          (SELECT COUNT(*)::int FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') AS like_count,
           (SELECT COUNT(*)::int FROM comments WHERE property_id = p.id) AS comment_count,
           (SELECT COUNT(*)::int FROM price_guesses WHERE property_id = p.id) AS guess_count,
           p.created_at,
@@ -951,6 +1056,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         ...mapPropertyRow(r),
         hasListing: r.has_listing,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
       }));
