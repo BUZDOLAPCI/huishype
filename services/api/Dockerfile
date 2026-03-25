@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 RUN apk add --no-cache git
 WORKDIR /app
 
-# --- Install all dependencies (dev + prod for build) ---
+# --- Install all dependencies ---
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
@@ -25,19 +25,24 @@ RUN pnpm --filter @huishype/shared build && \
     pnpm --filter @huishype/api build
 
 # --- Production image ---
-FROM base AS production
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/shared/package.json packages/shared/
-COPY packages/api-client/package.json packages/api-client/
-COPY packages/mocks/package.json packages/mocks/
-COPY services/api/package.json services/api/
-COPY apps/app/package.json apps/app/
-RUN pnpm install --frozen-lockfile --prod
+# Reuse node_modules from deps stage (avoids git-hosted package prepare script
+# failures that happen with a fresh --prod install, since maplibre-gl fork's
+# prepare script needs devDeps that aren't installed in --prod mode).
+FROM node:22-alpine AS production
+WORKDIR /app
 
-# Copy built artifacts
-COPY --from=build /app/packages/shared/dist packages/shared/dist
-COPY --from=build /app/services/api/dist services/api/dist
-COPY --from=build /app/services/api/drizzle services/api/drizzle
+# Copy node_modules with workspace symlink structure intact
+COPY --from=deps /app/node_modules ./node_modules
+# Copy built workspace packages the API depends on
+COPY --from=build /app/packages/shared ./packages/shared
+# Copy built API service
+COPY --from=build /app/services/api/package.json ./services/api/package.json
+COPY --from=build /app/services/api/node_modules ./services/api/node_modules
+COPY --from=build /app/services/api/dist ./services/api/dist
+COPY --from=build /app/services/api/drizzle ./services/api/drizzle
+# Workspace root config (needed for pnpm module resolution)
+COPY --from=build /app/package.json ./
+COPY --from=build /app/pnpm-workspace.yaml ./
 
 # Copy entrypoint
 COPY services/api/docker-entrypoint.sh /docker-entrypoint.sh
