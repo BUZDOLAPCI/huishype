@@ -35,8 +35,8 @@ services:
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
-    expose:
-      - "3100"
+    ports:
+      - "3100:3100"
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,8 +53,8 @@ services:
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL}
     restart: unless-stopped
-    expose:
-      - "80"
+    ports:
+      - "3000:80"
     depends_on:
       - api
     networks:
