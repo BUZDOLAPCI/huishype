@@ -3,10 +3,13 @@
 
 FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
-RUN apk add --no-cache git
+RUN apk add --no-cache git python3 make g++
 WORKDIR /app
 
-# --- Install all dependencies ---
+# --- Install dependencies ---
+# --ignore-scripts: skip prepare scripts (maplibre-gl fork's prepare needs
+# canvas native addon build tools we don't want to install; our fork already
+# has dist/ committed so prepare is unnecessary)
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
@@ -14,7 +17,9 @@ COPY packages/api-client/package.json packages/api-client/
 COPY packages/mocks/package.json packages/mocks/
 COPY services/api/package.json services/api/
 COPY apps/app/package.json apps/app/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
+# Rebuild only the native addons the API actually needs
+RUN pnpm rebuild sharp better-sqlite3 2>/dev/null || true
 
 # --- Build TypeScript ---
 FROM deps AS build
@@ -25,9 +30,6 @@ RUN pnpm --filter @huishype/shared build && \
     pnpm --filter @huishype/api build
 
 # --- Production image ---
-# Reuse node_modules from deps stage (avoids git-hosted package prepare script
-# failures that happen with a fresh --prod install, since maplibre-gl fork's
-# prepare script needs devDeps that aren't installed in --prod mode).
 FROM node:22-alpine AS production
 WORKDIR /app
 

@@ -9,6 +9,9 @@ RUN apk add --no-cache git
 WORKDIR /app
 
 # --- Install dependencies ---
+# --ignore-scripts: skip prepare scripts (maplibre-gl fork's prepare needs
+# canvas native addon which requires heavy build tools; our fork already has
+# dist/ committed so prepare is unnecessary)
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
@@ -16,7 +19,7 @@ COPY packages/api-client/package.json packages/api-client/
 COPY packages/mocks/package.json packages/mocks/
 COPY services/api/package.json services/api/
 COPY apps/app/package.json apps/app/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # --- Build ---
 FROM deps AS build
