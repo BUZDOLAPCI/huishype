@@ -1,0 +1,45 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies (rebuilt in Docker)
+**/node_modules
+**/.turbo
+
+# Build artifacts (rebuilt in Docker)
+**/dist
+**/.expo
+apps/app/android
+apps/app/ios
+
+# Large data files
+photon_data
+data_sources
+backups
+
+# Test artifacts
+test-results
+**/e2e
+**/maestro
+**/__tests__
+**/__mocks__
+**/*.test.ts
+**/*.spec.ts
+**/*.test.tsx
+**/*.spec.tsx
+apps/app/jest.config.*
+services/api/jest.config.*
+playwright.config.ts
+
+# Documentation & agent files
+agent-rules
+reference-expectations
+.claude
+.vscode
+.github
+**/*.md
+LICENSE
+
+# Dev tools
+tools
+scripts

@@ -1,0 +1,128 @@
+##
+## HuisHype production stack — deploy via Coolify or `docker compose -f docker-compose.prod.yml up -d`
+##
+## Required env vars (set in Coolify UI or .env file):
+##   DB_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET,
+##   EXPO_PUBLIC_API_URL (build-time)
+##
+## Optional env vars:
+##   CORS_ORIGINS, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM,
+##   EMAIL_REPLY_TO, GOOGLE_CLIENT_ID, APPLE_CLIENT_ID
+##
+
+services:
+  # ---------- Fastify API ----------
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-huishype}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-huishype}
+      REDIS_URL: redis://redis:6379
+      PORT: "3100"
+      HOST: "0.0.0.0"
+      RUN_MIGRATIONS: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      PHOTON_URL: http://photon:2322
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+    expose:
+      - "3100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ---------- Web (Expo static export + nginx) ----------
+  web:
+    build:
+      context: .
+      dockerfile: apps/app/Dockerfile.web
+      args:
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL}
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - api
+    networks:
+      - internal
+
+  # ---------- PostgreSQL + PostGIS ----------
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-huishype}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-huishype}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-huishype} -d ${DB_NAME:-huishype}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - internal
+
+  # ---------- Photon geocoder (planet-wide address search) ----------
+  photon:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM eclipse-temurin:21-jre-alpine
+        WORKDIR /photon
+        ADD https://github.com/komoot/photon/releases/download/1.0.1/photon-1.0.1.jar photon.jar
+        EXPOSE 2322
+        ENTRYPOINT ["java"]
+        CMD ["-Xmx4G", "-jar", "photon.jar", "serve", "-listen-ip", "0.0.0.0", "-listen-port", "2322", "-data-dir", "/photon/data"]
+    restart: unless-stopped
+    volumes:
+      - photon_data:/photon/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2322/api?q=test"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  redis_data:
+  photon_data:
+
+networks:
+  internal:
+    driver: bridge
