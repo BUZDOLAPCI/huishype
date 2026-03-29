@@ -355,9 +355,25 @@ export default function MapScreen() {
         };
       }
 
+      // Ensure the map canvas matches its container once the flex layout settles.
+      // Without this early resize, tiles load but nothing paints (canvas stays
+      // transparent), so the 'load' event never fires and the map appears blank.
+      // We call resize() on 'style.load' (fires before 'load') and also after a
+      // short delay as a belt-and-suspenders measure for static-export/nginx setups
+      // where the container dimensions may not be final at Map construction time.
+      map.once('style.load', () => {
+        map.resize();
+      });
+      setTimeout(() => {
+        if (!cancelled && map.getCanvas()) {
+          map.resize();
+        }
+      }, 200);
+
       // Timeout fallback: dismiss loading overlay after 15s even if 'load' doesn't fire
       loadTimeout = setTimeout(() => {
         if (!cancelled) {
+          map.resize();
           setMapLoaded(true);
           console.warn('[MapScreen] Map load timed out after 15s');
         }
