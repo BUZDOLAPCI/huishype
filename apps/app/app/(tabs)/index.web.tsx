@@ -125,7 +125,7 @@ if (typeof document !== 'undefined' && !document.getElementById(MAPLIBRE_CSS_ID)
   const link = document.createElement('link');
   link.id = MAPLIBRE_CSS_ID;
   link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+  link.href = 'https://unpkg.com/maplibre-gl@5.21.1/dist/maplibre-gl.css';
   document.head.appendChild(link);
 }
 
