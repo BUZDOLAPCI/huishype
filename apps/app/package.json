@@ -42,7 +42,7 @@
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
-    "maplibre-gl": "github:BUZDOLAPCI/maplibre-gl-js#b2d5ecb36",
+    "maplibre-gl": "github:BUZDOLAPCI/maplibre-gl-js#b00e1e7faccace877df0777b93e0a1ebe19fdbd6",
     "nativewind": "^4.1.23",
     "phosphor-react-native": "^3.0.3",
     "proj4": "^2.20.2",
