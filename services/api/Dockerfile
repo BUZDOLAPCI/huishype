@@ -42,6 +42,8 @@ COPY --from=build /app/services/api/package.json ./services/api/package.json
 COPY --from=build /app/services/api/node_modules ./services/api/node_modules
 COPY --from=build /app/services/api/dist ./services/api/dist
 COPY --from=build /app/services/api/drizzle ./services/api/drizzle
+COPY --from=build /app/services/api/fonts ./services/api/fonts
+COPY --from=build /app/services/api/sprites ./services/api/sprites
 # Workspace root config (needed for pnpm module resolution)
 COPY --from=build /app/package.json ./
 COPY --from=build /app/pnpm-workspace.yaml ./
