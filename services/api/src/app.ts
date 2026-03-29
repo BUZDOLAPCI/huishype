@@ -35,6 +35,12 @@ export type AppOptions = {
 export async function buildApp(options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? config.isDev,
+    // Trust the X-Forwarded-* headers from Traefik reverse proxy.
+    // Without this, request.protocol always returns 'http' (the internal
+    // connection), which causes style.json tile/glyph/sprite URLs to use
+    // http:// — blocked by the browser's mixed-content policy when the
+    // page is served over HTTPS.
+    trustProxy: !config.isDev,
   });
 
   // Wire Fastify logger into notification service for structured logging
