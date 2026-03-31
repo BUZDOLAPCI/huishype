@@ -4,6 +4,14 @@ This project is built entirely by Claude agents with minimal human intervention.
 
 sudo password for the machine is "123123" if you need it
 
+## API Keys (gitignored .env files)
+
+| Service | File | Keys |
+|---------|------|------|
+| Coolify PaaS | `.env.coolify` | `COOLIFY_API_TOKEN`, `COOLIFY_URL` (http://94.130.105.129:8000) |
+| Porkbun DNS | `.env.porkbun` | `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` |
+| Hetzner Cloud | `.env.hetzner` | `HETZNER_API_TOKEN` (Read & Write) |
+
 ## Quick Reference: Building Windows & Shaders
 
 3D buildings use **procedural window shaders** edited in GLSL source across two forks:

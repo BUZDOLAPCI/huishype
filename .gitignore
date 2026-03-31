@@ -101,3 +101,6 @@ apps/app/output/
 # One-off debug screenshots
 shader-fix-verification.png
 shader-progress-screenshots/
+.env.coolify
+.env.porkbun
+.env.hetzner
