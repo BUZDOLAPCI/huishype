@@ -24,9 +24,11 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 # --- Build ---
 FROM deps AS build
 
-# API URL baked into the static JS bundle at build time
+# Build-time env vars baked into the static JS bundle
 ARG EXPO_PUBLIC_API_URL
+ARG EXPO_PUBLIC_GOOGLE_CLIENT_ID
 ENV EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL}
+ENV EXPO_PUBLIC_GOOGLE_CLIENT_ID=${EXPO_PUBLIC_GOOGLE_CLIENT_ID}
 
 COPY tsconfig.json ./
 COPY packages/shared/ packages/shared/

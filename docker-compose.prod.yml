@@ -58,6 +58,7 @@ services:
       dockerfile: apps/app/Dockerfile.web
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL}
+        EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     ports:
       - "3000:80"

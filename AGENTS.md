@@ -11,6 +11,80 @@ sudo password for the machine is "123123" if you need it
 | Coolify PaaS | `.env.coolify` | `COOLIFY_API_TOKEN`, `COOLIFY_URL` (http://94.130.105.129:8000) |
 | Porkbun DNS | `.env.porkbun` | `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` |
 | Hetzner Cloud | `.env.hetzner` | `HETZNER_API_TOKEN` (Read & Write) |
+| MXroute Email | `.env.mxroute` | `MXROUTE_API_KEY`, `MXROUTE_SERVER` (heracles.mxrouting.net), `MXROUTE_USERNAME` (caslanco) |
+| Google Cloud | `.env.google` | `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_SECRET_WEB`, `GOOGLE_CLIENT_ID_IOS`, `GOOGLE_CLIENT_ID_ANDROID` |
+| Resend Email | `.env.resend` | `RESEND_API_KEY` (full access) |
+
+## Email
+
+**Provider**: MXroute (heracles.mxrouting.net)
+**Primary Gmail**: huishypeapp@gmail.com (all forwarders + catch-all target)
+**Domain**: huishype.nl
+
+| Account | Forwards to |
+|---------|-------------|
+| contact@huishype.nl | huishypeapp@gmail.com |
+| noreply@huishype.nl | huishypeapp@gmail.com |
+| support@huishype.nl | huishypeapp@gmail.com |
+| support-group@huishype.nl | huishypeapp@gmail.com |
+| workspace@huishype.nl | huishypeapp@gmail.com |
+
+Catch-all (any unmatched @huishype.nl) also forwards to huishypeapp@gmail.com.
+
+**IMAP**: heracles.mxrouting.net:993 (SSL)
+**SMTP**: heracles.mxrouting.net:465 (SSL) or :587 (STARTTLS)
+
+**DNS records** (on Porkbun): MX (pri 10 + 20), SPF, DKIM (`x._domainkey`), DMARC (`_dmarc`).
+
+**MXroute API**: `https://api.mxroute.com` — manage accounts, forwarders, spam settings. Docs: `https://api.mxroute.com/docs`.
+
+### Resend (Transactional Email)
+
+**Provider**: Resend (eu-west-1 region)
+**Domain**: huishype.nl (verified, sending enabled)
+**From address**: `HuisHype <noreply@huishype.nl>`
+**Reply-to**: `support@huishype.nl`
+**API**: `https://api.resend.com` — Docs: `https://resend.com/docs`
+
+**DNS records** (on Porkbun for Resend):
+- TXT `resend._domainkey.huishype.nl` — DKIM public key
+- MX `send.huishype.nl` — Amazon SES bounce handling (pri 10)
+- TXT `send.huishype.nl` — SPF for Resend (`include:amazonses.com`)
+
+**Current usage**: Magic link authentication emails (`POST /auth/email/request`).
+
+**Config wiring**: `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`, `MAGIC_LINK_BASE_URL` in `services/api/.env` (local) and Coolify env vars (production).
+
+## Google Cloud & OAuth
+
+**GCP Project**: `huishypeproject` (number: 91432986388)
+**Owner**: `workspace@huishype.nl` (Cloud Identity Free on `huishype.nl` domain)
+**Console**: `https://console.cloud.google.com/?project=huishypeproject`
+**Cloud Identity Customer ID**: `C00lela1s`
+**Admin console**: `https://admin.google.com` (login as `workspace@huishype.nl`)
+**Billing**: Free trial (€260 credit remaining as of 2026-04-02)
+
+**OAuth Consent Screen**: External, app name "HuisHype", support email `support@huishype.nl` (Google Group).
+
+**OAuth 2.0 Client IDs**:
+
+| Platform | Client ID | Notes |
+|----------|-----------|-------|
+| Web | `91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com` | Used for API backend token verification + expo-auth-session |
+| iOS | `91432986388-20pkftruoukoepl6mhsgr5egeeraivh9.apps.googleusercontent.com` | Bundle ID: `nl.huishype.app` |
+| Android | `91432986388-pog1p4mihnkeo4vrseucp69q35k9mi6d.apps.googleusercontent.com` | Package: `nl.huishype.app`, SHA-1: debug keystore |
+
+**Where client IDs are wired**:
+- `services/api/.env` → `GOOGLE_CLIENT_ID` (web client ID, for backend token verification)
+- `apps/app/.env` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID` (web client ID, for expo-auth-session)
+- `apps/app/ios/HuisHype/Info.plist` → iOS reversed client ID URL scheme
+- `apps/app/ios/HuisHype/GoogleService-Info.plist` → iOS credentials (gitignored)
+- `docker-compose.prod.yml` → `GOOGLE_CLIENT_ID` env var + `EXPO_PUBLIC_GOOGLE_CLIENT_ID` build arg
+- `apps/app/Dockerfile.web` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID` build arg
+
+**Google Group** (`support@huishype.nl`): Managed in admin.google.com under Cloud Identity. Used as OAuth consent screen support email.
+
+**Android release signing**: Debug keystore SHA-1 is registered. Production release keystore not yet created — will use EAS Build or Google Play App Signing.
 
 ## Quick Reference: Building Windows & Shaders
 

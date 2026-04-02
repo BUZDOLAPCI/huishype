@@ -104,3 +104,10 @@ shader-progress-screenshots/
 .env.coolify
 .env.porkbun
 .env.hetzner
+.env.mxroute
+.env.google
+.env.resend
+
+# Google OAuth credentials (contain secrets)
+GoogleService-Info.plist
+client_secret_*.json

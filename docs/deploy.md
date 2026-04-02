@@ -73,7 +73,13 @@ curl -X POST "https://api.hetzner.cloud/v1/servers/124870912/actions/change_type
 
 Required: `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `EXPO_PUBLIC_API_URL`
 
-Optional: `CORS_ORIGINS`, `MAGIC_LINK_BASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`, `GOOGLE_CLIENT_ID`, `APPLE_CLIENT_ID`
+Email (magic link auth):
+- `RESEND_API_KEY` — Resend full-access key (stored in `.env.resend`)
+- `EMAIL_FROM` — `HuisHype <noreply@huishype.nl>`
+- `EMAIL_REPLY_TO` — `support@huishype.nl`
+- `MAGIC_LINK_BASE_URL` — `https://huishype.nl/auth/callback`
+
+Optional: `CORS_ORIGINS`, `GOOGLE_CLIENT_ID` (`91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com`), `APPLE_CLIENT_ID` (`nl.huishype.app`)
 
 ## API Keys
 
