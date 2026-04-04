@@ -91,6 +91,9 @@ maestro-results.xml
 # Claude agent working directory
 .claudegram/
 
+# Review loop artifacts
+reviews/
+
 # Playwright CLI debug output
 .playwright-cli/
 

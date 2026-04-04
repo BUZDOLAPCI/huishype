@@ -9,8 +9,8 @@ Agents must be able to verify changes locally + in CI with:
 
 ---
 
-## Principles (non-negotiable)
-- **No feature merges without tests** (unit + at least one E2E path)
+## Principles
+- **No feature merges without tests** (unit + at least one E2E path if it merits)
 - **Contract-first**: API + schema changes must update generated clients and tests
 - **Hermetic CI**: tests do not depend on developer machines or random external services
 - **One-command verification**: `test:all` runs the same suite locally and in CI
@@ -81,8 +81,8 @@ Agents must be able to verify changes locally + in CI with:
 - **Coverage:** app smoke, feed, search+navigate, bottom sheet, login, auth interactions, cleanup, cluster-preview
 - **Run from:** monorepo root, not `apps/app`
 
-### Feature test rule (enforce "every feature has E2E")
-For each user story/feature, add at least:
+### Prefer e2e Feature tests
+For each user story/feature, if it makes sense, prefer adding:
 - **1 happy-path E2E**
 - **1 critical failure/edge-path E2E** (auth denied, network failure, permission denied, invalid input, etc.)
 
@@ -216,7 +216,7 @@ Artifacts always captured:
 A change is "done" only if:
 - unit tests added/updated
 - integration tests added/updated when API/DB touched
-- at least one E2E added/updated for the feature
+- E2E added/updated **when warranted** 
 - `test:all` passes locally (or CI)
 
 ---
