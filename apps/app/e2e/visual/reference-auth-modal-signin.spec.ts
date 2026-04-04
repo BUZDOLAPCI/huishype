@@ -8,14 +8,14 @@
  * Per the spec:
  * - View-only without login, interactions gated at submit
  * - Login required only at the submit moment (reduces friction)
- * - Login via Google or Apple account
+ * - Login via Google account or email magic link
  *
  * Visual Requirements from expectation.md:
  * - Centered warm card on dark backdrop
  * - Close button in the top-right corner
  * - HuisHype logo + "Welcome to HuisHype" title
  * - Contextual message explaining why sign-in is needed
- * - Google, Apple, and Email sign-in actions
+ * - Google and Email sign-in actions
  *
  * Screenshot saved to: test-results/reference-expectations/auth-modal-signin/
  */
@@ -229,8 +229,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       await expect(authModal.first()).toBeVisible();
       await expect(page.locator('text=Welcome to HuisHype').first()).toBeVisible();
       await expect(page.locator('text=Continue with Google').first()).toBeVisible();
-      await expect(page.locator('text=Continue with Apple').first()).toBeVisible();
       await expect(page.locator('text=Continue with Email').first()).toBeVisible();
+      await expect(page.locator('text=Continue with Apple')).not.toBeVisible();
 
       console.log('Auth modal successfully displayed with the current sign-in options');
     }
@@ -269,9 +269,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const googleBtn = page.locator('text=Continue with Google');
       console.log(`Google button visible: ${await googleBtn.first().isVisible().catch(() => false)}`);
 
-      const appleBtn = page.locator('text=Continue with Apple');
-      console.log(`Apple button visible: ${await appleBtn.first().isVisible().catch(() => false)}`);
-
       const emailBtn = page.locator('text=Continue with Email');
       console.log(`Email button visible: ${await emailBtn.first().isVisible().catch(() => false)}`);
 
@@ -290,7 +287,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       await expect(authModal.first()).toBeVisible();
       await expect(page.locator('text=Welcome to HuisHype').first()).toBeVisible();
       await expect(page.locator('text=Continue with Google').first()).toBeVisible();
-      await expect(page.locator('text=Continue with Apple').first()).toBeVisible();
       await expect(page.locator('text=Continue with Email').first()).toBeVisible();
       await expect(page.locator('text=HuisHype').first()).toBeVisible();
     } else {

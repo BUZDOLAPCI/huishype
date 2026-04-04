@@ -19,8 +19,6 @@ export interface UseAuthReturn {
   isSigningIn: boolean;
   /** Sign in with Google */
   signInWithGoogle: () => Promise<void>;
-  /** Sign in with Apple (iOS only) */
-  signInWithApple: () => Promise<void>;
   /** Sign in with a mock token (dev only) */
   signInWithMockToken: (token: string) => Promise<void>;
   /** Request an email magic link */
@@ -70,22 +68,6 @@ export function useAuth(): UseAuthReturn {
     setIsSigningIn(true);
     try {
       await auth.signInWithGoogle();
-      // Invalidate user-related queries after successful sign in
-      await queryClient.invalidateQueries({ queryKey: authKeys.user() });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Sign in failed');
-      setError(error);
-      throw error;
-    } finally {
-      setIsSigningIn(false);
-    }
-  }, [auth, queryClient]);
-
-  const signInWithApple = useCallback(async () => {
-    setError(null);
-    setIsSigningIn(true);
-    try {
-      await auth.signInWithApple();
       // Invalidate user-related queries after successful sign in
       await queryClient.invalidateQueries({ queryKey: authKeys.user() });
     } catch (err) {
@@ -162,7 +144,6 @@ export function useAuth(): UseAuthReturn {
     isLoading: auth.isLoading,
     isSigningIn,
     signInWithGoogle,
-    signInWithApple,
     signInWithMockToken,
     requestEmailLink,
     verifyEmailToken,

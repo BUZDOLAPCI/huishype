@@ -10,7 +10,6 @@
 
 // Mock useAuth hook with controllable return values
 const mockSignInWithGoogle = jest.fn();
-const mockSignInWithApple = jest.fn();
 const mockSignInWithMockToken = jest.fn();
 const mockRequestEmailLink = jest.fn();
 const mockVerifyEmailToken = jest.fn();
@@ -32,7 +31,6 @@ import { AuthModal } from '../AuthModal';
 function setAuthDefaults(overrides: Record<string, unknown> = {}) {
   mockUseAuthReturn = {
     signInWithGoogle: mockSignInWithGoogle,
-    signInWithApple: mockSignInWithApple,
     signInWithMockToken: mockSignInWithMockToken,
     requestEmailLink: mockRequestEmailLink,
     verifyEmailToken: mockVerifyEmailToken,
@@ -83,20 +81,20 @@ describe('AuthModal', () => {
       expect(getByText('Continue with Google')).toBeTruthy();
     });
 
-    it('renders Apple Sign In button on all platforms', () => {
-      const { getByLabelText, getByText } = render(
-        <AuthModal {...defaultProps} />
-      );
-      expect(getByLabelText('Sign in with Apple')).toBeTruthy();
-      expect(getByText('Continue with Apple')).toBeTruthy();
-    });
-
     it('renders Email button', () => {
       const { getByLabelText, getByText } = render(
         <AuthModal {...defaultProps} />
       );
       expect(getByLabelText('Continue with email')).toBeTruthy();
       expect(getByText('Continue with Email')).toBeTruthy();
+    });
+
+    it('does not render Apple Sign In button', () => {
+      const { queryByText, queryByLabelText } = render(
+        <AuthModal {...defaultProps} />
+      );
+      expect(queryByText('Continue with Apple')).toBeNull();
+      expect(queryByLabelText('Sign in with Apple')).toBeNull();
     });
 
     it('renders "or" divider', () => {
@@ -168,35 +166,6 @@ describe('AuthModal', () => {
         expect(mockSignInWithGoogle).toHaveBeenCalled();
       });
       expect(onSuccess).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Apple Sign In', () => {
-    it('calls signInWithApple when button is pressed', async () => {
-      mockSignInWithApple.mockResolvedValue(undefined);
-      const { getByLabelText } = render(<AuthModal {...defaultProps} />);
-
-      fireEvent.press(getByLabelText('Sign in with Apple'));
-
-      await waitFor(() => {
-        expect(mockSignInWithApple).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    it('calls onAuthStarting, onSuccess and onClose after successful Apple sign in', async () => {
-      mockSignInWithApple.mockResolvedValue(undefined);
-      const onSuccess = jest.fn();
-      const { getByLabelText } = render(
-        <AuthModal {...defaultProps} onSuccess={onSuccess} />
-      );
-
-      fireEvent.press(getByLabelText('Sign in with Apple'));
-
-      expect(defaultProps.onAuthStarting).toHaveBeenCalledTimes(1);
-      await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledTimes(1);
-        expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-      });
     });
   });
 

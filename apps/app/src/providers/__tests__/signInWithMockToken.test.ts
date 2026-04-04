@@ -23,13 +23,6 @@ jest.mock('expo-auth-session', () => ({
   ResponseType: { IdToken: 'id_token' },
 }));
 
-// Mock AppleAuthentication
-jest.mock('expo-apple-authentication', () => ({
-  isAvailableAsync: jest.fn(),
-  signInAsync: jest.fn(),
-  AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
-}));
-
 // Mock WebBrowser
 jest.mock('expo-web-browser', () => ({
   maybeCompleteAuthSession: jest.fn(),

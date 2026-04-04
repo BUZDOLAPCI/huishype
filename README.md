@@ -33,14 +33,14 @@ pnpm --filter @huishype/api dev
 pnpm --filter @huishype/app dev
 ```
 
-Open [http://localhost:8081](http://localhost:8081) for web, or use Expo Go for mobile.
+Open [http://localhost:8081](http://localhost:8081) in your browser.
 
 > **Note:** The API runs on port **3100** (non-default) and the Expo web dev server on port **8081**. See `services/api/.env.example` for configuration.
 
 ## Project Structure
 
 ```
-apps/app/           # Expo React Native app (iOS/Android/Web)
+apps/app/           # Web app (Expo static export)
 services/api/       # Fastify API server
 packages/shared/    # Shared TypeScript types
 packages/api-client/# API client
@@ -61,8 +61,8 @@ packages/mocks/     # MSW mock handlers
 
 ## Tech Stack
 
-- **App**: React Native + Expo + NativeWind + TanStack Query
-- **Maps**: MapLibre GL via @maplibre/maplibre-react-native
+- **App**: Expo (web) + NativeWind + TanStack Query
+- **Maps**: MapLibre GL JS
 - **API**: Fastify + Drizzle ORM + OpenAPI
 - **Database**: PostgreSQL + PostGIS
 - **Cache**: Redis

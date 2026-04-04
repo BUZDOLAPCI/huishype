@@ -10,7 +10,7 @@ The authentication modal that appears when users attempt to perform actions that
 
 The AuthModal component is fully implemented at `/apps/app/src/components/AuthModal.tsx` with:
 - Google sign-in button (always shown)
-- Apple sign-in button (iOS only)
+- Email magic link sign-in
 - Brand section with logo
 - Contextual message area
 - Loading states
@@ -25,7 +25,7 @@ The AuthModal component is fully implemented at `/apps/app/src/components/AuthMo
 ## Trigger Behavior
 
 According to `agent-rules/main-spec.md`:
-- Login via Google or Apple account
+- Login via Google account or email magic link
 - View-only without login, interactions gated at submit
 - Users can **start** a guess or comment without being logged in
 - Login is required only at the **submit** moment (reduces friction, captures intent)
@@ -58,12 +58,11 @@ According to `agent-rules/main-spec.md`:
    - Full-width, rounded corners
    - Professional, recognizable styling
 
-2. **Apple Sign-In Button** (iOS/native only):
-   - Black background
-   - White Apple logo icon
-   - Text: "Continue with Apple"
+2. **Email Magic Link Button**:
+   - Gold-50 background with gold border
+   - Envelope icon
+   - Text: "Continue with Email"
    - Full-width, rounded corners
-   - Follows Apple's Human Interface Guidelines
 
 ### Terms Section
 - Small text at bottom
@@ -74,7 +73,7 @@ According to `agent-rules/main-spec.md`:
 
 1. **Clean & Minimal**: Does not feel intrusive or heavy
 2. **Clear CTA**: Sign-in buttons are prominent and easy to tap
-3. **Platform Guidelines**: Apple button follows official styling
+3. **Consistent Styling**: All buttons follow consistent sizing and spacing
 4. **Trust**: Professional appearance builds user confidence
 5. **Quick Dismissal**: Easy to close if user changes their mind
 

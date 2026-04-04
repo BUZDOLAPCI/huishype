@@ -75,8 +75,8 @@ test.describe('Auth Flow', () => {
     const authModal = page.locator('[data-testid="auth-modal-overlay"]');
     await expect(authModal).toBeVisible({ timeout: 10000 });
     await expect(page.getByLabel('Sign in with Google')).toBeVisible();
-    await expect(page.getByLabel('Sign in with Apple')).toBeVisible();
     await expect(page.getByLabel('Continue with email')).toBeVisible();
+    await expect(page.getByLabel('Sign in with Apple')).not.toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-profile-state.png` });
   });

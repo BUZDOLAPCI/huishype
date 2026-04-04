@@ -168,7 +168,7 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Auth Endpoints  (paths: /auth/google, /auth/apple, /auth/refresh, /auth/logout, /auth/me)
+  // Auth Endpoints  (paths: /auth/google, /auth/refresh, /auth/logout, /auth/me)
   // ============================================
 
   async loginGoogle(idToken: string): Promise<AuthLoginResponse> {
@@ -180,24 +180,6 @@ export class HuisHypeApiClient {
       this.setRefreshToken(data.session.refreshToken);
     }
     return data;
-  }
-
-  async loginApple(idToken: string): Promise<AuthLoginResponse> {
-    const data = await this.request<AuthLoginResponse>('POST', '/auth/apple', {
-      body: { idToken },
-    });
-    if (data?.session) {
-      this.setAccessToken(data.session.accessToken);
-      this.setRefreshToken(data.session.refreshToken);
-    }
-    return data;
-  }
-
-  /** @deprecated Use loginGoogle or loginApple instead. Kept for backward compat. */
-  async login(request: { provider: 'google' | 'apple'; idToken: string }): Promise<AuthLoginResponse> {
-    return request.provider === 'google'
-      ? this.loginGoogle(request.idToken)
-      : this.loginApple(request.idToken);
   }
 
   async refreshAccessToken(): Promise<AuthRefreshResponse> {

@@ -25,7 +25,6 @@ describe('Generated OpenAPI types', () => {
     const expectedPaths: PathKeys[] = [
       '/health',
       '/auth/google',
-      '/auth/apple',
       '/auth/refresh',
       '/auth/logout',
       '/auth/me',
@@ -83,7 +82,6 @@ describe('HuisHypeApiClient', () => {
 
     // Auth
     expect(typeof client.loginGoogle).toBe('function');
-    expect(typeof client.loginApple).toBe('function');
     expect(typeof client.refreshAccessToken).toBe('function');
     expect(typeof client.logout).toBe('function');
     expect(typeof client.getAuthMe).toBe('function');

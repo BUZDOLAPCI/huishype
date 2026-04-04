@@ -3,11 +3,11 @@
 ##
 ## Required env vars (set in Coolify UI or .env file):
 ##   DB_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET,
-##   EXPO_PUBLIC_API_URL (build-time)
+##   EXPO_PUBLIC_API_URL (build-time), GOOGLE_CLIENT_ID,
+##   MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO
 ##
 ## Optional env vars:
-##   CORS_ORIGINS, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM,
-##   EMAIL_REPLY_TO, GOOGLE_CLIENT_ID, APPLE_CLIENT_ID
+##   CORS_ORIGINS
 ##
 
 services:
@@ -34,7 +34,6 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
     ports:
       - "3100:3100"
     healthcheck:

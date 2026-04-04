@@ -97,6 +97,7 @@ jest.mock('../../../providers/AuthProvider', () => ({
     isAuthenticated: false,
     user: null,
     accessToken: null,
+    authError: null,
   }),
 }));
 

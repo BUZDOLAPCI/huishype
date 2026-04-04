@@ -14,7 +14,6 @@ import React, {
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as AuthSession from 'expo-auth-session';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import { Linking, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
@@ -34,10 +33,6 @@ const API_BASE_URL = API_URL;
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
-const APPLE_CLIENT_ID =
-  process.env.EXPO_PUBLIC_APPLE_CLIENT_ID ||
-  process.env.EXPO_PUBLIC_APPLE_SERVICE_ID ||
-  'nl.huishype.app';
 
 // Types
 export interface AuthUser extends User {
@@ -49,11 +44,11 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   accessToken: string | null;
+  authError: string | null;
 }
 
 export interface AuthContextValue extends AuthState {
   signInWithGoogle: () => Promise<void>;
-  signInWithApple: () => Promise<void>;
   signInWithMockToken: (token: string) => Promise<void>;
   requestEmailLink: (email: string) => Promise<void>;
   verifyEmailToken: (token: string) => Promise<void>;
@@ -115,6 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: false,
     isLoading: true,
     accessToken: null,
+    authError: null,
   });
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,6 +138,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isAuthenticated: true,
         isLoading: false,
         accessToken,
+        authError: null,
       });
 
       // Schedule token refresh
@@ -171,6 +168,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: false,
       isLoading: false,
       accessToken: null,
+      authError: null,
     });
   }, []);
 
@@ -347,138 +345,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [storeAuthData]);
 
   /**
-   * Sign in with Apple
-   */
-  const signInWithApple = useCallback(async () => {
-    try {
-      setState((prev) => ({ ...prev, isLoading: true }));
-
-      if (Platform.OS === 'web') {
-        const discovery = {
-          authorizationEndpoint: 'https://appleid.apple.com/auth/authorize',
-        };
-        const redirectUri = AuthSession.makeRedirectUri({
-          scheme: 'huishype',
-          path: 'auth/callback',
-        });
-        const request = new AuthSession.AuthRequest({
-          clientId: APPLE_CLIENT_ID,
-          scopes: ['name', 'email'],
-          redirectUri,
-          responseType: AuthSession.ResponseType.IdToken,
-          extraParams: {
-            response_mode: 'fragment',
-            nonce: Crypto.randomUUID(),
-          },
-        });
-
-        const result = await request.promptAsync(discovery);
-        if (result.type !== 'success') {
-          setState((prev) => ({ ...prev, isLoading: false }));
-          return;
-        }
-
-        const params = result.params as { id_token?: string };
-        if (!params.id_token) {
-          throw new Error('No identity token received from Apple');
-        }
-
-        const response = await fetch(`${API_BASE_URL}/auth/apple`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ idToken: params.id_token }),
-        });
-
-        if (!response.ok) {
-          const error = (await response.json()) as { message?: string };
-          throw new Error(error.message || 'Authentication failed');
-        }
-
-        const data = (await response.json()) as {
-          session: {
-            user: AuthUser;
-            accessToken: string;
-            refreshToken: string;
-            expiresAt: string;
-          };
-          isNewUser: boolean;
-        };
-
-        await storeAuthData(
-          data.session.accessToken,
-          data.session.refreshToken,
-          data.session.user,
-          data.session.expiresAt
-        );
-        return;
-      }
-
-      // Check if Apple authentication is available
-      const isAvailable = await AppleAuthentication.isAvailableAsync();
-      if (!isAvailable) {
-        throw new Error('Apple Sign In is not available on this device');
-      }
-
-      // Request Apple authentication
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-
-      if (!credential.identityToken) {
-        throw new Error('No identity token received from Apple');
-      }
-
-      // Send to our backend
-      const response = await fetch(`${API_BASE_URL}/auth/apple`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ idToken: credential.identityToken }),
-      });
-
-      if (!response.ok) {
-        const error = (await response.json()) as { message?: string };
-        throw new Error(error.message || 'Authentication failed');
-      }
-
-      const data = (await response.json()) as {
-        session: {
-          user: AuthUser;
-          accessToken: string;
-          refreshToken: string;
-          expiresAt: string;
-        };
-        isNewUser: boolean;
-      };
-
-      await storeAuthData(
-        data.session.accessToken,
-        data.session.refreshToken,
-        data.session.user,
-        data.session.expiresAt
-      );
-    } catch (error) {
-      console.error('Apple sign in failed:', error);
-      setState((prev) => ({ ...prev, isLoading: false }));
-
-      // Don't throw if user cancelled
-      if (
-        error instanceof Error &&
-        error.message.includes('ERR_CANCELED')
-      ) {
-        return;
-      }
-      throw error;
-    }
-  }, [storeAuthData]);
-
-  /**
    * Sign in with a mock token (dev/test only).
    *
    * Token format: mock-google-{emailPrefix}-{googleId}
@@ -544,7 +410,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const verifyEmailToken = useCallback(
     async (token: string) => {
       try {
-        setState((prev) => ({ ...prev, isLoading: true }));
+        setState((prev) => ({ ...prev, isLoading: true, authError: null }));
 
         const response = await fetch(`${API_BASE_URL}/auth/email/verify`, {
           method: 'POST',
@@ -575,7 +441,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         );
       } catch (error) {
         console.error('Email token verification failed:', error);
-        setState((prev) => ({ ...prev, isLoading: false }));
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          authError: error instanceof Error ? error.message : 'Invalid or expired link',
+        }));
         throw error;
       }
     },
@@ -626,6 +496,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await verifyEmailToken(emailToken);
       } catch (error) {
         console.error('Failed to process incoming email auth link:', error);
+        setState((prev) => ({
+          ...prev,
+          authError: error instanceof Error ? error.message : 'Invalid or expired link',
+        }));
       }
     },
     [verifyEmailToken]
@@ -699,6 +573,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           isAuthenticated: true,
           isLoading: false,
           accessToken,
+          authError: null,
         });
 
         if (expiresAt) {
@@ -745,7 +620,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextValue = {
     ...state,
     signInWithGoogle,
-    signInWithApple,
     signInWithMockToken,
     requestEmailLink,
     verifyEmailToken,

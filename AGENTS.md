@@ -2,6 +2,12 @@
 
 This project is built entirely by Claude agents with minimal human intervention. The main agent orchestrates work by spawning specialized subagents to keep context lean and efficient.
 
+## Release Focus: Web Only
+
+The initial release targets **web only** (Expo static export + nginx). Native iOS and Android apps are deferred — the codebase still uses Expo/React Native with platform splits (`.web.tsx` / `.native.tsx`), but only the web bundle is built and deployed for now. Apple Sign-In is disabled (button hidden, backend endpoint kept but unused). Auth methods for initial release: **Google OAuth + Email magic link**.
+
+> **Override notice:** This section supersedes any conflicting guidance in `agent-rules/` regarding platforms, auth methods, or feature scope. The `agent-rules/` documents describe the long-term product vision; this section defines the constraints for the initial web-only MVP. Where they conflict (e.g., Apple Sign-In listed as first-class in `agent-rules/main-spec.md` and `software-stack.md`), follow this section.
+
 sudo password for the machine is "123123" if you need it
 
 ## API Keys (gitignored .env files)
@@ -12,7 +18,7 @@ sudo password for the machine is "123123" if you need it
 | Porkbun DNS | `.env.porkbun` | `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` |
 | Hetzner Cloud | `.env.hetzner` | `HETZNER_API_TOKEN` (Read & Write) |
 | MXroute Email | `.env.mxroute` | `MXROUTE_API_KEY`, `MXROUTE_SERVER` (heracles.mxrouting.net), `MXROUTE_USERNAME` (caslanco) |
-| Google Cloud | `.env.google` | `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_SECRET_WEB`, `GOOGLE_CLIENT_ID_IOS`, `GOOGLE_CLIENT_ID_ANDROID` |
+| Google Cloud | `.env.google` | `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_SECRET_WEB` |
 | Resend Email | `.env.resend` | `RESEND_API_KEY` (full access) |
 
 ## Email
@@ -66,43 +72,35 @@ Catch-all (any unmatched @huishype.nl) also forwards to huishypeapp@gmail.com.
 
 **OAuth Consent Screen**: External, app name "HuisHype", support email `support@huishype.nl` (Google Group).
 
-**OAuth 2.0 Client IDs**:
+**OAuth 2.0 Client IDs** (web only for initial release):
 
 | Platform | Client ID | Notes |
 |----------|-----------|-------|
 | Web | `91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com` | Used for API backend token verification + expo-auth-session |
-| iOS | `91432986388-20pkftruoukoepl6mhsgr5egeeraivh9.apps.googleusercontent.com` | Bundle ID: `nl.huishype.app` |
-| Android | `91432986388-pog1p4mihnkeo4vrseucp69q35k9mi6d.apps.googleusercontent.com` | Package: `nl.huishype.app`, SHA-1: debug keystore |
 
-**Where client IDs are wired**:
-- `services/api/.env` → `GOOGLE_CLIENT_ID` (web client ID, for backend token verification)
-- `apps/app/.env` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID` (web client ID, for expo-auth-session)
-- `apps/app/ios/HuisHype/Info.plist` → iOS reversed client ID URL scheme
-- `apps/app/ios/HuisHype/GoogleService-Info.plist` → iOS credentials (gitignored)
+iOS and Android client IDs exist in GCP but are not wired for the initial web-only release.
+
+**Where the web client ID is wired**:
+- `services/api/.env` → `GOOGLE_CLIENT_ID` (backend token verification)
+- `apps/app/.env` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID` (expo-auth-session)
 - `docker-compose.prod.yml` → `GOOGLE_CLIENT_ID` env var + `EXPO_PUBLIC_GOOGLE_CLIENT_ID` build arg
 - `apps/app/Dockerfile.web` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID` build arg
 
 **Google Group** (`support@huishype.nl`): Managed in admin.google.com under Cloud Identity. Used as OAuth consent screen support email.
 
-**Android release signing**: Debug keystore SHA-1 is registered. Production release keystore not yet created — will use EAS Build or Google Play App Signing.
-
 ## Quick Reference: Building Windows & Shaders
 
-3D buildings use **procedural window shaders** edited in GLSL source across two forks:
+3D buildings use **procedural window shaders** edited in GLSL source. For the initial web-only release, only the web fork is actively used:
 
 | Platform | Fork repo | Local path | Branch |
 |----------|-----------|------------|--------|
 | **Web** | `BUZDOLAPCI/maplibre-gl-js` | `/home/caslan/dev/git_repos/hh/maplibre-gl-js` | `huishype` |
-| **Native (Android)** | `BUZDOLAPCI/maplibre-native` (private) | `/home/caslan/dev/git_repos/hh/maplibre-native` | `huishype` |
 
-Shader files in both forks: `fill_extrusion.vertex.glsl` and `fill_extrusion.fragment.glsl`. See "MapLibre GL JS Fork" and "MapLibre Native Fork" sections below for edit/build/consume workflows.
+Shader files: `fill_extrusion.vertex.glsl` and `fill_extrusion.fragment.glsl`. See "MapLibre GL JS Fork" section below for edit/build/consume workflow.
 
 **Key patterns** (read the `.glsl` source for current values):
-- **Cross-platform parity**: Both shaders use identical window parameters and constants (spacing=360, gap=8, pad=60). Web and native both use 8192 tile extent — the ~4.6x ratio previously documented was a red herring from different algorithms, not coordinate scale difference.
 - **LOD tint gate**: `win_mask *= max(detail, floor_detail)` — prevents blue color bleed at distance. Without this, LOD merges window shapes but still applies window color uniformly.
-- **Native DPI scaling**: `fwidth()` returns ~3x smaller values on high-DPI mobile screens (~440 DPI vs ~96 DPI web). Native LOD `smoothstep` thresholds must be ~3x smaller to match web's LOD zoom behavior.
 - **`flat` varying provoking vertex**: OpenGL ES 3.0 uses last-vertex convention for `flat` interpolation. Triangle winding order in `fill_extrusion_bucket.cpp` must ensure vertex 1 (topLeft, face-start edgedistance) is the last vertex of BOTH triangles — otherwise `v_ed_flat` gets wrong value on half the triangles (no windows + color mismatch). Web GL JS bucket already does this correctly.
-- **Native fork modifies C++ too**: Not just GLSL shaders — also `fill_extrusion_bucket.cpp` (triangle winding), `shader_info.cpp` (attribute binding), `render_fill_extrusion_layer.cpp` (template order). Check these when debugging rendering issues.
 
 ## Multi-Country Architecture
 
@@ -132,44 +130,15 @@ All design decisions and specifications are in `agent-rules/`. **Consult these b
 | `software-stack.md` | Technical stack decisions and architecture |
 | `test-requirements.md` | Testing strategy and verification requirements |
 
-These documents are the source of truth. Pass these information down to all subagents so they have a vision of the big picture.
+These documents are the source of truth for long-term product design. Pass these information down to all subagents so they have a vision of the big picture. **However**, always check the "Release Focus" section above first — it defines current release scope and overrides `agent-rules/` where they conflict on platforms, auth methods, or deferred features.
 
-## MapLibre React Native
+## MapLibre React Native (deferred — native apps not in initial release)
 
-Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Architecture** (Fabric + TurboModules) enabled. The v11 alpha line is actively migrating components to Fabric native components. Key implications:
+Fork at `/home/caslan/dev/git_repos/hh/maplibre-react-native` (GitHub: `BUZDOLAPCI/maplibre-react-native`, branch `huishype`). Contains MarkerView touch dispatch fix. Sync upstream: `./tools/sync-maplibre-fork.sh`. Not actively used for web-only release.
 
-- Layers are Fabric native components (as of alpha.40+)
-- Map commands (queryRenderedFeatures, etc.) use TurboModules (JSI-based, not old bridge)
-- Component renames in alpha.44+: `MapView` → `Map`, `ShapeSource` → `GeoJSONSource`, `sourceID` → `source` etc.
+## MapLibre Native Fork (deferred — Android shaders, not in initial release)
 
-**Fork**: `/home/caslan/dev/git_repos/hh/maplibre-react-native` (GitHub: `BUZDOLAPCI/maplibre-react-native`, branch `huishype`, tracks upstream `beta`). Referenced from `apps/app/package.json` via GitHub URL. Contains our MarkerView touch dispatch fix. Reference this to discover available components, props, and features (e.g. `Marker`, `ViewAnnotation`, `Callout`) instead of guessing from type defs. To sync upstream: `./tools/sync-maplibre-fork.sh`.
-
-## MapLibre Native Fork (Android shaders)
-
-Custom fork at `/home/caslan/dev/git_repos/hh/maplibre-native` (branch `huishype`, version `12.2.3-huishype`) with procedural building shaders edited directly in GLSL source files — no patching.
-
-**Why**: Procedural window patterns, spatial color striping (zebra-stripe for merged row-house polygons), and soft ambient occlusion on 3D fill-extrusion buildings. These require fragment/vertex shader modifications that can't be done via style expressions.
-
-**Shader files**: `shaders/fill_extrusion.fragment.glsl` and `shaders/fill_extrusion.vertex.glsl`. After editing GLSL, regenerate headers with `node shaders/generate_shader_code.mjs` (compiles `.glsl` → `include/mbgl/shaders/gl/fill_extrusion.hpp`). C++ changes (bucket, render layer, shader_info) don't need this step.
-
-**Build & publish AAR**:
-```bash
-cd /home/caslan/dev/git_repos/hh/maplibre-native/platform/android
-BUILDTYPE=Release ./gradlew :MapLibreAndroid:assembleOpenglRelease
-BUILDTYPE=Release ./gradlew :MapLibreAndroid:publishOpenglReleasePublicationToMavenLocal
-```
-Gradle handles CMake native compilation automatically. Publishes to `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`.
-
-**After installing updated AAR on device**: Clear the shader cache — MapLibre Native caches compiled GLSL programs in app data, so stale shaders persist across `adb install -r`:
-```bash
-adb shell pm clear nl.huishype.app
-```
-
-**App wiring** (`apps/app/android/build.gradle`):
-- `mavenLocal()` in `allprojects.repositories` (so Gradle finds the local AAR)
-- `ext.set("org.maplibre.reactnative.nativeVersion", "12.2.3-huishype")` (overrides the default `12.2.3` from the `maplibre-react-native` npm package)
-
-**Web counterpart**: Web uses a forked `maplibre-gl` (see "MapLibre GL JS Fork" section below) for the same shader effects — the fork edits GLSL source and rebuilds `dist/`, consumed via GitHub commit hash in `apps/app/package.json`.
+Fork at `/home/caslan/dev/git_repos/hh/maplibre-native` (branch `huishype`, version `12.2.3-huishype`). Custom procedural building shaders for Android. Not actively used for web-only release — web uses the MapLibre GL JS fork below.
 
 ## MapLibre GL JS Fork (Web Shaders)
 
@@ -391,50 +360,15 @@ systemctl --user restart huishype-api    # Restart API
 systemctl --user stop huishype-expo      # Stop (auto-restarts unless disabled)
 ```
 
-**adb reverse** is automated via udev rule (`/etc/udev/rules.d/99-huishype-adb.rules`) — triggers on Samsung S10e USB connect. No manual step needed.
-
 **inotify limit** persisted at 524288 in `/etc/sysctl.d/90-inotify.conf` (Metro needs this).
 
 ## Hooks
 
 Agents may configure Claude Code hooks in `.claude/settings.json`. Notice hook changes don't take effect until the session restarts. If hooks are modified, inform the user they need to restart the session.
 
-## React Native AI Debugger (MCP)
+## React Native AI Debugger (MCP) — deferred, native apps not in initial release
 
-A global MCP server (`rn-debugger`) is available for live debugging the React Native app running on a physical device or emulator. It connects via Metro's WebSocket debugger protocol — no app-side SDK needed.
-
-**When to use:** Whenever debugging native app issues, inspecting logs, checking network requests, or investigating runtime state. Use it proactively when the user mentions app behavior on their phone/device, asks to "check logs", "inspect the app", or reports a bug happening on native.
-
-### Key tools
-
-| Tool | Purpose |
-|------|---------|
-| `scan_metro` | Auto-discover and connect to Metro (port 8081) |
-| `get_logs` | Console logs with filtering (`level`, `summary`, `startFromText`) |
-| `search_logs` | Search logs by text pattern |
-| `execute_in_app` | Run JS expressions in the running app (REPL) |
-| `get_network_requests` | HTTP request/response tracking |
-| `get_component_tree` | React component tree inspection |
-| `inspect_component` | Drill into component props/state/hooks |
-| `get_bundle_errors` | Metro compilation errors with file locations |
-| `android_screenshot` | Take device screenshot |
-| `android_tap` / `android_swipe` | UI automation via ADB |
-| `android_describe_all` | Accessibility tree for element finding |
-
-### Workflow
-
-1. Call `scan_metro` first to establish connection
-2. Use `get_logs summary=true` for a quick health check (~20-50 tokens)
-3. Use `get_logs level="error"` to focus on problems
-4. Use `execute_in_app` to inspect runtime state
-5. Use `get_component_tree focusedOnly=true structureOnly=true` for efficient tree inspection
-
-### Token efficiency tips
-
-- Use `summary=true` for health checks
-- Use `format="tonl"` for 30-50% token reduction
-- Set `maxLogs` low (10-20) with `verbose=true` for detailed inspection
-- Use `startFromText` to get logs since a specific event
+A global MCP server (`rn-debugger`) is available for live debugging the React Native app running on a physical device or emulator. Not actively used for the web-only initial release. Call `scan_metro` to connect, then use `get_logs`, `execute_in_app`, `get_component_tree`, etc.
 
 ## Context Management
 

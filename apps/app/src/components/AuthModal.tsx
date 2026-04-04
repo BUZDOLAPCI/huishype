@@ -71,7 +71,7 @@ interface AuthModalProps {
 }
 
 /**
- * Authentication modal with Google, Apple, and Email sign-in options.
+ * Authentication modal with Google and Email sign-in options.
  * Renders as a centered card on a dark backdrop.
  *
  * @example
@@ -93,7 +93,6 @@ export function AuthModal({
 }: AuthModalProps) {
   const {
     signInWithGoogle,
-    signInWithApple,
     signInWithMockToken,
     requestEmailLink,
     isSigningIn,
@@ -168,19 +167,6 @@ export function AuthModal({
       }
     }, 100);
   }, [signInWithGoogle, onAuthStarting, onClose, onSuccess]);
-
-  const handleAppleSignIn = useCallback(() => {
-    onAuthStarting?.();
-    onClose();
-    setTimeout(async () => {
-      try {
-        await signInWithApple();
-        onSuccess?.();
-      } catch {
-        // Error is handled by useAuth
-      }
-    }, 100);
-  }, [signInWithApple, onAuthStarting, onClose, onSuccess]);
 
   const handleDevLogin = useCallback(() => {
     onAuthStarting?.();
@@ -333,24 +319,6 @@ export function AuthModal({
             <>
               <Text style={styles.googleG}>G</Text>
               <Text style={styles.googleText}>Continue with Google</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        {/* Apple button — near-black, shown on all platforms (web + iOS + Android) */}
-        <TouchableOpacity
-          onPress={handleAppleSignIn}
-          disabled={isSigningIn}
-          style={[styles.authButton, styles.appleButton]}
-          accessibilityLabel="Sign in with Apple"
-          accessibilityRole="button"
-        >
-          {isSigningIn ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.appleLogo}>{'\uF8FF'}</Text>
-              <Text style={styles.appleText}>Continue with Apple</Text>
             </>
           )}
         </TouchableOpacity>
@@ -604,23 +572,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: WARM_700,
   },
-  appleButton: {
-    backgroundColor: AUTH_COLORS.text, // #1A1A1A
-  },
-  appleLogo: {
-    fontSize: 20,
-    color: '#FFFFFF',
-    marginRight: 10,
-    // Use SF Symbol on iOS, fallback text on other platforms
-    fontFamily: Platform.OS === 'ios' ? 'System' : undefined,
-  },
-  appleText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#FFFFFF',
-  },
-
   // ── Divider ──────────────────────────────────────────────
   divider: {
     flexDirection: 'row',

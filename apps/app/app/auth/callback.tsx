@@ -12,7 +12,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
  * state and redirects to home once auth completes (or shows an error).
  */
 export default function AuthCallbackScreen() {
-  const { isAuthenticated, isLoading } = useAuthContext();
+  const { isAuthenticated, isLoading, authError } = useAuthContext();
   const [timedOut, setTimedOut] = useState(false);
 
   // Redirect to home once authenticated
@@ -22,7 +22,7 @@ export default function AuthCallbackScreen() {
     }
   }, [isAuthenticated]);
 
-  // Timeout after 15s — token may be invalid/expired
+  // Timeout after 15s — fallback for genuinely hanging requests
   useEffect(() => {
     const timer = setTimeout(() => {
       setTimedOut(true);
@@ -30,11 +30,12 @@ export default function AuthCallbackScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (timedOut && !isAuthenticated) {
+  // Show error immediately when verification fails
+  if ((authError || timedOut) && !isAuthenticated) {
     return (
       <View className="flex-1 items-center justify-center bg-surface-card p-8">
         <Text className="text-lg font-semibold text-warm-900 mb-2">
-          Link expired or invalid
+          {authError || 'Link expired or invalid'}
         </Text>
         <Text
           className="text-sm text-primary-600 mt-4"

@@ -14,6 +14,8 @@ export function validateProductionSecrets(env: Record<string, string | undefined
   if (!env.JWT_SECRET) missing.push('JWT_SECRET');
   if (!env.JWT_REFRESH_SECRET) missing.push('JWT_REFRESH_SECRET');
   if (!env.COOKIE_SECRET) missing.push('COOKIE_SECRET');
+  if (!env.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
+  if (!env.MAGIC_LINK_BASE_URL && !env.APP_URL) missing.push('MAGIC_LINK_BASE_URL');
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in production: ${missing.join(', ')}`);
   }
