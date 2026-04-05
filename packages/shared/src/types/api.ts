@@ -93,6 +93,13 @@ export interface AuthLogoutRequest {
   refreshToken?: string;
 }
 
+export interface AuthMeResponse {
+  user: User & {
+    email: string;
+    profilePhotoUrl: string | null;
+  };
+}
+
 // ============================================
 // User API Types
 // ============================================
@@ -257,22 +264,47 @@ export interface LikeCommentResponse {
 // Feed API Types
 // ============================================
 
-export type FeedType =
-  | 'trending'       // Most active recently
-  | 'new'            // Newly listed
-  | 'controversial'  // High price variance
-  | 'overpriced'     // FMV significantly below asking
-  | 'underpriced';   // FMV significantly above asking
+// Feed tabs shown in the app UI.
+// Property feed tabs are derived from the canonical /feed contract.
+export type FeedTab = PropertyFeedFilter | 'recent-activity';
 
-export interface GetFeedRequest {
-  type: FeedType;
-  page?: number;
-  pageSize?: number;
-  city?: string;
+// Filters accepted by the property-only /feed endpoint.
+export type PropertyFeedFilter = 'trending' | 'latest';
+
+export interface FeedItem {
+  id: string;
+  address: string;
+  city: string;
+  zipCode: string;
+  askingPrice: number | null;
+  fmv: number | null;
+  officialValuation: number | null;
+  thumbnailUrl: string | null;
+  likeCount: number;
+  commentCount: number;
+  guessCount: number;
+  viewCount: number;
+  activityLevel: 'hot' | 'warm' | 'cold';
+  lastActivityAt: string;
+  hasListing: boolean;
 }
 
-export interface GetFeedResponse extends PaginatedResponse<PropertySummary> {
-  feedType: FeedType;
+export interface GetFeedRequest {
+  filter?: PropertyFeedFilter;
+  page?: number;
+  limit?: number;
+  lat?: number;
+  lon?: number;
+  country?: string;
+}
+
+export interface GetFeedResponse {
+  items: FeedItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  };
 }
 
 // ============================================

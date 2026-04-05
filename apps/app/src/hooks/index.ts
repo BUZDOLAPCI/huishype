@@ -4,7 +4,8 @@ export {
   useFeed,
   useInfiniteFeed,
   feedKeys,
-  type FeedFilter,
+  type FeedTab,
+  type PropertyFeedFilter,
   type FeedProperty,
 } from './useFeed';
 export {

@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyError, type FastifyRequest, type FastifyReply } from 'fastify';
+import compress from '@fastify/compress';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import {
@@ -26,6 +27,7 @@ import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
 import { closeConnection } from './db/index.js';
 import { setNotificationLogger } from './services/notifications.js';
+import { refreshLatestListingsView } from './services/listings-view.js';
 import { config } from './config.js';
 
 export type AppOptions = {
@@ -53,6 +55,14 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     await closeConnection();
   });
 
+  // Ensure the latest-listings materialized view is current at startup.
+  // Fire-and-forget: a failure here is non-fatal (stale feed until next ingest).
+  app.addHook('onReady', async () => {
+    refreshLatestListingsView().catch((err) =>
+      app.log.warn({ err }, 'Startup mv_latest_active_listings refresh failed'),
+    );
+  });
+
   // Set up Zod type provider for automatic validation
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -66,6 +76,20 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
         : ['https://huishype.nl', 'https://huishype.com'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
+
+  // Register response compression (gzip/deflate).
+  // Threshold of 1024 bytes avoids compressing tiny responses.
+  // customTypes includes application/x-protobuf (PBF vector tiles) which
+  // mime-db does not classify as compressible by default.
+  // PBF compression is safe: browsers decompress Content-Encoding before
+  // MapLibre GL JS sees the bytes. On native, OkHttp does the same —
+  // MapLibre Native's is_compressed() only runs for offline/MBTiles sources,
+  // not HTTP responses (see mbgl/util/compression.cpp).
+  await app.register(compress, {
+    threshold: 1024,
+    encodings: ['gzip', 'deflate'],
+    customTypes: /x-protobuf$/,
   });
 
   // Register cookie support

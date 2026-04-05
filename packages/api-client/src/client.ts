@@ -10,8 +10,10 @@
  */
 
 import type {
+  AuthMeResponse,
   AuthLoginResponse,
   AuthRefreshResponse,
+  EmailAuthRequestResponse,
   PropertyResolveResponse,
   GetPropertyResponse,
   GetMapPropertiesRequest,
@@ -25,8 +27,10 @@ import type {
   GetSavedPropertiesRequest,
   GetSavedPropertiesResponse,
   GetUserProfileResponse,
+  GetFeedRequest,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
+  GetFeedResponse,
 } from '@huishype/shared';
 
 /**
@@ -168,12 +172,29 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Auth Endpoints  (paths: /auth/google, /auth/refresh, /auth/logout, /auth/me)
+  // Auth Endpoints  (paths: /auth/google, /auth/email/request, /auth/email/verify, /auth/refresh, /auth/logout, /auth/me)
   // ============================================
 
   async loginGoogle(idToken: string): Promise<AuthLoginResponse> {
     const data = await this.request<AuthLoginResponse>('POST', '/auth/google', {
       body: { idToken },
+    });
+    if (data?.session) {
+      this.setAccessToken(data.session.accessToken);
+      this.setRefreshToken(data.session.refreshToken);
+    }
+    return data;
+  }
+
+  async requestEmailMagicLink(email: string): Promise<EmailAuthRequestResponse> {
+    return this.request<EmailAuthRequestResponse>('POST', '/auth/email/request', {
+      body: { email },
+    });
+  }
+
+  async verifyEmailToken(token: string): Promise<AuthLoginResponse> {
+    const data = await this.request<AuthLoginResponse>('POST', '/auth/email/verify', {
+      body: { token },
     });
     if (data?.session) {
       this.setAccessToken(data.session.accessToken);
@@ -203,8 +224,8 @@ export class HuisHypeApiClient {
     this.clearTokens();
   }
 
-  async getAuthMe(): Promise<GetUserProfileResponse> {
-    return this.request<GetUserProfileResponse>('GET', '/auth/me', {
+  async getAuthMe(): Promise<AuthMeResponse> {
+    return this.request<AuthMeResponse>('GET', '/auth/me', {
       requiresAuth: true,
     });
   }
@@ -307,15 +328,8 @@ export class HuisHypeApiClient {
   // Feed Endpoint  (path: /feed)
   // ============================================
 
-  async getFeed(params: {
-    filter?: 'trending' | 'recent' | 'controversial' | 'price-mismatch';
-    page?: number;
-    limit?: number;
-    lat?: number;
-    lon?: number;
-    country?: string;
-  }): Promise<unknown> {
-    return this.request<unknown>('GET', '/feed', {
+  async getFeed(params: GetFeedRequest): Promise<GetFeedResponse> {
+    return this.request<GetFeedResponse>('GET', '/feed', {
       query: {
         filter: params.filter,
         page: params.page,

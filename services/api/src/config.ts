@@ -16,6 +16,9 @@ export function validateProductionSecrets(env: Record<string, string | undefined
   if (!env.COOKIE_SECRET) missing.push('COOKIE_SECRET');
   if (!env.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
   if (!env.MAGIC_LINK_BASE_URL && !env.APP_URL) missing.push('MAGIC_LINK_BASE_URL');
+  if (!env.RESEND_API_KEY) missing.push('RESEND_API_KEY');
+  if (!env.EMAIL_FROM) missing.push('EMAIL_FROM');
+  if (!env.EMAIL_REPLY_TO) missing.push('EMAIL_REPLY_TO');
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in production: ${missing.join(', ')}`);
   }

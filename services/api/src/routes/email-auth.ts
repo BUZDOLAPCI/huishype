@@ -22,6 +22,7 @@ import {
   getAccessTokenExpiry,
 } from '../plugins/auth.js';
 import { getKarmaRank } from '../services/karma.js';
+import { buildResendMagicLinkPayload } from '../services/email-payload.js';
 import { withGeneratedUniqueUsername } from '../utils/username.js';
 
 // Token is valid for 15 minutes
@@ -30,16 +31,6 @@ const RESEND_API_URL = 'https://api.resend.com/emails';
 
 function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
-}
-
-/** Escape a string for safe interpolation into HTML content. */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function buildMagicLink(token: string): string {
@@ -63,17 +54,7 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
       Authorization: `Bearer ${config.email.resendApiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: config.email.fromAddress,
-      to: [email],
-      reply_to: config.email.replyTo || undefined,
-      subject: 'Your HuisHype sign-in link',
-      html: [
-        '<p>Use the link below to sign in to HuisHype.</p>',
-        `<p><a href="${escapeHtml(magicLink)}">${escapeHtml(magicLink)}</a></p>`,
-        '<p>This link expires in 15 minutes.</p>',
-      ].join(''),
-    }),
+    body: JSON.stringify(buildResendMagicLinkPayload(email, magicLink)),
     signal: AbortSignal.timeout(5000),
   });
 

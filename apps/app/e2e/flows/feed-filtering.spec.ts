@@ -110,19 +110,19 @@ test.describe('Feed Filtering', () => {
     await expect(trendingFilter, '"Trending" filter chip should be visible').toBeVisible({ timeout: 5000 });
 
     // Check for other filter chips
-    const recentFilter = page.locator('[data-testid="filter-chip-recent"]');
-    const activityFilter = page.locator('[data-testid="filter-chip-activity"]');
+    const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
+    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
 
     const chipVisibility = {
       trending: await trendingFilter.isVisible().catch(() => false),
-      recent: await recentFilter.isVisible().catch(() => false),
+      latest: await latestFilter.isVisible().catch(() => false),
       activity: await activityFilter.isVisible().catch(() => false),
     };
     console.log('Filter chip visibility:', chipVisibility);
 
     // All 3 filter chips should be visible
     expect(chipVisibility.trending).toBe(true);
-    expect(chipVisibility.recent).toBe(true);
+    expect(chipVisibility.latest).toBe(true);
     expect(chipVisibility.activity).toBe(true);
 
     // Check how many property cards loaded
@@ -149,14 +149,14 @@ test.describe('Feed Filtering', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
     // Click "Latest" filter — assert it exists before interacting
-    const latestFilter = page.locator('[data-testid="filter-chip-recent"]');
+    const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
     await expect(latestFilter, '"Latest" filter chip should be visible').toBeVisible({ timeout: 5000 });
     await latestFilter.click();
     await page.waitForTimeout(2000);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
 
     // Click "Recent Activity" filter — assert it exists before interacting
-    const activityFilter = page.locator('[data-testid="filter-chip-activity"]');
+    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
     await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({ timeout: 5000 });
     await activityFilter.click();
     await page.waitForTimeout(2000);
@@ -288,10 +288,9 @@ test.describe('Feed Filtering', () => {
     expect(Array.isArray(data.items)).toBe(true);
     expect(data.pagination).toHaveProperty('page');
     expect(data.pagination).toHaveProperty('limit');
-    expect(data.pagination).toHaveProperty('total');
     expect(data.pagination).toHaveProperty('hasMore');
 
-    console.log(`Feed API: ${data.items.length} items, total: ${data.pagination.total}`);
+    console.log(`Feed API: ${data.items.length} items, hasMore: ${data.pagination.hasMore}`);
 
     // If there are items, verify structure
     if (data.items.length > 0) {

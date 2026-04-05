@@ -128,6 +128,7 @@ export type {
   AuthRefreshRequest,
   AuthRefreshResponse,
   AuthLogoutRequest,
+  AuthMeResponse,
   // User
   GetUserProfileResponse,
   UpdateUserProfileRequest,
@@ -154,7 +155,9 @@ export type {
   LikeCommentResponse,
   // Reaction / Likes
   // Feed
-  FeedType,
+  FeedTab,
+  PropertyFeedFilter,
+  FeedItem,
   GetFeedRequest,
   GetFeedResponse,
   // Saved

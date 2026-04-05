@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { db } from '../../db/index.js';
+import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 /**
  * Integration tests for property routes.
@@ -205,6 +208,178 @@ describe('Property routes', () => {
       expect(prop).toHaveProperty('distanceMeters');
       expect(prop).toHaveProperty('hasListing');
       expect(prop).toHaveProperty('activityScore');
+    });
+  });
+
+  describe('GET /properties/:id enriched values', () => {
+    let propertyId: string;
+    let listingId: string;
+    let userId: string;
+    let accessToken: string;
+    const extraUserIds: string[] = [];
+    const commentIds: string[] = [];
+    const guessIds: string[] = [];
+    const viewIds: string[] = [];
+
+    beforeAll(async () => {
+      // Create a dedicated synthetic property so this test is fully hermetic
+      // and doesn't interfere with other tests' seeded data
+      propertyId = crypto.randomUUID();
+      await db.execute(sql`
+        INSERT INTO properties (id, country_code, street, house_number, city, postal_code, status, geometry)
+        VALUES (${propertyId}, 'NL', 'Enrichment Test Street', 99, 'TestCity', '1234AB', 'active', ST_SetSRID(ST_MakePoint(5.47, 51.44), 4326))
+      `);
+
+      // Create a listing for the property (some enriched fields may depend on it)
+      listingId = crypto.randomUUID();
+      const sourceUrl = `https://test.example.com/enrichment-hermetic-${Date.now()}`;
+      await db.execute(sql`
+        INSERT INTO listings (id, property_id, source_name, source_url, status, asking_price, created_at, updated_at)
+        VALUES (${listingId}, ${propertyId}, 'test', ${sourceUrl}, 'active', 350000, NOW(), NOW())
+      `);
+
+      // Create primary test user
+      const uniqueId = `enrichtest${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      userId = loginBody.session.user.id;
+      accessToken = loginBody.session.accessToken;
+
+      // Create 2 extra users for price guesses (unique constraint: 1 guess per user per property)
+      for (let i = 0; i < 2; i++) {
+        const uid = `enrichextra${Date.now()}${i}`;
+        const resp = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: { idToken: `mock-google-${uid}-gid${uid}` },
+        });
+        const body = JSON.parse(resp.body);
+        extraUserIds.push(body.session.user.id);
+      }
+
+      // Seed exactly 2 comments
+      for (let i = 0; i < 2; i++) {
+        const id = crypto.randomUUID();
+        commentIds.push(id);
+        await db.execute(sql`
+          INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
+          VALUES (${id}, ${propertyId}, ${userId}, ${'Test comment ' + (i + 1)}, NOW(), NOW())
+        `);
+      }
+
+      // Seed exactly 3 price guesses (one per user due to unique constraint)
+      const allUserIds = [userId, ...extraUserIds];
+      const prices = [250000, 300000, 350000];
+      for (let i = 0; i < 3; i++) {
+        const id = crypto.randomUUID();
+        guessIds.push(id);
+        await db.execute(sql`
+          INSERT INTO price_guesses (id, property_id, user_id, guessed_price, is_meme_guess, created_at, updated_at)
+          VALUES (${id}, ${propertyId}, ${allUserIds[i]}, ${prices[i]}, false, NOW(), NOW())
+        `);
+      }
+
+      // Seed exactly 4 property views (all from the same user)
+      for (let i = 0; i < 4; i++) {
+        const id = crypto.randomUUID();
+        viewIds.push(id);
+        await db.execute(sql`
+          INSERT INTO property_views (id, property_id, user_id, viewed_at)
+          VALUES (${id}, ${propertyId}, ${userId}, NOW())
+        `);
+      }
+
+      // Seed 1 like reaction from the primary user
+      await db.execute(sql`
+        INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
+        VALUES (${crypto.randomUUID()}, 'property', ${propertyId}, ${userId}, 'like', NOW())
+      `);
+    });
+
+    afterAll(async () => {
+      // Clean up in reverse dependency order
+      await db.execute(sql`DELETE FROM reactions WHERE target_type = 'property' AND target_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM price_guesses WHERE property_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM comments WHERE property_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM property_views WHERE property_id = ${propertyId}`);
+      // Delete the listing and property (listing has ON DELETE CASCADE but explicit is clearer)
+      await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+
+      // Delete test users (cascade will clean up any remaining refs)
+      const allIds = [userId, ...extraUserIds];
+      for (const uid of allIds) {
+        try {
+          await db.execute(sql`DELETE FROM users WHERE id = ${uid}`);
+        } catch {
+          // Ignore — may already be cleaned up via cascade
+        }
+      }
+    });
+
+    it('should return exact enriched values for seeded engagement data', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Exact engagement counts
+      expect(body.commentCount).toBe(2);
+      expect(body.guessCount).toBe(3);
+      expect(body.viewCount).toBe(4);
+      expect(body.uniqueViewers).toBe(1); // All 4 views from the same user
+      expect(body.likeCount).toBe(1);
+      expect(body.isLiked).toBe(true); // Requesting user made the like
+
+      // Activity level: recentViews=4, commentCount=2, guessCount=3
+      // guessCount(3) > 1 → 'warm'
+      expect(body.activityLevel).toBe('warm');
+
+      // FMV assertions
+      expect(body.fmv).toBeDefined();
+      expect(body.fmv.guessCount).toBe(3);
+      expect(body.fmv.confidence).toBe('medium'); // 3-9 guesses → medium
+      expect(typeof body.fmv.fmv).toBe('number');
+
+      // Distribution should exist with 3 guesses
+      expect(body.fmv.distribution).not.toBeNull();
+      expect(body.fmv.distribution).toHaveProperty('p10');
+      expect(body.fmv.distribution).toHaveProperty('p25');
+      expect(body.fmv.distribution).toHaveProperty('p50');
+      expect(body.fmv.distribution).toHaveProperty('p75');
+      expect(body.fmv.distribution).toHaveProperty('p90');
+      expect(body.fmv.distribution).toHaveProperty('min');
+      expect(body.fmv.distribution).toHaveProperty('max');
+
+      // Min/max should reflect seeded prices
+      expect(body.fmv.distribution.min).toBe(250000);
+      expect(body.fmv.distribution.max).toBe(350000);
+    });
+
+    it('should show isLiked=false for unauthenticated request', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Counts should still be the same
+      expect(body.commentCount).toBe(2);
+      expect(body.guessCount).toBe(3);
+      expect(body.likeCount).toBe(1);
+
+      // But isLiked should be false for unauthenticated
+      expect(body.isLiked).toBe(false);
     });
   });
 });

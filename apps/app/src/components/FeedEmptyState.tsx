@@ -7,19 +7,20 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import { Icon } from './ui/Icon';
+import type { FeedTab } from '../hooks/useFeed';
 
 interface FeedEmptyStateProps {
-  filter?: string;
+  filter?: FeedTab;
 }
 
 export function FeedEmptyState({ filter }: FeedEmptyStateProps) {
   const getMessage = () => {
     switch (filter) {
-      case 'recent':
+      case 'latest':
         return 'No recent properties found. Check back later!';
       case 'trending':
         return 'No trending properties at the moment.';
-      case 'activity':
+      case 'recent-activity':
         return 'No recent activity yet. Be the first to like, comment, or guess!';
       default:
         return 'No properties to show.';

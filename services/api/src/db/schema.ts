@@ -235,6 +235,7 @@ export const listings = pgTable(
     index('listings_source_status_idx').on(table.sourceName, table.status), // watermark + staleness
     index('listings_mirror_last_changed_idx').on(table.mirrorLastChangedAt), // watermark query
     index('listings_mirror_last_seen_idx').on(table.mirrorLastSeenAt).where(sql`status = 'active'`),
+    index('idx_listings_active_property').on(table.propertyId, sql`created_at DESC`).where(sql`status = 'active'`),
   ]
 );
 
@@ -279,6 +280,7 @@ export const priceGuesses = pgTable(
     index('price_guesses_user_id_idx').on(table.userId),
     // Unique constraint: one guess per user per property (updates allowed with cooldown)
     uniqueIndex('price_guesses_user_property_idx').on(table.userId, table.propertyId),
+    index('idx_price_guesses_property_created').on(table.propertyId, sql`created_at DESC`),
   ]
 );
 
@@ -303,6 +305,7 @@ export const comments = pgTable(
     index('comments_user_id_idx').on(table.userId),
     index('comments_parent_id_idx').on(table.parentId),
     index('comments_created_at_idx').on(table.createdAt),
+    index('idx_comments_property_created').on(table.propertyId, sql`created_at DESC`),
   ]
 );
 
@@ -324,6 +327,7 @@ export const reactions = pgTable(
     index('reactions_user_id_idx').on(table.userId),
     // Unique constraint: one reaction per user per target
     uniqueIndex('reactions_user_target_idx').on(table.userId, table.targetType, table.targetId),
+    index('idx_reactions_property_like').on(table.targetId, sql`created_at DESC`).where(sql`target_type = 'property' AND reaction_type = 'like'`),
   ]
 );
 

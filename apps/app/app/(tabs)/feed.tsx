@@ -21,7 +21,8 @@ import {
 import {
   useInfiniteFeed,
   useActivityFeed,
-  type FeedFilter,
+  type FeedTab,
+  type PropertyFeedFilter,
   type FeedProperty,
   type ActivityItem,
 } from '@/src/hooks';
@@ -32,14 +33,14 @@ import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 
 // --- Header title per filter ---
 
-const FILTER_TITLES: Record<FeedFilter, string> = {
+const FILTER_TITLES: Record<FeedTab, string> = {
   trending: 'Trending Properties',
-  recent: 'Latest Properties',
-  activity: 'Recent Activity',
+  latest: 'Latest Properties',
+  'recent-activity': 'Recent Activity',
 };
 
 export default function FeedScreen() {
-  const [activeFilter, setActiveFilter] = useState<FeedFilter>('trending');
+  const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
 
@@ -71,10 +72,12 @@ export default function FeedScreen() {
     [unreadCount]
   );
 
-  // Property feed (trending/recent)
-  const isPropertyFeed = activeFilter !== 'activity';
+  // Property feed (trending/latest)
+  const isPropertyFeed = activeFilter !== 'recent-activity';
+  const propertyFeedFilter: PropertyFeedFilter =
+    activeFilter === 'latest' ? 'latest' : 'trending';
   const feedQuery = useInfiniteFeed(
-    isPropertyFeed ? activeFilter : 'trending'
+    isPropertyFeed ? propertyFeedFilter : 'trending'
   );
 
   // Activity feed
@@ -100,7 +103,7 @@ export default function FeedScreen() {
     setIsRefreshing(false);
   }, [activeQuery]);
 
-  const handleFilterChange = useCallback((filter: FeedFilter) => {
+  const handleFilterChange = useCallback((filter: FeedTab) => {
     setActiveFilter(filter);
   }, []);
 

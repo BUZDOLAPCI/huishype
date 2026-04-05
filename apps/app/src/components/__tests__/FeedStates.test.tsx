@@ -65,8 +65,8 @@ describe('FeedEmptyState', () => {
     expect(getByText('No properties to show.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "recent" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="recent" />);
+  it('shows filter-specific message for "latest" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="latest" />);
 
     expect(getByText('No recent properties found. Check back later!')).toBeTruthy();
   });
@@ -77,8 +77,8 @@ describe('FeedEmptyState', () => {
     expect(getByText('No trending properties at the moment.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "activity" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="activity" />);
+  it('shows filter-specific message for "recent-activity" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="recent-activity" />);
 
     expect(getByText('No recent activity yet. Be the first to like, comment, or guess!')).toBeTruthy();
   });

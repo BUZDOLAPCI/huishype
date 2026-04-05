@@ -6,7 +6,7 @@ import { sql, eq, and } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
 import { isValidCountryCode, getCountryConfig, type CountryCode } from '@huishype/shared';
 import { calculateActivityLevel } from './views.js';
-import { calculateFmvForProperty } from '../services/fmv.js';
+import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -1193,9 +1193,9 @@ export async function propertyRoutes(app: FastifyInstance) {
           eng.like_count,
           EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
           EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
-          (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id) AS view_count,
-          (SELECT COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int FROM property_views WHERE property_id=p.id) AS unique_viewers,
-          (SELECT COUNT(*)::int FROM property_views WHERE property_id=p.id AND viewed_at > NOW() - INTERVAL '7 days') AS recent_views,
+          pv.view_count,
+          pv.unique_viewers,
+          pv.recent_views,
           eng.comment_count,
           eng.guess_count,
           p.created_at,
@@ -1207,6 +1207,13 @@ export async function propertyRoutes(app: FastifyInstance) {
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
         ${engagementJoin}
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(*)::int AS view_count,
+            COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int AS unique_viewers,
+            COUNT(*) FILTER (WHERE viewed_at > NOW() - INTERVAL '7 days')::int AS recent_views
+          FROM property_views WHERE property_id = p.id
+        ) pv ON true
         WHERE p.id = ${id}
         LIMIT 1
       `);
@@ -1226,8 +1233,12 @@ export async function propertyRoutes(app: FastifyInstance) {
       const guessCount = Number(r.guess_count);
       const recentViews = Number(r.recent_views);
 
-      // Calculate FMV with karma-weighting and WOZ anchoring
-      const fmvResult = await calculateFmvForProperty(id);
+      // Calculate FMV — reuse official_valuation and asking_price already
+      // loaded by the main query instead of re-fetching them (saves 2 DB round-trips)
+      const guesses = await fetchGuessesWithKarma(id);
+      const officialValuation = r.official_valuation != null ? Number(r.official_valuation) : null;
+      const askingPrice = r.asking_price != null ? Number(r.asking_price) : null;
+      const fmvResult = calculateFmv(guesses, officialValuation, askingPrice);
 
       return reply.send({
         ...mapPropertyRow(r),

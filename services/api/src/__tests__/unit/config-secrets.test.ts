@@ -8,6 +8,9 @@ describe('validateProductionSecrets', () => {
     COOKIE_SECRET: 'cookie-secret',
     GOOGLE_CLIENT_ID: 'google-client-id',
     MAGIC_LINK_BASE_URL: 'https://huishype.nl/auth/callback',
+    RESEND_API_KEY: 're_test_key',
+    EMAIL_FROM: 'HuisHype <noreply@huishype.nl>',
+    EMAIL_REPLY_TO: 'support@huishype.nl',
   };
 
   it('should not throw in dev mode even if all secrets are missing', () => {
@@ -60,7 +63,28 @@ describe('validateProductionSecrets', () => {
 
   it('should list all missing secrets in the error message', () => {
     expect(() => validateProductionSecrets({}, false)).toThrow(
-      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL',
+      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO',
+    );
+  });
+
+  it('should throw in production when RESEND_API_KEY is missing', () => {
+    const env = { ...fullSecrets, RESEND_API_KEY: undefined };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'Missing required secrets in production: RESEND_API_KEY',
+    );
+  });
+
+  it('should throw in production when EMAIL_FROM is missing', () => {
+    const env = { ...fullSecrets, EMAIL_FROM: undefined };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'Missing required secrets in production: EMAIL_FROM',
+    );
+  });
+
+  it('should throw in production when EMAIL_REPLY_TO is missing', () => {
+    const env = { ...fullSecrets, EMAIL_REPLY_TO: undefined };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'Missing required secrets in production: EMAIL_REPLY_TO',
     );
   });
 

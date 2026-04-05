@@ -890,6 +890,12 @@ async function seedListings() {
       console.log('  \u2713 ANALYZE complete');
       console.log('');
 
+      // Step 7: Refresh the feed materialized view
+      console.log('Refreshing mv_latest_active_listings...');
+      await mainDb.unsafe('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings');
+      console.log('  \u2713 Materialized view refreshed');
+      console.log('');
+
       // Reset statement_timeout
       await mainDb.unsafe('RESET statement_timeout');
     }

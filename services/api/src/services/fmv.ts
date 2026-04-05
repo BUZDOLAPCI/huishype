@@ -219,8 +219,36 @@ export function calculateFmv(
 // --- Database-Dependent Functions ---
 
 /**
+ * Fetch non-meme price guesses with user karma for a property.
+ * This is the only query needed when officialValuation and askingPrice
+ * are already available from a parent query.
+ */
+export async function fetchGuessesWithKarma(propertyId: string): Promise<WeightedGuess[]> {
+  const guessRows = await db
+    .select({
+      guessedPrice: priceGuesses.guessedPrice,
+      karma: users.karma,
+    })
+    .from(priceGuesses)
+    .innerJoin(users, eq(priceGuesses.userId, users.id))
+    .where(
+      and(
+        eq(priceGuesses.propertyId, propertyId),
+        eq(priceGuesses.isMemeGuess, false)
+      )
+    );
+
+  return guessRows.map((r) => ({
+    guessedPrice: Number(r.guessedPrice),
+    karma: r.karma,
+  }));
+}
+
+/**
  * Fetch FMV data for a property from the database.
- * Fetches non-meme guesses with user karma, WOZ value, and asking price.
+ * Issues 3 DB queries (officialValuation, askingPrice, guesses+karma).
+ * Prefer fetchGuessesWithKarma() + calculateFmv() when the caller
+ * already has officialValuation and askingPrice loaded.
  */
 export async function calculateFmvForProperty(propertyId: string): Promise<FmvResult> {
   // Fetch property official valuation
@@ -247,25 +275,7 @@ export async function calculateFmvForProperty(propertyId: string): Promise<FmvRe
 
   const askingPrice = listingRows[0]?.askingPrice ?? null;
 
-  // Fetch non-meme guesses with user karma
-  const guessRows = await db
-    .select({
-      guessedPrice: priceGuesses.guessedPrice,
-      karma: users.karma,
-    })
-    .from(priceGuesses)
-    .innerJoin(users, eq(priceGuesses.userId, users.id))
-    .where(
-      and(
-        eq(priceGuesses.propertyId, propertyId),
-        eq(priceGuesses.isMemeGuess, false)
-      )
-    );
-
-  const guesses: WeightedGuess[] = guessRows.map((r) => ({
-    guessedPrice: Number(r.guessedPrice),
-    karma: r.karma,
-  }));
+  const guesses = await fetchGuessesWithKarma(propertyId);
 
   return calculateFmv(guesses, officialValuation, askingPrice);
 }

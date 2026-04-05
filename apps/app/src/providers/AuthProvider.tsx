@@ -104,6 +104,8 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+class ExpectedEmailAuthError extends Error {}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -420,7 +422,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (!response.ok) {
           const errorData = (await response.json()) as { error: string; message: string };
-          throw new Error(errorData.message || 'Invalid or expired link');
+          const message = errorData.message || 'Invalid or expired link';
+          if (response.status === 400 || response.status === 401) {
+            throw new ExpectedEmailAuthError(message);
+          }
+          throw new Error(message);
         }
 
         const data = (await response.json()) as {
@@ -440,7 +446,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           data.session.expiresAt
         );
       } catch (error) {
-        console.error('Email token verification failed:', error);
+        if (!(error instanceof ExpectedEmailAuthError)) {
+          console.error('Email token verification failed:', error);
+        }
         setState((prev) => ({
           ...prev,
           isLoading: false,
@@ -494,13 +502,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       try {
         await verifyEmailToken(emailToken);
-      } catch (error) {
-        console.error('Failed to process incoming email auth link:', error);
-        setState((prev) => ({
-          ...prev,
-          authError: error instanceof Error ? error.message : 'Invalid or expired link',
-        }));
-      }
+      } catch {}
     },
     [verifyEmailToken]
   );
@@ -566,18 +568,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
-        }
-
-        setState({
-          user,
-          isAuthenticated: true,
-          isLoading: false,
-          accessToken,
-          authError: null,
-        });
-
-        if (expiresAt) {
-          scheduleTokenRefresh(expiresAt);
+          // refreshAuth already updated accessToken in state and storage;
+          // only set user/isAuthenticated/isLoading here to avoid
+          // overwriting the fresh token with the stale one we read above.
+          setState((prev) => ({
+            ...prev,
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+            authError: null,
+          }));
+        } else {
+          setState({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+            accessToken,
+            authError: null,
+          });
+          // Only schedule here for the non-expired path.
+          // The expired path already scheduled via refreshAuth().
+          if (expiresAt) {
+            scheduleTokenRefresh(expiresAt);
+          }
         }
       } catch (error) {
         console.error('Failed to load stored auth:', error);

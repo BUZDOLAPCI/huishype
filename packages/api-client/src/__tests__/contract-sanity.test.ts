@@ -12,19 +12,52 @@
 
 import { describe, it, expect } from 'vitest';
 import type { paths } from '../../generated/api.js';
+import type { GetFeedRequest, GetFeedResponse } from '@huishype/shared';
 import { HuisHypeApiClient, createApiClient, ApiError } from '../client.js';
 
 // Helper: extract all keys from a type at compile time
 // This verifies the generated paths interface contains expected routes
 type PathKeys = keyof paths;
+type Assert<T extends true> = T;
+type IsExact<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+  ? (<T>() => T extends B ? 1 : 2) extends <T>() => T extends A ? 1 : 2
+    ? true
+    : false
+  : false;
+
+type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
+type FeedResponseFromOpenApi = paths['/feed']['get']['responses'][200]['content']['application/json'];
+type FeedClientMethod = HuisHypeApiClient['getFeed'];
+type ExpectedFeedClientMethod = (params: GetFeedRequest) => Promise<GetFeedResponse>;
+type Expect<T extends true> = T;
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
+    ? true
+    : false
+  : false;
+
+type FeedQuery = NonNullable<paths['/feed']['get']['parameters']['query']>;
+const feedContractAssertions = [
+  true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
+  true as Assert<IsExact<FeedResponseFromOpenApi, GetFeedResponse>>,
+  true as Assert<IsExact<FeedClientMethod, ExpectedFeedClientMethod>>,
+  true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
+  true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
+] as const;
 
 describe('Generated OpenAPI types', () => {
+  it('keeps the /feed contract aligned with the shared canonical request and response types', () => {
+    expect(feedContractAssertions).toEqual([true, true, true, true, true]);
+  });
+
   it('exports a paths interface with known API routes', () => {
     // Type-level assertions: these cause compile errors if the path is missing.
     // The runtime check is a bonus.
     const expectedPaths: PathKeys[] = [
       '/health',
       '/auth/google',
+      '/auth/email/request',
+      '/auth/email/verify',
       '/auth/refresh',
       '/auth/logout',
       '/auth/me',
@@ -57,7 +90,7 @@ describe('Generated OpenAPI types', () => {
       expect(path).toBeTruthy();
     }
     // Verify we have a meaningful number of paths
-    expect(expectedPaths.length).toBeGreaterThanOrEqual(25);
+    expect(expectedPaths.length).toBeGreaterThanOrEqual(27);
   });
 
   it('generated paths do not use /api/v1 prefix', () => {
@@ -82,6 +115,8 @@ describe('HuisHypeApiClient', () => {
 
     // Auth
     expect(typeof client.loginGoogle).toBe('function');
+    expect(typeof client.requestEmailMagicLink).toBe('function');
+    expect(typeof client.verifyEmailToken).toBe('function');
     expect(typeof client.refreshAccessToken).toBe('function');
     expect(typeof client.logout).toBe('function');
     expect(typeof client.getAuthMe).toBe('function');

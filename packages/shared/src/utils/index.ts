@@ -40,8 +40,9 @@ export {
   // Reaction
   reactionTypeSchema,
   // Feed
-  feedTypeSchema,
-  getFeedSchema,
+  propertyFeedFilterSchema,
+  feedQuerySchema,
+  type FeedQuery,
   // Pagination
   paginationSchema,
   cursorPaginationSchema,

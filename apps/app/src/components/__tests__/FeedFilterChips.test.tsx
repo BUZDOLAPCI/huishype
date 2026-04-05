@@ -25,8 +25,8 @@ describe('FeedFilterChips', () => {
       <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-recent'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('recent');
+    fireEvent.press(getByTestId('filter-chip-latest'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('latest');
   });
 
   it('calls onFilterChange with activity filter value', () => {
@@ -34,8 +34,8 @@ describe('FeedFilterChips', () => {
       <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-activity'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('activity');
+    fireEvent.press(getByTestId('filter-chip-recent-activity'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('recent-activity');
   });
 
   it('renders with trending filter active', () => {

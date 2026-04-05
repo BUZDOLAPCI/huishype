@@ -8,6 +8,7 @@
 
 import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
 import { server } from '../server.js';
+import type { PropertyFeedFilter } from '@huishype/shared';
 import {
   handlers,
   authHandlers,
@@ -41,6 +42,15 @@ import {
   getMockComments,
   getMockGuesses,
 } from '../data/fixtures.js';
+
+type Expect<T extends true> = T;
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
+    ? true
+    : false
+  : false;
+
+type _FeedFilterExact = Expect<Equal<PropertyFeedFilter, 'trending' | 'latest'>>;
 
 describe('Mock handler runtime parity', () => {
   beforeAll(() => {
@@ -89,6 +99,22 @@ describe('Mock handler runtime parity', () => {
     const oversizedLimitBody = await oversizedLimitResponse.json();
     expect(oversizedLimitResponse.status).toBe(400);
     expect(oversizedLimitBody).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Invalid query parameters',
+    });
+  });
+
+  it('matches live feed validation for canonical and obsolete filters', async () => {
+    const trendingResponse = await fetch('http://localhost/feed?filter=trending&page=1&limit=5');
+    const trendingBody = await trendingResponse.json();
+    expect(trendingResponse.status).toBe(200);
+    expect(trendingBody).toHaveProperty('items');
+    expect(trendingBody).toHaveProperty('pagination');
+
+    const obsoleteFilterResponse = await fetch('http://localhost/feed?filter=controversial');
+    const obsoleteFilterBody = await obsoleteFilterResponse.json();
+    expect(obsoleteFilterResponse.status).toBe(400);
+    expect(obsoleteFilterBody).toEqual({
       error: 'VALIDATION_ERROR',
       message: 'Invalid query parameters',
     });
@@ -285,20 +311,5 @@ describe('Fixture data integrity', () => {
   it('getMockGuesses returns guesses for valid property', () => {
     const guesses = getMockGuesses('prop-001');
     expect(guesses.length).toBeGreaterThan(0);
-  });
-});
-
-describe('Feed filter values', () => {
-  // The final feed chips per the design spec:
-  //   "Trending"         -> filter=trending
-  //   "Latest"           -> filter=recent
-  //   "Recent Activity"  -> filter=controversial
-  // Stale values (hot, following, price-mismatch as chip) should not appear in chips,
-  // but price-mismatch is still a valid backend filter.
-  it('recognizes canonical feed filter values', () => {
-    const validFilters = ['trending', 'recent', 'controversial', 'price-mismatch'];
-    for (const f of validFilters) {
-      expect(typeof f).toBe('string');
-    }
   });
 });

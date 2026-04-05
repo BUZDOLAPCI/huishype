@@ -8,6 +8,7 @@ import { fetchOgMetadata } from '../services/og-fetcher.js';
 import { checkAddressMatch } from '../services/address-matcher.js';
 import rateLimit from '@fastify/rate-limit';
 import { getAllListingDomains, getSourceNameForDomain, getAllListingSourceNames } from '@huishype/shared/config';
+import { refreshLatestListingsView } from '../services/listings-view.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -473,6 +474,13 @@ export async function listingRoutes(app: FastifyInstance) {
           .returning();
 
         const created = result[0];
+
+        // Refresh the materialized view so the feed picks up the new listing.
+        // Fire-and-forget: don't block the response on the refresh.
+        refreshLatestListingsView().catch((err) =>
+          request.log.error({ err }, 'Failed to refresh mv_latest_active_listings after submit'),
+        );
+
         return reply.status(201).send({
           id: created.id,
           propertyId: created.propertyId,
@@ -862,6 +870,15 @@ export async function listingRoutes(app: FastifyInstance) {
           // Price history errors are non-fatal; log but don't fail the batch
           request.log.error({ err }, 'Price history batch insert failed');
         }
+      }
+
+      // Refresh the materialized view after bulk ingestion so the feed
+      // reflects newly inserted/updated listings.
+      // Fire-and-forget: don't block the ingest response on the refresh.
+      if (ingested > 0 || updated > 0) {
+        refreshLatestListingsView().catch((err) =>
+          request.log.error({ err }, 'Failed to refresh mv_latest_active_listings after ingest'),
+        );
       }
 
       return reply.send({ ingested, updated, skipped, errors });

@@ -2953,12 +2953,12 @@ export interface paths {
         };
         /**
          * Get property feed
-         * @description Get a paginated feed of properties with active listings, sorted by various algorithms. Filters: trending (weighted 7-day activity), recent (last activity), controversial (guess variance), price-mismatch (asking vs FMV gap).
+         * @description Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity).
          */
         get: {
             parameters: {
                 query?: {
-                    filter?: "trending" | "recent" | "controversial" | "price-mismatch";
+                    filter?: "trending" | "latest";
                     page?: number;
                     limit?: number;
                     lat?: number;
@@ -3001,7 +3001,6 @@ export interface paths {
                             pagination: {
                                 page: number;
                                 limit: number;
-                                total: number;
                                 hasMore: boolean;
                             };
                         };
@@ -3024,9 +3023,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Forward geocode search
+         * @description Proxies to Photon geocoder and returns formatted address suggestions.
+         */
         get: {
             parameters: {
-                query?: never;
+                query: {
+                    q: string;
+                    limit?: number;
+                    lang?: string;
+                    countrycode?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3038,7 +3046,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            id: string;
+                            displayName: string;
+                            street?: string;
+                            houseNumber?: string;
+                            postalCode?: string;
+                            city?: string;
+                            region?: string;
+                            countryCode?: string;
+                            coordinates: [
+                                number,
+                                number
+                            ];
+                        }[];
+                    };
                 };
             };
         };
@@ -3057,9 +3080,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Reverse geocode coordinates
+         * @description Reverse geocodes a coordinate to a city/town name via Photon. Returns { city, state, country, countryCode } or null if nothing found.
+         */
         get: {
             parameters: {
-                query?: never;
+                query: {
+                    lon: number;
+                    lat: number;
+                    lang?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3071,7 +3102,14 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            city: string | null;
+                            state: string | null;
+                            country: string | null;
+                            countryCode: string | null;
+                        } | null;
+                    };
                 };
             };
         };

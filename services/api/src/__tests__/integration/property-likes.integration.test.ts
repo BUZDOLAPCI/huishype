@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 /**
  * Integration tests for property like endpoints and enriched GET /properties/:id.
@@ -33,14 +34,13 @@ describe('Property like routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
-    });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    // Create a dedicated synthetic property (hermetic — no shared fixture dependency)
+    propertyId = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO properties (id, country_code, street, house_number, city, postal_code, status, geometry)
+      VALUES (${propertyId}, 'NL', 'Like Test Street', '1', 'TestCity', '1234AB', 'active',
+              ST_SetSRID(ST_MakePoint(5.47, 51.44), 4326))
+    `);
   });
 
   afterAll(async () => {
@@ -52,6 +52,12 @@ describe('Property like routes', () => {
       } catch {
         // Ignore
       }
+    }
+    // Clean up synthetic property
+    try {
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+    } catch {
+      // Ignore
     }
     await app.close();
   });

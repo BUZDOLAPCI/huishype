@@ -11,23 +11,23 @@ import React from 'react';
 import { ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Chip } from './ui/Chip';
 import { Icon } from './ui/Icon';
-import type { FeedFilter } from '../hooks/useFeed';
+import type { FeedTab } from '../hooks/useFeed';
 
 interface FilterChipDef {
-  key: FeedFilter;
+  key: FeedTab;
   label: string;
   leadingIcon?: boolean;
 }
 
 const FILTER_CHIPS: FilterChipDef[] = [
   { key: 'trending', label: 'Trending', leadingIcon: true },
-  { key: 'recent', label: 'Latest' },
-  { key: 'activity', label: 'Recent Activity' },
+  { key: 'latest', label: 'Latest' },
+  { key: 'recent-activity', label: 'Recent Activity' },
 ];
 
 interface FeedFilterChipsProps {
-  activeFilter: FeedFilter;
-  onFilterChange: (filter: FeedFilter) => void;
+  activeFilter: FeedTab;
+  onFilterChange: (filter: FeedTab) => void;
 }
 
 export function FeedFilterChips({

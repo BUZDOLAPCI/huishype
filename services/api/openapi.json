@@ -6116,7 +6116,7 @@
         "tags": [
           "feed"
         ],
-        "description": "Get a paginated feed of properties with active listings, sorted by various algorithms. Filters: trending (weighted 7-day activity), recent (last activity), controversial (guess variance), price-mismatch (asking vs FMV gap).",
+        "description": "Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity).",
         "parameters": [
           {
             "schema": {
@@ -6124,9 +6124,7 @@
               "type": "string",
               "enum": [
                 "trending",
-                "recent",
-                "controversial",
-                "price-mismatch"
+                "latest"
               ]
             },
             "in": "query",
@@ -6311,9 +6309,6 @@
                         "limit": {
                           "type": "number"
                         },
-                        "total": {
-                          "type": "number"
-                        },
                         "hasMore": {
                           "type": "boolean"
                         }
@@ -6321,7 +6316,6 @@
                       "required": [
                         "page",
                         "limit",
-                        "total",
                         "hasMore"
                       ],
                       "additionalProperties": false
@@ -6341,9 +6335,105 @@
     },
     "/geocode/search": {
       "get": {
+        "summary": "Forward geocode search",
+        "tags": [
+          "Geocode"
+        ],
+        "description": "Proxies to Photon geocoder and returns formatted address suggestions.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "q",
+            "required": true
+          },
+          {
+            "schema": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "lang",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "countrycode",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "street": {
+                        "type": "string"
+                      },
+                      "houseNumber": {
+                        "type": "string"
+                      },
+                      "postalCode": {
+                        "type": "string"
+                      },
+                      "city": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": "string"
+                      },
+                      "countryCode": {
+                        "type": "string"
+                      },
+                      "coordinates": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "displayName",
+                      "coordinates"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -6351,23 +6441,35 @@
     "/geocode/reverse": {
       "get": {
         "summary": "Reverse geocode coordinates",
-        "tags": ["Geocode"],
+        "tags": [
+          "Geocode"
+        ],
         "description": "Reverse geocodes a coordinate to a city/town name via Photon. Returns { city, state, country, countryCode } or null if nothing found.",
         "parameters": [
           {
-            "schema": { "type": "number", "minimum": -180, "maximum": 180 },
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
             "in": "query",
             "name": "lon",
             "required": true
           },
           {
-            "schema": { "type": "number", "minimum": -90, "maximum": 90 },
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
             "in": "query",
             "name": "lat",
             "required": true
           },
           {
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "in": "query",
             "name": "lang",
             "required": false
@@ -6375,23 +6477,66 @@
         ],
         "responses": {
           "200": {
-            "description": "Reverse geocode result or null if no match",
+            "description": "Default Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
+                  "anyOf": [
                     {
                       "type": "object",
                       "properties": {
-                        "city": { "type": ["string", "null"] },
-                        "state": { "type": ["string", "null"] },
-                        "country": { "type": ["string", "null"] },
-                        "countryCode": { "type": ["string", "null"] }
+                        "city": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "country": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "countryCode": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
                       },
-                      "required": ["city", "state", "country", "countryCode"],
+                      "required": [
+                        "city",
+                        "state",
+                        "country",
+                        "countryCode"
+                      ],
                       "additionalProperties": false
                     },
-                    { "type": "null" }
+                    {
+                      "type": "null"
+                    }
                   ]
                 }
               }

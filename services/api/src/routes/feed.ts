@@ -5,23 +5,9 @@ import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
-import { isValidCountryCode } from '@huishype/shared';
+import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
 
 // --- Zod schemas ---
-
-const feedQuerySchema = z.object({
-  filter: z
-    .enum(['trending', 'recent', 'controversial', 'price-mismatch'])
-    .default('trending'),
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  lat: z.coerce.number().min(-90).max(90).optional(),
-  lon: z.coerce.number().min(-180).max(180).optional(),
-  country: z.string().length(2).toUpperCase().refine(
-    (val) => isValidCountryCode(val),
-    { message: 'Invalid country code' }
-  ).optional(),
-});
 
 const feedItemSchema = z.object({
   id: z.string().uuid(),
@@ -46,7 +32,6 @@ const feedResponseSchema = z.object({
   pagination: z.object({
     page: z.number(),
     limit: z.number(),
-    total: z.number(),
     hasMore: z.boolean(),
   }),
 });
@@ -79,16 +64,15 @@ interface FeedRow extends Record<string, unknown> {
 export async function feedRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  typedApp.get(
+  typedApp.get<{ Querystring: FeedQuery }>(
     '/feed',
     {
       schema: {
         tags: ['feed'],
         summary: 'Get property feed',
         description:
-          'Get a paginated feed of properties with active listings, sorted by various algorithms. ' +
-          'Filters: trending (weighted 7-day activity), recent (last activity), ' +
-          'controversial (guess variance), price-mismatch (asking vs FMV gap).',
+          'Get a paginated feed of properties with active listings. ' +
+          'Filters: trending (weighted 7-day activity) and latest (most recent activity).',
         querystring: feedQuerySchema,
         response: {
           200: feedResponseSchema,
@@ -114,66 +98,33 @@ export async function feedRoutes(app: FastifyInstance) {
 
       // Filter-specific WHERE for the data query (can reference join aliases)
       let dataFilterWhere: ReturnType<typeof sql>;
-      // Filter-specific WHERE for the count query (uses correlated subqueries)
-      let countFilterWhere: ReturnType<typeof sql>;
       // Filter-specific ORDER BY
       let orderBy: ReturnType<typeof sql>;
 
       switch (filter) {
         case 'trending':
           dataFilterWhere = sql``;
-          countFilterWhere = sql``;
           orderBy = sql`ORDER BY trending_score DESC, last_activity_at DESC, p.id`;
           break;
-        case 'recent':
+        case 'latest':
           dataFilterWhere = sql``;
-          countFilterWhere = sql``;
           orderBy = sql`ORDER BY last_activity_at DESC, p.id`;
-          break;
-        case 'controversial':
-          dataFilterWhere = sql`AND COALESCE(g.cnt, 0) >= 2`;
-          countFilterWhere = sql`AND (SELECT COUNT(*) FROM price_guesses WHERE property_id = p.id) >= 2`;
-          orderBy = sql`ORDER BY guess_stddev DESC NULLS LAST, p.id`;
-          break;
-        case 'price-mismatch':
-          dataFilterWhere = sql`AND l.asking_price IS NOT NULL AND g.fmv IS NOT NULL`;
-          countFilterWhere = sql`AND l.asking_price IS NOT NULL AND (SELECT CASE WHEN COUNT(*) >= 3 THEN 1 END FROM price_guesses WHERE property_id = p.id) IS NOT NULL`;
-          orderBy = sql`ORDER BY ABS(l.asking_price::numeric - g.fmv::numeric) DESC, p.id`;
           break;
         default:
           dataFilterWhere = sql``;
-          countFilterWhere = sql``;
           orderBy = sql`ORDER BY trending_score DESC, last_activity_at DESC, p.id`;
       }
 
-      // --- Count query ---
-      const countRows = await db.execute<{ total: number }>(sql`
-        SELECT COUNT(*)::int AS total
-        FROM (
-          SELECT DISTINCT ON (property_id)
-            property_id, asking_price
-          FROM listings
-          WHERE status = 'active'
-          ORDER BY property_id, created_at DESC
-        ) l
-        INNER JOIN properties p ON p.id = l.property_id
-          AND p.status = 'active'
-          AND p.geometry IS NOT NULL
-        WHERE 1=1
-          ${spatialCondition}
-          ${countryCondition}
-          ${countFilterWhere}
-      `);
-      const total = Array.from(countRows)[0]?.total ?? 0;
-
-      if (total === 0) {
-        return reply.send({
-          items: [],
-          pagination: { page, limit, total: 0, hasMore: false },
-        });
-      }
-
       // --- Data query ---
+      // Reads from mv_latest_active_listings — a materialized view that
+      // pre-computes the latest active listing per property.  Avoids a
+      // full DISTINCT ON scan of the listings table on every request.
+      // The view is refreshed after listing mutations (insert/update/status change).
+      //
+      // Social data uses pre-aggregated GROUP BY subqueries.
+      // With current small social tables (<10K rows), full-table GROUP BY + hash join
+      // is cheaper than thousands of per-property LATERAL index seeks.
+      // FILTER(WHERE ...) combines all-time and 7-day counts in a single pass.
       const rows = await db.execute<FeedRow>(sql`
         SELECT
           p.id,
@@ -193,80 +144,55 @@ export async function feedRoutes(app: FastifyInstance) {
           g.fmv,
           g.stddev AS guess_stddev,
           (
-            COALESCE(c7.cnt, 0)::numeric * 1.0
-            + COALESCE(g7.cnt, 0)::numeric * 2.0
-            + COALESCE(r7.cnt, 0)::numeric * 0.5
+            COALESCE(c.cnt_7d, 0)::numeric * 1.0
+            + COALESCE(g.cnt_7d, 0)::numeric * 2.0
+            + COALESCE(r.cnt_7d, 0)::numeric * 0.5
           ) AS trending_score,
           COALESCE(
             GREATEST(c.latest, g.latest, r.latest),
             l.listed_at
           ) AS last_activity_at
-        FROM (
-          SELECT DISTINCT ON (property_id)
-            property_id, asking_price, thumbnail_url,
-            created_at AS listed_at
-          FROM listings
-          WHERE status = 'active'
-          ORDER BY property_id, created_at DESC
-        ) l
+        FROM mv_latest_active_listings l
         INNER JOIN properties p ON p.id = l.property_id
           AND p.status = 'active'
           AND p.geometry IS NOT NULL
         LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt, MAX(created_at) AS latest
+          SELECT property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
+            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d
           FROM comments GROUP BY property_id
         ) c ON c.property_id = p.id
         LEFT JOIN (
-          SELECT property_id,
-            COUNT(*)::int AS cnt,
-            MAX(created_at) AS latest,
-            CASE WHEN COUNT(*) >= 3
-              THEN ROUND(AVG(guessed_price))::bigint
-            END AS fmv,
+          SELECT property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
+            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d,
+            CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(guessed_price))::bigint END AS fmv,
             STDDEV(guessed_price) AS stddev
           FROM price_guesses GROUP BY property_id
         ) g ON g.property_id = p.id
         LEFT JOIN (
-          SELECT target_id, COUNT(*)::int AS cnt, MAX(created_at) AS latest
-          FROM reactions
-          WHERE target_type = 'property' AND reaction_type = 'like'
+          SELECT target_id AS property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
+            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d
+          FROM reactions WHERE target_type = 'property' AND reaction_type = 'like'
           GROUP BY target_id
-        ) r ON r.target_id = p.id
+        ) r ON r.property_id = p.id
         LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM comments
-          WHERE created_at > NOW() - INTERVAL '7 days'
-          GROUP BY property_id
-        ) c7 ON c7.property_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM price_guesses
-          WHERE created_at > NOW() - INTERVAL '7 days'
-          GROUP BY property_id
-        ) g7 ON g7.property_id = p.id
-        LEFT JOIN (
-          SELECT target_id, COUNT(*)::int AS cnt
-          FROM reactions
-          WHERE target_type = 'property' AND reaction_type = 'like'
-            AND created_at > NOW() - INTERVAL '7 days'
-          GROUP BY target_id
-        ) r7 ON r7.target_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*)::int AS cnt
-          FROM property_views
-          GROUP BY property_id
+          SELECT property_id, COUNT(*) AS cnt
+          FROM property_views GROUP BY property_id
         ) v ON v.property_id = p.id
         WHERE 1=1
           ${spatialCondition}
           ${countryCondition}
           ${dataFilterWhere}
         ${orderBy}
-        LIMIT ${limit}
+        LIMIT ${limit + 1}
         OFFSET ${offset}
       `);
 
+      const allRows = Array.from(rows);
+      const hasMore = allRows.length > limit;
+      const pageRows = hasMore ? allRows.slice(0, limit) : allRows;
+
       // --- Transform to response ---
-      const items = Array.from(rows).map((r) => ({
+      const items = pageRows.map((r) => ({
         id: r.id,
         address: formatDisplayAddress(
           {
@@ -301,15 +227,12 @@ export async function feedRoutes(app: FastifyInstance) {
         pagination: {
           page,
           limit,
-          total,
-          hasMore: offset + limit < total,
+          hasMore,
         },
       });
     }
   );
 }
 
-// Export types for client usage
-export type FeedQuery = z.infer<typeof feedQuerySchema>;
 export type FeedItem = z.infer<typeof feedItemSchema>;
 export type FeedResponse = z.infer<typeof feedResponseSchema>;

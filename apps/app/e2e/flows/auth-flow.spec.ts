@@ -158,6 +158,31 @@ test.describe('Auth Flow', () => {
     }
   });
 
+  test('Magic link callback: invalid token shows error and home link', async ({ page }) => {
+    // Use a 64-char hex string so it passes Zod's length(64) schema
+    // validation and actually tests the token-lookup failure path.
+    await page.goto('/auth/callback?emailToken=deadbeef00000000000000000000000000000000000000000000000000000000');
+    await page.waitForLoadState('networkidle');
+
+    // The callback component should initially show a loading/verifying state,
+    // then transition to an error state once the API rejects the token.
+    // Wait for the error message or "Go to home screen" link to appear.
+    const errorOrHome = page.locator('text=/Invalid or expired|Go to home screen/');
+    await expect(errorOrHome.first()).toBeVisible({ timeout: 30000 });
+
+    // Verify the "Go to home screen" navigation link is present
+    const homeLink = page.locator('text=Go to home screen');
+    await expect(homeLink).toBeVisible({ timeout: 10000 });
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-magic-link-invalid-token.png` });
+
+    // Click "Go to home screen" and verify navigation away from callback
+    await homeLink.click();
+    await page.waitForURL((url) => !url.pathname.includes('/auth/callback'), {
+      timeout: 30000,
+    });
+  });
+
   test('Auth API: logout returns 204', async ({ request }) => {
     const uniqueId = `e2elogout${Date.now()}`;
     const loginResp = await request.post(`${API_BASE_URL}/auth/google`, {

@@ -1,18 +1,25 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { db } from '../../db/index.js';
+import { sql } from 'drizzle-orm';
 
 /**
  * Integration tests for the feed endpoint.
  *
  * Tests against the real PostGIS database seeded with listing data.
- * The feed only returns properties that have active listings.
+ * The feed queries mv_latest_active_listings, which must already exist
+ * via the migrated schema.
  */
 describe('Feed routes', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
+    const viewExists = await db.execute<{ exists: string | null }>(sql`
+      SELECT to_regclass('public.mv_latest_active_listings')::text AS exists
+    `);
+    expect(Array.from(viewExists)[0]?.exists).toBe('mv_latest_active_listings');
   });
 
   afterAll(async () => {
@@ -34,9 +41,7 @@ describe('Feed routes', () => {
       expect(Array.isArray(body.items)).toBe(true);
       expect(body.pagination).toHaveProperty('page', 1);
       expect(body.pagination).toHaveProperty('limit', 20);
-      expect(body.pagination).toHaveProperty('total');
       expect(body.pagination).toHaveProperty('hasMore');
-      expect(typeof body.pagination.total).toBe('number');
       expect(typeof body.pagination.hasMore).toBe('boolean');
     });
 
@@ -95,15 +100,15 @@ describe('Feed routes', () => {
     });
 
     it('should support pagination', async () => {
-      // Use filter=recent for stable ordering (last_activity_at DESC, p.id)
+      // Use filter=latest for stable ordering (last_activity_at DESC, p.id)
       // trending filter's score can shift when concurrent tests mutate data
       const page1 = await app.inject({
         method: 'GET',
-        url: '/feed?filter=recent&page=1&limit=5',
+        url: '/feed?filter=latest&page=1&limit=5',
       });
       const page2 = await app.inject({
         method: 'GET',
-        url: '/feed?filter=recent&page=2&limit=5',
+        url: '/feed?filter=latest&page=2&limit=5',
       });
 
       expect(page1.statusCode).toBe(200);
@@ -144,10 +149,10 @@ describe('Feed routes', () => {
       expect(body).toHaveProperty('pagination');
     });
 
-    it('should accept filter=recent', async () => {
+    it('should accept filter=latest', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/feed?filter=recent&limit=5',
+        url: '/feed?filter=latest&limit=5',
       });
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
@@ -155,36 +160,14 @@ describe('Feed routes', () => {
       expect(body).toHaveProperty('pagination');
     });
 
-    it('should accept filter=controversial', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=controversial&limit=5',
-      });
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-      // May be empty if no properties have 2+ guesses
-    });
-
-    it('should accept filter=price-mismatch', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=price-mismatch&limit=5',
-      });
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-      // May be empty if no properties have both asking price and FMV
-    });
-
-    it('should return 400 for invalid filter value', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=invalid',
-      });
-      expect(response.statusCode).toBe(400);
+    it('should return 400 for obsolete filter values', async () => {
+      for (const filter of ['recent', 'controversial', 'price-mismatch']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/feed?filter=${filter}`,
+        });
+        expect(response.statusCode).toBe(400);
+      }
     });
 
     it('should accept lat/lon for spatial filtering', async () => {
@@ -223,11 +206,55 @@ describe('Feed routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      if (body.pagination.total > 1) {
-        expect(body.pagination.hasMore).toBe(true);
+      // With limit=1, hasMore should be true if there are more than 1 item in the feed
+      if (body.items.length === 1) {
+        // hasMore could be true or false depending on total items
+        expect(typeof body.pagination.hasMore).toBe('boolean');
       } else {
+        // No items means no more
         expect(body.pagination.hasMore).toBe(false);
       }
     });
+
+    it('should return hasMore=true on a non-terminal page and hasMore=false on the terminal page', async () => {
+      // Probe total count with a large limit (max 50)
+      const probeRes = await app.inject({
+        method: 'GET',
+        url: '/feed?filter=latest&limit=50',
+      });
+      expect(probeRes.statusCode).toBe(200);
+      const probeBody = JSON.parse(probeRes.body);
+      const totalItems: number = probeBody.items.length;
+      const probeHasMore: boolean = probeBody.pagination.hasMore;
+
+      // Need at least 3 items so limit=2 gives a non-terminal first page
+      if (totalItems < 3 && !probeHasMore) {
+        return;
+      }
+
+      const limit = 2;
+
+      // Page 1 — with enough items, hasMore must be true
+      const page1Res = await app.inject({
+        method: 'GET',
+        url: `/feed?filter=latest&limit=${limit}&page=1`,
+      });
+      expect(page1Res.statusCode).toBe(200);
+      const page1 = JSON.parse(page1Res.body);
+      expect(page1.items.length).toBe(limit);
+      expect(page1.pagination.hasMore).toBe(true);
+
+      // Jump directly to a page that is guaranteed past the end.
+      // The DB may have up to ~144K listings, so use a very high page.
+      const beyondPage = 999999;
+      const lastRes = await app.inject({
+        method: 'GET',
+        url: `/feed?filter=latest&limit=${limit}&page=${beyondPage}`,
+      });
+      expect(lastRes.statusCode).toBe(200);
+      const lastBody = JSON.parse(lastRes.body);
+      expect(lastBody.items.length).toBe(0);
+      expect(lastBody.pagination.hasMore).toBe(false);
+    }, 15000);
   });
 });

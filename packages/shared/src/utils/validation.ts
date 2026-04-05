@@ -4,7 +4,13 @@
  */
 
 import { z } from 'zod';
-import { getCountryConfig, getAllListingDomains, getAllListingSourceNames, type CountryCode } from '../config/country-config.js';
+import {
+  getCountryConfig,
+  getAllListingDomains,
+  getAllListingSourceNames,
+  isValidCountryCode,
+  type CountryCode,
+} from '../config/country-config.js';
 
 // ============================================
 // Primitive Schemas
@@ -226,20 +232,23 @@ export const reactionTypeSchema = z.enum(['like', 'share']);
 // Feed Schemas
 // ============================================
 
-export const feedTypeSchema = z.enum([
-  'trending',
-  'new',
-  'controversial',
-  'overpriced',
-  'underpriced',
-]);
+export const propertyFeedFilterSchema = z.enum(['trending', 'latest']);
 
-export const getFeedSchema = z.object({
-  type: feedTypeSchema,
-  page: z.number().int().min(1).default(1),
-  pageSize: z.number().int().min(1).max(50).default(20),
-  city: z.string().max(100).optional(),
+export const feedQuerySchema = z.object({
+  filter: propertyFeedFilterSchema.default('trending'),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lon: z.coerce.number().min(-180).max(180).optional(),
+  country: z
+    .string()
+    .length(2)
+    .transform((value) => value.toUpperCase())
+    .refine((value) => isValidCountryCode(value), 'Invalid country code')
+    .optional(),
 });
+
+export type FeedQuery = z.output<typeof feedQuerySchema>;
 
 // ============================================
 // Pagination Schemas

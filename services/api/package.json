@@ -28,13 +28,14 @@
     "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts"
   },
   "dependencies": {
-    "@huishype/shared": "workspace:*",
+    "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/swagger": "^9.6.1",
     "@fastify/swagger-ui": "^5.2.4",
+    "@huishype/shared": "workspace:*",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",

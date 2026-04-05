@@ -15,6 +15,20 @@
       "when": 1774396800000,
       "tag": "0001_backend_features",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775433600000,
+      "tag": "0002_social_composite_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775520000000,
+      "tag": "0003_mv_latest_active_listings",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,8 @@ import {
   validatePostalCode,
   normalizePostalCode,
   postalCodeSchemaForCountry,
+  feedQuerySchema,
+  propertyFeedFilterSchema,
 } from '../utils/validation';
 
 // ---------------------------------------------------------------------------
@@ -163,5 +165,45 @@ describe('postalCodeSchemaForCountry', () => {
   it('GB schema rejects "12345"', () => {
     const schema = postalCodeSchemaForCountry('GB');
     expect(schema.safeParse('12345').success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// feedQuerySchema
+// ---------------------------------------------------------------------------
+
+describe('feedQuerySchema', () => {
+  it('accepts the canonical property feed query shape', () => {
+    const parsed = feedQuerySchema.safeParse({
+      filter: 'latest',
+      page: '2',
+      limit: '10',
+      lat: '52.37',
+      lon: '4.89',
+      country: 'nl',
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual({
+        filter: 'latest',
+        page: 2,
+        limit: 10,
+        lat: 52.37,
+        lon: 4.89,
+        country: 'NL',
+      });
+    }
+  });
+
+  it('rejects obsolete feed filters', () => {
+    expect(feedQuerySchema.safeParse({ filter: 'new' }).success).toBe(false);
+    expect(feedQuerySchema.safeParse({ filter: 'controversial' }).success).toBe(false);
+    expect(feedQuerySchema.safeParse({ filter: 'overpriced' }).success).toBe(false);
+    expect(feedQuerySchema.safeParse({ filter: 'underpriced' }).success).toBe(false);
+  });
+
+  it('exports the canonical property feed filter enum', () => {
+    expect(propertyFeedFilterSchema.options).toEqual(['trending', 'latest']);
   });
 });

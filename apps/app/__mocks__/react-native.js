@@ -93,6 +93,12 @@ const BackHandler = {
   removeEventListener: jest.fn(),
 };
 
+const Linking = {
+  getInitialURL: jest.fn(async () => null),
+  addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  removeEventListener: jest.fn(),
+};
+
 const AccessibilityInfo = {
   // Synchronous thenable so .then(setReducedMotion) runs inside act(),
   // avoiding spurious act() warnings from the useReducedMotion hook.
@@ -155,4 +161,5 @@ module.exports = {
   Modal,
   BackHandler,
   AccessibilityInfo,
+  Linking,
 };
