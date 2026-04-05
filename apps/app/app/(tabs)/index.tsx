@@ -1,9 +1,10 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
   Marker,
+  UserLocation,
   LogManager,
   type CameraRef,
   type MapRef,
@@ -25,6 +26,7 @@ import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityNa
 import { fetchNearbyCluster } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
@@ -125,6 +127,7 @@ export default function MapScreen() {
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [showUserLocation, setShowUserLocation] = useState(false);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -289,6 +292,23 @@ export default function MapScreen() {
     }
   }, [currentZoom]);
 
+  const handleCurrentLocationPress = useCallback(async () => {
+    try {
+      const { longitude, latitude } = await getCurrentLocation();
+      setShowUserLocation(true);
+
+      cameraRef.current?.flyTo({
+        center: [longitude, latitude],
+        zoom: Math.max(currentZoom, 16),
+        duration: 800,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to get current location';
+      console.warn('[MapScreen] Current location failed:', message);
+      Alert.alert('Location unavailable', message);
+    }
+  }, [currentZoom]);
+
   const [copiedFlash, setCopiedFlash] = useState(false);
   const handleCopyCamera = useCallback(async () => {
     const center = await mapRef.current?.getCenter();
@@ -311,6 +331,9 @@ export default function MapScreen() {
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
           mapStyle={mergedStyle as any}
+          compass
+          compassPosition={{ top: 160, right: 16 }}
+          compassHiddenFacingNorth
           onPress={handleMapPress}
           onRegionDidChange={handleRegionChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
@@ -328,6 +351,8 @@ export default function MapScreen() {
               pitch: DEFAULT_PITCH,
             }}
           />
+
+          {showUserLocation && <UserLocation heading />}
 
           {/* Paper Mario trees come from the server-side style.json as the shared
               paper-trees symbol layer. Both web and native render the tree sprites
@@ -402,7 +427,7 @@ export default function MapScreen() {
 
         {/* Location button — bottom-right of map, above tab bar */}
         <View style={{ position: 'absolute', bottom: 100, right: 16, zIndex: 10 }}>
-          <LocationButton testID="location-button" />
+          <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>
 
         {/* Zoom controls — positioned below the location button */}
