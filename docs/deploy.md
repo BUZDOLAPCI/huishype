@@ -73,7 +73,7 @@ curl -X POST "https://api.hetzner.cloud/v1/servers/124870912/actions/change_type
 
 Required: `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `EXPO_PUBLIC_API_URL`
 
-Auth (required for web-only release — Google OAuth + email magic link):
+Auth:
 - `GOOGLE_CLIENT_ID` — `91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com`
 - `RESEND_API_KEY` — Resend full-access key (stored in `.env.resend`)
 - `EMAIL_FROM` — `HuisHype <noreply@huishype.nl>`
@@ -81,6 +81,8 @@ Auth (required for web-only release — Google OAuth + email magic link):
 - `MAGIC_LINK_BASE_URL` — `https://huishype.nl/auth/callback`
 
 Optional: `CORS_ORIGINS`
+
+Note: web is the first production deployment target, but native stays maintained in parity with web. Apple Sign-In remains disabled for now until the Apple Developer account and related production provisioning are in place.
 
 ## API Keys
 

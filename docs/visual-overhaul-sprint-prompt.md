@@ -19,14 +19,15 @@ You are the **lead orchestrator**. You do NOT write implementation code. You:
 - **No workarounds or temporary fixes.** Only root causes and optimal solutions.
 - **Extend scope as needed.** If auxiliary or unrelated systems need improvement to close gaps, orchestrate that work too. Don't ignore issues — delegate them to teammates.
 - **Even unrelated issues** encountered during the sprint get delegated to teammates for resolution.
-- **Visual verification is mandatory.** Compare screenshots against the pen exports using a visual-capable agent. **Web only for initial release** — Android native verification is deferred (see `AGENTS.md` "Release Focus: Web Only").
-- **Definition of Done** per the plan applies to every phase (web surfaces only for initial release).
+- **Visual verification is mandatory.** Compare screenshots against the pen exports using a visual-capable agent. Both web and Android native must pass for every surface.
+- **Web/native parity throughout**, not deferred to the end.
+- **Definition of Done** per the plan applies to every phase.
 
 ## Execution Model
 
 - **Delegate everything.** Keep contexts focused and lean by using teams and subagents. Don't do implementation work on the lead agent.
 - **Respect the dependency graph.** Follow the plan's phase ordering. Use parallel agents only when tasks are genuinely independent — not for speed, but for context isolation.
-- **Loop until done.** Each visual target: Analyzer → Fixer → Visual Tester → Lead verdict. `NEEDS_WORK` reopens the task. The sprint doesn't close until all 15 targets are `SUFFICIENT` on web (Android native deferred per `AGENTS.md`).
+- **Loop until done.** Each visual target: Analyzer → Fixer → Visual Tester → Lead verdict. `NEEDS_WORK` reopens the task. The sprint doesn't close until all 15 targets are `SUFFICIENT` on both platforms.
 - **Pre-commit quality gate and full test suite** before marking any phase complete.
 
 Start now. Read the plan, create the task graph, and begin executing.

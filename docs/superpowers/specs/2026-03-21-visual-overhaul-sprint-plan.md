@@ -122,8 +122,8 @@ These are resolved defaults for execution unless explicitly overridden.
    - The final tier count must match the revised design spec and be sourced from one shared module.
 
 5. **Auth methods**
-   - Google OAuth and email magic link are the production paths for the web-only initial release.
-   - Apple Sign-In is deferred until native apps ship (see `AGENTS.md` "Release Focus: Web Only").
+   - Google OAuth and email magic link are the current production auth paths.
+   - Apple Sign-In is temporarily disabled for now until the Apple Developer account and production provisioning are ready.
    - No placeholder Apple-only branches are allowed at sign-off.
 
 6. **Property photos**
@@ -149,8 +149,8 @@ These are resolved defaults for execution unless explicitly overridden.
 - Lead agent orchestrates; implementation tasks must still be broken into focused work units.
 - Shared primitives come before screen assembly when the same pattern appears across exports.
 - No phase is complete if it updates visuals but leaves contracts, mocks, tests, or route ownership stale.
-- Web is the primary platform for the initial release. Native parity is deferred (see `AGENTS.md` "Release Focus: Web Only").
-- Wide and landscape are required verification surfaces for web, not a future enhancement.
+- Web/native parity is enforced throughout the sprint, not deferred to the end.
+- Wide and landscape are required verification surfaces, not a future enhancement.
 - No temporary compatibility branches for old and new ownership if a canonical owner can be chosen now.
 
 ## Definition Of Done For Any Phase
@@ -164,16 +164,14 @@ A phase is only complete when all applicable items below are true:
 - unit tests are added or updated
 - backend integration tests are added or updated when API or DB changed
 - Playwright coverage is updated for user-visible behavior
-- Maestro or equivalent Android-native capture coverage is updated for user-visible behavior *(deferred — native apps not in initial release, see `AGENTS.md`)*
+- Maestro or equivalent Android-native capture coverage is updated for user-visible behavior
 - web screenshot artifacts are captured for the scoped surface
-- Android screenshot artifacts are captured for the scoped surface *(deferred — web only for initial release)*
-- visual review marks the web artifacts `SUFFICIENT`
+- Android screenshot artifacts are captured for the scoped surface
+- visual review marks the artifacts `SUFFICIENT`
 - no console errors appear during web capture
-- no runtime errors appear in native logs during capture *(deferred — web only for initial release)*
+- no runtime errors appear in native logs during capture
 
 ## Platform Coverage Matrix
-
-> **Note**: For the initial web-only release, only the "Web Acceptance" and "Wide / Landscape Acceptance" (web) columns are required. Native Acceptance is deferred — see `AGENTS.md` "Release Focus: Web Only".
 
 | Surface | Web Acceptance | Native Acceptance | Wide / Landscape Acceptance |
 |------|----------------|-------------------|-----------------------------|
