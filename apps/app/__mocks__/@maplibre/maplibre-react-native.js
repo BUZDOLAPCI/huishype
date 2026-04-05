@@ -10,8 +10,11 @@ const Map = React.forwardRef(({ children, ...props }, ref) => {
 const Camera = React.forwardRef(({ children, ...props }, ref) => {
   React.useImperativeHandle(ref, () => ({
     setCamera: jest.fn(),
+    setStop: jest.fn(),
     flyTo: jest.fn(),
     moveTo: jest.fn(),
+    jumpTo: jest.fn(),
+    easeTo: jest.fn(),
     zoomTo: jest.fn(),
     fitBounds: jest.fn(),
   }));
@@ -82,6 +85,21 @@ const RasterSource = ({ children, ...props }) => {
 const LocationManager = {
   start: jest.fn(),
   stop: jest.fn(),
+  requestPermissions: jest.fn(() => Promise.resolve(true)),
+  getCurrentPosition: jest.fn(() =>
+    Promise.resolve({
+      coords: {
+        longitude: 5.4697,
+        latitude: 51.4416,
+        accuracy: 10,
+        altitude: null,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+      },
+      timestamp: Date.now(),
+    })
+  ),
   getLastKnownLocation: jest.fn(() => Promise.resolve(null)),
   setMinDisplacement: jest.fn(),
 };

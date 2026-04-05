@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Text, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import * as maplibregl from 'maplibre-gl';
 
 import {
@@ -12,6 +12,8 @@ import {
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { API_URL, fetchBatchProperties } from '@/src/utils/api';
+import { getCurrentLocation } from '@/src/lib/currentLocation';
+import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
@@ -200,6 +202,61 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
   document.head.appendChild(style);
 }
 
+const STANDALONE_COMPASS_CSS_ID = 'standalone-compass-css';
+if (typeof document !== 'undefined' && !document.getElementById(STANDALONE_COMPASS_CSS_ID)) {
+  const style = document.createElement('style');
+  style.id = STANDALONE_COMPASS_CSS_ID;
+  style.textContent = `
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass {
+      position: absolute;
+      right: 16px;
+      bottom: 156px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.87);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      overflow: hidden;
+      margin: 0 !important;
+      z-index: 3;
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 0s;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass.maplibregl-ctrl-standalone-compass--hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass:not(:empty) {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass button {
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass .maplibregl-ctrl-icon {
+      background-size: 75% 75%;
+      filter: invert(24%) sepia(10%) saturate(515%) hue-rotate(355deg) brightness(92%) contrast(88%);
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass button + button {
+      border-top: 0;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass button:not(:disabled):hover,
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass button:not(:disabled):active {
+      background-color: rgba(80, 74, 66, 0.06);
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-standalone-compass button:not(:disabled):active {
+      background-color: rgba(80, 74, 66, 0.08);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 /**
  * Create a custom marker element for the selected property
  */
@@ -281,6 +338,22 @@ export default function MapScreen() {
     },
   }), []);
 
+  const handleCurrentLocationPress = useCallback(async () => {
+    try {
+      const { longitude, latitude } = await getCurrentLocation();
+      mapRef.current?.flyTo({
+        center: [longitude, latitude],
+        zoom: Math.max(currentZoom, 16),
+        duration: 800,
+        essential: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to get current location';
+      console.warn('[MapScreen] Current location failed:', message);
+      Alert.alert('Location unavailable', message);
+    }
+  }, [currentZoom]);
+
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -309,8 +382,51 @@ export default function MapScreen() {
         maxPitch: 70,
       });
 
-      // Add zoom controls (no compass)
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+      const zoomControl = new maplibregl.NavigationControl({
+        showZoom: true,
+        showCompass: false,
+      });
+      const compassControl = new maplibregl.NavigationControl({
+        showZoom: false,
+        showCompass: true,
+      });
+
+      map.addControl(zoomControl, 'bottom-right');
+      map.addControl(compassControl, 'bottom-right');
+
+      const controlGroups = Array.from(
+        map.getContainer().querySelectorAll('.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group')
+      ) as HTMLDivElement[];
+      const zoomContainer = controlGroups.find(
+        (container) =>
+          !!container.querySelector('.maplibregl-ctrl-zoom-in') &&
+          !!container.querySelector('.maplibregl-ctrl-zoom-out')
+      );
+      if (zoomContainer) {
+        zoomContainer.dataset.testid = 'map-zoom-control';
+      }
+
+      const compassContainer = controlGroups.find(
+        (container) =>
+          !!container.querySelector('.maplibregl-ctrl-compass') &&
+          !container.querySelector('.maplibregl-ctrl-zoom-in')
+      );
+      const compassButton = compassContainer?.querySelector('.maplibregl-ctrl-compass') as HTMLButtonElement | null;
+      if (compassContainer && compassButton) {
+        compassContainer.classList.add('maplibregl-ctrl-standalone-compass');
+        compassContainer.classList.add('maplibregl-ctrl-standalone-compass--hidden');
+        compassContainer.dataset.testid = 'map-standalone-compass-control';
+        compassButton.dataset.testid = 'map-compass-button';
+      }
+
+      const syncCompassVisibility = () => {
+        if (!compassContainer) return;
+        const isHidden = isMapFacingNorth(map.getBearing());
+        compassContainer.classList.toggle('maplibregl-ctrl-standalone-compass--hidden', isHidden);
+        compassContainer.setAttribute('aria-hidden', isHidden ? 'true' : 'false');
+      };
+      map.on('rotate', syncCompassVisibility);
+      syncCompassVisibility();
 
       // Debug: copy camera button
       if (DEBUG_CAMERA) {
@@ -734,7 +850,7 @@ export default function MapScreen() {
 
         {/* Location button — bottom-right of map, above tab bar */}
         <View style={{ position: 'absolute', bottom: 100, right: 16, zIndex: 10 } as any}>
-          <LocationButton testID="location-button" />
+          <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>
 
         {/* GroupPreviewCard rendered via MapLibre Marker + React Portal (geo-anchored) */}

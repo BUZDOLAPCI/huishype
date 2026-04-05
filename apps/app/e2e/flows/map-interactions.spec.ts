@@ -10,7 +10,7 @@
  * - Verify vector tiles load at different zoom levels
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type TestInfo } from '@playwright/test';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -95,6 +95,13 @@ async function setMapView(
   await page.waitForTimeout(3000);
 }
 
+async function captureMapScreenshot(testInfo: TestInfo, page: import('@playwright/test').Page, name: string) {
+  await page.screenshot({
+    path: testInfo.outputPath(name),
+    fullPage: false,
+  });
+}
+
 test.describe('Map Interactions', () => {
   // Map tests need extra time: Metro bundle compile + MapLibre tile loading
   test.setTimeout(120000);
@@ -164,6 +171,108 @@ test.describe('Map Interactions', () => {
     const zoomedOut = await getMapZoom(page);
     expect(zoomedOut).toBeCloseTo(10, 0);
     expect(zoomedOut).toBeLessThan(zoomedIn);
+  });
+
+  test('compass appears on rotation and resets bearing on click', async ({ page }, testInfo) => {
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    const zoomControl = page.getByTestId('map-zoom-control');
+    const compassControl = page.getByTestId('map-standalone-compass-control');
+    const compassButton = page.getByTestId('map-compass-button');
+    const locationButton = page.getByTestId('location-button');
+
+    await expect(zoomControl).toBeVisible();
+    await expect(zoomControl.locator('.maplibregl-ctrl-zoom-in')).toBeVisible();
+    await expect(zoomControl.locator('.maplibregl-ctrl-zoom-out')).toBeVisible();
+    await expect(zoomControl.locator('.maplibregl-ctrl-compass')).toHaveCount(0);
+
+    await expect(compassControl).toBeHidden();
+    await expect(compassButton).toBeHidden();
+
+    await page.evaluate(() => {
+      const map = (window as any).__mapInstance;
+      map.rotateTo(35, { duration: 0 });
+    });
+
+    await expect(compassControl).toBeVisible();
+    await expect(compassButton).toBeVisible();
+    await captureMapScreenshot(testInfo, page, 'standalone-compass-rotated.png');
+
+    const compassBox = await compassControl.boundingBox();
+    const locationBox = await locationButton.boundingBox();
+    expect(compassBox).not.toBeNull();
+    expect(locationBox).not.toBeNull();
+    expect(compassBox!.y + compassBox!.height).toBeLessThan(locationBox!.y);
+    expect(Math.abs((compassBox!.x + compassBox!.width / 2) - (locationBox!.x + locationBox!.width / 2))).toBeLessThanOrEqual(2);
+
+    const rotatedBearing = await page.evaluate(() => {
+      const map = (window as any).__mapInstance;
+      return map.getBearing();
+    });
+    expect(Math.abs(rotatedBearing)).toBeGreaterThan(1);
+
+    await compassButton.click();
+
+    await page.waitForFunction(() => {
+      const map = (window as any).__mapInstance;
+      return Math.abs(map.getBearing()) < 0.5;
+    });
+    await expect(compassControl).toBeHidden();
+    await expect(zoomControl).toBeVisible();
+  });
+
+  test('current-location button recenters the map from browser geolocation', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window.navigator, 'geolocation', {
+        configurable: true,
+        value: {
+          getCurrentPosition: (success: (position: GeolocationPosition) => void) =>
+            success({
+              coords: {
+                latitude: 52.0907,
+                longitude: 5.1214,
+                accuracy: 10,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+                toJSON: () => ({}),
+              },
+              timestamp: Date.now(),
+              toJSON: () => ({}),
+            } as GeolocationPosition),
+        },
+      });
+    });
+
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    await page.getByTestId('location-button').click();
+
+    await page.waitForFunction(() => {
+      const map = (window as any).__mapInstance;
+      const center = map.getCenter();
+      return (
+        Math.abs(center.lng - 5.1214) < 0.001 &&
+        Math.abs(center.lat - 52.0907) < 0.001 &&
+        map.getZoom() >= 16
+      );
+    });
+
+    const mapState = await page.evaluate(() => {
+      const map = (window as any).__mapInstance;
+      const center = map.getCenter();
+      return {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+      };
+    });
+
+    expect(Math.abs(mapState.center[0] - 5.1214)).toBeLessThan(0.001);
+    expect(Math.abs(mapState.center[1] - 52.0907)).toBeLessThan(0.001);
+    expect(mapState.zoom).toBeGreaterThanOrEqual(16);
   });
 
   test('vector tiles load at zoom 15 (Eindhoven area)', async ({ page }) => {
