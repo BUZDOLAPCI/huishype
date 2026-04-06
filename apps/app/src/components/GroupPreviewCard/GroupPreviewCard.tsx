@@ -495,7 +495,9 @@ export function GroupPreviewCard({
 
   const cardBody = (
     <View
+      ref={isNative ? l2Ref : undefined}
       style={styles.outerWrapper}
+      collapsable={isNative ? false : undefined}
       testID="group-preview-card"
     >
       {/* Arrow pointing up */}
@@ -511,74 +513,74 @@ export function GroupPreviewCard({
         />
       )}
 
-      {/* Main card container with shadow (L2 — overlay captures touches on native) */}
+      {/* Cluster navigation header — floats above the card content */}
+      {isCluster && (
+        <View style={styles.clusterHeader}>
+          {/* Left arrow */}
+          <Pressable
+            onPress={goLeft}
+            ref={isNative ? hitTest.zoneRef('navLeft') : undefined}
+            onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
+            collapsable={isNative ? false : undefined}
+            disabled={!canGoLeft}
+            hitSlop={6}
+            style={[
+              styles.navArrow,
+              { backgroundColor: canGoLeft ? COLORS.gold500 : COLORS.warm200 },
+            ]}
+            testID="group-preview-nav-left"
+            accessibilityLabel="Previous property"
+            accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canGoLeft }}
+          >
+            <Icon
+              name="CaretLeft"
+              size="md"
+              color={canGoLeft ? COLORS.white : COLORS.warm400}
+            />
+          </Pressable>
+
+          {/* Page indicator pill */}
+          <View style={styles.pageIndicator} testID="group-preview-page-indicator">
+            <Icon name="ListBullets" size={14} color={COLORS.white} />
+            <Text style={styles.pageText} testID="group-preview-page-text">
+              {currentIndex + 1} of {properties.length}
+            </Text>
+          </View>
+
+          {/* Right arrow */}
+          <Pressable
+            onPress={goRight}
+            ref={isNative ? hitTest.zoneRef('navRight') : undefined}
+            onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
+            collapsable={isNative ? false : undefined}
+            disabled={!canGoRight}
+            hitSlop={6}
+            style={[
+              styles.navArrow,
+              { backgroundColor: canGoRight ? COLORS.gold500 : COLORS.warm200 },
+            ]}
+            testID="group-preview-nav-right"
+            accessibilityLabel="Next property"
+            accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canGoRight }}
+          >
+            <Icon
+              name="CaretRight"
+              size="md"
+              color={canGoRight ? COLORS.white : COLORS.warm400}
+            />
+          </Pressable>
+        </View>
+      )}
+
+      {/* Main card container with shadow */}
       <View
-        ref={isNative ? l2Ref : undefined}
         style={styles.cardContainer}
         collapsable={false}
       >
-        {/* Cluster navigation header — above the card content */}
-        {isCluster && (
-          <View style={styles.clusterHeader}>
-            {/* Left arrow */}
-            <Pressable
-              onPress={goLeft}
-              ref={isNative ? hitTest.zoneRef('navLeft') : undefined}
-              onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
-              collapsable={isNative ? false : undefined}
-              disabled={!canGoLeft}
-              hitSlop={6}
-              style={[
-                styles.navArrow,
-                { backgroundColor: canGoLeft ? COLORS.gold500 : COLORS.warm200 },
-              ]}
-              testID="group-preview-nav-left"
-              accessibilityLabel="Previous property"
-              accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !canGoLeft }}
-            >
-              <Icon
-                name="CaretLeft"
-                size="md"
-                color={canGoLeft ? COLORS.white : COLORS.warm400}
-              />
-            </Pressable>
-
-            {/* Page indicator pill */}
-            <View style={styles.pageIndicator} testID="group-preview-page-indicator">
-              <Icon name="ListBullets" size={14} color={COLORS.white} />
-              <Text style={styles.pageText} testID="group-preview-page-text">
-                {currentIndex + 1} of {properties.length}
-              </Text>
-            </View>
-
-            {/* Right arrow */}
-            <Pressable
-              onPress={goRight}
-              ref={isNative ? hitTest.zoneRef('navRight') : undefined}
-              onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
-              collapsable={isNative ? false : undefined}
-              disabled={!canGoRight}
-              hitSlop={6}
-              style={[
-                styles.navArrow,
-                { backgroundColor: canGoRight ? COLORS.gold500 : COLORS.warm200 },
-              ]}
-              testID="group-preview-nav-right"
-              accessibilityLabel="Next property"
-              accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !canGoRight }}
-            >
-              <Icon
-                name="CaretRight"
-                size="md"
-                color={canGoRight ? COLORS.white : COLORS.warm400}
-              />
-            </Pressable>
-          </View>
-        )}
 
         {/* Property card content with swipe */}
         <Animated.View
@@ -664,20 +666,21 @@ export function GroupPreviewCard({
           />
         )}
 
-        {/* Transparent touch overlay — captures ALL touches on native (Android
-            inside MapLibre Marker). locationX/locationY from this overlay are
-            L2-relative, matching measureLayout zone bounds exactly. */}
-        {isNative && (
-          <View
-            style={styles.touchOverlay}
-            collapsable={false}
-            onTouchStart={onOverlayTouchStart}
-            onTouchMove={onOverlayTouchMove}
-            onTouchEnd={onOverlayTouchEnd}
-            testID="group-preview-touch-overlay"
-          />
-        )}
       </View>
+
+      {/* Transparent touch overlay — captures ALL touches on native (Android
+          inside MapLibre Marker). locationX/locationY from this overlay are
+          outer-wrapper-relative, matching measureLayout zone bounds exactly. */}
+      {isNative && (
+        <View
+          style={styles.touchOverlay}
+          collapsable={false}
+          onTouchStart={onOverlayTouchStart}
+          onTouchMove={onOverlayTouchMove}
+          onTouchEnd={onOverlayTouchEnd}
+          testID="group-preview-touch-overlay"
+        />
+      )}
 
       {/* Arrow pointing down */}
       {showArrow && !arrowUp && (
@@ -734,9 +737,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 10,
+    alignSelf: 'center',
+    paddingTop: 4,
     paddingBottom: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     gap: 8,
   },
   navArrow: {
@@ -764,8 +768,8 @@ const styles = StyleSheet.create({
   // Close button for cluster mode
   clusterCloseButton: {
     position: 'absolute',
-    // Position over image area, accounting for cluster header height (~48px)
-    top: 53,
+    // Position over the image area in the card's top-right corner.
+    top: 5,
     right: 5,
     width: 26,
     height: 26,
