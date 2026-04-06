@@ -23,8 +23,8 @@ interface MapHeaderRowProps {
 }
 
 const COLORS = {
-  /** Brand text uses gold-700 for AA contrast on white/warm-50 backgrounds. */
-  gold700: '#B47712',
+  /** Brand text uses the primary gold tone from the brand lockup. */
+  gold500: '#F5A623',
   warm800: '#3D3832',
 } as const;
 
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   brandText: {
     fontSize: 22,
     fontFamily: 'Inter_700Bold',
-    color: COLORS.gold700,
+    color: COLORS.gold500,
     letterSpacing: -0.2,
     lineHeight: 28,
   },

@@ -21,7 +21,7 @@ interface HuisHypeLogoProps {
   textStyle?: StyleProp<TextStyle>;
 }
 
-const WORDMARK_COLOR = '#B47712';
+const WORDMARK_COLOR = '#F5A623';
 const WORDMARK_LINE_HEIGHT_RATIO = 1.27;
 
 // Keep the in-app brand mark vector-based without adding a Metro SVG transformer.
