@@ -291,7 +291,8 @@ export default function MapScreen() {
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const previewMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
+  const currentZoomRef = useRef(DEFAULT_ZOOM);
+  const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
 
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
   const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
@@ -321,6 +322,14 @@ export default function MapScreen() {
   } = interaction;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
+
+  const syncVisibleZoom = useCallback((zoom: number) => {
+    currentZoomRef.current = zoom;
+
+    if (__DEV__) {
+      setVisibleZoom((prev) => (Math.abs(prev - zoom) < 0.05 ? prev : zoom));
+    }
+  }, []);
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -355,7 +364,7 @@ export default function MapScreen() {
       const { longitude, latitude } = await getCurrentLocation();
       mapRef.current?.flyTo({
         center: [longitude, latitude],
-        zoom: Math.max(currentZoom, 16),
+        zoom: Math.max(currentZoomRef.current, 16),
         duration: 800,
         essential: true,
       });
@@ -364,7 +373,7 @@ export default function MapScreen() {
       console.warn('[MapScreen] Current location failed:', message);
       Alert.alert('Location unavailable', message);
     }
-  }, [currentZoom]);
+  }, []);
 
   // Initialize map
   useEffect(() => {
@@ -510,6 +519,7 @@ export default function MapScreen() {
       map.on('load', () => {
         clearTimeout(loadTimeout);
         setMapLoaded(true);
+        syncVisibleZoom(map.getZoom());
 
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
@@ -524,9 +534,13 @@ export default function MapScreen() {
         console.warn('[MapScreen] MapLibre error:', e.error?.message || e);
       });
 
-      // Track zoom level
+      // Keep the current zoom in a ref for imperative consumers without forcing
+      // a React re-render on every wheel/touch zoom frame.
       map.on('zoom', () => {
-        setCurrentZoom(map.getZoom());
+        currentZoomRef.current = map.getZoom();
+      });
+      map.on('zoomend', () => {
+        syncVisibleZoom(map.getZoom());
       });
 
       // Track viewport center for dynamic city name (reverse geocoding)
@@ -656,7 +670,7 @@ export default function MapScreen() {
         propertyClickResetTimer.current = null;
       }
     };
-  }, [bottomSheetRef, cameraCommands, handleAuthRequired, handleFeaturePress, setSelectedPropertyId]);
+  }, [bottomSheetRef, cameraCommands, handleAuthRequired, handleFeaturePress, setSelectedPropertyId, syncVisibleZoom]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -854,7 +868,7 @@ export default function MapScreen() {
             className="bg-surface-card/90 px-3 py-2 rounded-full shadow-md"
             style={{ position: 'absolute', top: 120, left: 16, zIndex: 50 } as any}
           >
-            <Text className="text-sm text-warm-700">Zoom: {currentZoom.toFixed(1)}</Text>
+            <Text className="text-sm text-warm-700">Zoom: {visibleZoom.toFixed(1)}</Text>
           </View>
         )}
 
