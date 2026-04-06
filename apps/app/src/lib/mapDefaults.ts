@@ -3,7 +3,7 @@ import { getCountryConfig, type CountryCode, isValidCountryCode } from '@huishyp
 const IS_DEV = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
 // Debug camera: set to true to start zoomed into Beeldbuisring 41 for shader/building debugging
-export const DEBUG_CAMERA = IS_DEV && true;
+export const DEBUG_CAMERA = IS_DEV && false;
 
 // Default production camera values (from country config)
 const PRODUCTION_PITCH = 50;
@@ -13,23 +13,23 @@ const PRODUCTION_BEARING = 0;
 // Switch DEBUG_LOCATION below to jump to a different spot on launch.
 const DEBUG_LOCATIONS = {
   /** Beeldbuisring 41, Eindhoven — dense row-houses, shader/building iteration */
-  beeldbuisring:  { center: [5.44566, 51.45230] as [number, number], zoom: 20.1 },
+  beeldbuisring: { center: [5.44566, 51.45230] as [number, number], zoom: 20.1 },
   /** Fosforstraat, Eindhoven — 3 story single wide apartment building, shader/building iteration */
-  fosforstraat:  { center: [5.44866, 51.4501]   as [number, number], zoom: 18.5 },
+  fosforstraat: { center: [5.44866, 51.4501] as [number, number], zoom: 18.5 },
   /** Amsterdam canal ring — tall narrow buildings, mixed heights */
-  amsterdam:      { center: [4.8897, 52.3703]    as [number, number], zoom: 17 },
+  amsterdam: { center: [4.8897, 52.3703] as [number, number], zoom: 17 },
   /** Rotterdam Erasmusbrug — modern high-rises + waterfront */
-  rotterdam:      { center: [4.4869, 51.9094]    as [number, number], zoom: 16.5 },
+  rotterdam: { center: [4.4869, 51.9094] as [number, number], zoom: 16.5 },
   /** Paris Haussmann — uniform 6-story blocks, tree-lined boulevards */
-  paris:          { center: [2.3364, 48.8708]     as [number, number], zoom: 17 },
+  paris: { center: [2.3364, 48.8708] as [number, number], zoom: 17 },
   /** Berlin Mitte — mixed Soviet + modern blocks */
-  berlin:         { center: [13.3889, 52.5170]    as [number, number], zoom: 16.5 },
+  berlin: { center: [13.3889, 52.5170] as [number, number], zoom: 16.5 },
   /** Brussels Grand Place — dense medieval core */
-  brussels:       { center: [4.3517, 50.8467]     as [number, number], zoom: 17 },
+  brussels: { center: [4.3517, 50.8467] as [number, number], zoom: 17 },
   /** London City — skyscrapers next to low-rise */
-  london:         { center: [-0.0833, 51.5134]    as [number, number], zoom: 16 },
+  london: { center: [-0.0833, 51.5134] as [number, number], zoom: 16 },
   /** row house shadows, shader/building iteration */
-  shadow_debug:  { center: [5.44773, 51.45050] as [number, number], zoom: 20.0 },
+  shadow_debug: { center: [5.44773, 51.45050] as [number, number], zoom: 20.0 },
 } as const;
 
 type DebugLocationKey = keyof typeof DEBUG_LOCATIONS;
