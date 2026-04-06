@@ -132,7 +132,7 @@ export function ListingSubmissionSheet({
           url: previewData.url,
           propertyId,
           ogTitle: previewData.ogTitle,
-          ogImage: previewData.ogImage,
+          thumbnailUrl: previewData.ogImage,
         }),
       });
 

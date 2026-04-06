@@ -94,7 +94,6 @@ export interface paths {
                                     profilePhotoUrl: string | null;
                                     karma: number;
                                     karmaRank: string;
-                                    isPlus: boolean;
                                     createdAt: string;
                                 };
                                 accessToken: string;
@@ -180,7 +179,6 @@ export interface paths {
                                     profilePhotoUrl: string | null;
                                     karma: number;
                                     karmaRank: string;
-                                    isPlus: boolean;
                                     createdAt: string;
                                 };
                                 accessToken: string;
@@ -361,7 +359,6 @@ export interface paths {
                                 email: string;
                                 karma: number;
                                 karmaRank: string;
-                                isPlus: boolean;
                                 createdAt: string;
                             };
                         };
@@ -2254,7 +2251,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a listing URL
-         * @description Fetches OG metadata from a URL and checks if the address matches the property. Requires authentication.
+         * @description Fetches OG metadata from a URL and checks if the address matches the property.
          */
         post: {
             parameters: {
@@ -2292,18 +2289,6 @@ export interface paths {
                 };
                 /** @description Default Response */
                 400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            error: string;
-                            message: string;
-                        };
-                    };
-                };
-                /** @description Default Response */
-                401: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2466,10 +2451,16 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        sourceName: string;
+                        idempotencyKey: string;
+                        batchSequence: number;
+                        /** @default null */
+                        cursorStart?: string | null;
+                        cursorEnd: string;
+                        upstreamRunKey?: string;
                         listings: {
                             /** Format: uri */
                             sourceUrl: string;
-                            sourceName: string;
                             mirrorListingId: string;
                             askingPrice: number | null;
                             /** @enum {string} */
@@ -2491,6 +2482,8 @@ export interface paths {
                             /** Format: date-time */
                             mirrorLastSeenAt?: string;
                             address: {
+                                countryCode: string;
+                                street: string;
                                 postalCode: string;
                                 houseNumber: string | number;
                                 houseNumberAddition?: string | null;
@@ -2509,24 +2502,39 @@ export interface paths {
             };
             responses: {
                 /** @description Default Response */
-                200: {
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            ingested: number;
-                            updated: number;
-                            skipped: number;
-                            errors: {
-                                sourceUrl: string;
-                                message: string;
-                            }[];
+                            /** Format: uuid */
+                            batchId: string;
+                            runId: string | null;
+                            sourceName: string;
+                            /** Format: date-time */
+                            acceptedAt: string;
+                            idempotencyKey: string;
+                            /** @enum {string} */
+                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "failed";
+                            duplicate: boolean;
                         };
                     };
                 };
                 /** @description Default Response */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2554,7 +2562,7 @@ export interface paths {
         };
         /**
          * Get mirror sync watermark
-         * @description Returns the latest mirror_last_changed_at for a given source. Used by sync workers to know where to resume.
+         * @description Returns the durable ingest cursor for a given source. Used by sync workers to resume without skipping rows.
          */
         get: {
             parameters: {
@@ -2574,7 +2582,11 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            lastChangedAt: string | null;
+                            sourceName: string;
+                            cursor: string | null;
+                            lastCommittedChangedAt: string | null;
+                            lastCommittedListingKey: string | null;
+                            lastBatchId: string | null;
                         };
                     };
                 };
@@ -3915,7 +3927,6 @@ export interface paths {
                                     profilePhotoUrl: string | null;
                                     karma: number;
                                     karmaRank: string;
-                                    isPlus: boolean;
                                     createdAt: string;
                                 };
                                 accessToken: string;

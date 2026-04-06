@@ -51,7 +51,9 @@ describe('Notification routes', () => {
         // Ignore
       }
     }
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   describe('GET /notifications', () => {

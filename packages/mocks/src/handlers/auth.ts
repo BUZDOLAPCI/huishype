@@ -18,7 +18,7 @@ function buildLoginHandler(path: string) {
 
     if (!body.idToken) {
       return HttpResponse.json(
-        { code: 'INVALID_REQUEST', message: 'Missing idToken' },
+        { error: 'INVALID_REQUEST', message: 'Missing idToken' },
         { status: 400 }
       );
     }
@@ -68,14 +68,14 @@ export const authHandlers = [
 
     if (!body.refreshToken) {
       return HttpResponse.json(
-        { code: 'INVALID_REQUEST', message: 'Missing refresh token' },
+        { error: 'INVALID_REQUEST', message: 'Missing refresh token' },
         { status: 400 }
       );
     }
 
     if (!body.refreshToken.startsWith('mock-refresh-token-')) {
       return HttpResponse.json(
-        { code: 'INVALID_TOKEN', message: 'Invalid refresh token' },
+        { error: 'INVALID_TOKEN', message: 'Invalid refresh token' },
         { status: 401 }
       );
     }

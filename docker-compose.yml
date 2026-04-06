@@ -31,6 +31,25 @@ services:
       retries: 5
       start_period: 5s
 
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    container_name: huishype-worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://huishype:huishype_dev@postgres:5432/huishype
+      REDIS_URL: redis://redis:6379
+      PORT: "3100"
+      HOST: "0.0.0.0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Photon geocoder (Komoot) — self-hosted, planet-wide address search.
   # There is no official Docker image. This builds from a Dockerfile that
   # downloads the Photon JAR from GitHub releases.

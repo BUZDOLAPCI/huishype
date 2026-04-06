@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
-import { db } from '../../db/index.js';
+import { db, ingestBatches, listings } from '../../db/index.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { encodeOpaqueIngestCursor } from '../../services/ingest/index.js';
+import { normalizeSourceUrl } from '../../utils/address.js';
 
 /**
  * Integration tests for listing routes.
@@ -16,6 +18,7 @@ describe('Listing routes', () => {
   let testPropertyId: string;
   let testAccessToken: string;
   const testUserIds: string[] = [];
+  const testListingIds: string[] = [];
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -43,6 +46,13 @@ describe('Listing routes', () => {
   });
 
   afterAll(async () => {
+    for (const listingId of testListingIds) {
+      try {
+        await db.delete(listings).where(eq(listings.id, listingId));
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
     for (const userId of testUserIds) {
       try {
         await db.delete(users).where(eq(users.id, userId));
@@ -134,7 +144,7 @@ describe('Listing routes', () => {
   });
 
   describe('POST /listings/preview', () => {
-    it('should reject unauthenticated requests', async () => {
+    it('should allow unauthenticated requests', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
@@ -144,16 +154,22 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(response.statusCode).toBe(401);
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({
+        sourceName: 'funda',
+      });
+      expect(body).toHaveProperty('ogTitle');
+      expect(body).toHaveProperty('ogImage');
+      expect(body).toHaveProperty('ogDescription');
+      expect(body).toHaveProperty('addressMatch');
+      expect(body).toHaveProperty('warning');
     });
 
     it('should reject non-whitelisted URLs (SSRF protection)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: {
-          authorization: `Bearer ${testAccessToken}`,
-        },
         payload: {
           url: 'https://evil-site.com/listing',
           propertyId: testPropertyId,
@@ -169,9 +185,6 @@ describe('Listing routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: {
-          authorization: `Bearer ${testAccessToken}`,
-        },
         payload: {
           url: 'http://www.funda.nl/koop/test/',
           propertyId: testPropertyId,
@@ -185,9 +198,6 @@ describe('Listing routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: {
-          authorization: `Bearer ${testAccessToken}`,
-        },
         payload: {
           url: 'https://192.168.1.1/admin',
           propertyId: testPropertyId,
@@ -202,9 +212,6 @@ describe('Listing routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: {
-          authorization: `Bearer ${testAccessToken}`,
-        },
         payload: {
           url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
           propertyId: fakeId,
@@ -263,6 +270,62 @@ describe('Listing routes', () => {
 
       expect(response.statusCode).toBe(404);
     });
+
+    it('should accept thumbnailUrl payload field and return it via listings read model', async () => {
+      const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
+      const submittedUrl = `https://www.funda.nl/koop/eindhoven/huis-${Date.now()}-${Math.floor(Math.random() * 10000)}/`;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+          ogTitle: 'Contract test listing',
+          thumbnailUrl,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const created = JSON.parse(response.body);
+      testListingIds.push(created.id);
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const insertedListing = listingsBody.data.find((item: { id: string }) => item.id === created.id);
+      expect(insertedListing).toBeDefined();
+      expect(insertedListing.thumbnailUrl).toBe(thumbnailUrl);
+
+      const maintenanceIdempotencyKey = `listing-submit:${created.id}`;
+      const [maintenanceRow] = await db
+        .select()
+        .from(ingestBatches)
+        .where(eq(ingestBatches.idempotencyKey, maintenanceIdempotencyKey))
+        .limit(1);
+
+      expect(maintenanceRow).toBeDefined();
+      expect(maintenanceRow?.status).toBe('completed');
+      expect(maintenanceRow?.maintenanceRequestedAt).not.toBeNull();
+      if (maintenanceRow?.maintenanceCompletedAt) {
+        expect(
+          new Date(maintenanceRow.maintenanceCompletedAt).getTime(),
+        ).toBeGreaterThanOrEqual(new Date(maintenanceRow.maintenanceRequestedAt as Date).getTime());
+      }
+      expect(maintenanceRow?.payloadJson).toMatchObject({
+        requestedBy: 'listing-submit',
+        listingId: created.id,
+        propertyId: testPropertyId,
+        sourceUrl: normalizeSourceUrl(submittedUrl),
+        sourceName: 'funda',
+      });
+    });
   });
 
   describe('GET /api/ingest/watermark', () => {
@@ -294,7 +357,29 @@ describe('Listing routes', () => {
         method: 'POST',
         url: '/api/ingest/listings',
         payload: {
-          listings: [],
+          sourceName: 'funda',
+          idempotencyKey: `unauthorized-${Date.now()}`,
+          batchSequence: 0,
+          cursorStart: null,
+          cursorEnd: encodeOpaqueIngestCursor({
+            changedAt: '2026-04-06T12:00:00.000Z',
+            listingKey: 'listing-unauthorized',
+          }),
+          listings: [
+            {
+              sourceUrl: 'https://www.funda.nl/koop/eindhoven/huis-unauthorized/',
+              mirrorListingId: `unauthorized-${Date.now()}`,
+              askingPrice: 450000,
+              priceType: 'sale',
+              address: {
+                countryCode: 'NL',
+                street: 'Teststraat',
+                postalCode: '1234 AB',
+                houseNumber: 10,
+                city: 'Eindhoven',
+              },
+            },
+          ],
         },
       });
 

@@ -31,8 +31,6 @@ export interface User {
   karma: number;
   /** Karma rank title displayed next to username */
   karmaRank: KarmaRank;
-  /** Whether user has HuisHype Plus subscription */
-  isPlus: boolean;
   /** When the user joined */
   createdAt: string;
 }

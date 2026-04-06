@@ -16,22 +16,22 @@ import type {
   EmailAuthRequestResponse,
   PropertyResolveResponse,
   GetPropertyResponse,
-  GetMapPropertiesRequest,
-  GetMapPropertiesResponse,
   SubmitGuessResponse,
   UpdateGuessRequest,
   GetCommentsRequest,
   GetCommentsResponse,
   CreateCommentRequest,
   CreateCommentResponse,
-  GetSavedPropertiesRequest,
-  GetSavedPropertiesResponse,
   GetUserProfileResponse,
   GetFeedRequest,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetFeedResponse,
 } from '@huishype/shared';
+import type { paths } from '../generated/api.js';
+
+type SavedPropertiesQuery = NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
+type SavedPropertiesResponse = paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
 
 /**
  * API client configuration options
@@ -144,9 +144,9 @@ export class HuisHypeApiClient {
     });
 
     if (!response.ok) {
-      let errorData: { code?: string; message?: string; details?: Record<string, unknown> } = {};
+      let errorData: { error?: string; message?: string; details?: Record<string, unknown> } = {};
       try {
-        const jsonError = await response.json() as { code?: string; message?: string; details?: Record<string, unknown> };
+        const jsonError = await response.json() as { error?: string; message?: string; details?: Record<string, unknown> };
         errorData = jsonError;
       } catch {
         // Ignore JSON parse errors
@@ -158,7 +158,7 @@ export class HuisHypeApiClient {
 
       throw new ApiError(
         errorData.message || `Request failed with status ${response.status}`,
-        errorData.code || 'REQUEST_FAILED',
+        errorData.error || 'REQUEST_FAILED',
         response.status,
         errorData.details
       );
@@ -269,12 +269,6 @@ export class HuisHypeApiClient {
     return this.request<GetPropertyResponse>('GET', `/properties/${propertyId}`);
   }
 
-  async getMapProperties(request: GetMapPropertiesRequest): Promise<GetMapPropertiesResponse> {
-    return this.request<GetMapPropertiesResponse>('POST', '/properties/map', {
-      body: request,
-    });
-  }
-
   // ============================================
   // Guess Endpoints  (paths: /properties/:id/guesses)
   // ============================================
@@ -345,9 +339,9 @@ export class HuisHypeApiClient {
   // Saved Properties Endpoints  (paths: /properties/:id/save, /saved-properties)
   // ============================================
 
-  async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
-    return this.request<GetSavedPropertiesResponse>('GET', '/saved-properties', {
-      query: { page: request.page, pageSize: request.pageSize },
+  async getSavedProperties(request: SavedPropertiesQuery): Promise<SavedPropertiesResponse> {
+    return this.request<SavedPropertiesResponse>('GET', '/saved-properties', {
+      query: { limit: request.limit, offset: request.offset },
       requiresAuth: true,
     });
   }

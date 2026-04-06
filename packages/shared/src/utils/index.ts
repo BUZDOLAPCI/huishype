@@ -23,9 +23,9 @@ export {
   updateUserProfileSchema,
   // Property
   activityLevelSchema,
-  getMapPropertiesSchema,
   // Listing
   listingSourceSchema,
+  previewListingSchema,
   submitListingSchema,
   getListingsSchema,
   // Guess

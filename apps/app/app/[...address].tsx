@@ -16,7 +16,7 @@
  * surfaces instead of navigating away during initial app boot.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Text, View, Pressable, StyleSheet } from 'react-native';
 import {
   useLocalSearchParams,
@@ -168,7 +168,10 @@ function PartialAddressScreen({
  */
 export default function AddressScreen() {
   const params = useLocalSearchParams<{ address: string | string[] }>();
-  const addressParams = parseAddressSegments(params.address || []);
+  const addressParams = useMemo(
+    () => parseAddressSegments(params.address || []),
+    [params.address]
+  );
   const rootNavigationState = useRootNavigationState();
   const addressSurface = getAddressSurface(addressParams);
   const [error, setError] = useState<string | null>(null);
@@ -240,10 +243,7 @@ export default function AddressScreen() {
       cancelled = true;
     };
   }, [
-    addressParams.city,
-    addressParams.zipcode,
-    addressParams.street,
-    addressParams.housenumber,
+    addressParams,
     addressSurface,
     navigationReady,
   ]);

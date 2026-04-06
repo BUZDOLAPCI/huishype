@@ -13,7 +13,8 @@ Agents must be able to verify changes locally + in CI with:
 - **No feature merges without tests** (unit + at least one E2E path if it merits)
 - **Contract-first**: API + schema changes must update generated clients and tests
 - **Hermetic CI**: tests do not depend on developer machines or random external services
-- **One-command verification**: `test:all` runs the same suite locally and in CI
+- **One-command verification**: `pnpm test` is the canonical merge gate locally and in CI, and it must cover worker package unit tests alongside app/API/shared coverage
+- **Broader verification**: `pnpm test:all` is the wider superset path for extra web/mobile coverage beyond the canonical gate
 
 ---
 
@@ -27,7 +28,7 @@ Agents must be able to verify changes locally + in CI with:
 
 ### Backend (Node.js / TypeScript)
 - **Test runner:** **Jest**
-- **What goes here:** service logic, scoring/trending functions, moderation rules, auth/permission helpers, subscription entitlement checks
+- **What goes here:** service logic, scoring/trending functions, moderation rules, auth/permission helpers, subscription entitlement checks, worker orchestration helpers
 
 ---
 
@@ -152,11 +153,12 @@ Artifacts always captured:
 ---
 
 ## One-command workflows (must exist)
+- `test` — canonical repo gate: lint + typecheck + unit + backend integration + Playwright integration
 - `test:unit` — app + backend
 - `test:integration` — backend with DB
 - `test:e2e:web` — Playwright
 - `test:e2e:mobile` — Maestro (requires running emulator)
-- `test:all` — runs the full stack (or a CI-equivalent subset locally)
+- `test:all` — broader superset: `test` plus additional Playwright projects and mobile E2E
 
 ---
 
@@ -180,6 +182,7 @@ Artifacts always captured:
 - **Backend unit tests**
   - `services/*/src/**/__tests__/*`
   - `services/*/src/**/*.test.ts`
+  - `services/worker/src/**/*.test.ts`
 - **Backend integration tests**
   - `services/api/src/__tests__/integration/*.integration.test.ts`
   - (runs against real Postgres/PostGIS DB on port 5440 with migrations + seeds)
@@ -217,7 +220,8 @@ A change is "done" only if:
 - unit tests added/updated
 - integration tests added/updated when API/DB touched
 - E2E added/updated **when warranted** 
-- `test:all` passes locally (or CI)
+- `pnpm test` passes locally (or CI)
+- `pnpm test:all` runs when the change needs the broader flow/visual/mobile coverage
 
 ---
 
@@ -231,18 +235,20 @@ When deciding which tests to run after a change:
 | API route/endpoint change | `pnpm test:unit` + `pnpm test:integration` |
 | UI component change | `pnpm test:unit` + `pnpm test:e2e:flows` |
 | Map/tile rendering change | `pnpm test:e2e:visual` + `pnpm test:e2e:flows` |
+| Worker/runtime orchestration change | `pnpm test:unit` |
 | Mobile-specific change | `maestro test apps/app/e2e/mobile/full-flow.yaml` (requires emulator) |
 | Cross-cutting or unsure | `pnpm test:all` |
-| Before marking any task done | `pnpm test:all` + `maestro test apps/app/e2e/mobile/full-flow.yaml` if mobile touched |
+| Before marking any task done | `pnpm test` + `maestro test apps/app/e2e/mobile/full-flow.yaml` if mobile touched |
 
 ### Quick Reference Commands
 ```
-pnpm test:unit              # App + API unit tests (Jest)
+pnpm test                   # Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration
+pnpm test:unit              # App + API + worker + shared + api-client + mocks unit tests (Jest / node:test)
 pnpm test:integration       # API integration tests (runs via turbo → API jest)
 pnpm test:e2e:web          # All Playwright tests (visual + integration + flows)
 pnpm test:e2e:flows        # User flow E2E tests only
 pnpm test:e2e:visual       # Visual reference tests only
 pnpm test:e2e:integration  # Critical flow integration tests only
 pnpm test:e2e:mobile       # Maestro mobile tests — run directly: maestro test apps/app/e2e/mobile/full-flow.yaml
-pnpm test:all              # Unit + all Playwright E2E
+pnpm test:all              # Broader superset: pnpm test + flows + visual + mobile
 ```

@@ -4,6 +4,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import fp from 'fastify-plugin';
 import jwt from '@fastify/jwt';
 import jwtLib from 'jsonwebtoken';
@@ -29,6 +30,9 @@ export interface AccessTokenPayload {
 export interface RefreshTokenPayload {
   userId: string;
   type: 'refresh';
+  jti: string;
+  exp?: number;
+  iat?: number;
 }
 
 async function authPlugin(fastify: FastifyInstance) {
@@ -112,6 +116,7 @@ export function generateRefreshToken(userId: string): string {
   const payload: RefreshTokenPayload = {
     userId,
     type: 'refresh',
+    jti: randomUUID(),
   };
 
   // Use jsonwebtoken directly for refresh tokens with different secret

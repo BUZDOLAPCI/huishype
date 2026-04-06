@@ -278,4 +278,69 @@ describe('Comment', () => {
 
     expect(getByTestId('user-avatar')).toBeTruthy();
   });
+
+  it('keeps reply avatars smaller than top-level avatars', () => {
+    const commentWithReplies = {
+      ...mockComment,
+      replies: [
+        {
+          id: 'reply-1',
+          content: 'This is a reply',
+          user: {
+            id: 'user-2',
+            username: 'replyuser',
+            displayName: 'Reply User',
+            profilePhotoUrl: null,
+            karma: 25,
+          },
+          likeCount: 5,
+          createdAt: new Date().toISOString(),
+          replies: [],
+        },
+      ],
+    };
+
+    const { getAllByTestId } = render(
+      <Comment
+        comment={commentWithReplies}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+      />
+    );
+
+    const [parentAvatar, replyAvatar] = getAllByTestId('user-avatar');
+    const getWidth = (style: unknown) => {
+      const entries = Array.isArray(style) ? style : [style];
+      const widthEntry = entries.find(
+        (entry): entry is { width?: number } =>
+          !!entry && typeof entry === 'object' && 'width' in entry,
+      );
+      return widthEntry?.width;
+    };
+
+    expect(getWidth(parentAvatar.props.style)).toBe(32);
+    expect(getWidth(replyAvatar.props.style)).toBe(28);
+  });
+
+  it('passes profilePhotoUrl through to the shared avatar component', () => {
+    const commentWithPhoto = {
+      ...mockComment,
+      user: {
+        ...mockComment.user,
+        profilePhotoUrl: 'https://example.com/avatar.jpg',
+      },
+    };
+
+    const { getByTestId } = render(
+      <Comment
+        comment={commentWithPhoto}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+      />
+    );
+
+    expect(getByTestId('user-avatar').props.source).toEqual({
+      uri: 'https://example.com/avatar.jpg',
+    });
+  });
 });

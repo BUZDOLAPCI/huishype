@@ -11,7 +11,7 @@ import {
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
-import { API_URL, fetchBatchProperties } from '@/src/utils/api';
+import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
@@ -307,8 +307,20 @@ export default function MapScreen() {
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
-  const interactionRef = useRef(interaction);
-  interactionRef.current = interaction;
+  const {
+    bottomSheetRef,
+    handleAuthRequired,
+    handleFeaturePress,
+    handleEmptyMapTap,
+    setSelectedPropertyId,
+    selectedProperty,
+    toGroupProperty,
+    setPreviewGroup,
+    setCurrentPreviewIndex,
+    handleLocationResolved: handleMapLocationResolved,
+  } = interaction;
+  const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
+  handleEmptyMapTapRef.current = handleEmptyMapTap;
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -458,8 +470,8 @@ export default function MapScreen() {
 
       // Expose bottom sheet ref for testing
       if (typeof window !== 'undefined') {
-        (window as unknown as { __bottomSheetRef: typeof interaction.bottomSheetRef }).__bottomSheetRef =
-          interaction.bottomSheetRef;
+        (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef =
+          bottomSheetRef;
       }
 
       // Expose auth modal trigger for testing
@@ -467,7 +479,7 @@ export default function MapScreen() {
         (
           window as unknown as { __triggerAuthModal: (message?: string) => void }
         ).__triggerAuthModal = (message?: string) => {
-          interaction.handleAuthRequired(message);
+          handleAuthRequired(message);
         };
       }
 
@@ -539,7 +551,6 @@ export default function MapScreen() {
       const handlePropertyClick = async (
         e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
       ) => {
-        const currentInteraction = interactionRef.current;
         if (!e.features?.length) return;
 
         propertyClickHandled.current = true;
@@ -560,7 +571,7 @@ export default function MapScreen() {
 
         if (isCluster) {
           // Use the shared hook's feature-press logic
-          await currentInteraction.handleFeaturePress(
+          await handleFeaturePress(
             e.features as unknown as GeoJSON.Feature[],
             map.getZoom(),
             cameraCommands,
@@ -585,7 +596,7 @@ export default function MapScreen() {
               pendingSinglePreview.current = true;
             }
 
-            currentInteraction.setSelectedPropertyId(propertyId);
+            setSelectedPropertyId(propertyId);
           }
         }
       };
@@ -595,7 +606,6 @@ export default function MapScreen() {
       // re-querying rendered features here only creates false negatives
       // when dense tiles overlap the clicked background point.
       map.on('click', (_e: maplibregl.MapMouseEvent) => {
-        const currentInteraction = interactionRef.current;
         if (propertyClickHandled.current) {
           return;
         }
@@ -604,7 +614,7 @@ export default function MapScreen() {
           return;
         }
 
-        currentInteraction.handleEmptyMapTap();
+        handleEmptyMapTapRef.current();
       });
 
       // Named cursor handlers so they can be properly removed/re-added
@@ -646,31 +656,31 @@ export default function MapScreen() {
         propertyClickResetTimer.current = null;
       }
     };
-  }, []);
+  }, [bottomSheetRef, cameraCommands, handleAuthRequired, handleFeaturePress, setSelectedPropertyId]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
-    if (interaction.selectedProperty && pendingSinglePreview.current && clickCoordRef.current) {
-      const gpp = interaction.toGroupProperty(
-        interaction.selectedProperty,
+    if (selectedProperty && pendingSinglePreview.current && clickCoordRef.current) {
+      const gpp = toGroupProperty(
+        selectedProperty,
         clickActivityRef.current,
       );
-      interaction.setPreviewGroup({ properties: [gpp], coordinate: clickCoordRef.current });
-      interaction.setCurrentPreviewIndex(0);
+      setPreviewGroup({ properties: [gpp], coordinate: clickCoordRef.current });
+      setCurrentPreviewIndex(0);
       pendingSinglePreview.current = false;
     }
-  }, [interaction.selectedProperty]);
+  }, [selectedProperty, setPreviewGroup, setCurrentPreviewIndex, toGroupProperty]);
 
   // Search bar callbacks (adapting shared hook to local camera commands)
   const handlePropertyResolved = useCallback(
-    (property: Parameters<typeof interaction.handlePropertyResolved>[0]) => {
+    (property: PropertyResolveResult) => {
       // On web, single-property search also uses the deferred pattern
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
 
       cameraCommands.flyTo({ center: coord, zoom: 17, duration: 1000 });
 
-      interaction.setSelectedPropertyId(property.id);
+      setSelectedPropertyId(property.id);
       pendingSinglePreview.current = true;
       clickCoordRef.current = coord;
       clickActivityRef.current = 0;
@@ -680,7 +690,7 @@ export default function MapScreen() {
         setSearchCity(property.city, coord);
       }
     },
-    [cameraCommands, interaction.setSelectedPropertyId, setSearchCity],
+    [cameraCommands, setSelectedPropertyId, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
@@ -689,14 +699,14 @@ export default function MapScreen() {
       address: string,
       resolvedAddress?: ResolvedAddress,
     ) => {
-      interaction.handleLocationResolved(coordinates, address, cameraCommands);
+      handleMapLocationResolved(coordinates, address, cameraCommands);
       const cityFromAddress =
         resolvedAddress?.details.city || extractCityFromAddress(address);
       if (cityFromAddress) {
         setSearchCity(cityFromAddress, [coordinates.lon, coordinates.lat]);
       }
     },
-    [interaction.handleLocationResolved, cameraCommands, setSearchCity],
+    [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
 
   // Manage selected marker with pulsing animation

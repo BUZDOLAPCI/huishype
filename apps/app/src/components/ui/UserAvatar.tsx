@@ -6,6 +6,7 @@
  * initials on a coloured circle.
  *
  * Size variants:
+ *   xs  (28px) — nested replies
  *   sm  (32px) — inline mentions, comment lists
  *   md  (40px) — comment threads, card headers
  *   lg  (80px) — profile screens
@@ -30,12 +31,14 @@ const AVATAR_PALETTE = [
 ] as const;
 
 const SIZE_MAP = {
+  xs: 28,
   sm: 32,
   md: 40,
   lg: 80,
 } as const;
 
 const FONT_SCALE = {
+  xs: 11,
   sm: 13,
   md: 16,
   lg: 32,

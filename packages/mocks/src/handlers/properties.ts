@@ -8,16 +8,13 @@
 import { http, HttpResponse } from 'msw';
 import {
   mockMapProperties,
-  mockPropertyClusters,
+  mockPropertyDetails,
   mockPropertySummaries,
   getMockProperty,
   getMockGuesses,
 } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
-import type {
-  GetMapPropertiesResponse,
-  PropertyResolveResponse,
-} from '@huishype/shared';
+import type { PropertyResolveResponse } from '@huishype/shared';
 
 export const propertyHandlers = [
   /**
@@ -52,7 +49,7 @@ export const propertyHandlers = [
 
     if (!postalCode || !houseNumber) {
       return HttpResponse.json(
-        { code: 'BAD_REQUEST', message: 'postalCode and houseNumber are required' },
+        { error: 'BAD_REQUEST', message: 'postalCode and houseNumber are required' },
         { status: 400 }
       );
     }
@@ -152,7 +149,7 @@ export const propertyHandlers = [
 
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -167,7 +164,7 @@ export const propertyHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -175,7 +172,7 @@ export const propertyHandlers = [
     const property = getMockProperty(params.propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -190,7 +187,7 @@ export const propertyHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -198,7 +195,7 @@ export const propertyHandlers = [
     const property = getMockProperty(params.propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -209,30 +206,54 @@ export const propertyHandlers = [
   /**
    * GET /saved-properties - Get saved properties
    */
-  http.get('/saved-properties', ({ request }) => {
+  http.get('*/saved-properties', ({ request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
 
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '20', 10);
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
-    // Return first 2 properties as "saved"
-    const items = mockPropertySummaries.slice(0, 2);
+    // Return a deterministic saved subset that matches the live envelope shape.
+    const saved = mockPropertyDetails.slice(0, 2);
+    const paged = saved.slice(offset, offset + limit).map((property, index) => ({
+      id: property.id,
+      nationalId: property.nationalId,
+      countryCode: property.countryCode,
+      region: property.region ?? null,
+      street: property.streetName,
+      houseNumber: Number.parseInt(property.houseNumber, 10) || 0,
+      houseNumberAddition: property.houseNumberAddition ?? null,
+      address: property.address,
+      city: property.city,
+      postalCode: property.postalCode ?? null,
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+      },
+      yearBuilt: property.yearBuilt ?? null,
+      floorAreaM2: property.floorAreaM2 ?? null,
+      status: 'active' as const,
+      officialValuation: property.officialValuation ?? null,
+      hasListing: Boolean(property.activeListing),
+      askingPrice: property.activeListing?.askingPrice ?? null,
+      commentCount: property.activity.commentCount,
+      guessCount: property.activity.guessCount,
+      savedAt: new Date(Date.now() - index * 60_000).toISOString(),
+      createdAt: new Date('2024-01-01T00:00:00.000Z').toISOString(),
+      updatedAt: new Date('2024-12-01T00:00:00.000Z').toISOString(),
+    }));
+    const total = saved.length;
 
     return HttpResponse.json({
-      items,
-      pagination: {
-        page,
-        limit: pageSize,
-        total: items.length,
-        hasMore: false,
-      },
+      data: paged,
+      total,
+      hasMore: offset + limit < total,
     });
   }),
 
@@ -243,7 +264,7 @@ export const propertyHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -257,7 +278,7 @@ export const propertyHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -280,7 +301,7 @@ export const propertyHandlers = [
 
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -288,7 +309,7 @@ export const propertyHandlers = [
     const property = getMockProperty(propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -299,7 +320,7 @@ export const propertyHandlers = [
 
     if (!guess) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'No guess found' },
+        { error: 'NOT_FOUND', message: 'No guess found' },
         { status: 404 }
       );
     }
@@ -315,74 +336,4 @@ export const propertyHandlers = [
     });
   }),
 
-  /**
-   * POST /properties/map - Get properties for map display
-   */
-  http.post('/properties/map', async ({ request }) => {
-    const body = await request.json() as {
-      bounds: { north: number; south: number; east: number; west: number };
-      zoom: number;
-      filters?: {
-        minPrice?: number;
-        maxPrice?: number;
-        activityLevel?: string[];
-        hasListing?: boolean;
-      };
-    };
-
-    const { bounds, zoom, filters } = body;
-
-    let properties = mockMapProperties.filter((p) => {
-      const { lat, lon } = p.coordinates;
-      return (
-        lat >= bounds.south &&
-        lat <= bounds.north &&
-        lon >= bounds.west &&
-        lon <= bounds.east
-      );
-    });
-
-    if (filters) {
-      if (filters.minPrice !== undefined) {
-        properties = properties.filter(
-          (p) => p.askingPrice === undefined || p.askingPrice >= filters.minPrice!
-        );
-      }
-      if (filters.maxPrice !== undefined) {
-        properties = properties.filter(
-          (p) => p.askingPrice === undefined || p.askingPrice <= filters.maxPrice!
-        );
-      }
-      if (filters.activityLevel?.length) {
-        properties = properties.filter((p) =>
-          filters.activityLevel!.includes(p.activityLevel)
-        );
-      }
-      if (filters.hasListing !== undefined) {
-        properties = properties.filter((p) =>
-          filters.hasListing ? !p.isGhost : p.isGhost
-        );
-      }
-    }
-
-    const response: GetMapPropertiesResponse =
-      zoom < 12
-        ? {
-            properties: [],
-            clusters: mockPropertyClusters.filter((c) => {
-              return (
-                c.coordinates.lat >= bounds.south &&
-                c.coordinates.lat <= bounds.north &&
-                c.coordinates.lon >= bounds.west &&
-                c.coordinates.lon <= bounds.east
-              );
-            }),
-          }
-        : {
-            properties,
-            clusters: [],
-          };
-
-    return HttpResponse.json(response);
-  }),
 ];

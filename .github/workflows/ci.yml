@@ -13,14 +13,10 @@ concurrency:
 
 env:
   NODE_VERSION: '20'
-  # ============================================
-  # SKIP_TESTS: Set to 'false' to enable tests
-  # ============================================
-  SKIP_TESTS: 'true'
 
 jobs:
-  lint-and-typecheck:
-    name: Lint & Typecheck
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,82 +34,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run linting
-        run: pnpm turbo run lint
-
-      - name: Run typecheck
-        run: pnpm turbo run typecheck
-
-  unit-tests:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    needs: lint-and-typecheck
-    steps:
-      - name: Tests skipped
-        if: ${{ env.SKIP_TESTS == 'true' }}
-        run: echo "⏭️ Unit tests skipped (SKIP_TESTS=true)"
-
-      - name: Checkout code
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        run: pnpm install --frozen-lockfile
-
-      - name: Run unit tests
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        run: pnpm test:unit
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/test
-          JWT_SECRET: test-jwt-secret
-          JWT_REFRESH_SECRET: test-jwt-refresh-secret
-          GOOGLE_CLIENT_ID: test-google-client-id
-          APPLE_CLIENT_ID: test-apple-client-id
-          COOKIE_SECRET: test-cookie-secret
-          NODE_ENV: test
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: lint-and-typecheck
-    steps:
-      - name: Tests skipped
-        if: ${{ env.SKIP_TESTS == 'true' }}
-        run: echo "⏭️ Integration tests skipped (SKIP_TESTS=true)"
-
-      - name: Checkout code
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Start PostgreSQL
-        if: ${{ env.SKIP_TESTS != 'true' }}
         run: |
           docker run -d --name postgres \
             -e POSTGRES_USER=huishype \
@@ -121,26 +45,38 @@ jobs:
             -e POSTGRES_DB=huishype_test \
             -p 5432:5432 \
             postgis/postgis:16-3.4
-          sleep 10
+          for i in $(seq 1 30); do
+            if docker exec postgres pg_isready -U huishype >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs postgres
+          exit 1
 
       - name: Run database migrations
-        if: ${{ env.SKIP_TESTS != 'true' }}
         run: pnpm --filter @huishype/api db:migrate
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
-      - name: Run integration tests
-        if: ${{ env.SKIP_TESTS != 'true' }}
-        run: pnpm test:integration
+      - name: Run canonical gate (app + API + worker + shared unit tests)
+        run: pnpm test
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
+          JWT_SECRET: test-jwt-secret
+          JWT_REFRESH_SECRET: test-jwt-refresh-secret
+          GOOGLE_CLIENT_ID: test-google-client-id
+          APPLE_CLIENT_ID: test-apple-client-id
+          COOKIE_SECRET: test-cookie-secret
+          NODE_ENV: test
 
-  e2e-tests:
-    name: E2E Tests (Skipped)
-    runs-on: ubuntu-latest
-    needs: lint-and-typecheck
-    steps:
-      - name: E2E tests skipped
-        run: |
-          echo "⏭️ E2E tests are always skipped in CI"
-          echo "Run locally: pnpm test:e2e:web"
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-artifacts
+          if-no-files-found: ignore
+          path: |
+            test-results/**
+            playwright-report/**
+            coverage/**

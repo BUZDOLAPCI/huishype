@@ -10,6 +10,17 @@ import { defineConfig, devices } from '@playwright/test';
  * bundle before any browser tests run.
  */
 
+const PLAYWRIGHT_API_PORT = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || '3101', 10);
+const PLAYWRIGHT_WEB_PORT = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || '8082', 10);
+const PLAYWRIGHT_API_URL = `http://127.0.0.1:${PLAYWRIGHT_API_PORT}`;
+const PLAYWRIGHT_WEB_URL = `http://127.0.0.1:${PLAYWRIGHT_WEB_PORT}`;
+
+process.env.API_URL = PLAYWRIGHT_API_URL;
+process.env.EXPO_PUBLIC_API_URL = PLAYWRIGHT_API_URL;
+process.env.PLAYWRIGHT_API_PORT = String(PLAYWRIGHT_API_PORT);
+process.env.PLAYWRIGHT_WEB_PORT = String(PLAYWRIGHT_WEB_PORT);
+process.env.PLAYWRIGHT_WEB_URL = PLAYWRIGHT_WEB_URL;
+
 export default defineConfig({
   testDir: './apps/app/e2e',
   /* Run tests in files in parallel */
@@ -29,7 +40,7 @@ export default defineConfig({
   /* Shared settings for all the projects below */
   use: {
     /* Base URL to use in actions like `await page.goto('/')` */
-    baseURL: 'http://localhost:8081',
+    baseURL: PLAYWRIGHT_WEB_URL,
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
     /* Capture screenshot on failure */
@@ -94,21 +105,13 @@ export default defineConfig({
         },
       ],
   /* Run local dev server before starting the tests */
-  webServer: process.env.CI
-    ? {
-        // CI: Serve pre-built static files (faster startup)
-        command: `serve ${process.env.E2E_WEB_BUILD_PATH || 'apps/app/dist'} -l 8081`,
-        url: 'http://localhost:8081',
-        reuseExistingServer: false,
-        timeout: 30 * 1000, // 30 seconds for static server
-      }
-    : {
-        // Local: Use Expo dev server for hot reload
-        command: 'pnpm --filter @huishype/app web',
-        url: 'http://localhost:8081',
-        reuseExistingServer: true,
-        timeout: 120 * 1000, // 2 min for dev server
-      },
+  webServer: {
+    // Start the dedicated test-only API and Expo web servers on isolated ports.
+    command: 'node ./scripts/playwright/integration-runtime.mjs',
+    url: PLAYWRIGHT_WEB_URL,
+    reuseExistingServer: false,
+    timeout: 120 * 1000, // Expo web startup can be slow on the first request
+  },
   /* Output directory for test artifacts */
   outputDir: './test-results/playwright',
 });

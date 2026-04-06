@@ -272,7 +272,7 @@ export function androidScreenshotPath(surface: string, name: string): string {
 export const test = base.extend<{
   consoleCollector: ConsoleCollector & { assertNoCriticalErrors: () => void };
 }>({
-  consoleCollector: async ({}, use) => {
+  consoleCollector: async ({}, resolveFixture) => {
     const collector = new ConsoleCollector();
     const extended = Object.assign(collector, {
       assertNoCriticalErrors() {
@@ -283,7 +283,7 @@ export const test = base.extend<{
         }
       },
     });
-    await use(extended);
+    await resolveFixture(extended);
     collector.detach();
   },
 });

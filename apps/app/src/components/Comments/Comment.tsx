@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Pressable, Text, View, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KarmaBadge } from './KarmaBadge';
+import { UserAvatar } from '../ui/UserAvatar';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 export interface CommentUser {
@@ -53,56 +54,6 @@ export function formatRelativeTime(dateString: string): string {
   if (diffHours > 0) return `${diffHours}h ago`;
   if (diffMinutes > 0) return `${diffMinutes}m ago`;
   return 'just now';
-}
-
-/**
- * Get initials from a username or display name
- */
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-/**
- * User Avatar Component
- * Shows profile photo or initials in a circle
- */
-function UserAvatar({ user, size = 32 }: { user: CommentUser; size?: number }) {
-  const displayName = user.displayName || user.username;
-  const initials = getInitials(displayName);
-
-  // Generate a consistent background color based on username
-  const colors = [
-    'bg-primary-500',
-    'bg-green-500',
-    'bg-purple-500',
-    'bg-pink-500',
-    'bg-indigo-500',
-    'bg-teal-500',
-  ];
-  const colorIndex =
-    user.username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) %
-    colors.length;
-  const bgColor = colors[colorIndex];
-
-  const sizeStyle = { width: size, height: size, borderRadius: size / 2 };
-
-  // TODO: Add Image support when profile photos are available
-  return (
-    <View
-      className={`${bgColor} items-center justify-center`}
-      style={sizeStyle}
-      testID="user-avatar"
-    >
-      <Text className="text-white font-semibold" style={{ fontSize: size * 0.4 }}>
-        {initials}
-      </Text>
-    </View>
-  );
 }
 
 /**
@@ -160,7 +111,12 @@ export function Comment({
       >
         {/* Header: Avatar, Username, Badge, Timestamp */}
         <View className="flex-row items-center mb-2">
-          <UserAvatar user={comment.user} size={isReply ? 28 : 32} />
+          <UserAvatar
+            username={comment.user.username}
+            displayName={comment.user.displayName ?? undefined}
+            profilePhotoUrl={comment.user.profilePhotoUrl}
+            size={isReply ? 'xs' : 'sm'}
+          />
           <View className="ml-2 flex-1">
             <View className="flex-row items-center flex-wrap">
               <Text className="font-semibold text-warm-900 mr-1.5">

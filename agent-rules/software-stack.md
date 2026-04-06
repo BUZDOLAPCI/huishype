@@ -4,7 +4,7 @@
 Ship the same product codebase to:
 - **iOS App Store app**
 - **Android Play Store app (AAB) + optional APK**
-- **Web app** (desktop + mobile web), **app-like + login required**, no SEO
+- **Web app** (desktop + mobile web), **app-like with anonymous browsing and gated interactions**, no SEO
 
 ---
 
@@ -132,7 +132,7 @@ Ship the same product codebase to:
 ---
 
 ## Web strategy (explicit)
-- Web is the **same Expo app** (React Native Web), behind login, no SEO.
+- Web is the **same Expo app** (React Native Web), with anonymous browsing enabled and auth required only for gated interactions such as submit/save actions.
 - If SEO becomes important later: add a **separate Next.js "mirror"** that reads from the same backend APIs/DB.
 
 ---

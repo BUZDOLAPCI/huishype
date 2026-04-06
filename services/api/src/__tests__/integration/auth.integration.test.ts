@@ -65,8 +65,8 @@ describe('Auth routes', () => {
       expect(user).toHaveProperty('displayName');
       expect(user).toHaveProperty('karma');
       expect(user).toHaveProperty('karmaRank');
-      expect(user).toHaveProperty('isPlus');
       expect(user).toHaveProperty('createdAt');
+      expect(user).not.toHaveProperty('isPlus');
 
       testUserIds.push(user.id);
     });
@@ -108,6 +108,56 @@ describe('Auth routes', () => {
     });
   });
 
+  describe('POST /auth/apple', () => {
+    it('should create a new user with mock token and return session without isPlus', async () => {
+      const uniqueId = `apple${Date.now()}`;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/apple',
+        payload: {
+          idToken: `mock-apple-${uniqueId}-aid${uniqueId}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.isNewUser).toBe(true);
+      expect(body.session.user).not.toHaveProperty('isPlus');
+
+      testUserIds.push(body.session.user.id);
+    });
+  });
+
+  describe('POST /auth/email/verify', () => {
+    it('should create a session without isPlus', async () => {
+      const email = `email-auth-${Date.now()}@example.com`;
+      const requestResponse = await app.inject({
+        method: 'POST',
+        url: '/auth/email/request',
+        payload: { email },
+      });
+
+      expect(requestResponse.statusCode).toBe(200);
+      const requestBody = JSON.parse(requestResponse.body);
+      expect(requestBody).toHaveProperty('token');
+
+      const verifyResponse = await app.inject({
+        method: 'POST',
+        url: '/auth/email/verify',
+        payload: { token: requestBody.token },
+      });
+
+      expect(verifyResponse.statusCode).toBe(200);
+      const verifyBody = JSON.parse(verifyResponse.body);
+
+      expect(verifyBody.isNewUser).toBe(true);
+      expect(verifyBody.session.user).not.toHaveProperty('isPlus');
+
+      testUserIds.push(verifyBody.session.user.id);
+    });
+  });
+
   describe('POST /auth/refresh', () => {
     it('should return a new access token with a valid refresh token', async () => {
       // Create a user first
@@ -134,6 +184,37 @@ describe('Auth routes', () => {
       expect(body).toHaveProperty('expiresAt');
       expect(typeof body.accessToken).toBe('string');
       expect(typeof body.expiresAt).toBe('string');
+    });
+
+    it('should return 401 after the refresh token has been revoked', async () => {
+      const uniqueId = `revoked${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const { refreshToken } = loginBody.session;
+
+      const logoutResp = await app.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        payload: { refreshToken },
+      });
+      expect(logoutResp.statusCode).toBe(204);
+
+      const refreshResp = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        payload: { refreshToken },
+      });
+
+      expect(refreshResp.statusCode).toBe(401);
+      expect(JSON.parse(refreshResp.body)).toMatchObject({
+        error: 'INVALID_REFRESH_TOKEN',
+      });
     });
 
     it('should return 401 with an invalid refresh token', async () => {
@@ -177,6 +258,7 @@ describe('Auth routes', () => {
       expect(body.user).toHaveProperty('username');
       expect(body.user).toHaveProperty('karma');
       expect(body.user).toHaveProperty('karmaRank');
+      expect(body.user).not.toHaveProperty('isPlus');
     });
 
     it('should return 401 without a token', async () => {
@@ -200,7 +282,7 @@ describe('Auth routes', () => {
   });
 
   describe('POST /auth/logout', () => {
-    it('should return 204 on logout', async () => {
+    it('should revoke the provided refresh token and return 204 on logout', async () => {
       const uniqueId = `logout${Date.now()}`;
       const loginResp = await app.inject({
         method: 'POST',
@@ -215,6 +297,23 @@ describe('Auth routes', () => {
         url: '/auth/logout',
         payload: { refreshToken: loginBody.session.refreshToken },
       });
+      expect(response.statusCode).toBe(204);
+
+      const refreshResp = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        payload: { refreshToken: loginBody.session.refreshToken },
+      });
+      expect(refreshResp.statusCode).toBe(401);
+    });
+
+    it('should remain idempotent when no refresh token is provided', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        payload: {},
+      });
+
       expect(response.statusCode).toBe(204);
     });
   });

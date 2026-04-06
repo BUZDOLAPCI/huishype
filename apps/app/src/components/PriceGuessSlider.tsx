@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
 import { Icon } from './ui/Icon';
 import Animated, {
@@ -170,8 +170,8 @@ export function PriceGuessSlider({
   const lastWOZCrossing = useRef<number | null>(null);
 
   // Throttled haptic feedback
-  const triggerSelectionHaptic = useCallback(
-    throttle(() => {
+  const triggerSelectionHaptic = useMemo(
+    () => throttle(() => {
       if (Platform.OS !== 'web') {
         Haptics.selectionAsync();
       }

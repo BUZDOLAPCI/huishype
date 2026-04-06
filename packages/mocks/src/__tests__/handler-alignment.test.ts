@@ -8,7 +8,6 @@
 
 import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
 import { server } from '../server.js';
-import type { PropertyFeedFilter } from '@huishype/shared';
 import {
   handlers,
   authHandlers,
@@ -43,16 +42,9 @@ import {
   getMockGuesses,
 } from '../data/fixtures.js';
 
-type Expect<T extends true> = T;
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
-  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
-    ? true
-    : false
-  : false;
-
-type _FeedFilterExact = Expect<Equal<PropertyFeedFilter, 'trending' | 'latest'>>;
-
 describe('Mock handler runtime parity', () => {
+  const listingPropertyId = '11111111-1111-4111-8111-111111111111';
+
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
   });
@@ -84,6 +76,175 @@ describe('Mock handler runtime parity', () => {
     expect(meBody).toHaveProperty('user');
     expect(meBody.user).toHaveProperty('id');
     expect(meBody.user).toHaveProperty('username');
+  });
+
+  it('uses canonical error envelopes across core mock handlers', async () => {
+    const loginErrorResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(await loginErrorResponse.json()).toEqual({
+      error: 'INVALID_REQUEST',
+      message: 'Missing idToken',
+    });
+
+    const savedErrorResponse = await fetch('http://localhost/saved-properties');
+    expect(await savedErrorResponse.json()).toEqual({
+      error: 'UNAUTHORIZED',
+      message: 'Authentication required',
+    });
+
+    const guessesErrorResponse = await fetch('http://localhost/properties/unknown/guesses');
+    expect(await guessesErrorResponse.json()).toEqual({
+      error: 'NOT_FOUND',
+      message: 'Property not found',
+    });
+  });
+
+  it('matches live /saved-properties query params and envelope', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const response = await fetch('http://localhost/saved-properties?limit=1&offset=0', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty('data');
+    expect(body).toHaveProperty('total');
+    expect(body).toHaveProperty('hasMore');
+    expect(body).not.toHaveProperty('items');
+    expect(body).not.toHaveProperty('pagination');
+    expect(Array.isArray(body.data)).toBe(true);
+    if (body.data.length > 0) {
+      expect(body.data[0]).toHaveProperty('savedAt');
+      expect(body.data[0]).toHaveProperty('countryCode');
+    }
+  });
+
+  it('matches live listing preview/submit auth split and payload envelopes', async () => {
+    const previewResponse = await fetch('http://localhost/listings/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        propertyId: listingPropertyId,
+      }),
+    });
+    const previewBody = await previewResponse.json();
+
+    expect(previewResponse.status).toBe(200);
+    expect(previewBody).toHaveProperty('ogTitle');
+    expect(previewBody).toHaveProperty('ogImage');
+    expect(previewBody).toHaveProperty('sourceName');
+    expect(previewBody).toHaveProperty('addressMatch');
+    expect(previewBody).toHaveProperty('warning');
+
+    const previewInvalidUrlResponse = await fetch('http://localhost/listings/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://evil-site.com/listing',
+        propertyId: listingPropertyId,
+      }),
+    });
+    expect(previewInvalidUrlResponse.status).toBe(400);
+    expect(await previewInvalidUrlResponse.json()).toEqual({
+      error: 'INVALID_URL',
+      message: 'URL must be from a recognized listing platform.',
+    });
+
+    const unauthSubmit = await fetch('http://localhost/listings/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        propertyId: listingPropertyId,
+        ogTitle: previewBody.ogTitle,
+        thumbnailUrl: previewBody.ogImage,
+      }),
+    });
+    const unauthSubmitBody = await unauthSubmit.json();
+    expect(unauthSubmit.status).toBe(401);
+    expect(unauthSubmitBody).toEqual({
+      error: 'UNAUTHORIZED',
+      message: 'Authentication required',
+    });
+    expect(unauthSubmitBody).not.toHaveProperty('code');
+
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const invalidSubmitResponse = await fetch('http://localhost/listings/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        url: 'https://evil-site.com/listing',
+        propertyId: listingPropertyId,
+        ogTitle: previewBody.ogTitle,
+        thumbnailUrl: previewBody.ogImage,
+      }),
+    });
+    expect(invalidSubmitResponse.status).toBe(400);
+    expect(await invalidSubmitResponse.json()).toEqual({
+      error: 'INVALID_URL',
+      message: 'URL must be from a recognized listing platform.',
+    });
+
+    const submitResponse = await fetch('http://localhost/listings/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        propertyId: listingPropertyId,
+        ogTitle: previewBody.ogTitle,
+        thumbnailUrl: previewBody.ogImage,
+      }),
+    });
+    const submitBody = await submitResponse.json();
+
+    expect(submitResponse.status).toBe(201);
+    expect(submitBody).toHaveProperty('id');
+    expect(submitBody).toHaveProperty('propertyId', listingPropertyId);
+    expect(submitBody).toHaveProperty('sourceUrl');
+    expect(submitBody).toHaveProperty('sourceName');
+    expect(submitBody).toHaveProperty('status');
+    expect(submitBody).toHaveProperty('createdAt');
+  });
+
+  it('matches live /properties/:id/listings response envelope', async () => {
+    const response = await fetch(`http://localhost/properties/${listingPropertyId}/listings`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty('data');
+    expect(body).not.toHaveProperty('listings');
+    expect(Array.isArray(body.data)).toBe(true);
+    if (body.data.length > 0) {
+      expect(body.data[0]).toHaveProperty('thumbnailUrl');
+      expect(body.data[0]).toHaveProperty('sourceUrl');
+      expect(body.data[0]).toHaveProperty('createdAt');
+    }
   });
 
   it('matches live geocode validation for empty query and oversized limit', async () => {

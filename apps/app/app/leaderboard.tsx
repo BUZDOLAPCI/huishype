@@ -11,7 +11,7 @@
  *   - Current user highlighted
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   FlatList,
   Pressable,
@@ -280,19 +280,22 @@ export default function LeaderboardScreen() {
   const currentUserId = user?.id ?? null;
 
   // Split podium and rankings
-  const podiumEntries = data?.rankings.slice(0, 3) ?? [];
-  const rankingEntries = data?.rankings.slice(3) ?? [];
+  const podiumEntries = useMemo(() => data?.rankings.slice(0, 3) ?? [], [data?.rankings]);
+  const rankingEntries = useMemo(() => data?.rankings.slice(3) ?? [], [data?.rankings]);
 
-  const listItems: ListItem[] = [];
-  if (podiumEntries.length > 0) {
-    listItems.push({ type: 'podium', id: 'podium' });
-  }
-  if (rankingEntries.length > 0) {
-    listItems.push({ type: 'rankings-header', id: 'rankings-header' });
-    for (const entry of rankingEntries) {
-      listItems.push({ type: 'ranking', data: entry, id: entry.userId });
+  const listItems: ListItem[] = useMemo(() => {
+    const items: ListItem[] = [];
+    if (podiumEntries.length > 0) {
+      items.push({ type: 'podium', id: 'podium' });
     }
-  }
+    if (rankingEntries.length > 0) {
+      items.push({ type: 'rankings-header', id: 'rankings-header' });
+      for (const entry of rankingEntries) {
+        items.push({ type: 'ranking', data: entry, id: entry.userId });
+      }
+    }
+    return items;
+  }, [podiumEntries, rankingEntries]);
 
   const renderItem = useCallback(
     ({ item }: { item: ListItem }) => {

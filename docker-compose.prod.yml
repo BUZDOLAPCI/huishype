@@ -50,6 +50,43 @@ services:
     networks:
       - internal
 
+  # ---------- Background worker ----------
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-huishype}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-huishype}
+      REDIS_URL: redis://redis:6379
+      PORT: "3100"
+      HOST: "0.0.0.0"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      PHOTON_URL: http://photon:2322
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      WORKER_INGEST_CONCURRENCY: ${WORKER_INGEST_CONCURRENCY:-4}
+      WORKER_MAINTENANCE_CONCURRENCY: ${WORKER_MAINTENANCE_CONCURRENCY:-1}
+      WORKER_RECOVERY_BATCH_LIMIT: ${WORKER_RECOVERY_BATCH_LIMIT:-100}
+      WORKER_RECOVERY_SWEEP_INTERVAL_MS: ${WORKER_RECOVERY_SWEEP_INTERVAL_MS:-30000}
+      WORKER_HEALTH_LOG_INTERVAL_MS: ${WORKER_HEALTH_LOG_INTERVAL_MS:-60000}
+      WORKER_STALE_PROCESSING_AFTER_MS: ${WORKER_STALE_PROCESSING_AFTER_MS:-600000}
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-15000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
   # ---------- Web (Expo static export + nginx) ----------
   web:
     build:

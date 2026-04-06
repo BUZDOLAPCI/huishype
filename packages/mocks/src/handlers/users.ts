@@ -17,7 +17,7 @@ export const userHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -31,7 +31,7 @@ export const userHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -53,7 +53,7 @@ export const userHandlers = [
 
     if (!profile) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'User not found' },
+        { error: 'NOT_FOUND', message: 'User not found' },
         { status: 404 }
       );
     }
@@ -68,7 +68,7 @@ export const userHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }

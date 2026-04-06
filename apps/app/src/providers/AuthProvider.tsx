@@ -119,6 +119,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const refreshAuthRef = useRef<() => Promise<boolean>>(null!);
 
   /**
+   * Schedule token refresh before expiry.
+   * Uses refreshAuthRef so the timer always calls the CURRENT refreshAuth,
+   * not the one captured at first render (avoids stale closure).
+   */
+  const scheduleTokenRefresh = useCallback((expiresAt: string) => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+
+    const expiryTime = new Date(expiresAt).getTime();
+    const now = Date.now();
+    // Refresh 1 minute before expiry
+    const refreshTime = expiryTime - now - 60000;
+
+    if (refreshTime > 0) {
+      refreshTimerRef.current = setTimeout(() => {
+        refreshAuthRef.current();
+      }, refreshTime);
+    }
+  }, []);
+
+  /**
    * Store auth data securely
    */
   const storeAuthData = useCallback(
@@ -146,7 +168,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Schedule token refresh
       scheduleTokenRefresh(expiresAt);
     },
-    []
+    [scheduleTokenRefresh]
   );
 
   /**
@@ -172,28 +194,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       accessToken: null,
       authError: null,
     });
-  }, []);
-
-  /**
-   * Schedule token refresh before expiry.
-   * Uses refreshAuthRef so the timer always calls the CURRENT refreshAuth,
-   * not the one captured at first render (avoids stale closure).
-   */
-  const scheduleTokenRefresh = useCallback((expiresAt: string) => {
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-    }
-
-    const expiryTime = new Date(expiresAt).getTime();
-    const now = Date.now();
-    // Refresh 1 minute before expiry
-    const refreshTime = expiryTime - now - 60000;
-
-    if (refreshTime > 0) {
-      refreshTimerRef.current = setTimeout(() => {
-        refreshAuthRef.current();
-      }, refreshTime);
-    }
   }, []);
 
   /**

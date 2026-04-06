@@ -6,7 +6,6 @@
 import { z } from 'zod';
 import {
   getCountryConfig,
-  getAllListingDomains,
   getAllListingSourceNames,
   isValidCountryCode,
   type CountryCode,
@@ -119,21 +118,6 @@ export const updateUserProfileSchema = z.object({
 
 export const activityLevelSchema = z.enum(['cold', 'warm', 'hot']);
 
-export const getMapPropertiesSchema = z.object({
-  bounds: mapBoundsSchema,
-  zoom: z.number().min(1).max(22),
-  filters: z
-    .object({
-      minPrice: priceSchema.optional(),
-      maxPrice: priceSchema.optional(),
-      minSize: z.number().int().positive().optional(),
-      maxSize: z.number().int().positive().optional(),
-      activityLevel: z.array(activityLevelSchema).optional(),
-      hasListing: z.boolean().optional(),
-    })
-    .optional(),
-});
-
 // ============================================
 // Listing Schemas
 // ============================================
@@ -146,22 +130,22 @@ export const listingSourceSchema = z.string().refine(
   { message: `Must be one of: ${ALL_LISTING_SOURCES.join(', ')}` },
 );
 
-/** All listing domains from the country-config registry (cached at import time). */
-const LISTING_DOMAINS = getAllListingDomains();
+const listingUrlSchema = z
+  .string()
+  .url('Invalid URL');
+
+const listingPropertyIdSchema = idSchema;
+
+export const previewListingSchema = z.object({
+  url: listingUrlSchema,
+  propertyId: listingPropertyIdSchema,
+});
 
 export const submitListingSchema = z.object({
-  url: z
-    .string()
-    .url('Invalid URL')
-    .refine(
-      (url) => {
-        const hostname = new URL(url).hostname.toLowerCase();
-        return LISTING_DOMAINS.some(
-          (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-        );
-      },
-      'URL must be from a recognized listing platform',
-    ),
+  url: listingUrlSchema,
+  propertyId: listingPropertyIdSchema,
+  ogTitle: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
 });
 
 export const getListingsSchema = z.object({

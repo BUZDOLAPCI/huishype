@@ -134,6 +134,14 @@ All design decisions and specifications are in `agent-rules/`. **Consult these b
 
 These documents are the source of truth for product design. Pass these information down to all subagents so they have a vision of the big picture.
 
+## Native Workflow
+
+`apps/app/app.json` is the Expo config source of truth. The generated `apps/app/android/` and `apps/app/ios/` trees are intentionally ignored by git, so treat them as regenerated output plus a small set of documented override points.
+
+For the current prebuild and native wiring workflow, always point agents to [`apps/app/README.md`](/home/caslan/dev/git_repos/hh/huishype/apps/app/README.md) and follow that file as the canonical workflow document. It explains what must be re-applied after prebuild, including the MapLibre native AAR wiring and the iOS URL scheme / credential files.
+
+Do not present the generated native folders as self-evident or authoritative on their own. The repo currently relies on documented regeneration steps and a few manual override points, and those instructions remain authoritative until the wiring is moved elsewhere.
+
 ## MapLibre React Native
 
 Uses `@maplibre/maplibre-react-native` v11 alpha with **React Native New Architecture** (Fabric + TurboModules) enabled. The v11 alpha line is actively migrating components to Fabric native components. Key implications:
@@ -345,7 +353,7 @@ Launch multiple independent subagents in a single message for maximum efficiency
 
 ## Verification
 
-Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. Follow "All tests green" development.
+Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical `pnpm test` gate includes app, API, worker, shared, api-client, and mocks unit coverage plus API integration and Playwright integration. Follow "All tests green" development.
 
 ## Pre-Commit Quality Gate (Mandatory)
 
@@ -377,7 +385,7 @@ The `tools/` directory is the agent workspace. See `tools/README.md` for current
 
 ## Local Dev Services
 
-Metro and the API run as always-on systemd user services. Docker (postgres, redis) is managed separately via `docker compose`.
+Metro and the API run as always-on systemd user services. Docker (postgres, redis) is managed separately via `docker compose`. The background worker is real now, but it is not an always-on systemd user service in local dev; start it explicitly when you need queue-backed ingest or maintenance processing.
 
 | Service | Unit | Port | Logs |
 |---------|------|------|------|
@@ -389,6 +397,15 @@ Metro and the API run as always-on systemd user services. Docker (postgres, redi
 systemctl --user restart huishype-expo   # Restart Metro
 systemctl --user restart huishype-api    # Restart API
 systemctl --user stop huishype-expo      # Stop (auto-restarts unless disabled)
+```
+
+Start the worker when local changes rely on BullMQ processing:
+
+```bash
+docker compose --profile worker up -d worker         # Local containerized worker
+docker logs huishype-worker -f                       # Worker logs
+pnpm --filter @huishype/worker dev                   # Direct watch-mode worker from the monorepo root
+docker compose --profile worker stop worker          # Stop the worker container
 ```
 
 **adb reverse** is automated via udev rule (`/etc/udev/rules.d/99-huishype-adb.rules`) — triggers on Samsung S10e USB connect. No manual step needed.

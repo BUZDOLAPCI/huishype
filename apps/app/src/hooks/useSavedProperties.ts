@@ -7,11 +7,14 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
+import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
+import type { CountryCode } from '@huishype/shared';
 import type { FeedProperty } from './useFeed';
 
 interface SavedPropertyApiResponse {
   id: string;
   nationalId: string | null;
+  countryCode: CountryCode;
   street: string;
   houseNumber: number;
   houseNumberAddition: string | null;
@@ -45,7 +48,7 @@ export const savedPropertyKeys = {
 
 const PAGE_SIZE = 20;
 
-function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
+export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
   const createdDate = new Date(property.createdAt);
   const now = new Date();
   const daysSinceCreation = Math.floor(
@@ -75,12 +78,14 @@ function transformSavedProperty(property: SavedPropertyApiResponse): FeedPropert
     askingPrice: property.askingPrice,
     fmv: null,
     fmvValue: undefined,
-    thumbnailUrl: null,
+    thumbnailUrl: getPropertyThumbnailFromGeometry(
+      property.geometry,
+      property.countryCode as CountryCode,
+    ),
     likeCount: 0,
     activityLevel,
     lastActivityAt: property.savedAt,
     hasListing: property.hasListing,
-    photoUrl: `https://picsum.photos/seed/${property.id}/400/300`,
     commentCount: property.commentCount,
     guessCount: property.guessCount,
     viewCount: 0,

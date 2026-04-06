@@ -32,7 +32,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     karma: 2500,
     karmaRank: 'Expert',
-    isPlus: true,
     createdAt: '2024-01-15T10:30:00Z',
   },
   {
@@ -42,7 +41,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     karma: 850,
     karmaRank: 'Local Legend',
-    isPlus: false,
     createdAt: '2024-03-20T14:15:00Z',
   },
   {
@@ -52,7 +50,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     karma: 125,
     karmaRank: 'Local Expert',
-    isPlus: false,
     createdAt: '2024-06-01T09:00:00Z',
   },
   {
@@ -62,7 +59,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     karma: 5200,
     karmaRank: 'Master',
-    isPlus: true,
     createdAt: '2023-11-10T16:45:00Z',
   },
   {
@@ -71,7 +67,6 @@ export const mockUsers: User[] = [
     displayName: 'New User',
     karma: 0,
     karmaRank: 'Newcomer',
-    isPlus: false,
     createdAt: '2024-12-01T12:00:00Z',
   },
   {
@@ -81,7 +76,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
     karma: 1800,
     karmaRank: 'Expert',
-    isPlus: false,
     createdAt: '2024-02-10T08:30:00Z',
   },
   {
@@ -91,7 +85,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
     karma: 620,
     karmaRank: 'Local Legend',
-    isPlus: false,
     createdAt: '2024-04-15T11:20:00Z',
   },
   {
@@ -101,7 +94,6 @@ export const mockUsers: User[] = [
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
     karma: 450,
     karmaRank: 'Local Expert',
-    isPlus: false,
     createdAt: '2024-05-20T15:00:00Z',
   },
 ];

@@ -138,8 +138,6 @@ export type {
   PropertyResolveResponse,
   GetPropertyRequest,
   GetPropertyResponse,
-  GetMapPropertiesRequest,
-  GetMapPropertiesResponse,
   // Listing
   GetListingsRequest,
   GetListingsResponse,
@@ -162,6 +160,7 @@ export type {
   GetFeedResponse,
   // Saved
   GetSavedPropertiesRequest,
+  SavedProperty,
   GetSavedPropertiesResponse,
   // Notification
   GetNotificationsResponse,

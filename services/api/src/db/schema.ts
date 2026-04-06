@@ -143,6 +143,15 @@ export const targetTypeEnum = pgEnum('target_type', ['property', 'comment']);
 // listing_source changed from enum to varchar(50) for multi-country extensibility
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive', 'demolished']);
 export const listingStatusEnum = pgEnum('listing_status', ['active', 'sold', 'rented', 'withdrawn']);
+export const ingestRunStatusEnum = pgEnum('ingest_run_status', ['in_progress', 'failed', 'completed']);
+export const ingestBatchStatusEnum = pgEnum('ingest_batch_status', [
+  'accepted',
+  'queued',
+  'processing',
+  'completed',
+  'retryable',
+  'failed',
+]);
 
 // Users table
 export const users = pgTable(
@@ -167,6 +176,24 @@ export const users = pgTable(
     uniqueIndex('users_apple_id_idx').on(table.appleId),
     uniqueIndex('users_email_idx').on(table.email),
     uniqueIndex('users_username_idx').on(table.username),
+  ]
+);
+
+export const refreshTokenRevocations = pgTable(
+  'refresh_token_revocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tokenId: varchar('token_id', { length: 255 }).notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('refresh_token_revocations_token_id_idx').on(table.tokenId),
+    index('refresh_token_revocations_user_id_idx').on(table.userId),
+    index('refresh_token_revocations_expires_at_idx').on(table.expiresAt),
   ]
 );
 
@@ -256,6 +283,83 @@ export const priceHistory = pgTable(
     index('price_history_property_date_idx').on(table.propertyId, table.priceDate),
     uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
     index('price_history_listing_idx').on(table.listingId),
+  ]
+);
+
+// Durable ingest run ledger (optional when upstream provides a stable run identity)
+export const ingestRuns = pgTable(
+  'ingest_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    upstreamRunKey: varchar('upstream_run_key', { length: 255 }).notNull(),
+    upstreamCursorStart: text('upstream_cursor_start'),
+    upstreamCursorEnd: text('upstream_cursor_end'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    status: ingestRunStatusEnum('status').notNull().default('in_progress'),
+    processedBatchCount: integer('processed_batch_count').notNull().default(0),
+    errorSummary: jsonb('error_summary').$type<Record<string, unknown> | null>(),
+  },
+  (table) => [
+    uniqueIndex('ingest_runs_source_upstream_key_idx').on(table.sourceName, table.upstreamRunKey),
+    index('ingest_runs_source_started_idx').on(table.sourceName, table.startedAt),
+    index('ingest_runs_status_idx').on(table.status),
+  ]
+);
+
+// Durable ingest batch ledger + durable maintenance refresh state
+export const ingestBatches = pgTable(
+  'ingest_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id').references(() => ingestRuns.id, { onDelete: 'set null' }),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    batchSequence: integer('batch_sequence').notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull(),
+    cursorStart: text('cursor_start'),
+    cursorEnd: text('cursor_end').notNull(),
+    payloadJson: jsonb('payload_json').$type<Record<string, unknown>>().notNull(),
+    status: ingestBatchStatusEnum('status').notNull().default('accepted'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    ingestedCount: integer('ingested_count').notNull().default(0),
+    updatedCount: integer('updated_count').notNull().default(0),
+    skippedCount: integer('skipped_count').notNull().default(0),
+    errorJson: jsonb('error_json').$type<Record<string, unknown> | null>(),
+    lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+    maintenanceRequestedAt: timestamp('maintenance_requested_at', { withTimezone: true }),
+    maintenanceCompletedAt: timestamp('maintenance_completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('ingest_batches_source_idempotency_idx').on(table.sourceName, table.idempotencyKey),
+    uniqueIndex('ingest_batches_run_sequence_idx').on(table.runId, table.batchSequence).where(sql`run_id IS NOT NULL`),
+    index('ingest_batches_source_status_received_idx').on(table.sourceName, table.status, table.receivedAt),
+    index('ingest_batches_source_cursor_status_idx').on(table.sourceName, table.cursorStart, table.status),
+    index('ingest_batches_completed_idx').on(table.completedAt),
+    index('ingest_batches_maintenance_pending_idx')
+      .on(table.maintenanceRequestedAt, table.maintenanceCompletedAt)
+      .where(sql`maintenance_requested_at IS NOT NULL AND maintenance_completed_at IS NULL`),
+  ]
+);
+
+// Authoritative checkpoint per source
+export const ingestSources = pgTable(
+  'ingest_sources',
+  {
+    sourceName: varchar('source_name', { length: 50 }).primaryKey(),
+    lastCommittedCursor: text('last_committed_cursor'),
+    lastCommittedChangedAt: timestamp('last_committed_changed_at', { withTimezone: true }),
+    lastCommittedListingKey: text('last_committed_listing_key'),
+    lastBatchId: uuid('last_batch_id').references(() => ingestBatches.id, { onDelete: 'set null' }),
+    lastRunStartedAt: timestamp('last_run_started_at', { withTimezone: true }),
+    lastRunCompletedAt: timestamp('last_run_completed_at', { withTimezone: true }),
+    lastRunStatus: ingestRunStatusEnum('last_run_status'),
+  },
+  (table) => [
+    index('ingest_sources_last_batch_idx').on(table.lastBatchId),
   ]
 );
 
@@ -507,6 +611,24 @@ export const priceHistoryRelations = relations(priceHistory, ({ one }) => ({
   }),
 }));
 
+export const ingestRunsRelations = relations(ingestRuns, ({ many }) => ({
+  batches: many(ingestBatches),
+}));
+
+export const ingestBatchesRelations = relations(ingestBatches, ({ one }) => ({
+  run: one(ingestRuns, {
+    fields: [ingestBatches.runId],
+    references: [ingestRuns.id],
+  }),
+}));
+
+export const ingestSourcesRelations = relations(ingestSources, ({ one }) => ({
+  lastBatch: one(ingestBatches, {
+    fields: [ingestSources.lastBatchId],
+    references: [ingestBatches.id],
+  }),
+}));
+
 export const priceGuessesRelations = relations(priceGuesses, ({ one }) => ({
   property: one(properties, {
     fields: [priceGuesses.propertyId],
@@ -590,6 +712,15 @@ export type NewSavedProperty = typeof savedProperties.$inferInsert;
 
 export type PriceHistory = typeof priceHistory.$inferSelect;
 export type NewPriceHistory = typeof priceHistory.$inferInsert;
+
+export type IngestRun = typeof ingestRuns.$inferSelect;
+export type NewIngestRun = typeof ingestRuns.$inferInsert;
+
+export type IngestBatch = typeof ingestBatches.$inferSelect;
+export type NewIngestBatch = typeof ingestBatches.$inferInsert;
+
+export type IngestSource = typeof ingestSources.$inferSelect;
+export type NewIngestSource = typeof ingestSources.$inferInsert;
 
 export type PropertyView = typeof propertyViews.$inferSelect;
 export type NewPropertyView = typeof propertyViews.$inferInsert;

@@ -127,11 +127,13 @@ This reveals **demand dynamics** before transactions occur.
 
 Login via google or apple account
 
-**View-only without login, interactions gated at submit:**
+**View-only without login, interactions gated at submit/save:**
 - Browsing the map, viewing listings, reading comments fully accessible without login
 - Users can **start** a guess or comment without being logged in
 - Login is required only at the **submit** moment (reduces friction, captures intent)
 - **"Save property"** acts as the first conversion moment (requires login)
+
+This applies to web and native alike. The web app is not login-walled; the logged-out experience is intentional product behavior.
 
 This approach captures user intent before requiring authentication.
 
@@ -650,4 +652,3 @@ The long-term goal is for **HuisHype** to become a **globally reusable social re
 ## Summary
 
 **HuisHype** turns housing from a static, opaque marketplace into a **living, fun, social system**. By combining maps, comments, and price prediction mechanics, it captures how people actually think and feel about real estate — and converts that into insights that do not exist today.
-

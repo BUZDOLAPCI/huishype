@@ -3,18 +3,20 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 
 describe('GET /health', () => {
-  let app: FastifyInstance;
+  let app: FastifyInstance | undefined;
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   it('should return 200', async () => {
-    const response = await app.inject({
+    const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
@@ -22,7 +24,7 @@ describe('GET /health', () => {
   });
 
   it('should return status ok', async () => {
-    const response = await app.inject({
+    const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
@@ -31,7 +33,7 @@ describe('GET /health', () => {
   });
 
   it('should include expected response shape', async () => {
-    const response = await app.inject({
+    const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
@@ -49,7 +51,7 @@ describe('GET /health', () => {
   });
 
   it('should return a valid ISO timestamp', async () => {
-    const response = await app.inject({
+    const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
@@ -59,7 +61,7 @@ describe('GET /health', () => {
   });
 
   it('should return uptime as a positive number', async () => {
-    const response = await app.inject({
+    const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });

@@ -17,7 +17,7 @@ export const guessHandlers = [
   /**
    * GET /properties/:id/guesses - Get guesses for a property
    */
-  http.get('/properties/:propertyId/guesses', ({ params, request }) => {
+  http.get('*/properties/:propertyId/guesses', ({ params, request }) => {
     const { propertyId } = params;
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
@@ -26,7 +26,7 @@ export const guessHandlers = [
     const property = getMockProperty(propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -57,12 +57,12 @@ export const guessHandlers = [
   /**
    * POST /properties/:id/guesses - Submit a new price guess
    */
-  http.post('/properties/:propertyId/guesses', async ({ params, request }) => {
+  http.post('*/properties/:propertyId/guesses', async ({ params, request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
 
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -74,7 +74,7 @@ export const guessHandlers = [
     const property = getMockProperty(propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -86,14 +86,14 @@ export const guessHandlers = [
 
     if (existingGuess) {
       return HttpResponse.json(
-        { code: 'ALREADY_GUESSED', message: 'You have already guessed for this property' },
+        { error: 'ALREADY_GUESSED', message: 'You have already guessed for this property' },
         { status: 400 }
       );
     }
 
     if (guessedPrice < 10000 || guessedPrice > 100000000) {
       return HttpResponse.json(
-        { code: 'INVALID_PRICE', message: 'Price must be between 10,000 and 100,000,000' },
+        { error: 'INVALID_PRICE', message: 'Price must be between 10,000 and 100,000,000' },
         { status: 400 }
       );
     }

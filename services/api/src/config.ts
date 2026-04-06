@@ -2,7 +2,28 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV;
+export type RuntimeEnv = 'development' | 'test' | 'production';
+
+const RUNTIME_ENVS: ReadonlySet<string> = new Set(['development', 'test', 'production']);
+
+/**
+ * Normalize NODE_ENV to a known runtime mode.
+ * Missing or blank NODE_ENV should keep local startup usable; explicit unknown
+ * values still fail closed to production mode.
+ */
+export function resolveRuntimeEnv(nodeEnv: string | undefined): RuntimeEnv {
+  if (nodeEnv == null || nodeEnv.trim().length === 0) {
+    return 'development';
+  }
+
+  if (RUNTIME_ENVS.has(nodeEnv)) {
+    return nodeEnv as RuntimeEnv;
+  }
+  return 'production';
+}
+
+const env = resolveRuntimeEnv(process.env.NODE_ENV);
+const isDev = env === 'development' || env === 'test';
 
 /**
  * Validate that required secrets are present. Called at import time and
@@ -31,6 +52,9 @@ export const config = {
   database: {
     url: process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype',
   },
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6390',
+  },
   server: {
     port: parseInt(process.env.PORT || '3100', 10),
     host: process.env.HOST || '0.0.0.0',
@@ -58,8 +82,9 @@ export const config = {
   photon: {
     url: process.env.PHOTON_URL || 'http://localhost:2322',
   },
-  env: process.env.NODE_ENV || 'development',
+  env,
   isDev,
+  isTest: env === 'test',
 } as const;
 
 export type Config = typeof config;

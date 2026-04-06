@@ -13,9 +13,9 @@ Identified during the 2026-02-10 review sprint. These are intentionally deferred
 - **Work**: Install ioredis, create Redis client singleton, wire into rate limiter, cache hot data (view counts, trending scores)
 
 ### Background Job Worker
-- **Status**: `services/worker/src/index.ts` is an empty TODO file
+- **Status**: Implemented on 2026-04-06. `services/worker/` now runs the real BullMQ worker runtime for listing ingest, maintenance refreshes, and recovery sweeps.
 - **Spec**: Locked decision #6 — queue-based worker for ingestion, scoring, notifications, moderation
-- **Work**: Set up BullMQ or similar, implement job processors for: karma recalculation, FMV updates, notification dispatch, listing ingestion, moderation queue
+- **Work**: Keep this section as historical context only. Remaining deferred work is follow-on expansion of the worker into scoring, notification dispatch, and moderation jobs.
 
 ### Push Notifications (APNs + FCM)
 - **Status**: Not implemented. No expo-notifications, no FCM/APNs config
@@ -28,31 +28,31 @@ Identified during the 2026-02-10 review sprint. These are intentionally deferred
 - **Work**: Add Sentry (or equivalent), define event taxonomy, instrument key user actions, add error boundary reporting
 
 ### CI/CD Pipeline
-- **Status**: No CI configuration (no .github/workflows/, no Jenkinsfile)
+- **Status**: Partially implemented. `.github/workflows/ci.yml` runs the current canonical gate (`pnpm test`) coverage: lint, typecheck, unit, API integration, and Playwright integration.
 - **Spec**: Lint + typecheck → unit → integration → E2E web → E2E mobile pipeline
-- **Work**: Create GitHub Actions workflow with all 5 stages, artifact capture, Docker services for PostGIS
+- **Work**: Remaining deferred work is the mobile Maestro lane and broader artifact hardening called for in `agent-rules/test-requirements.md`, plus any expansion beyond the current canonical gate.
 
 ---
 
 ## Authentication
 
 ### Apple Sign-In Production Verification
-- **Status**: `validateAppleToken()` in auth.ts has TODO and returns null in production
+- **Status**: Backend Apple JWT verification is implemented, but the Apple button is still hidden in the client until Apple Developer Program / provisioning work is completed.
 - **Spec**: Apple + Google as first-class login methods
-- **Impact**: Apple Sign-In completely non-functional in production
-- **Work**: Implement Apple JWT verification using apple-signin-auth or jose library, validate identity token against Apple's public keys
+- **Impact**: Native/web production rollout still cannot expose Apple Sign-In end to end.
+- **Work**: Complete Apple Developer Program enrollment, provisioning, and client rollout so the existing backend path can be enabled safely.
 
 ### Refresh Token Revocation
-- **Status**: Logout endpoint returns 204 but doesn't invalidate refresh tokens (auth.ts:466-471)
-- **Impact**: Stolen refresh tokens remain valid for 7 days after logout
-- **Work**: Implement token blacklist (Redis-backed) checked on refresh, or switch to short-lived tokens with DB-backed refresh token rotation
+- **Status**: Implemented on 2026-04-06. Refresh tokens are now revocable server-side and `POST /auth/refresh` rejects revoked tokens.
+- **Impact**: Keep this section as historical context only. Remaining auth release work is Apple sign-in rollout, not refresh token revocation.
+- **Work**: None in this tranche.
 
 ---
 
 ## Features
 
 ### HuisHype Plus / Premium Subscription
-- **Status**: Entirely unimplemented. `isPlus: false` hardcoded in auth response
+- **Status**: Product area still unimplemented. The placeholder backend-exposed `isPlus` flag has been removed from auth/session contracts until real entitlement wiring exists.
 - **Spec**: Virtual House cosmetic marker, subscription tiers, RevenueCat integration
 - **Work**: RevenueCat SDK setup, subscription tables in schema, entitlement checks, Virtual House 3D models (React Three Fiber), premium profile badges
 

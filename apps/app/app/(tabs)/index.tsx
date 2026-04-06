@@ -131,6 +131,12 @@ export default function MapScreen() {
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
+  const {
+    handleNearbyResult,
+    handleEmptyMapTap,
+    handlePropertyResolved: handleMapPropertyResolved,
+    handleLocationResolved: handleMapLocationResolved,
+  } = interaction;
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -225,7 +231,7 @@ export default function MapScreen() {
         try {
           const nearby = await fetchNearbyCluster(lon, lat, currentZoom);
           if (nearby) {
-            interaction.handleNearbyResult(nearby, currentZoom, cameraCommands);
+            handleNearbyResult(nearby, currentZoom, cameraCommands);
             return;
           }
         } catch (error) {
@@ -234,21 +240,21 @@ export default function MapScreen() {
       }
 
       // No features at tap point — check if we should close preview
-      interaction.handleEmptyMapTap();
+      handleEmptyMapTap();
     },
-    [interaction, currentZoom, cameraCommands]
+    [interaction, handleNearbyResult, handleEmptyMapTap, currentZoom, cameraCommands]
   );
 
   // Search bar callbacks
   const handlePropertyResolved = useCallback(
-    (property: Parameters<typeof interaction.handlePropertyResolved>[0]) => {
-      interaction.handlePropertyResolved(property, cameraCommands);
+    (property: Parameters<typeof handleMapPropertyResolved>[0]) => {
+      handleMapPropertyResolved(property, cameraCommands);
       // Set the search city from the resolved property
       if (property.city) {
         setSearchCity(property.city, [property.coordinates.lon, property.coordinates.lat]);
       }
     },
-    [interaction.handlePropertyResolved, cameraCommands, setSearchCity],
+    [handleMapPropertyResolved, cameraCommands, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
@@ -257,14 +263,14 @@ export default function MapScreen() {
       address: string,
       resolvedAddress?: ResolvedAddress,
     ) => {
-      interaction.handleLocationResolved(coordinates, address, cameraCommands);
+      handleMapLocationResolved(coordinates, address, cameraCommands);
       const cityFromAddress =
         resolvedAddress?.details.city || extractCityFromAddress(address);
       if (cityFromAddress) {
         setSearchCity(cityFromAddress, [coordinates.lon, coordinates.lat]);
       }
     },
-    [interaction.handleLocationResolved, cameraCommands, setSearchCity],
+    [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
 
   // Zoom control handlers

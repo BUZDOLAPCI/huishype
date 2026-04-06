@@ -66,7 +66,7 @@ describe('UserAvatar', () => {
     });
 
     it('supports all size variants', () => {
-      const sizes = ['sm', 'md', 'lg'] as const;
+      const sizes = ['xs', 'sm', 'md', 'lg'] as const;
       for (const size of sizes) {
         const { getByTestId, unmount } = render(
           <UserAvatar username="eve" size={size} testID={`avatar-${size}`} />

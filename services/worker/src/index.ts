@@ -1,3 +1,9 @@
-// HuisHype Background Worker
-// TODO: Setup queue-based worker service
-export {};
+import { ensureWorkerRuntimeEnv } from './config.js';
+
+try {
+  ensureWorkerRuntimeEnv();
+  const { runWorker } = await import('./runtime.js');
+  await runWorker();
+} catch {
+  process.exitCode = process.exitCode ?? 1;
+}

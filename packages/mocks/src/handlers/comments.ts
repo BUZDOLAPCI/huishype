@@ -32,7 +32,7 @@ export const commentHandlers = [
     const property = getMockProperty(propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
@@ -100,7 +100,7 @@ export const commentHandlers = [
 
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -112,21 +112,21 @@ export const commentHandlers = [
     const property = getMockProperty(propertyId as string);
     if (!property) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Property not found' },
+        { error: 'NOT_FOUND', message: 'Property not found' },
         { status: 404 }
       );
     }
 
     if (!content || content.trim().length === 0) {
       return HttpResponse.json(
-        { code: 'INVALID_CONTENT', message: 'Comment cannot be empty' },
+        { error: 'INVALID_CONTENT', message: 'Comment cannot be empty' },
         { status: 400 }
       );
     }
 
     if (content.length > 500) {
       return HttpResponse.json(
-        { code: 'CONTENT_TOO_LONG', message: 'Comment must be at most 500 characters' },
+        { error: 'CONTENT_TOO_LONG', message: 'Comment must be at most 500 characters' },
         { status: 400 }
       );
     }
@@ -138,13 +138,13 @@ export const commentHandlers = [
       );
       if (!parentComment) {
         return HttpResponse.json(
-          { code: 'PARENT_NOT_FOUND', message: 'Parent comment not found' },
+          { error: 'PARENT_NOT_FOUND', message: 'Parent comment not found' },
           { status: 404 }
         );
       }
       if (parentComment.parentId) {
         return HttpResponse.json(
-          { code: 'NESTED_REPLY', message: 'Cannot reply to a reply' },
+          { error: 'NESTED_REPLY', message: 'Cannot reply to a reply' },
           { status: 400 }
         );
       }
@@ -194,7 +194,7 @@ export const commentHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
@@ -207,7 +207,7 @@ export const commentHandlers = [
 
     if (!comment) {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'Comment not found' },
+        { error: 'NOT_FOUND', message: 'Comment not found' },
         { status: 404 }
       );
     }
@@ -228,7 +228,7 @@ export const commentHandlers = [
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
-        { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }

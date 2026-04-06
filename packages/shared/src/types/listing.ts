@@ -13,10 +13,9 @@ export type ListingSource = string;
  */
 export type ListingStatus =
   | 'active'
-  | 'under_offer'
   | 'sold'
-  | 'withdrawn'
-  | 'expired';
+  | 'rented'
+  | 'withdrawn';
 
 /**
  * Full listing information
@@ -96,18 +95,24 @@ export interface ListingSummary {
 export interface SubmitListingRequest {
   /** URL to the listing (funda, pararius, etc.) */
   url: string;
+  /** Local property this listing belongs to */
+  propertyId: string;
+  /** Extracted Open Graph title, if available */
+  ogTitle?: string;
+  /** Extracted Open Graph thumbnail URL, if available */
+  thumbnailUrl?: string;
 }
 
 /**
  * Response after submitting a listing
  */
 export interface SubmitListingResponse {
-  /** Whether a new listing was created or existing one returned */
-  created: boolean;
-  /** The listing (new or existing) */
-  listing: Listing;
-  /** The associated property */
+  id: string;
   propertyId: string;
+  sourceUrl: string;
+  sourceName: ListingSource;
+  status: ListingStatus;
+  createdAt: string;
 }
 
 /**

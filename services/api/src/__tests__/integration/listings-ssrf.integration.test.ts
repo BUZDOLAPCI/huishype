@@ -6,7 +6,7 @@ import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 /**
- * Integration tests for SSRF protection and auth on listings endpoints.
+ * Integration tests for SSRF protection and auth behavior on listings endpoints.
  */
 describe('Listings SSRF protection + auth', () => {
   let app: FastifyInstance;
@@ -41,11 +41,11 @@ describe('Listings SSRF protection + auth', () => {
   });
 
   // -----------------------------------------------------------------------
-  // POST /listings/preview — auth required
+  // POST /listings/preview — unauthenticated allowed
   // -----------------------------------------------------------------------
 
   describe('POST /listings/preview', () => {
-    it('should return 401 without auth token', async () => {
+    it('should allow unauthenticated requests (returns 404 for unknown property)', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
@@ -54,14 +54,13 @@ describe('Listings SSRF protection + auth', () => {
           propertyId: fakePropertyId,
         },
       });
-      expect(res.statusCode).toBe(401);
+      expect(res.statusCode).toBe(404);
     });
 
     it('should return 400 for non-whitelisted domain', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://evil.com/steal-data',
           propertyId: fakePropertyId,
@@ -76,7 +75,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'http://www.funda.nl/koop/amsterdam/huis-12345/',
           propertyId: fakePropertyId,
@@ -91,7 +89,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://127.0.0.1:3100/health',
           propertyId: fakePropertyId,
@@ -106,7 +103,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://169.254.169.254/latest/meta-data/',
           propertyId: fakePropertyId,
@@ -119,7 +115,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://10.0.0.1/internal-api',
           propertyId: fakePropertyId,
@@ -132,7 +127,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://funda.nl.evil.com/koop/',
           propertyId: fakePropertyId,
@@ -145,7 +139,6 @@ describe('Listings SSRF protection + auth', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/preview',
-        headers: { authorization: `Bearer ${accessToken}` },
         payload: {
           url: 'https://www.funda.nl/koop/amsterdam/huis-12345/',
           propertyId: fakePropertyId,

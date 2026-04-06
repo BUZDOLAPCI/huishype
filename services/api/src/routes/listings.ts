@@ -2,13 +2,24 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, listings, priceHistory } from '../db/index.js';
-import { eq, sql, desc } from 'drizzle-orm';
-import { canonicalizeAddress, normalizeSourceUrl } from '../utils/address.js';
+import { desc, eq } from 'drizzle-orm';
+import { normalizeSourceUrl } from '../utils/address.js';
 import { fetchOgMetadata } from '../services/og-fetcher.js';
 import { checkAddressMatch } from '../services/address-matcher.js';
 import rateLimit from '@fastify/rate-limit';
 import { getAllListingDomains, getSourceNameForDomain, getAllListingSourceNames } from '@huishype/shared/config';
-import { refreshLatestListingsView } from '../services/listings-view.js';
+import {
+  acceptIngestBatch,
+  createMaintenanceRefreshRequest,
+  enqueueIngestBatch,
+  IngestIdempotencyConflictError,
+  getIngestWatermark,
+  ingestAcceptedResponseSchema,
+  ingestBatchRequestSchema,
+  ingestWatermarkResponseSchema,
+  markBatchQueued,
+  requestLatestListingsRefresh,
+} from '../services/ingest/index.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -98,66 +109,11 @@ const submitResponseSchema = z.object({
 /** All valid listing source names from the country-config registry (cached at import time). */
 const ALL_SOURCE_NAMES = getAllListingSourceNames();
 
-const ingestListingSchema = z.object({
-  sourceUrl: z.string().url(),
-  sourceName: z.string().refine(
-    (val) => ALL_SOURCE_NAMES.includes(val),
-    { message: `Must be one of: ${getAllListingSourceNames().join(', ')}` },
-  ),
-  mirrorListingId: z.string(),
-  askingPrice: z.number().nullable(),
-  priceType: z.enum(['sale', 'rent']),
-  livingAreaM2: z.number().nullable().optional(),
-  numRooms: z.number().nullable().optional(),
-  energyLabel: z.string().nullable().optional(),
-  thumbnailUrl: z.string().nullable().optional(),
-  ogTitle: z.string().nullable().optional(),
-  status: z.enum(['active', 'sold', 'rented', 'withdrawn']).default('active'),
-  mirrorFirstSeenAt: z.string().datetime().optional(),
-  mirrorLastChangedAt: z.string().datetime().optional(),
-  mirrorLastSeenAt: z.string().datetime().optional(),
-  address: z.object({
-    postalCode: z.string(),
-    houseNumber: z.union([z.string(), z.number()]),
-    houseNumberAddition: z.string().nullable().optional(),
-    city: z.string().optional(),
-    latitude: z.number().nullable().optional(),
-    longitude: z.number().nullable().optional(),
-  }),
-  priceHistory: z.array(z.object({
-    price: z.number(),
-    priceDate: z.string(),
-    eventType: z.string(),
-  })).optional(),
-});
-
-const ingestRequestSchema = z.object({
-  listings: z.array(ingestListingSchema),
-});
-
-const ingestResponseSchema = z.object({
-  ingested: z.number(),
-  updated: z.number(),
-  skipped: z.number(),
-  errors: z.array(z.object({
-    sourceUrl: z.string(),
-    message: z.string(),
-  })),
-});
-
-// ---------------------------------------------------------------------------
-// 6. GET /api/ingest/watermark
-// ---------------------------------------------------------------------------
-
 const watermarkQuerySchema = z.object({
   source: z.string().refine(
     (val) => ALL_SOURCE_NAMES.includes(val),
     { message: `Must be one of: ${getAllListingSourceNames().join(', ')}` },
   ),
-});
-
-const watermarkResponseSchema = z.object({
-  lastChangedAt: z.string().datetime().nullable(),
 });
 
 // ---------------------------------------------------------------------------
@@ -340,16 +296,14 @@ export async function listingRoutes(app: FastifyInstance) {
   typedApp.post(
     '/listings/preview',
     {
-      onRequest: [app.authenticate],
       schema: {
         tags: ['listings'],
         summary: 'Preview a listing URL',
-        description: 'Fetches OG metadata from a URL and checks if the address matches the property. Requires authentication.',
+        description: 'Fetches OG metadata from a URL and checks if the address matches the property.',
         body: previewRequestSchema,
         response: {
           200: previewResponseSchema,
           400: errorResponseSchema,
-          401: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
@@ -460,25 +414,51 @@ export async function listingRoutes(app: FastifyInstance) {
       const sourceName = detectSourceName(url);
 
       try {
-        const result = await db
-          .insert(listings)
-          .values({
-            propertyId,
-            sourceUrl: normalizedUrl,
+        const { created, maintenanceRequest } = await db.transaction(async (tx) => {
+          const result = await tx
+            .insert(listings)
+            .values({
+              propertyId,
+              sourceUrl: normalizedUrl,
+              sourceName,
+              ogTitle: ogTitle ?? null,
+              thumbnailUrl: thumbnailUrl ?? null,
+              submittedBy: request.userId,
+              status: 'active',
+            })
+            .returning();
+
+          const createdListing = result[0];
+          if (!createdListing) {
+            throw new Error('Failed to create listing');
+          }
+
+          const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName,
-            ogTitle: ogTitle ?? null,
-            thumbnailUrl: thumbnailUrl ?? null,
-            submittedBy: request.userId,
-            status: 'active',
-          })
-          .returning();
+            requestedBy: 'listing-submit',
+            idempotencyKey: `listing-submit:${createdListing.id}`,
+            payload: {
+              listingId: createdListing.id,
+              propertyId,
+              sourceUrl: normalizedUrl,
+              sourceName,
+            },
+          });
 
-        const created = result[0];
+          return {
+            created: createdListing,
+            maintenanceRequest: maintenance,
+          };
+        });
 
-        // Refresh the materialized view so the feed picks up the new listing.
-        // Fire-and-forget: don't block the response on the refresh.
-        refreshLatestListingsView().catch((err) =>
-          request.log.error({ err }, 'Failed to refresh mv_latest_active_listings after submit'),
+        requestLatestListingsRefresh({
+          requestedBy: 'listing-submit',
+          batchId: maintenanceRequest.batchId,
+        }).catch((err) =>
+          request.log.warn(
+            { err, listingId: created.id, maintenanceBatchId: maintenanceRequest.batchId },
+            'Failed to enqueue latest listings refresh after submit',
+          ),
         );
 
         return reply.status(201).send({
@@ -513,10 +493,11 @@ export async function listingRoutes(app: FastifyInstance) {
         tags: ['ingest'],
         summary: 'Batch ingest listings from mirror',
         description: 'Internal endpoint for mirror sync workers. Requires API key authentication.',
-        body: ingestRequestSchema,
+        body: ingestBatchRequestSchema,
         response: {
-          200: ingestResponseSchema,
+          202: ingestAcceptedResponseSchema,
           401: errorResponseSchema,
+          409: errorResponseSchema,
         },
       },
     },
@@ -530,358 +511,37 @@ export async function listingRoutes(app: FastifyInstance) {
         });
       }
 
-      const { listings: incomingListings } = request.body;
+      try {
+        const accepted = await acceptIngestBatch(request.body);
+        let responseStatus = accepted.status;
 
-      let ingested = 0;
-      let updated = 0;
-      let skipped = 0;
-      const errors: { sourceUrl: string; message: string }[] = [];
-
-      // ---------------------------------------------------------------
-      // Phase 1: Canonicalize all addresses
-      // ---------------------------------------------------------------
-      interface Canonicalized {
-        item: typeof incomingListings[number];
-        canonical: NonNullable<ReturnType<typeof canonicalizeAddress>>;
-        index: number;
-      }
-
-      const canonicalized: Canonicalized[] = [];
-
-      for (let i = 0; i < incomingListings.length; i++) {
-        const item = incomingListings[i];
-        try {
-          const canonical = canonicalizeAddress({
-            postalCode: item.address.postalCode,
-            houseNumber: item.address.houseNumber,
-            houseNumberAddition: item.address.houseNumberAddition ?? null,
-            city: item.address.city,
-          });
-
-          if (canonical === null) {
-            errors.push({
-              sourceUrl: item.sourceUrl,
-              message: 'Address canonicalization failed: invalid address (empty postal code?)',
-            });
-            skipped++;
-            continue;
+        if (accepted.status === 'accepted' || accepted.status === 'retryable') {
+          try {
+            await enqueueIngestBatch(accepted.batchId);
+            await markBatchQueued(accepted.batchId);
+            responseStatus = 'queued';
+          } catch (err) {
+            request.log.warn(
+              { err, batchId: accepted.batchId, sourceName: accepted.sourceName },
+              'Failed to enqueue accepted ingest batch; leaving durable batch recoverable',
+            );
           }
-
-          canonicalized.push({ item, canonical, index: i });
-        } catch (err) {
-          errors.push({
-            sourceUrl: item.sourceUrl,
-            message: err instanceof Error ? err.message : 'Unknown error during canonicalization',
-          });
-          skipped++;
         }
-      }
 
-      if (canonicalized.length === 0) {
-        return reply.send({ ingested, updated, skipped, errors });
-      }
-
-      // ---------------------------------------------------------------
-      // Phase 2: Batch exact address match
-      // ---------------------------------------------------------------
-      // Build a single query matching ALL listings against properties
-      // using (postal_code, house_number, house_number_addition).
-      //
-      // We generate a VALUES list as parameterized SQL fragments and
-      // JOIN against properties.
-      // ---------------------------------------------------------------
-
-      // Map from "postalCode|houseNumber|addition" -> property UUID
-      const propertyIdMap = new Map<string, string>();
-
-      function buildMatchKey(postalCode: string, houseNumber: number, addition: string | null): string {
-        return `${postalCode}|${houseNumber}|${addition ?? ''}`;
-      }
-
-      // Deduplicate addresses before querying (many listings may share the same address)
-      const uniqueAddresses = new Map<string, { postalCode: string; houseNumber: number; addition: string | null }>();
-      for (const c of canonicalized) {
-        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
-        if (!uniqueAddresses.has(key)) {
-          uniqueAddresses.set(key, {
-            postalCode: c.canonical.postalCode,
-            houseNumber: c.canonical.houseNumber,
-            addition: c.canonical.houseNumberAddition,
+        return reply.status(202).send({
+          ...accepted,
+          status: responseStatus,
+        });
+      } catch (err) {
+        if (err instanceof IngestIdempotencyConflictError) {
+          return reply.status(409).send({
+            error: 'IDEMPOTENCY_CONFLICT',
+            message: err.message,
           });
         }
+
+        throw err;
       }
-
-      // Batch exact match in chunks (3 params per address, limit ~20000 addresses per batch)
-      const EXACT_MATCH_CHUNK = 20000;
-      const uniqueAddressEntries = Array.from(uniqueAddresses.entries());
-
-      for (let i = 0; i < uniqueAddressEntries.length; i += EXACT_MATCH_CHUNK) {
-        const chunk = uniqueAddressEntries.slice(i, i + EXACT_MATCH_CHUNK);
-
-        // Build VALUES clause: ($1::text, $2::int, $3::text), ($4::text, $5::int, $6::text), ...
-        const valueFragments = chunk.map(([, addr]) =>
-          sql`(${addr.postalCode}::text, ${addr.houseNumber}::int, ${addr.addition ?? ''}::text)`
-        );
-
-        const matchRows = await db.execute<{
-          id: string;
-          postal_code: string;
-          house_number: number;
-          house_number_addition: string | null;
-        }>(sql`
-          SELECT p.id, p.postal_code, p.house_number, p.house_number_addition
-          FROM properties p
-          JOIN (VALUES ${sql.join(valueFragments, sql`, `)})
-            AS v(postal_code, house_number, addition)
-          ON p.postal_code = v.postal_code
-            AND p.house_number = v.house_number
-            AND COALESCE(p.house_number_addition, '') = v.addition
-        `);
-
-        for (const row of matchRows) {
-          const key = buildMatchKey(
-            row.postal_code,
-            row.house_number,
-            row.house_number_addition,
-          );
-          propertyIdMap.set(key, row.id);
-        }
-      }
-
-      // ---------------------------------------------------------------
-      // Phase 3: Batch spatial fallback for unmatched listings
-      // ---------------------------------------------------------------
-      // For listings that didn't get an exact match and have lat/lon,
-      // do a single spatial query using geometry (NOT ::geography which
-      // bypasses the GiST index). Use 0.001 degrees (~100m in NL).
-      // ---------------------------------------------------------------
-
-      interface UnmatchedWithCoords {
-        canonIndex: number; // index into canonicalized[]
-        lon: number;
-        lat: number;
-      }
-
-      const unmatchedWithCoords: UnmatchedWithCoords[] = [];
-
-      for (let ci = 0; ci < canonicalized.length; ci++) {
-        const c = canonicalized[ci];
-        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
-        if (!propertyIdMap.has(key)) {
-          const lat = c.item.address.latitude;
-          const lon = c.item.address.longitude;
-          if (lat != null && lon != null) {
-            unmatchedWithCoords.push({ canonIndex: ci, lon, lat });
-          }
-        }
-      }
-
-      if (unmatchedWithCoords.length > 0) {
-        // Batch spatial query in chunks (3 params per coord: idx, lon, lat)
-        const SPATIAL_CHUNK = 20000;
-        for (let i = 0; i < unmatchedWithCoords.length; i += SPATIAL_CHUNK) {
-          const chunk = unmatchedWithCoords.slice(i, i + SPATIAL_CHUNK);
-
-          // Build CTE VALUES: (idx, lon::float, lat::float)
-          const coordFragments = chunk.map((u, j) =>
-            sql`(${i + j}::int, ${u.lon}::float, ${u.lat}::float)`
-          );
-
-          const spatialRows = await db.execute<{ idx: number; id: string }>(sql`
-            WITH coords AS (
-              SELECT * FROM (VALUES ${sql.join(coordFragments, sql`, `)}) AS t(idx, lon, lat)
-            )
-            SELECT DISTINCT ON (c.idx) c.idx, p.id
-            FROM coords c
-            JOIN properties p ON ST_DWithin(
-              p.geometry,
-              ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326),
-              0.001
-            )
-            ORDER BY c.idx, ST_Distance(p.geometry, ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326))
-          `);
-
-          for (const row of spatialRows) {
-            const localIdx = row.idx - i; // offset back to chunk-relative
-            const u = chunk[localIdx];
-            const c = canonicalized[u.canonIndex];
-            const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
-            propertyIdMap.set(key, row.id);
-          }
-        }
-      }
-
-      // ---------------------------------------------------------------
-      // Phase 4: Batch upsert matched listings
-      // ---------------------------------------------------------------
-      // Build a single INSERT ... ON CONFLICT for all matched listings.
-      // Use the xmax trick to distinguish inserts from updates.
-      // ---------------------------------------------------------------
-
-      interface MatchedListing {
-        propertyId: string;
-        item: typeof incomingListings[number];
-      }
-
-      const matched: MatchedListing[] = [];
-
-      for (const c of canonicalized) {
-        const key = buildMatchKey(c.canonical.postalCode, c.canonical.houseNumber, c.canonical.houseNumberAddition);
-        const propertyId = propertyIdMap.get(key);
-        if (propertyId) {
-          matched.push({ propertyId, item: c.item });
-        } else {
-          skipped++;
-        }
-      }
-
-      // Batch upsert in chunks to stay within PG parameter limit
-      // 16 columns per row * 500 = 8000 params (safe under 65534)
-      const UPSERT_CHUNK = 500;
-
-      for (let i = 0; i < matched.length; i += UPSERT_CHUNK) {
-        const chunk = matched.slice(i, i + UPSERT_CHUNK);
-
-        try {
-          const valueFragments = chunk.map(({ propertyId, item }) =>
-            sql`(
-              ${propertyId}::uuid,
-              ${normalizeSourceUrl(item.sourceUrl)},
-              ${item.sourceName},
-              ${item.mirrorListingId},
-              ${item.askingPrice}::bigint,
-              ${item.priceType},
-              ${item.livingAreaM2 ?? null}::int,
-              ${item.numRooms ?? null}::int,
-              ${item.energyLabel ?? null},
-              ${item.thumbnailUrl ?? null},
-              ${item.ogTitle ?? null},
-              ${item.status}::listing_status,
-              ${item.mirrorFirstSeenAt ? new Date(item.mirrorFirstSeenAt) : null}::timestamptz,
-              ${item.mirrorLastChangedAt ? new Date(item.mirrorLastChangedAt) : null}::timestamptz,
-              ${item.mirrorLastSeenAt ? new Date(item.mirrorLastSeenAt) : null}::timestamptz,
-              NOW()
-            )`
-          );
-
-          const upsertResult = await db.execute<{ xmax: string }>(sql`
-            INSERT INTO listings (
-              property_id,
-              source_url,
-              source_name,
-              mirror_listing_id,
-              asking_price,
-              price_type,
-              living_area_m2,
-              num_rooms,
-              energy_label,
-              thumbnail_url,
-              og_title,
-              status,
-              mirror_first_seen_at,
-              mirror_last_changed_at,
-              mirror_last_seen_at,
-              updated_at
-            )
-            VALUES ${sql.join(valueFragments, sql`, `)}
-            ON CONFLICT (source_name, mirror_listing_id) WHERE mirror_listing_id IS NOT NULL
-            DO UPDATE SET
-              asking_price = EXCLUDED.asking_price,
-              price_type = EXCLUDED.price_type,
-              living_area_m2 = EXCLUDED.living_area_m2,
-              num_rooms = EXCLUDED.num_rooms,
-              energy_label = EXCLUDED.energy_label,
-              thumbnail_url = EXCLUDED.thumbnail_url,
-              og_title = EXCLUDED.og_title,
-              status = EXCLUDED.status,
-              source_url = EXCLUDED.source_url,
-              mirror_last_changed_at = EXCLUDED.mirror_last_changed_at,
-              mirror_last_seen_at = EXCLUDED.mirror_last_seen_at,
-              updated_at = NOW()
-            RETURNING (xmax::text)
-          `);
-
-          const rows = Array.from(upsertResult);
-          for (const row of rows) {
-            if (row.xmax === '0') {
-              ingested++;
-            } else {
-              updated++;
-            }
-          }
-        } catch (err) {
-          // On batch failure, report error for all items in chunk
-          for (const { item } of chunk) {
-            errors.push({
-              sourceUrl: item.sourceUrl,
-              message: err instanceof Error ? err.message : 'Unknown error during batch upsert',
-            });
-          }
-        }
-      }
-
-      // ---------------------------------------------------------------
-      // Phase 5: Batch upsert price history
-      // ---------------------------------------------------------------
-      // Collect all price history entries from matched listings and
-      // insert them in a single batch query.
-      // ---------------------------------------------------------------
-
-      interface PriceHistoryEntry {
-        propertyId: string;
-        price: number;
-        priceDate: string;
-        eventType: string;
-        sourceName: string;
-      }
-
-      const allPriceHistory: PriceHistoryEntry[] = [];
-
-      for (const { propertyId, item } of matched) {
-        if (item.priceHistory && item.priceHistory.length > 0) {
-          for (const ph of item.priceHistory) {
-            allPriceHistory.push({
-              propertyId,
-              price: ph.price,
-              priceDate: ph.priceDate,
-              eventType: ph.eventType,
-              sourceName: item.sourceName,
-            });
-          }
-        }
-      }
-
-      // 5 columns per row * 10000 = 50000 params (safe under 65534)
-      const PH_CHUNK = 10000;
-      for (let i = 0; i < allPriceHistory.length; i += PH_CHUNK) {
-        const chunk = allPriceHistory.slice(i, i + PH_CHUNK);
-
-        try {
-          const valueFragments = chunk.map((ph) =>
-            sql`(${ph.propertyId}::uuid, ${ph.price}::bigint, ${ph.priceDate}, ${ph.eventType}, ${ph.sourceName})`
-          );
-
-          await db.execute(sql`
-            INSERT INTO price_history (property_id, price, price_date, event_type, source)
-            VALUES ${sql.join(valueFragments, sql`, `)}
-            ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
-          `);
-        } catch (err) {
-          // Price history errors are non-fatal; log but don't fail the batch
-          request.log.error({ err }, 'Price history batch insert failed');
-        }
-      }
-
-      // Refresh the materialized view after bulk ingestion so the feed
-      // reflects newly inserted/updated listings.
-      // Fire-and-forget: don't block the ingest response on the refresh.
-      if (ingested > 0 || updated > 0) {
-        refreshLatestListingsView().catch((err) =>
-          request.log.error({ err }, 'Failed to refresh mv_latest_active_listings after ingest'),
-        );
-      }
-
-      return reply.send({ ingested, updated, skipped, errors });
     },
   );
 
@@ -894,10 +554,10 @@ export async function listingRoutes(app: FastifyInstance) {
       schema: {
         tags: ['ingest'],
         summary: 'Get mirror sync watermark',
-        description: 'Returns the latest mirror_last_changed_at for a given source. Used by sync workers to know where to resume.',
+        description: 'Returns the durable ingest cursor for a given source. Used by sync workers to resume without skipping rows.',
         querystring: watermarkQuerySchema,
         response: {
-          200: watermarkResponseSchema,
+          200: ingestWatermarkResponseSchema,
           401: errorResponseSchema,
         },
       },
@@ -913,17 +573,8 @@ export async function listingRoutes(app: FastifyInstance) {
       }
 
       const { source } = request.query;
-
-      const result = await db.execute<{ last_changed_at: string | null }>(sql`
-        SELECT TO_CHAR(MAX(mirror_last_changed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_changed_at
-        FROM listings
-        WHERE source_name = ${source} AND mirror_listing_id IS NOT NULL
-      `);
-
-      const rows = Array.from(result);
-      const lastChangedAt = rows[0]?.last_changed_at ?? null;
-
-      return reply.send({ lastChangedAt });
+      const watermark = await getIngestWatermark(source);
+      return reply.send(watermark);
     },
   );
 }
@@ -938,6 +589,6 @@ export type PreviewRequest = z.infer<typeof previewRequestSchema>;
 export type PreviewResponse = z.infer<typeof previewResponseSchema>;
 export type SubmitRequest = z.infer<typeof submitRequestSchema>;
 export type SubmitResponse = z.infer<typeof submitResponseSchema>;
-export type IngestRequest = z.infer<typeof ingestRequestSchema>;
-export type IngestResponse = z.infer<typeof ingestResponseSchema>;
-export type WatermarkResponse = z.infer<typeof watermarkResponseSchema>;
+export type IngestRequest = z.infer<typeof ingestBatchRequestSchema>;
+export type IngestResponse = z.infer<typeof ingestAcceptedResponseSchema>;
+export type WatermarkResponse = z.infer<typeof ingestWatermarkResponseSchema>;

@@ -26,7 +26,9 @@ import { activityRoutes } from './routes/activity.js';
 import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
 import { closeConnection } from './db/index.js';
+import { closeRedisConnection } from './lib/redis.js';
 import { setNotificationLogger } from './services/notifications.js';
+import { closeIngestQueues } from './services/ingest/index.js';
 import { refreshLatestListingsView } from './services/listings-view.js';
 import { config } from './config.js';
 
@@ -35,6 +37,8 @@ export type AppOptions = {
 };
 
 export async function buildApp(options: AppOptions = {}): Promise<FastifyInstance> {
+  let startupListingsRefresh: Promise<void> | null = null;
+
   const app = Fastify({
     logger: options.logger ?? config.isDev,
     // Trust the X-Forwarded-* headers from Traefik reverse proxy.
@@ -52,15 +56,25 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   // This ensures tests calling app.close() also release the pool,
   // preventing Jest worker leak warnings.
   app.addHook('onClose', async () => {
+    if (startupListingsRefresh) {
+      await startupListingsRefresh;
+    }
+    await closeIngestQueues();
+    await closeRedisConnection();
     await closeConnection();
   });
 
   // Ensure the latest-listings materialized view is current at startup.
-  // Fire-and-forget: a failure here is non-fatal (stale feed until next ingest).
+  // Skip this in tests to keep integration startup deterministic and avoid
+  // background DB work during teardown.
+  // Failure remains non-fatal (stale feed until next ingest).
   app.addHook('onReady', async () => {
-    refreshLatestListingsView().catch((err) =>
-      app.log.warn({ err }, 'Startup mv_latest_active_listings refresh failed'),
-    );
+    if (config.isTest) {
+      return;
+    }
+    startupListingsRefresh = refreshLatestListingsView().catch((err) => {
+      app.log.warn({ err }, 'Startup mv_latest_active_listings refresh failed');
+    });
   });
 
   // Set up Zod type provider for automatic validation

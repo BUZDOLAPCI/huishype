@@ -28,6 +28,7 @@ export interface UseClusterPreviewOptions {
 export function useClusterPreview(
   options: UseClusterPreviewOptions = {}
 ): UseClusterPreviewReturn {
+  const { onPropertySelect } = options;
   const [clusterProperties, setClusterProperties] = useState<Property[]>([]);
   const [currentClusterIndex, setCurrentClusterIndex] = useState(0);
   const [isClusterPreview, setIsClusterPreview] = useState(false);
@@ -61,9 +62,9 @@ export function useClusterPreview(
   const handleClusterPropertyPress = useCallback(
     (property: Property) => {
       setIsClusterPreview(false);
-      options.onPropertySelect?.(property);
+      onPropertySelect?.(property);
     },
-    [options.onPropertySelect]
+    [onPropertySelect]
   );
 
   return {

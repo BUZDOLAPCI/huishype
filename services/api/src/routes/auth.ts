@@ -9,10 +9,11 @@ import { z } from 'zod';
 import { eq, or } from 'drizzle-orm';
 import { createPublicKey, createVerify, type JsonWebKey } from 'node:crypto';
 import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { refreshTokenRevocations, users } from '../db/schema.js';
 import { config } from '../config.js';
 import {
   generateAccessToken,
+  type RefreshTokenPayload,
   generateRefreshToken,
   verifyRefreshToken,
   getAccessTokenExpiry,
@@ -23,6 +24,10 @@ import { withGeneratedUniqueUsername } from '../utils/username.js';
 // Validation schemas
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
+});
+
+const logoutSchema = z.object({
+  refreshToken: z.string().min(1).optional(),
 });
 
 interface AppleTokenHeader {
@@ -229,6 +234,41 @@ async function validateAppleToken(
   }
 }
 
+function getRefreshTokenMetadata(
+  token: string,
+): RefreshTokenPayload | null {
+  const payload = verifyRefreshToken(token);
+  if (!payload?.jti || typeof payload.exp !== 'number') {
+    return null;
+  }
+  return payload;
+}
+
+async function isRefreshTokenRevoked(tokenId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: refreshTokenRevocations.id })
+    .from(refreshTokenRevocations)
+    .where(eq(refreshTokenRevocations.tokenId, tokenId))
+    .limit(1);
+
+  return rows.length > 0;
+}
+
+async function revokeRefreshToken(payload: RefreshTokenPayload): Promise<void> {
+  if (!payload.jti || typeof payload.exp !== 'number') {
+    return;
+  }
+
+  await db
+    .insert(refreshTokenRevocations)
+    .values({
+      tokenId: payload.jti,
+      userId: payload.userId,
+      expiresAt: new Date(payload.exp * 1000),
+    })
+    .onConflictDoNothing();
+}
+
 export async function authRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -255,7 +295,6 @@ export async function authRoutes(fastify: FastifyInstance) {
                 profilePhotoUrl: z.string().nullable(),
                 karma: z.number(),
                 karmaRank: z.string(),
-                isPlus: z.boolean(),
                 createdAt: z.string(),
               }),
               accessToken: z.string(),
@@ -336,7 +375,6 @@ export async function authRoutes(fastify: FastifyInstance) {
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
-            isPlus: false,
             createdAt: user.createdAt.toISOString(),
           },
           accessToken,
@@ -371,7 +409,6 @@ export async function authRoutes(fastify: FastifyInstance) {
                 profilePhotoUrl: z.string().nullable(),
                 karma: z.number(),
                 karmaRank: z.string(),
-                isPlus: z.boolean(),
                 createdAt: z.string(),
               }),
               accessToken: z.string(),
@@ -460,7 +497,6 @@ export async function authRoutes(fastify: FastifyInstance) {
             profilePhotoUrl: user.profilePhotoUrl,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
-            isPlus: false,
             createdAt: user.createdAt.toISOString(),
           },
           accessToken,
@@ -498,9 +534,15 @@ export async function authRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { refreshToken } = request.body;
 
-      // Verify refresh token
-      const payload = verifyRefreshToken(refreshToken);
+      const payload = getRefreshTokenMetadata(refreshToken);
       if (!payload) {
+        return reply.status(401).send({
+          error: 'INVALID_REFRESH_TOKEN',
+          message: 'Invalid or expired refresh token',
+        });
+      }
+
+      if (await isRefreshTokenRevoked(payload.jti)) {
         return reply.status(401).send({
           error: 'INVALID_REFRESH_TOKEN',
           message: 'Invalid or expired refresh token',
@@ -540,18 +582,22 @@ export async function authRoutes(fastify: FastifyInstance) {
         tags: ['Auth'],
         summary: 'Logout',
         description: 'Invalidate refresh token (client should also clear tokens)',
-        body: z.object({
-          refreshToken: z.string().optional(),
-        }),
+        body: logoutSchema,
         response: {
           204: z.null(),
         },
       },
     },
-    async (_request, reply) => {
-      // In a production system, you would add the refresh token to a blacklist
-      // or use a token versioning system to invalidate all tokens for a user
-      // For now, we just return 204 and rely on the client to clear tokens
+    async (request, reply) => {
+      const refreshToken = request.body.refreshToken;
+
+      if (refreshToken) {
+        const payload = getRefreshTokenMetadata(refreshToken);
+        if (payload) {
+          await revokeRefreshToken(payload);
+        }
+      }
+
       return reply.status(204).send(null);
     }
   );
@@ -577,7 +623,6 @@ export async function authRoutes(fastify: FastifyInstance) {
               email: z.string(),
               karma: z.number(),
               karmaRank: z.string(),
-              isPlus: z.boolean(),
               createdAt: z.string(),
             }),
           }),
@@ -618,7 +663,6 @@ export async function authRoutes(fastify: FastifyInstance) {
           email: user.email,
           karma: user.karma,
           karmaRank: getKarmaRank(user.karma).title,
-          isPlus: false,
           createdAt: user.createdAt.toISOString(),
         },
       };

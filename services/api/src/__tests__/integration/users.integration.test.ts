@@ -73,7 +73,9 @@ describe('User profile routes', () => {
         await db.delete(properties).where(eq(properties.id, pid));
       } catch { /* ignore */ }
     }
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   // ---------- GET /users/:id/profile ----------

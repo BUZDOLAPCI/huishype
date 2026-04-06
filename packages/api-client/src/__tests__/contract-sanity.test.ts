@@ -10,9 +10,15 @@
  *   pnpm openapi:export && pnpm --filter @huishype/api-client generate
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { paths } from '../../generated/api.js';
-import type { GetFeedRequest, GetFeedResponse } from '@huishype/shared';
+import type {
+  GetFeedRequest,
+  GetFeedResponse,
+  GetSavedPropertiesResponse,
+  SubmitListingRequest,
+  SubmitListingResponse,
+} from '@huishype/shared';
 import { HuisHypeApiClient, createApiClient, ApiError } from '../client.js';
 
 // Helper: extract all keys from a type at compile time
@@ -24,11 +30,28 @@ type IsExact<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B
     ? true
     : false
   : false;
+type Expand<T> = { [K in keyof T]: T[K] };
 
 type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
 type FeedResponseFromOpenApi = paths['/feed']['get']['responses'][200]['content']['application/json'];
+type SubmitListingRequestFromOpenApi = paths['/listings/submit']['post']['requestBody']['content']['application/json'];
+type SubmitListingResponseFromOpenApi = paths['/listings/submit']['post']['responses'][201]['content']['application/json'];
+type SubmitListingErrorFromOpenApi = paths['/listings/submit']['post']['responses'][400]['content']['application/json'];
+type CanonicalSubmitListingRequest = Expand<SubmitListingRequest>;
+type CanonicalSubmitListingResponse = Expand<SubmitListingResponse>;
+type CanonicalSubmitListingError = {
+  error: string;
+  message: string;
+};
 type FeedClientMethod = HuisHypeApiClient['getFeed'];
 type ExpectedFeedClientMethod = (params: GetFeedRequest) => Promise<GetFeedResponse>;
+type SavedPropertiesQueryFromOpenApi = NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
+type SavedPropertiesResponseFromOpenApi = paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
+type SavedPropertiesClientMethod = HuisHypeApiClient['getSavedProperties'];
+type ExpectedSavedPropertiesClientMethod = (
+  params: SavedPropertiesQueryFromOpenApi
+) => Promise<GetSavedPropertiesResponse>;
+type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
 type Expect<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
   ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
@@ -40,14 +63,36 @@ type FeedQuery = NonNullable<paths['/feed']['get']['parameters']['query']>;
 const feedContractAssertions = [
   true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
   true as Assert<IsExact<FeedResponseFromOpenApi, GetFeedResponse>>,
+  true as Assert<IsExact<SubmitListingRequestFromOpenApi, CanonicalSubmitListingRequest>>,
+  true as Assert<IsExact<SubmitListingResponseFromOpenApi, CanonicalSubmitListingResponse>>,
+  true as Assert<IsExact<SubmitListingErrorFromOpenApi, CanonicalSubmitListingError>>,
   true as Assert<IsExact<FeedClientMethod, ExpectedFeedClientMethod>>,
   true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
+  true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
+  true as Assert<IsExact<SavedPropertiesClientMethod, ExpectedSavedPropertiesClientMethod>>,
+  true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,
+  true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
+  true as Expect<Equal<HasStaleMapMethod, false>>,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
-  it('keeps the /feed contract aligned with the shared canonical request and response types', () => {
-    expect(feedContractAssertions).toEqual([true, true, true, true, true]);
+  it('keeps the canonical shared contract aligned with the generated OpenAPI types', () => {
+    expect(feedContractAssertions).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 
   it('exports a paths interface with known API routes', () => {
@@ -129,6 +174,7 @@ describe('HuisHypeApiClient', () => {
     // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
+    expect('getMapProperties' in client).toBe(false);
 
     // Guesses
     expect(typeof client.submitGuess).toBe('function');
@@ -175,5 +221,30 @@ describe('ApiError', () => {
     expect(error.code).toBe('UNKNOWN_ERROR');
     expect(error.status).toBe(500);
     expect(error.details).toBeUndefined();
+  });
+
+  it('parses backend error envelopes using the canonical error field', async () => {
+    const client = createApiClient({ baseUrl: 'http://localhost:3100' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        error: 'INVALID_URL',
+        message: 'URL must be from a recognized listing platform.',
+        details: { field: 'url' },
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(client.loginGoogle('mock-token')).rejects.toMatchObject({
+        message: 'URL must be from a recognized listing platform.',
+        code: 'INVALID_URL',
+        status: 400,
+        details: { field: 'url' },
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

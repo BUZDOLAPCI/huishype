@@ -1,5 +1,25 @@
 import { describe, it, expect } from '@jest/globals';
-import { validateProductionSecrets } from '../../config.js';
+import { validateProductionSecrets, resolveRuntimeEnv } from '../../config.js';
+
+describe('resolveRuntimeEnv', () => {
+  it('defaults missing NODE_ENV to development', () => {
+    expect(resolveRuntimeEnv(undefined)).toBe('development');
+  });
+
+  it('treats an empty NODE_ENV as development', () => {
+    expect(resolveRuntimeEnv('')).toBe('development');
+  });
+
+  it('treats unknown NODE_ENV as production', () => {
+    expect(resolveRuntimeEnv('staging')).toBe('production');
+  });
+
+  it('accepts development, test, and production', () => {
+    expect(resolveRuntimeEnv('development')).toBe('development');
+    expect(resolveRuntimeEnv('test')).toBe('test');
+    expect(resolveRuntimeEnv('production')).toBe('production');
+  });
+});
 
 describe('validateProductionSecrets', () => {
   const fullSecrets = {

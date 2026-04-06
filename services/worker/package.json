@@ -4,14 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'TODO: Setup worker dev mode'",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "start": "tsx src/index.ts",
     "lint": "eslint .",
-    "test": "echo 'No tests yet — worker service is a stub'",
+    "test": "node --import tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "bullmq": "^5.61.2"
+  },
   "devDependencies": {
+    "@types/node": "^22.10.7",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3"
   }
 }
