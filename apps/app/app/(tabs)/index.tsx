@@ -448,8 +448,8 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
         />
 
-        {/* Zoom level indicator (dev only) */}
-        {__DEV__ && (
+        {/* Zoom level indicator (debug camera only) */}
+        {DEBUG_CAMERA && (
           <View style={{ position: 'absolute', top: 120, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, zIndex: 50 }}>
             <Text style={{ fontSize: 12, color: COLORS.gray700 }}>
               Zoom: {currentZoom.toFixed(1)}

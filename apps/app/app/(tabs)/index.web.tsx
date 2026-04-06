@@ -874,8 +874,8 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
         />
 
-        {/* Zoom level indicator (dev only) */}
-        {__DEV__ && (
+        {/* Zoom level indicator (debug camera only) */}
+        {DEBUG_CAMERA && (
           <View
             className="bg-surface-card/90 px-3 py-2 rounded-full shadow-md"
             style={{ position: 'absolute', top: 120, left: 16, zIndex: 50 } as any}
