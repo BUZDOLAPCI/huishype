@@ -795,6 +795,42 @@
                               }
                             ]
                           },
+                          "imageryGeometry": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "Point"
+                                    ]
+                                  },
+                                  "coordinates": {
+                                    "type": "array",
+                                    "prefixItems": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ],
+                                    "description": "[longitude, latitude]"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Geometry used for imagery framing. May snap to a nearby building surface point."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "yearBuilt": {
                             "anyOf": [
                               {
@@ -1683,6 +1719,42 @@
                           }
                         ]
                       },
+                      "imageryGeometry": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "Point"
+                                ]
+                              },
+                              "coordinates": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ],
+                                "description": "[longitude, latitude]"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "coordinates"
+                            ],
+                            "additionalProperties": false,
+                            "description": "Geometry used for imagery framing. May snap to a nearby building surface point."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "yearBuilt": {
                         "anyOf": [
                           {
@@ -1907,6 +1979,42 @@
                             "coordinates"
                           ],
                           "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "imageryGeometry": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "Point"
+                              ]
+                            },
+                            "coordinates": {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "description": "[longitude, latitude]"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "additionalProperties": false,
+                          "description": "Geometry used for imagery framing. May snap to a nearby building surface point."
                         },
                         {
                           "type": "null"
@@ -2519,6 +2627,42 @@
                                   "coordinates"
                                 ],
                                 "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "imageryGeometry": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "Point"
+                                    ]
+                                  },
+                                  "coordinates": {
+                                    "type": "array",
+                                    "prefixItems": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ],
+                                    "description": "[longitude, latitude]"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Geometry used for imagery framing. May snap to a nearby building surface point."
                               },
                               {
                                 "type": "null"
@@ -5275,7 +5419,8 @@
                                 "type": "number"
                               },
                               "priceDate": {
-                                "type": "string"
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
                               },
                               "eventType": {
                                 "type": "string"
@@ -6537,7 +6682,7 @@
         "tags": [
           "Geocode"
         ],
-        "description": "Reverse geocodes a coordinate to a city/town name via Photon. Returns { city, state, country, countryCode } or null if nothing found.",
+        "description": "Reverse geocodes a coordinate to a location hierarchy via Photon. Returns { locality, district, county, city, state, country, countryCode } or null if nothing found.",
         "parameters": [
           {
             "schema": {
@@ -6578,6 +6723,36 @@
                     {
                       "type": "object",
                       "properties": {
+                        "locality": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "district": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "county": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "city": {
                           "anyOf": [
                             {
@@ -6620,6 +6795,9 @@
                         }
                       },
                       "required": [
+                        "locality",
+                        "district",
+                        "county",
                         "city",
                         "state",
                         "country",

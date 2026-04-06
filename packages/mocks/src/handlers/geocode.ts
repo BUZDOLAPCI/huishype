@@ -93,6 +93,9 @@ function findMockSuggestions(query: string, limit: number): MockGeocodeSuggestio
  * Maps approximate coordinate regions to city info.
  */
 interface ReverseGeocodeResult {
+  locality: string | null;
+  district: string | null;
+  county: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
@@ -105,31 +108,87 @@ const mockReverseGeocodeRegions: Array<{
 }> = [
   {
     latMin: 51.35, latMax: 51.55, lonMin: 5.35, lonMax: 5.55,
-    result: { city: 'Eindhoven', state: 'Noord-Brabant', country: 'Netherlands', countryCode: 'NL' },
+    result: {
+      locality: 'Doornakkers',
+      district: 'Tongelre',
+      county: 'Eindhoven',
+      city: 'Eindhoven',
+      state: 'Noord-Brabant',
+      country: 'Netherlands',
+      countryCode: 'NL',
+    },
   },
   {
     latMin: 52.30, latMax: 52.45, lonMin: 4.75, lonMax: 5.05,
-    result: { city: 'Amsterdam', state: 'Noord-Holland', country: 'Netherlands', countryCode: 'NL' },
+    result: {
+      locality: 'Burgwallen-Oude Zijde',
+      district: 'Centrum',
+      county: 'Amsterdam',
+      city: 'Amsterdam',
+      state: 'Noord-Holland',
+      country: 'Netherlands',
+      countryCode: 'NL',
+    },
   },
   {
     latMin: 51.85, latMax: 51.98, lonMin: 4.35, lonMax: 4.60,
-    result: { city: 'Rotterdam', state: 'Zuid-Holland', country: 'Netherlands', countryCode: 'NL' },
+    result: {
+      locality: 'Stadsdriehoek',
+      district: 'Centrum',
+      county: 'Rotterdam',
+      city: 'Rotterdam',
+      state: 'Zuid-Holland',
+      country: 'Netherlands',
+      countryCode: 'NL',
+    },
   },
   {
     latMin: 52.03, latMax: 52.13, lonMin: 4.20, lonMax: 4.40,
-    result: { city: 'Den Haag', state: 'Zuid-Holland', country: 'Netherlands', countryCode: 'NL' },
+    result: {
+      locality: 'Centrum',
+      district: 'Centrum',
+      county: 'Den Haag',
+      city: 'Den Haag',
+      state: 'Zuid-Holland',
+      country: 'Netherlands',
+      countryCode: 'NL',
+    },
   },
   {
     latMin: 52.05, latMax: 52.13, lonMin: 5.05, lonMax: 5.20,
-    result: { city: 'Utrecht', state: 'Utrecht', country: 'Netherlands', countryCode: 'NL' },
+    result: {
+      locality: 'Binnenstad',
+      district: 'Binnenstad',
+      county: 'Utrecht',
+      city: 'Utrecht',
+      state: 'Utrecht',
+      country: 'Netherlands',
+      countryCode: 'NL',
+    },
   },
   {
     latMin: 52.45, latMax: 52.60, lonMin: 13.25, lonMax: 13.55,
-    result: { city: 'Berlin', state: 'Berlin', country: 'Germany', countryCode: 'DE' },
+    result: {
+      locality: 'Mitte',
+      district: 'Mitte',
+      county: 'Berlin',
+      city: 'Berlin',
+      state: 'Berlin',
+      country: 'Germany',
+      countryCode: 'DE',
+    },
   },
   {
     latMin: 51.45, latMax: 51.55, lonMin: -0.20, lonMax: 0.00,
-    result: { city: 'London', state: 'Greater London', country: 'United Kingdom', countryCode: 'GB' },
+    result: {
+      locality: 'Westminster',
+      district: 'City of Westminster',
+      county: 'Greater London',
+      city: 'London',
+      state: 'Greater London',
+      country: 'United Kingdom',
+      countryCode: 'GB',
+    },
   },
 ];
 

@@ -279,3 +279,78 @@ describe('GET /geocode/search', () => {
     expect(body[0].id).toBe('R_88888');
   });
 });
+
+describe('GET /geocode/reverse', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp({ logger: false });
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+  });
+
+  beforeEach(() => {
+    mockFetchFn.mockReset();
+  });
+
+  it('returns the location hierarchy from Photon without falling back to arbitrary names', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [4.8952, 52.3702] },
+            properties: {
+              name: 'Sint Agnietenstraat 14',
+              locality: 'Burgwallen-Oude Zijde',
+              district: 'Centrum',
+              county: 'Amsterdam',
+              city: 'Amsterdam',
+              state: 'Noord-Holland',
+              country: 'Nederland',
+              countrycode: 'NL',
+              type: 'house',
+            },
+          },
+        ],
+      }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/reverse?lon=4.8952&lat=52.3702',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      locality: 'Burgwallen-Oude Zijde',
+      district: 'Centrum',
+      county: 'Amsterdam',
+      city: 'Amsterdam',
+      state: 'Noord-Holland',
+      country: 'Nederland',
+      countryCode: 'NL',
+    });
+  });
+
+  it('returns null when Photon reverse returns no features', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/reverse?lon=4.8952&lat=52.3702',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toBeNull();
+  });
+});

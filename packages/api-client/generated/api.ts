@@ -446,6 +446,15 @@ export interface paths {
                                         number
                                     ];
                                 } | null;
+                                imageryGeometry?: {
+                                    /** @enum {string} */
+                                    type: "Point";
+                                    /** @description [longitude, latitude] */
+                                    coordinates: [
+                                        number,
+                                        number
+                                    ];
+                                } | null;
                                 /** @description Year of construction */
                                 yearBuilt: number | null;
                                 /** @description Floor area in m² */
@@ -745,6 +754,15 @@ export interface paths {
                                     number
                                 ];
                             } | null;
+                            imageryGeometry?: {
+                                /** @enum {string} */
+                                type: "Point";
+                                /** @description [longitude, latitude] */
+                                coordinates: [
+                                    number,
+                                    number
+                                ];
+                            } | null;
                             /** @description Year of construction */
                             yearBuilt: number | null;
                             /** @description Floor area in m² */
@@ -817,6 +835,15 @@ export interface paths {
                             city: string;
                             postalCode: string | null;
                             geometry: {
+                                /** @enum {string} */
+                                type: "Point";
+                                /** @description [longitude, latitude] */
+                                coordinates: [
+                                    number,
+                                    number
+                                ];
+                            } | null;
+                            imageryGeometry?: {
                                 /** @enum {string} */
                                 type: "Point";
                                 /** @description [longitude, latitude] */
@@ -1077,6 +1104,15 @@ export interface paths {
                                 city: string;
                                 postalCode: string | null;
                                 geometry: {
+                                    /** @enum {string} */
+                                    type: "Point";
+                                    /** @description [longitude, latitude] */
+                                    coordinates: [
+                                        number,
+                                        number
+                                    ];
+                                } | null;
+                                imageryGeometry?: {
                                     /** @enum {string} */
                                     type: "Point";
                                     /** @description [longitude, latitude] */
@@ -3094,7 +3130,7 @@ export interface paths {
         };
         /**
          * Reverse geocode coordinates
-         * @description Reverse geocodes a coordinate to a city/town name via Photon. Returns { city, state, country, countryCode } or null if nothing found.
+         * @description Reverse geocodes a coordinate to a location hierarchy via Photon. Returns { locality, district, county, city, state, country, countryCode } or null if nothing found.
          */
         get: {
             parameters: {
@@ -3116,6 +3152,9 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            locality: string | null;
+                            district: string | null;
+                            county: string | null;
                             city: string | null;
                             state: string | null;
                             country: string | null;

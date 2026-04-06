@@ -145,7 +145,7 @@ export default function MapScreen() {
 
   // Trigger initial reverse geocode for the default center
   useEffect(() => {
-    onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+    onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -208,7 +208,7 @@ export default function MapScreen() {
       }
       // Update city name via reverse geocoding of the viewport center
       if (center) {
-        onViewportCenterChanged(center[0], center[1]);
+        onViewportCenterChanged(center[0], center[1], zoom);
       }
     },
     [onViewportCenterChanged, syncPitchForZoom]

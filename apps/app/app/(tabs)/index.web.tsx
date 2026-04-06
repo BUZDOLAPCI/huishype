@@ -632,11 +632,11 @@ export default function MapScreen() {
       // Fire on 'moveend' — covers pan, zoom, fly, programmatic camera moves.
       map.on('moveend', () => {
         const center = map.getCenter();
-        onViewportCenterChangedRef.current(center.lng, center.lat);
+        onViewportCenterChangedRef.current(center.lng, center.lat, map.getZoom());
       });
 
       // Trigger initial reverse geocode for the default camera position
-      onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+      onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
       map.on('dragstart', () => { isDragging.current = true; });

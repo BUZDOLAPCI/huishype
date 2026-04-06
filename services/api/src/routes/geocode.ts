@@ -18,6 +18,9 @@ interface PhotonFeature {
     street?: string;
     housenumber?: string;
     postcode?: string;
+    locality?: string;
+    district?: string;
+    county?: string;
     city?: string;
     state?: string;
     country?: string;
@@ -58,6 +61,9 @@ const geocodeSuggestionSchema = z.object({
 
 const reverseGeocodeResponseSchema = z.nullable(
   z.object({
+    locality: z.string().nullable(),
+    district: z.string().nullable(),
+    county: z.string().nullable(),
     city: z.string().nullable(),
     state: z.string().nullable(),
     country: z.string().nullable(),
@@ -166,8 +172,8 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /geocode/reverse
-   * Reverse geocodes a coordinate to a city/town name via Photon.
-   * Returns { city, state, country, countryCode } or null if nothing found.
+   * Reverse geocodes a coordinate to a location hierarchy via Photon.
+   * Returns locality/district/city/state/country fields or null if nothing found.
    */
   app.get(
     '/geocode/reverse',
@@ -176,8 +182,8 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
         tags: ['Geocode'],
         summary: 'Reverse geocode coordinates',
         description:
-          'Reverse geocodes a coordinate to a city/town name via Photon. ' +
-          'Returns { city, state, country, countryCode } or null if nothing found.',
+          'Reverse geocodes a coordinate to a location hierarchy via Photon. ' +
+          'Returns { locality, district, county, city, state, country, countryCode } or null if nothing found.',
         querystring: reverseQuerySchema,
         response: {
           200: reverseGeocodeResponseSchema,
@@ -209,10 +215,12 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
           return reply.send(null);
         }
 
-        // Return the city/town from the nearest feature
         const props = data.features[0].properties;
         return reply.send({
-          city: props.city || props.name || null,
+          locality: props.locality || null,
+          district: props.district || null,
+          county: props.county || null,
+          city: props.city || null,
           state: props.state || null,
           country: props.country || null,
           countryCode: props.countrycode || null,

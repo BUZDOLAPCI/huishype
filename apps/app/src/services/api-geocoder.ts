@@ -11,6 +11,9 @@ import type { IGeocoder, GeocodeSuggestion } from './geocoder';
 
 /** Reverse geocode result — city/town name for the map header. */
 export interface ReverseGeocodeResult {
+  locality: string | null;
+  district: string | null;
+  county: string | null;
   city: string | null;
   state: string | null;
   country: string | null;

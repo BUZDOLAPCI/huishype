@@ -1,18 +1,19 @@
 /**
- * useMapCityName — Derives a dynamic city name for the map header.
+ * useMapCityName — Derives a zoom-aware location label for the map header.
  *
  * Priority:
- * 1. Search context — if the user searched and navigated to a location, show
- *    the city from the search result (sticky until the map moves significantly).
+ * 1. Search context — if the user searched and navigated to a location, keep the
+ *    searched city sticky while the camera remains nearby.
  * 2. Reverse geocode — debounced (500ms after last viewport change) reverse
  *    geocode of the viewport center via `GET /geocode/reverse`.
- * 3. Fallback — null (header hides the city label).
+ * 3. Fallback — null (header hides the location label).
  *
- * The hook tracks the viewport center and debounces reverse geocode calls
- * to avoid hammering the backend during pan/zoom gestures.
+ * The returned label adapts to zoom level so the header reflects the scale of
+ * what the user is looking at: country -> region -> city -> district -> locality.
+ * Each tier resolves to a single label rather than a breadcrumb-like hierarchy.
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { apiGeocoder } from '@/src/services/api-geocoder';
+import { apiGeocoder, type ReverseGeocodeResult } from '@/src/services/api-geocoder';
 
 /**
  * Extract city name from a formatted geocoder address string.
@@ -34,11 +35,6 @@ export function extractCityFromAddress(address: string): string | null {
   const parts = address.split(',').map(p => p.trim());
   if (parts.length < 2) return null;
   const lastPart = parts[parts.length - 1];
-  // Strip a leading postal code: starts with a digit, followed by any combination
-  // of digits, letters, hyphens, and spaces that form the postal code, then a
-  // space before the city name (which starts with a Unicode letter).
-  // The greedy quantifier in the postal code portion ensures we consume the
-  // entire postal code (e.g. "5641 HN " not just "5641 ").
   const stripped = lastPart.replace(
     /^(?:\d[\d\w\s-]*|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s+(?=\p{L})/iu,
     '',
@@ -51,35 +47,76 @@ const REVERSE_GEOCODE_DEBOUNCE_MS = 500;
 
 /**
  * If the viewport center moves more than this many degrees from the search
- * location, the search city name is cleared (user has panned away).
+ * location, the sticky search label is cleared.
  * ~0.05 degrees ≈ 5.5 km at European latitudes.
  */
 const SEARCH_CITY_CLEAR_THRESHOLD_DEG = 0.05;
 
+/** Skip reverse geocoding if the center barely moved. ~0.005 degrees ≈ 500m. */
+const REVERSE_GEOCODE_MIN_MOVE_DEG = 0.005;
+
+/** Zoom thresholds for the header label hierarchy. */
+const COUNTRY_LABEL_MAX_ZOOM = 6;
+const REGION_LABEL_MAX_ZOOM = 8.5;
+const CITY_LABEL_MAX_ZOOM = 13;
+const DISTRICT_LABEL_MAX_ZOOM = 15.5;
+const DEFAULT_HEADER_ZOOM = 12;
+
+function normalizeLabelPart(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function getMapHeaderLocationLabel(
+  location: ReverseGeocodeResult | null,
+  zoom: number | null | undefined,
+  searchCity?: string | null,
+): string | null {
+  const effectiveZoom = zoom ?? DEFAULT_HEADER_ZOOM;
+  const city = normalizeLabelPart(searchCity) ?? normalizeLabelPart(location?.city);
+  const county = normalizeLabelPart(location?.county);
+  const district = normalizeLabelPart(location?.district);
+  const locality = normalizeLabelPart(location?.locality);
+  const state = normalizeLabelPart(location?.state);
+  const country = normalizeLabelPart(location?.country);
+
+  if (effectiveZoom < COUNTRY_LABEL_MAX_ZOOM) {
+    return country ?? state ?? city ?? county ?? district ?? locality ?? null;
+  }
+
+  if (effectiveZoom < REGION_LABEL_MAX_ZOOM) {
+    return state ?? county ?? city ?? country ?? district ?? locality ?? null;
+  }
+
+  if (effectiveZoom < CITY_LABEL_MAX_ZOOM) {
+    return city ?? county ?? state ?? country ?? district ?? locality ?? null;
+  }
+
+  if (effectiveZoom < DISTRICT_LABEL_MAX_ZOOM) {
+    return district ?? county ?? city ?? state ?? country ?? locality ?? null;
+  }
+
+  return locality ?? district ?? county ?? city ?? state ?? country ?? null;
+}
+
 export interface UseMapCityNameReturn {
-  /** The current city name to display, or null if unknown. */
+  /** The current zoom-aware location label to display, or null if unknown. */
   cityName: string | null;
   /** Call when the user searches and navigates to a location. */
   setSearchCity: (city: string, coordinate: [number, number]) => void;
-  /** Call when the map viewport center changes. */
-  onViewportCenterChanged: (lon: number, lat: number) => void;
+  /** Call when the map viewport center or zoom changes. */
+  onViewportCenterChanged: (lon: number, lat: number, zoom?: number) => void;
 }
 
 export function useMapCityName(): UseMapCityNameReturn {
-  // City name from search (highest priority while nearby)
   const [searchCity, setSearchCityState] = useState<string | null>(null);
   const searchCoordRef = useRef<[number, number] | null>(null);
 
-  // City name from reverse geocoding
-  const [reverseCity, setReverseCity] = useState<string | null>(null);
+  const [reverseLocation, setReverseLocation] = useState<ReverseGeocodeResult | null>(null);
+  const [viewportZoom, setViewportZoom] = useState<number>(DEFAULT_HEADER_ZOOM);
 
-  // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Track last reverse-geocoded center to avoid redundant calls
   const lastReversedRef = useRef<{ lon: number; lat: number } | null>(null);
-
-  // Abort controller for in-flight reverse geocode requests
   const abortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
 
@@ -92,8 +129,11 @@ export function useMapCityName(): UseMapCityNameReturn {
   );
 
   const onViewportCenterChanged = useCallback(
-    (lon: number, lat: number) => {
-      // Check if the search city should be cleared (user panned away)
+    (lon: number, lat: number, zoom?: number) => {
+      if (zoom !== undefined && Number.isFinite(zoom)) {
+        setViewportZoom(prev => (Math.abs(prev - zoom) < 0.05 ? prev : zoom));
+      }
+
       if (searchCoordRef.current) {
         const [searchLon, searchLat] = searchCoordRef.current;
         const dLon = Math.abs(lon - searchLon);
@@ -107,23 +147,19 @@ export function useMapCityName(): UseMapCityNameReturn {
         }
       }
 
-      // Skip if center hasn't moved significantly from last reverse geocode
-      // (~0.005 degrees ≈ ~500m, avoids redundant calls on tiny viewport shifts)
       if (lastReversedRef.current) {
         const dLon = Math.abs(lon - lastReversedRef.current.lon);
         const dLat = Math.abs(lat - lastReversedRef.current.lat);
-        if (dLon < 0.005 && dLat < 0.005) {
+        if (dLon < REVERSE_GEOCODE_MIN_MOVE_DEG && dLat < REVERSE_GEOCODE_MIN_MOVE_DEG) {
           return;
         }
       }
 
-      // Debounce the reverse geocode call
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
 
       debounceRef.current = setTimeout(async () => {
-        // Cancel any in-flight request
         if (abortRef.current) {
           abortRef.current.abort();
         }
@@ -143,21 +179,18 @@ export function useMapCityName(): UseMapCityNameReturn {
             return;
           }
 
-          if (result?.city) {
-            setReverseCity(result.city);
+          setReverseLocation(result);
+          if (result) {
             lastReversedRef.current = { lon, lat };
-          } else {
-            setReverseCity(null);
           }
         } catch {
-          // Silently fail — keep showing the last known city
+          // Silently fail — keep showing the last known label.
         }
       }, REVERSE_GEOCODE_DEBOUNCE_MS);
     },
     [],
   );
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
@@ -169,8 +202,7 @@ export function useMapCityName(): UseMapCityNameReturn {
     };
   }, []);
 
-  // Search city takes priority over reverse-geocoded city
-  const cityName = searchCity ?? reverseCity;
+  const cityName = getMapHeaderLocationLabel(reverseLocation, viewportZoom, searchCity);
 
   return {
     cityName,
