@@ -517,6 +517,40 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log(`Selected marker with pulsing animation visible: ${hasSelectedMarker}`);
       expect(hasSelectedMarker, 'Selected marker should be visible with pulsing animation').toBe(true);
 
+      const markerAlignment = await selectedMarker.evaluate((element) => {
+        const pulse = element.querySelector('.selected-marker-pulse');
+        const dot = element.querySelector('.selected-marker-dot');
+
+        if (!(pulse instanceof HTMLElement) || !(dot instanceof HTMLElement)) {
+          return null;
+        }
+
+        const pulseRect = pulse.getBoundingClientRect();
+        const dotRect = dot.getBoundingClientRect();
+
+        return {
+          deltaX: Math.abs(
+            pulseRect.left + pulseRect.width / 2 - (dotRect.left + dotRect.width / 2)
+          ),
+          deltaY: Math.abs(
+            pulseRect.top + pulseRect.height / 2 - (dotRect.top + dotRect.height / 2)
+          ),
+        };
+      });
+
+      expect(
+        markerAlignment,
+        'Selected marker should render both pulse and dot elements'
+      ).not.toBeNull();
+      expect(
+        markerAlignment!.deltaX,
+        'Selected marker pulse should stay horizontally centered on the selected node'
+      ).toBeLessThan(1);
+      expect(
+        markerAlignment!.deltaY,
+        'Selected marker pulse should stay vertically centered on the selected node'
+      ).toBeLessThan(1);
+
       // Log the full card content for debugging
       const cardContent = await previewCard.textContent();
       console.log(`Full card content: ${cardContent}`);

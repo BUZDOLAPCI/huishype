@@ -137,9 +137,13 @@ if (typeof document !== 'undefined' && !document.getElementById(MAPLIBRE_CSS_ID)
 
 // Inject CSS for pulsing animation on selected node and preview card
 const PULSING_CSS_ID = 'pulsing-node-css';
-if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID)) {
-  const style = document.createElement('style');
-  style.id = PULSING_CSS_ID;
+if (typeof document !== 'undefined') {
+  let style = document.getElementById(PULSING_CSS_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement('style');
+    style.id = PULSING_CSS_ID;
+    document.head.appendChild(style);
+  }
   style.textContent = `
     @keyframes spin {
       0% {
@@ -151,15 +155,15 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
     }
     @keyframes pulse-ring {
       0% {
-        transform: scale(1);
+        transform: translate(-50%, -50%) scale(1);
         opacity: 0.8;
       }
       50% {
-        transform: scale(1.4);
+        transform: translate(-50%, -50%) scale(1.4);
         opacity: 0.4;
       }
       100% {
-        transform: scale(1);
+        transform: translate(-50%, -50%) scale(1);
         opacity: 0.8;
       }
     }
@@ -203,7 +207,6 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSING_CSS_ID))
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     }
   `;
-  document.head.appendChild(style);
 }
 
 const STANDALONE_COMPASS_CSS_ID = 'standalone-compass-css';
@@ -383,6 +386,15 @@ export default function MapScreen() {
   } = interaction;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
+
+  const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
+    const selectedGeometry = selectedProperty?.geometry;
+    if (selectedGeometry?.type === 'Point') {
+      return selectedGeometry.coordinates;
+    }
+
+    return interaction.previewGroup?.coordinate ?? null;
+  }, [interaction.previewGroup, selectedProperty?.geometry]);
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -806,13 +818,13 @@ export default function MapScreen() {
       selectedMarkerRef.current = null;
     }
 
-    if (interaction.previewGroup) {
+    if (selectedMarkerCoordinate) {
       const markerElement = createSelectedMarkerElement();
       const marker = new maplibregl.Marker({
         element: markerElement,
         anchor: 'center',
       })
-        .setLngLat(interaction.previewGroup.coordinate)
+        .setLngLat(selectedMarkerCoordinate)
         .addTo(map);
 
       selectedMarkerRef.current = marker;
@@ -824,7 +836,7 @@ export default function MapScreen() {
         selectedMarkerRef.current = null;
       }
     };
-  }, [interaction.previewGroup]);
+  }, [selectedMarkerCoordinate]);
 
   // Manage the GroupPreviewCard via MapLibre Marker + React Portal
   useEffect(() => {
