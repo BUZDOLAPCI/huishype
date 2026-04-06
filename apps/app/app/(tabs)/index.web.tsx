@@ -24,6 +24,9 @@ import type { ResolvedAddress } from '@/src/services/address-resolver';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
+const FLOATING_ZOOM_CONTROL_RIGHT = 16;
+const FLOATING_ZOOM_CONTROL_TOP = 112;
+const FLOATING_ZOOM_CONTROL_SIZE = 24;
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -258,6 +261,63 @@ if (typeof document !== 'undefined' && !document.getElementById(STANDALONE_COMPA
   document.head.appendChild(style);
 }
 
+const FLOATING_ZOOM_CONTROL_CSS_ID = 'floating-zoom-control-css';
+if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CONTROL_CSS_ID)) {
+  const style = document.createElement('style');
+  style.id = FLOATING_ZOOM_CONTROL_CSS_ID;
+  style.textContent = `
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom {
+      position: absolute;
+      right: ${FLOATING_ZOOM_CONTROL_RIGHT}px;
+      top: ${FLOATING_ZOOM_CONTROL_TOP}px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.87);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.06);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      overflow: hidden;
+      margin: 0 !important;
+      z-index: 3;
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 0s;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom.maplibregl-ctrl-floating-zoom--hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom button {
+      width: ${FLOATING_ZOOM_CONTROL_SIZE}px;
+      height: ${FLOATING_ZOOM_CONTROL_SIZE}px;
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom .maplibregl-ctrl-icon {
+      background-size: 75% 75%;
+      filter: invert(24%) sepia(10%) saturate(515%) hue-rotate(355deg) brightness(92%) contrast(88%);
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom button:not(:disabled):hover,
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom button:not(:disabled):active {
+      background-color: rgba(80, 74, 66, 0.06);
+    }
+    .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom button:not(:disabled):active {
+      background-color: rgba(80, 74, 66, 0.08);
+    }
+    @media (orientation: portrait) {
+      .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(4px);
+        transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 /**
  * Create a custom marker element for the selected property
  */
@@ -421,11 +481,11 @@ export default function MapScreen() {
         showCompass: true,
       });
 
-      map.addControl(zoomControl, 'bottom-right');
+      map.addControl(zoomControl, 'top-right');
       map.addControl(compassControl, 'bottom-right');
 
       const controlGroups = Array.from(
-        map.getContainer().querySelectorAll('.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group')
+        map.getContainer().querySelectorAll('.maplibregl-ctrl-group')
       ) as HTMLDivElement[];
       const zoomContainer = controlGroups.find(
         (container) =>
@@ -433,6 +493,7 @@ export default function MapScreen() {
           !!container.querySelector('.maplibregl-ctrl-zoom-out')
       );
       if (zoomContainer) {
+        zoomContainer.classList.add('maplibregl-ctrl-floating-zoom');
         zoomContainer.dataset.testid = 'map-zoom-control';
       }
 
@@ -885,7 +946,14 @@ export default function MapScreen() {
         )}
 
         {/* Location button — bottom-right of map, above tab bar */}
-        <View style={{ position: 'absolute', bottom: 100, right: 16, zIndex: 10 } as any}>
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 100,
+            right: 16,
+            zIndex: 10,
+          } as any}
+        >
           <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>
 

@@ -272,6 +272,30 @@ test.describe('Map Interactions', () => {
     await expect(zoomControl).toBeVisible();
   });
 
+  test('zoom controls hide in portrait and stay top-right in landscape', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    const searchBar = page.getByTestId('search-bar-input');
+    const zoomControl = page.getByTestId('map-zoom-control');
+    await expect(zoomControl).toBeHidden();
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(searchBar).toBeVisible();
+    await expect(zoomControl).toBeVisible();
+
+    const searchBarBox = await searchBar.boundingBox();
+    const landscapeZoomBox = await zoomControl.boundingBox();
+    expect(searchBarBox).not.toBeNull();
+    expect(landscapeZoomBox).not.toBeNull();
+    expect(Math.abs(1280 - (landscapeZoomBox!.x + landscapeZoomBox!.width) - 16)).toBeLessThanOrEqual(4);
+    expect(landscapeZoomBox!.y).toBeGreaterThanOrEqual(searchBarBox!.y + searchBarBox!.height + 8);
+    expect(landscapeZoomBox!.y).toBeLessThanOrEqual(searchBarBox!.y + searchBarBox!.height + 32);
+    expect(landscapeZoomBox!.width).toBeLessThan(44);
+    expect(landscapeZoomBox!.height).toBeLessThan(90);
+  });
+
   test('current-location button recenters the map from browser geolocation', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window.navigator, 'geolocation', {
