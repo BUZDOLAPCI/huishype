@@ -31,4 +31,5 @@ module.exports = {
   RadialGradient: createSvgComponent('RadialGradient'),
   Stop: createSvgComponent('Stop'),
   Mask: createSvgComponent('Mask'),
+  SvgXml: createSvgComponent('SvgXml'),
 };

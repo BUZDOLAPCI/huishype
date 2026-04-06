@@ -1,0 +1,1 @@
+export { HuisHypeLogo } from './HuisHypeLogo';

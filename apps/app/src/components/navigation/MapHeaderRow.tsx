@@ -12,13 +12,9 @@
  */
 
 import React from 'react';
-import { View, Text, Image, Platform, StyleSheet } from 'react-native';
+import { View, Text, Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-// Import the logo. On native, require() returns a number (asset ID).
-// On web, it returns a string (URL) or { default: string }.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const logoSource = require('@/assets/images/icon.png');
+import { HuisHypeLogo } from '../branding';
 
 interface MapHeaderRowProps {
   /** City or location name to display on the right side. */
@@ -50,17 +46,13 @@ export function MapHeaderRow({ cityName, testID }: MapHeaderRowProps) {
       accessibilityRole="header"
     >
       {/* Left: Logo + Brand Text */}
-      <View style={styles.brandGroup} accessibilityLabel="HuisHype">
-        <Image
-          source={logoSource}
-          style={styles.logo}
-          resizeMode="contain"
-          accessibilityLabel="HuisHype logo"
-        />
-        <Text style={styles.brandText} accessibilityRole="header">
-          HuisHype
-        </Text>
-      </View>
+      <HuisHypeLogo
+        variant="lockup"
+        size={28}
+        wordmarkSize={22}
+        style={styles.brandGroup}
+        textStyle={styles.brandText}
+      />
 
       {/* Right: City Name */}
       {cityName ? (
@@ -90,14 +82,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   brandGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  logo: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    flexShrink: 1,
   },
   brandText: {
     fontSize: 22,

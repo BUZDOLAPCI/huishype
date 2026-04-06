@@ -5,6 +5,7 @@ export { BottomSheetErrorBoundary } from './BottomSheetErrorBoundary';
 export { BottomSheet } from './BottomSheet';
 export { ConsensusAlignment } from './ConsensusAlignment';
 export type { ConsensusAlignmentProps } from './ConsensusAlignment';
+export { HuisHypeLogo } from './branding';
 export { FeedEmptyState } from './FeedEmptyState';
 export { FeedErrorState } from './FeedErrorState';
 export { FeedFilterChips } from './FeedFilterChips';

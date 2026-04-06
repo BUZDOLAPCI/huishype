@@ -33,6 +33,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useAuth } from '../hooks/useAuth';
+import { HuisHypeLogo } from './branding';
 import { Icon } from './ui/Icon';
 import { shadows } from '../lib/shadows';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -283,12 +284,7 @@ export function AuthModal({
   function renderMainView() {
     return (
       <View style={styles.content}>
-        {/* Logo — gold square with house icon */}
-        <View style={styles.logoContainer}>
-          <View style={styles.logoBg} accessibilityLabel="HuisHype logo">
-            <Icon name="HouseLine" size={32} weight="fill" color="#FFFFFF" />
-          </View>
-        </View>
+        <HuisHypeLogo size={72} style={styles.logoContainer} />
 
         {/* Title */}
         <Text style={styles.title}>Welcome to HuisHype</Text>
@@ -348,12 +344,7 @@ export function AuthModal({
   function renderEmailInputView() {
     return (
       <View style={styles.content}>
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <View style={styles.logoBg} accessibilityLabel="HuisHype logo">
-            <Icon name="HouseLine" size={32} weight="fill" color="#FFFFFF" />
-          </View>
-        </View>
+        <HuisHypeLogo size={72} style={styles.logoContainer} />
 
         <Text style={styles.title}>Sign in with Email</Text>
         <Text style={styles.subtitle}>
@@ -505,14 +496,6 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 4,
-  },
-  logoBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: GOLD_500,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   title: {
     fontFamily: 'Outfit_600SemiBold',
