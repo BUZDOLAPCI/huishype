@@ -231,13 +231,18 @@ export function useMapInteraction(): UseMapInteractionReturn {
     setShowAuthModal(false);
   }, []);
 
+  const clearPreviewSelection = useCallback(() => {
+    setPreviewGroup(null);
+    setSelectedPropertyId(null);
+    setCurrentPreviewIndex(0);
+  }, []);
+
   // Dismiss bottom sheet + clear selection before auth flow starts.
   // Prevents Reanimated/GestureDetector crash in PriceGuessSlider.
   const handleAuthStarting = useCallback(() => {
     bottomSheetRef.current?.close();
-    setSelectedPropertyId(null);
-    setPreviewGroup(null);
-  }, []);
+    clearPreviewSelection();
+  }, [clearPreviewSelection]);
 
   // ── Quick-action handlers ───────────────────────────────────
   const handleLike = useCallback((_property?: any) => {
@@ -275,8 +280,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   const handleClosePreview = useCallback(() => {
-    setPreviewGroup(null);
-  }, []);
+    clearPreviewSelection();
+  }, [clearPreviewSelection]);
 
   // ── Conversion helper (stable ref) ─────────────────────────
   const toGroupProperty = useCallback(
@@ -484,11 +489,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
     if (currentSheetIndex <= 0) {
       // Sheet is in peek (0) or closed (-1) state — safe to close preview
       if (previewGroup) {
-        setPreviewGroup(null);
+        clearPreviewSelection();
       }
     }
     // If sheet is expanded (1 or 2), don't close preview
-  }, [previewGroup]);
+  }, [clearPreviewSelection, previewGroup]);
 
   // ── Search callbacks ────────────────────────────────────────
   const handlePropertyResolved = useCallback(

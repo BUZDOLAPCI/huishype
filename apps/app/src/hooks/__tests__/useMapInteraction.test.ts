@@ -286,12 +286,13 @@ describe('useMapInteraction', () => {
   });
 
   describe('preview card interaction', () => {
-    it('handleClosePreview clears the preview group', () => {
+    it('handleClosePreview clears the preview group and selection', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
 
       act(() => {
+        result.current.setSelectedPropertyId('prop-1');
         result.current.setPreviewGroup({
           properties: [{ id: 'prop-1', address: 'Test', city: 'Test' }],
           coordinate: [4.9, 52.37],
@@ -303,6 +304,35 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.previewGroup).toBeNull();
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.currentPreviewIndex).toBe(0);
+    });
+
+    it('handleClosePreview resets clustered preview pagination for same-property reselects', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [
+            { id: 'prop-1', address: 'A', city: 'A' },
+            { id: 'prop-2', address: 'B', city: 'B' },
+          ],
+          coordinate: [4.9, 52.37],
+        });
+        result.current.setCurrentPreviewIndex(1);
+      });
+
+      expect(result.current.selectedPropertyId).toBe('prop-2');
+
+      act(() => {
+        result.current.handleClosePreview();
+      });
+
+      expect(result.current.previewGroup).toBeNull();
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.currentPreviewIndex).toBe(0);
     });
 
     it('handlePreviewPropertyTap updates selected property and opens sheet', () => {
@@ -349,12 +379,13 @@ describe('useMapInteraction', () => {
   });
 
   describe('empty map tap (dismissal rules)', () => {
-    it('dismisses preview when sheet is closed (index <= 0)', () => {
+    it('dismisses preview and clears selection when sheet is closed (index <= 0)', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
 
       act(() => {
+        result.current.setSelectedPropertyId('prop-1');
         result.current.setPreviewGroup({
           properties: [{ id: 'prop-1', address: 'Test', city: 'Test' }],
           coordinate: [4.9, 52.37],
@@ -371,6 +402,8 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.previewGroup).toBeNull();
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.currentPreviewIndex).toBe(0);
     });
 
     it('keeps preview when sheet is expanded (index > 0)', () => {

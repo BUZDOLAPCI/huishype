@@ -8,7 +8,7 @@
  * - Property layers exist at correct zoom levels
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-test-helpers';
@@ -45,6 +45,62 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
+
+async function focusMapOnSeededPropertyArea(page: Page) {
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+  await waitForMapStyleLoaded(page);
+
+  await page.evaluate(({ center, zoom }) => {
+    const map = (window as any).__mapInstance;
+    if (map) {
+      map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
+    }
+  }, { center: EINDHOVEN_CENTER, zoom: PROPERTY_ZOOM });
+
+  await waitForMapIdle(page, 10000);
+  await page.waitForTimeout(3000);
+}
+
+async function findClickablePropertyFeature(page: Page) {
+  return page.evaluate(() => {
+    const map = (window as any).__mapInstance;
+    if (!map) return null;
+    const canvas = map.getCanvas();
+    const canvasRect = canvas.getBoundingClientRect();
+
+    const layerIds = ['ghost-nodes', 'active-nodes', 'single-active-points', 'property-clusters']
+      .filter((l: string) => map.getLayer(l));
+    if (layerIds.length === 0) return null;
+
+    const features = map.queryRenderedFeatures(
+      [[0, 0], [canvas.width, canvas.height]],
+      { layers: layerIds }
+    );
+    if (!features || features.length === 0) return null;
+
+    for (const feature of features) {
+      if (feature.geometry?.type !== 'Point') continue;
+      const point = map.project(feature.geometry.coordinates);
+      if (
+        point.x > 50 &&
+        point.x < canvas.clientWidth - 50 &&
+        point.y > 50 &&
+        point.y < canvas.clientHeight - 50
+      ) {
+        return {
+          viewportX: Math.round(point.x + canvasRect.x),
+          viewportY: Math.round(point.y + canvasRect.y),
+          id: feature.properties?.id || feature.properties?.property_ids?.split(',')[0],
+          layerId: feature.layer?.id,
+        };
+      }
+    }
+
+    return null;
+  });
+}
 
 test.describe('Map to Property Flow', () => {
   let consoleErrors: string[] = [];
@@ -245,57 +301,8 @@ test.describe('Map to Property Flow', () => {
   });
 
   test('click on property marker shows preview card', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await waitForMapStyleLoaded(page);
-
-    // Zoom to Eindhoven property level with flat view for accurate click positioning
-    await page.evaluate(({ center, zoom }) => {
-      const map = (window as any).__mapInstance;
-      if (map) {
-        map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
-      }
-    }, { center: EINDHOVEN_CENTER, zoom: PROPERTY_ZOOM });
-
-    await waitForMapIdle(page, 10000);
-    await page.waitForTimeout(3000);
-
-    // Find a rendered feature to click on
-    const featureInfo = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      if (!map) return null;
-      const canvas = map.getCanvas();
-      const canvasRect = canvas.getBoundingClientRect();
-
-      const layerIds = ['ghost-nodes', 'active-nodes', 'single-active-points', 'property-clusters']
-        .filter((l: string) => map.getLayer(l));
-      if (layerIds.length === 0) return null;
-
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: layerIds }
-      );
-      if (!features || features.length === 0) return null;
-
-      // Find a point feature well within the viewport
-      for (const feature of features) {
-        if (feature.geometry?.type !== 'Point') continue;
-        const point = map.project(feature.geometry.coordinates);
-        // Must be well within the visible canvas (not on edges)
-        if (point.x > 50 && point.x < canvas.clientWidth - 50 &&
-            point.y > 50 && point.y < canvas.clientHeight - 50) {
-          return {
-            // Viewport coordinates = map-relative + canvas offset
-            viewportX: Math.round(point.x + canvasRect.x),
-            viewportY: Math.round(point.y + canvasRect.y),
-            id: feature.properties?.id || feature.properties?.property_ids?.split(',')[0],
-            layerId: feature.layer?.id,
-          };
-        }
-      }
-      return null;
-    });
+    await focusMapOnSeededPropertyArea(page);
+    const featureInfo = await findClickablePropertyFeature(page);
 
     console.log('Feature to click:', featureInfo);
     expect(featureInfo, 'Should find a clickable property feature').not.toBeNull();
@@ -325,6 +332,32 @@ test.describe('Map to Property Flow', () => {
     // Verify the preview card persists (not immediately dismissed)
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible();
+  });
+
+  test('clicking the same property reopens the preview after closing it', async ({ page }) => {
+    await focusMapOnSeededPropertyArea(page);
+    const featureInfo = await findClickablePropertyFeature(page);
+
+    console.log('Feature to reopen:', featureInfo);
+    expect(featureInfo, 'Should find a clickable property feature').not.toBeNull();
+
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
+    const closeButton = page.locator('[data-testid="group-preview-close-button"]');
+
+    await page.mouse.click(featureInfo!.viewportX, featureInfo!.viewportY);
+    await expect(previewCard).toBeVisible({ timeout: 10000 });
+
+    const initialText = ((await previewCard.textContent()) || '').trim();
+    expect(initialText.length).toBeGreaterThan(5);
+
+    await closeButton.click({ force: true });
+    await expect(previewCard).toHaveCount(0);
+
+    await page.mouse.click(featureInfo!.viewportX, featureInfo!.viewportY);
+    await expect(previewCard).toBeVisible({ timeout: 10000 });
+
+    const reopenedText = ((await previewCard.textContent()) || '').trim();
+    expect(reopenedText).toBe(initialText);
   });
 
   test('API properties endpoint returns data for Eindhoven', async ({ request }) => {

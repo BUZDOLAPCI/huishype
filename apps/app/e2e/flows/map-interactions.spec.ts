@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type TestInfo } from '@playwright/test';
+import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -273,6 +274,30 @@ test.describe('Map Interactions', () => {
     expect(Math.abs(mapState.center[0] - 5.1214)).toBeLessThan(0.001);
     expect(Math.abs(mapState.center[1] - 52.0907)).toBeLessThan(0.001);
     expect(mapState.zoom).toBeGreaterThanOrEqual(16);
+  });
+
+  test('same property can be reopened after closing its preview', async ({ page }) => {
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    await setMapView(page, EINDHOVEN_CENTER, 17);
+
+    const previewCard = page.getByTestId('group-preview-card');
+    const clickResult = await clickOnPropertyMarker(page);
+
+    expect(clickResult.success).toBe(true);
+    expect(clickResult.screenX).toBeDefined();
+    expect(clickResult.screenY).toBeDefined();
+    await expect(previewCard).toBeVisible();
+
+    const closeButton = page
+      .getByTestId('property-preview-close-button')
+      .or(page.getByTestId('group-preview-close-button'));
+    await closeButton.click();
+    await expect(previewCard).toHaveCount(0);
+
+    await page.mouse.click(clickResult.screenX!, clickResult.screenY!);
+    await expect(previewCard).toBeVisible();
   });
 
   test('vector tiles load at zoom 15 (Eindhoven area)', async ({ page }) => {
