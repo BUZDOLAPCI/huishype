@@ -25,7 +25,8 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { fetchNearbyCluster } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
-import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
@@ -128,6 +129,7 @@ export default function MapScreen() {
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showUserLocation, setShowUserLocation] = useState(false);
+  const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -167,6 +169,7 @@ export default function MapScreen() {
       cameraRef.current?.flyTo({
         center: opts.center,
         zoom: opts.zoom,
+        pitch: getPitchForZoom(opts.zoom),
         duration: opts.duration,
       });
     },
@@ -178,19 +181,37 @@ export default function MapScreen() {
     },
   }), []);
 
+  const syncPitchForZoom = useCallback((zoom?: number) => {
+    if (zoom === undefined || !Number.isFinite(zoom)) return;
+
+    const targetPitch = getPitchForZoom(zoom);
+    if (Math.abs(targetPitch - appliedPitchRef.current) < 0.1) return;
+
+    appliedPitchRef.current = targetPitch;
+    cameraRef.current?.setStop({ pitch: targetPitch, duration: 0, easing: undefined });
+  }, []);
+
+  const handleRegionIsChanging = useCallback(
+    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      syncPitchForZoom(event.nativeEvent.zoom);
+    },
+    [syncPitchForZoom],
+  );
+
   // Handle map region change to track zoom level and update city name
-  const handleRegionChange = useCallback(
+  const handleRegionDidChange = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       const { zoom, center } = event.nativeEvent;
       if (zoom !== undefined) {
         setCurrentZoom(zoom);
+        syncPitchForZoom(zoom);
       }
       // Update city name via reverse geocoding of the viewport center
       if (center) {
         onViewportCenterChanged(center[0], center[1]);
       }
     },
-    [onViewportCenterChanged]
+    [onViewportCenterChanged, syncPitchForZoom]
   );
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
@@ -281,6 +302,7 @@ export default function MapScreen() {
       cameraRef.current?.flyTo({
         center,
         zoom: newZoom,
+        pitch: getPitchForZoom(newZoom),
         duration: 300,
       });
     }
@@ -293,6 +315,7 @@ export default function MapScreen() {
       cameraRef.current?.flyTo({
         center,
         zoom: newZoom,
+        pitch: getPitchForZoom(newZoom),
         duration: 300,
       });
     }
@@ -306,6 +329,7 @@ export default function MapScreen() {
       cameraRef.current?.flyTo({
         center: [longitude, latitude],
         zoom: Math.max(currentZoom, 16),
+        pitch: getPitchForZoom(Math.max(currentZoom, 16)),
         duration: 800,
       });
     } catch (error) {
@@ -340,8 +364,10 @@ export default function MapScreen() {
           compass
           compassPosition={{ top: 160, right: 16 }}
           compassHiddenFacingNorth
+          touchPitch={false}
           onPress={handleMapPress}
-          onRegionDidChange={handleRegionChange}
+          onRegionIsChanging={handleRegionIsChanging}
+          onRegionDidChange={handleRegionDidChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
           onDidFailLoadingMap={() => {
             console.error('Map failed to load');
@@ -354,7 +380,7 @@ export default function MapScreen() {
             initialViewState={{
               center: DEFAULT_CENTER,
               zoom: DEFAULT_ZOOM,
-              pitch: DEFAULT_PITCH,
+              pitch: getPitchForZoom(DEFAULT_ZOOM),
             }}
           />
 

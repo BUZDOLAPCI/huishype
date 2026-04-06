@@ -14,8 +14,9 @@ import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityNa
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
+import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
-import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_PITCH, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
@@ -362,9 +363,10 @@ export default function MapScreen() {
   const handleCurrentLocationPress = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
+      const targetZoom = Math.max(currentZoomRef.current, 16);
       mapRef.current?.flyTo({
         center: [longitude, latitude],
-        zoom: Math.max(currentZoomRef.current, 16),
+        zoom: targetZoom,
         duration: 800,
         essential: true,
       });
@@ -398,10 +400,17 @@ export default function MapScreen() {
         style,
         center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
-        pitch: DEFAULT_PITCH,
+        pitch: getPitchForZoom(DEFAULT_ZOOM),
         bearing: DEFAULT_BEARING,
         maxPitch: 70,
+        touchPitch: false,
+        pitchWithRotate: false,
+        transformCameraUpdate: ({ zoom }) => ({
+          pitch: getPitchForZoom(Number.isFinite(zoom) ? zoom : DEFAULT_ZOOM),
+        }),
       });
+
+      map.keyboard.disableRotation();
 
       const zoomControl = new maplibregl.NavigationControl({
         showZoom: true,
@@ -537,10 +546,13 @@ export default function MapScreen() {
       // Keep the current zoom in a ref for imperative consumers without forcing
       // a React re-render on every wheel/touch zoom frame.
       map.on('zoom', () => {
-        currentZoomRef.current = map.getZoom();
+        const zoom = map.getZoom();
+        currentZoomRef.current = zoom;
       });
       map.on('zoomend', () => {
-        syncVisibleZoom(map.getZoom());
+        const zoom = map.getZoom();
+        currentZoomRef.current = zoom;
+        syncVisibleZoom(zoom);
       });
 
       // Track viewport center for dynamic city name (reverse geocoding)

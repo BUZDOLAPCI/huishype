@@ -1,7 +1,9 @@
 import { getCountryConfig, type CountryCode, isValidCountryCode } from '@huishype/shared/config';
 
+const IS_DEV = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+
 // Debug camera: set to true to start zoomed into Beeldbuisring 41 for shader/building debugging
-export const DEBUG_CAMERA = __DEV__ && true;
+export const DEBUG_CAMERA = IS_DEV && true;
 
 // Default production camera values (from country config)
 const PRODUCTION_PITCH = 50;

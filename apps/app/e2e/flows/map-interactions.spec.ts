@@ -74,26 +74,48 @@ async function getMapZoom(page: import('@playwright/test').Page): Promise<number
   });
 }
 
+/** Get the current pitch from the map */
+async function getMapPitch(page: import('@playwright/test').Page): Promise<number> {
+  return page.evaluate(() => {
+    const map = (window as any).__mapInstance;
+    return map ? map.getPitch() : -1;
+  });
+}
+
 /** Set the map center and zoom */
 async function setMapView(
   page: import('@playwright/test').Page,
   center: [number, number],
   zoom: number,
-  pitch: number = 0
+  pitch?: number
 ) {
   await page.evaluate(
     ({ center, zoom, pitch }) => {
       const map = (window as any).__mapInstance;
       if (map) {
-        map.setCenter(center);
-        map.setZoom(zoom);
-        map.setPitch(pitch);
+        map.jumpTo({
+          center,
+          zoom,
+          ...(pitch !== undefined ? { pitch } : {}),
+        });
       }
     },
     { center, zoom, pitch }
   );
-  // Wait for tiles to load
-  await page.waitForTimeout(3000);
+  await page.waitForFunction(
+    ({ zoom, pitch }) => {
+      const map = (window as any).__mapInstance;
+      if (!map) return false;
+
+      const zoomMatches = Math.abs(map.getZoom() - zoom) < 0.1;
+      const pitchMatches = pitch === undefined || Math.abs(map.getPitch() - pitch) < 0.5;
+      return zoomMatches && pitchMatches;
+    },
+    { zoom, pitch },
+    { timeout: 10000 }
+  );
+  // Give tiles a moment to settle after the camera jump
+  await page.waitForTimeout(1000);
 }
 
 async function captureMapScreenshot(testInfo: TestInfo, page: import('@playwright/test').Page, name: string) {
@@ -172,6 +194,33 @@ test.describe('Map Interactions', () => {
     const zoomedOut = await getMapZoom(page);
     expect(zoomedOut).toBeCloseTo(10, 0);
     expect(zoomedOut).toBeLessThan(zoomedIn);
+  });
+
+  test('pitch follows the zoom curve and manual pitch controls are disabled', async ({ page }) => {
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    const pitchControls = await page.evaluate(() => {
+      const map = (window as any).__mapInstance;
+      return {
+        touchPitchEnabled: map?.touchPitch?.isEnabled?.() ?? null,
+        keyboardRotationDisabled: map?.keyboard?._rotationDisabled ?? null,
+        pitchWithRotate: map?.dragRotate?._pitchWithRotate ?? null,
+      };
+    });
+
+    expect(pitchControls.touchPitchEnabled).toBe(false);
+    expect(pitchControls.keyboardRotationDisabled).toBe(true);
+    expect(pitchControls.pitchWithRotate).toBe(false);
+
+    await setMapView(page, EINDHOVEN_CENTER, 12);
+    expect(await getMapPitch(page)).toBeCloseTo(0, 1);
+
+    await setMapView(page, EINDHOVEN_CENTER, 17);
+    expect(await getMapPitch(page)).toBeCloseTo(25, 1);
+
+    await setMapView(page, EINDHOVEN_CENTER, 20);
+    expect(await getMapPitch(page)).toBeCloseTo(50, 1);
   });
 
   test('compass appears on rotation and resets bearing on click', async ({ page }, testInfo) => {
