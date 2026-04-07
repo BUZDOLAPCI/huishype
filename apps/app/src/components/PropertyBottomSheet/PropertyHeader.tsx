@@ -3,27 +3,23 @@ import { Image, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Icon } from '../ui/Icon';
 import { MetricPills } from '../MetricPills';
 import type { SectionProps } from './types';
-import { getPropertyThumbnailUrl } from '../../lib/propertyThumbnail';
+import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
+import { resolvePropertyImage } from '../../utils/property-image';
 import type { CountryCode } from '@huishype/shared';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
 
 interface SatelliteImageWithPinProps {
-  lat: number;
-  lon: number;
-  countryCode?: string;
+  imageUrl: string | null;
 }
 
 /**
  * SatelliteImageWithPin - Displays aerial imagery with a centered location pin
  * Uses country-gated thumbnail URL (currently only NL via PDOK)
  */
-function SatelliteImageWithPin({ lat, lon, countryCode }: SatelliteImageWithPinProps) {
+function SatelliteImageWithPin({ imageUrl }: SatelliteImageWithPinProps) {
   const [error, setError] = useState(false);
-
-  // Generate the country-gated aerial imagery URL
-  const imageUrl = getPropertyThumbnailUrl(lat, lon, (countryCode ?? 'NL') as CountryCode, 800, 600, 45);
 
   // If no imagery available for this country, or on error, show the styled placeholder
   if (!imageUrl || error) {
@@ -67,12 +63,17 @@ const ACTIVITY_CONFIG = {
 
 export function PropertyHeader({ property }: SectionProps) {
   const hasPhotos = property.photos && property.photos.length > 0;
-
-  // Extract coordinates from geometry
-  const coordinates = property.imageryGeometry?.coordinates ?? property.geometry?.coordinates;
-  const hasCoordinates = coordinates && coordinates.length === 2;
-  const lon = hasCoordinates ? coordinates[0] : null;
-  const lat = hasCoordinates ? coordinates[1] : null;
+  const aerialImageUrl = resolvePropertyImage({
+    listingPhotoUrl: null,
+    aerialImageUrl:
+      property.aerialImageUrl ??
+      property.thumbnailUrl ??
+      getPropertyAerialImageFromGeometry(
+        property.imageryGeometry ?? property.geometry,
+        property.countryCode as CountryCode,
+      ),
+    countryCode: property.countryCode,
+  });
 
   const activity = ACTIVITY_CONFIG[property.activityLevel];
 
@@ -102,8 +103,8 @@ export function PropertyHeader({ property }: SectionProps) {
         ) : (
           // Show satellite imagery with pin overlay
           <View className="w-screen h-48 px-4">
-            {hasCoordinates && lat !== null && lon !== null ? (
-              <SatelliteImageWithPin lat={lat} lon={lon} countryCode={property.countryCode} />
+            {aerialImageUrl ? (
+              <SatelliteImageWithPin imageUrl={aerialImageUrl} />
             ) : (
               // Fallback to placeholder if no coordinates
               <View style={styles.imageContainer} testID="property-header-no-coords-placeholder">

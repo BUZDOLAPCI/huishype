@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
+import { getPropertyAerialImageFromGeometry } from '../lib/propertyThumbnail';
+import type { CountryCode } from '@huishype/shared';
 
 // Types for property data
 export interface PropertyGeometry {
@@ -23,6 +25,8 @@ export interface Property {
   officialValuation: number | null;
   hasListing?: boolean;
   askingPrice?: number | null;
+  aerialImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +85,25 @@ export interface PropertyQueryParams {
   radius?: number;
 }
 
+function withDerivedPropertyImages<T extends Property>(property: T): T {
+  const imageUrl =
+    property.aerialImageUrl ??
+    getPropertyAerialImageFromGeometry(
+      property.imageryGeometry ?? property.geometry,
+      property.countryCode as CountryCode,
+    );
+
+  if (!imageUrl && property.thumbnailUrl === undefined) {
+    return property;
+  }
+
+  return {
+    ...property,
+    aerialImageUrl: imageUrl,
+    thumbnailUrl: property.thumbnailUrl ?? imageUrl,
+  };
+}
+
 // Fetch properties from API
 const fetchProperties = async (params: PropertyQueryParams = {}): Promise<PropertyListResponse> => {
   const queryParams = new URLSearchParams();
@@ -98,12 +121,17 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   const queryString = queryParams.toString();
   const endpoint = `/properties${queryString ? `?${queryString}` : ''}`;
 
-  return api.get<PropertyListResponse>(endpoint);
+  const response = await api.get<PropertyListResponse>(endpoint);
+  return {
+    ...response,
+    data: response.data.map((property) => withDerivedPropertyImages(property)),
+  };
 };
 
 const fetchPropertyById = async (id: string): Promise<PropertyDetails | null> => {
   try {
-    return await api.get<PropertyDetails>(`/properties/${id}`);
+    const property = await api.get<PropertyDetails>(`/properties/${id}`);
+    return withDerivedPropertyImages(property);
   } catch (error) {
     console.error('Failed to fetch property:', error);
     return null;

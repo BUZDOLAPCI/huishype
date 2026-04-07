@@ -994,7 +994,7 @@ export default function MapScreen() {
       {/* Property details side panel (unified PropertyBottomSheet resolves to .web.tsx) */}
       <PropertyBottomSheet
         ref={interaction.bottomSheetRef}
-        property={interaction.selectedProperty ?? null}
+        property={interaction.selectedPropertyForSheet ?? null}
         isLoading={interaction.selectedPropertyLoading}
         isLiked={interaction.isLiked}
         isSaved={interaction.isSaved}

@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { PropertyResolveResponse } from '@huishype/shared';
+import type { CountryCode, PropertyResolveResponse } from '@huishype/shared';
+import { getPropertyAerialImageFromGeometry } from '../lib/propertyThumbnail';
 
 const DEFAULT_API_PORT = '3100';
 
@@ -337,6 +338,7 @@ export async function fetchNearbyCluster(
 export interface BatchProperty {
   id: string;
   nationalId: string | null;
+  countryCode: string;
   address: string;
   city: string;
   postalCode: string | null;
@@ -351,6 +353,8 @@ export interface BatchProperty {
   likeCount: number;
   commentCount: number;
   guessCount: number;
+  aerialImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -366,7 +370,24 @@ export async function fetchBatchProperties(
   const result = await apiFetch<BatchProperty[]>(
     `/properties/batch?ids=${ids.join(',')}`,
   );
-  return result;
+  return result.map((property) => {
+    const imageUrl =
+      property.aerialImageUrl ??
+      getPropertyAerialImageFromGeometry(
+        property.imageryGeometry ?? property.geometry,
+        property.countryCode as CountryCode,
+      );
+
+    if (!imageUrl && property.thumbnailUrl === undefined) {
+      return property;
+    }
+
+    return {
+      ...property,
+      aerialImageUrl: imageUrl,
+      thumbnailUrl: property.thumbnailUrl ?? imageUrl,
+    };
+  });
 }
 
 // Convenience methods

@@ -488,6 +488,7 @@ export function GroupPreviewCard({
     activityLevel: currentProperty.activityLevel,
     activityScore: currentProperty.activityScore,
     thumbnailUrl: currentProperty.thumbnailUrl,
+    aerialImageUrl: currentProperty.aerialImageUrl,
     likeCount: currentProperty.likeCount,
     commentCount: currentProperty.commentCount,
     guessCount: currentProperty.guessCount,

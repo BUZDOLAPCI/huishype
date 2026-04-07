@@ -119,7 +119,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     const width = 800;
     const height = 600;
-    const halfHeight = 22.5;  // 45m / 2
+    const halfHeight = 40;  // 80m / 2
     const halfWidth = halfHeight * (width / height);  // Adjusted for aspect ratio
 
     const bbox = `${rdX - halfWidth},${rdY - halfHeight},${rdX + halfWidth},${rdY + halfHeight}`;

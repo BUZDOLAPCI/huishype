@@ -7,7 +7,7 @@
  *
  * Platform renderers remain separate — this hook owns only the interaction model.
  */
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { router } from 'expo-router';
 import type { CountryCode } from '@huishype/shared';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
@@ -16,7 +16,10 @@ import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
-import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
+import {
+  getPropertyAerialImageFromGeometry,
+  getPropertyThumbnailFromGeometry,
+} from '@/src/lib/propertyThumbnail';
 import { fetchBatchProperties, type PropertyResolveResult, type NearbyClusterResult } from '@/src/utils/api';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -40,6 +43,7 @@ export interface UseMapInteractionReturn {
   selectedPropertyId: string | null;
   setSelectedPropertyId: (id: string | null) => void;
   selectedProperty: ReturnType<typeof useProperty>['data'];
+  selectedPropertyForSheet: ReturnType<typeof useProperty>['data'];
   selectedPropertyLoading: boolean;
 
   // ── Preview group state ─────────────────────────────────────
@@ -113,6 +117,8 @@ export interface ToGroupPropertyInput {
   activityScore?: number;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
   imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  aerialImageUrl?: string | null;
+  thumbnailUrl?: string | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
   likeCount?: number | null;
@@ -144,6 +150,10 @@ function convertToGroupProperty(
 ): GroupPreviewProperty {
   const score = activityScore ?? p.activityScore ?? 0;
   const thumbnailGeometry = p.imageryGeometry ?? p.geometry ?? null;
+  const aerialImageUrl =
+    p.aerialImageUrl ??
+    getPropertyAerialImageFromGeometry(thumbnailGeometry, p.countryCode as CountryCode);
+
   return {
     id: p.id,
     address: p.address,
@@ -155,9 +165,13 @@ function convertToGroupProperty(
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
     activityLevel: getActivityLevel(score),
     activityScore: score,
-    thumbnailUrl: thumbnailGeometry
-      ? getPropertyThumbnailFromGeometry(thumbnailGeometry, p.countryCode as CountryCode)
-      : null,
+    thumbnailUrl:
+      p.thumbnailUrl ??
+      (aerialImageUrl ??
+        (thumbnailGeometry
+          ? getPropertyThumbnailFromGeometry(thumbnailGeometry, p.countryCode as CountryCode)
+          : null)),
+    aerialImageUrl,
     yearBuilt: p.yearBuilt ?? null,
     floorAreaM2: p.floorAreaM2 ?? null,
     likeCount: p.likeCount ?? 0,
@@ -179,6 +193,39 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // ── Preview group state ─────────────────────────────────────
   const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
+  const currentPreviewProperty = previewGroup?.properties[currentPreviewIndex] ?? null;
+
+  const selectedPropertyForSheet = useMemo(() => {
+    if (!selectedProperty) return selectedProperty;
+
+    const previewImageUrl =
+      currentPreviewProperty?.aerialImageUrl ?? currentPreviewProperty?.thumbnailUrl ?? null;
+    const derivedImageUrl =
+      selectedProperty.aerialImageUrl ??
+      getPropertyAerialImageFromGeometry(
+        selectedProperty.imageryGeometry ?? selectedProperty.geometry ?? null,
+        selectedProperty.countryCode as CountryCode,
+      );
+    const imageUrl = previewImageUrl ?? derivedImageUrl;
+
+    if (!imageUrl) {
+      return selectedProperty;
+    }
+
+    const thumbnailUrl = selectedProperty.thumbnailUrl ?? imageUrl;
+    if (
+      selectedProperty.aerialImageUrl === imageUrl &&
+      selectedProperty.thumbnailUrl === thumbnailUrl
+    ) {
+      return selectedProperty;
+    }
+
+    return {
+      ...selectedProperty,
+      aerialImageUrl: imageUrl,
+      thumbnailUrl,
+    };
+  }, [currentPreviewProperty, selectedProperty]);
 
   // Sync selected property with current preview card index
   useEffect(() => {
@@ -194,19 +241,28 @@ export function useMapInteraction(): UseMapInteractionReturn {
     if (!currentProperty || currentProperty.id !== selectedProperty.id) return;
 
     const thumbnailGeometry = selectedProperty.imageryGeometry ?? selectedProperty.geometry ?? null;
-    const nextThumbnailUrl = thumbnailGeometry
-      ? getPropertyThumbnailFromGeometry(
-          thumbnailGeometry,
-          selectedProperty.countryCode as CountryCode,
-        )
-      : null;
+    const nextAerialImageUrl = getPropertyAerialImageFromGeometry(
+      thumbnailGeometry,
+      selectedProperty.countryCode as CountryCode,
+    );
+    const nextThumbnailUrl =
+      nextAerialImageUrl ??
+      (thumbnailGeometry
+        ? getPropertyThumbnailFromGeometry(
+            thumbnailGeometry,
+            selectedProperty.countryCode as CountryCode,
+          )
+        : null);
+    const mergedAerialImageUrl = currentProperty.aerialImageUrl ?? nextAerialImageUrl;
+    const mergedThumbnailUrl = currentProperty.thumbnailUrl ?? mergedAerialImageUrl ?? nextThumbnailUrl;
 
     setPreviewGroup((prev) => {
       if (!prev) return prev;
       const prevCurrent = prev.properties[currentPreviewIndex];
       if (!prevCurrent || prevCurrent.id !== selectedProperty.id) return prev;
       if (
-        prevCurrent.thumbnailUrl === nextThumbnailUrl &&
+        prevCurrent.aerialImageUrl === mergedAerialImageUrl &&
+        prevCurrent.thumbnailUrl === mergedThumbnailUrl &&
         prevCurrent.yearBuilt === selectedProperty.yearBuilt &&
         prevCurrent.floorAreaM2 === selectedProperty.floorAreaM2 &&
         prevCurrent.countryCode === selectedProperty.countryCode
@@ -218,7 +274,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
       properties[currentPreviewIndex] = {
         ...prevCurrent,
         countryCode: selectedProperty.countryCode,
-        thumbnailUrl: nextThumbnailUrl,
+        aerialImageUrl: mergedAerialImageUrl,
+        thumbnailUrl: mergedThumbnailUrl,
         yearBuilt: selectedProperty.yearBuilt,
         floorAreaM2: selectedProperty.floorAreaM2,
       };
@@ -433,7 +490,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
               askingPrice: (properties.askingPrice as number) ?? null,
               activityLevel: getActivityLevel(activityScore),
               activityScore,
-              thumbnailUrl: getPropertyThumbnailFromGeometry(
+              thumbnailUrl: getPropertyAerialImageFromGeometry(
+                { type: 'Point', coordinates: coord },
+              ),
+              aerialImageUrl: getPropertyAerialImageFromGeometry(
                 { type: 'Point', coordinates: coord },
               ),
               yearBuilt: null,
@@ -459,6 +519,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (result.type === 'single') {
         const coord = result.geometry?.coordinates as [number, number] | undefined;
         if (coord) {
+          const previewImageUrl = getPropertyAerialImageFromGeometry(
+            { type: 'Point', coordinates: coord },
+          );
           setSelectedPropertyId(result.id);
           setPreviewGroup({
             properties: [{
@@ -470,9 +533,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
               askingPrice: result.askingPrice,
               activityLevel: getActivityLevel(result.activityScore ?? 0),
               activityScore: result.activityScore ?? 0,
-              thumbnailUrl: getPropertyThumbnailFromGeometry(
-                { type: 'Point', coordinates: coord },
-              ),
+              thumbnailUrl: previewImageUrl,
+              aerialImageUrl: previewImageUrl,
               likeCount: result.likeCount ?? 0,
               commentCount: result.commentCount ?? 0,
               guessCount: result.guessCount ?? 0,
@@ -558,7 +620,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
           askingPrice: null,
           activityLevel: 'cold',
           activityScore: 0,
-          thumbnailUrl: getPropertyThumbnailFromGeometry(
+          thumbnailUrl: getPropertyAerialImageFromGeometry(
+            { type: 'Point', coordinates: coord },
+          ),
+          aerialImageUrl: getPropertyAerialImageFromGeometry(
             { type: 'Point', coordinates: coord },
           ),
         }],
@@ -585,6 +650,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     selectedPropertyId,
     setSelectedPropertyId,
     selectedProperty,
+    selectedPropertyForSheet,
     selectedPropertyLoading,
 
     // Preview group state

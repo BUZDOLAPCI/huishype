@@ -10,7 +10,10 @@ import {
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
 import type { NearbyClusterResult } from '../../utils/api';
 import { fetchBatchProperties } from '../../utils/api';
-import { getPropertyThumbnailFromGeometry } from '../../lib/propertyThumbnail';
+import {
+  getPropertyAerialImageFromGeometry,
+} from '../../lib/propertyThumbnail';
+import { useProperty } from '../useProperties';
 
 jest.mock('../useProperties', () => {
   const actual = jest.requireActual('../useProperties');
@@ -59,8 +62,11 @@ const mockFetchBatchProperties = fetchBatchProperties as jest.Mock;
 
 // Mock propertyThumbnail
 jest.mock('../../lib/propertyThumbnail', () => ({
+  getPropertyAerialImageFromGeometry: jest.fn().mockReturnValue('https://mock-aerial.com/img.jpg'),
   getPropertyThumbnailFromGeometry: jest.fn().mockReturnValue('https://mock-thumbnail.com/img.jpg'),
 }));
+
+const mockUseProperty = useProperty as jest.Mock;
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: PropsWithChildren) {
@@ -709,7 +715,8 @@ describe('useMapInteraction', () => {
       expect(gpp.id).toBe('prop-1');
       expect(gpp.activityLevel).toBe('hot'); // score 60 >= 50
       expect(gpp.activityScore).toBe(60);
-      expect(gpp.thumbnailUrl).toBe('https://mock-thumbnail.com/img.jpg');
+      expect(gpp.thumbnailUrl).toBe('https://mock-aerial.com/img.jpg');
+      expect(gpp.aerialImageUrl).toBe('https://mock-aerial.com/img.jpg');
       expect(gpp.yearBuilt).toBe(1920);
       expect(gpp.floorAreaM2).toBe(85);
     });
@@ -727,7 +734,7 @@ describe('useMapInteraction', () => {
         imageryGeometry: { type: 'Point', coordinates: [4.91, 52.38] },
       });
 
-      expect(getPropertyThumbnailFromGeometry).toHaveBeenLastCalledWith(
+      expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
         { type: 'Point', coordinates: [4.91, 52.38] },
         undefined,
       );
@@ -745,6 +752,54 @@ describe('useMapInteraction', () => {
 
       expect(gpp.activityScore).toBe(75);
       expect(gpp.activityLevel).toBe('hot');
+    });
+
+    it('reuses the preview aerial image for the sheet property when available', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: { type: 'Point', coordinates: [4.91, 52.38] },
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 250000,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+            thumbnailUrl: 'https://preview-cache.test/pdok.png',
+            aerialImageUrl: 'https://preview-cache.test/pdok.png',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.selectedPropertyForSheet?.aerialImageUrl).toBe(
+          'https://preview-cache.test/pdok.png',
+        );
+        expect(result.current.selectedPropertyForSheet?.thumbnailUrl).toBe(
+          'https://preview-cache.test/pdok.png',
+        );
+      });
     });
   });
 });

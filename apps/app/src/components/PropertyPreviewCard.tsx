@@ -138,7 +138,7 @@ export function PropertyPreviewCard({
   // Resolve image using shared fallback rules
   const imageSource: PropertyImageSource = {
     listingPhotoUrl: property.listingPhotoUrl ?? property.thumbnailUrl,
-    aerialImageUrl: property.aerialImageUrl,
+    aerialImageUrl: property.aerialImageUrl ?? property.thumbnailUrl,
     countryCode: property.countryCode,
   };
   const imageUrl = resolvePropertyImage(imageSource);

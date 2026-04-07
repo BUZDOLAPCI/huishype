@@ -64,7 +64,7 @@ export const convertToRDNew = (lat: number, lon: number): [number, number] => {
  * @param lon Longitude in WGS84 (EPSG:4326)
  * @param width Image width in pixels (default 800)
  * @param height Image height in pixels (default 600)
- * @param boxSizeMeters Size of the bounding box in meters (default 45 for ~40x40m view)
+ * @param boxSizeMeters Size of the bounding box in meters (default 80 for a wider property context view)
  * @returns URL string for PDOK aerial imagery
  *
  * @example
@@ -80,7 +80,7 @@ export const getDutchAerialSnapshotUrl = (
   lon: number,
   width: number = 800,
   height: number = 600,
-  boxSizeMeters: number = 45
+  boxSizeMeters: number = 80
 ): string => {
   // Convert WGS84 to RD New
   const [x, y] = convertToRDNew(lat, lon);

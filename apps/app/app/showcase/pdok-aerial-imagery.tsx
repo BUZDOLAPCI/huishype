@@ -144,7 +144,7 @@ export default function PDOKAerialImageryShowcase() {
               <View className="flex-row">
                 <Text className="text-sm text-warm-500 w-32">Coverage:</Text>
                 <Text className="text-sm text-warm-700 flex-1">
-                  ~45m x 45m area
+                  ~107m x 80m area
                 </Text>
               </View>
             </View>

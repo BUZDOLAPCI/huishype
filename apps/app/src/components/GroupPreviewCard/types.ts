@@ -10,6 +10,7 @@ export interface GroupPreviewProperty {
   activityLevel?: 'hot' | 'warm' | 'cold';
   activityScore?: number;
   thumbnailUrl?: string | null;
+  aerialImageUrl?: string | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
   /** Like count for stat pills. */

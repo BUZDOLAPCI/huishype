@@ -7,6 +7,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  getPropertyAerialImageUrl,
+  PROPERTY_AERIAL_IMAGE_BOX_SIZE_METERS,
+  PROPERTY_AERIAL_IMAGE_HEIGHT,
+  PROPERTY_AERIAL_IMAGE_WIDTH,
+} from '../lib/propertyThumbnail';
 import { getDutchAerialSnapshotUrl } from '../lib/pdok/imagery';
 
 export interface AerialImageCardProps {
@@ -16,11 +22,11 @@ export interface AerialImageCardProps {
   lon: number;
   /** Optional address text to display at bottom */
   address?: string;
-  /** Image width in pixels (default 800) */
+  /** Image width in pixels (default canonical property aerial width) */
   width?: number;
-  /** Image height in pixels (default 600) */
+  /** Image height in pixels (default canonical property aerial height) */
   height?: number;
-  /** Bounding box size in meters (default 45) */
+  /** Bounding box size in meters (default canonical property aerial framing) */
   boxSizeMeters?: number;
   /** Test ID for e2e testing */
   testID?: string;
@@ -36,15 +42,20 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
   lat,
   lon,
   address,
-  width = 800,
-  height = 600,
-  boxSizeMeters = 45,
+  width = PROPERTY_AERIAL_IMAGE_WIDTH,
+  height = PROPERTY_AERIAL_IMAGE_HEIGHT,
+  boxSizeMeters = PROPERTY_AERIAL_IMAGE_BOX_SIZE_METERS,
   testID = 'aerial-image-card',
 }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  const imageUrl = getDutchAerialSnapshotUrl(lat, lon, width, height, boxSizeMeters);
+  const imageUrl =
+    width === PROPERTY_AERIAL_IMAGE_WIDTH &&
+    height === PROPERTY_AERIAL_IMAGE_HEIGHT &&
+    boxSizeMeters === PROPERTY_AERIAL_IMAGE_BOX_SIZE_METERS
+      ? getPropertyAerialImageUrl(lat, lon)
+      : getDutchAerialSnapshotUrl(lat, lon, width, height, boxSizeMeters);
 
   const handleLoadEnd = () => {
     setLoading(false);
@@ -60,14 +71,16 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
     <View style={styles.container} testID={testID}>
       <View style={styles.imageContainer}>
         {/* Aerial image from PDOK */}
-        <Image
-          source={{ uri: imageUrl }}
-          style={styles.aerialImage}
-          resizeMode="cover"
-          onLoadEnd={handleLoadEnd}
-          onError={handleError}
-          testID={`${testID}-image`}
-        />
+        {imageUrl ? (
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.aerialImage}
+            resizeMode="cover"
+            onLoadEnd={handleLoadEnd}
+            onError={handleError}
+            testID={`${testID}-image`}
+          />
+        ) : null}
 
         {/* Loading indicator */}
         {loading && (
@@ -77,7 +90,7 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
         )}
 
         {/* Error state */}
-        {error && (
+        {(error || !imageUrl) && (
           <View style={styles.errorOverlay}>
             <Text style={styles.errorIcon}>📍</Text>
             <Text style={styles.errorText}>Unable to load aerial image</Text>
@@ -85,7 +98,7 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
         )}
 
         {/* Centered marker pin - using Ionicons location icon like woningstats */}
-        {!error && (
+        {!error && imageUrl && (
           <View style={styles.markerContainer} testID={`${testID}-marker`}>
             <Ionicons
               name="location-sharp"

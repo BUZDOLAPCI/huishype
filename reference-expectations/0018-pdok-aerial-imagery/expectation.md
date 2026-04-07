@@ -25,7 +25,7 @@ The function must return a valid HTTPS URL for the PDOK WMS service.
 - **Base URL:** `https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0`
 - **Layer:** `Actueel_orthoHR` (7.5cm resolution)
 - **Format:** `image/jpeg` or `image/png`
-- **BBOX Calculation:** Create a 40x40 meter bounding box centered on the converted RD coordinates (`x-20`, `y-20`, `x+20`, `y+20`).
+- **BBOX Calculation:** Create a wider property framing. For the current 800x600 default, use an 80 meter vertical span centered on the converted RD coordinates, which yields an approximately 106.7m x 80m box at 4:3.
 
 ## Implementation Details
 

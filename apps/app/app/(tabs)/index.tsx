@@ -534,7 +534,7 @@ export default function MapScreen() {
       <BottomSheetErrorBoundary>
         <PropertyBottomSheet
           ref={interaction.bottomSheetRef}
-          property={interaction.selectedProperty ?? null}
+          property={interaction.selectedPropertyForSheet ?? null}
           isLiked={interaction.isLiked}
           isSaved={interaction.isSaved}
           isPreviewCardVisible={!!interaction.previewGroup}
