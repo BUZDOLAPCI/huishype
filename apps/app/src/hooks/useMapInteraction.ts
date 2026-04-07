@@ -9,6 +9,7 @@
  */
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { router } from 'expo-router';
+import type { CountryCode } from '@huishype/shared';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
@@ -111,6 +112,7 @@ export interface ToGroupPropertyInput {
   fmv?: number | PropertyFmvData | null;
   activityScore?: number;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
   likeCount?: number | null;
@@ -141,6 +143,7 @@ function convertToGroupProperty(
   activityScore?: number,
 ): GroupPreviewProperty {
   const score = activityScore ?? p.activityScore ?? 0;
+  const thumbnailGeometry = p.imageryGeometry ?? p.geometry ?? null;
   return {
     id: p.id,
     address: p.address,
@@ -152,8 +155,8 @@ function convertToGroupProperty(
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
     activityLevel: getActivityLevel(score),
     activityScore: score,
-    thumbnailUrl: p.geometry
-      ? getPropertyThumbnailFromGeometry(p.geometry)
+    thumbnailUrl: thumbnailGeometry
+      ? getPropertyThumbnailFromGeometry(thumbnailGeometry, p.countryCode as CountryCode)
       : null,
     yearBuilt: p.yearBuilt ?? null,
     floorAreaM2: p.floorAreaM2 ?? null,
@@ -183,6 +186,45 @@ export function useMapInteraction(): UseMapInteractionReturn {
       setSelectedPropertyId(previewGroup.properties[currentPreviewIndex].id);
     }
   }, [currentPreviewIndex, previewGroup]);
+
+  useEffect(() => {
+    if (!selectedProperty || !previewGroup) return;
+
+    const currentProperty = previewGroup.properties[currentPreviewIndex];
+    if (!currentProperty || currentProperty.id !== selectedProperty.id) return;
+
+    const thumbnailGeometry = selectedProperty.imageryGeometry ?? selectedProperty.geometry ?? null;
+    const nextThumbnailUrl = thumbnailGeometry
+      ? getPropertyThumbnailFromGeometry(
+          thumbnailGeometry,
+          selectedProperty.countryCode as CountryCode,
+        )
+      : null;
+
+    setPreviewGroup((prev) => {
+      if (!prev) return prev;
+      const prevCurrent = prev.properties[currentPreviewIndex];
+      if (!prevCurrent || prevCurrent.id !== selectedProperty.id) return prev;
+      if (
+        prevCurrent.thumbnailUrl === nextThumbnailUrl &&
+        prevCurrent.yearBuilt === selectedProperty.yearBuilt &&
+        prevCurrent.floorAreaM2 === selectedProperty.floorAreaM2 &&
+        prevCurrent.countryCode === selectedProperty.countryCode
+      ) {
+        return prev;
+      }
+
+      const properties = [...prev.properties];
+      properties[currentPreviewIndex] = {
+        ...prevCurrent,
+        countryCode: selectedProperty.countryCode,
+        thumbnailUrl: nextThumbnailUrl,
+        yearBuilt: selectedProperty.yearBuilt,
+        floorAreaM2: selectedProperty.floorAreaM2,
+      };
+      return { ...prev, properties };
+    });
+  }, [currentPreviewIndex, previewGroup, selectedProperty]);
 
   // ── Bottom sheet ────────────────────────────────────────────
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);

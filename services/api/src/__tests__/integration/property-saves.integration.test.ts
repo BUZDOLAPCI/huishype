@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, savedProperties } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 /**
  * Integration tests for property save endpoints.
@@ -12,6 +13,7 @@ import { eq } from 'drizzle-orm';
  * GET /saved-properties, and verifies enriched GET /properties/:id isSaved.
  */
 describe('Property save routes', () => {
+  jest.setTimeout(60000);
   let app: FastifyInstance;
   let userId: string;
   let accessToken: string;
@@ -223,6 +225,82 @@ describe('Property save routes', () => {
       });
       const body3 = JSON.parse(page3.body);
       expect(body3.data.length).toBe(0);
+    });
+
+    it('should return imageryGeometry for NL properties snapped to a nearby building', async () => {
+      const imageryPropertyId = crypto.randomUUID();
+      const imageryOsmId = Number(`8${Date.now()}`.slice(0, 12));
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${imageryPropertyId},
+          'NL',
+          'Saved Imagery Street',
+          9,
+          'TestCity',
+          '1234AB',
+          'active',
+          ST_SetSRID(ST_MakePoint(5.47, 51.44025), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO osm_buildings (osm_id, geometry)
+        VALUES (
+          ${imageryOsmId},
+          ST_SetSRID(
+            ST_GeomFromText(
+              'POLYGON((5.47035 51.44015, 5.47065 51.44015, 5.47065 51.44045, 5.47035 51.44045, 5.47035 51.44015))'
+            ),
+            4326
+          )
+        )
+      `);
+
+      try {
+        const saveResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${imageryPropertyId}/save`,
+          headers: { authorization: `Bearer ${accessToken}` },
+        });
+        expect(saveResponse.statusCode).toBe(201);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/saved-properties?limit=10&offset=0',
+          headers: { authorization: `Bearer ${accessToken}` },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const savedProperty = body.data.find((item: { id: string }) => item.id === imageryPropertyId);
+
+        expect(savedProperty).toBeDefined();
+        expect(savedProperty.geometry.coordinates).toEqual([5.47, 51.44025]);
+        expect(savedProperty.imageryGeometry).toBeDefined();
+        expect(savedProperty.imageryGeometry.coordinates[0]).toBeGreaterThan(5.4703);
+        expect(savedProperty.imageryGeometry.coordinates[0]).toBeLessThan(5.4707);
+        expect(savedProperty.imageryGeometry.coordinates[1]).toBeGreaterThan(51.4401);
+        expect(savedProperty.imageryGeometry.coordinates[1]).toBeLessThan(51.4405);
+      } finally {
+        await db.execute(sql`
+          DELETE FROM saved_properties
+          WHERE user_id = ${userId}
+            AND property_id = ${imageryPropertyId}
+        `);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${imageryPropertyId}`);
+        await db.execute(sql`DELETE FROM osm_buildings WHERE osm_id = ${imageryOsmId}`);
+      }
     });
   });
 

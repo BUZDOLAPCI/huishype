@@ -179,8 +179,9 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
     limitClause = `OFFSET ${offset}`;
   }
 
-  // Set a long statement timeout for this heavy query
-  await sql`SET statement_timeout = '600s'`;
+  // BAG repair may run against a fully populated multi-country properties table.
+  // The exact-address upsert can exceed 10 minutes there, so do not time it out.
+  await sql`SET statement_timeout = '0'`;
 
   // The upsert query with DISTINCT ON deduplication.
   // Built as a plain string and executed via sql.unsafe() because the entire

@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { db } from '../../db/index.js';
+import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 /**
  * Integration tests for GET /properties/batch endpoint.
@@ -8,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
  * Tests against the real PostGIS database seeded with Eindhoven data.
  */
 describe('GET /properties/batch', () => {
+  jest.setTimeout(30000);
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -138,4 +142,61 @@ describe('GET /properties/batch', () => {
 
     expect(response.statusCode).toBe(400);
   });
+
+  it('returns imageryGeometry for snapped aerial framing', async () => {
+    const propertyId = crypto.randomUUID();
+    const osmId = Number(`8${Date.now()}`.slice(0, 12));
+
+    await db.execute(sql`
+      INSERT INTO properties (
+        id,
+        country_code,
+        street,
+        house_number,
+        city,
+        postal_code,
+        status,
+        geometry
+      )
+      VALUES (
+        ${propertyId},
+        'NL',
+        'Batch Imagery Street',
+        2,
+        'TestCity',
+        '1234AB',
+        'active',
+        ST_SetSRID(ST_MakePoint(3.5, 53.00025), 4326)
+      )
+    `);
+
+    await db.execute(sql`
+      INSERT INTO osm_buildings (osm_id, geometry)
+      VALUES (
+        ${osmId},
+        ST_GeomFromText(
+          'MULTIPOLYGON(((3.5003 53.0001, 3.5007 53.0001, 3.5007 53.0004, 3.5003 53.0004, 3.5003 53.0001)))',
+          4326
+        )
+      )
+    `);
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/batch?ids=${propertyId}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toHaveLength(1);
+      expect(body[0].imageryGeometry.coordinates[0]).toBeGreaterThan(3.5003);
+      expect(body[0].imageryGeometry.coordinates[0]).toBeLessThan(3.5007);
+      expect(body[0].imageryGeometry.coordinates[1]).toBeGreaterThan(53.0001);
+      expect(body[0].imageryGeometry.coordinates[1]).toBeLessThan(53.0005);
+    } finally {
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM osm_buildings WHERE osm_id = ${osmId}`);
+    }
+  }, 60000);
 });

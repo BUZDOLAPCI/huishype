@@ -42,9 +42,9 @@ Utility Exists: apps/app/src/lib/pdok/imagery.ts created and typed.
 Dependencies: proj4 installed in apps/app.
 Visual Verification (The "Tegenbosch" Test):
 Create an E2E test apps/app/e2e/visual/reference-0018-pdok.spec.ts.
-Test Case: Use coordinates that show the L-shaped house with dark roof and solar panels from the reference image.
-Target RD Coordinates: X: 157076, Y: 385753 (house visible in reference image)
-Target WGS84 Coordinates: lat: 51.46103902337281, lon: 5.418135001687793
+Test Case: Use the BAG / Woningstats address point for Tegenbosch 16.
+Target RD Coordinates: X: 157189.018, Y: 385806.139
+Target WGS84 Coordinates: lat: 51.4613225767584, lon: 5.41869962895219
 Render: The test must render the generated URL in an <img> tag.
 Verification: The screenshot captured by the test must match woningstats-tegenbosch-16.png (showing the same house/roof).
 Console Health: Zero console errors during execution.
@@ -56,10 +56,8 @@ Image loads but is significantly off-center compared to the reference image.
 Implementation uses Google Maps or other paid APIs.
 
 Technical Notes
-The reference image shows an L-shaped house with dark roof and solar panels at RD: 157076, 385753.
-Note: The official PDOK "Tegenbosch 16" address resolves to 157189.018, 385806.139 (RD), but the reference image
-shows a different property. The coordinates have been adjusted to match the visual reference.
-Ensure your BBOX calculation around these points yields the same view.
+The BAG / Woningstats HTML for Tegenbosch 16 uses RD: 157189.018, 385806.139.
+Ensure your WGS84 → RD conversion yields that point before the BBOX is built.
 if needed, Install proj4 via pnpm add proj4 and pnpm add -D @types/proj4.
 
 

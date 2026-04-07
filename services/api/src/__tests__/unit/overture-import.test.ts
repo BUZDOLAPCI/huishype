@@ -9,6 +9,7 @@ import {
   buildParquetSource,
   buildCountryFilter,
   buildDuckDbQuery,
+  buildOvertureUpsertQuery,
   parseHouseNumber,
 } from '../../scripts/import-overture-addresses.js';
 
@@ -186,6 +187,24 @@ describe('buildDuckDbQuery', () => {
     const query = buildDuckDbQuery("'s3://bucket/path/*'", ['NL']);
     expect(query).toContain("TO '/tmp/overture_addresses.csv'");
     expect(query).toContain('HEADER');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Upsert query construction
+// ---------------------------------------------------------------------------
+
+describe('buildOvertureUpsertQuery', () => {
+  it('preserves BAG-backed NL geometry instead of overwriting it with Overture points', () => {
+    const query = buildOvertureUpsertQuery();
+
+    expect(query).toContain("properties.country_code = 'NL'");
+    expect(query).toContain("properties.national_id ~ '^[0-9]{16}$'");
+    expect(query).toContain('national_id = CASE');
+    expect(query).toContain('THEN properties.national_id');
+    expect(query).toContain('geometry = CASE');
+    expect(query).toContain('THEN properties.geometry');
+    expect(query).toContain('ELSE EXCLUDED.geometry');
   });
 });
 

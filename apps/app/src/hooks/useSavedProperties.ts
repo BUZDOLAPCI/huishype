@@ -22,6 +22,7 @@ interface SavedPropertyApiResponse {
   city: string;
   postalCode: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   yearBuilt: number | null;
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
@@ -49,6 +50,7 @@ export const savedPropertyKeys = {
 const PAGE_SIZE = 20;
 
 export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
+  const thumbnailGeometry = property.imageryGeometry ?? property.geometry;
   const createdDate = new Date(property.createdAt);
   const now = new Date();
   const daysSinceCreation = Math.floor(
@@ -79,7 +81,7 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     fmv: null,
     fmvValue: undefined,
     thumbnailUrl: getPropertyThumbnailFromGeometry(
-      property.geometry,
+      thumbnailGeometry,
       property.countryCode as CountryCode,
     ),
     likeCount: 0,

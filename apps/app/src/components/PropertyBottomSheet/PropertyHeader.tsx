@@ -69,7 +69,7 @@ export function PropertyHeader({ property }: SectionProps) {
   const hasPhotos = property.photos && property.photos.length > 0;
 
   // Extract coordinates from geometry
-  const coordinates = property.geometry?.coordinates;
+  const coordinates = property.imageryGeometry?.coordinates ?? property.geometry?.coordinates;
   const hasCoordinates = coordinates && coordinates.length === 2;
   const lon = hasCoordinates ? coordinates[0] : null;
   const lat = hasCoordinates ? coordinates[1] : null;

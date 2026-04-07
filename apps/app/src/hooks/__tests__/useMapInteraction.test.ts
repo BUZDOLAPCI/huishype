@@ -10,6 +10,7 @@ import {
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
 import type { NearbyClusterResult } from '../../utils/api';
 import { fetchBatchProperties } from '../../utils/api';
+import { getPropertyThumbnailFromGeometry } from '../../lib/propertyThumbnail';
 
 jest.mock('../useProperties', () => {
   const actual = jest.requireActual('../useProperties');
@@ -711,6 +712,25 @@ describe('useMapInteraction', () => {
       expect(gpp.thumbnailUrl).toBe('https://mock-thumbnail.com/img.jpg');
       expect(gpp.yearBuilt).toBe(1920);
       expect(gpp.floorAreaM2).toBe(85);
+    });
+
+    it('prefers imageryGeometry when building a thumbnail', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      result.current.toGroupProperty({
+        id: 'prop-2',
+        address: '123 Main St',
+        city: 'Amsterdam',
+        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+        imageryGeometry: { type: 'Point', coordinates: [4.91, 52.38] },
+      });
+
+      expect(getPropertyThumbnailFromGeometry).toHaveBeenLastCalledWith(
+        { type: 'Point', coordinates: [4.91, 52.38] },
+        undefined,
+      );
     });
 
     it('uses explicit activityScore parameter over property field', () => {

@@ -14,6 +14,10 @@ const coordinateSchema = z.object({
   coordinates: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
 });
 
+const imageryCoordinateSchema = coordinateSchema.describe(
+  'Geometry used for imagery framing. May snap to a nearby building surface point.',
+);
+
 const propertySchema = z.object({
   id: z.string().uuid(),
   nationalId: z.string().nullable(),
@@ -26,6 +30,7 @@ const propertySchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
+  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
   yearBuilt: z.number().nullable().describe('Year of construction'),
   floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
@@ -98,6 +103,7 @@ const propertyDetailSchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
+  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
   yearBuilt: z.number().nullable().describe('Year of construction'),
   floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
@@ -142,6 +148,7 @@ const savedPropertySchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
+  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
   yearBuilt: z.number().nullable().describe('Year of construction'),
   floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
   status: z.enum(['active', 'inactive', 'demolished']),
@@ -325,6 +332,38 @@ const engagementJoin = sql`LEFT JOIN LATERAL (
     LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM price_guesses WHERE property_id = p.id) g ON true
     LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') lk ON true
 ) eng ON true`;
+
+const IMAGERY_BUILDING_SEARCH_DEGREES = 0.001;
+const IMAGERY_BUILDING_MAX_DISTANCE_METERS = 80;
+
+const imageryJoin = sql`LEFT JOIN LATERAL (
+  SELECT
+    ST_PointOnSurface(geometry) AS imagery_geom,
+    ST_Distance(p.geometry::geography, geometry::geography) AS distance_to_building_m
+  FROM osm_buildings
+  WHERE p.geometry IS NOT NULL
+    AND geometry && ST_Expand(p.geometry, ${IMAGERY_BUILDING_SEARCH_DEGREES})
+  ORDER BY p.geometry <-> geometry
+  LIMIT 1
+) img ON true`;
+
+const imageryLonSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  WHEN p.country_code = 'NL'
+    AND img.imagery_geom IS NOT NULL
+    AND img.distance_to_building_m <= ${IMAGERY_BUILDING_MAX_DISTANCE_METERS}
+    THEN ST_X(img.imagery_geom)
+  ELSE ST_X(p.geometry)
+END`;
+
+const imageryLatSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  WHEN p.country_code = 'NL'
+    AND img.imagery_geom IS NOT NULL
+    AND img.distance_to_building_m <= ${IMAGERY_BUILDING_MAX_DISTANCE_METERS}
+    THEN ST_Y(img.imagery_geom)
+  ELSE ST_Y(p.geometry)
+END`;
 
 // Row type for cluster detection queries
 type ClusterDetectionRow = {
@@ -524,6 +563,8 @@ function mapPropertyRow(r: {
   postal_code: string | null;
   lon: number | null;
   lat: number | null;
+  imagery_lon?: number | null;
+  imagery_lat?: number | null;
   year_built: number | null;
   floor_area_m2: number | null;
   status: string;
@@ -554,6 +595,13 @@ function mapPropertyRow(r: {
     geometry:
       r.lon != null && r.lat != null
         ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+        : null,
+    imageryGeometry:
+      r.imagery_lon != null && r.imagery_lat != null
+        ? {
+            type: 'Point' as const,
+            coordinates: [r.imagery_lon, r.imagery_lat] as [number, number],
+          }
         : null,
     yearBuilt: r.year_built != null ? Number(r.year_built) : null,
     floorAreaM2: r.floor_area_m2 != null ? Number(r.floor_area_m2) : null,
@@ -641,6 +689,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
+        imagery_lon: number | null;
+        imagery_lat: number | null;
         year_built: number | null;
         floor_area_m2: number | null;
         status: string;
@@ -689,6 +739,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
+          ${imageryLonSelect} AS imagery_lon,
+          ${imageryLatSelect} AS imagery_lat,
           p.year_built,
           p.floor_area_m2,
           p.status,
@@ -707,6 +759,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
         ${engagementJoin}
+        ${imageryJoin}
         ORDER BY p.created_at
       `);
 
@@ -1050,6 +1103,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
+        imagery_lon: number | null;
+        imagery_lat: number | null;
         year_built: number | null;
         floor_area_m2: number | null;
         status: string;
@@ -1074,6 +1129,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
+          ${imageryLonSelect} AS imagery_lon,
+          ${imageryLatSelect} AS imagery_lat,
           p.year_built,
           p.floor_area_m2,
           p.status,
@@ -1092,6 +1149,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
         ${engagementJoin}
+        ${imageryJoin}
         WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
       `);
 
@@ -1155,6 +1213,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
+        imagery_lon: number | null;
+        imagery_lat: number | null;
         year_built: number | null;
         floor_area_m2: number | null;
         status: string;
@@ -1184,6 +1244,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
+          ${imageryLonSelect} AS imagery_lon,
+          ${imageryLatSelect} AS imagery_lat,
           p.year_built,
           p.floor_area_m2,
           p.status,
@@ -1207,6 +1269,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
         ${engagementJoin}
+        ${imageryJoin}
         LEFT JOIN LATERAL (
           SELECT
             COUNT(*)::int AS view_count,
@@ -1426,6 +1489,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         postal_code: string | null;
         lon: number | null;
         lat: number | null;
+        imagery_lon: number | null;
+        imagery_lat: number | null;
         year_built: number | null;
         floor_area_m2: number | null;
         status: string;
@@ -1450,6 +1515,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.postal_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
+          ${imageryLonSelect} AS imagery_lon,
+          ${imageryLatSelect} AS imagery_lat,
           p.year_built,
           p.floor_area_m2,
           p.status,
@@ -1469,6 +1536,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           ORDER BY created_at DESC LIMIT 1
         ) l ON true
         ${engagementJoin}
+        ${imageryJoin}
         WHERE sp.user_id = ${userId}
         ORDER BY sp.created_at DESC
         LIMIT ${limit}

@@ -21,12 +21,11 @@ test.use({ trace: 'off', video: 'off' });
 const EXPECTATION_NAME = 'pdok-aerial-imagery';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Test coordinates - Tegenbosch 16, Eindhoven (reference expectation location)
-// These coordinates show the L-shaped house with dark roof and solar panels from the reference image
+// Test coordinates - Tegenbosch 16, Eindhoven from BAG / Woningstats
 const TEGENBOSCH_COORDS = {
-  lat: 51.46103902337281,
-  lon: 5.418135001687793,
-  // Expected RD coordinates: X: 157076, Y: 385753
+  lat: 51.4613225767584,
+  lon: 5.41869962895219,
+  // Expected RD coordinates: X: 157189.018, Y: 385806.139
 };
 
 // Secondary test coordinates - Dom Tower, Utrecht (well-known landmark)
@@ -110,14 +109,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test('verify PDOK URL returns valid image (200 OK)', async ({ request }) => {
     // Manually construct the URL using the same logic as the utility
     // This is to test the URL format independently of the React app
-    // Using Tegenbosch 16, Eindhoven - the reference expectation location
+    // Using Tegenbosch 16, Eindhoven - BAG / Woningstats reference location
     const lat = TEGENBOSCH_COORDS.lat;
     const lon = TEGENBOSCH_COORDS.lon;
 
-    // RD New projection transformation
-    // These are the RD coordinates for the L-shaped house from the reference image
-    const rdX = 157076;  // RD X for the house in reference image
-    const rdY = 385753;  // RD Y for the house in reference image
+    // RD New coordinates from BAG / Woningstats
+    const rdX = 157189.018;
+    const rdY = 385806.139;
 
     const width = 800;
     const height = 600;

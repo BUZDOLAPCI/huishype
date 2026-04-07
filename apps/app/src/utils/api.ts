@@ -341,6 +341,7 @@ export interface BatchProperty {
   city: string;
   postalCode: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   yearBuilt: number | null;
   floorAreaM2: number | null;
   status: string;

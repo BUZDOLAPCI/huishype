@@ -16,6 +16,7 @@ export interface Property {
   city: string;
   postalCode: string | null;
   geometry: PropertyGeometry | null;
+  imageryGeometry?: PropertyGeometry | null;
   yearBuilt: number | null;
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';

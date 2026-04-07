@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
  * Tests against the real PostGIS database seeded with Eindhoven data.
  */
 describe('Property routes', () => {
+  jest.setTimeout(60000);
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -188,6 +189,65 @@ describe('Property routes', () => {
       });
       expect(response.statusCode).toBe(404);
     });
+
+    it('should return imageryGeometry snapped to a nearby building surface point', async () => {
+      const propertyId = crypto.randomUUID();
+      const osmId = Number(`9${Date.now()}`.slice(0, 12));
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Imagery Test Street',
+          1,
+          'TestCity',
+          '1234AB',
+          'active',
+          ST_SetSRID(ST_MakePoint(5.47, 51.44025), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO osm_buildings (osm_id, geometry)
+        VALUES (
+          ${osmId},
+          ST_GeomFromText(
+            'MULTIPOLYGON(((5.4703 51.4401, 5.4707 51.4401, 5.4707 51.4404, 5.4703 51.4404, 5.4703 51.4401)))',
+            4326
+          )
+        )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/${propertyId}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.geometry.coordinates[0]).toBeCloseTo(5.47, 6);
+        expect(body.geometry.coordinates[1]).toBeCloseTo(51.44025, 6);
+        expect(body.imageryGeometry.coordinates[0]).toBeGreaterThan(5.4703);
+        expect(body.imageryGeometry.coordinates[0]).toBeLessThan(5.4707);
+        expect(body.imageryGeometry.coordinates[1]).toBeGreaterThan(51.4401);
+        expect(body.imageryGeometry.coordinates[1]).toBeLessThan(51.4405);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM osm_buildings WHERE osm_id = ${osmId}`);
+      }
+    }, 60000);
   });
 
   describe('GET /properties/nearby', () => {

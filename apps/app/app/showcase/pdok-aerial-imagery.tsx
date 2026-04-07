@@ -17,10 +17,10 @@ import { AerialImageCard } from '@/src/components/AerialImageCard';
 const TEST_LOCATIONS = [
   {
     name: 'Tegenbosch 16, Eindhoven',
-    lat: 51.46103902337281,
-    lon: 5.418135001687793,
+    lat: 51.4613225767584,
+    lon: 5.41869962895219,
     address: 'Tegenbosch 16, 5651GE Eindhoven',
-    description: 'Reference location - L-shaped house with dark roof and solar panels (RD: 157076, 385753)',
+    description: 'Reference location from BAG / Woningstats (RD: 157189.018, 385806.139)',
     testId: 'aerial-tegenbosch',
   },
   {

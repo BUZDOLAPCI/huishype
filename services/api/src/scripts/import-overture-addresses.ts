@@ -42,6 +42,12 @@ const DB_URL =
   process.env.DATABASE_URL ||
   'postgresql://huishype:huishype_dev@localhost:5440/huishype';
 
+// BAG identifiers are 16-digit numeric strings. When an NL property row already
+// carries one, BAG is the authoritative source for geometry and should not be
+// downgraded by a later Overture address-point refresh.
+const NL_BAG_ROW_PRESERVE_CONDITION =
+  "properties.country_code = 'NL' AND properties.national_id ~ '^[0-9]{16}$' AND properties.geometry IS NOT NULL";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -390,7 +396,22 @@ async function phase3Upsert(sql: postgres.Sql): Promise<number> {
   // Parse house_number string into integer + addition, then upsert.
   // We use the address-based unique index (country_code, postal_code, house_number, house_number_addition)
   // for deduplication. national_id is also set for Overture GERS tracking.
-  const upsertQuery = `
+  const upsertQuery = buildOvertureUpsertQuery();
+
+  await sql.unsafe(upsertQuery);
+
+  await sql`SET statement_timeout = '0'`;
+
+  const result = await sql`SELECT COUNT(*)::int AS count FROM properties`;
+  const totalProperties = result[0].count;
+  console.log(
+    `  Upserted to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`,
+  );
+  return totalProperties;
+}
+
+export function buildOvertureUpsertQuery(): string {
+  return `
     INSERT INTO properties (
       country_code, national_id, street, house_number, house_number_addition,
       postal_code, city, region, geometry
@@ -448,23 +469,18 @@ async function phase3Upsert(sql: postgres.Sql): Promise<number> {
         )), '') AS parsed_addition
     ) AS parsed
     ON CONFLICT (country_code, street, postal_code, house_number, house_number_addition) DO UPDATE SET
-      national_id = EXCLUDED.national_id,
+      national_id = CASE
+        WHEN ${NL_BAG_ROW_PRESERVE_CONDITION} THEN properties.national_id
+        ELSE EXCLUDED.national_id
+      END,
       city = EXCLUDED.city,
       region = EXCLUDED.region,
-      geometry = EXCLUDED.geometry,
+      geometry = CASE
+        WHEN ${NL_BAG_ROW_PRESERVE_CONDITION} THEN properties.geometry
+        ELSE EXCLUDED.geometry
+      END,
       updated_at = NOW()
   `;
-
-  await sql.unsafe(upsertQuery);
-
-  await sql`SET statement_timeout = '0'`;
-
-  const result = await sql`SELECT COUNT(*)::int AS count FROM properties`;
-  const totalProperties = result[0].count;
-  console.log(
-    `  Upserted to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`,
-  );
-  return totalProperties;
 }
 
 // ---------------------------------------------------------------------------
