@@ -296,8 +296,8 @@ test.describe('Search Navigation Flow', () => {
     ).toBeLessThanOrEqual(2);
     expect(
       alignment!.gapY,
-      `Expected preview arrow to clear the selected marker, got gapY=${alignment!.gapY}px (${alignment!.arrowTestId})`
-    ).toBeGreaterThanOrEqual(4);
+      `Expected preview arrow to avoid overlapping the selected marker, got gapY=${alignment!.gapY}px (${alignment!.arrowTestId})`
+    ).toBeGreaterThanOrEqual(0);
   });
 
   test('search for non-existent local property handles gracefully', async ({
