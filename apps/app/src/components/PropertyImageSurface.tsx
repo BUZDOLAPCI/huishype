@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Platform,
+  type ImageProps,
+  type ImageSourcePropType,
   StyleProp,
   StyleSheet,
   type ImageResizeMode,
@@ -11,7 +13,8 @@ import {
 } from 'react-native';
 import { Icon } from './ui/Icon';
 import {
-  resolvePropertyImageWithType,
+  getPropertyImageCandidates,
+  type ImageSourceType,
   type PropertyImageSource,
 } from '../utils/property-image';
 
@@ -26,6 +29,8 @@ export interface PropertyImageSurfaceProps {
   markerTestID?: string;
   onLoadEnd?: () => void;
   onError?: () => void;
+  placeholder?: React.ReactNode;
+  onResolvedSourceChange?: (type: ImageSourceType) => void;
 }
 
 export function PropertyImageSurface({
@@ -39,23 +44,56 @@ export function PropertyImageSurface({
   markerTestID,
   onLoadEnd,
   onError,
+  placeholder,
+  onResolvedSourceChange,
 }: PropertyImageSurfaceProps) {
-  const resolved = resolvePropertyImageWithType(source);
+  const {
+    listingPhotoUrl,
+    aerialImageUrl,
+    countryCode,
+  } = source;
+  const candidateKey = `${listingPhotoUrl ?? ''}|${aerialImageUrl ?? ''}|${countryCode ?? ''}`;
+  const candidates = useMemo(
+    () => getPropertyImageCandidates(source),
+    [source],
+  );
+  const [candidateIndex, setCandidateIndex] = useState(0);
 
-  if (!resolved.url) {
-    return null;
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [candidateKey]);
+
+  const resolved = candidates[candidateIndex] ?? null;
+
+  useEffect(() => {
+    onResolvedSourceChange?.(resolved?.type ?? 'placeholder');
+  }, [onResolvedSourceChange, resolved?.type]);
+
+  if (!resolved?.url) {
+    return placeholder ? <>{placeholder}</> : null;
   }
 
   const isAerial = resolved.type === 'aerial';
+  const handleError: NonNullable<ImageProps['onError']> = () => {
+    const nextCandidateIndex = candidateIndex + 1;
+
+    if (nextCandidateIndex < candidates.length) {
+      setCandidateIndex(nextCandidateIndex);
+      return;
+    }
+
+    setCandidateIndex(candidates.length);
+    onError?.();
+  };
 
   return (
     <View style={[styles.container, style]}>
       <Image
-        source={{ uri: resolved.url }}
+        source={{ uri: resolved.url } as ImageSourcePropType}
         style={[styles.image, imageStyle]}
         resizeMode={isAerial ? aerialResizeMode : listingResizeMode}
         onLoadEnd={onLoadEnd}
-        onError={onError}
+        onError={handleError}
         testID={imageTestID}
       />
 

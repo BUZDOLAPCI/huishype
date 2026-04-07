@@ -885,6 +885,17 @@
                               }
                             ]
                           },
+                          "thumbnailUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Latest available active listing thumbnail URL"
+                          },
                           "likeCount": {
                             "type": "number",
                             "description": "Total number of likes"
@@ -924,6 +935,7 @@
                           "officialValuation",
                           "hasListing",
                           "askingPrice",
+                          "thumbnailUrl",
                           "likeCount",
                           "commentCount",
                           "guessCount",
@@ -1305,6 +1317,16 @@
                               }
                             ]
                           },
+                          "thumbnailUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "activityScore": {
                             "type": "number"
                           },
@@ -1367,6 +1389,7 @@
                           "officialValuation",
                           "hasListing",
                           "askingPrice",
+                          "thumbnailUrl",
                           "activityScore",
                           "likeCount",
                           "commentCount",
@@ -1510,6 +1533,16 @@
                                     }
                                   ]
                                 },
+                                "thumbnailUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "activityScore": {
                                   "type": "number"
                                 },
@@ -1573,6 +1606,7 @@
                                 "officialValuation",
                                 "hasListing",
                                 "askingPrice",
+                                "thumbnailUrl",
                                 "activityScore",
                                 "likeCount",
                                 "commentCount",
@@ -1809,6 +1843,17 @@
                           }
                         ]
                       },
+                      "thumbnailUrl": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Latest available active listing thumbnail URL"
+                      },
                       "likeCount": {
                         "type": "number",
                         "description": "Total number of likes"
@@ -1848,6 +1893,7 @@
                       "officialValuation",
                       "hasListing",
                       "askingPrice",
+                      "thumbnailUrl",
                       "likeCount",
                       "commentCount",
                       "guessCount",
@@ -2077,6 +2123,17 @@
                       ],
                       "description": "Active listing asking price"
                     },
+                    "thumbnailUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Latest available active listing thumbnail URL"
+                    },
                     "likeCount": {
                       "type": "number",
                       "description": "Total number of likes on this property"
@@ -2254,6 +2311,7 @@
                     "officialValuation",
                     "hasListing",
                     "askingPrice",
+                    "thumbnailUrl",
                     "likeCount",
                     "isLiked",
                     "isSaved",
@@ -2723,6 +2781,17 @@
                               }
                             ]
                           },
+                          "thumbnailUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Latest available active listing thumbnail URL"
+                          },
                           "commentCount": {
                             "type": "number"
                           },
@@ -2763,6 +2832,7 @@
                           "officialValuation",
                           "hasListing",
                           "askingPrice",
+                          "thumbnailUrl",
                           "commentCount",
                           "guessCount",
                           "savedAt",
@@ -6449,6 +6519,43 @@
                           "zipCode": {
                             "type": "string"
                           },
+                          "countryCode": {
+                            "type": "string"
+                          },
+                          "geometry": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "Point"
+                                    ]
+                                  },
+                                  "coordinates": {
+                                    "type": "array",
+                                    "prefixItems": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "askingPrice": {
                             "anyOf": [
                               {
@@ -6523,6 +6630,8 @@
                           "address",
                           "city",
                           "zipCode",
+                          "countryCode",
+                          "geometry",
                           "askingPrice",
                           "fmv",
                           "officialValuation",

@@ -37,6 +37,7 @@ const propertySchema = z.object({
   officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
   likeCount: z.number().describe('Total number of likes'),
   commentCount: z.number(),
   guessCount: z.number(),
@@ -110,6 +111,7 @@ const propertyDetailSchema = z.object({
   officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean().describe('Whether property has an active listing'),
   askingPrice: z.number().nullable().describe('Active listing asking price'),
+  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
   likeCount: z.number().describe('Total number of likes on this property'),
   isLiked: z.boolean().describe('Whether the current user has liked this property'),
   isSaved: z.boolean().describe('Whether the current user has saved this property'),
@@ -155,6 +157,7 @@ const savedPropertySchema = z.object({
   officialValuation: z.number().nullable().describe('Official government valuation'),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
   commentCount: z.number(),
   guessCount: z.number(),
   savedAt: z.string().datetime(),
@@ -227,6 +230,7 @@ const nearbyPropertySchema = z.object({
   officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
   activityScore: z.number(),
   likeCount: z.number(),
   commentCount: z.number(),
@@ -259,6 +263,7 @@ const singleResultSchema = z.object({
   officialValuation: z.number().nullable(),
   hasListing: z.boolean(),
   askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
   activityScore: z.number(),
   likeCount: z.number(),
   commentCount: z.number(),
@@ -365,6 +370,24 @@ const imageryLatSelect = sql`CASE
   ELSE ST_Y(p.geometry)
 END`;
 
+const latestActiveListingJoin = sql`LEFT JOIN LATERAL (
+  SELECT id, asking_price
+  FROM listings
+  WHERE property_id = p.id AND status = 'active'
+  ORDER BY created_at DESC
+  LIMIT 1
+) l ON true`;
+
+const latestThumbnailJoin = sql`LEFT JOIN LATERAL (
+  SELECT thumbnail_url
+  FROM listings
+  WHERE property_id = p.id
+    AND status = 'active'
+    AND thumbnail_url IS NOT NULL
+  ORDER BY created_at DESC
+  LIMIT 1
+) lt ON true`;
+
 // Row type for cluster detection queries
 type ClusterDetectionRow = {
   id: string;
@@ -377,6 +400,7 @@ type ClusterDetectionRow = {
   official_valuation: number | null;
   has_listing: boolean;
   asking_price: number | null;
+  thumbnail_url: string | null;
   activity_score: number;
   like_count: number;
   comment_count: number;
@@ -409,6 +433,7 @@ function mapToSingleResult(r: ClusterDetectionRow) {
     officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
     hasListing: r.has_listing,
     askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+    thumbnailUrl: r.thumbnail_url,
     activityScore: Number(r.activity_score),
     likeCount: Number(r.like_count),
     commentCount: Number(r.comment_count),
@@ -441,6 +466,7 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         l.asking_price,
+        lt.thumbnail_url,
         eng.activity_score,
         eng.like_count,
         eng.comment_count,
@@ -452,11 +478,8 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         ST_X(p.geometry) AS lon,
         ST_Y(p.geometry) AS lat
       FROM properties p
-      LEFT JOIN LATERAL (
-        SELECT id, asking_price FROM listings
-        WHERE property_id = p.id AND status = 'active'
-        ORDER BY created_at DESC LIMIT 1
-      ) l ON true
+      ${latestActiveListingJoin}
+      ${latestThumbnailJoin}
       ${engagementJoin}
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
@@ -491,6 +514,7 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         p.official_valuation,
         CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
         l.asking_price,
+        lt.thumbnail_url,
         eng.activity_score,
         eng.like_count,
         eng.comment_count,
@@ -502,11 +526,8 @@ async function detectCluster(lon: number, lat: number, zoom: number) {
         ST_X(p.geometry) AS lon,
         ST_Y(p.geometry) AS lat
       FROM properties p
-      LEFT JOIN LATERAL (
-        SELECT id, asking_price FROM listings
-        WHERE property_id = p.id AND status = 'active'
-        ORDER BY created_at DESC LIMIT 1
-      ) l ON true
+      ${latestActiveListingJoin}
+      ${latestThumbnailJoin}
       ${engagementJoin}
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
@@ -569,6 +590,7 @@ function mapPropertyRow(r: {
   floor_area_m2: number | null;
   status: string;
   official_valuation: number | null;
+  thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
 }) {
@@ -607,6 +629,7 @@ function mapPropertyRow(r: {
     floorAreaM2: r.floor_area_m2 != null ? Number(r.floor_area_m2) : null,
     status: r.status as 'active' | 'inactive' | 'demolished',
     officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
+    thumbnailUrl: r.thumbnail_url,
     createdAt: new Date(r.created_at).toISOString(),
     updatedAt: new Date(r.updated_at).toISOString(),
   };
@@ -653,8 +676,10 @@ export async function propertyRoutes(app: FastifyInstance) {
         const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
         if (minLon != null && minLat != null && maxLon != null && maxLat != null
             && !Number.isNaN(minLon) && !Number.isNaN(minLat) && !Number.isNaN(maxLon) && !Number.isNaN(maxLat)) {
+          // properties.geometry is a Point in EPSG:4326, so bounding-box overlap
+          // is equivalent to point-in-envelope while remaining GiST-index friendly.
           conditions.push(
-            sql`ST_Within(p.geometry, ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326))`
+            sql`p.geometry && ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326)`
           );
         }
       }
@@ -697,6 +722,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        thumbnail_url: string | null;
         like_count: number;
         comment_count: number;
         guess_count: number;
@@ -747,17 +773,15 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          lt.thumbnail_url,
           eng.like_count,
           eng.comment_count,
           eng.guess_count,
           p.created_at,
           p.updated_at
         FROM page_rows p
-        LEFT JOIN LATERAL (
-          SELECT id, asking_price FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          ORDER BY created_at DESC LIMIT 1
-        ) l ON true
+        ${latestActiveListingJoin}
+        ${latestThumbnailJoin}
         ${engagementJoin}
         ${imageryJoin}
         ORDER BY p.created_at
@@ -986,6 +1010,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        thumbnail_url: string | null;
         activity_score: number;
         like_count: number;
         comment_count: number;
@@ -1005,6 +1030,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          lt.thumbnail_url,
           eng.activity_score,
           eng.like_count,
           eng.comment_count,
@@ -1016,11 +1042,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat
         FROM properties p
-        LEFT JOIN LATERAL (
-          SELECT id, asking_price FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          ORDER BY created_at DESC LIMIT 1
-        ) l ON true
+        ${latestActiveListingJoin}
+        ${latestThumbnailJoin}
         ${engagementJoin}
         WHERE p.geometry IS NOT NULL
           AND p.status = 'active'
@@ -1053,6 +1076,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
         hasListing: r.has_listing,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
+        thumbnailUrl: r.thumbnail_url,
         activityScore: Number(r.activity_score),
         likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),
@@ -1111,6 +1135,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        thumbnail_url: string | null;
         like_count: number;
         comment_count: number;
         guess_count: number;
@@ -1137,17 +1162,15 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          lt.thumbnail_url,
           eng.like_count,
           eng.comment_count,
           eng.guess_count,
           p.created_at,
           p.updated_at
         FROM properties p
-        LEFT JOIN LATERAL (
-          SELECT id, asking_price FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          ORDER BY created_at DESC LIMIT 1
-        ) l ON true
+        ${latestActiveListingJoin}
+        ${latestThumbnailJoin}
         ${engagementJoin}
         ${imageryJoin}
         WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
@@ -1221,6 +1244,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        thumbnail_url: string | null;
         like_count: number;
         is_liked: boolean;
         is_saved: boolean;
@@ -1252,6 +1276,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          lt.thumbnail_url,
           eng.like_count,
           EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
           EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
@@ -1263,11 +1288,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.created_at,
           p.updated_at
         FROM properties p
-        LEFT JOIN LATERAL (
-          SELECT id, asking_price FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          ORDER BY created_at DESC LIMIT 1
-        ) l ON true
+        ${latestActiveListingJoin}
+        ${latestThumbnailJoin}
         ${engagementJoin}
         ${imageryJoin}
         LEFT JOIN LATERAL (
@@ -1497,6 +1519,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         official_valuation: number | null;
         has_listing: boolean;
         asking_price: number | null;
+        thumbnail_url: string | null;
         comment_count: number;
         guess_count: number;
         saved_at: string;
@@ -1523,6 +1546,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
           l.asking_price,
+          lt.thumbnail_url,
           eng.comment_count,
           eng.guess_count,
           sp.created_at AS saved_at,
@@ -1530,11 +1554,8 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.updated_at
         FROM saved_properties sp
         INNER JOIN properties p ON p.id = sp.property_id
-        LEFT JOIN LATERAL (
-          SELECT id, asking_price FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          ORDER BY created_at DESC LIMIT 1
-        ) l ON true
+        ${latestActiveListingJoin}
+        ${latestThumbnailJoin}
         ${engagementJoin}
         ${imageryJoin}
         WHERE sp.user_id = ${userId}

@@ -8,11 +8,13 @@
  */
 
 import React from 'react';
-import { Image, Pressable, Text, View, StyleSheet } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import { MetricPills } from './MetricPills';
 import { Card } from './ui/Card';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
+import { PropertyImageSurface } from './PropertyImageSurface';
+import { toPropertyImageSource } from '../utils/property-image';
 
 export interface PropertyFeedCardProps {
   id: string;
@@ -20,7 +22,8 @@ export interface PropertyFeedCardProps {
   city: string;
   postalCode?: string | null;
   countryCode?: string;
-  photoUrl?: string;
+  thumbnailUrl?: string | null;
+  aerialImageUrl?: string | null;
   officialValuation?: number | null;
   askingPrice?: number;
   fmvValue?: number;
@@ -51,9 +54,9 @@ const ACTIVITY_CONFIG = {
 export function PropertyFeedCard({
   address,
   city,
-  postalCode,
   countryCode,
-  photoUrl,
+  thumbnailUrl,
+  aerialImageUrl,
   officialValuation,
   askingPrice,
   fmvValue,
@@ -65,6 +68,11 @@ export function PropertyFeedCard({
   onPress,
 }: PropertyFeedCardProps) {
   const activityConfig = ACTIVITY_CONFIG[activityLevel];
+  const imageSource = toPropertyImageSource({
+    thumbnailUrl,
+    aerialImageUrl,
+    countryCode,
+  });
 
   // Determine the primary display price
   const primaryPrice = fmvValue ?? officialValuation;
@@ -80,19 +88,19 @@ export function PropertyFeedCard({
       <Card shadow="card" testID="property-feed-card">
         {/* Image section */}
         <View style={styles.imageWrapper}>
-          {photoUrl ? (
-            <Image
-              source={{ uri: photoUrl }}
-              style={styles.image}
-              resizeMode="cover"
-              testID="property-image"
-            />
-          ) : (
-            <View style={styles.placeholder}>
-              <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-              <Text style={styles.placeholderText}>No image available</Text>
-            </View>
-          )}
+          <PropertyImageSurface
+            source={imageSource}
+            style={styles.image}
+            markerSize={28}
+            imageTestID="property-image"
+            markerTestID="property-image-marker"
+            placeholder={
+              <View style={styles.placeholder}>
+                <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+                <Text style={styles.placeholderText}>No image available</Text>
+              </View>
+            }
+          />
         </View>
 
         {/* Content section */}

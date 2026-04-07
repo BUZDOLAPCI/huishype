@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 describe('Activity routes', () => {
   let app: FastifyInstance;
@@ -176,6 +177,103 @@ describe('Activity routes', () => {
           url: `/properties/${propertyId}/save`,
           headers: { authorization: `Bearer ${accessToken}` },
         });
+      }
+    });
+
+    it('should expose thumbnailUrl using the newest active non-null listing thumbnail fallback', async () => {
+      const syntheticPropertyId = crypto.randomUUID();
+      const thumbnailUrl = 'https://cdn.example.com/activity-fallback-thumb.jpg';
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${syntheticPropertyId},
+          'NL',
+          'Activity Thumbnail Street',
+          3,
+          'ActivityCity',
+          '6666ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(5.91, 51.99), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          thumbnail_url,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${crypto.randomUUID()},
+            ${syntheticPropertyId},
+            'funda',
+            'https://example.com/activity-older',
+            'active',
+            310000,
+            ${thumbnailUrl},
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${crypto.randomUUID()},
+            ${syntheticPropertyId},
+            'funda',
+            'https://example.com/activity-latest',
+            'active',
+            335000,
+            NULL,
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      await app.inject({
+        method: 'POST',
+        url: `/properties/${syntheticPropertyId}/like`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/users/me/activity?limit=50',
+          headers: { authorization: `Bearer ${accessToken}` },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const event = body.items.find(
+          (item: { property: { id: string } }) => item.property.id === syntheticPropertyId
+        );
+
+        expect(event).toBeDefined();
+        expect(event.property.thumbnailUrl).toBe(thumbnailUrl);
+      } finally {
+        await db.execute(sql`
+          DELETE FROM reactions
+          WHERE target_type = 'property'
+            AND target_id = ${syntheticPropertyId}
+            AND user_id = ${userId}
+        `);
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${syntheticPropertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${syntheticPropertyId}`);
       }
     });
   });

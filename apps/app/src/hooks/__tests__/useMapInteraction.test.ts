@@ -525,6 +525,7 @@ describe('useMapInteraction', () => {
         officialValuation: 250000,
         hasListing: true,
         askingPrice: 300000,
+        thumbnailUrl: null,
         activityScore: 25,
         likeCount: 3,
         commentCount: 5,
@@ -715,10 +716,27 @@ describe('useMapInteraction', () => {
       expect(gpp.id).toBe('prop-1');
       expect(gpp.activityLevel).toBe('hot'); // score 60 >= 50
       expect(gpp.activityScore).toBe(60);
-      expect(gpp.thumbnailUrl).toBe('https://mock-aerial.com/img.jpg');
+      expect(gpp.thumbnailUrl).toBeNull();
       expect(gpp.aerialImageUrl).toBe('https://mock-aerial.com/img.jpg');
       expect(gpp.yearBuilt).toBe(1920);
       expect(gpp.floorAreaM2).toBe(85);
+    });
+
+    it('preserves listing thumbnails separately from aerial fallbacks', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-1',
+        address: '123 Main St',
+        city: 'Amsterdam',
+        thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+      });
+
+      expect(gpp.thumbnailUrl).toBe('https://cdn.example.com/listing-thumb.jpg');
+      expect(gpp.aerialImageUrl).toBe('https://mock-aerial.com/img.jpg');
     });
 
     it('prefers imageryGeometry when building a thumbnail', () => {
@@ -785,7 +803,7 @@ describe('useMapInteraction', () => {
             id: 'prop-1',
             address: '123 Main St',
             city: 'Amsterdam',
-            thumbnailUrl: 'https://preview-cache.test/pdok.png',
+            thumbnailUrl: null,
             aerialImageUrl: 'https://preview-cache.test/pdok.png',
           }],
           coordinate: [4.9, 52.37],
@@ -796,7 +814,57 @@ describe('useMapInteraction', () => {
         expect(result.current.selectedPropertyForSheet?.aerialImageUrl).toBe(
           'https://preview-cache.test/pdok.png',
         );
+        expect(result.current.selectedPropertyForSheet?.thumbnailUrl).toBeNull();
+      });
+    });
+
+    it('upgrades preview thumbnails from the detail query without copying aerial into thumbnailUrl', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: { type: 'Point', coordinates: [4.91, 52.38] },
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 250000,
+          thumbnailUrl: 'https://cdn.example.com/listing.jpg',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+            thumbnailUrl: null,
+            aerialImageUrl: 'https://preview-cache.test/pdok.png',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
         expect(result.current.selectedPropertyForSheet?.thumbnailUrl).toBe(
+          'https://cdn.example.com/listing.jpg',
+        );
+        expect(result.current.previewGroup?.properties[0]?.thumbnailUrl).toBe(
+          'https://cdn.example.com/listing.jpg',
+        );
+        expect(result.current.previewGroup?.properties[0]?.aerialImageUrl).toBe(
           'https://preview-cache.test/pdok.png',
         );
       });

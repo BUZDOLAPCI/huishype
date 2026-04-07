@@ -64,12 +64,25 @@ describe('PropertyFeedCard', () => {
     expect(getByText('No image available')).toBeTruthy();
   });
 
-  it('renders image when photoUrl is provided', () => {
+  it('renders image when a listing thumbnail is provided', () => {
     const { getByTestId } = render(
-      <PropertyFeedCard {...defaultProps} photoUrl="https://example.com/image.jpg" />
+      <PropertyFeedCard {...defaultProps} thumbnailUrl="https://example.com/image.jpg" />
     );
 
     expect(getByTestId('property-image')).toBeTruthy();
+  });
+
+  it('renders a marker for aerial fallback imagery', () => {
+    const { getByTestId } = render(
+      <PropertyFeedCard
+        {...defaultProps}
+        countryCode="NL"
+        aerialImageUrl="https://example.com/aerial.jpg"
+      />
+    );
+
+    expect(getByTestId('property-image')).toBeTruthy();
+    expect(getByTestId('property-image-marker')).toBeTruthy();
   });
 
   it('renders stat pills for non-zero metrics', () => {

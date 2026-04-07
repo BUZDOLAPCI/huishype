@@ -22,8 +22,7 @@ import {
   type CountryCode,
 } from '@huishype/shared';
 import {
-  resolvePropertyImageWithType,
-  type PropertyImageSource,
+  toPropertyImageSource,
 } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
 
@@ -140,12 +139,12 @@ export function PropertyPreviewCard({
   const formattedPrice = formatPrice(displayPrice, property.countryCode);
 
   // Resolve image using shared fallback rules
-  const imageSource: PropertyImageSource = {
+  const imageSource = toPropertyImageSource({
     listingPhotoUrl: property.listingPhotoUrl,
-    aerialImageUrl: property.aerialImageUrl ?? property.thumbnailUrl,
+    thumbnailUrl: property.thumbnailUrl,
+    aerialImageUrl: property.aerialImageUrl,
     countryCode: property.countryCode,
-  };
-  const image = resolvePropertyImageWithType(imageSource);
+  });
 
   const cardContent = (
     <Pressable
@@ -155,19 +154,18 @@ export function PropertyPreviewCard({
     >
       {/* Image area */}
       <View style={styles.imageWrapper}>
-        {image.url ? (
-          <PropertyImageSurface
-            source={imageSource}
-            style={styles.image}
-            markerSize={24}
-            imageTestID="property-thumbnail-image"
-            markerTestID="property-thumbnail-marker"
-          />
-        ) : (
-          <View style={styles.placeholder} testID="property-thumbnail-placeholder">
-            <Icon name="HouseLine" size="xl" color={COLORS.warm400} />
-          </View>
-        )}
+        <PropertyImageSurface
+          source={imageSource}
+          style={styles.image}
+          markerSize={24}
+          imageTestID="property-thumbnail-image"
+          markerTestID="property-thumbnail-marker"
+          placeholder={
+            <View style={styles.placeholder} testID="property-thumbnail-placeholder">
+              <Icon name="HouseLine" size="xl" color={COLORS.warm400} />
+            </View>
+          }
+        />
 
         {/* Close button — translucent white circle in top-right of image */}
         {showCloseButton && onClose && (

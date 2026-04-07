@@ -1,55 +1,66 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Dimensions,
   Image,
-  ScrollView,
   Text,
   View,
   StyleSheet,
 } from 'react-native';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
-import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
-import { resolvePropertyImage } from '../../utils/property-image';
-import type { CountryCode } from '@huishype/shared';
+import {
+  type ImageSourceType,
+  resolvePropertyImageWithType,
+  toPropertyImageSource,
+} from '../../utils/property-image';
 import { PropertyImageSurface } from '../PropertyImageSurface';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
 
-interface SatelliteImageWithPinProps {
-  imageUrl: string | null;
+interface PropertyHeroImageProps {
+  property: PropertyDetailsData;
 }
 
 /**
- * SatelliteImageWithPin - Displays aerial imagery with a centered location pin
- * Uses country-gated thumbnail URL (currently only NL via PDOK)
+ * PropertyHeroImage - Displays the unified property hero image with the shared
+ * fallback chain: listing thumbnail -> aerial -> placeholder.
  */
-function SatelliteImageWithPin({ imageUrl }: SatelliteImageWithPinProps) {
-  const [error, setError] = useState(false);
+function PropertyHeroImage({ property }: PropertyHeroImageProps) {
+  const imageSource = toPropertyImageSource(property);
+  const initialType = resolvePropertyImageWithType(imageSource).type;
+  const [resolvedType, setResolvedType] = useState<ImageSourceType>(initialType);
 
-  // If no imagery available for this country, or on error, show the styled placeholder
-  if (!imageUrl || error) {
-    return (
-      <View style={styles.imageContainer} testID="property-header-placeholder">
-        <Image
-          source={placeholderImage}
-          style={styles.placeholderImage}
-          resizeMode="contain"
-        />
-      </View>
-    );
+  useEffect(() => {
+    setResolvedType(initialType);
+  }, [initialType]);
+
+  const placeholder = (
+    <View style={styles.imageContainer} testID="property-header-placeholder">
+      <Image
+        source={placeholderImage}
+        style={styles.placeholderImage}
+        resizeMode="contain"
+      />
+    </View>
+  );
+
+  if (resolvedType === 'placeholder') {
+    return placeholder;
   }
 
   return (
-    <View style={styles.imageContainer} testID="property-header-satellite">
+    <View
+      style={styles.imageContainer}
+      testID={resolvedType === 'aerial' ? 'property-header-satellite' : 'property-header-listing'}
+    >
       <PropertyImageSurface
-        source={{ aerialImageUrl: imageUrl, countryCode: 'NL' }}
+        source={imageSource}
         style={styles.aerialImage}
         markerSize={36}
-        onError={() => setError(true)}
-        imageTestID="property-header-aerial-image"
+        imageTestID="property-header-image"
         markerTestID="property-header-marker"
+        placeholder={placeholder}
+        onResolvedSourceChange={setResolvedType}
       />
     </View>
   );
@@ -68,92 +79,20 @@ interface PropertyHeaderProps {
 
 export function PropertyHeader({
   property,
-  containerWidth,
+  containerWidth: _containerWidth,
 }: PropertyHeaderProps) {
-  const hasPhotos = property.photos && property.photos.length > 0;
-  const windowWidth = Dimensions.get('window').width;
-  const [carouselWidth, setCarouselWidth] = useState<number | null>(null);
-  const aerialImageUrl = resolvePropertyImage({
-    listingPhotoUrl: null,
-    aerialImageUrl:
-      property.aerialImageUrl ??
-      property.thumbnailUrl ??
-      getPropertyAerialImageFromGeometry(
-        property.imageryGeometry ?? property.geometry,
-        property.countryCode as CountryCode,
-      ),
-    countryCode: property.countryCode,
-  });
-
   const activity = ACTIVITY_CONFIG[property.activityLevel];
-
-  const slideWidth = Math.max(
-    Math.round(containerWidth ?? carouselWidth ?? windowWidth),
-    1,
-  );
 
   return (
     <View>
-      {/* Photo/Satellite Carousel — testID on View wrapper because horizontal
-           ScrollView + NativeWind className doesn't propagate testID to Android
-           resource-id in Fabric (New Architecture). */}
       <View
         style={styles.carouselContainer}
         testID="property-header-carousel"
-        onLayout={(event) => {
-          const nextWidth = event.nativeEvent.layout.width;
-          setCarouselWidth((currentWidth) =>
-            currentWidth === nextWidth ? currentWidth : nextWidth,
-          );
-        }}
       >
-        {hasPhotos ? (
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            className="h-48"
-          >
-            {property.photos!.map((photo, index) => (
-              <View
-                key={index}
-                style={[styles.carouselSlide, { width: slideWidth }]}
-              >
-                <Image
-                  source={{ uri: photo }}
-                  className="w-full h-full rounded-xl bg-warm-200"
-                  resizeMode="cover"
-                />
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={styles.singleImageSlide}>
-            {aerialImageUrl ? (
-              <SatelliteImageWithPin imageUrl={aerialImageUrl} />
-            ) : (
-              // Fallback to placeholder if no coordinates
-              <View
-                style={styles.imageContainer}
-                testID="property-header-no-coords-placeholder"
-              >
-                <Image
-                  source={placeholderImage}
-                  style={styles.placeholderImage}
-                  resizeMode="contain"
-                />
-              </View>
-            )}
-          </View>
-        )}
-      </View>
-
-      {/* Photo count indicator - only show if multiple photos */}
-      {hasPhotos && property.photos!.length > 1 && (
-        <View className="absolute top-2 right-6 bg-black/50 px-2 py-1 rounded-full">
-          <Text className="text-white text-xs">{property.photos!.length} {property.photos!.length === 1 ? 'photo' : 'photos'}</Text>
+        <View style={styles.singleImageSlide}>
+          <PropertyHeroImage property={property} />
         </View>
-      )}
+      </View>
 
       {/* Address and info */}
       <View className="px-4 pt-4">
@@ -213,11 +152,6 @@ const styles = StyleSheet.create({
   placeholderImage: {
     width: '100%',
     height: '100%',
-  },
-  carouselSlide: {
-    width: '100%',
-    height: 192,
-    paddingHorizontal: 16,
   },
   carouselContainer: {
     width: '100%',

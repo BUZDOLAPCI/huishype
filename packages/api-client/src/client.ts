@@ -24,14 +24,12 @@ import type {
   CreateCommentResponse,
   GetUserProfileResponse,
   GetFeedRequest,
+  GetSavedPropertiesRequest,
+  GetSavedPropertiesResponse,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetFeedResponse,
 } from '@huishype/shared';
-import type { paths } from '../generated/api.js';
-
-type SavedPropertiesQuery = NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
-type SavedPropertiesResponse = paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
 
 /**
  * API client configuration options
@@ -339,8 +337,8 @@ export class HuisHypeApiClient {
   // Saved Properties Endpoints  (paths: /properties/:id/save, /saved-properties)
   // ============================================
 
-  async getSavedProperties(request: SavedPropertiesQuery): Promise<SavedPropertiesResponse> {
-    return this.request<SavedPropertiesResponse>('GET', '/saved-properties', {
+  async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
+    return this.request<GetSavedPropertiesResponse>('GET', '/saved-properties', {
       query: { limit: request.limit, offset: request.offset },
       requiresAuth: true,
     });

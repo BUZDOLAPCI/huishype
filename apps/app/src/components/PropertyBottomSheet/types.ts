@@ -10,7 +10,6 @@ export interface PropertyDetailsData extends Property {
   guessCount: number;
   viewCount: number;
   likeCount?: number;
-  photos?: string[];
   isSaved?: boolean;
   isLiked?: boolean;
 }
@@ -81,7 +80,6 @@ export function toPropertyDetails(
     guessCount: details.guessCount ?? 0,
     viewCount: details.viewCount ?? 0,
     likeCount: details.likeCount ?? 0,
-    photos: details.photos,
     isSaved: overrides?.isSaved ?? details.isSaved ?? false,
     isLiked: overrides?.isLiked ?? details.isLiked ?? false,
   };

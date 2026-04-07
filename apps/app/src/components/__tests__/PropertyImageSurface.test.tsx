@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { Text } from 'react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { PropertyImageSurface } from '../PropertyImageSurface';
 
 describe('PropertyImageSurface', () => {
@@ -36,5 +37,44 @@ describe('PropertyImageSurface', () => {
     expect(image).toBeTruthy();
     expect(image.props.resizeMode).toBe('cover');
     expect(screen.getByTestId('property-marker')).toBeTruthy();
+  });
+
+  it('falls back from a broken listing image to aerial imagery before placeholder', () => {
+    render(
+      <PropertyImageSurface
+        source={{
+          listingPhotoUrl: 'https://example.com/broken-listing.jpg',
+          aerialImageUrl: 'https://example.com/aerial.jpg',
+          countryCode: 'NL',
+        }}
+        style={{ width: 120, height: 80 }}
+        imageTestID="property-image"
+        markerTestID="property-marker"
+        placeholder={<Text>placeholder</Text>}
+      />
+    );
+
+    fireEvent(screen.getByTestId('property-image'), 'error');
+
+    const image = screen.getByTestId('property-image');
+    expect(image.props.source).toEqual({ uri: 'https://example.com/aerial.jpg' });
+    expect(screen.getByTestId('property-marker')).toBeTruthy();
+    expect(screen.queryByText('placeholder')).toBeNull();
+  });
+
+  it('renders the provided placeholder after all image candidates fail', () => {
+    render(
+        <PropertyImageSurface
+        source={{ listingPhotoUrl: 'https://example.com/broken-listing.jpg' }}
+        style={{ width: 120, height: 80 }}
+        imageTestID="property-image"
+        placeholder={<Text>placeholder</Text>}
+      />
+    );
+
+    fireEvent(screen.getByTestId('property-image'), 'error');
+
+    expect(screen.queryByTestId('property-image')).toBeNull();
+    expect(screen.getByText('placeholder')).toBeTruthy();
   });
 });

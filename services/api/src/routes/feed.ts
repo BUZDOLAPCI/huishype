@@ -9,11 +9,18 @@ import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/s
 
 // --- Zod schemas ---
 
+const coordinateSchema = z.object({
+  type: z.literal('Point'),
+  coordinates: z.tuple([z.number(), z.number()]),
+});
+
 const feedItemSchema = z.object({
   id: z.string().uuid(),
   address: z.string(),
   city: z.string(),
   zipCode: z.string(),
+  countryCode: z.string(),
+  geometry: coordinateSchema.nullable(),
   askingPrice: z.number().nullable(),
   fmv: z.number().nullable(),
   officialValuation: z.number().nullable(),
@@ -46,6 +53,8 @@ interface FeedRow extends Record<string, unknown> {
   house_number_addition: string | null;
   city: string;
   zip_code: string;
+  lon: number | null;
+  lat: number | null;
   asking_price: number | null;
   official_valuation: number | null;
   thumbnail_url: string | null;
@@ -134,9 +143,11 @@ export async function feedRoutes(app: FastifyInstance) {
           p.house_number_addition,
           p.city,
           p.postal_code AS zip_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
           l.asking_price,
           p.official_valuation,
-          l.thumbnail_url,
+          lt.thumbnail_url,
           COALESCE(c.cnt, 0)::int AS comment_count,
           COALESCE(g.cnt, 0)::int AS guess_count,
           COALESCE(r.cnt, 0)::int AS like_count,
@@ -178,6 +189,15 @@ export async function feedRoutes(app: FastifyInstance) {
           SELECT property_id, COUNT(*) AS cnt
           FROM property_views GROUP BY property_id
         ) v ON v.property_id = p.id
+        LEFT JOIN LATERAL (
+          SELECT thumbnail_url
+          FROM listings
+          WHERE property_id = p.id
+            AND status = 'active'
+            AND thumbnail_url IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) lt ON true
         WHERE 1=1
           ${spatialCondition}
           ${countryCondition}
@@ -206,6 +226,11 @@ export async function feedRoutes(app: FastifyInstance) {
         ),
         city: r.city,
         zipCode: r.zip_code,
+        countryCode: r.country_code,
+        geometry:
+          r.lon != null && r.lat != null
+            ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+            : null,
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         fmv: r.fmv != null ? Number(r.fmv) : null,
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,

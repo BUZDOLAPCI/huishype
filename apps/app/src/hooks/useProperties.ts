@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
-import { getPropertyAerialImageFromGeometry } from '../lib/propertyThumbnail';
-import type { CountryCode } from '@huishype/shared';
+import { withDerivedPropertyImageData } from '../utils/property-image';
 
 // Types for property data
 export interface PropertyGeometry {
@@ -86,22 +85,7 @@ export interface PropertyQueryParams {
 }
 
 function withDerivedPropertyImages<T extends Property>(property: T): T {
-  const imageUrl =
-    property.aerialImageUrl ??
-    getPropertyAerialImageFromGeometry(
-      property.imageryGeometry ?? property.geometry,
-      property.countryCode as CountryCode,
-    );
-
-  if (!imageUrl && property.thumbnailUrl === undefined) {
-    return property;
-  }
-
-  return {
-    ...property,
-    aerialImageUrl: imageUrl,
-    thumbnailUrl: property.thumbnailUrl ?? imageUrl,
-  };
+  return withDerivedPropertyImageData(property);
 }
 
 // Fetch properties from API

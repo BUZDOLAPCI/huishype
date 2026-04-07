@@ -64,7 +64,9 @@ export default function SavedScreen() {
         address={item.address}
         city={item.city}
         postalCode={item.postalCode}
-        photoUrl={item.photoUrl}
+        countryCode={item.countryCode}
+        thumbnailUrl={item.thumbnailUrl}
+        aerialImageUrl={item.aerialImageUrl}
         officialValuation={item.officialValuation}
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}

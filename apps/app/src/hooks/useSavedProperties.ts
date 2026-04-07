@@ -7,14 +7,13 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
-import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
-import type { CountryCode } from '@huishype/shared';
 import type { FeedProperty } from './useFeed';
+import { withDerivedPropertyImageData } from '../utils/property-image';
 
 interface SavedPropertyApiResponse {
   id: string;
   nationalId: string | null;
-  countryCode: CountryCode;
+  countryCode: string;
   street: string;
   houseNumber: number;
   houseNumberAddition: string | null;
@@ -29,6 +28,7 @@ interface SavedPropertyApiResponse {
   officialValuation: number | null;
   hasListing: boolean;
   askingPrice: number | null;
+  thumbnailUrl: string | null;
   commentCount: number;
   guessCount: number;
   savedAt: string;
@@ -50,7 +50,6 @@ export const savedPropertyKeys = {
 const PAGE_SIZE = 20;
 
 export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
-  const thumbnailGeometry = property.imageryGeometry ?? property.geometry;
   const createdDate = new Date(property.createdAt);
   const now = new Date();
   const daysSinceCreation = Math.floor(
@@ -67,10 +66,13 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     activityLevel = 'warm';
   }
 
-  return {
+  return withDerivedPropertyImageData({
     id: property.id,
     address: property.address,
     city: property.city,
+    countryCode: property.countryCode,
+    geometry: property.geometry,
+    imageryGeometry: property.imageryGeometry,
     zipCode: property.postalCode ?? '',
     postalCode: property.postalCode,
     coordinates: property.geometry
@@ -80,10 +82,7 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     askingPrice: property.askingPrice,
     fmv: null,
     fmvValue: undefined,
-    thumbnailUrl: getPropertyThumbnailFromGeometry(
-      thumbnailGeometry,
-      property.countryCode as CountryCode,
-    ),
+    thumbnailUrl: property.thumbnailUrl,
     likeCount: 0,
     activityLevel,
     lastActivityAt: property.savedAt,
@@ -93,7 +92,7 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     viewCount: 0,
     yearBuilt: property.yearBuilt,
     floorAreaM2: property.floorAreaM2,
-  };
+  });
 }
 
 async function fetchSavedProperties(

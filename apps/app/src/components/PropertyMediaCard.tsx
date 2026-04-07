@@ -25,8 +25,7 @@ import {
   type CountryCode,
 } from '@huishype/shared';
 import {
-  resolvePropertyImageWithType,
-  type PropertyImageSource,
+  toPropertyImageSource,
 } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
 
@@ -122,39 +121,34 @@ function PropertyImage({
   height: number;
   variant: PropertyMediaVariant;
 }) {
-  const imageSource: PropertyImageSource = {
+  const imageSource = toPropertyImageSource({
     listingPhotoUrl: property.listingPhotoUrl,
     aerialImageUrl: property.aerialImageUrl,
     countryCode: property.countryCode,
-  };
-  const image = resolvePropertyImageWithType(imageSource);
-
-  if (image.url) {
-    return (
-      <PropertyImageSurface
-        source={imageSource}
-        style={{ width: '100%', height }}
-        markerSize={variant === 'compact' ? 18 : variant === 'hero' ? 32 : 28}
-        imageTestID="property-media-image"
-        markerTestID="property-media-aerial-marker"
-      />
-    );
-  }
-
+  });
   return (
-    <View
-      style={[styles.placeholderContainer, { height }]}
-      testID="property-media-placeholder"
-    >
-      <Icon
-        name="HouseLine"
-        size={variant === 'compact' ? 'xl' : '2xl'}
-        color="#C7BFB3"
-      />
-      {variant !== 'compact' && (
-        <Text style={styles.placeholderText}>No image available</Text>
+    <PropertyImageSurface
+      source={imageSource}
+      style={{ width: '100%', height }}
+      markerSize={variant === 'compact' ? 18 : variant === 'hero' ? 32 : 28}
+      imageTestID="property-media-image"
+      markerTestID="property-media-aerial-marker"
+      placeholder={(
+        <View
+          style={[styles.placeholderContainer, { height }]}
+          testID="property-media-placeholder"
+        >
+          <Icon
+            name="HouseLine"
+            size={variant === 'compact' ? 'xl' : '2xl'}
+            color="#C7BFB3"
+          />
+          {variant !== 'compact' && (
+            <Text style={styles.placeholderText}>No image available</Text>
+          )}
+        </View>
       )}
-    </View>
+    />
   );
 }
 

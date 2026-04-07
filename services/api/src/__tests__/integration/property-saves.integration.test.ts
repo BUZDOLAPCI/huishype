@@ -165,6 +165,7 @@ describe('Property save routes', () => {
       expect(body.data[0]).toHaveProperty('address');
       expect(body.data[0]).toHaveProperty('savedAt');
       expect(body.data[0]).toHaveProperty('hasListing');
+      expect(body.data[0]).toHaveProperty('thumbnailUrl');
       expect(body.data[0]).toHaveProperty('commentCount');
       expect(body.data[0]).toHaveProperty('guessCount');
     });

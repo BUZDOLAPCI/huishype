@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { CountryCode, PropertyResolveResponse } from '@huishype/shared';
-import { getPropertyAerialImageFromGeometry } from '../lib/propertyThumbnail';
+import type { PropertyResolveResponse } from '@huishype/shared';
+import { withDerivedPropertyImageData } from './property-image';
 
 const DEFAULT_API_PORT = '3100';
 
@@ -107,6 +107,7 @@ export interface NearbyProperty {
   postalCode: string | null;
   officialValuation: number | null;
   hasListing: boolean;
+  thumbnailUrl: string | null;
   activityScore: number;
   distanceMeters: number;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
@@ -303,6 +304,7 @@ export type NearbyClusterResult =
       officialValuation: number | null;
       hasListing: boolean;
       askingPrice: number | null;
+      thumbnailUrl: string | null;
       activityScore: number;
       likeCount: number;
       commentCount: number;
@@ -370,24 +372,7 @@ export async function fetchBatchProperties(
   const result = await apiFetch<BatchProperty[]>(
     `/properties/batch?ids=${ids.join(',')}`,
   );
-  return result.map((property) => {
-    const imageUrl =
-      property.aerialImageUrl ??
-      getPropertyAerialImageFromGeometry(
-        property.imageryGeometry ?? property.geometry,
-        property.countryCode as CountryCode,
-      );
-
-    if (!imageUrl && property.thumbnailUrl === undefined) {
-      return property;
-    }
-
-    return {
-      ...property,
-      aerialImageUrl: imageUrl,
-      thumbnailUrl: property.thumbnailUrl ?? imageUrl,
-    };
-  });
+  return result.map((property) => withDerivedPropertyImageData(property));
 }
 
 // Convenience methods

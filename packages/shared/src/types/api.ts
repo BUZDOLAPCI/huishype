@@ -257,6 +257,8 @@ export interface FeedItem {
   address: string;
   city: string;
   zipCode: string;
+  countryCode: string;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
   askingPrice: number | null;
   fmv: number | null;
   officialValuation: number | null;
@@ -309,12 +311,14 @@ export interface SavedProperty {
   city: string;
   postalCode: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   yearBuilt: number | null;
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   hasListing: boolean;
   askingPrice: number | null;
+  thumbnailUrl: string | null;
   commentCount: number;
   guessCount: number;
   savedAt: string;

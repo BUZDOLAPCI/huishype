@@ -465,6 +465,8 @@ export interface paths {
                                 officialValuation: number | null;
                                 hasListing: boolean;
                                 askingPrice: number | null;
+                                /** @description Latest available active listing thumbnail URL */
+                                thumbnailUrl: string | null;
                                 /** @description Total number of likes */
                                 likeCount: number;
                                 commentCount: number;
@@ -631,6 +633,7 @@ export interface paths {
                             officialValuation: number | null;
                             hasListing: boolean;
                             askingPrice: number | null;
+                            thumbnailUrl: string | null;
                             activityScore: number;
                             likeCount: number;
                             commentCount: number;
@@ -678,6 +681,7 @@ export interface paths {
                             officialValuation: number | null;
                             hasListing: boolean;
                             askingPrice: number | null;
+                            thumbnailUrl: string | null;
                             activityScore: number;
                             likeCount: number;
                             commentCount: number;
@@ -773,6 +777,8 @@ export interface paths {
                             officialValuation: number | null;
                             hasListing: boolean;
                             askingPrice: number | null;
+                            /** @description Latest available active listing thumbnail URL */
+                            thumbnailUrl: string | null;
                             /** @description Total number of likes */
                             likeCount: number;
                             commentCount: number;
@@ -864,6 +870,8 @@ export interface paths {
                             hasListing: boolean;
                             /** @description Active listing asking price */
                             askingPrice: number | null;
+                            /** @description Latest available active listing thumbnail URL */
+                            thumbnailUrl: string | null;
                             /** @description Total number of likes on this property */
                             likeCount: number;
                             /** @description Whether the current user has liked this property */
@@ -1131,6 +1139,8 @@ export interface paths {
                                 officialValuation: number | null;
                                 hasListing: boolean;
                                 askingPrice: number | null;
+                                /** @description Latest available active listing thumbnail URL */
+                                thumbnailUrl: string | null;
                                 commentCount: number;
                                 guessCount: number;
                                 /** Format: date-time */
@@ -3032,6 +3042,15 @@ export interface paths {
                                 address: string;
                                 city: string;
                                 zipCode: string;
+                                countryCode: string;
+                                geometry: {
+                                    /** @enum {string} */
+                                    type: "Point";
+                                    coordinates: [
+                                        number,
+                                        number
+                                    ];
+                                } | null;
                                 askingPrice: number | null;
                                 fmv: number | null;
                                 officialValuation: number | null;

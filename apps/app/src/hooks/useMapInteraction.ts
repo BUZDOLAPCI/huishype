@@ -9,17 +9,13 @@
  */
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { router } from 'expo-router';
-import type { CountryCode } from '@huishype/shared';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
-import {
-  getPropertyAerialImageFromGeometry,
-  getPropertyThumbnailFromGeometry,
-} from '@/src/lib/propertyThumbnail';
+import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import { fetchBatchProperties, type PropertyResolveResult, type NearbyClusterResult } from '@/src/utils/api';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -149,28 +145,26 @@ function convertToGroupProperty(
   activityScore?: number,
 ): GroupPreviewProperty {
   const score = activityScore ?? p.activityScore ?? 0;
-  const thumbnailGeometry = p.imageryGeometry ?? p.geometry ?? null;
-  const aerialImageUrl =
-    p.aerialImageUrl ??
-    getPropertyAerialImageFromGeometry(thumbnailGeometry, p.countryCode as CountryCode);
+  const countryCode = p.countryCode ?? undefined;
+  const aerialImageUrl = derivePropertyAerialImageUrl({
+    aerialImageUrl: p.aerialImageUrl,
+    imageryGeometry: p.imageryGeometry ?? null,
+    geometry: p.geometry ?? null,
+    countryCode,
+  });
 
   return {
     id: p.id,
     address: p.address,
     city: p.city,
     postalCode: p.postalCode,
-    countryCode: p.countryCode ?? undefined,
+    countryCode,
     officialValuation: p.officialValuation,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
     activityLevel: getActivityLevel(score),
     activityScore: score,
-    thumbnailUrl:
-      p.thumbnailUrl ??
-      (aerialImageUrl ??
-        (thumbnailGeometry
-          ? getPropertyThumbnailFromGeometry(thumbnailGeometry, p.countryCode as CountryCode)
-          : null)),
+    thumbnailUrl: p.thumbnailUrl ?? null,
     aerialImageUrl,
     yearBuilt: p.yearBuilt ?? null,
     floorAreaM2: p.floorAreaM2 ?? null,
@@ -198,23 +192,13 @@ export function useMapInteraction(): UseMapInteractionReturn {
   const selectedPropertyForSheet = useMemo(() => {
     if (!selectedProperty) return selectedProperty;
 
-    const previewImageUrl =
-      currentPreviewProperty?.aerialImageUrl ?? currentPreviewProperty?.thumbnailUrl ?? null;
-    const derivedImageUrl =
-      selectedProperty.aerialImageUrl ??
-      getPropertyAerialImageFromGeometry(
-        selectedProperty.imageryGeometry ?? selectedProperty.geometry ?? null,
-        selectedProperty.countryCode as CountryCode,
-      );
-    const imageUrl = previewImageUrl ?? derivedImageUrl;
-
-    if (!imageUrl) {
-      return selectedProperty;
-    }
-
-    const thumbnailUrl = selectedProperty.thumbnailUrl ?? imageUrl;
+    const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
+    const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
+    const derivedAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
+    const aerialImageUrl = selectedProperty.aerialImageUrl ?? previewAerialImageUrl ?? derivedAerialImageUrl ?? null;
+    const thumbnailUrl = selectedProperty.thumbnailUrl ?? previewThumbnailUrl ?? null;
     if (
-      selectedProperty.aerialImageUrl === imageUrl &&
+      selectedProperty.aerialImageUrl === aerialImageUrl &&
       selectedProperty.thumbnailUrl === thumbnailUrl
     ) {
       return selectedProperty;
@@ -222,7 +206,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
     return {
       ...selectedProperty,
-      aerialImageUrl: imageUrl,
+      aerialImageUrl,
       thumbnailUrl,
     };
   }, [currentPreviewProperty, selectedProperty]);
@@ -240,21 +224,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
     const currentProperty = previewGroup.properties[currentPreviewIndex];
     if (!currentProperty || currentProperty.id !== selectedProperty.id) return;
 
-    const thumbnailGeometry = selectedProperty.imageryGeometry ?? selectedProperty.geometry ?? null;
-    const nextAerialImageUrl = getPropertyAerialImageFromGeometry(
-      thumbnailGeometry,
-      selectedProperty.countryCode as CountryCode,
-    );
-    const nextThumbnailUrl =
-      nextAerialImageUrl ??
-      (thumbnailGeometry
-        ? getPropertyThumbnailFromGeometry(
-            thumbnailGeometry,
-            selectedProperty.countryCode as CountryCode,
-          )
-        : null);
-    const mergedAerialImageUrl = currentProperty.aerialImageUrl ?? nextAerialImageUrl;
-    const mergedThumbnailUrl = currentProperty.thumbnailUrl ?? mergedAerialImageUrl ?? nextThumbnailUrl;
+    const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
+    const mergedAerialImageUrl =
+      currentProperty.aerialImageUrl ??
+      selectedProperty.aerialImageUrl ??
+      nextAerialImageUrl;
+    const mergedThumbnailUrl =
+      currentProperty.thumbnailUrl ??
+      selectedProperty.thumbnailUrl ??
+      null;
 
     setPreviewGroup((prev) => {
       if (!prev) return prev;
@@ -490,12 +468,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
               askingPrice: (properties.askingPrice as number) ?? null,
               activityLevel: getActivityLevel(activityScore),
               activityScore,
-              thumbnailUrl: getPropertyAerialImageFromGeometry(
-                { type: 'Point', coordinates: coord },
-              ),
-              aerialImageUrl: getPropertyAerialImageFromGeometry(
-                { type: 'Point', coordinates: coord },
-              ),
+              thumbnailUrl: null,
+              aerialImageUrl: derivePropertyAerialImageUrl({
+                geometry: { type: 'Point', coordinates: coord },
+                countryCode: 'NL',
+              }),
               yearBuilt: null,
               floorAreaM2: null,
               likeCount: (properties.likeCount as number) ?? 0,
@@ -519,9 +496,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (result.type === 'single') {
         const coord = result.geometry?.coordinates as [number, number] | undefined;
         if (coord) {
-          const previewImageUrl = getPropertyAerialImageFromGeometry(
-            { type: 'Point', coordinates: coord },
-          );
+          const previewAerialImageUrl = derivePropertyAerialImageUrl({
+            geometry: { type: 'Point', coordinates: coord },
+            countryCode: 'NL',
+          });
           setSelectedPropertyId(result.id);
           setPreviewGroup({
             properties: [{
@@ -531,10 +509,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
               postalCode: result.postalCode,
               officialValuation: result.officialValuation,
               askingPrice: result.askingPrice,
+              thumbnailUrl: null,
               activityLevel: getActivityLevel(result.activityScore ?? 0),
               activityScore: result.activityScore ?? 0,
-              thumbnailUrl: previewImageUrl,
-              aerialImageUrl: previewImageUrl,
+              aerialImageUrl: previewAerialImageUrl,
               likeCount: result.likeCount ?? 0,
               commentCount: result.commentCount ?? 0,
               guessCount: result.guessCount ?? 0,
@@ -620,12 +598,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
           askingPrice: null,
           activityLevel: 'cold',
           activityScore: 0,
-          thumbnailUrl: getPropertyAerialImageFromGeometry(
-            { type: 'Point', coordinates: coord },
-          ),
-          aerialImageUrl: getPropertyAerialImageFromGeometry(
-            { type: 'Point', coordinates: coord },
-          ),
+          thumbnailUrl: null,
+          aerialImageUrl: derivePropertyAerialImageUrl({
+            geometry: { type: 'Point', coordinates: coord },
+            countryCode: 'NL',
+          }),
         }],
         coordinate: coord,
       });

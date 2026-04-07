@@ -222,8 +222,7 @@ describe('PropertyPreviewCard', () => {
     const propertyWithAerial: PropertyPreviewData = {
       ...mockProperty,
       countryCode: 'NL',
-      aerialImageUrl: null,
-      thumbnailUrl: 'https://example.com/aerial.jpg',
+      aerialImageUrl: 'https://example.com/aerial.jpg',
       listingPhotoUrl: null,
     };
 
@@ -231,5 +230,20 @@ describe('PropertyPreviewCard', () => {
 
     expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
     expect(screen.getByTestId('property-thumbnail-marker')).toBeTruthy();
+  });
+
+  it('does not render a marker for listing thumbnails', () => {
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+          countryCode: 'NL',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
+    expect(screen.queryByTestId('property-thumbnail-marker')).toBeNull();
   });
 });

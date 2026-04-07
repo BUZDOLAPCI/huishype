@@ -248,6 +248,89 @@ describe('Property routes', () => {
         await db.execute(sql`DELETE FROM osm_buildings WHERE osm_id = ${osmId}`);
       }
     }, 60000);
+
+    it('returns the latest available active listing thumbnail even when the newest active listing has none', async () => {
+      const propertyId = crypto.randomUUID();
+      const olderListingId = crypto.randomUUID();
+      const latestListingId = crypto.randomUUID();
+      const thumbnailUrl = 'https://cdn.example.com/older-listing-thumb.jpg';
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Thumbnail Fallback Street',
+          42,
+          'TestCity',
+          '1234AB',
+          'active',
+          ST_SetSRID(ST_MakePoint(5.47, 51.44025), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          thumbnail_url,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${olderListingId},
+            ${propertyId},
+            'funda',
+            'https://example.com/older-listing',
+            'active',
+            420000,
+            ${thumbnailUrl},
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${latestListingId},
+            ${propertyId},
+            'funda',
+            'https://example.com/latest-listing',
+            'active',
+            450000,
+            NULL,
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/${propertyId}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.askingPrice).toBe(450000);
+        expect(body.thumbnailUrl).toBe(thumbnailUrl);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
   });
 
   describe('GET /properties/nearby', () => {
@@ -268,6 +351,230 @@ describe('Property routes', () => {
       expect(prop).toHaveProperty('distanceMeters');
       expect(prop).toHaveProperty('hasListing');
       expect(prop).toHaveProperty('activityScore');
+    });
+
+    it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
+      const propertyId = crypto.randomUUID();
+      const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Nearby Thumbnail Street',
+          5,
+          'RemoteCity',
+          '9999ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(6.75, 53.2), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          thumbnail_url,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/nearby-fallback-older',
+            'active',
+            410000,
+            ${thumbnailUrl},
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/nearby-fallback-latest',
+            'active',
+            435000,
+            NULL,
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/properties/nearby?lon=6.75&lat=53.2&zoom=20&limit=5',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const property = body.find((item: { id: string }) => item.id === propertyId);
+
+        expect(property).toBeDefined();
+        expect(property.thumbnailUrl).toBe(thumbnailUrl);
+        expect(property.askingPrice).toBe(435000);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+  });
+
+  describe('property thumbnailUrl contract on list, batch, and saved endpoints', () => {
+    let propertyId: string;
+    let userId: string;
+    let accessToken: string;
+    const thumbnailUrl = 'https://cdn.example.com/property-endpoint-thumb.jpg';
+
+    beforeAll(async () => {
+      propertyId = crypto.randomUUID();
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Property Endpoint Street',
+          8,
+          'SavedCity',
+          '8888ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(7.25, 53.45), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          thumbnail_url,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/property-endpoint-older',
+            'active',
+            510000,
+            ${thumbnailUrl},
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/property-endpoint-latest',
+            'active',
+            545000,
+            NULL,
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      const uniqueId = `propthumb${Date.now()}`;
+      const authResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
+        },
+      });
+      const authBody = JSON.parse(authResp.body);
+      userId = authBody.session.user.id;
+      accessToken = authBody.session.accessToken;
+
+      await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/save`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+    });
+
+    afterAll(async () => {
+      await db.execute(sql`DELETE FROM saved_properties WHERE property_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+    });
+
+    it('includes thumbnailUrl on GET /properties with the same active-thumbnail fallback', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties?bbox=7.249,53.449,7.251,53.451&limit=10',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const property = body.data.find((item: { id: string }) => item.id === propertyId);
+
+      expect(property).toBeDefined();
+      expect(property.thumbnailUrl).toBe(thumbnailUrl);
+      expect(property.askingPrice).toBe(545000);
+    });
+
+    it('includes thumbnailUrl on GET /properties/batch with the same active-thumbnail fallback', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/batch?ids=${propertyId}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body).toHaveLength(1);
+      expect(body[0].thumbnailUrl).toBe(thumbnailUrl);
+      expect(body[0].askingPrice).toBe(545000);
+    });
+
+    it('includes thumbnailUrl on GET /saved-properties with the same active-thumbnail fallback', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/saved-properties?limit=10&offset=0',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const property = body.data.find((item: { id: string }) => item.id === propertyId);
+
+      expect(property).toBeDefined();
+      expect(property.thumbnailUrl).toBe(thumbnailUrl);
+      expect(property.askingPrice).toBe(545000);
     });
   });
 

@@ -158,7 +158,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = r.target_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
           WHERE r.target_type = 'property' AND r.reaction_type = 'like'
@@ -187,7 +189,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = c.property_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
         )
@@ -215,7 +219,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = pg.property_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
         )
@@ -286,7 +292,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = r.target_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
           WHERE r.target_type = 'property' AND r.reaction_type = 'like' AND r.user_id = ${userId}
@@ -315,7 +323,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = c.property_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
           WHERE c.user_id = ${userId}
@@ -344,7 +354,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = pg.property_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
           WHERE pg.user_id = ${userId}
@@ -373,7 +385,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
           JOIN properties p ON p.id = sp.property_id
           LEFT JOIN LATERAL (
             SELECT thumbnail_url FROM listings
-            WHERE property_id = p.id AND status = 'active'
+            WHERE property_id = p.id
+              AND status = 'active'
+              AND thumbnail_url IS NOT NULL
             ORDER BY created_at DESC LIMIT 1
           ) l ON true
           WHERE sp.user_id = ${userId}

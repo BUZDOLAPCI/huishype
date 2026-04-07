@@ -1,7 +1,10 @@
 import {
+  derivePropertyAerialImageUrl,
   resolvePropertyImage,
   resolvePropertyImageWithType,
   hasAerialImageSupport,
+  toPropertyImageSource,
+  withDerivedPropertyImageData,
 } from '../property-image';
 
 describe('resolvePropertyImage', () => {
@@ -86,6 +89,32 @@ describe('resolvePropertyImageWithType', () => {
     const result = resolvePropertyImageWithType({});
     expect(result.type).toBe('placeholder');
     expect(result.url).toBeNull();
+  });
+});
+
+describe('property image data helpers', () => {
+  it('maps thumbnailUrl to listingPhotoUrl for shared surfaces', () => {
+    expect(
+      toPropertyImageSource({
+        thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+        countryCode: 'NL',
+      })
+    ).toEqual({
+      listingPhotoUrl: 'https://cdn.example.com/listing-thumb.jpg',
+      aerialImageUrl: null,
+      countryCode: 'NL',
+    });
+  });
+
+  it('derives aerial imagery without overwriting listing thumbnails', () => {
+    const property = withDerivedPropertyImageData({
+      thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+      geometry: { type: 'Point' as const, coordinates: [5.47, 51.44] as [number, number] },
+      countryCode: 'NL',
+    });
+
+    expect(property.thumbnailUrl).toBe('https://cdn.example.com/listing-thumb.jpg');
+    expect(property.aerialImageUrl).toBe(derivePropertyAerialImageUrl(property));
   });
 });
 

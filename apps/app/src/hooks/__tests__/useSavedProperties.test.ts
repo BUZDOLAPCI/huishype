@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import type { CountryCode } from '@huishype/shared';
-import { getPropertyThumbnailFromGeometry } from '../../lib/propertyThumbnail';
+import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
 jest.mock('../../providers/AuthProvider', () => ({
   useAuthContext: () => ({
     user: null,
@@ -10,7 +10,7 @@ jest.mock('../../providers/AuthProvider', () => ({
 import { transformSavedProperty } from '../useSavedProperties';
 
 describe('transformSavedProperty', () => {
-  it('uses geometry-based thumbnails for saved properties with coordinates', () => {
+  it('derives aerial imagery while keeping listing thumbnails separate', () => {
     const property = {
       id: 'property-1',
       nationalId: null,
@@ -31,6 +31,7 @@ describe('transformSavedProperty', () => {
       officialValuation: 475000,
       hasListing: true,
       askingPrice: 499000,
+      thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
       commentCount: 8,
       guessCount: 4,
       savedAt: '2026-04-06T12:00:00.000Z',
@@ -40,13 +41,13 @@ describe('transformSavedProperty', () => {
 
     const transformed = transformSavedProperty(property);
 
-    expect(transformed.thumbnailUrl).toBe(
-      getPropertyThumbnailFromGeometry(property.geometry, property.countryCode)
+    expect(transformed.thumbnailUrl).toBe(property.thumbnailUrl);
+    expect(transformed.aerialImageUrl).toBe(
+      getPropertyAerialImageFromGeometry(property.geometry, property.countryCode)
     );
-    expect(transformed.thumbnailUrl).not.toBeNull();
   });
 
-  it('prefers imageryGeometry when available', () => {
+  it('prefers imageryGeometry when deriving aerial imagery', () => {
     const property = {
       id: 'property-2',
       nationalId: null,
@@ -71,6 +72,7 @@ describe('transformSavedProperty', () => {
       officialValuation: 475000,
       hasListing: true,
       askingPrice: 499000,
+      thumbnailUrl: null,
       commentCount: 8,
       guessCount: 4,
       savedAt: '2026-04-06T12:00:00.000Z',
@@ -80,8 +82,9 @@ describe('transformSavedProperty', () => {
 
     const transformed = transformSavedProperty(property);
 
-    expect(transformed.thumbnailUrl).toBe(
-      getPropertyThumbnailFromGeometry(property.imageryGeometry, property.countryCode)
+    expect(transformed.thumbnailUrl).toBeNull();
+    expect(transformed.aerialImageUrl).toBe(
+      getPropertyAerialImageFromGeometry(property.imageryGeometry, property.countryCode)
     );
   });
 });

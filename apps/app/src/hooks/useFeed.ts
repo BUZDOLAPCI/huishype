@@ -6,7 +6,8 @@
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
-import type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
+import type { PropertyFeedFilter } from '@huishype/shared';
+import { withDerivedPropertyImageData } from '../utils/property-image';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
 
@@ -16,10 +17,13 @@ export interface FeedProperty {
   address: string;
   city: string;
   zipCode: string;
+  countryCode: string;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
   askingPrice: number | null;
   fmv: number | null;
   officialValuation: number | null;
   thumbnailUrl: string | null;
+  aerialImageUrl?: string | null;
   likeCount: number;
   commentCount: number;
   guessCount: number;
@@ -30,7 +34,6 @@ export interface FeedProperty {
   // Computed on the client from address parts (kept for component compat)
   postalCode: string | null;
   coordinates: { lat: number; lon: number } | null;
-  photoUrl?: string;
   fmvValue?: number;
   yearBuilt: number | null;
   floorAreaM2: number | null;
@@ -43,6 +46,8 @@ interface FeedApiResponse {
     address: string;
     city: string;
     zipCode: string;
+    countryCode: string;
+    geometry: { type: 'Point'; coordinates: [number, number] } | null;
     askingPrice: number | null;
     fmv: number | null;
     officialValuation: number | null;
@@ -74,16 +79,19 @@ export const feedKeys = {
 
 // Transform API item to FeedProperty (adds compat fields used by PropertyFeedCard)
 function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
-  return {
+  const property = withDerivedPropertyImageData({
     ...item,
     // PropertyFeedCard compat fields
     postalCode: item.zipCode,
-    coordinates: null, // feed endpoint doesn't return geometry
-    photoUrl: item.thumbnailUrl ?? undefined,
+    coordinates: item.geometry
+      ? { lon: item.geometry.coordinates[0], lat: item.geometry.coordinates[1] }
+      : null,
     fmvValue: item.fmv ?? undefined,
     yearBuilt: null, // not returned by feed endpoint
     floorAreaM2: null, // not returned by feed endpoint
-  };
+  });
+
+  return property;
 }
 
 // Fetch from dedicated /feed endpoint

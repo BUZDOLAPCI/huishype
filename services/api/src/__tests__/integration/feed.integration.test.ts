@@ -3,6 +3,7 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 
 /**
  * Integration tests for the feed endpoint.
@@ -61,6 +62,8 @@ describe('Feed routes', () => {
         expect(item).toHaveProperty('address');
         expect(item).toHaveProperty('city');
         expect(item).toHaveProperty('zipCode');
+        expect(item).toHaveProperty('countryCode');
+        expect(item).toHaveProperty('geometry');
         expect(item).toHaveProperty('askingPrice');
         expect(item).toHaveProperty('fmv');
         expect(item).toHaveProperty('officialValuation');
@@ -78,6 +81,7 @@ describe('Feed routes', () => {
         expect(typeof item.address).toBe('string');
         expect(typeof item.city).toBe('string');
         expect(typeof item.zipCode).toBe('string');
+        expect(typeof item.countryCode).toBe('string');
         expect(typeof item.likeCount).toBe('number');
         expect(typeof item.commentCount).toBe('number');
         expect(typeof item.guessCount).toBe('number');
@@ -213,6 +217,97 @@ describe('Feed routes', () => {
       } else {
         // No items means no more
         expect(body.pagination.hasMore).toBe(false);
+      }
+    });
+
+    it('should fall back to the newest active non-null thumbnail while keeping the latest active asking price', async () => {
+      const propertyId = crypto.randomUUID();
+      const thumbnailUrl = 'https://cdn.example.com/feed-fallback-thumb.jpg';
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Feed Thumbnail Street',
+          11,
+          'FeedCity',
+          '7777ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(0.01, 0.01), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          thumbnail_url,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/feed-older',
+            'active',
+            610000,
+            ${thumbnailUrl},
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/feed-latest',
+            'active',
+            645000,
+            NULL,
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      await db.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings`);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/feed?filter=latest&lat=0.01&lon=0.01&country=NL&limit=10',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const item = body.items.find((entry: { id: string }) => entry.id === propertyId);
+
+        expect(item).toBeDefined();
+        expect(item.thumbnailUrl).toBe(thumbnailUrl);
+        expect(item.askingPrice).toBe(645000);
+        expect(item.countryCode).toBe('NL');
+        expect(item.geometry).toEqual({
+          type: 'Point',
+          coordinates: [0.01, 0.01],
+        });
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+        await db.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings`);
       }
     });
 

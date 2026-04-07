@@ -21,6 +21,12 @@
  */
 
 import type { CountryCode } from '@huishype/shared';
+import { getPropertyAerialImageFromGeometry } from '../lib/propertyThumbnail';
+
+export interface PropertyImageGeometry {
+  type: 'Point';
+  coordinates: [number, number];
+}
 
 export interface PropertyImageSource {
   /** Primary: listing photo from scraper (Funda/Pararius). */
@@ -29,6 +35,13 @@ export interface PropertyImageSource {
   aerialImageUrl?: string | null;
   /** Country code for determining available fallbacks. */
   countryCode?: CountryCode | string;
+}
+
+export interface PropertyImageRecord extends PropertyImageSource {
+  /** Back-compat name used across app property payloads for listing thumbnails. */
+  thumbnailUrl?: string | null;
+  geometry?: PropertyImageGeometry | null;
+  imageryGeometry?: PropertyImageGeometry | null;
 }
 
 /**
@@ -59,6 +72,43 @@ export function resolvePropertyImage(source: PropertyImageSource): string | null
   return null;
 }
 
+export function derivePropertyAerialImageUrl(
+  source: Pick<PropertyImageRecord, 'aerialImageUrl' | 'imageryGeometry' | 'geometry' | 'countryCode'>,
+): string | null {
+  return (
+    source.aerialImageUrl ??
+    getPropertyAerialImageFromGeometry(
+      source.imageryGeometry ?? source.geometry ?? null,
+      source.countryCode as CountryCode,
+    )
+  );
+}
+
+export function toPropertyImageSource(
+  source: PropertyImageRecord,
+): PropertyImageSource {
+  return {
+    listingPhotoUrl: source.listingPhotoUrl ?? source.thumbnailUrl ?? null,
+    aerialImageUrl: derivePropertyAerialImageUrl(source),
+    countryCode: source.countryCode,
+  };
+}
+
+export function withDerivedPropertyImageData<T extends PropertyImageRecord>(
+  property: T,
+): T & { aerialImageUrl: string | null } {
+  const aerialImageUrl = derivePropertyAerialImageUrl(property);
+
+  if (property.aerialImageUrl === aerialImageUrl) {
+    return property as T & { aerialImageUrl: string | null };
+  }
+
+  return {
+    ...property,
+    aerialImageUrl,
+  };
+}
+
 /**
  * Check whether a country supports aerial image fallback.
  */
@@ -72,6 +122,34 @@ export function hasAerialImageSupport(countryCode?: string): boolean {
  */
 export type ImageSourceType = 'listing' | 'aerial' | 'placeholder';
 
+export interface ResolvedPropertyImageSource {
+  url: string;
+  type: Exclude<ImageSourceType, 'placeholder'>;
+}
+
+/**
+ * Resolve the ordered list of candidate image sources for a property.
+ *
+ * Priority:
+ *   1. Listing photo
+ *   2. Country-supported aerial/official image
+ */
+export function getPropertyImageCandidates(
+  source: PropertyImageSource,
+): ResolvedPropertyImageSource[] {
+  const candidates: ResolvedPropertyImageSource[] = [];
+
+  if (source.listingPhotoUrl) {
+    candidates.push({ url: source.listingPhotoUrl, type: 'listing' });
+  }
+
+  if (source.aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
+    candidates.push({ url: source.aerialImageUrl, type: 'aerial' });
+  }
+
+  return candidates;
+}
+
 /**
  * Resolve image source AND its type (useful for analytics or conditional styling).
  */
@@ -79,12 +157,9 @@ export function resolvePropertyImageWithType(source: PropertyImageSource): {
   url: string | null;
   type: ImageSourceType;
 } {
-  if (source.listingPhotoUrl) {
-    return { url: source.listingPhotoUrl, type: 'listing' };
-  }
-
-  if (source.aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
-    return { url: source.aerialImageUrl, type: 'aerial' };
+  const [bestCandidate] = getPropertyImageCandidates(source);
+  if (bestCandidate) {
+    return bestCandidate;
   }
 
   return { url: null, type: 'placeholder' };

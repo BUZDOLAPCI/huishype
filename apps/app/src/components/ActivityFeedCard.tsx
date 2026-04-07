@@ -8,11 +8,12 @@
  */
 
 import React from 'react';
-import { Image, Pressable, Text, View, StyleSheet } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon, type IconName } from './ui/Icon';
 import { UserAvatar } from './ui/UserAvatar';
 import { Card } from './ui/Card';
 import type { ActivityEventType } from '../hooks/useUserActivity';
+import { PropertyImageSurface } from './PropertyImageSurface';
 
 export interface ActivityFeedCardProps {
   /** Unique activity event ID. */
@@ -115,17 +116,16 @@ export function ActivityFeedCard({
       <Card shadow="card" testID="activity-feed-card">
         {/* Property image */}
         <View style={styles.imageWrapper}>
-          {property.thumbnailUrl ? (
-            <Image
-              source={{ uri: property.thumbnailUrl }}
-              style={styles.image}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.placeholder}>
-              <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-            </View>
-          )}
+          <PropertyImageSurface
+            source={{ listingPhotoUrl: property.thumbnailUrl }}
+            style={styles.image}
+            imageTestID="activity-feed-image"
+            placeholder={(
+              <View style={styles.placeholder}>
+                <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+              </View>
+            )}
+          />
         </View>
 
         {/* Content */}
