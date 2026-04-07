@@ -7,6 +7,7 @@ import {
   Animated,
   PanResponder,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
 import { Icon } from '../ui/Icon';
@@ -15,6 +16,7 @@ import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 const CARD_WIDTH = 270;
+const PREVIEW_ARROW_SIZE = 10;
 
 /** Maximum movement (px) to still count as a tap, not a drag. */
 const TAP_MOVE_THRESHOLD = 40;
@@ -280,6 +282,7 @@ export function GroupPreviewCard({
   const isCluster = properties.length > 1;
   const currentIndex = controlledIndex ?? 0;
   const currentProperty = properties[currentIndex];
+  const { width: viewportWidth } = useWindowDimensions();
 
   const isNative = Platform.OS !== 'web';
   const reducedMotion = useReducedMotion();
@@ -474,6 +477,9 @@ export function GroupPreviewCard({
   if (!currentProperty) return null;
 
   const arrowUp = arrowDirection === 'up';
+  const cardWidth = Platform.OS === 'web'
+    ? Math.min(CARD_WIDTH, Math.round(viewportWidth * 0.85))
+    : CARD_WIDTH;
 
   // Convert GroupPreviewProperty to PropertyPreviewData for the content card
   const previewData = {
@@ -497,7 +503,7 @@ export function GroupPreviewCard({
   const cardBody = (
     <View
       ref={isNative ? l2Ref : undefined}
-      style={styles.outerWrapper}
+      style={[styles.outerWrapper, { width: cardWidth }]}
       collapsable={isNative ? false : undefined}
       testID="group-preview-card"
     >
@@ -705,7 +711,6 @@ export function GroupPreviewCard({
 
 const styles = StyleSheet.create({
   outerWrapper: {
-    width: CARD_WIDTH,
     maxWidth: '85%',
     alignSelf: 'center',
     position: 'relative',
@@ -807,9 +812,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 10,
+    borderLeftWidth: PREVIEW_ARROW_SIZE,
+    borderRightWidth: PREVIEW_ARROW_SIZE,
+    borderBottomWidth: PREVIEW_ARROW_SIZE,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderBottomColor: '#FFFFFF',
@@ -819,9 +824,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 10,
+    borderLeftWidth: PREVIEW_ARROW_SIZE,
+    borderRightWidth: PREVIEW_ARROW_SIZE,
+    borderTopWidth: PREVIEW_ARROW_SIZE,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: '#FFFFFF',

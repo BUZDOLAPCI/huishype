@@ -412,6 +412,81 @@ test.describe('Map to Property Flow', () => {
     ).toBeGreaterThan(0.22);
     expect(markerViewportPosition!.yRatio).toBeLessThan(0.38);
 
+    const previewAlignment = await page.evaluate(() => {
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      const previewCard = document.querySelector('[data-testid="group-preview-card"]');
+
+      if (!(marker instanceof HTMLElement) || !(previewCard instanceof HTMLElement)) {
+        return null;
+      }
+
+      const markerRect = marker.getBoundingClientRect();
+      const previewRect = previewCard.getBoundingClientRect();
+
+      return {
+        deltaX: Math.abs(
+          markerRect.left + markerRect.width / 2 - (previewRect.left + previewRect.width / 2)
+        ),
+      };
+    });
+
+    expect(
+      previewAlignment,
+      'Preview card should have a measurable horizontal alignment with the selected marker'
+    ).not.toBeNull();
+    expect(
+      previewAlignment!.deltaX,
+      'Preview card should stay horizontally centered over the selected marker'
+    ).toBeLessThan(8);
+
+    const previewArrowAlignment = await page.evaluate(() => {
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      const arrowDown = document.querySelector('[data-testid="group-preview-arrow-down"]');
+      const arrowUp = document.querySelector('[data-testid="group-preview-arrow-up"]');
+      const arrow =
+        arrowDown instanceof HTMLElement
+          ? arrowDown
+          : arrowUp instanceof HTMLElement
+            ? arrowUp
+            : null;
+
+      if (!(marker instanceof HTMLElement) || !(arrow instanceof HTMLElement)) {
+        return null;
+      }
+
+      const pulse = marker.querySelector('.selected-marker-pulse');
+      if (!(pulse instanceof HTMLElement)) {
+        return null;
+      }
+
+      const markerRect = marker.getBoundingClientRect();
+      const pulseRect = pulse.getBoundingClientRect();
+      const arrowRect = arrow.getBoundingClientRect();
+      const markerCenterX = markerRect.left + markerRect.width / 2;
+      const arrowTipX = arrowRect.left + arrowRect.width / 2;
+      const isArrowDown = arrow === arrowDown;
+      const arrowTipY = isArrowDown ? arrowRect.bottom : arrowRect.top;
+      const pulseEdgeY = isArrowDown ? pulseRect.top : pulseRect.bottom;
+
+      return {
+        deltaX: Math.abs(markerCenterX - arrowTipX),
+        verticalGap: Math.abs(pulseEdgeY - arrowTipY),
+      };
+    });
+
+    expect(
+      previewArrowAlignment,
+      'Preview arrow should have measurable alignment with the selected marker'
+    ).not.toBeNull();
+    expect(
+      previewArrowAlignment!.deltaX,
+      'Preview arrow tip should stay horizontally centered over the selected marker'
+    ).toBeLessThan(4);
+    expect(
+      previewArrowAlignment!.verticalGap,
+      'Preview arrow tip should leave a visible gap from the selected marker pulse'
+    ).toBeGreaterThan(6);
+
     // Verify the preview card persists (not immediately dismissed)
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible();

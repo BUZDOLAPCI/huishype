@@ -3,6 +3,19 @@ import { render, fireEvent, screen } from '@testing-library/react-native';
 import { GroupPreviewCard } from '../GroupPreviewCard';
 import type { GroupPreviewProperty } from '../types';
 
+jest.mock('react-native', () => {
+  const RN = jest.requireActual('react-native');
+  return {
+    ...RN,
+    useWindowDimensions: jest.fn(() => ({
+      width: 1280,
+      height: 720,
+      scale: 1,
+      fontScale: 1,
+    })),
+  };
+});
+
 const makeProperty = (overrides: Partial<GroupPreviewProperty> = {}): GroupPreviewProperty => ({
   id: 'prop-1',
   address: 'Teststraat 42',

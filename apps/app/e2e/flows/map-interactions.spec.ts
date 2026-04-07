@@ -125,6 +125,31 @@ async function captureMapScreenshot(testInfo: TestInfo, page: import('@playwrigh
   });
 }
 
+async function waitForPointFeatures(page: import('@playwright/test').Page, timeout = 20000) {
+  await page.waitForFunction(() => {
+    const map = (window as any).__mapInstance;
+    if (!map || !map.isStyleLoaded()) return false;
+
+    const canvas = map.getCanvas();
+    if (!canvas) return false;
+
+    const layers = ['single-active-points', 'active-nodes', 'ghost-nodes']
+      .filter((layer) => map.getLayer(layer));
+    if (layers.length === 0) return false;
+
+    try {
+      const features = map.queryRenderedFeatures(
+        [[0, 0], [canvas.width, canvas.height]],
+        { layers }
+      ) || [];
+
+      return features.some((feature: any) => feature.geometry?.type === 'Point');
+    } catch {
+      return false;
+    }
+  }, { timeout, polling: 500 });
+}
+
 test.describe('Map Interactions', () => {
   // Map tests need extra time: Metro bundle compile + MapLibre tile loading
   test.setTimeout(120000);
@@ -369,8 +394,87 @@ test.describe('Map Interactions', () => {
     await closeButton.click();
     await expect(previewCard).toHaveCount(0);
 
-    await page.mouse.click(clickResult.screenX!, clickResult.screenY!);
+    const reopenTarget = await page.evaluate((propertyId) => {
+      const mapInstance = (window as any).__mapInstance;
+      if (!mapInstance || !mapInstance.isStyleLoaded() || !propertyId) {
+        return null;
+      }
+
+      const canvas = mapInstance.getCanvas();
+      const rect = canvas?.getBoundingClientRect();
+      if (!canvas || !rect) {
+        return null;
+      }
+
+      const layers = ['single-active-points', 'active-nodes', 'ghost-nodes']
+        .filter((layer) => mapInstance.getLayer(layer));
+      if (layers.length === 0) {
+        return null;
+      }
+
+      try {
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers }
+        ) || [];
+        const feature = features.find((candidate: any) =>
+          candidate.geometry?.type === 'Point' &&
+          candidate.properties?.id === propertyId
+        );
+        if (!feature) {
+          return null;
+        }
+
+        const point = mapInstance.project(feature.geometry.coordinates);
+        return {
+          screenX: rect.left + point.x,
+          screenY: rect.top + point.y,
+        };
+      } catch {
+        return null;
+      }
+    }, clickResult.propertyId);
+
+    expect(reopenTarget).not.toBeNull();
+    await page.mouse.click(reopenTarget!.screenX, reopenTarget!.screenY);
     await expect(previewCard).toBeVisible();
+  });
+
+  test('preview card stays horizontally aligned with the selected node', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 486, height: 419 });
+    await page.goto('/', { timeout: 60000 });
+    await waitForMapReady(page);
+
+    await setMapView(page, EINDHOVEN_CENTER, 17);
+    await waitForPointFeatures(page);
+
+    const previewCard = page.getByTestId('group-preview-card');
+    const selectedMarker = page.getByTestId('selected-marker');
+    const clickResult = await clickOnPropertyMarker(page);
+
+    expect(clickResult.success).toBe(true);
+    await expect(previewCard).toBeVisible();
+    await expect(selectedMarker).toBeVisible();
+
+    const alignment = await page.evaluate(() => {
+      const card = document.querySelector('[data-testid="group-preview-card"]');
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      if (!card || !marker) return null;
+
+      const cardBox = card.getBoundingClientRect();
+      const markerBox = marker.getBoundingClientRect();
+
+      return {
+        cardCenterX: cardBox.x + cardBox.width / 2,
+        markerCenterX: markerBox.x + markerBox.width / 2,
+        deltaX: (cardBox.x + cardBox.width / 2) - (markerBox.x + markerBox.width / 2),
+      };
+    });
+
+    expect(alignment).not.toBeNull();
+    expect(Math.abs(alignment!.deltaX)).toBeLessThanOrEqual(4);
+
+    await captureMapScreenshot(testInfo, page, 'preview-card-node-alignment.png');
   });
 
   test('vector tiles load at zoom 15 (Eindhoven area)', async ({ page }) => {

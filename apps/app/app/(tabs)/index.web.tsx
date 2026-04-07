@@ -32,6 +32,13 @@ const FLOATING_ZOOM_CONTROL_RIGHT = 16;
 const FLOATING_ZOOM_CONTROL_TOP = 112;
 const FLOATING_ZOOM_CONTROL_SIZE = 24;
 const PREVIEW_FLY_DURATION_MS = 500;
+const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
+const SELECTED_MARKER_PULSE_SIZE_PX = 32;
+const SELECTED_MARKER_DOT_SIZE_PX = 18;
+const PREVIEW_ARROW_SIZE_PX = 10;
+const PREVIEW_ARROW_MARKER_GAP_PX = 2;
+const PREVIEW_CARD_MARKER_OFFSET_PX =
+  SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -184,16 +191,16 @@ if (typeof document !== 'undefined') {
     }
     .selected-marker-container {
       position: relative;
-      width: 24px;
-      height: 24px;
+      width: ${SELECTED_MARKER_CONTAINER_SIZE_PX}px;
+      height: ${SELECTED_MARKER_CONTAINER_SIZE_PX}px;
     }
     .selected-marker-pulse {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 32px;
-      height: 32px;
+      width: ${SELECTED_MARKER_PULSE_SIZE_PX}px;
+      height: ${SELECTED_MARKER_PULSE_SIZE_PX}px;
       border-radius: 50%;
       background-color: #F5A623;
       opacity: 0.4;
@@ -204,8 +211,8 @@ if (typeof document !== 'undefined') {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 18px;
-      height: 18px;
+      width: ${SELECTED_MARKER_DOT_SIZE_PX}px;
+      height: ${SELECTED_MARKER_DOT_SIZE_PX}px;
       border-radius: 50%;
       background-color: #F5A623;
       border: 3px solid #FFFFFF;
@@ -460,16 +467,16 @@ export default function MapScreen() {
       const map = mapRef.current;
       const offset = map && opts.anchor
         ? (() => {
-            const container = map.getContainer();
-            const { x, y } = viewportAnchorToOffset(
-              {
-                width: container.clientWidth,
-                height: container.clientHeight,
-              },
-              opts.anchor,
-            );
-            return [x, y] as [number, number];
-          })()
+          const container = map.getContainer();
+          const { x, y } = viewportAnchorToOffset(
+            {
+              width: container.clientWidth,
+              height: container.clientHeight,
+            },
+            opts.anchor,
+          );
+          return [x, y] as [number, number];
+        })()
         : undefined;
 
       map?.flyTo({
@@ -918,6 +925,12 @@ export default function MapScreen() {
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
     container.style.zIndex = '1000';
+    container.style.position = 'relative';
+    container.style.display = 'inline-flex';
+    container.style.justifyContent = 'center';
+    container.style.alignItems = 'center';
+    container.style.width = 'max-content';
+    container.style.overflow = 'visible';
     container.setAttribute('data-testid', 'group-preview-marker-container');
 
     // Prevent map interaction when interacting with the preview card
@@ -929,7 +942,7 @@ export default function MapScreen() {
     const marker = new maplibregl.Marker({
       element: container,
       anchor: shouldShowBelow ? 'top' : 'bottom',
-      offset: shouldShowBelow ? [0, 20] : [0, -20],
+      offset: [0, shouldShowBelow ? PREVIEW_CARD_MARKER_OFFSET_PX : -PREVIEW_CARD_MARKER_OFFSET_PX],
     })
       .setLngLat(interaction.previewGroup.coordinate)
       .addTo(map);
@@ -1027,7 +1040,14 @@ export default function MapScreen() {
 
         {/* GroupPreviewCard rendered via MapLibre Marker + React Portal (geo-anchored) */}
         {portalTarget && interaction.previewGroup && createPortal(
-          <div style={{ animation: 'popIn 0.3s ease-out forwards' }}>
+          <div
+            style={{
+              animation: 'popIn 0.3s ease-out forwards',
+              display: 'inline-flex',
+              justifyContent: 'center',
+              pointerEvents: 'auto',
+            }}
+          >
             <GroupPreviewCard
               properties={interaction.previewGroup.properties}
               currentIndex={interaction.currentPreviewIndex}

@@ -121,6 +121,16 @@ const Dimensions = {
   get: () => ({ width: 375, height: 812 }),
 };
 
+const useWindowDimensions = () => {
+  const { width, height } = Dimensions.get('window');
+  return {
+    width,
+    height,
+    scale: 1,
+    fontScale: 1,
+  };
+};
+
 const Animated = {
   View,
   Text,
@@ -153,6 +163,7 @@ module.exports = {
   StyleSheet,
   Platform,
   Dimensions,
+  useWindowDimensions,
   Animated,
   StatusBar,
   SafeAreaView,

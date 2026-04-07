@@ -227,6 +227,79 @@ test.describe('Search Navigation Flow', () => {
     await expect(previewCard).toContainText(testProp.address);
   });
 
+  test('preview card arrow stays aligned with the selected node', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const testProp = await getTestPropertyWithPostalCode(request);
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page);
+
+    const searchInput = page.locator('[data-testid="search-bar-input"]');
+    await expect(searchInput).toBeVisible({ timeout: 10000 });
+
+    const searchQuery = `${testProp.address}, ${testProp.city}`;
+    await searchInput.click();
+    await searchInput.focus();
+    await searchInput.pressSequentially(searchQuery, { delay: 30 });
+
+    const resultItem = page.locator('[data-testid="search-result-item"]');
+    await expect(resultItem.first()).toBeVisible({ timeout: 30000 });
+    await resultItem.filter({ hasText: testProp.address }).first().click();
+
+    await page.waitForFunction(() => {
+      const map = (window as unknown as { __mapInstance?: { isMoving(): boolean } }).__mapInstance;
+      return map && !map.isMoving();
+    }, { timeout: 20000 });
+    await waitForMapIdle(page, 10000);
+
+    await expect(page.locator('[data-testid="selected-marker"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible({ timeout: 5000 });
+
+    const alignment = await page.evaluate(() => {
+      const selected = document.querySelector('[data-testid="selected-marker"]');
+      const arrow = document.querySelector(
+        '[data-testid="group-preview-arrow-down"], [data-testid="group-preview-arrow-up"]'
+      );
+
+      if (!selected || !arrow) {
+        return null;
+      }
+
+      const selectedRect = selected.getBoundingClientRect();
+      const arrowRect = arrow.getBoundingClientRect();
+
+      return {
+        selectedCenterX: selectedRect.left + selectedRect.width / 2,
+        arrowTipX: arrowRect.left + arrowRect.width / 2,
+        deltaX: (arrowRect.left + arrowRect.width / 2) - (selectedRect.left + selectedRect.width / 2),
+        arrowTestId: arrow.getAttribute('data-testid'),
+        gapY:
+          arrow.getAttribute('data-testid') === 'group-preview-arrow-down'
+            ? selectedRect.top - arrowRect.bottom
+            : arrowRect.top - selectedRect.bottom,
+      };
+    });
+
+    await page.screenshot({
+      path: testInfo.outputPath('preview-card-anchor-alignment.png'),
+      fullPage: true,
+    });
+
+    expect(alignment).toBeTruthy();
+    expect(
+      Math.abs(alignment!.deltaX),
+      `Expected preview arrow to align with selected marker, got deltaX=${alignment!.deltaX}px (${alignment!.arrowTestId})`
+    ).toBeLessThanOrEqual(2);
+    expect(
+      alignment!.gapY,
+      `Expected preview arrow to clear the selected marker, got gapY=${alignment!.gapY}px (${alignment!.arrowTestId})`
+    ).toBeGreaterThanOrEqual(4);
+  });
+
   test('search for non-existent local property handles gracefully', async ({
     page,
   }) => {
