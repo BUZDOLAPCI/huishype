@@ -217,4 +217,19 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('415K')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
   });
+
+  it('renders a marker when using aerial imagery fallback', () => {
+    const propertyWithAerial: PropertyPreviewData = {
+      ...mockProperty,
+      countryCode: 'NL',
+      aerialImageUrl: null,
+      thumbnailUrl: 'https://example.com/aerial.jpg',
+      listingPhotoUrl: null,
+    };
+
+    render(<PropertyPreviewCard property={propertyWithAerial} />);
+
+    expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
+    expect(screen.getByTestId('property-thumbnail-marker')).toBeTruthy();
+  });
 });

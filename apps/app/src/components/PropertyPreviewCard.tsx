@@ -14,14 +14,18 @@
  * Design spec: Section 7.6 (Preview Card).
  */
 
-import { Image, Pressable, Text, View, Platform, StyleSheet } from 'react-native';
+import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import {
   formatPropertyPrice,
   getValuationLabel,
   type CountryCode,
 } from '@huishype/shared';
-import { resolvePropertyImage, type PropertyImageSource } from '../utils/property-image';
+import {
+  resolvePropertyImageWithType,
+  type PropertyImageSource,
+} from '../utils/property-image';
+import { PropertyImageSurface } from './PropertyImageSurface';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -137,11 +141,11 @@ export function PropertyPreviewCard({
 
   // Resolve image using shared fallback rules
   const imageSource: PropertyImageSource = {
-    listingPhotoUrl: property.listingPhotoUrl ?? property.thumbnailUrl,
+    listingPhotoUrl: property.listingPhotoUrl,
     aerialImageUrl: property.aerialImageUrl ?? property.thumbnailUrl,
     countryCode: property.countryCode,
   };
-  const imageUrl = resolvePropertyImage(imageSource);
+  const image = resolvePropertyImageWithType(imageSource);
 
   const cardContent = (
     <Pressable
@@ -151,12 +155,13 @@ export function PropertyPreviewCard({
     >
       {/* Image area */}
       <View style={styles.imageWrapper}>
-        {imageUrl ? (
-          <Image
-            source={{ uri: imageUrl }}
+        {image.url ? (
+          <PropertyImageSurface
+            source={imageSource}
             style={styles.image}
-            resizeMode="cover"
-            testID="property-thumbnail-image"
+            markerSize={24}
+            imageTestID="property-thumbnail-image"
+            markerTestID="property-thumbnail-marker"
           />
         ) : (
           <View style={styles.placeholder} testID="property-thumbnail-placeholder">

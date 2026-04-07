@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { Image, ScrollView, Text, View, StyleSheet } from 'react-native';
-import { Icon } from '../ui/Icon';
+import {
+  Dimensions,
+  Image,
+  ScrollView,
+  Text,
+  View,
+  StyleSheet,
+} from 'react-native';
 import { MetricPills } from '../MetricPills';
-import type { SectionProps } from './types';
+import type { PropertyDetailsData } from './types';
 import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
 import { resolvePropertyImage } from '../../utils/property-image';
 import type { CountryCode } from '@huishype/shared';
+import { PropertyImageSurface } from '../PropertyImageSurface';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
@@ -36,21 +43,14 @@ function SatelliteImageWithPin({ imageUrl }: SatelliteImageWithPinProps) {
 
   return (
     <View style={styles.imageContainer} testID="property-header-satellite">
-      {/* Aerial image from PDOK */}
-      <Image
-        source={{ uri: imageUrl }}
+      <PropertyImageSurface
+        source={{ aerialImageUrl: imageUrl, countryCode: 'NL' }}
         style={styles.aerialImage}
-        resizeMode="cover"
+        markerSize={36}
         onError={() => setError(true)}
-        testID="property-header-aerial-image"
+        imageTestID="property-header-aerial-image"
+        markerTestID="property-header-marker"
       />
-
-      {/* Centered marker pin */}
-      <View style={styles.markerContainer} testID="property-header-marker">
-        <View style={styles.markerShadow}>
-          <Icon name="MapPin" size="2xl" weight="fill" color="#FFFFFF" />
-        </View>
-      </View>
     </View>
   );
 }
@@ -61,8 +61,18 @@ const ACTIVITY_CONFIG = {
   cold: { dot: '#C7BFB3', label: 'Quiet', desc: 'No recent activity', textColor: '#9C958A', bg: '#F5F0E8' },
 } as const;
 
-export function PropertyHeader({ property }: SectionProps) {
+interface PropertyHeaderProps {
+  property: PropertyDetailsData;
+  containerWidth?: number;
+}
+
+export function PropertyHeader({
+  property,
+  containerWidth,
+}: PropertyHeaderProps) {
   const hasPhotos = property.photos && property.photos.length > 0;
+  const windowWidth = Dimensions.get('window').width;
+  const [carouselWidth, setCarouselWidth] = useState<number | null>(null);
   const aerialImageUrl = resolvePropertyImage({
     listingPhotoUrl: null,
     aerialImageUrl:
@@ -77,37 +87,56 @@ export function PropertyHeader({ property }: SectionProps) {
 
   const activity = ACTIVITY_CONFIG[property.activityLevel];
 
+  const slideWidth = Math.max(
+    Math.round(containerWidth ?? carouselWidth ?? windowWidth),
+    1,
+  );
+
   return (
     <View>
       {/* Photo/Satellite Carousel — testID on View wrapper because horizontal
            ScrollView + NativeWind className doesn't propagate testID to Android
            resource-id in Fabric (New Architecture). */}
-      <View testID="property-header-carousel">
-      <ScrollView
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        className="h-48"
+      <View
+        style={styles.carouselContainer}
+        testID="property-header-carousel"
+        onLayout={(event) => {
+          const nextWidth = event.nativeEvent.layout.width;
+          setCarouselWidth((currentWidth) =>
+            currentWidth === nextWidth ? currentWidth : nextWidth,
+          );
+        }}
       >
         {hasPhotos ? (
-          // Show actual property photos if available
-          property.photos!.map((photo, index) => (
-            <View key={index} className="w-screen h-48 px-4">
-              <Image
-                source={{ uri: photo }}
-                className="w-full h-full rounded-xl bg-warm-200"
-                resizeMode="cover"
-              />
-            </View>
-          ))
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            className="h-48"
+          >
+            {property.photos!.map((photo, index) => (
+              <View
+                key={index}
+                style={[styles.carouselSlide, { width: slideWidth }]}
+              >
+                <Image
+                  source={{ uri: photo }}
+                  className="w-full h-full rounded-xl bg-warm-200"
+                  resizeMode="cover"
+                />
+              </View>
+            ))}
+          </ScrollView>
         ) : (
-          // Show satellite imagery with pin overlay
-          <View className="w-screen h-48 px-4">
+          <View style={styles.singleImageSlide}>
             {aerialImageUrl ? (
               <SatelliteImageWithPin imageUrl={aerialImageUrl} />
             ) : (
               // Fallback to placeholder if no coordinates
-              <View style={styles.imageContainer} testID="property-header-no-coords-placeholder">
+              <View
+                style={styles.imageContainer}
+                testID="property-header-no-coords-placeholder"
+              >
                 <Image
                   source={placeholderImage}
                   style={styles.placeholderImage}
@@ -117,7 +146,6 @@ export function PropertyHeader({ property }: SectionProps) {
             )}
           </View>
         )}
-      </ScrollView>
       </View>
 
       {/* Photo count indicator - only show if multiple photos */}
@@ -186,18 +214,16 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  markerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
+  carouselSlide: {
+    width: '100%',
+    height: 192,
+    paddingHorizontal: 16,
   },
-  markerShadow: {
-    // Shadow for better visibility on aerial imagery
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.4)',
-    elevation: 5,
+  carouselContainer: {
+    width: '100%',
+  },
+  singleImageSlide: {
+    height: 192,
+    paddingHorizontal: 16,
   },
 });

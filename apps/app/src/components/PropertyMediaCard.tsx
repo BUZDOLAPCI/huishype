@@ -16,7 +16,7 @@
  */
 
 import React from 'react';
-import { Image, Pressable, Text, View, StyleSheet } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import { Card } from './ui/Card';
 import {
@@ -24,7 +24,11 @@ import {
   getValuationLabel,
   type CountryCode,
 } from '@huishype/shared';
-import { resolvePropertyImage, type PropertyImageSource } from '../utils/property-image';
+import {
+  resolvePropertyImageWithType,
+  type PropertyImageSource,
+} from '../utils/property-image';
+import { PropertyImageSurface } from './PropertyImageSurface';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -123,15 +127,16 @@ function PropertyImage({
     aerialImageUrl: property.aerialImageUrl,
     countryCode: property.countryCode,
   };
-  const imageUrl = resolvePropertyImage(imageSource);
+  const image = resolvePropertyImageWithType(imageSource);
 
-  if (imageUrl) {
+  if (image.url) {
     return (
-      <Image
-        source={{ uri: imageUrl }}
+      <PropertyImageSurface
+        source={imageSource}
         style={{ width: '100%', height }}
-        resizeMode="cover"
-        testID="property-media-image"
+        markerSize={variant === 'compact' ? 18 : variant === 'hero' ? 32 : 28}
+        imageTestID="property-media-image"
+        markerTestID="property-media-aerial-marker"
       />
     );
   }

@@ -14,7 +14,6 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
-  Image,
   Platform,
   KeyboardAvoidingView,
   StyleSheet,
@@ -37,7 +36,8 @@ import {
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
-import { resolvePropertyImage } from '@/src/utils/property-image';
+import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
+import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -182,12 +182,12 @@ export default function CommentsPage() {
 
   // Property image for header
   const propertyImage = property
-    ? resolvePropertyImage({
+    ? resolvePropertyImageWithType({
         listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
         aerialImageUrl: (property as any).aerialImageUrl ?? null,
         countryCode: property.countryCode,
       })
-    : null;
+    : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
 
@@ -216,11 +216,17 @@ export default function CommentsPage() {
           {/* Property thumbnail + address */}
           {property && (
             <View style={styles.headerPropertyInfo}>
-              {propertyImage && (
-                <Image
-                  source={{ uri: propertyImage }}
+              {propertyImage.url && (
+                <PropertyImageSurface
+                  source={{
+                    listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
+                    aerialImageUrl: (property as any).aerialImageUrl ?? null,
+                    countryCode: property.countryCode,
+                  }}
                   style={styles.headerThumbnail}
-                  resizeMode="cover"
+                  markerSize={16}
+                  imageTestID="comments-property-image"
+                  markerTestID="comments-property-marker"
                 />
               )}
               <View style={styles.headerTextColumn}>

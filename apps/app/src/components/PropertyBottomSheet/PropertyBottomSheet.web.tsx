@@ -200,6 +200,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const [sheetState, setSheetState] = useState<SheetState>('closed');
     const scrollRef = useRef<ScrollView>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const [panelWidth, setPanelWidth] = useState<number | null>(null);
     const isLandscape = useIsLandscape();
 
     // Section position refs for scroll-to
@@ -239,6 +240,29 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         updateState('closed');
       }
     }, [isPreviewCardVisible, isLandscape]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
+
+      const updatePanelWidth = () => {
+        const nextWidth = panel.getBoundingClientRect().width;
+        setPanelWidth((currentWidth) =>
+          currentWidth === nextWidth ? currentWidth : nextWidth,
+        );
+      };
+
+      updatePanelWidth();
+
+      if (typeof ResizeObserver === 'undefined') {
+        window.addEventListener('resize', updatePanelWidth);
+        return () => window.removeEventListener('resize', updatePanelWidth);
+      }
+
+      const observer = new ResizeObserver(updatePanelWidth);
+      observer.observe(panel);
+      return () => observer.disconnect();
+    }, [isLandscape, isOpen]);
 
     // Expose ref methods matching native @gorhom/bottom-sheet behavior
     useImperativeHandle(ref, () => ({
@@ -506,15 +530,16 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           {/* Scrollable content */}
           <ScrollView
             ref={scrollRef}
-            style={{ flex: 1 }}
+            style={{ flex: 1, width: '100%' }}
             showsVerticalScrollIndicator
-            contentContainerStyle={{ paddingBottom: 40 }}
+            contentContainerStyle={{ paddingBottom: 40, width: '100%' }}
             onScroll={(e) => { scrollTopRef.current = e.nativeEvent.contentOffset.y; }}
             scrollEventThrottle={16}
           >
             <PropertyContent
               property={property}
               isLoading={isLoading}
+              contentWidth={panelWidth ?? undefined}
               isLiked={isLikedProp}
               isSaved={isSavedProp}
               onSave={onSave}

@@ -13,7 +13,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  Image,
   Platform,
   StyleSheet,
   ActivityIndicator,
@@ -34,7 +33,8 @@ import {
 } from '@/src/hooks/usePriceGuess';
 import { useAuth } from '@/src/hooks/useAuth';
 import { AuthModal } from '@/src/components';
-import { resolvePropertyImage } from '@/src/utils/property-image';
+import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
+import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
@@ -94,16 +94,29 @@ function PropertyImageCard({
   property,
   imageUrl,
 }: {
-  property: { address: string; city: string; postalCode: string | null };
+  property: {
+    address: string;
+    city: string;
+    postalCode: string | null;
+    listingPhotoUrl?: string | null;
+    aerialImageUrl?: string | null;
+    countryCode?: string | null;
+  };
   imageUrl: string | null;
 }) {
   return (
     <View style={styles.imageCard}>
       {imageUrl ? (
-        <Image
-          source={{ uri: imageUrl }}
+        <PropertyImageSurface
+          source={{
+            listingPhotoUrl: property.listingPhotoUrl ?? null,
+            aerialImageUrl: property.aerialImageUrl ?? null,
+            countryCode: property.countryCode ?? undefined,
+          }}
           style={styles.imageCardImage}
-          resizeMode="cover"
+          markerSize={28}
+          imageTestID="guesses-property-image"
+          markerTestID="guesses-property-marker"
         />
       ) : (
         <View style={[styles.imageCardImage, styles.imagePlaceholder]}>
@@ -272,12 +285,12 @@ export default function GuessesPage() {
 
   // Property image
   const propertyImage = property
-    ? resolvePropertyImage({
+    ? resolvePropertyImageWithType({
         listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
         aerialImageUrl: (property as any).aerialImageUrl ?? null,
         countryCode: property.countryCode,
       })
-    : null;
+    : { url: null, type: 'placeholder' as const };
 
   // Guess submission
   const handleGuessSubmit = useCallback(
@@ -354,10 +367,10 @@ export default function GuessesPage() {
           >
             {/* Property image card */}
             {property && (
-              <PropertyImageCard
-                property={property}
-                imageUrl={propertyImage}
-              />
+                <PropertyImageCard
+                  property={property}
+                  imageUrl={propertyImage.url}
+                />
             )}
 
             {/* Crowd estimate card */}

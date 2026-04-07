@@ -423,7 +423,12 @@ describe('GroupPreviewCard', () => {
     it('renders with thumbnail image', () => {
       render(
         <GroupPreviewCard
-          properties={[makeProperty({ thumbnailUrl: 'https://example.com/photo.jpg' })]}
+          properties={[
+            makeProperty({
+              countryCode: 'NL',
+              thumbnailUrl: 'https://example.com/photo.jpg',
+            }),
+          ]}
           onClose={jest.fn()}
         />
       );

@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
   View,
-  Image,
   Text,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import {
   getPropertyAerialImageUrl,
   PROPERTY_AERIAL_IMAGE_BOX_SIZE_METERS,
@@ -14,6 +12,7 @@ import {
   PROPERTY_AERIAL_IMAGE_WIDTH,
 } from '../lib/propertyThumbnail';
 import { getDutchAerialSnapshotUrl } from '../lib/pdok/imagery';
+import { PropertyImageSurface } from './PropertyImageSurface';
 
 export interface AerialImageCardProps {
   /** Latitude in WGS84 (EPSG:4326) */
@@ -72,13 +71,14 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
       <View style={styles.imageContainer}>
         {/* Aerial image from PDOK */}
         {imageUrl ? (
-          <Image
-            source={{ uri: imageUrl }}
+          <PropertyImageSurface
+            source={{ aerialImageUrl: imageUrl, countryCode: 'NL' }}
             style={styles.aerialImage}
-            resizeMode="cover"
+            markerSize={48}
             onLoadEnd={handleLoadEnd}
             onError={handleError}
-            testID={`${testID}-image`}
+            imageTestID={`${testID}-image`}
+            markerTestID={`${testID}-marker`}
           />
         ) : null}
 
@@ -94,18 +94,6 @@ export const AerialImageCard: React.FC<AerialImageCardProps> = ({
           <View style={styles.errorOverlay}>
             <Text style={styles.errorIcon}>📍</Text>
             <Text style={styles.errorText}>Unable to load aerial image</Text>
-          </View>
-        )}
-
-        {/* Centered marker pin - using Ionicons location icon like woningstats */}
-        {!error && imageUrl && (
-          <View style={styles.markerContainer} testID={`${testID}-marker`}>
-            <Ionicons
-              name="location-sharp"
-              size={48}
-              color="#FFFFFF"
-              style={styles.markerIcon}
-            />
           </View>
         )}
       </View>
@@ -157,20 +145,6 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#888888',
     fontSize: 14,
-  },
-  markerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    pointerEvents: 'none',
-  },
-  markerIcon: {
-    // Offset the icon slightly up so the pin tip points to the center
-    marginBottom: 24,
   },
   addressBar: {
     backgroundColor: '#1A1A2E',

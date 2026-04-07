@@ -39,6 +39,7 @@ import { LoadingSkeleton } from './LoadingSkeleton';
 export interface PropertyContentProps {
   property: PropertyContentData | null;
   isLoading?: boolean;
+  contentWidth?: number;
 
   // If omitted, PropertyContent can own like/save state itself.
   manageInteractionsInternally?: boolean;
@@ -81,6 +82,7 @@ interface ManagedInteractionState {
 interface PropertyContentSectionsProps {
   property: PropertyDetailsData | null;
   listings: ListingData[];
+  contentWidth?: number;
   onShare?: () => void;
   onLike?: () => void;
   onSave?: () => void;
@@ -96,6 +98,7 @@ interface PropertyContentSectionsProps {
 function PropertyContentSections({
   property,
   listings,
+  contentWidth,
   onShare,
   onLike,
   onSave,
@@ -131,7 +134,7 @@ function PropertyContentSections({
   return (
     <>
       <View>
-        <PropertyHeader property={property} />
+        <PropertyHeader property={property} containerWidth={contentWidth} />
 
         <PriceSection property={property} />
 
@@ -210,6 +213,7 @@ function ManagedPropertyInteractions({
 export function PropertyContent({
   property,
   isLoading = false,
+  contentWidth,
   manageInteractionsInternally,
   isLiked: isLikedProp,
   isSaved: isSavedProp,
@@ -261,6 +265,7 @@ export function PropertyContent({
       <PropertyContentSections
         property={propertyDetails}
         listings={listings}
+        contentWidth={contentWidth}
         onSave={interactionState?.onSave ?? (propertyDetails ? () => onSave?.(propertyDetails.id) : undefined)}
         onShare={propertyDetails ? () => onShare?.(propertyDetails.id) : undefined}
         onLike={interactionState?.onLike ?? (propertyDetails ? () => onLike?.(propertyDetails.id) : undefined)}

@@ -230,10 +230,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await openExpandedPropertyPanel(page);
 
     const panel = page.locator('[data-testid="web-property-panel"]');
+    const aerialImage = page.getByTestId('property-header-aerial-image');
+    const marker = page.getByTestId('property-header-marker');
     await expect(panel.getByText('Save').first()).toBeVisible();
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
     await expect(page.locator('[data-testid="web-panel-backdrop"]')).toHaveClass(/open/);
+    await expect(aerialImage).toBeVisible({ timeout: 10000 });
+    await expect(marker).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(300);
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
@@ -253,6 +258,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await openExpandedPropertyPanel(page);
 
     const panel = page.locator('[data-testid="web-property-panel"]');
+    await expect(page.getByTestId('property-header-aerial-image')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('property-header-marker')).toBeVisible({ timeout: 10000 });
     await expect(panel.getByText('Property Details').first()).toBeVisible();
     await expect(panel.getByText('Guess the Price').first()).toBeVisible();
     await expect(panel.getByText('Save').first()).toBeVisible();

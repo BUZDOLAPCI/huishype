@@ -55,6 +55,21 @@ describe('PropertyMediaCard', () => {
     expect(screen.getByTestId('property-media-image')).toBeTruthy();
   });
 
+  it('renders a marker when using aerial imagery fallback', () => {
+    render(
+      <PropertyMediaCard
+        property={{
+          ...baseProperty,
+          listingPhotoUrl: null,
+          aerialImageUrl: 'https://example.com/aerial.jpg',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-media-image')).toBeTruthy();
+    expect(screen.getByTestId('property-media-aerial-marker')).toBeTruthy();
+  });
+
   it('renders stat pills with year built and floor area', () => {
     render(<PropertyMediaCard property={baseProperty} />);
     expect(screen.getByTestId('stat-pills')).toBeTruthy();
