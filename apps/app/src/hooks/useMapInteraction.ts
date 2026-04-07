@@ -7,7 +7,7 @@
  *
  * Platform renderers remain separate — this hook owns only the interaction model.
  */
-import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { router } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
@@ -15,6 +15,7 @@ import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
+import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import { fetchBatchProperties, type PropertyResolveResult, type NearbyClusterResult } from '@/src/utils/api';
 
@@ -28,7 +29,12 @@ export interface PreviewGroup {
 
 /** Camera command abstraction so the hook never depends on a concrete map SDK. */
 export interface MapCameraCommands {
-  flyTo: (opts: { center: [number, number]; zoom: number; duration: number }) => void;
+  flyTo: (opts: {
+    center: [number, number];
+    zoom: number;
+    duration: number;
+    anchor?: ViewportAnchor;
+  }) => void;
   fitBounds: (bounds: [number, number, number, number], opts: { padding: number; duration: number }) => void;
   /** For web: returns estimated zoom from cameraForBounds. For native: not used. */
   estimateZoomForBounds?: (bounds: [[number, number], [number, number]]) => number | null;
@@ -38,6 +44,8 @@ export interface UseMapInteractionReturn {
   // ── Selection state ─────────────────────────────────────────
   selectedPropertyId: string | null;
   setSelectedPropertyId: (id: string | null) => void;
+  highlightedCoordinate: [number, number] | null;
+  setHighlightedCoordinate: (coordinate: [number, number] | null) => void;
   selectedProperty: ReturnType<typeof useProperty>['data'];
   selectedPropertyForSheet: ReturnType<typeof useProperty>['data'];
   selectedPropertyLoading: boolean;
@@ -139,6 +147,23 @@ export function estimateZoomForBbox(west: number, south: number, east: number, n
   return Math.log2(360 / maxSpan) - 1; // -1 accounts for padding
 }
 
+const PREVIEW_FLY_DURATION_MS = 500;
+const SEARCH_PREVIEW_FLY_DURATION_MS = 1000;
+
+function flyToPreviewAnchor(
+  camera: MapCameraCommands,
+  center: [number, number],
+  zoom: number,
+  duration: number,
+): void {
+  camera.flyTo({
+    center,
+    zoom,
+    duration,
+    anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+  });
+}
+
 /** Convert a property-like object to GroupPreviewProperty. */
 function convertToGroupProperty(
   p: ToGroupPropertyInput,
@@ -182,12 +207,14 @@ export { LARGE_CLUSTER_THRESHOLD };
 export function useMapInteraction(): UseMapInteractionReturn {
   // ── Selection state ─────────────────────────────────────────
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [highlightedCoordinate, setHighlightedCoordinate] = useState<[number, number] | null>(null);
   const { data: selectedProperty, isLoading: selectedPropertyLoading } = useProperty(selectedPropertyId);
 
   // ── Preview group state ─────────────────────────────────────
   const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const currentPreviewProperty = previewGroup?.properties[currentPreviewIndex] ?? null;
+  const previewActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedPropertyForSheet = useMemo(() => {
     if (!selectedProperty) return selectedProperty;
@@ -309,9 +336,38 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   const clearPreviewSelection = useCallback(() => {
+    if (previewActivationTimeoutRef.current) {
+      clearTimeout(previewActivationTimeoutRef.current);
+      previewActivationTimeoutRef.current = null;
+    }
+    setHighlightedCoordinate(null);
     setPreviewGroup(null);
     setSelectedPropertyId(null);
     setCurrentPreviewIndex(0);
+  }, []);
+
+  const schedulePreviewActivation = useCallback((duration: number, action: () => void) => {
+    if (previewActivationTimeoutRef.current) {
+      clearTimeout(previewActivationTimeoutRef.current);
+      previewActivationTimeoutRef.current = null;
+    }
+
+    if (duration <= 0) {
+      startTransition(action);
+      return;
+    }
+
+    previewActivationTimeoutRef.current = setTimeout(() => {
+      previewActivationTimeoutRef.current = null;
+      startTransition(action);
+    }, duration);
+  }, []);
+
+  useEffect(() => () => {
+    if (previewActivationTimeoutRef.current) {
+      clearTimeout(previewActivationTimeoutRef.current);
+      previewActivationTimeoutRef.current = null;
+    }
   }, []);
 
   // Dismiss bottom sheet + clear selection before auth flow starts.
@@ -441,7 +497,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
           const ids = propertyIdsStr.split(',');
           if (clusterGeom && clusterGeom.type === 'Point') {
             const coord = clusterGeom.coordinates as [number, number];
-            await openClusterPreviewAtCoord(ids, coord);
+            setHighlightedCoordinate(coord);
+            flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+            schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+              void openClusterPreviewAtCoord(ids, coord);
+            });
           }
         }
         return true;
@@ -457,37 +517,41 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
         if (propertyId && geom && geom.type === 'Point') {
           const coord = geom.coordinates as [number, number];
-          setSelectedPropertyId(propertyId);
-          setPreviewGroup({
-            properties: [{
-              id: propertyId,
-              address: (properties.address as string) ?? '',
-              city: (properties.city as string) ?? '',
-              postalCode: (properties.postalCode as string) ?? null,
-              officialValuation: (properties.officialValuation as number) ?? null,
-              askingPrice: (properties.askingPrice as number) ?? null,
-              activityLevel: getActivityLevel(activityScore),
-              activityScore,
-              thumbnailUrl: null,
-              aerialImageUrl: derivePropertyAerialImageUrl({
-                geometry: { type: 'Point', coordinates: coord },
-                countryCode: 'NL',
-              }),
-              yearBuilt: null,
-              floorAreaM2: null,
-              likeCount: (properties.likeCount as number) ?? 0,
-              commentCount: (properties.commentCount as number) ?? 0,
-              guessCount: (properties.guessCount as number) ?? 0,
-            }],
-            coordinate: coord,
+          setHighlightedCoordinate(coord);
+          flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+          schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+            setSelectedPropertyId(propertyId);
+            setPreviewGroup({
+              properties: [{
+                id: propertyId,
+                address: (properties.address as string) ?? '',
+                city: (properties.city as string) ?? '',
+                postalCode: (properties.postalCode as string) ?? null,
+                officialValuation: (properties.officialValuation as number) ?? null,
+                askingPrice: (properties.askingPrice as number) ?? null,
+                activityLevel: getActivityLevel(activityScore),
+                activityScore,
+                thumbnailUrl: null,
+                aerialImageUrl: derivePropertyAerialImageUrl({
+                  geometry: { type: 'Point', coordinates: coord },
+                  countryCode: 'NL',
+                }),
+                yearBuilt: null,
+                floorAreaM2: null,
+                likeCount: (properties.likeCount as number) ?? 0,
+                commentCount: (properties.commentCount as number) ?? 0,
+                guessCount: (properties.guessCount as number) ?? 0,
+              }],
+              coordinate: coord,
+            });
+            setCurrentPreviewIndex(0);
           });
-          setCurrentPreviewIndex(0);
           return true;
         }
       }
       return false;
     },
-    [openClusterPreviewAtCoord],
+    [openClusterPreviewAtCoord, schedulePreviewActivation],
   );
 
   // ── Handle nearby cluster result (native fallback) ──────────
@@ -496,30 +560,34 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (result.type === 'single') {
         const coord = result.geometry?.coordinates as [number, number] | undefined;
         if (coord) {
-          const previewAerialImageUrl = derivePropertyAerialImageUrl({
-            geometry: { type: 'Point', coordinates: coord },
-            countryCode: 'NL',
+          setHighlightedCoordinate(coord);
+          flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+          schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+            const previewAerialImageUrl = derivePropertyAerialImageUrl({
+              geometry: { type: 'Point', coordinates: coord },
+              countryCode: 'NL',
+            });
+            setSelectedPropertyId(result.id);
+            setPreviewGroup({
+              properties: [{
+                id: result.id,
+                address: result.address,
+                city: result.city,
+                postalCode: result.postalCode,
+                officialValuation: result.officialValuation,
+                askingPrice: result.askingPrice,
+                thumbnailUrl: null,
+                activityLevel: getActivityLevel(result.activityScore ?? 0),
+                activityScore: result.activityScore ?? 0,
+                aerialImageUrl: previewAerialImageUrl,
+                likeCount: result.likeCount ?? 0,
+                commentCount: result.commentCount ?? 0,
+                guessCount: result.guessCount ?? 0,
+              }],
+              coordinate: coord,
+            });
+            setCurrentPreviewIndex(0);
           });
-          setSelectedPropertyId(result.id);
-          setPreviewGroup({
-            properties: [{
-              id: result.id,
-              address: result.address,
-              city: result.city,
-              postalCode: result.postalCode,
-              officialValuation: result.officialValuation,
-              askingPrice: result.askingPrice,
-              thumbnailUrl: null,
-              activityLevel: getActivityLevel(result.activityScore ?? 0),
-              activityScore: result.activityScore ?? 0,
-              aerialImageUrl: previewAerialImageUrl,
-              likeCount: result.likeCount ?? 0,
-              commentCount: result.commentCount ?? 0,
-              guessCount: result.guessCount ?? 0,
-            }],
-            coordinate: coord,
-          });
-          setCurrentPreviewIndex(0);
         }
       } else if (result.type === 'cluster') {
         const pointCount = result.point_count ?? 0;
@@ -551,11 +619,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
         } else {
           // Small cluster — show preview card
           const ids = result.property_ids.split(',');
-          openClusterPreviewAtCoord(ids, result.coordinate);
+          setHighlightedCoordinate(result.coordinate);
+          flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
+          schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+            void openClusterPreviewAtCoord(ids, result.coordinate);
+          });
         }
       }
     },
-    [openClusterPreviewAtCoord],
+    [openClusterPreviewAtCoord, schedulePreviewActivation],
   );
 
   // ── Empty map tap (dismiss logic) ───────────────────────────
@@ -582,33 +654,32 @@ export function useMapInteraction(): UseMapInteractionReturn {
     (property: PropertyResolveResult, camera: MapCameraCommands) => {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
-      camera.flyTo({
-        center: coord,
-        zoom: 17,
-        duration: 1000,
+      setHighlightedCoordinate(coord);
+      flyToPreviewAnchor(camera, coord, 17, SEARCH_PREVIEW_FLY_DURATION_MS);
+      schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
+        setSelectedPropertyId(property.id);
+        setPreviewGroup({
+          properties: [{
+            id: property.id,
+            address: property.address,
+            city: property.city,
+            postalCode: property.postalCode ?? null,
+            officialValuation: property.officialValuation ?? null,
+            askingPrice: null,
+            activityLevel: 'cold',
+            activityScore: 0,
+            thumbnailUrl: null,
+            aerialImageUrl: derivePropertyAerialImageUrl({
+              geometry: { type: 'Point', coordinates: coord },
+              countryCode: 'NL',
+            }),
+          }],
+          coordinate: coord,
+        });
+        setCurrentPreviewIndex(0);
       });
-      setSelectedPropertyId(property.id);
-      setPreviewGroup({
-        properties: [{
-          id: property.id,
-          address: property.address,
-          city: property.city,
-          postalCode: property.postalCode ?? null,
-          officialValuation: property.officialValuation ?? null,
-          askingPrice: null,
-          activityLevel: 'cold',
-          activityScore: 0,
-          thumbnailUrl: null,
-          aerialImageUrl: derivePropertyAerialImageUrl({
-            geometry: { type: 'Point', coordinates: coord },
-            countryCode: 'NL',
-          }),
-        }],
-        coordinate: coord,
-      });
-      setCurrentPreviewIndex(0);
     },
-    [],
+    [schedulePreviewActivation],
   );
 
   const handleLocationResolved = useCallback(
@@ -626,6 +697,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Selection state
     selectedPropertyId,
     setSelectedPropertyId,
+    highlightedCoordinate,
+    setHighlightedCoordinate,
     selectedProperty,
     selectedPropertyForSheet,
     selectedPropertyLoading,

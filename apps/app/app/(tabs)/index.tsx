@@ -25,6 +25,7 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { fetchNearbyCluster } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
+import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -162,14 +163,20 @@ export default function MapScreen() {
   // Touch guard: when preview card is touched, suppress handleMapPress so the
   // tap doesn't fall through to the map's onPress handler.
   const previewCardTouchedRef = useRef(false);
+  const mapViewportSizeRef = useRef({ width: 0, height: 0 });
 
   // Build a camera adapter for the shared hook
   const cameraCommands: MapCameraCommands = useMemo(() => ({
     flyTo: (opts) => {
+      const padding = opts.anchor
+        ? viewportAnchorToPadding(mapViewportSizeRef.current, opts.anchor)
+        : undefined;
+
       cameraRef.current?.flyTo({
         center: opts.center,
         zoom: opts.zoom,
         pitch: getPitchForZoom(opts.zoom),
+        padding,
         duration: opts.duration,
       });
     },
@@ -353,7 +360,9 @@ export default function MapScreen() {
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
       {/* Map View */}
-      <View style={{ flex: 1 }} onLayout={() => {
+      <View style={{ flex: 1 }} onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        mapViewportSizeRef.current = { width, height };
         if (!hasLayout) setHasLayout(true);
       }}>
         {hasLayout && mergedStyle && (
@@ -389,6 +398,35 @@ export default function MapScreen() {
           {/* Paper Mario trees come from the server-side style.json as the shared
               paper-trees symbol layer. Both web and native render the tree sprites
               directly from the sprite sheet. */}
+
+          {interaction.highlightedCoordinate && (
+            <Marker
+              lngLat={interaction.highlightedCoordinate}
+              anchor="center"
+            >
+              <View pointerEvents="none" testID="selected-marker" style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                <View
+                  style={{
+                    position: 'absolute',
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: 'rgba(245, 166, 35, 0.28)',
+                  }}
+                />
+                <View
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    backgroundColor: COLORS.blue500,
+                    borderWidth: 3,
+                    borderColor: COLORS.white,
+                  }}
+                />
+              </View>
+            </Marker>
+          )}
 
           {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),

@@ -9,6 +9,7 @@ import {
 } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
 import type { NearbyClusterResult } from '../../utils/api';
+import { PREVIEW_CARD_VIEWPORT_ANCHOR } from '../../lib/mapCameraAnchor';
 import { fetchBatchProperties } from '../../utils/api';
 import {
   getPropertyAerialImageFromGeometry,
@@ -85,6 +86,12 @@ function createMockCamera(): MapCameraCommands {
   };
 }
 
+async function flushPreviewFlight() {
+  await act(async () => {
+    jest.runOnlyPendingTimers();
+  });
+}
+
 describe('getActivityLevel', () => {
   it('returns "hot" for scores >= 50', () => {
     expect(getActivityLevel(50)).toBe('hot');
@@ -136,6 +143,10 @@ describe('useMapInteraction', () => {
     mockAuthUser = mockUser;
     jest.clearAllMocks();
     mockFetchBatchProperties.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('selection state', () => {
@@ -243,6 +254,7 @@ describe('useMapInteraction', () => {
       // Set up some state first
       act(() => {
         result.current.setSelectedPropertyId('prop-1');
+        result.current.setHighlightedCoordinate([4.9, 52.37]);
         result.current.setPreviewGroup({
           properties: [{ id: 'prop-1', address: 'Test', city: 'Test' }],
           coordinate: [4.9, 52.37],
@@ -311,6 +323,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.previewGroup).toBeNull();
+      expect(result.current.highlightedCoordinate).toBeNull();
       expect(result.current.selectedPropertyId).toBeNull();
       expect(result.current.currentPreviewIndex).toBe(0);
     });
@@ -439,6 +452,7 @@ describe('useMapInteraction', () => {
 
   describe('handleFeaturePress', () => {
     it('handles single property feature', async () => {
+      jest.useFakeTimers();
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -461,6 +475,18 @@ describe('useMapInteraction', () => {
       });
 
       expect(handled).toBe(true);
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 15,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+      expect(result.current.highlightedCoordinate).toEqual([4.9, 52.37]);
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
+
+      await flushPreviewFlight();
+
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
@@ -511,6 +537,7 @@ describe('useMapInteraction', () => {
 
   describe('handleNearbyResult', () => {
     it('handles single property result', () => {
+      jest.useFakeTimers();
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -536,6 +563,20 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.handleNearbyResult(nearby, 15, camera);
+      });
+
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 15,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+      expect(result.current.highlightedCoordinate).toEqual([4.9, 52.37]);
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
+
+      act(() => {
+        jest.runOnlyPendingTimers();
       });
 
       expect(result.current.selectedPropertyId).toBe('prop-1');
@@ -613,6 +654,7 @@ describe('useMapInteraction', () => {
 
   describe('search callbacks', () => {
     it('handlePropertyResolved flies to coordinate and sets preview', () => {
+      jest.useFakeTimers();
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -636,7 +678,16 @@ describe('useMapInteraction', () => {
         center: [4.9, 52.37],
         zoom: 17,
         duration: 1000,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
       });
+      expect(result.current.highlightedCoordinate).toEqual([4.9, 52.37]);
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
+
+      act(() => {
+        jest.runOnlyPendingTimers();
+      });
+
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
     });

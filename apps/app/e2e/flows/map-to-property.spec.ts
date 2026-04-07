@@ -64,6 +64,61 @@ async function focusMapOnSeededPropertyArea(page: Page) {
   await page.waitForTimeout(3000);
 }
 
+async function clickPropertyMarkerById(page: Page, propertyId: string) {
+  const result = await page.evaluate((targetPropertyId) => {
+    const mapInstance = (window as any).__mapInstance;
+    if (!mapInstance || !mapInstance.isStyleLoaded()) {
+      return { success: false, reason: 'Map not ready' };
+    }
+
+    const canvas = mapInstance.getCanvas();
+    if (!canvas) {
+      return { success: false, reason: 'No canvas' };
+    }
+
+    const layerNames = ['single-active-points', 'active-nodes', 'ghost-nodes'];
+    const rect = canvas.getBoundingClientRect();
+
+    for (const layerName of layerNames) {
+      try {
+        if (!mapInstance.getLayer(layerName)) continue;
+
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: [layerName] }
+        ) || [];
+
+        const match = features.find((feature: any) => {
+          const id = feature.properties?.id ||
+            (feature.properties?.property_ids as string | undefined)?.split(',')[0];
+          return id === targetPropertyId && feature.geometry?.type === 'Point';
+        });
+
+        if (match) {
+          const point = mapInstance.project(match.geometry.coordinates);
+          return {
+            success: true,
+            screenX: rect.left + point.x,
+            screenY: rect.top + point.y,
+          };
+        }
+      } catch {
+        // ignore layer query errors
+      }
+    }
+
+    return { success: false, reason: 'Property not found in rendered features' };
+  }, propertyId);
+
+  if (result.success) {
+    await page.mouse.move(result.screenX, result.screenY);
+    await page.mouse.click(result.screenX, result.screenY);
+    await page.waitForTimeout(500);
+  }
+
+  return result;
+}
+
 test.describe('Map to Property Flow', () => {
   let consoleErrors: string[] = [];
   let consoleWarnings: string[] = [];
@@ -272,6 +327,7 @@ test.describe('Map to Property Flow', () => {
     // Wait for the preview card to appear (API fetch + render)
     await page.waitForSelector('[data-testid="group-preview-card"]', { timeout: 10000 });
     await page.waitForSelector('[data-testid="selected-marker"]', { timeout: 5000 });
+    await waitForMapIdle(page, 10000);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/map-click-preview.png` });
 
@@ -322,6 +378,40 @@ test.describe('Map to Property Flow', () => {
       'Selected marker pulse should stay vertically centered on the selected node'
     ).toBeLessThan(1);
 
+    const markerViewportPosition = await page.evaluate(() => {
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      const mapView = document.querySelector('[data-testid="map-view"]');
+
+      if (!(marker instanceof HTMLElement) || !(mapView instanceof HTMLElement)) {
+        return null;
+      }
+
+      const markerRect = marker.getBoundingClientRect();
+      const mapRect = mapView.getBoundingClientRect();
+      const markerCenterX = markerRect.left + markerRect.width / 2;
+      const markerCenterY = markerRect.top + markerRect.height / 2;
+
+      return {
+        xRatio: (markerCenterX - mapRect.left) / mapRect.width,
+        yRatio: (markerCenterY - mapRect.top) / mapRect.height,
+      };
+    });
+
+    expect(
+      markerViewportPosition,
+      'Selected marker should have a measurable viewport position'
+    ).not.toBeNull();
+    expect(
+      markerViewportPosition!.xRatio,
+      'Selected marker should be horizontally centered after selection'
+    ).toBeGreaterThan(0.45);
+    expect(markerViewportPosition!.xRatio).toBeLessThan(0.55);
+    expect(
+      markerViewportPosition!.yRatio,
+      'Selected marker should sit around 70% from the bottom after selection'
+    ).toBeGreaterThan(0.22);
+    expect(markerViewportPosition!.yRatio).toBeLessThan(0.38);
+
     // Verify the preview card persists (not immediately dismissed)
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible();
@@ -335,7 +425,9 @@ test.describe('Map to Property Flow', () => {
     expect(firstClick.success, 'Should find and click a property feature').toBe(true);
 
     const previewCard = page.locator('[data-testid="group-preview-card"]');
-    const closeButton = page.locator('[data-testid="group-preview-close-button"]');
+    const closeButton = page.locator(
+      '[data-testid="group-preview-close-button"], [data-testid="property-preview-close-button"]'
+    );
 
     await expect(previewCard).toBeVisible({ timeout: 10000 });
 
@@ -345,9 +437,9 @@ test.describe('Map to Property Flow', () => {
     await closeButton.click({ force: true });
     await expect(previewCard).toHaveCount(0);
 
-    const secondClick = await clickOnPropertyMarker(page);
+    const secondClick = await clickPropertyMarkerById(page, firstClick.propertyId!);
     console.log('Feature to reopen after close:', secondClick);
-    expect(secondClick.success, 'Should be able to click a property feature again').toBe(true);
+    expect(secondClick.success, 'Should be able to click the same property again').toBe(true);
     await expect(previewCard).toBeVisible({ timeout: 10000 });
 
     const reopenedText = ((await previewCard.textContent()) || '').trim();

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { Alert, Text, View } from 'react-native';
 import * as maplibregl from 'maplibre-gl';
@@ -13,6 +13,10 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
+import {
+  PREVIEW_CARD_VIEWPORT_ANCHOR,
+  viewportAnchorToOffset,
+} from '@/src/lib/mapCameraAnchor';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
@@ -27,6 +31,7 @@ const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 16;
 const FLOATING_ZOOM_CONTROL_TOP = 112;
 const FLOATING_ZOOM_CONTROL_SIZE = 24;
+const PREVIEW_FLY_DURATION_MS = 500;
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -377,6 +382,8 @@ export default function MapScreen() {
     handleAuthRequired,
     handleFeaturePress,
     handleEmptyMapTap,
+    highlightedCoordinate,
+    setHighlightedCoordinate,
     setSelectedPropertyId,
     selectedProperty,
     toGroupProperty,
@@ -388,13 +395,17 @@ export default function MapScreen() {
   handleEmptyMapTapRef.current = handleEmptyMapTap;
 
   const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
+    if (highlightedCoordinate) {
+      return highlightedCoordinate;
+    }
+
     const selectedGeometry = selectedProperty?.geometry;
     if (selectedGeometry?.type === 'Point') {
       return selectedGeometry.coordinates;
     }
 
     return interaction.previewGroup?.coordinate ?? null;
-  }, [interaction.previewGroup, selectedProperty?.geometry]);
+  }, [highlightedCoordinate, interaction.previewGroup, selectedProperty?.geometry]);
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -414,14 +425,59 @@ export default function MapScreen() {
   const pendingSinglePreview = useRef(false);
   const clickCoordRef = useRef<[number, number] | null>(null);
   const clickActivityRef = useRef(0);
+  const pendingSinglePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelPendingSinglePreviewSelection = useCallback(() => {
+    if (pendingSinglePreviewTimerRef.current) {
+      clearTimeout(pendingSinglePreviewTimerRef.current);
+      pendingSinglePreviewTimerRef.current = null;
+    }
+    pendingSinglePreview.current = false;
+    clickCoordRef.current = null;
+  }, []);
+
+  const scheduleSinglePreviewSelection = useCallback(
+    (propertyId: string, coord: [number, number], activityScore: number, duration: number) => {
+      cancelPendingSinglePreviewSelection();
+      pendingSinglePreview.current = true;
+      clickCoordRef.current = coord;
+      clickActivityRef.current = activityScore;
+      setHighlightedCoordinate(coord);
+
+      pendingSinglePreviewTimerRef.current = setTimeout(() => {
+        pendingSinglePreviewTimerRef.current = null;
+        startTransition(() => {
+          setSelectedPropertyId(propertyId);
+        });
+      }, duration);
+    },
+    [cancelPendingSinglePreviewSelection, setHighlightedCoordinate, setSelectedPropertyId],
+  );
 
   // Build a camera adapter for the shared hook (wraps maplibregl.Map)
   const cameraCommands: MapCameraCommands = useMemo(() => ({
     flyTo: (opts) => {
-      mapRef.current?.flyTo({
+      const map = mapRef.current;
+      const offset = map && opts.anchor
+        ? (() => {
+            const container = map.getContainer();
+            const { x, y } = viewportAnchorToOffset(
+              {
+                width: container.clientWidth,
+                height: container.clientHeight,
+              },
+              opts.anchor,
+            );
+            return [x, y] as [number, number];
+          })()
+        : undefined;
+
+      map?.flyTo({
         center: opts.center,
         zoom: opts.zoom,
         duration: opts.duration,
+        essential: true,
+        ...(offset ? { offset } : {}),
       });
     },
     fitBounds: (bounds, opts) => {
@@ -690,12 +746,14 @@ export default function MapScreen() {
             const geom = feature.geometry;
             if (geom.type === 'Point') {
               const coord = geom.coordinates as [number, number];
-              clickCoordRef.current = coord;
-              clickActivityRef.current = activityScore;
-              pendingSinglePreview.current = true;
+              cameraCommands.flyTo({
+                center: coord,
+                zoom: map.getZoom(),
+                duration: PREVIEW_FLY_DURATION_MS,
+                anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+              });
+              scheduleSinglePreviewSelection(propertyId, coord, activityScore, PREVIEW_FLY_DURATION_MS);
             }
-
-            setSelectedPropertyId(propertyId);
           }
         }
       };
@@ -713,6 +771,7 @@ export default function MapScreen() {
           return;
         }
 
+        cancelPendingSinglePreviewSelection();
         handleEmptyMapTapRef.current();
       });
 
@@ -754,8 +813,9 @@ export default function MapScreen() {
         clearTimeout(propertyClickResetTimer.current);
         propertyClickResetTimer.current = null;
       }
+      cancelPendingSinglePreviewSelection();
     };
-  }, [bottomSheetRef, cameraCommands, handleAuthRequired, handleFeaturePress, setSelectedPropertyId, syncVisibleZoom]);
+  }, [bottomSheetRef, cameraCommands, cancelPendingSinglePreviewSelection, handleAuthRequired, handleFeaturePress, scheduleSinglePreviewSelection, syncVisibleZoom]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -778,18 +838,14 @@ export default function MapScreen() {
       const coord: [number, number] = [lon, lat];
 
       cameraCommands.flyTo({ center: coord, zoom: 17, duration: 1000 });
-
-      setSelectedPropertyId(property.id);
-      pendingSinglePreview.current = true;
-      clickCoordRef.current = coord;
-      clickActivityRef.current = 0;
+      scheduleSinglePreviewSelection(property.id, coord, 0, 1000);
 
       // Set the search city from the resolved property
       if (property.city) {
         setSearchCity(property.city, coord);
       }
     },
-    [cameraCommands, setSelectedPropertyId, setSearchCity],
+    [cameraCommands, scheduleSinglePreviewSelection, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
