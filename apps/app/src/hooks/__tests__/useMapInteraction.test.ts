@@ -582,7 +582,31 @@ describe('useMapInteraction', () => {
       expect(handled).toBe(false);
     });
 
-    it('zooms into large cluster bbox', async () => {
+    it('opens preview for dense clusters instead of zooming away', async () => {
+      jest.useFakeTimers();
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'p1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: true,
+          askingPrice: 300000,
+          likeCount: 3,
+          commentCount: 5,
+          guessCount: 2,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -609,10 +633,26 @@ describe('useMapInteraction', () => {
         await result.current.handleFeaturePress([feature], 10, camera);
       });
 
-      // Should have called camera.fitBounds or camera.flyTo
-      const calledFit = (camera.fitBounds as jest.Mock).mock.calls.length > 0;
-      const calledFly = (camera.flyTo as jest.Mock).mock.calls.length > 0;
-      expect(calledFit || calledFly).toBe(true);
+      expect(camera.fitBounds).not.toHaveBeenCalled();
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 10,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+
+      await flushPreviewFlight();
+
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'p1',
+        askingPrice: 300000,
+        officialValuation: 250000,
+        likeCount: 3,
+        commentCount: 5,
+        guessCount: 2,
+        activityScore: 7,
+        activityLevel: 'warm',
+      });
     });
   });
 
@@ -674,7 +714,31 @@ describe('useMapInteraction', () => {
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
     });
 
-    it('zooms into large cluster', () => {
+    it('opens preview for dense nearby clusters', async () => {
+      jest.useFakeTimers();
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'p1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: true,
+          askingPrice: 300000,
+          likeCount: 3,
+          commentCount: 5,
+          guessCount: 2,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -707,13 +771,30 @@ describe('useMapInteraction', () => {
         floorAreaM2: null,
       };
 
-      act(() => {
+      await act(async () => {
         result.current.handleNearbyResult(nearby, 10, camera);
       });
 
-      const calledFit = (camera.fitBounds as jest.Mock).mock.calls.length > 0;
-      const calledFly = (camera.flyTo as jest.Mock).mock.calls.length > 0;
-      expect(calledFit || calledFly).toBe(true);
+      expect(camera.fitBounds).not.toHaveBeenCalled();
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 10,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+
+      await flushPreviewFlight();
+
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'p1',
+        askingPrice: 300000,
+        officialValuation: 250000,
+        likeCount: 3,
+        commentCount: 5,
+        guessCount: 2,
+        activityScore: 7,
+        activityLevel: 'warm',
+      });
     });
   });
 

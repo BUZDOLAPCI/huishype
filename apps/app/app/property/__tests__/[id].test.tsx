@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { BackHandler } from 'react-native';
+import { BackHandler, Platform } from 'react-native';
 
 import PropertyDetailScreen from '../[id]';
 import type { PropertyDetails } from '@/src/hooks/useProperties';
@@ -10,6 +10,7 @@ const mockPropertyContent = jest.fn();
 const mockBack = jest.fn();
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+let capturedFocusEffect: (() => void | (() => void)) | null = null;
 let mockSearchParams: { id: string; returnTo?: string | string[] } = { id: 'route-property-1' };
 
 jest.mock('expo-router', () => ({
@@ -21,6 +22,12 @@ jest.mock('expo-router', () => ({
     back: (...args: unknown[]) => mockBack(...args),
     push: (...args: unknown[]) => mockPush(...args),
     replace: (...args: unknown[]) => mockReplace(...args),
+  },
+}));
+
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    capturedFocusEffect = effect;
   },
 }));
 
@@ -84,6 +91,8 @@ describe('app/property/[id]', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSearchParams = { id: 'route-property-1' };
+    capturedFocusEffect = null;
+    Platform.OS = 'android';
     mockUseProperty.mockReturnValue({
       data: property,
       isLoading: false,
@@ -151,14 +160,23 @@ describe('app/property/[id]', () => {
 
   it('intercepts Android hardware back to honor the explicit origin', () => {
     const addEventListenerSpy = jest.spyOn(BackHandler, 'addEventListener');
+    const removeListener = jest.fn();
+    addEventListenerSpy.mockReturnValue({ remove: removeListener } as any);
     mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
 
     render(<PropertyDetailScreen />);
 
-    const handler = addEventListenerSpy.mock.calls.at(-1)?.[1];
+    expect(addEventListenerSpy).not.toHaveBeenCalled();
+    expect(capturedFocusEffect).toBeDefined();
 
+    const cleanup = capturedFocusEffect?.();
+
+    const handler = addEventListenerSpy.mock.calls.at(-1)?.[1];
     expect(handler).toBeDefined();
     expect(handler?.()).toBe(true);
     expect(mockReplace).toHaveBeenCalledWith('/feed');
+
+    cleanup?.();
+    expect(removeListener).toHaveBeenCalledTimes(1);
   });
 });

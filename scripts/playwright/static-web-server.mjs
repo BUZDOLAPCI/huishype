@@ -236,14 +236,9 @@ export function startStaticWebServer({
     });
   });
 
-  const closed = new Promise((resolve) => {
-    server.once('close', () => resolve());
-  });
-
   return {
     server,
     ready,
-    closed,
     async stop() {
       if (!server.listening) {
         return;

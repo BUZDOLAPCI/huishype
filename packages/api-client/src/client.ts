@@ -271,8 +271,17 @@ export class HuisHypeApiClient {
       ...(city ? { city } : {}),
     } satisfies PropertyResolveRequest;
 
+    const serializedQuery: Record<string, string | number | boolean | undefined> = {
+      postalCode: query.postalCode,
+      houseNumber: String(query.houseNumber),
+      houseNumberAddition: query.houseNumberAddition,
+      countryCode: query.countryCode,
+      street: query.street,
+      city: query.city,
+    };
+
     return this.request<PropertyResolveResponse>('GET', '/properties/resolve', {
-      query: query as Record<string, string | number | boolean | undefined>,
+      query: serializedQuery,
     });
   }
 

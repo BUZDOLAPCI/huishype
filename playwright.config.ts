@@ -114,7 +114,9 @@ export default defineConfig({
         // Start the dedicated test-only API and Expo web servers on isolated ports.
         command: 'node ./scripts/playwright/integration-runtime.mjs',
         url: PLAYWRIGHT_WEB_URL,
-        reuseExistingServer: !process.env.CI,
+        // Always start a fresh runtime so Playwright never attaches to a stale
+        // server left behind by a previous run.
+        reuseExistingServer: false,
         timeout: 120 * 1000,
       },
   /* Output directory for test artifacts */

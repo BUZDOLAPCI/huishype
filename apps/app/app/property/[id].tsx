@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
@@ -64,16 +65,22 @@ export default function PropertyDetailScreen() {
     router.back();
   }, [normalizedReturnTarget]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      handleBack();
-      return true;
-    });
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') {
+        return undefined;
+      }
 
-    return () => {
-      subscription.remove();
-    };
-  }, [handleBack]);
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack();
+        return true;
+      });
+
+      return () => {
+        subscription.remove();
+      };
+    }, [handleBack]),
+  );
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
 

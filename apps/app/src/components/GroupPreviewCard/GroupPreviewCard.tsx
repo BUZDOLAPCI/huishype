@@ -633,14 +633,14 @@ export function GroupPreviewCard({
               onGuess={() => onGuess?.(currentProperty)}
               onClose={onClose}
               showCloseButton={!isCluster}
-              closeButtonRef={!isCluster && isNative ? hitTest.zoneRef('close') : undefined}
-              closeButtonOnLayout={!isCluster && isNative ? hitTest.zoneLayout('close') : undefined}
-              likeButtonRef={isNative ? hitTest.zoneRef('like') : undefined}
-              likeButtonOnLayout={isNative ? hitTest.zoneLayout('like') : undefined}
-              commentButtonRef={isNative ? hitTest.zoneRef('comment') : undefined}
-              commentButtonOnLayout={isNative ? hitTest.zoneLayout('comment') : undefined}
-              guessButtonRef={isNative ? hitTest.zoneRef('guess') : undefined}
-              guessButtonOnLayout={isNative ? hitTest.zoneLayout('guess') : undefined}
+              nativeHitTargets={isNative ? {
+                close: !isCluster
+                  ? { ref: hitTest.zoneRef('close'), onLayout: hitTest.zoneLayout('close') }
+                  : undefined,
+                like: { ref: hitTest.zoneRef('like'), onLayout: hitTest.zoneLayout('like') },
+                comment: { ref: hitTest.zoneRef('comment'), onLayout: hitTest.zoneLayout('comment') },
+                guess: { ref: hitTest.zoneRef('guess'), onLayout: hitTest.zoneLayout('guess') },
+              } : undefined}
             />
           </View>
         </Animated.View>

@@ -3,6 +3,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { startStaticWebServer } from './static-web-server.mjs';
 
@@ -16,20 +17,34 @@ const apiCwd = path.join(repoRoot, 'services', 'api');
 const appCwd = path.join(repoRoot, 'apps', 'app');
 const expoBin = './node_modules/.bin/expo';
 const playwrightBin = './node_modules/.bin/playwright';
+const require = createRequire(path.join(apiCwd, 'package.json'));
 
-const pnpmStoreDir = path.join(repoRoot, 'node_modules', '.pnpm');
-const tsxStoreEntry = fs.readdirSync(pnpmStoreDir).find((entry) => (
-  entry.startsWith('tsx@') &&
-  fs.existsSync(path.join(pnpmStoreDir, entry, 'node_modules', 'tsx', 'dist', 'preflight.cjs'))
-));
+function resolveTsxRuntimePaths() {
+  let tsxEntryPoint;
 
-if (!tsxStoreEntry) {
-  throw new Error(`Unable to locate tsx dist files under ${pnpmStoreDir}`);
+  try {
+    tsxEntryPoint = require.resolve('tsx');
+  } catch {
+    throw new Error(
+      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.',
+    );
+  }
+
+  const tsxDistDir = path.dirname(tsxEntryPoint);
+  const tsxPreflight = path.join(tsxDistDir, 'preflight.cjs');
+  const tsxLoaderPath = path.join(tsxDistDir, 'loader.mjs');
+
+  if (!fs.existsSync(tsxPreflight) || !fs.existsSync(tsxLoaderPath)) {
+    throw new Error(`Unable to locate tsx dist files from ${tsxEntryPoint}`);
+  }
+
+  return {
+    tsxPreflight,
+    tsxLoader: pathToFileURL(tsxLoaderPath).href,
+  };
 }
 
-const tsxDistDir = path.join(pnpmStoreDir, tsxStoreEntry, 'node_modules', 'tsx', 'dist');
-const tsxPreflight = path.join(tsxDistDir, 'preflight.cjs');
-const tsxLoader = pathToFileURL(path.join(tsxDistDir, 'loader.mjs')).href;
+const { tsxPreflight, tsxLoader } = resolveTsxRuntimePaths();
 
 const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
 const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
@@ -68,91 +83,16 @@ function getListeningPids(port) {
   }
 }
 
-async function waitForPortRelease(port, timeoutMs = 10_000) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (getListeningPids(port).length === 0) {
-      return true;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  return getListeningPids(port).length === 0;
-}
-
 async function ensurePortAvailable(port, label) {
   const pids = getListeningPids(port);
   if (pids.length === 0) {
     return;
   }
 
-  console.log(`${label} port ${port} is occupied by PID(s) ${pids.join(', ')}. Terminating stale listeners...`);
-
-  for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      // Ignore shutdown races.
-    }
-  }
-
-  if (await waitForPortRelease(port)) {
-    return;
-  }
-
-  const remainingPids = getListeningPids(port);
-  for (const pid of remainingPids) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // Ignore shutdown races.
-    }
-  }
-
-  if (!(await waitForPortRelease(port, 5_000))) {
-    throw new Error(`${label} port ${port} is still occupied after terminating stale listeners`);
-  }
-}
-
-async function killStaleRunnerProcesses() {
-  try {
-    const output = execFileSync(
-      'pgrep',
-      ['-f', 'scripts/playwright/run-playwright-project.mjs'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-
-    if (!output) {
-      return;
-    }
-
-    const stalePids = output
-      .split(/\s+/)
-      .map((value) => Number.parseInt(value, 10))
-      .filter((value) =>
-        Number.isInteger(value) &&
-        value > 0 &&
-        value !== process.pid &&
-        value !== process.ppid,
-      );
-
-    if (stalePids.length === 0) {
-      return;
-    }
-
-    console.log(`Terminating stale Playwright runtime supervisors: ${stalePids.join(', ')}`);
-    for (const pid of stalePids) {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch {
-        // Ignore shutdown races.
-      }
-    }
-  } catch {
-    // Ignore environments without pgrep or with no matches.
-  }
+  throw new Error(
+    `${label} port ${port} is already in use by PID(s) ${pids.join(', ')}. ` +
+    'Stop the existing process or choose a different port.',
+  );
 }
 
 async function waitForHttp(url, label) {
@@ -297,7 +237,6 @@ async function main() {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  await killStaleRunnerProcesses();
   await ensurePortAvailable(apiPort, 'API server');
   await ensurePortAvailable(webPort, 'Static web server');
 

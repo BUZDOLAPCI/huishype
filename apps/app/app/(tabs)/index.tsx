@@ -262,18 +262,17 @@ export default function MapScreen() {
       }
 
       // Server-side fallback: use the nearby API with reliable lngLat coordinates.
-      // Threshold at 12 (not 13) because fitBounds can settle at e.g. 12.98 for z13 clusters.
-      if (currentZoom >= 12) {
-        const [lon, lat] = lngLat;
-        try {
-          const nearby = await fetchNearbyGroup(lon, lat, currentZoom);
-          if (nearby) {
-            handleNearbyResult(nearby, currentZoom, cameraCommands);
-            return;
-          }
-        } catch (error) {
-          console.warn('[HuisHype] Nearby fallback failed:', error);
+      // This runs at all zoom levels so dense groups can still resolve into previews
+      // instead of becoming a zoom-only dead end on native taps.
+      const [lon, lat] = lngLat;
+      try {
+        const nearby = await fetchNearbyGroup(lon, lat, currentZoom);
+        if (nearby) {
+          handleNearbyResult(nearby, currentZoom, cameraCommands);
+          return;
         }
+      } catch (error) {
+        console.warn('[HuisHype] Nearby fallback failed:', error);
       }
 
       // No features at tap point — check if we should close preview

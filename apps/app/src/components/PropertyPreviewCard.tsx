@@ -18,6 +18,7 @@ import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import {
   formatPropertyPrice,
+  getValuationLabel,
   type CountryCode,
 } from '@huishype/shared';
 import {
@@ -60,6 +61,10 @@ const CARD_RADIUS = 20;
 
 type HitZoneRef = ((node: any) => void) | undefined;
 type HitZoneLayout = (() => void) | undefined;
+type NativeHitTargetRegistration = {
+  ref?: HitZoneRef;
+  onLayout?: HitZoneLayout;
+};
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -99,16 +104,13 @@ export interface PropertyPreviewCardProps {
   showCloseButton?: boolean;
   /** Whether to show the speech bubble arrow pointing downwards */
   showArrow?: boolean;
-  /** Optional native hit-test registration for the close button. */
-  closeButtonRef?: HitZoneRef;
-  closeButtonOnLayout?: HitZoneLayout;
-  /** Optional native hit-test registration for action buttons. */
-  likeButtonRef?: HitZoneRef;
-  likeButtonOnLayout?: HitZoneLayout;
-  commentButtonRef?: HitZoneRef;
-  commentButtonOnLayout?: HitZoneLayout;
-  guessButtonRef?: HitZoneRef;
-  guessButtonOnLayout?: HitZoneLayout;
+  /** Optional native hit-target registrations used by map marker wrappers. */
+  nativeHitTargets?: {
+    close?: NativeHitTargetRegistration;
+    like?: NativeHitTargetRegistration;
+    comment?: NativeHitTargetRegistration;
+    guess?: NativeHitTargetRegistration;
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -118,8 +120,23 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
-function getDisplayPrice(property: PropertyPreviewData): number | null {
-  return property.fmv ?? property.askingPrice ?? property.officialValuation ?? null;
+function getDisplayPrice(property: PropertyPreviewData): { price: number; label: string } | null {
+  if (property.fmv != null) {
+    return { price: property.fmv, label: 'Crowd FMV' };
+  }
+
+  if (property.askingPrice != null) {
+    return { price: property.askingPrice, label: 'Asking Price' };
+  }
+
+  if (property.officialValuation != null) {
+    return {
+      price: property.officialValuation,
+      label: getValuationLabel(property.countryCode),
+    };
+  }
+
+  return null;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────
@@ -134,19 +151,12 @@ export function PropertyPreviewCard({
   onClose,
   showCloseButton = false,
   showArrow = false,
-  closeButtonRef,
-  closeButtonOnLayout,
-  likeButtonRef,
-  likeButtonOnLayout,
-  commentButtonRef,
-  commentButtonOnLayout,
-  guessButtonRef,
-  guessButtonOnLayout,
+  nativeHitTargets,
 }: PropertyPreviewCardProps) {
   const activityLevel = property.activityLevel ?? 'cold';
   const activity = ACTIVITY_CONFIG[activityLevel];
   const displayPrice = getDisplayPrice(property);
-  const formattedPrice = formatPrice(displayPrice, property.countryCode);
+  const formattedPrice = formatPrice(displayPrice?.price, property.countryCode);
 
   // Resolve image using shared fallback rules
   const imageSource = toPropertyImageSource({
@@ -184,8 +194,8 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onClose();
             }}
-            ref={closeButtonRef}
-            onLayout={closeButtonOnLayout}
+            ref={nativeHitTargets?.close?.ref}
+            onLayout={nativeHitTargets?.close?.onLayout}
             style={styles.closeButton}
             hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
             testID="property-preview-close-button"
@@ -247,8 +257,11 @@ export function PropertyPreviewCard({
           {/* Price */}
           {formattedPrice && (
             <View style={styles.priceGroup}>
-              <Icon name="HouseLine" size={14} color={COLORS.gold500} />
-              <Text style={styles.priceText}>{formattedPrice}</Text>
+              <Text style={styles.priceLabel}>{displayPrice?.label}</Text>
+              <View style={styles.priceValueRow}>
+                <Icon name="HouseLine" size={14} color={COLORS.gold500} />
+                <Text style={styles.priceText}>{formattedPrice}</Text>
+              </View>
             </View>
           )}
         </View>
@@ -261,8 +274,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onLike?.();
           }}
-          ref={likeButtonRef}
-          onLayout={likeButtonOnLayout}
+          ref={nativeHitTargets?.like?.ref}
+          onLayout={nativeHitTargets?.like?.onLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-like-button"
@@ -285,8 +298,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onComment?.();
           }}
-          ref={commentButtonRef}
-          onLayout={commentButtonOnLayout}
+          ref={nativeHitTargets?.comment?.ref}
+          onLayout={nativeHitTargets?.comment?.onLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-comment-button"
@@ -302,8 +315,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onGuess?.();
           }}
-          ref={guessButtonRef}
-          onLayout={guessButtonOnLayout}
+          ref={nativeHitTargets?.guess?.ref}
+          onLayout={nativeHitTargets?.guess?.onLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-guess-button"
@@ -469,10 +482,23 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.warm200,
   },
   priceGroup: {
+    alignItems: 'flex-end',
+    flexDirection: 'column',
+    marginLeft: 'auto' as any,
+  },
+  priceLabel: {
+    fontSize: 11.5,
+    lineHeight: 14,
+    fontWeight: '700',
+    color: COLORS.warm500,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  priceValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginLeft: 'auto' as any,
   },
   priceText: {
     fontSize: 15.5,

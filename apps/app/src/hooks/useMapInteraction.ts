@@ -166,6 +166,30 @@ export function estimateZoomForBbox(west: number, south: number, east: number, n
 const PREVIEW_FLY_DURATION_MS = 500;
 const SEARCH_PREVIEW_FLY_DURATION_MS = 1000;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+const MAX_GROUP_DRILL_IN_ZOOM = 18;
+const PREVIEW_ZOOM_EPSILON = 0.5;
+
+function shouldOpenClusterPreview(
+  previewPropertyCount: number,
+  pointCount: number,
+  estimatedZoom: number | null,
+  hasBbox: boolean,
+  currentZoom: number,
+): boolean {
+  if (previewPropertyCount === 0) {
+    return false;
+  }
+
+  if (pointCount <= LARGE_CLUSTER_THRESHOLD || !hasBbox || estimatedZoom == null) {
+    return true;
+  }
+
+  if (currentZoom >= MAX_GROUP_DRILL_IN_ZOOM - PREVIEW_ZOOM_EPSILON) {
+    return true;
+  }
+
+  return estimatedZoom <= currentZoom + PREVIEW_ZOOM_EPSILON;
+}
 
 function flyToPreviewAnchor(
   camera: MapCameraCommands,
@@ -291,6 +315,14 @@ export function useMapInteraction(): UseMapInteractionReturn {
       currentProperty.thumbnailUrl ??
       selectedProperty.thumbnailUrl ??
       null;
+    const mergedCommentCount =
+      selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
+    const mergedGuessCount =
+      selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
+    const mergedLikeCount =
+      selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
+    const mergedActivityScore = mergedCommentCount + mergedGuessCount;
+    const mergedActivityLevel = getActivityLevel(mergedActivityScore);
 
     setPreviewGroup((prev) => {
       if (!prev) return prev;
@@ -308,9 +340,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
         prevCurrent.officialValuation === mergedOfficialValuation &&
         prevCurrent.askingPrice === mergedAskingPrice &&
         prevCurrent.fmv === mergedFmv &&
-        prevCurrent.likeCount === (selectedProperty.likeCount ?? prevCurrent.likeCount) &&
-        prevCurrent.commentCount === selectedProperty.commentCount &&
-        prevCurrent.guessCount === selectedProperty.guessCount
+        prevCurrent.activityLevel === mergedActivityLevel &&
+        prevCurrent.activityScore === mergedActivityScore &&
+        prevCurrent.likeCount === mergedLikeCount &&
+        prevCurrent.commentCount === mergedCommentCount &&
+        prevCurrent.guessCount === mergedGuessCount
       ) {
         return prev;
       }
@@ -325,13 +359,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
         officialValuation: mergedOfficialValuation,
         askingPrice: mergedAskingPrice,
         fmv: mergedFmv,
+        activityLevel: mergedActivityLevel,
+        activityScore: mergedActivityScore,
         aerialImageUrl: mergedAerialImageUrl,
         thumbnailUrl: mergedThumbnailUrl,
         yearBuilt: selectedProperty.yearBuilt,
         floorAreaM2: selectedProperty.floorAreaM2,
-        likeCount: selectedProperty.likeCount ?? prevCurrent.likeCount,
-        commentCount: selectedProperty.commentCount,
-        guessCount: selectedProperty.guessCount,
+        likeCount: mergedLikeCount,
+        commentCount: mergedCommentCount,
+        guessCount: mergedGuessCount,
       };
       return { ...prev, properties };
     });
@@ -522,16 +558,14 @@ export function useMapInteraction(): UseMapInteractionReturn {
               group.bbox.north,
             )
           : null;
-        const shouldPreview =
-          previewPropertyIds.length > 0 &&
-          (
-            group.pointCount <= LARGE_CLUSTER_THRESHOLD ||
-            !group.bbox ||
-            estimatedZoom == null ||
-            estimatedZoom <= currentZoom + 0.5
-          );
 
-        if (shouldPreview) {
+        if (shouldOpenClusterPreview(
+          previewPropertyIds.length,
+          group.pointCount,
+          estimatedZoom,
+          !!group.bbox,
+          currentZoom,
+        )) {
           const coord = group.coordinate;
           setHighlightedCoordinate(coord);
           flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
@@ -629,20 +663,22 @@ export function useMapInteraction(): UseMapInteractionReturn {
         });
       } else if (result.groupKind === 'cluster') {
         const previewIds = result.previewPropertyIds;
-        const shouldPreview =
-          previewIds.length > 0 &&
-          (
-            result.pointCount <= LARGE_CLUSTER_THRESHOLD ||
-            !result.bbox ||
-            estimateZoomForBbox(
+        const estimatedZoom = result.bbox
+          ? estimateZoomForBbox(
               result.bbox.west,
               result.bbox.south,
               result.bbox.east,
               result.bbox.north,
-            ) <= currentZoom + 0.5
-          );
+            )
+          : null;
 
-        if (shouldPreview) {
+        if (shouldOpenClusterPreview(
+          previewIds.length,
+          result.pointCount,
+          estimatedZoom,
+          !!result.bbox,
+          currentZoom,
+        )) {
           setHighlightedCoordinate(result.coordinate);
           flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {

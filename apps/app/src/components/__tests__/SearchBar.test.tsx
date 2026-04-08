@@ -37,6 +37,17 @@ function createMockAddress(overrides?: Partial<ResolvedAddress>): ResolvedAddres
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function focusNativeSearchInput() {
   fireEvent.press(screen.getByTestId('search-bar-focus-target'));
   return screen.getByTestId('search-bar-input');
@@ -323,6 +334,66 @@ describe('SearchBar', () => {
     expect(screen.queryByTestId('search-results-list')).toBeNull();
     expect(screen.queryByTestId('search-results-loading')).toBeNull();
     expect(screen.queryByTestId('search-results-empty')).toBeNull();
+  });
+
+  it('cancels an in-flight result resolution when the search resets', async () => {
+    jest.useRealTimers();
+
+    const mockAddress = createMockAddress();
+    const mockProperty = {
+      id: 'prop-123',
+      address: 'Teststraat 42',
+      postalCode: '5651HA',
+      city: 'Eindhoven',
+      coordinates: { lon: TEST_LNG, lat: TEST_LAT },
+      hasListing: true,
+      officialValuation: 350000,
+    };
+    const deferredResolve = createDeferred<typeof mockProperty>();
+
+    mockUseAddressSearch.mockReturnValue({
+      data: [mockAddress],
+      isLoading: false,
+    });
+    mockResolveProperty.mockReturnValue(deferredResolve.promise);
+
+    const { rerender } = render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        transientResetKey={0}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Teststraat 42');
+
+    await waitFor(() => {
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+    }, { timeout: 1000 });
+
+    const resultItems = screen.queryAllByTestId('search-result-item');
+    expect(resultItems.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.press(resultItems[0]);
+    });
+
+    rerender(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        transientResetKey={1}
+      />
+    );
+
+    await act(async () => {
+      deferredResolve.resolve(mockProperty);
+      await Promise.resolve();
+    });
+
+    expect(onPropertyResolved).not.toHaveBeenCalled();
+    expect(onLocationResolved).not.toHaveBeenCalled();
   });
 
   it('shows clear button and resets on tap', () => {

@@ -8,6 +8,7 @@ describe('PropertyPreviewCard', () => {
     address: 'Teststraat 123',
     city: 'Eindhoven',
     postalCode: '5600 AA',
+    countryCode: 'NL',
     officialValuation: 350000,
     activityLevel: 'warm',
     activityScore: 25,
@@ -25,6 +26,7 @@ describe('PropertyPreviewCard', () => {
 
     // Price is rendered as formatted value (e.g., "€ 350.000")
     expect(screen.getByText(/350/)).toBeTruthy();
+    expect(screen.getByText('WOZ Value')).toBeTruthy();
   });
 
   it('shows activity indicator based on activity level', () => {
@@ -130,6 +132,7 @@ describe('PropertyPreviewCard', () => {
 
     // Should render the formatted asking price
     expect(screen.getByText(/395/)).toBeTruthy();
+    expect(screen.getByText('Asking Price')).toBeTruthy();
   });
 
   it('displays FMV when provided', () => {
@@ -141,6 +144,7 @@ describe('PropertyPreviewCard', () => {
 
     // FMV takes priority — should render the formatted FMV price
     expect(screen.getByText(/380/)).toBeTruthy();
+    expect(screen.getByText('Crowd FMV')).toBeTruthy();
   });
 
   it('prefers FMV over asking price over official valuation', () => {

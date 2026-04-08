@@ -72,8 +72,82 @@ export const propertyHandlers = [
   /**
    * GET /properties/nearby - Nearby properties
    */
-  http.get('/properties/nearby', () => {
-    // Return a single result in density-aware grouped format
+  http.get('/properties/nearby', ({ request }) => {
+    const url = new URL(request.url);
+    const zoom = Number.parseFloat(url.searchParams.get('zoom') || '17');
+    const lon = Number.parseFloat(url.searchParams.get('lon') || '0');
+    const lat = Number.parseFloat(url.searchParams.get('lat') || '0');
+
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      return HttpResponse.json(
+        { error: 'BAD_REQUEST', message: 'lon and lat are required' },
+        { status: 400 },
+      );
+    }
+
+    // Match the live endpoint's null branch for taps with no nearby grouped feature.
+    if (lon < 4 || lat > 54) {
+      return HttpResponse.json(null);
+    }
+
+    if (zoom < 14) {
+      return HttpResponse.json({
+        node_class: 'active' as const,
+        group_kind: 'cluster' as const,
+        primary_property_id: mockMapProperties[0]?.id ?? 'prop-001',
+        point_count: 6,
+        property_ids: mockMapProperties.slice(0, 6).map((property) => property.id),
+        preview_property_ids: mockMapProperties.slice(0, 6).map((property) => property.id),
+        coordinate: [4.884, 52.3752] as [number, number],
+        bbox: [4.8836, 52.3748, 4.8844, 52.3756] as [number, number, number, number],
+        countryCode: null,
+        address: null,
+        city: null,
+        postalCode: null,
+        officialValuation: null,
+        hasListing: true,
+        askingPrice: null,
+        activityScore: 85,
+        activityScoreTotal: 210,
+        likeCount: 12,
+        commentCount: 4,
+        guessCount: 3,
+        thumbnailUrl: null,
+        yearBuilt: null,
+        floorAreaM2: null,
+        distanceMeters: 12,
+      });
+    }
+
+    if (zoom >= 17 && lon > 5.3) {
+      return HttpResponse.json({
+        node_class: 'ghost' as const,
+        group_kind: 'single' as const,
+        primary_property_id: 'ghost-prop-001',
+        point_count: 1,
+        property_ids: ['ghost-prop-001'],
+        preview_property_ids: ['ghost-prop-001'],
+        coordinate: [lon, lat] as [number, number],
+        bbox: null,
+        countryCode: null,
+        address: null,
+        city: null,
+        postalCode: null,
+        officialValuation: null,
+        hasListing: false,
+        askingPrice: null,
+        activityScore: 0,
+        activityScoreTotal: 0,
+        likeCount: 0,
+        commentCount: 0,
+        guessCount: 0,
+        thumbnailUrl: null,
+        yearBuilt: null,
+        floorAreaM2: null,
+        distanceMeters: 9,
+      });
+    }
+
     return HttpResponse.json({
       node_class: 'active' as const,
       group_kind: 'single' as const,

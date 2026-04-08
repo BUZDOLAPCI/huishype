@@ -77,10 +77,16 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
   const reducedMotion = useReducedMotion();
+  const searchOperationIdRef = useRef(0);
   // When true, the next inputValue change won't trigger a new search.
   // Used after selecting a result to prevent the dropdown from reopening.
   const suppressDebounce = useRef(false);
   const insets = useSafeAreaInsets();
+
+  const invalidatePendingSearch = useCallback(() => {
+    searchOperationIdRef.current += 1;
+    return searchOperationIdRef.current;
+  }, []);
 
   // Debounce the search query
   useEffect(() => {
@@ -117,6 +123,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
   // Handle result tap: resolve to local property
   const handleResultPress = useCallback(
     async (address: ResolvedAddress) => {
+      const operationId = invalidatePendingSearch();
       setShowResults(false);
       setIsFocused(false);
       suppressDebounce.current = true;
@@ -129,6 +136,10 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
         const postalCode = address.details.zip;
         const houseNumber = address.details.houseNumber;
 
+        if (operationId !== searchOperationIdRef.current) {
+          return;
+        }
+
         if (postalCode && houseNumber) {
           const property = await resolveProperty({
             postalCode,
@@ -138,6 +149,10 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
             street: address.details.street,
             city: address.details.city,
           });
+
+          if (operationId !== searchOperationIdRef.current) {
+            return;
+          }
 
           if (property) {
             onPropertyResolved(property, address);
@@ -151,6 +166,9 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
           }
         } else {
           // Missing postal code or house number - use geocoder coordinates
+          if (operationId !== searchOperationIdRef.current) {
+            return;
+          }
           onLocationResolved(
             { lon: address.lon, lat: address.lat },
             address.formattedAddress,
@@ -158,6 +176,9 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
           );
         }
       } catch (error) {
+        if (operationId !== searchOperationIdRef.current) {
+          return;
+        }
         console.warn('[HuisHype] Search resolve error:', error);
         // Fallback to geocoder coordinates
         onLocationResolved(
@@ -166,28 +187,35 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
           address,
         );
       } finally {
-        setIsResolving(false);
+        if (operationId === searchOperationIdRef.current) {
+          setIsResolving(false);
+        }
       }
     },
-    [onPropertyResolved, onLocationResolved],
+    [invalidatePendingSearch, onPropertyResolved, onLocationResolved],
   );
 
   // Clear search
   const handleClear = useCallback(() => {
+    invalidatePendingSearch();
     suppressDebounce.current = true;
     setInputValue('');
     setDebouncedQuery('');
     setShowResults(false);
-  }, []);
+    setIsResolving(false);
+  }, [invalidatePendingSearch]);
 
   // Dismiss overlay on backdrop press
   const handleBackdropPress = useCallback(() => {
+    invalidatePendingSearch();
     inputRef.current?.blur();
     setIsFocused(false);
     setShowResults(false);
-  }, []);
+    setIsResolving(false);
+  }, [invalidatePendingSearch]);
 
   const clearTransientSearchState = useCallback(() => {
+    invalidatePendingSearch();
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
@@ -198,7 +226,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
     setShowResults(false);
     setIsResolving(false);
     setIsFocused(false);
-  }, []);
+  }, [invalidatePendingSearch]);
 
   const lastTransientResetKey = useRef(transientResetKey);
   useEffect(() => {

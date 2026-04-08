@@ -8,7 +8,7 @@
  * portrait for phone form-factor, so callers use the native-specific
  * component variants instead.
  */
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 
 function readIsLandscape(): boolean {
   if (typeof window === 'undefined') return false;
@@ -16,20 +16,16 @@ function readIsLandscape(): boolean {
 }
 
 export function useIsLandscape(): boolean {
-  // Keep the server render and the first client render identical so
-  // responsive panels do not hydrate with mismatched DOM on square/narrow viewports.
-  const [isLandscape, setIsLandscape] = useState(false);
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === 'undefined') {
+        return () => undefined;
+      }
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    setIsLandscape(readIsLandscape());
-
-    const handleResize = () => {
-      setIsLandscape(readIsLandscape());
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  return isLandscape;
+      window.addEventListener('resize', onStoreChange);
+      return () => window.removeEventListener('resize', onStoreChange);
+    },
+    readIsLandscape,
+    () => false,
+  );
 }
