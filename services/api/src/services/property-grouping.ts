@@ -369,32 +369,37 @@ function clusterCandidates(
 
   const cellSize = config.maxRadiusUnits * 2 + config.gapUnits;
   const spatialHash = buildSpatialHash(candidates, cellSize, config.getRadiusUnits);
-  const orderedSeeds = [...candidates].sort(compareCandidatePriority);
-  const assigned = new Set<string>();
+  const visited = new Set<string>();
   const groups: GroupingCandidate[][] = [];
 
-  for (const seed of orderedSeeds) {
-    if (assigned.has(seed.id)) continue;
+  for (const root of candidates) {
+    if (visited.has(root.id)) continue;
 
-    const component: GroupingCandidate[] = [seed];
-    assigned.add(seed.id);
-    const seedRadius = config.getRadiusUnits(seed);
-    const cellX = Math.floor(seed.worldX / cellSize);
-    const cellY = Math.floor(seed.worldY / cellSize);
+    const stack = [root];
+    const component: GroupingCandidate[] = [];
+    visited.add(root.id);
 
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const bucket = spatialHash.get(`${cellX + dx}:${cellY + dy}`);
-        if (!bucket) continue;
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      component.push(current);
+      const currentRadius = config.getRadiusUnits(current);
+      const cellX = Math.floor(current.worldX / cellSize);
+      const cellY = Math.floor(current.worldY / cellSize);
 
-        for (const entry of bucket) {
-          if (assigned.has(entry.candidate.id)) continue;
-          const dxWorld = seed.worldX - entry.candidate.worldX;
-          const dyWorld = seed.worldY - entry.candidate.worldY;
-          const threshold = seedRadius + entry.radiusUnits + config.gapUnits;
-          if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
-            assigned.add(entry.candidate.id);
-            component.push(entry.candidate);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = spatialHash.get(`${cellX + dx}:${cellY + dy}`);
+          if (!bucket) continue;
+
+          for (const entry of bucket) {
+            if (visited.has(entry.candidate.id)) continue;
+            const dxWorld = current.worldX - entry.candidate.worldX;
+            const dyWorld = current.worldY - entry.candidate.worldY;
+            const threshold = currentRadius + entry.radiusUnits + config.gapUnits;
+            if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
+              visited.add(entry.candidate.id);
+              stack.push(entry.candidate);
+            }
           }
         }
       }
