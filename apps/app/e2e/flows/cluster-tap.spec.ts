@@ -251,14 +251,14 @@ test.describe('Cluster Tap Flow', () => {
       }
     });
 
-    // Set zoom level where clusters exist (below GHOST_NODE_THRESHOLD_ZOOM=17)
+    // Set a zoom level where dense active groups still cluster.
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
     await page.waitForTimeout(3000);
 
     // Query features to see what's rendered
     const features = await queryFeaturesAtCenter(page, [
       'property-clusters',
-      'single-active-points',
+      'ghost-clusters',
     ]);
     console.log(`Features at center: ${JSON.stringify(features.slice(0, 3))}`);
 
@@ -352,15 +352,15 @@ test.describe('Cluster Tap Flow', () => {
 
     if (foundCluster) {
       // Click the property card
-      const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
+      const propertyCard = page.locator('[data-testid="property-preview-card"]');
       await expect(propertyCard).toBeVisible();
       await propertyCard.click();
       await page.waitForTimeout(1000);
 
-      // Cluster preview should close
+      // Preview remains visible while the property is selected and the sheet expands.
       const clusterPreview = page.locator('[data-testid="group-preview-card"]');
       const previewVisible = await clusterPreview.isVisible().catch(() => false);
-      expect(previewVisible).toBe(false);
+      expect(previewVisible).toBe(true);
 
       // Property bottom sheet should have a selected property
       const hasSelectedProperty = await page.evaluate(() => {

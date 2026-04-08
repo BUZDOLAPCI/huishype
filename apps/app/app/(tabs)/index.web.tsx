@@ -25,20 +25,25 @@ import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import {
+  PROPERTY_GHOST_REVEAL_ZOOM,
+  QUERYABLE_PROPERTY_LAYER_IDS,
+} from '@huishype/shared/config';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
-const FLOATING_ZOOM_CONTROL_RIGHT = 16;
-const FLOATING_ZOOM_CONTROL_TOP = 112;
-const FLOATING_ZOOM_CONTROL_SIZE = 24;
+const FLOATING_ZOOM_CONTROL_RIGHT = 18;
+const FLOATING_ZOOM_CONTROL_TOP = 118;
+const FLOATING_ZOOM_CONTROL_SIZE = 40;
 const PREVIEW_FLY_DURATION_MS = 500;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
 const PREVIEW_ARROW_SIZE_PX = 10;
-const PREVIEW_ARROW_MARKER_GAP_PX = 2;
+const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
+const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -135,16 +140,6 @@ function enhanceBaseMapColors(map: maplibregl.Map) {
       // Ignore
     }
   });
-}
-
-// Inject maplibre-gl CSS for web
-const MAPLIBRE_CSS_ID = 'maplibre-gl-css';
-if (typeof document !== 'undefined' && !document.getElementById(MAPLIBRE_CSS_ID)) {
-  const link = document.createElement('link');
-  link.id = MAPLIBRE_CSS_ID;
-  link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/maplibre-gl@5.21.1/dist/maplibre-gl.css';
-  document.head.appendChild(link);
 }
 
 // Inject CSS for pulsing animation on selected node and preview card
@@ -354,12 +349,7 @@ function createSelectedMarkerElement(): HTMLDivElement {
 }
 
 // Property layer IDs for click handling
-const PROPERTY_LAYER_IDS = [
-  'property-clusters',
-  'single-active-points',
-  'active-nodes',
-  'ghost-nodes',
-];
+const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -652,19 +642,23 @@ export default function MapScreen() {
         }
       }, 200);
 
+      const markMapLoaded = () => {
+        clearTimeout(loadTimeout);
+        setMapLoaded(true);
+        syncVisibleZoom(map.getZoom());
+      };
+
       // Timeout fallback: dismiss loading overlay after 15s even if 'load' doesn't fire
       loadTimeout = setTimeout(() => {
         if (!cancelled) {
           map.resize();
-          setMapLoaded(true);
+          markMapLoaded();
           console.warn('[MapScreen] Map load timed out after 15s');
         }
       }, 15000);
 
       map.on('load', () => {
-        clearTimeout(loadTimeout);
-        setMapLoaded(true);
-        syncVisibleZoom(map.getZoom());
+        markMapLoaded();
 
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
@@ -673,6 +667,15 @@ export default function MapScreen() {
         setTimeout(() => {
           map.resize();
         }, 100);
+      });
+
+      // Some static-export runs paint and become interactive without reliably
+      // delivering the one-shot `load` event. Once the map reaches `idle`, the
+      // first complete render has happened and the loading overlay can go away.
+      map.on('idle', () => {
+        if (!cancelled) {
+          markMapLoaded();
+        }
       });
 
       map.on('error', (e: maplibregl.ErrorEvent) => {
@@ -724,45 +727,11 @@ export default function MapScreen() {
           propertyClickResetTimer.current = null;
         }, 0);
 
-        const feature = e.features[0];
-        const properties = feature.properties;
-        if (!properties) return;
-
-        const isCluster =
-          properties.point_count !== undefined && properties.point_count > 1;
-
-        if (isCluster) {
-          // Use the shared hook's feature-press logic
-          await handleFeaturePress(
-            e.features as unknown as GeoJSON.Feature[],
-            map.getZoom(),
-            cameraCommands,
-          );
-        } else {
-          // Individual property — at z>=17, features have `id` directly.
-          // At z<17, single-point clusters (point_count=1) from the
-          // `single-active-points` layer only have `property_ids`.
-          const propertyId =
-            (properties.id as string) ||
-            (properties.property_ids as string | undefined)?.split(',')[0];
-          const activityScore = (properties.activityScore as number) ??
-            (properties.max_activity as number) ?? 0;
-
-          if (propertyId) {
-            // Get the coordinate from the feature geometry
-            const geom = feature.geometry;
-            if (geom.type === 'Point') {
-              const coord = geom.coordinates as [number, number];
-              cameraCommands.flyTo({
-                center: coord,
-                zoom: map.getZoom(),
-                duration: PREVIEW_FLY_DURATION_MS,
-                anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
-              });
-              scheduleSinglePreviewSelection(propertyId, coord, activityScore, PREVIEW_FLY_DURATION_MS);
-            }
-          }
-        }
+        await handleFeaturePress(
+          e.features as unknown as GeoJSON.Feature[],
+          map.getZoom(),
+          cameraCommands,
+        );
       };
 
       // Handle any unhandled map click as a background tap.
@@ -844,7 +813,7 @@ export default function MapScreen() {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
 
-      cameraCommands.flyTo({ center: coord, zoom: 17, duration: 1000 });
+      cameraCommands.flyTo({ center: coord, zoom: SEARCH_TARGET_ZOOM, duration: 1000 });
       scheduleSinglePreviewSelection(property.id, coord, 0, 1000);
 
       // Set the search city from the resolved property
@@ -974,6 +943,18 @@ export default function MapScreen() {
           data-testid="map-view"
         />
 
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(255, 248, 240, 0.08)',
+          } as any}
+        />
+
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
@@ -1030,8 +1011,8 @@ export default function MapScreen() {
         <View
           style={{
             position: 'absolute',
-            bottom: 100,
-            right: 16,
+            bottom: 108,
+            right: 18,
             zIndex: 10,
           } as any}
         >

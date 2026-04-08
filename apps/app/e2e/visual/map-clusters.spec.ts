@@ -118,19 +118,19 @@ test.describe('Map Clusters Visual Tests', () => {
         return {
           hasClusters: !!map.getLayer(clusterLayer),
           hasClusterCount: !!map.getLayer(countLayer),
-          hasSingleActive: !!map.getLayer(singleActiveLayer),
+          hasGhostClusters: !!map.getLayer(singleActiveLayer),
           zoom: map.getZoom(),
         };
       },
       {
         clusterLayer: MAP_LAYER_NAMES.CLUSTERS,
         countLayer: MAP_LAYER_NAMES.CLUSTER_COUNT,
-        singleActiveLayer: MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS,
+        singleActiveLayer: MAP_LAYER_NAMES.GHOST_CLUSTERS,
       }
     );
 
     expect(layerInfo).not.toBeNull();
-    console.log(`Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, singleActive=${layerInfo?.hasSingleActive}`);
+    console.log(`Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, ghostClusters=${layerInfo?.hasGhostClusters}`);
 
     // Query rendered cluster features
     const clusterFeatures = await page.evaluate(
@@ -280,7 +280,7 @@ test.describe('Map Clusters Visual Tests', () => {
     });
   });
 
-  test('cluster features contain property_ids at zoom 13', async ({ page }) => {
+  test('cluster features expose the canonical grouped metadata at zoom 13', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
@@ -298,16 +298,19 @@ test.describe('Map Clusters Visual Tests', () => {
 
     await waitForMapIdle(page);
 
-    // Verify cluster features include property_ids (the new field)
+    // Verify cluster features expose the canonical grouped metadata contract.
     const clusterData = await page.evaluate(
       ({ layer }) => {
         const map = (window as any).__mapInstance;
         if (!map || !map.getLayer(layer)) return [];
         const features = map.queryRenderedFeatures(undefined, { layers: [layer] });
         return features.slice(0, 5).map((f: any) => ({
+          node_class: f.properties?.node_class,
+          group_kind: f.properties?.group_kind,
+          primary_property_id: f.properties?.primary_property_id,
           point_count: f.properties?.point_count,
           property_ids: f.properties?.property_ids,
-          has_active_children: f.properties?.has_active_children,
+          preview_property_ids: f.properties?.preview_property_ids,
         }));
       },
       { layer: MAP_LAYER_NAMES.CLUSTERS }
@@ -317,13 +320,15 @@ test.describe('Map Clusters Visual Tests', () => {
 
     if (clusterData.length > 0) {
       for (const cluster of clusterData) {
-        // Each cluster should have property_ids as comma-separated string
+        expect(cluster.node_class).toBe('active');
+        expect(cluster.group_kind).toBe('cluster');
+        expect(cluster.primary_property_id).toBeTruthy();
         expect(cluster.property_ids).toBeTruthy();
         const ids = cluster.property_ids.split(',');
         expect(ids.length).toBeGreaterThan(0);
-        // Number of IDs should match point_count (or be capped)
+        expect(cluster.preview_property_ids).toBeTruthy();
         console.log(
-          `  Cluster: point_count=${cluster.point_count}, ids=${ids.length}, active_children=${cluster.has_active_children}`
+          `  Cluster: point_count=${cluster.point_count}, ids=${ids.length}, primary=${cluster.primary_property_id}`
         );
       }
     }

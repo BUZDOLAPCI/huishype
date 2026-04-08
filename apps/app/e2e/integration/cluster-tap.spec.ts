@@ -173,12 +173,12 @@ test.describe('Cluster Tap - API Integration', () => {
 
   test('nearby cluster response includes bbox', async ({ request }) => {
     const resp = await request.get(
-      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=13&cluster=true`
+      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=13`
     );
 
     if (resp.ok()) {
       const data = await resp.json();
-      if (data && data.type === 'cluster') {
+      if (data && data.group_kind === 'cluster') {
         expect(data).toHaveProperty('bbox');
         expect(data.bbox).toHaveLength(4);
         const [west, south, east, north] = data.bbox;
@@ -190,7 +190,7 @@ test.describe('Cluster Tap - API Integration', () => {
         expect(south).toBeGreaterThanOrEqual(-90);
         expect(north).toBeLessThanOrEqual(90);
         console.log(`Cluster bbox: [${west}, ${south}, ${east}, ${north}]`);
-      } else if (data && data.type === 'single') {
+      } else if (data && data.group_kind === 'single') {
         console.log('Nearby returned a single result, not a cluster — bbox test not applicable');
       }
     } else {

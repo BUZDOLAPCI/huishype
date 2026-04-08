@@ -1,36 +1,37 @@
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+
 /**
- * MapLibre Layer Name Constants
- *
- * These constants match the layer IDs defined in apps/app/app/(tabs)/index.web.tsx
- * in the addPropertyLayers() function.
- *
- * IMPORTANT: If layer names change in the main app, update these constants.
+ * MapLibre layer name constants for density-aware property grouping.
  *
  * Layer visibility by zoom level:
- * - property-clusters: Z0-Z14 (clusters with point_count > 1)
- * - cluster-count: Z0-Z14 (text labels for cluster counts)
- * - single-active-points: Z0-Z14 (individual active points at low zoom)
- * - active-nodes: Z15+ (active nodes at high zoom, is_ghost = false)
- * - ghost-nodes: Z15+ (ghost nodes at high zoom, is_ghost = true)
+ * - property-clusters: active clusters at any zoom
+ * - cluster-count: active cluster labels at any zoom
+ * - active-nodes: active singles at any zoom
+ * - ghost-clusters: ghost-only clusters at z17+
+ * - ghost-cluster-count: ghost cluster labels at z17+
+ * - ghost-nodes: ghost singles at z17+
  */
 
 /**
  * All property-related layer names used in the map
  */
 export const MAP_LAYER_NAMES = {
-  /** Cluster circles shown at Z0-Z14 for grouped properties */
+  /** Active cluster circles shown whenever density requires grouping */
   CLUSTERS: 'property-clusters',
 
-  /** Text labels showing count inside clusters */
+  /** Text labels showing count inside active clusters */
   CLUSTER_COUNT: 'cluster-count',
 
-  /** Individual active points shown at low zoom (Z0-Z14) */
-  SINGLE_ACTIVE_POINTS: 'single-active-points',
-
-  /** Active nodes shown at high zoom (Z15+) - properties with is_ghost=false */
+  /** Active singles shown at any zoom */
   ACTIVE_NODES: 'active-nodes',
 
-  /** Ghost nodes shown at high zoom (Z15+) - properties with is_ghost=true */
+  /** Ghost-only clusters shown once ghost reveal kicks in */
+  GHOST_CLUSTERS: 'ghost-clusters',
+
+  /** Ghost cluster count labels */
+  GHOST_CLUSTER_COUNT: 'ghost-cluster-count',
+
+  /** Ghost singles shown once ghost reveal kicks in */
   GHOST_NODES: 'ghost-nodes',
 } as const;
 
@@ -39,33 +40,37 @@ export const MAP_LAYER_NAMES = {
  */
 export const ALL_PROPERTY_LAYERS = [
   MAP_LAYER_NAMES.CLUSTERS,
-  MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS,
   MAP_LAYER_NAMES.ACTIVE_NODES,
+  MAP_LAYER_NAMES.GHOST_CLUSTERS,
   MAP_LAYER_NAMES.GHOST_NODES,
 ] as const;
 
 /**
- * Layers visible at low zoom (Z0-Z14)
+ * Layers visible before ghost reveal.
  */
 export const LOW_ZOOM_LAYERS = [
   MAP_LAYER_NAMES.CLUSTERS,
   MAP_LAYER_NAMES.CLUSTER_COUNT,
-  MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS,
+  MAP_LAYER_NAMES.ACTIVE_NODES,
 ] as const;
 
 /**
- * Layers visible at high zoom (Z15+)
+ * Layers visible once ghost reveal is active.
  */
 export const HIGH_ZOOM_LAYERS = [
+  MAP_LAYER_NAMES.CLUSTERS,
+  MAP_LAYER_NAMES.CLUSTER_COUNT,
   MAP_LAYER_NAMES.ACTIVE_NODES,
+  MAP_LAYER_NAMES.GHOST_CLUSTERS,
+  MAP_LAYER_NAMES.GHOST_CLUSTER_COUNT,
   MAP_LAYER_NAMES.GHOST_NODES,
 ] as const;
 
 /**
  * Zoom threshold where ghost nodes become visible
- * Matching GHOST_NODE_THRESHOLD_ZOOM in index.web.tsx
+ * Matching PROPERTY_GHOST_REVEAL_ZOOM in the shared map config.
  */
-export const GHOST_NODE_ZOOM_THRESHOLD = 15;
+export const GHOST_NODE_ZOOM_THRESHOLD = PROPERTY_GHOST_REVEAL_ZOOM;
 
 /**
  * Helper function to get existing layers from map instance

@@ -235,8 +235,8 @@ test.describe('Critical Flows - Full Stack Integration', () => {
     });
 
     test('Feed view loads properties from real API', async ({ page }) => {
-      await page.goto('/');
-      await page.waitForLoadState('networkidle');
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle').catch(() => {});
 
       // Try to navigate to feed tab
       const feedTab = page.getByRole('tab', { name: /feed/i }).or(

@@ -1,6 +1,10 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { PropertyResolveResponse } from '@huishype/shared';
+import type {
+  PropertyGroupBounds,
+  PropertyNodeGroup,
+  PropertyResolveResponse,
+} from '@huishype/shared';
 import { withDerivedPropertyImageData } from './property-image';
 
 const DEFAULT_API_PORT = '3100';
@@ -96,54 +100,6 @@ export async function apiFetch<T>(
   }
 
   return response.json();
-}
-
-// --- Nearby property lookup (imperative, not a hook) ---
-
-export interface NearbyProperty {
-  id: string;
-  address: string;
-  city: string;
-  postalCode: string | null;
-  officialValuation: number | null;
-  hasListing: boolean;
-  thumbnailUrl: string | null;
-  activityScore: number;
-  distanceMeters: number;
-  geometry: { type: 'Point'; coordinates: [number, number] } | null;
-}
-
-/** Maximum distance (meters) to consider a nearby result as a valid tap target. */
-const NEARBY_MAX_DISTANCE_M = 50;
-
-/**
- * Fetch the closest property to a given coordinate.
- * Returns null if nothing is found within the distance threshold.
- *
- * This is an imperative async function (NOT a hook) — call it from tap
- * handlers only. It exists as a fallback for native Android where
- * queryRenderedFeatures doesn't reliably find custom vector tile features.
- */
-export async function fetchNearbyProperty(
-  lon: number,
-  lat: number,
-  zoom: number,
-): Promise<NearbyProperty | null> {
-  try {
-    const results = await apiFetch<NearbyProperty[]>(
-      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}&limit=1`,
-    );
-
-    if (!results || results.length === 0) return null;
-
-    const closest = results[0];
-    if (closest.distanceMeters > NEARBY_MAX_DISTANCE_M) return null;
-
-    return closest;
-  } catch (err) {
-    console.warn('[HuisHype] fetchNearbyProperty failed:', err);
-    return null;
-  }
 }
 
 // --- Property resolve (imperative, not a hook) ---
@@ -285,51 +241,201 @@ export async function resolveProperty(
 
 // --- Cluster-aware nearby lookup (imperative, not a hook) ---
 
-/** Cluster detection result from GET /properties/nearby?cluster=true */
-export type NearbyClusterResult =
-  | {
-      type: 'cluster';
-      point_count: number;
-      property_ids: string;
-      coordinate: [number, number];
-      distanceMeters: number;
-      bbox: [number, number, number, number]; // [west, south, east, north]
-    }
-  | {
-      type: 'single';
-      id: string;
-      address: string;
-      city: string;
-      postalCode: string | null;
-      officialValuation: number | null;
-      hasListing: boolean;
-      askingPrice: number | null;
-      thumbnailUrl: string | null;
-      activityScore: number;
-      likeCount: number;
-      commentCount: number;
-      guessCount: number;
-      distanceMeters: number;
-      geometry: { type: 'Point'; coordinates: [number, number] } | null;
-    };
+/** Density-aware grouped result from GET /properties/nearby */
+export interface NearbyGroupedResult {
+  node_class: 'active' | 'ghost';
+  group_kind: 'single' | 'cluster';
+  primary_property_id: string;
+  point_count: number;
+  property_ids: string[];
+  preview_property_ids: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activityScore: number;
+  activityScoreTotal: number;
+  likeCount: number;
+  commentCount: number;
+  guessCount: number;
+  hasListing: boolean;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  countryCode: string | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  yearBuilt?: number | null;
+  floorAreaM2?: number | null;
+}
+
+export type NearbyPropertyGroup = PropertyNodeGroup & {
+  distanceMeters: number;
+};
+
+export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  return toNullableNumber(value) ?? fallback;
+}
+
+function toNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function normalizeBbox(
+  bbox: [number, number, number, number] | null | undefined,
+): PropertyGroupBounds | null {
+  if (!bbox) {
+    return null;
+  }
+
+  return {
+    west: bbox[0],
+    south: bbox[1],
+    east: bbox[2],
+    north: bbox[3],
+  };
+}
+
+export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): NearbyPropertyGroup {
+  return {
+    nodeClass: result.node_class,
+    groupKind: result.group_kind,
+    primaryPropertyId: result.primary_property_id,
+    pointCount: result.point_count,
+    propertyIds: result.property_ids,
+    previewPropertyIds: result.preview_property_ids,
+    coordinate: result.coordinate,
+    bbox: normalizeBbox(result.bbox),
+    hasListing: result.hasListing,
+    activityScore: result.activityScore,
+    activityScoreTotal: result.activityScoreTotal,
+    likeCount: result.likeCount,
+    commentCount: result.commentCount,
+    guessCount: result.guessCount,
+    address: result.address,
+    city: result.city,
+    postalCode: result.postalCode,
+    countryCode: result.countryCode,
+    officialValuation: result.officialValuation,
+    askingPrice: result.askingPrice,
+    thumbnailUrl: result.thumbnailUrl,
+    yearBuilt: result.yearBuilt ?? null,
+    floorAreaM2: result.floorAreaM2 ?? null,
+    distanceMeters: result.distanceMeters,
+  };
+}
+
+export function normalizeRenderedPropertyGroup(
+  feature: GeoJSON.Feature,
+): PropertyNodeGroup | null {
+  const properties = feature.properties;
+  const geometry = feature.geometry;
+
+  if (!properties || geometry?.type !== 'Point') {
+    return null;
+  }
+
+  const nodeClass = toNullableString(properties.node_class);
+  const groupKind = toNullableString(properties.group_kind);
+  const propertyIds = parseTransportPropertyIds(
+    (properties.property_ids as string | string[] | undefined) ?? null,
+  );
+  const previewPropertyIds = parseTransportPropertyIds(
+    (properties.preview_property_ids as string | string[] | undefined) ?? null,
+  );
+  const primaryPropertyId =
+    toNullableString(properties.primary_property_id) ??
+    toNullableString(properties.id) ??
+    propertyIds[0] ??
+    null;
+
+  if (
+    (nodeClass !== 'active' && nodeClass !== 'ghost') ||
+    (groupKind !== 'single' && groupKind !== 'cluster') ||
+    !primaryPropertyId
+  ) {
+    return null;
+  }
+
+  return {
+    nodeClass,
+    groupKind,
+    primaryPropertyId,
+    pointCount: toNumber(properties.point_count, 1),
+    propertyIds,
+    previewPropertyIds: previewPropertyIds.length > 0 ? previewPropertyIds : propertyIds,
+    coordinate: geometry.coordinates as [number, number],
+    bbox:
+      toNullableNumber(properties.bbox_west) != null &&
+      toNullableNumber(properties.bbox_south) != null &&
+      toNullableNumber(properties.bbox_east) != null &&
+      toNullableNumber(properties.bbox_north) != null
+        ? {
+            west: toNumber(properties.bbox_west),
+            south: toNumber(properties.bbox_south),
+            east: toNumber(properties.bbox_east),
+            north: toNumber(properties.bbox_north),
+          }
+        : null,
+    hasListing: Boolean(properties.hasListing),
+    activityScore: toNumber(properties.activityScore),
+    activityScoreTotal: toNumber(properties.activityScoreTotal, toNumber(properties.activityScore)),
+    likeCount: toNumber(properties.likeCount),
+    commentCount: toNumber(properties.commentCount),
+    guessCount: toNumber(properties.guessCount),
+    address: toNullableString(properties.address),
+    city: toNullableString(properties.city),
+    postalCode: toNullableString(properties.postalCode),
+    countryCode: toNullableString(properties.countryCode),
+    officialValuation: toNullableNumber(properties.officialValuation),
+    askingPrice: toNullableNumber(properties.askingPrice),
+    thumbnailUrl: toNullableString(properties.thumbnailUrl),
+    yearBuilt: toNullableNumber(properties.yearBuilt),
+    floorAreaM2: toNullableNumber(properties.floorAreaM2),
+  };
+}
 
 /**
  * Fetch cluster-aware nearby result for a tap coordinate.
  * Returns a discriminated union: either a cluster (multiple properties in
  * the same grid cell) or a single property, or null if nothing is nearby.
  */
-export async function fetchNearbyCluster(
+export async function fetchNearbyGroup(
   lon: number,
   lat: number,
   zoom: number,
-): Promise<NearbyClusterResult | null> {
+): Promise<NearbyPropertyGroup | null> {
   try {
-    const result = await apiFetch<NearbyClusterResult | null>(
-      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}&cluster=true`,
+    const result = await apiFetch<NearbyGroupedResult | null>(
+      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}`,
     );
-    return result;
+    return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {
-    console.warn('[HuisHype] fetchNearbyCluster failed:', err);
+    console.warn('[HuisHype] fetchNearbyGroup failed:', err);
     return null;
   }
 }

@@ -8,7 +8,7 @@ import {
   estimateZoomForBbox,
 } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
-import type { NearbyClusterResult } from '../../utils/api';
+import type { NearbyPropertyGroup } from '../../utils/api';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR } from '../../lib/mapCameraAnchor';
 import { fetchBatchProperties } from '../../utils/api';
 import {
@@ -47,17 +47,21 @@ jest.mock('../../providers/AuthProvider', () => ({
 }));
 
 // Mock API
-jest.mock('../../utils/api', () => ({
-  API_URL: 'http://localhost:3100',
-  api: {
-    get: jest.fn(),
-    post: jest.fn(),
-    delete: jest.fn(),
-  },
-  apiFetch: jest.fn(),
-  fetchBatchProperties: jest.fn().mockResolvedValue([]),
-  fetchNearbyCluster: jest.fn().mockResolvedValue(null),
-}));
+jest.mock('../../utils/api', () => {
+  const actual = jest.requireActual('../../utils/api');
+  return {
+    ...actual,
+    API_URL: 'http://localhost:3100',
+    api: {
+      get: jest.fn(),
+      post: jest.fn(),
+      delete: jest.fn(),
+    },
+    apiFetch: jest.fn(),
+    fetchBatchProperties: jest.fn().mockResolvedValue([]),
+    fetchNearbyGroup: jest.fn().mockResolvedValue(null),
+  };
+});
 
 const mockFetchBatchProperties = fetchBatchProperties as jest.Mock;
 
@@ -142,6 +146,10 @@ describe('useMapInteraction', () => {
     });
     mockAuthUser = mockUser;
     jest.clearAllMocks();
+    mockUseProperty.mockReturnValue({
+      data: null,
+      isLoading: false,
+    });
     mockFetchBatchProperties.mockResolvedValue([]);
   });
 
@@ -267,6 +275,68 @@ describe('useMapInteraction', () => {
 
       expect(result.current.selectedPropertyId).toBeNull();
       expect(result.current.previewGroup).toBeNull();
+    });
+
+    it('suppresses stale sheet content after auth start when query data lingers', () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          address: 'Teststraat 1',
+          city: 'Eindhoven',
+          postalCode: '5611AA',
+          countryCode: 'NL',
+          geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+          officialValuation: 350000,
+          askingPrice: 375000,
+          fmv: null,
+          aerialImageUrl: null,
+          thumbnailUrl: null,
+          yearBuilt: 1998,
+          floorAreaM2: 120,
+          likeCount: 0,
+          commentCount: 0,
+          guessCount: 0,
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleAuthStarting();
+      });
+
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.selectedPropertyForSheet).toBeNull();
+    });
+
+    it('resetTransientUI clears modal, preview selection, and sheet index', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleAuthRequired('Sign in to continue');
+        result.current.setSelectedPropertyId('prop-1');
+        result.current.setHighlightedCoordinate([4.9, 52.37]);
+        result.current.setPreviewGroup({
+          properties: [{ id: 'prop-1', address: 'Test', city: 'Test' }],
+          coordinate: [4.9, 52.37],
+        });
+        result.current.handleSheetIndexChange(2);
+      });
+
+      act(() => {
+        result.current.resetTransientUI();
+      });
+
+      expect(result.current.showAuthModal).toBe(false);
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
+      expect(result.current.highlightedCoordinate).toBeNull();
+      expect(result.current.sheetIndexRef.current).toBe(-1);
     });
   });
 
@@ -462,7 +532,13 @@ describe('useMapInteraction', () => {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [4.9, 52.37] },
         properties: {
+          node_class: 'active',
+          group_kind: 'single',
+          primary_property_id: 'prop-1',
           id: 'prop-1',
+          point_count: 1,
+          property_ids: 'prop-1',
+          preview_property_ids: 'prop-1',
           address: '123 Main St',
           city: 'Amsterdam',
           activityScore: 25,
@@ -516,7 +592,12 @@ describe('useMapInteraction', () => {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [4.9, 52.37] },
         properties: {
+          node_class: 'active',
+          group_kind: 'cluster',
+          primary_property_id: 'p1',
           point_count: 50, // > LARGE_CLUSTER_THRESHOLD (30)
+          property_ids: 'p1,p2,p3',
+          preview_property_ids: 'p1,p2,p3',
           bbox_west: 4.8,
           bbox_south: 52.3,
           bbox_east: 5.0,
@@ -543,22 +624,31 @@ describe('useMapInteraction', () => {
       });
 
       const camera = createMockCamera();
-      const nearby: NearbyClusterResult = {
-        type: 'single',
-        id: 'prop-1',
+      const nearby: NearbyPropertyGroup = {
+        nodeClass: 'active',
+        groupKind: 'single',
+        primaryPropertyId: 'prop-1',
+        pointCount: 1,
+        propertyIds: ['prop-1'],
+        previewPropertyIds: ['prop-1'],
+        coordinate: [4.9, 52.37],
+        bbox: null,
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
-        officialValuation: 250000,
+        countryCode: 'NL',
         hasListing: true,
-        askingPrice: 300000,
-        thumbnailUrl: null,
         activityScore: 25,
+        activityScoreTotal: 25,
         likeCount: 3,
         commentCount: 5,
         guessCount: 2,
+        officialValuation: 250000,
+        askingPrice: 300000,
+        thumbnailUrl: null,
         distanceMeters: 10,
-        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+        yearBuilt: null,
+        floorAreaM2: null,
       };
 
       act(() => {
@@ -590,13 +680,31 @@ describe('useMapInteraction', () => {
       });
 
       const camera = createMockCamera();
-      const nearby: NearbyClusterResult = {
-        type: 'cluster',
-        point_count: 50,
-        property_ids: 'p1,p2,p3',
+      const nearby: NearbyPropertyGroup = {
+        nodeClass: 'active',
+        groupKind: 'cluster',
+        primaryPropertyId: 'p1',
+        pointCount: 50,
+        propertyIds: ['p1', 'p2', 'p3'],
+        previewPropertyIds: ['p1', 'p2', 'p3'],
         coordinate: [4.9, 52.37],
+        bbox: { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
+        hasListing: true,
+        activityScore: 60,
+        activityScoreTotal: 60,
+        likeCount: 0,
+        commentCount: 0,
+        guessCount: 0,
+        address: null,
+        city: null,
+        postalCode: null,
+        countryCode: null,
+        officialValuation: null,
+        askingPrice: null,
+        thumbnailUrl: null,
         distanceMeters: 10,
-        bbox: [4.8, 52.3, 5.0, 52.4],
+        yearBuilt: null,
+        floorAreaM2: null,
       };
 
       act(() => {
@@ -676,7 +784,7 @@ describe('useMapInteraction', () => {
 
       expect(camera.flyTo).toHaveBeenCalledWith({
         center: [4.9, 52.37],
-        zoom: 17,
+        zoom: 18,
         duration: 1000,
         anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
       });
@@ -709,7 +817,7 @@ describe('useMapInteraction', () => {
 
       expect(camera.flyTo).toHaveBeenCalledWith({
         center: [4.9, 52.37],
-        zoom: 17,
+        zoom: 18,
         duration: 1000,
       });
       // Location resolve doesn't set preview group
@@ -918,6 +1026,79 @@ describe('useMapInteraction', () => {
         expect(result.current.previewGroup?.properties[0]?.aerialImageUrl).toBe(
           'https://preview-cache.test/pdok.png',
         );
+      });
+    });
+
+    it('hydrates preview pricing and counts from the detail query', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: null,
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 425000,
+          askingPrice: 449000,
+          fmv: {
+            fmv: 431000,
+            confidence: 'medium',
+            guessCount: 12,
+            distribution: null,
+            officialValuation: 425000,
+            askingPrice: 449000,
+            divergence: -4,
+          },
+          likeCount: 7,
+          commentCount: 3,
+          guessCount: 12,
+          thumbnailUrl: null,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+            postalCode: '1012AB',
+            countryCode: 'NL',
+            officialValuation: null,
+            askingPrice: null,
+            fmv: null,
+            likeCount: 0,
+            commentCount: 0,
+            guessCount: 0,
+            thumbnailUrl: null,
+            aerialImageUrl: 'https://preview-cache.test/pdok.png',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.previewGroup?.properties[0]).toMatchObject({
+          officialValuation: 425000,
+          askingPrice: 449000,
+          fmv: 431000,
+          likeCount: 7,
+          commentCount: 3,
+          guessCount: 12,
+          aerialImageUrl: 'https://preview-cache.test/pdok.png',
+        });
       });
     });
   });

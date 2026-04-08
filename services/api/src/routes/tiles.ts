@@ -1,28 +1,36 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import {
+  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_MAP_FOOTPRINTS,
+  PROPERTY_MAP_LAYERS,
+} from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
+import {
+  buildMvtForTile,
+  tileToBBox,
+} from '../services/property-grouping.js';
 
 /**
- * Vector Tile Route for Property Clustering
+ * Vector Tile Route for Density-Aware Property Grouping
  *
  * Implements high-performance Dynamic Vector Tile (MVT) service that efficiently
- * renders properties based on zoom level and activity.
+ * renders properties based on final on-screen density rather than a hard zoom split.
  *
  * Business Logic:
- * - Z0-Z16: Show only "Active" properties (has listing OR has activity)
- *   - Properties are clustered using ST_SnapToGrid for performance
- *   - Ghost nodes (no listing, no activity) are filtered out
- * - Z17+: Show ALL properties including Ghost nodes
- *   - Individual points returned without clustering
+ * - Active nodes may group at any zoom when density requires it
+ * - Sparse active areas naturally resolve to singles
+ * - Ghost nodes reveal at Z17+ and group only with other ghosts
+ * - Ghosts inside active occupancy are suppressed before ghost grouping
  *
  * Performance:
- * - Uses ST_SnapToGrid NOT ST_ClusterDBSCAN (much faster for dynamic tiles)
+ * - Uses one canonical tile-local grouping engine shared with nearby fallback
  * - Returns ST_AsMVT (binary PBF format, not GeoJSON)
  * - Tiles are cacheable with short TTL for social activity propagation
  */
@@ -40,51 +48,11 @@ const fontParamsSchema = z.object({
   range: z.string().regex(/^\d+-\d+\.pbf$/),
 });
 
-// Zoom level threshold for showing ghost nodes
-const GHOST_NODE_THRESHOLD_ZOOM = 17;
-
-// Grid cell size in degrees for clustering at different zoom levels
-// Smaller = more clusters, Larger = fewer clusters
-function getGridCellSize(zoom: number): number {
-  // At zoom 0, world is 360 degrees
-  // Each zoom level doubles resolution
-  // baseCellSize equals the tile width in degrees at this zoom
-  const baseCellSize = 360 / Math.pow(2, zoom);
-  // Use 0.5x tile width so each tile contains ~2x2 grid cells.
-  // Previously 4x, which made the grid cell larger than the tile,
-  // causing ST_SnapToGrid to push cluster centroids outside the tile
-  // bbox -- ST_AsMVTGeom then clipped them to NULL, returning empty tiles.
-  return baseCellSize * 0.5;
-}
-
-/**
- * Convert tile coordinates to bounding box in EPSG:4326 (WGS84)
- * Standard Web Mercator tile scheme (TMS/XYZ)
- */
-function tileToBBox(z: number, x: number, y: number): {
-  minLon: number;
-  minLat: number;
-  maxLon: number;
-  maxLat: number;
-} {
-  const n = Math.pow(2, z);
-
-  // X coordinate to longitude
-  const minLon = (x / n) * 360 - 180;
-  const maxLon = ((x + 1) / n) * 360 - 180;
-
-  // Y coordinate to latitude (inverted because tile Y increases downward)
-  const minLatRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n)));
-  const maxLatRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
-  const minLat = (minLatRad * 180) / Math.PI;
-  const maxLat = (maxLatRad * 180) / Math.PI;
-
-  return { minLon, minLat, maxLon, maxLat };
-}
-
 // Zoom threshold for ghost nodes (frontend layers)
-// Must match GHOST_NODE_THRESHOLD_ZOOM so backend serves is_ghost at the same zoom frontend expects it
-const GHOST_NODE_FRONTEND_ZOOM = 17;
+// Must match the backend grouping engine so tiles and style stay aligned.
+const GHOST_NODE_FRONTEND_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
+const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
+const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
 
 // 3D Buildings configuration
 const BUILDINGS_3D_CONFIG = {
@@ -116,6 +84,16 @@ const SPRITES_DIR = join(__dirname, '..', '..', 'sprites');
 const spriteParamsSchema = z.object({
   filename: z.string().regex(/^ofm(@2x)?\.(json|png)$/),
 });
+
+const PROPERTY_TILE_CACHE_TTL_MS = 30_000;
+
+type PropertyTileCacheEntry = {
+  expiresAt: number;
+  payload: Buffer | null;
+  statusCode: 200 | 204;
+};
+
+const propertyTileCache = new Map<string, PropertyTileCacheEntry>();
 
 // --- Sprite manifest + layer filtering ---
 
@@ -205,6 +183,45 @@ function filterLayersForMissingSprites(
       return layer;
     })
     .filter(Boolean) as Array<Record<string, unknown>>;
+}
+
+const SHIELD_REF_LENGTH_LAYER_IDS = new Set([
+  'highway-shield-non-us',
+  'highway-shield-us-interstate',
+  'road_shield_us',
+]);
+
+function patchShieldRefLengthExpression(expression: unknown): unknown {
+  if (!Array.isArray(expression)) return expression;
+
+  if (
+    expression.length === 3 &&
+    expression[0] === '<=' &&
+    Array.isArray(expression[1]) &&
+    expression[1][0] === 'get' &&
+    expression[1][1] === 'ref_length' &&
+    expression[2] === 6
+  ) {
+    return [
+      'all',
+      ['has', 'ref_length'],
+      ['<=', ['to-number', ['get', 'ref_length'], Number.MAX_SAFE_INTEGER], 6],
+    ];
+  }
+
+  return expression.map((child) => patchShieldRefLengthExpression(child));
+}
+
+function patchShieldRefLengthFilters(layers: Array<Record<string, unknown>>): void {
+  layers.forEach((layer, index) => {
+    if (!SHIELD_REF_LENGTH_LAYER_IDS.has(String(layer.id))) return;
+    if (!Array.isArray(layer.filter)) return;
+
+    layers[index] = {
+      ...layer,
+      filter: patchShieldRefLengthExpression(layer.filter),
+    };
+  });
 }
 
 /**
@@ -447,33 +464,52 @@ function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknow
   }
 }
 
+type StepStop = readonly [threshold: number, value: number];
+
+function buildStepExpression(
+  input: unknown,
+  stops: readonly StepStop[],
+): [string, unknown, number, ...(number | string)[]] {
+  const [firstStop, ...restStops] = stops;
+  const expressionTail = restStops.flatMap(([threshold, value]) => [threshold, value]);
+  return ['step', input, firstStop[1], ...expressionTail];
+}
+
+function buildInterpolateExpression(
+  input: unknown,
+  stops: readonly StepStop[],
+): [string, string[], unknown, ...(number | string)[]] {
+  const expressionTail = stops.flatMap(([threshold, value]) => [threshold, value]);
+  return ['interpolate', ['linear'], input, ...expressionTail];
+}
 
 /**
  * Build the property layers array for the merged style.
  * These are the canonical layer definitions — both web and native clients
  * consume them from /tiles/style.json.
  *
- * Layer IDs match what web e2e tests expect:
- *   property-clusters, cluster-count, single-active-points, active-nodes, ghost-nodes
+ * Final layer IDs:
+ *   property-clusters, cluster-count, active-nodes,
+ *   ghost-clusters, ghost-cluster-count, ghost-nodes
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
   return [
-    // Cluster circles (Z0-Z16) — step-based color by cluster size
+    // Active cluster circles at any zoom.
     {
-      id: 'property-clusters',
+      id: PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,
       type: 'circle',
       source: 'properties-source',
       'source-layer': 'properties',
-      maxzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
       paint: {
-        'circle-radius': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          16,   // default (2-9)
-          10, 22,   // 10-49
-          50, 28,   // 50-99
-          100, 36,  // 100+
-        ],
+        'circle-radius': buildStepExpression(
+          ['coalesce', ['get', 'point_count'], 2],
+          ACTIVE_FOOTPRINT.clusterRadiusStopsPx,
+        ),
         'circle-color': [
           'step', ['coalesce', ['get', 'point_count'], 2],
           '#3B82F6',  // blue-500: small clusters (2-9)
@@ -490,14 +526,17 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'circle-stroke-color': '#FFFFFF',
       },
     },
-    // Cluster count labels — scaled text size by cluster size
+    // Active cluster count labels.
     {
-      id: 'cluster-count',
+      id: PROPERTY_MAP_LAYERS.ACTIVE_CLUSTER_COUNT,
       type: 'symbol',
       source: 'properties-source',
       'source-layer': 'properties',
-      maxzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: ['>', ['coalesce', ['get', 'point_count'], 0], 1],
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
         'text-font': ['Noto Sans Regular'],
@@ -508,8 +547,6 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
           50, 14,  // 50-99
           100, 16, // 100+
         ],
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
       },
       paint: {
         'text-color': '#FFFFFF',
@@ -517,56 +554,22 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'text-halo-width': 1,
       },
     },
-    // Single active points at low zoom (Z0-Z16) — activity-score based styling
+    // Active singles at any zoom.
     {
-      id: 'single-active-points',
+      id: PROPERTY_MAP_LAYERS.ACTIVE_NODES,
       type: 'circle',
       source: 'properties-source',
       'source-layer': 'properties',
-      maxzoom: GHOST_NODE_FRONTEND_ZOOM,
       filter: [
         'all',
-        ['any', ['!', ['has', 'point_count']], ['==', ['coalesce', ['get', 'point_count'], 0], 1]],
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0],
-          0, 8,
-          50, 12,
-          100, 16,
-        ],
-        'circle-color': [
-          'case',
-          ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 50],
-          '#EF4444', // red-500 (hot)
-          ['>', ['coalesce', ['get', 'activityScore'], ['get', 'max_activity'], 0], 0],
-          '#F97316', // orange-500 (warm)
-          '#3B82F6', // blue-500 (cold)
-        ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
-      },
-    },
-    // Active nodes (Z17+) — activity-score based styling
-    {
-      id: 'active-nodes',
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: ['==', ['get', 'is_ghost'], false],
-      paint: {
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
+        'circle-radius': buildInterpolateExpression(
           ['coalesce', ['get', 'activityScore'], 0],
-          0, 6,
-          50, 10,
-          100, 14,
-        ],
+          ACTIVE_FOOTPRINT.singleRadiusStopsPx,
+        ),
         'circle-color': [
           'case',
           ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
@@ -580,16 +583,66 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'circle-stroke-color': '#FFFFFF',
       },
     },
-    // Ghost nodes (Z17+)
+    // Ghost-only clusters appear once ghosts are revealed.
     {
-      id: 'ghost-nodes',
+      id: PROPERTY_MAP_LAYERS.GHOST_CLUSTERS,
       type: 'circle',
       source: 'properties-source',
       'source-layer': 'properties',
       minzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: ['==', ['get', 'is_ghost'], true],
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'ghost'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
       paint: {
-        'circle-radius': 3,
+        'circle-radius': buildStepExpression(
+          ['coalesce', ['get', 'point_count'], 2],
+          GHOST_FOOTPRINT.clusterRadiusStopsPx,
+        ),
+        'circle-color': '#CBD5E1',
+        'circle-opacity': 0.5,
+        'circle-stroke-width': 1,
+        'circle-stroke-color': '#FFFFFF',
+        'circle-stroke-opacity': 0.7,
+      },
+    },
+    {
+      id: PROPERTY_MAP_LAYERS.GHOST_CLUSTER_COUNT,
+      type: 'symbol',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      minzoom: GHOST_NODE_FRONTEND_ZOOM,
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'ghost'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      layout: {
+        'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 11,
+      },
+      paint: {
+        'text-color': '#475569',
+        'text-halo-color': 'rgba(255, 255, 255, 0.85)',
+        'text-halo-width': 1,
+      },
+    },
+    // Ghost singles remain low emphasis.
+    {
+      id: PROPERTY_MAP_LAYERS.GHOST_NODES,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      minzoom: GHOST_NODE_FRONTEND_ZOOM,
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'ghost'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': GHOST_FOOTPRINT.singleRadiusPx,
         'circle-color': '#94A3B8',
         'circle-opacity': 0.4,
         'circle-stroke-width': 1,
@@ -819,6 +872,10 @@ export async function tileRoutes(app: FastifyInstance) {
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
 
+        // OpenFreeMap's shield filters compare `ref_length` numerically even when the
+        // attribute is missing, which triggers runtime MapLibre warnings on some roads.
+        patchShieldRefLengthFilters(layers);
+
         // Remove unused raster sources (e.g. ne2_shaded natural earth) that have no
         // corresponding layer. MapLibre Native may still attempt to load/process these,
         // potentially interfering with the vector fill rendering pipeline.
@@ -1026,8 +1083,8 @@ export async function tileRoutes(app: FastifyInstance) {
    * GET /tiles/properties/:z/:x/:y.pbf
    *
    * Returns a Mapbox Vector Tile (MVT) containing property data
-   * - Clustered at low zoom (Z0-Z16)
-   * - Individual points at high zoom (Z17+)
+   * - Active nodes may group at any zoom based on density
+   * - Ghost nodes reveal at Z17+ and group only with ghosts
    */
   typedApp.get(
     '/tiles/properties/:z/:x/:y.pbf',
@@ -1036,7 +1093,7 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get property vector tile',
         description:
-          'Returns MVT/PBF vector tile with property data. Clustered at Z0-16, individual points at Z17+. Ghost nodes only shown at Z17+.',
+          'Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.',
         params: tileParamsSchema,
         // Response schema is omitted for binary data
         // Content-Type will be application/x-protobuf
@@ -1044,20 +1101,36 @@ export async function tileRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { z, x, y } = request.params;
-      const bbox = tileToBBox(z, x, y);
+      const cacheKey = `${z}/${x}/${y}`;
+      const now = Date.now();
+      const cachedTile = propertyTileCache.get(cacheKey);
+
+      if (cachedTile && cachedTile.expiresAt > now) {
+        if (cachedTile.statusCode === 204) {
+          return reply
+            .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+            .header('X-Tile-Generation-Time', '0ms')
+            .header('X-Tile-Cache', 'hit')
+            .status(204)
+            .send();
+        }
+
+        return reply
+          .header('Content-Type', 'application/x-protobuf')
+          .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+          .header('X-Tile-Generation-Time', '0ms')
+          .header('X-Tile-Cache', 'hit')
+          .send(cachedTile.payload);
+      }
+
+      if (cachedTile) {
+        propertyTileCache.delete(cacheKey);
+      }
 
       // Track query time for performance monitoring
       const startTime = Date.now();
 
-      let mvtBuffer: Buffer;
-
-      if (z >= GHOST_NODE_THRESHOLD_ZOOM) {
-        // High zoom: Return individual points (including ghost nodes)
-        mvtBuffer = await getIndividualPointsMVT(bbox, z, x, y);
-      } else {
-        // Low zoom: Return clustered points (filter ghost nodes)
-        mvtBuffer = await getClusteredMVT(bbox, z, x, y);
-      }
+      const mvtBuffer = await buildMvtForTile({ z, x, y });
 
       const queryTime = Date.now() - startTime;
 
@@ -1071,8 +1144,25 @@ export async function tileRoutes(app: FastifyInstance) {
 
       // Empty tile
       if (!mvtBuffer || mvtBuffer.length === 0) {
-        return reply.status(204).send();
+        propertyTileCache.set(cacheKey, {
+          expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
+          payload: null,
+          statusCode: 204,
+        });
+
+        return reply
+          .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+          .header('X-Tile-Generation-Time', `${queryTime}ms`)
+          .header('X-Tile-Cache', 'miss')
+          .status(204)
+          .send();
       }
+
+      propertyTileCache.set(cacheKey, {
+        expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
+        payload: mvtBuffer,
+        statusCode: 200,
+      });
 
       // Set appropriate headers for MVT
       return reply
@@ -1082,6 +1172,7 @@ export async function tileRoutes(app: FastifyInstance) {
           'public, max-age=30, stale-while-revalidate=60'
         )
         .header('X-Tile-Generation-Time', `${queryTime}ms`)
+        .header('X-Tile-Cache', 'miss')
         .send(mvtBuffer);
     }
   );
@@ -1113,7 +1204,7 @@ export async function tileRoutes(app: FastifyInstance) {
         return reply.status(204).send();
       }
 
-      const bbox = tileToBBox(z, x, y);
+      const bbox = tileToBBox({ z, x, y });
       const candidates = generateTreeCandidates(z, x, y, bbox, TREE_VARIANTS);
 
       if (candidates.length === 0) {
@@ -1214,8 +1305,8 @@ export async function tileRoutes(app: FastifyInstance) {
               ST_Transform(geometry, 3857),
               ST_TileEnvelope(${z}, ${x}, ${y}),
               4096,
-              512,
-              false
+              256,
+              true
             ) AS geom
           FROM osm_buildings
           WHERE geometry && ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326)
@@ -1242,236 +1333,6 @@ export async function tileRoutes(app: FastifyInstance) {
         .send(mvtBuffer);
     },
   );
-}
-
-/**
- * Get clustered points MVT for low zoom levels (Z0-Z16)
- * Filters out ghost nodes (no listing, no activity)
- * Uses ST_SnapToGrid for fast clustering
- */
-async function getClusteredMVT(
-  bbox: { minLon: number; minLat: number; maxLon: number; maxLat: number },
-  z: number,
-  _x: number,
-  _y: number
-): Promise<Buffer> {
-  const gridSize = getGridCellSize(z);
-
-  // Query to generate clustered MVT
-  // 1. Filter to bounding box
-  // 2. Join with activity data (listings, comments, guesses)
-  // 3. Filter out ghost nodes (no listing AND no activity)
-  // 4. Cluster using ST_SnapToGrid
-  // 5. Aggregate cluster properties
-  // 6. Generate MVT with ST_AsMVT
-  const result = await db.execute<{ mvt: Buffer }>(sql`
-    WITH
-    -- Calculate activity for each property
-    property_activity AS (
-      SELECT
-        p.id,
-        p.geometry,
-        CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
-        COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score
-      FROM properties p
-      LEFT JOIN listings l ON l.property_id = p.id AND l.status = 'active'
-      LEFT JOIN (
-        SELECT property_id, COUNT(*) as cnt
-        FROM comments
-        GROUP BY property_id
-      ) comment_counts ON comment_counts.property_id = p.id
-      LEFT JOIN (
-        SELECT property_id, COUNT(*) as cnt
-        FROM price_guesses
-        GROUP BY property_id
-      ) guess_counts ON guess_counts.property_id = p.id
-      WHERE p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND ST_Intersects(
-          p.geometry,
-          ST_MakeEnvelope(${bbox.minLon}, ${bbox.minLat}, ${bbox.maxLon}, ${bbox.maxLat}, 4326)
-        )
-    ),
-    -- Filter out ghost nodes for low zoom (only show active properties)
-    -- Also pre-compute snapped geometry to avoid GROUP BY parameter mismatch
-    active_properties AS (
-      SELECT
-        id,
-        geometry,
-        has_listing,
-        activity_score,
-        ST_SnapToGrid(geometry, ${gridSize}) as snapped_geom
-      FROM property_activity
-      WHERE has_listing = true OR activity_score > 0
-    ),
-    -- Cluster using pre-computed snapped geometry
-    clustered AS (
-      SELECT
-        snapped_geom,
-        COUNT(*) as point_count,
-        CASE WHEN COUNT(*) = 1
-          THEN (array_agg(geometry))[1]
-          ELSE ST_Centroid(ST_Collect(geometry))
-        END as display_geom,
-        MAX(CASE WHEN has_listing THEN 1 ELSE 0 END) as has_listing_max,
-        SUM(activity_score) as total_activity,
-        MAX(activity_score) as max_activity,
-        array_agg(id ORDER BY activity_score DESC) as property_ids,
-        ST_XMin(ST_Extent(geometry)) as bbox_west,
-        ST_YMin(ST_Extent(geometry)) as bbox_south,
-        ST_XMax(ST_Extent(geometry)) as bbox_east,
-        ST_YMax(ST_Extent(geometry)) as bbox_north
-      FROM active_properties
-      GROUP BY snapped_geom
-    ),
-    -- Prepare MVT layer data
-    mvt_data AS (
-      SELECT
-        ST_AsMVTGeom(
-          display_geom,
-          ST_MakeEnvelope(${bbox.minLon}, ${bbox.minLat}, ${bbox.maxLon}, ${bbox.maxLat}, 4326),
-          4096,
-          256,
-          true
-        ) as geom,
-        point_count,
-        has_listing_max > 0 as has_active_children,
-        total_activity,
-        max_activity,
-        array_to_string(property_ids, ',') as property_ids,
-        bbox_west,
-        bbox_south,
-        bbox_east,
-        bbox_north
-      FROM clustered
-      WHERE display_geom IS NOT NULL
-    )
-    SELECT ST_AsMVT(mvt_data.*, 'properties', 4096, 'geom') as mvt
-    FROM mvt_data
-    WHERE geom IS NOT NULL
-  `);
-
-  // Convert iterable result to array
-  const rows = Array.from(result) as { mvt: Buffer }[];
-  const row = rows[0];
-  if (!row?.mvt) {
-    return Buffer.alloc(0);
-  }
-
-  // Handle both Buffer and Uint8Array from postgres driver
-  if (Buffer.isBuffer(row.mvt)) {
-    return row.mvt;
-  }
-  return Buffer.from(row.mvt);
-}
-
-/**
- * Get individual points MVT for high zoom levels (Z17+)
- * Includes ALL properties (both active and ghost nodes)
- */
-async function getIndividualPointsMVT(
-  bbox: { minLon: number; minLat: number; maxLon: number; maxLat: number },
-  _z: number,
-  _x: number,
-  _y: number
-): Promise<Buffer> {
-  // Query to generate individual points MVT
-  // Returns all properties with their activity status
-  const result = await db.execute<{ mvt: Buffer }>(sql`
-    WITH
-    -- Calculate activity for each property in bounds
-    property_data AS (
-      SELECT
-        p.id,
-        p.geometry,
-        p.street || ' ' || p.house_number || CASE
-          WHEN p.house_number_addition IS NULL OR p.house_number_addition = '' THEN ''
-          WHEN LENGTH(p.house_number_addition) = 1 AND p.house_number_addition ~ '^[A-Z]$' THEN p.house_number_addition
-          ELSE '-' || p.house_number_addition
-        END AS address,
-        p.city,
-        p.postal_code,
-        p.official_valuation,
-        p.floor_area_m2,
-        p.year_built,
-        CASE WHEN l.id IS NOT NULL THEN true ELSE false END as has_listing,
-        l.asking_price,
-        COALESCE(comment_counts.cnt, 0) + COALESCE(guess_counts.cnt, 0) as activity_score,
-        COALESCE(like_counts.cnt, 0) as like_count,
-        COALESCE(comment_counts.cnt, 0) as comment_count,
-        COALESCE(guess_counts.cnt, 0) as guess_count
-      FROM properties p
-      LEFT JOIN LATERAL (
-        SELECT id, asking_price FROM listings
-        WHERE property_id = p.id AND status = 'active'
-        ORDER BY created_at DESC LIMIT 1
-      ) l ON true
-      LEFT JOIN (
-        SELECT target_id, COUNT(*) as cnt
-        FROM reactions
-        WHERE target_type = 'property' AND reaction_type = 'like'
-        GROUP BY target_id
-      ) like_counts ON like_counts.target_id = p.id
-      LEFT JOIN (
-        SELECT property_id, COUNT(*) as cnt
-        FROM comments
-        GROUP BY property_id
-      ) comment_counts ON comment_counts.property_id = p.id
-      LEFT JOIN (
-        SELECT property_id, COUNT(*) as cnt
-        FROM price_guesses
-        GROUP BY property_id
-      ) guess_counts ON guess_counts.property_id = p.id
-      WHERE p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND ST_Intersects(
-          p.geometry,
-          ST_MakeEnvelope(${bbox.minLon}, ${bbox.minLat}, ${bbox.maxLon}, ${bbox.maxLat}, 4326)
-        )
-    ),
-    -- Prepare MVT layer data
-    mvt_data AS (
-      SELECT
-        ST_AsMVTGeom(
-          geometry,
-          ST_MakeEnvelope(${bbox.minLon}, ${bbox.minLat}, ${bbox.maxLon}, ${bbox.maxLat}, 4326),
-          4096,
-          256,
-          true
-        ) as geom,
-        id,
-        address,
-        city,
-        postal_code as "postalCode",
-        official_valuation as "officialValuation",
-        asking_price as "askingPrice",
-        floor_area_m2 as "floorAreaM2",
-        year_built as "yearBuilt",
-        has_listing as "hasListing",
-        activity_score as "activityScore",
-        like_count as "likeCount",
-        comment_count as "commentCount",
-        guess_count as "guessCount",
-        NOT has_listing AND activity_score = 0 as is_ghost
-      FROM property_data
-    )
-    SELECT ST_AsMVT(mvt_data.*, 'properties', 4096, 'geom') as mvt
-    FROM mvt_data
-    WHERE geom IS NOT NULL
-  `);
-
-  // Convert iterable result to array
-  const rows = Array.from(result) as { mvt: Buffer }[];
-  const row = rows[0];
-  if (!row?.mvt) {
-    return Buffer.alloc(0);
-  }
-
-  // Handle both Buffer and Uint8Array from postgres driver
-  if (Buffer.isBuffer(row.mvt)) {
-    return row.mvt;
-  }
-  return Buffer.from(row.mvt);
 }
 
 // Export types

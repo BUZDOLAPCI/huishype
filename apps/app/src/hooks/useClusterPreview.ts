@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import { apiFetch } from '../utils/api';
 import type { Property } from './useProperties';
+import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared/config';
 
-const LARGE_CLUSTER_THRESHOLD = 30;
+const LARGE_CLUSTER_THRESHOLD = PROPERTY_PREVIEW_MEMBER_LIMIT;
 
 export interface UseClusterPreviewReturn {
   clusterProperties: Property[];
@@ -39,7 +40,7 @@ export function useClusterPreview(
 
     setIsLoading(true);
     try {
-      const ids = propertyIds.slice(0, 50).join(',');
+      const ids = propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',');
       const properties = await apiFetch<Property[]>(`/properties/batch?ids=${ids}`);
       if (properties.length > 0) {
         setClusterProperties(properties);

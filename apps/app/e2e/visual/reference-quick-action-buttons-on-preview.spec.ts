@@ -13,6 +13,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import * as path from 'path';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapIdle } from './helpers/visual-test-helpers';
 import {
   clickOnPropertyMarker,
@@ -30,11 +31,9 @@ test.setTimeout(120000);
 const EXPECTATION_NAME = 'quick-action-buttons-on-preview';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Map view configuration - use Eindhoven center where properties and listings exist
-// The backend API returns individual points (with is_ghost) only at z17+
-// At z15-z16 there's a gap between frontend layers and backend clustering
+// Map view configuration - use Eindhoven center where properties and listings exist.
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
-const ZOOM_LEVEL = 17; // Zoom level where individual markers are visible (API returns individual points at z17+)
+const ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -71,9 +70,9 @@ async function waitForMapReady(page: Page): Promise<void> {
       const hasGhostLayer = mapInstance.getLayer('ghost-nodes');
       const hasActiveLayer = mapInstance.getLayer('active-nodes');
       const hasClusters = mapInstance.getLayer('property-clusters');
-      const hasSingleActive = mapInstance.getLayer('single-active-points');
+      const hasGhostClusterLayer = mapInstance.getLayer('ghost-clusters');
 
-      if (!hasGhostLayer && !hasActiveLayer && !hasClusters && !hasSingleActive) return false;
+      if (!hasGhostLayer && !hasActiveLayer && !hasClusters && !hasGhostClusterLayer) return false;
 
       // Also check that there are actually features rendered
       const canvas = mapInstance.getCanvas();
@@ -83,7 +82,7 @@ async function waitForMapReady(page: Page): Promise<void> {
       try {
         const features = mapInstance.queryRenderedFeatures(
           [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points'].filter(l => mapInstance.getLayer(l)) }
+          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters'].filter(l => mapInstance.getLayer(l)) }
         );
         featureCount = features?.length || 0;
       } catch (e) {
@@ -129,7 +128,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       const canvas = mapInstance.getCanvas();
       if (!canvas) return false;
 
-      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
         .filter(l => mapInstance.getLayer(l));
       if (layerIds.length === 0) return false;
 

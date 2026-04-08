@@ -1,7 +1,8 @@
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
+import { SectionCard } from './SectionCard';
 
 interface ListingLinksProps {
   listings: ListingData[];
@@ -55,64 +56,177 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
   };
 
   return (
-    <View className="px-4 py-4 border-t border-warm-100">
-      <View className="flex-row items-center mb-3">
-        <Ionicons name="link" size={20} color="#F5A623" />
-        <Text className="text-lg font-semibold text-warm-900 ml-2">
-          Listings{hasListings ? ` (${listings.length})` : ''}
-        </Text>
-      </View>
+    <SectionCard
+      title={`Listings${hasListings ? ` (${listings.length})` : ''}`}
+      icon="link"
+      description="Jump to the source listing or add another market reference for this address."
+    >
+      <View style={styles.stack}>
+        {hasListings &&
+          listings.map((listing) => {
+            const sourceInfo = getSourceInfo(listing.sourceName);
+            const price = formatPrice(listing.askingPrice, listing.priceType);
+            const statusBadge = getStatusBadge(listing.status);
 
-      {hasListings &&
-        listings.map((listing) => {
-          const sourceInfo = getSourceInfo(listing.sourceName);
-          const price = formatPrice(listing.askingPrice, listing.priceType);
-          const statusBadge = getStatusBadge(listing.status);
-
-          return (
-            <Pressable
-              key={listing.id}
-              onPress={() => handleOpenLink(listing.sourceUrl, listing.sourceName)}
-              className="flex-row items-center p-3 mb-2 rounded-xl bg-warm-50 active:bg-warm-100"
-            >
-              <View
-                style={{ backgroundColor: sourceInfo.color }}
-                className="w-10 h-10 rounded-lg items-center justify-center"
+            return (
+              <Pressable
+                key={listing.id}
+                onPress={() => handleOpenLink(listing.sourceUrl, listing.sourceName)}
+                style={({ pressed }) => [
+                  styles.row,
+                  pressed && styles.rowPressed,
+                ]}
               >
-                <Ionicons name={sourceInfo.icon} size={20} color="white" />
-              </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-sm font-semibold text-warm-900">
-                  {sourceInfo.name}
-                </Text>
-                {price && (
-                  <Text className="text-sm text-warm-600">{price}</Text>
-                )}
-              </View>
-              {statusBadge && (
                 <View
-                  style={{ backgroundColor: statusBadge.color }}
-                  className="px-2 py-1 rounded-full mr-2"
+                  style={[styles.iconTile, { backgroundColor: `${sourceInfo.color}18` }]}
                 >
-                  <Text className="text-xs text-white font-medium">
-                    {statusBadge.text}
-                  </Text>
+                  <Ionicons name={sourceInfo.icon} size={20} color={sourceInfo.color} />
                 </View>
-              )}
-              <Ionicons name="open-outline" size={16} color="#C7BFB3" />
-            </Pressable>
-          );
-        })}
 
-      {onAddListing && (
-        <Pressable
-          onPress={onAddListing}
-          className="flex-row items-center justify-center p-3 rounded-xl border border-dashed border-warm-300 active:bg-warm-50"
-        >
-          <Ionicons name="add-circle-outline" size={20} color="#9C958A" />
-          <Text className="text-sm text-warm-500 font-medium ml-1.5">Add listing</Text>
-        </Pressable>
-      )}
-    </View>
+                <View style={styles.rowCopy}>
+                  <View style={styles.rowTop}>
+                    <Text style={styles.sourceName}>{sourceInfo.name}</Text>
+                    {statusBadge ? (
+                      <View style={[styles.statusBadge, { backgroundColor: statusBadge.color }]}>
+                        <Text style={styles.statusBadgeText}>{statusBadge.text}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowHint}>Open listing source</Text>
+                  {price ? <Text style={styles.rowPrice}>{price}</Text> : null}
+                </View>
+
+                <Ionicons name="open-outline" size={18} color="#C7BFB3" />
+              </Pressable>
+            );
+          })}
+
+        {!hasListings ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="home-outline" size={24} color="#C7BFB3" />
+            <Text style={styles.emptyTitle}>No linked listings yet</Text>
+            <Text style={styles.emptyBody}>
+              Add the first listing to connect the address with an external market page.
+            </Text>
+          </View>
+        ) : null}
+
+        {onAddListing ? (
+          <Pressable
+            onPress={onAddListing}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.addButtonPressed,
+            ]}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#9C958A" />
+            <Text style={styles.addButtonText}>Add listing</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </SectionCard>
   );
 }
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: 10,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+  },
+  rowPressed: {
+    backgroundColor: '#FFF7EB',
+  },
+  iconTile: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCopy: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  sourceName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2D2926',
+  },
+  rowHint: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#AEA699',
+  },
+  rowPrice: {
+    marginTop: 6,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#736C62',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  emptyState: {
+    alignItems: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+  },
+  emptyTitle: {
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#736C62',
+  },
+  emptyBody: {
+    marginTop: 6,
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#AEA699',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#D8CABB',
+    paddingVertical: 14,
+  },
+  addButtonPressed: {
+    backgroundColor: '#FFF7EB',
+  },
+  addButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8C8479',
+  },
+});

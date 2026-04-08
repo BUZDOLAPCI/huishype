@@ -1,0 +1,17 @@
+appId: nl.huishype.app
+---
+# Native verification for map smoke and low-zoom cluster preview behavior.
+
+- tapOn:
+    text: 'Continue'
+    optional: true
+- waitForAnimationToEnd
+- pressKey: back
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible: 'Zoom.*'
+    timeout: 180000
+
+- runFlow: flows/01-smoke.yaml
+- runFlow: flows/08-cluster-preview.yaml

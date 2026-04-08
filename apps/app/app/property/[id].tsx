@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet } from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
+import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,6 +7,7 @@ import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
 import { AuthModal } from '@/src/components';
 import { PropertyContent } from '@/src/components/PropertyBottomSheet/PropertyContent';
+import { normalizePropertyReturnTarget } from '@/src/utils/property-route';
 
 function PropertyDetailSkeleton() {
   return (
@@ -36,9 +37,10 @@ function PropertyNotFound() {
 }
 
 export default function PropertyDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnTo } = useLocalSearchParams<{ id: string; returnTo?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { data: property, isLoading, error } = useProperty(id ?? null);
+  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -53,6 +55,26 @@ export default function PropertyDetailScreen() {
     router.push(`/guesses/${propertyId}`);
   }, []);
 
+  const handleBack = useCallback(() => {
+    if (normalizedReturnTarget) {
+      router.replace(normalizedReturnTarget);
+      return;
+    }
+
+    router.back();
+  }, [normalizedReturnTarget]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleBack]);
+
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
 
   if (isLoading) {
@@ -61,7 +83,7 @@ export default function PropertyDetailScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         {/* Floating back button */}
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={styles.floatingButton}>
+          <Pressable onPress={handleBack} style={styles.floatingButton}>
             <Icon name="ArrowLeft" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -75,7 +97,7 @@ export default function PropertyDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={styles.floatingButton}>
+          <Pressable onPress={handleBack} style={styles.floatingButton}>
             <Icon name="ArrowLeft" size={20} color="#3D3832" />
           </Pressable>
         </View>
@@ -109,7 +131,7 @@ export default function PropertyDetailScreen() {
           pointerEvents="box-none"
         >
           <Pressable
-            onPress={() => router.back()}
+            onPress={handleBack}
             style={styles.floatingButton}
             testID="property-back-button"
             accessibilityRole="button"

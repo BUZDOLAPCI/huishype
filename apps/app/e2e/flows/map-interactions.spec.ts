@@ -4,9 +4,9 @@
  * Tests map interaction features end-to-end:
  * - Map loads and displays property data
  * - Zoom in/out programmatically, verify zoom level changes
- * - Verify clusters at low zoom, individual markers at high zoom
+ * - Verify density-aware clusters at low zoom and node rendering at higher zoom
  * - Pan to Eindhoven area, verify property data loads
- * - Test ghost vs active nodes at z17+
+ * - Test ghost vs active nodes once ghost reveal is active
  * - Verify vector tiles load at different zoom levels
  */
 
@@ -133,7 +133,7 @@ async function waitForPointFeatures(page: import('@playwright/test').Page, timeo
     const canvas = map.getCanvas();
     if (!canvas) return false;
 
-    const layers = ['single-active-points', 'active-nodes', 'ghost-nodes']
+    const layers = ['ghost-clusters', 'active-nodes', 'ghost-nodes']
       .filter((layer) => map.getLayer(layer));
     if (layers.length === 0) return false;
 
@@ -182,7 +182,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('map canvas renders and map instance is available', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
     // Wait for map to be ready
     await waitForMapReady(page);
@@ -200,7 +200,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('zoom in/out programmatically changes zoom level', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     // Set initial zoom
@@ -222,7 +222,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('pitch follows the zoom curve and manual pitch controls are disabled', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     const pitchControls = await page.evaluate(() => {
@@ -249,7 +249,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('compass appears on rotation and resets bearing on click', async ({ page }, testInfo) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     const zoomControl = page.getByTestId('map-zoom-control');
@@ -299,7 +299,7 @@ test.describe('Map Interactions', () => {
 
   test('zoom controls hide in portrait and stay top-right in landscape', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     const searchBar = page.getByTestId('search-bar-input');
@@ -345,7 +345,7 @@ test.describe('Map Interactions', () => {
       });
     });
 
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     await page.getByTestId('location-button').click();
@@ -375,10 +375,11 @@ test.describe('Map Interactions', () => {
   });
 
   test('same property can be reopened after closing its preview', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     await setMapView(page, EINDHOVEN_CENTER, 17);
+    await waitForPointFeatures(page);
 
     const previewCard = page.getByTestId('group-preview-card');
     const clickResult = await clickOnPropertyMarker(page);
@@ -394,55 +395,14 @@ test.describe('Map Interactions', () => {
     await closeButton.click();
     await expect(previewCard).toHaveCount(0);
 
-    const reopenTarget = await page.evaluate((propertyId) => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance || !mapInstance.isStyleLoaded() || !propertyId) {
-        return null;
-      }
-
-      const canvas = mapInstance.getCanvas();
-      const rect = canvas?.getBoundingClientRect();
-      if (!canvas || !rect) {
-        return null;
-      }
-
-      const layers = ['single-active-points', 'active-nodes', 'ghost-nodes']
-        .filter((layer) => mapInstance.getLayer(layer));
-      if (layers.length === 0) {
-        return null;
-      }
-
-      try {
-        const features = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers }
-        ) || [];
-        const feature = features.find((candidate: any) =>
-          candidate.geometry?.type === 'Point' &&
-          candidate.properties?.id === propertyId
-        );
-        if (!feature) {
-          return null;
-        }
-
-        const point = mapInstance.project(feature.geometry.coordinates);
-        return {
-          screenX: rect.left + point.x,
-          screenY: rect.top + point.y,
-        };
-      } catch {
-        return null;
-      }
-    }, clickResult.propertyId);
-
-    expect(reopenTarget).not.toBeNull();
-    await page.mouse.click(reopenTarget!.screenX, reopenTarget!.screenY);
+    const reopenedClick = await clickOnPropertyMarker(page);
+    expect(reopenedClick.success).toBe(true);
     await expect(previewCard).toBeVisible();
   });
 
   test('preview card stays horizontally aligned with the selected node', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 486, height: 419 });
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     await setMapView(page, EINDHOVEN_CENTER, 17);
@@ -478,7 +438,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('vector tiles load at zoom 15 (Eindhoven area)', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     // Set to Eindhoven at zoom 15 (clustered tiles range)
@@ -506,18 +466,13 @@ test.describe('Map Interactions', () => {
 
     console.log(`Has tile source at z15: ${hasTileSource}`);
 
-    // Even if no custom source, map should be loaded
-    const isLoaded = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      return map?.loaded() ?? false;
-    });
-    expect(isLoaded).toBe(true);
+    expect(hasTileSource).toBe(true);
   });
 
   test('different zoom levels show different data (cluster vs individual)', async ({
     page,
   }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page, 60000);
 
     // At low zoom (12), data should show clusters
@@ -526,13 +481,18 @@ test.describe('Map Interactions', () => {
 
     const lowZoomFeatures = await page.evaluate(() => {
       const map = (window as any).__mapInstance;
-      if (!map) return { count: 0 };
-      const features = map.queryRenderedFeatures();
+      if (!map) return { count: 0, hasCluster: false };
+      const canvas = map.getCanvas();
+      if (!canvas) return { count: 0, hasCluster: false };
+      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+        .filter((layer) => map.getLayer(layer));
+      const features = layers.length > 0
+        ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
+        : [];
       return {
         count: features.length,
         hasCluster: features.some(
-          (f: any) =>
-            f.properties?.cluster === true || f.properties?.point_count > 0
+          (f: any) => f.properties?.group_kind === 'cluster'
         ),
       };
     });
@@ -545,32 +505,33 @@ test.describe('Map Interactions', () => {
 
     const highZoomFeatures = await page.evaluate(() => {
       const map = (window as any).__mapInstance;
-      if (!map) return { count: 0 };
-      const features = map.queryRenderedFeatures();
+      if (!map) return { count: 0, hasGhost: false };
+      const canvas = map.getCanvas();
+      if (!canvas) return { count: 0, hasGhost: false };
+      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+        .filter((layer) => map.getLayer(layer));
+      const features = layers.length > 0
+        ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
+        : [];
       return {
         count: features.length,
         hasGhost: features.some(
-          (f: any) => f.properties?.is_ghost !== undefined
+          (f: any) => f.properties?.node_class === 'ghost'
         ),
       };
     });
 
     console.log(`High zoom (18): ${highZoomFeatures.count} features, hasGhost: ${highZoomFeatures.hasGhost}`);
 
-    // Map should be functional at both zoom levels
-    const isLoaded = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      return map?.loaded() ?? false;
-    });
-    expect(isLoaded).toBe(true);
+    expect(lowZoomFeatures.count).toBeGreaterThan(0);
+    expect(highZoomFeatures.count).toBeGreaterThan(0);
   });
 
-  test('ghost vs active nodes at z17+', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+  test('ghost vs active nodes at the ghost reveal threshold', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page, 60000);
 
-    // GHOST_NODE_THRESHOLD_ZOOM = 17
-    // Above z17, tiles contain individual points with is_ghost property
+    // Ghost groups reveal at z17+ and carry node_class metadata.
     await setMapView(page, EINDHOVEN_CENTER, 17.5);
     await page.waitForTimeout(5000);
 
@@ -583,9 +544,9 @@ test.describe('Map Interactions', () => {
       let active = 0;
 
       for (const f of features) {
-        if (f.properties?.is_ghost === true || f.properties?.is_ghost === 'true') {
+        if (f.properties?.node_class === 'ghost') {
           ghost++;
-        } else if (f.properties?.is_ghost === false || f.properties?.is_ghost === 'false') {
+        } else if (f.properties?.node_class === 'active') {
           active++;
         }
       }
@@ -602,7 +563,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('pan to Eindhoven loads property tiles', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     // Start somewhere else (Amsterdam area)
@@ -654,12 +615,20 @@ test.describe('Map Interactions', () => {
   });
 
   test('3D buildings render at high zoom with pitch', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     // Set high zoom with pitch for 3D buildings
     // minZoom for 3D buildings is 14, needs pitch ~50
-    await setMapView(page, EINDHOVEN_CENTER, 16, 50);
+    await page.evaluate(({ center }) => {
+      const map = (window as any).__mapInstance;
+      map?.jumpTo({ center, zoom: 16, pitch: 50 });
+    }, { center: EINDHOVEN_CENTER });
+    await page.waitForFunction(() => {
+      const map = (window as any).__mapInstance;
+      if (!map) return false;
+      return map.getZoom() >= 15.9 && map.getPitch() > 0;
+    }, { timeout: 15000, polling: 250 });
     await page.waitForTimeout(5000);
 
     // Check if fill-extrusion layer exists
@@ -687,7 +656,7 @@ test.describe('Map Interactions', () => {
   });
 
   test('map responds to wheel zoom', async ({ page }) => {
-    await page.goto('/', { timeout: 60000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
     await setMapView(page, EINDHOVEN_CENTER, 14);

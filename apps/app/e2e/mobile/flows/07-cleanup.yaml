@@ -6,7 +6,8 @@ appId: nl.huishype.app
 
 # Tap the Map tab to ensure we're on the map screen
 # (Do NOT use pressKey: Back — it can exit the app entirely)
-- tapOn: 'Map'
+- tapOn:
+    id: 'tab-index'
 - waitForAnimationToEnd
 
 # Swipe down to dismiss any bottom sheet

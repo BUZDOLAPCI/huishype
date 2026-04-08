@@ -1,10 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, TextInput, Pressable, Text, Platform, StyleSheet } from 'react-native';
+import { View, TextInput, Pressable, Text, Platform, StyleSheet, InteractionManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAddressSearch } from '@/src/hooks/useAddressResolver';
 import { Icon } from './ui/Icon';
 import { BlurContainer } from './ui/BlurContainer';
-import { shadows } from '@/src/lib/shadows';
 import { resolveProperty, type PropertyResolveResult } from '@/src/utils/api';
 import { SearchResults } from './SearchResults';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
@@ -29,13 +28,14 @@ import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 // Palette constants
 const COLORS = {
   white: '#FFFFFF',
-  whiteTranslucent: 'rgba(255, 255, 255, 0.80)',
+  whiteTranslucent: 'rgba(255, 255, 255, 0.86)',
   warm300: '#E8E0D4',
   warm400: '#C7BFB3',
+  warm700: '#5A5249',
   warm900: '#2D2926',
   gold400: '#F7C948',
   gold500: '#F5A623',
-  dimOverlay: 'rgba(0, 0, 0, 0.25)',
+  dimOverlay: 'rgba(45, 41, 38, 0.18)',
 } as const;
 
 export interface SearchBarProps {
@@ -188,29 +188,78 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
     }
   }, [debouncedQuery, results]);
 
+  const handleFocusTargetPress = useCallback(() => {
+    setIsFocused(true);
+  }, []);
+
   const handleBlur = useCallback(() => {
     // Don't immediately clear focus — let result press handler fire first.
     // The backdrop press handler handles dismissal.
   }, []);
 
+  useEffect(() => {
+    if (!isFocused || Platform.OS === 'web') {
+      return undefined;
+    }
+
+    let frameHandle: number | ReturnType<typeof setTimeout> | null = null;
+    const scheduleFocus = () => {
+      if (typeof requestAnimationFrame === 'function') {
+        frameHandle = requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+        return;
+      }
+
+      frameHandle = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    };
+
+    const focusTask = InteractionManager?.runAfterInteractions
+      ? InteractionManager.runAfterInteractions(scheduleFocus)
+      : null;
+
+    if (!focusTask) {
+      scheduleFocus();
+    }
+
+    return () => {
+      if (focusTask) {
+        focusTask.cancel();
+      }
+
+      if (typeof frameHandle === 'number' && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(frameHandle);
+      } else if (frameHandle) {
+        clearTimeout(frameHandle);
+      }
+    };
+  }, [isFocused]);
+
   // Compute the top offset for the search bar.
   // It must sit below the header row: safe area top + header height + gap.
   const topOffset = Platform.OS === 'web'
-    ? 52 // Below the web header row
-    : insets.top + 48; // Below native header row
+    ? 54 // Below the web header row
+    : insets.top + 46; // Below native header row
 
   const searchIconColor = isFocused ? COLORS.gold500 : COLORS.warm400;
 
-  // Build the input field with focus-dependent styling.
+  // Build the editable input field with focus-dependent styling.
   const inputField = (
     <View
       style={[
         styles.inputContainer,
         isFocused ? styles.inputContainerFocused : styles.inputContainerUnfocused,
-        // On web, use CSS for box-shadow glow when focused.
-        Platform.OS === 'web' && isFocused
-          ? { boxShadow: '0 0 8px rgba(247,201,72,0.19)' } as any // eslint-disable-line @typescript-eslint/no-explicit-any
-          : {},
+        Platform.OS === 'web'
+          ? ({
+              boxShadow: isFocused
+                ? '0 16px 34px rgba(180, 119, 18, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08)'
+                : '0 12px 28px rgba(90, 82, 73, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05)',
+              backdropFilter: isFocused ? 'none' : 'blur(18px)',
+              WebkitBackdropFilter: isFocused ? 'none' : 'blur(18px)',
+            } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+          : null,
       ]}
     >
       {/* Search icon */}
@@ -233,6 +282,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
         onChangeText={setInputValue}
         onFocus={handleFocus}
         onBlur={handleBlur}
+        autoFocus={Platform.OS !== 'web' && isFocused}
         autoCorrect={false}
         autoCapitalize="none"
         returnKeyType="search"
@@ -256,6 +306,37 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
     </View>
   );
 
+  const unfocusedNativeField = (
+    <View
+      style={[
+        styles.inputContainer,
+        styles.inputContainerUnfocused,
+      ]}
+      pointerEvents="none"
+    >
+      <View style={styles.iconWrapper}>
+        <Icon name="MagnifyingGlass" size="md" color={COLORS.warm400} />
+      </View>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.input,
+          inputValue.length > 0 ? styles.unfocusedValueText : styles.unfocusedPlaceholderText,
+        ]}
+      >
+        {inputValue.length > 0 ? inputValue : 'Search address...'}
+      </Text>
+
+      {isResolving ? (
+        <Text style={styles.loadingIndicator}>...</Text>
+      ) : inputValue.length > 0 ? (
+        <View style={styles.clearButtonPlaceholder}>
+          <Icon name="X" size="sm" color={COLORS.warm400} />
+        </View>
+      ) : null}
+    </View>
+  );
+
   return (
     <>
       {/* Dim overlay when search is focused */}
@@ -265,11 +346,17 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
           onPress={handleBackdropPress}
           accessibilityLabel="Dismiss search"
           accessibilityRole="button"
-          style={[
-            styles.backdrop,
-            reducedMotion && { opacity: 1 },
-          ]}
-        />
+        style={[
+          styles.backdrop,
+          reducedMotion && { opacity: 1 },
+          Platform.OS === 'web'
+            ? ({
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+              } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            : null,
+        ]}
+      />
       )}
 
       <View
@@ -281,13 +368,21 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
       >
         {/* Search Input — uses blur container on native when unfocused */}
         {!isFocused && Platform.OS !== 'web' ? (
-          <BlurContainer
-            intensity={60}
-            tint="light"
-            style={styles.blurInputWrapper}
+          <Pressable
+            testID="search-bar-focus-target"
+            accessibilityRole="button"
+            accessibilityLabel="Focus address search"
+            accessibilityHint="Activates the address search field"
+            onPress={handleFocusTargetPress}
           >
-            {inputField}
-          </BlurContainer>
+            <BlurContainer
+              intensity={60}
+              tint="light"
+              style={styles.blurInputWrapper}
+            >
+              {unfocusedNativeField}
+            </BlurContainer>
+          </Pressable>
         ) : (
           inputField
         )}
@@ -318,21 +413,21 @@ const styles = StyleSheet.create({
   },
   container: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 14,
+    right: 14,
     zIndex: 100,
   },
   blurInputWrapper: {
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    gap: 10,
+    height: 52,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    gap: 12,
   },
   inputContainerUnfocused: {
     backgroundColor: Platform.OS === 'web'
@@ -340,21 +435,47 @@ const styles = StyleSheet.create({
       : 'transparent',
     borderWidth: 1,
     borderColor: COLORS.warm300,
-    ...shadows.search,
+    shadowColor: '#6A5A48',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 20,
+    elevation: 7,
   },
   inputContainerFocused: {
     backgroundColor: COLORS.white,
     borderWidth: 2,
     borderColor: COLORS.gold400,
+    shadowColor: '#B47712',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 10,
   },
   iconWrapper: {
     // No extra margin — the gap on the parent handles spacing.
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter_400Regular',
     color: COLORS.warm900,
     paddingVertical: 0,
+  },
+  unfocusedPlaceholderText: {
+    color: COLORS.warm400,
+  },
+  unfocusedValueText: {
+    color: COLORS.warm700,
+  },
+  loadingIndicator: {
+    fontSize: 14,
+    color: COLORS.warm400,
+  },
+  clearButtonPlaceholder: {
+    padding: 8,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

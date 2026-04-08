@@ -3,6 +3,9 @@ const { withNativeWind } = require('nativewind/metro');
 const path = require('path');
 
 const config = getDefaultConfig(__dirname);
+const monorepoRoot = path.resolve(__dirname, '../..');
+
+config.watchFolders = [...new Set([...(config.watchFolders ?? []), monorepoRoot])];
 
 // Redirect platform-incompatible packages to stubs.
 // Expo Router's require.context evaluates ALL route files (index.tsx AND

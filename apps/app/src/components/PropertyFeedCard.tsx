@@ -84,8 +84,9 @@ export function PropertyFeedCard({
       accessibilityRole="button"
       accessibilityLabel={`${address}, ${city}${askingPrice ? `, asking ${formatPrice(askingPrice, countryCode)}` : ''}`}
       accessibilityHint="Opens property details"
+      testID="property-feed-card"
     >
-      <Card shadow="card" testID="property-feed-card">
+      <Card shadow="card">
         {/* Image section */}
         <View style={styles.imageWrapper}>
           <PropertyImageSurface

@@ -10,7 +10,8 @@ appId: nl.huishype.app
 # The test still captures screenshots to verify cluster rendering visually.
 
 # Ensure we're on the Map tab
-- tapOn: 'Map'
+- tapOn:
+    id: 'tab-index'
 - waitForAnimationToEnd
 
 # Wait for map to be ready

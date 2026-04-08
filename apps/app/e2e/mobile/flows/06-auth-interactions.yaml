@@ -10,10 +10,20 @@ appId: nl.huishype.app
 # sheet open for authenticated interaction testing.
 
 # Make sure we're on the Map tab
-- tapOn: 'Map'
+- tapOn:
+    id: 'tab-index'
 - waitForAnimationToEnd
 
 # Clear any previous search text and re-search
+- tapOn:
+    id: 'search-clear-button'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'search-bar-focus-target'
+- waitForAnimationToEnd
+
 - tapOn:
     id: 'search-clear-button'
     optional: true
@@ -26,7 +36,8 @@ appId: nl.huishype.app
 - inputText: 'Beeldbuisring 41 Eindhoven'
 
 - extendedWaitUntil:
-    visible: '.*Beeldbuisring 41.*'
+    visible:
+      id: 'search-result-item'
     timeout: 15000
 
 - tapOn:

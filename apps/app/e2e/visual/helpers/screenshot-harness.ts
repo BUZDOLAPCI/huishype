@@ -20,6 +20,7 @@ import type { Locator, Page } from '@playwright/test';
 import { test as base } from '@playwright/test';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { ALL_PROPERTY_LAYERS } from './map-layer-names';
 import { ConsoleCollector, KNOWN_ACCEPTABLE_ERRORS } from './visual-test-helpers';
 
 // ============================================
@@ -312,83 +313,181 @@ export interface ClickOnPropertyMarkerResult {
  * @returns     Result indicating success, feature count, and screen coordinates
  */
 export async function clickOnPropertyMarker(page: Page): Promise<ClickOnPropertyMarkerResult> {
-  const result = await page.evaluate(() => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, featureCount: 0, reason: 'Map not ready' };
-    }
+  let result: ClickOnPropertyMarkerResult = {
+    success: false,
+    featureCount: 0,
+    reason: 'No attempts made',
+  };
 
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, featureCount: 0, reason: 'No canvas' };
-    }
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    result = await page.evaluate((layerNames) => {
+      const PREVIEW_MEMBER_LIMIT = 30;
 
-    const layerNames = ['single-active-points', 'active-nodes', 'ghost-nodes'];
-    let allFeatures: any[] = [];
-
-    for (const layerName of layerNames) {
-      try {
-        if (mapInstance.getLayer(layerName)) {
-          const features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: [layerName] }
-          ) || [];
-          allFeatures = allFeatures.concat(features);
+      const toNumber = (value: unknown): number | null => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return value;
         }
-      } catch (e) { /* ignore */ }
-    }
 
-    if (allFeatures.length === 0) {
-      return { success: false, featureCount: 0, reason: 'No features found' };
-    }
+        if (typeof value === 'string' && value.trim().length > 0) {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : null;
+        }
 
-    const canvasCenterX = canvas.width / 2;
-    const canvasCenterY = canvas.height / 2;
-    const edgeMargin = 40;
+        return null;
+      };
 
-    const candidates = allFeatures
-      .filter((feature: any) =>
-        feature.geometry?.type === 'Point' &&
-        (!feature.properties?.point_count || feature.properties.point_count === 1)
-      )
-      .map((feature: any) => {
-        const coordinates = feature.geometry.coordinates;
-        const point = mapInstance.project(coordinates);
-        const inBounds =
-          point.x >= edgeMargin &&
-          point.x <= canvas.width - edgeMargin &&
-          point.y >= edgeMargin &&
-          point.y <= canvas.height - edgeMargin;
+      const parsePropertyIds = (value: unknown): string[] => {
+        if (Array.isArray(value)) {
+          return value
+            .map((entry) => (entry == null ? '' : String(entry).trim()))
+            .filter(Boolean);
+        }
 
+        if (typeof value !== 'string') {
+          return [];
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return [];
+        }
+
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              return parsed
+                .map((entry) => (entry == null ? '' : String(entry).trim()))
+                .filter(Boolean);
+            }
+          } catch {
+            // Fall back to comma-delimited parsing below.
+          }
+        }
+
+        return trimmed
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      };
+
+      const mapInstance = (window as any).__mapInstance;
+      const hasQueryableLayer =
+        !!mapInstance &&
+        layerNames.some((layerName) => {
+          try {
+            return !!mapInstance.getLayer(layerName);
+          } catch {
+            return false;
+          }
+        });
+
+      if (!mapInstance || (!mapInstance.isStyleLoaded?.() && !hasQueryableLayer)) {
+        return { success: false, featureCount: 0, reason: 'Map not ready' };
+      }
+
+      const canvas = mapInstance.getCanvas();
+      if (!canvas) {
+        return { success: false, featureCount: 0, reason: 'No canvas' };
+      }
+
+      let allFeatures: any[] = [];
+
+      for (const layerName of layerNames) {
+        try {
+          if (mapInstance.getLayer(layerName)) {
+            const features = mapInstance.queryRenderedFeatures(
+              [[0, 0], [canvas.width, canvas.height]],
+              { layers: [layerName] }
+            ) || [];
+            allFeatures = allFeatures.concat(features);
+          }
+        } catch {
+          // Ignore layer lookup/query failures and keep scanning the rest.
+        }
+      }
+
+      if (allFeatures.length === 0) {
+        return { success: false, featureCount: 0, reason: 'No features found' };
+      }
+
+      const canvasCenterX = canvas.width / 2;
+      const canvasCenterY = canvas.height / 2;
+      const edgeMargin = 40;
+
+      const pointCandidates = allFeatures
+        .filter((feature: any) =>
+          feature.geometry?.type === 'Point'
+        )
+        .map((feature: any) => {
+          const coordinates = feature.geometry.coordinates;
+          const point = mapInstance.project(coordinates);
+          const pointCount = toNumber(feature.properties?.point_count) ?? 1;
+          const previewPropertyIds = parsePropertyIds(feature.properties?.preview_property_ids);
+          const propertyIds = parsePropertyIds(feature.properties?.property_ids);
+          const inBounds =
+            point.x >= edgeMargin &&
+            point.x <= canvas.width - edgeMargin &&
+            point.y >= edgeMargin &&
+            point.y <= canvas.height - edgeMargin;
+
+          return {
+            feature,
+            coordinates,
+            point,
+            pointCount,
+            isSingle: pointCount <= 1,
+            isPreviewableCluster:
+              pointCount <= PREVIEW_MEMBER_LIMIT &&
+              (previewPropertyIds.length > 0 || propertyIds.length > 0),
+            inBounds,
+            distanceToCenter:
+              Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
+          };
+        })
+        .filter((candidate: any) => candidate.inBounds)
+        .filter((candidate: any) => candidate.isSingle || candidate.isPreviewableCluster)
+        .sort((a: any, b: any) => {
+          if (a.isSingle !== b.isSingle) {
+            return a.isSingle ? -1 : 1;
+          }
+
+          if (a.pointCount !== b.pointCount) {
+            return a.pointCount - b.pointCount;
+          }
+
+          return a.distanceToCenter - b.distanceToCenter;
+        });
+
+      const candidate = pointCandidates[0];
+      if (!candidate) {
         return {
-          feature,
-          coordinates,
-          point,
-          inBounds,
-          distanceToCenter:
-            Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
+          success: false,
+          featureCount: allFeatures.length,
+          reason: 'No previewable property node found',
         };
-      })
-      .filter((candidate: any) => candidate.inBounds)
-      .sort((a: any, b: any) => a.distanceToCenter - b.distanceToCenter);
+      }
 
-    const candidate = candidates[0];
-    if (!candidate) {
-      return { success: false, featureCount: allFeatures.length, reason: 'No non-cluster point feature found' };
+      const rect = canvas.getBoundingClientRect();
+
+      return {
+        success: true,
+        featureCount: allFeatures.length,
+        screenX: rect.left + candidate.point.x,
+        screenY: rect.top + candidate.point.y,
+        propertyId: candidate.feature.properties?.id,
+        pointCount: candidate.pointCount,
+      };
+    }, [...ALL_PROPERTY_LAYERS]);
+
+    console.log(`Click result (attempt ${attempt}): ${JSON.stringify(result)}`);
+
+    if (result.success) {
+      break;
     }
 
-    const rect = canvas.getBoundingClientRect();
-
-    return {
-      success: true,
-      featureCount: allFeatures.length,
-      screenX: rect.left + candidate.point.x,
-      screenY: rect.top + candidate.point.y,
-      propertyId: candidate.feature.properties?.id,
-    };
-  });
-
-  console.log(`Click result: ${JSON.stringify(result)}`);
+    await page.waitForTimeout(300);
+  }
 
   if (result.success) {
     if (result.screenX !== undefined && result.screenY !== undefined) {
@@ -404,6 +503,7 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
     screenX: result.screenX,
     screenY: result.screenY,
     propertyId: result.propertyId,
+    pointCount: result.pointCount,
     reason: result.reason,
   };
 }

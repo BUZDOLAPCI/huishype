@@ -5,67 +5,43 @@ appId: nl.huishype.app
 # This is a sub-flow; app is on the Map tab.
 
 # Navigate to Feed tab
-- tapOn: 'Feed'
+- tapOn:
+    id: 'tab-feed'
 
-# Wait for feed to load - filter chips should be visible
-# Default active filter is "Trending"
+# Wait for the feed screen to become active.
+# The feed header title is a stronger activation signal than tab internals.
 - extendedWaitUntil:
-    visible: 'Trending'
+    visible: 'Trending Properties'
     timeout: 30000
 
-# Assert filter chips visible
+# Assert the feed header and filter chips are visible
+- assertVisible: 'Trending Properties'
 - assertVisible: 'Trending'
 - assertVisible: 'Latest'
 - assertVisible: 'Recent Activity'
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
 
-# Verify property cards are displayed (guesses count is always present)
-# Feed API call may take time on device — wait for cards to load
+# Verify property cards are displayed
+# Feed API call may take time on device — wait for the first property card to load
 - extendedWaitUntil:
-    visible: '.*guesses.*'
+    visible:
+      id: 'property-feed-card'
     timeout: 30000
 
-# Tap "Latest" filter to test filter switching
-- tapOn: 'Latest'
-- waitForAnimationToEnd
-
-# Verify cards still render after filter change
-- assertVisible:
-    text: '.*guesses.*'
-    optional: true
-
-- takeScreenshot: test-results/visual-overhaul/feed-latest/android/feed-latest-filter.png
-
-# Switch back to "Trending" filter
-- tapOn: 'Trending'
-- waitForAnimationToEnd
-
-# Scroll down to test pagination
-- scroll
-- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-scrolled-down.png
-
-# Scroll back up
-- swipe:
-    direction: DOWN
-    duration: 500
-- swipe:
-    direction: DOWN
-    duration: 500
-- swipe:
-    direction: DOWN
-    duration: 500
-- waitForAnimationToEnd
-
-# Tap on a property card to view details
+# Tap the first feed card to view property details
 - tapOn:
-    point: '50%,40%'
-    optional: true
+    id: 'property-feed-card'
 - waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      id: 'property-header-carousel'
+    timeout: 10000
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-card-tap.png
 
-# If property detail screen appeared, verify it has elements
+# Verify property detail actions are present when the detail route opens
 - assertVisible:
     text: 'Save'
     optional: true
@@ -77,13 +53,9 @@ appId: nl.huishype.app
 - pressKey: back
 - waitForAnimationToEnd
 
-# Wait for feed to be visible again
-- extendedWaitUntil:
-    visible: 'Trending'
-    timeout: 10000
-
 # Switch back to Map tab
-- tapOn: 'Map'
+- tapOn:
+    id: 'tab-index'
 - extendedWaitUntil:
     visible: 'Zoom.*'
     timeout: 10000

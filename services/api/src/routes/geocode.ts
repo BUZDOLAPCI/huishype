@@ -2,7 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { config } from '../config.js';
-import type { GeocodeSuggestion } from '@huishype/shared';
+import {
+  getCountryConfig,
+  isValidCountryCode,
+  type CountryCode,
+  type GeocodeSuggestion,
+} from '@huishype/shared';
 
 /** Photon GeoJSON feature shape (subset we use) */
 interface PhotonFeature {
@@ -33,6 +38,9 @@ interface PhotonResponse {
   type: 'FeatureCollection';
   features: PhotonFeature[];
 }
+
+const PHOTON_COUNTRY_FILTER_MULTIPLIER = 5;
+const PHOTON_COUNTRY_FILTER_MAX_LIMIT = 20;
 
 const searchQuerySchema = z.object({
   q: z.string().min(1),
@@ -119,6 +127,22 @@ function transformFeature(feature: PhotonFeature): GeocodeSuggestion {
   };
 }
 
+function normalizeCountryCode(countrycode: string | undefined): CountryCode | undefined {
+  const normalized = countrycode?.trim().toUpperCase();
+  return normalized && isValidCountryCode(normalized) ? normalized : undefined;
+}
+
+function matchesCountryCode(
+  feature: PhotonFeature,
+  requestedCountryCode: CountryCode | undefined,
+): boolean {
+  if (!requestedCountryCode) {
+    return true;
+  }
+
+  return feature.properties.countrycode?.trim().toUpperCase() === requestedCountryCode;
+}
+
 export async function geocodeRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -141,11 +165,22 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { q, limit, lang, countrycode } = request.query;
+      const requestedCountryCode = normalizeCountryCode(countrycode);
+      const photonLimit = requestedCountryCode
+        ? Math.min(
+            Math.max(limit * PHOTON_COUNTRY_FILTER_MULTIPLIER, limit),
+            PHOTON_COUNTRY_FILTER_MAX_LIMIT,
+          )
+        : limit;
 
       // Build Photon query parameters
-      const photonParams = new URLSearchParams({ q, limit: String(limit) });
+      const photonParams = new URLSearchParams({ q, limit: String(photonLimit) });
       if (lang) photonParams.set('lang', lang);
-      if (countrycode) photonParams.set('countrycode', countrycode);
+      if (requestedCountryCode) {
+        const [lon, lat] = getCountryConfig(requestedCountryCode).defaultCenter;
+        photonParams.set('lon', String(lon));
+        photonParams.set('lat', String(lat));
+      }
 
       try {
         const photonUrl = `${config.photon.url}/api?${photonParams.toString()}`;
@@ -159,7 +194,10 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
         }
 
         const data = await response.json() as PhotonResponse;
-        const suggestions = data.features.map(transformFeature);
+        const suggestions = data.features
+          .filter((feature) => matchesCountryCode(feature, requestedCountryCode))
+          .slice(0, limit)
+          .map(transformFeature);
 
         return reply.send(suggestions);
       } catch (error) {

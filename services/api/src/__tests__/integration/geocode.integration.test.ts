@@ -140,7 +140,38 @@ describe('GET /geocode/search', () => {
     expect(calledUrl).toContain('lang=nl');
   });
 
-  it('passes countrycode parameter to Photon', async () => {
+  it('filters Photon results by countrycode without forwarding an unsupported query parameter', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        type: 'FeatureCollection',
+        features: [
+          MOCK_PHOTON_RESPONSE.features[0],
+          {
+            ...MOCK_PHOTON_RESPONSE.features[1],
+            properties: {
+              ...MOCK_PHOTON_RESPONSE.features[1].properties,
+              countrycode: 'de',
+            },
+          },
+        ],
+      }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=test&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toHaveLength(1);
+    const calledUrl = (mockFetchFn.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).not.toContain('countrycode=');
+    expect(calledUrl).toContain('lon=5.4697');
+    expect(calledUrl).toContain('lat=51.4416');
+  });
+
+  it('expands the Photon fetch limit when country filtering is requested', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
@@ -148,11 +179,11 @@ describe('GET /geocode/search', () => {
 
     await app.inject({
       method: 'GET',
-      url: '/geocode/search?q=test&countrycode=NL',
+      url: '/geocode/search?q=test&limit=3&countrycode=NL',
     });
 
     const calledUrl = (mockFetchFn.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toContain('countrycode=NL');
+    expect(calledUrl).toContain('limit=15');
   });
 
   it('limits max results to 20', async () => {

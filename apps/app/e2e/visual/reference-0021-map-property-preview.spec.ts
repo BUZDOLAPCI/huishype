@@ -145,7 +145,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       if (!m || !m.isStyleLoaded()) return false;
       const canvas = m.getCanvas();
       if (!canvas) return false;
-      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
         .filter((l: string) => m.getLayer(l));
       if (layerIds.length === 0) return false;
       try {
@@ -246,7 +246,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = (window as any).__mapInstance;
       if (mapInstance) {
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let features: any[] = [];
         try {
           features = mapInstance.queryRenderedFeatures(
@@ -289,7 +289,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!mapInstance) return [];
 
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: any[] = [];
 
         try {
@@ -421,7 +421,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = (window as any).__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: any[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -669,7 +669,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = (window as any).__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'single-active-points', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: any[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(

@@ -614,7 +614,15 @@ export function createVisualTestContext(page: Page, testName: string): VisualTes
  */
 export async function waitForMapStyleLoaded(page: Page, timeout: number = 45000): Promise<void> {
   await page.waitForFunction(
-    () => { const m = (window as any).__mapInstance; return m && m.isStyleLoaded(); },
+    () => {
+      const m = (window as any).__mapInstance;
+      if (!m) return false;
+      if (typeof m.isStyleLoaded === 'function' && m.isStyleLoaded()) {
+        return true;
+      }
+      const layers = m.getStyle?.()?.layers;
+      return Array.isArray(layers) && layers.length > 0;
+    },
     { timeout, polling: 500 }
   );
 }

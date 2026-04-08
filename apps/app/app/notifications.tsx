@@ -31,6 +31,7 @@ import {
   type NotificationItem,
 } from '@/src/hooks/useNotifications';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
 // --- Time grouping ---
 
@@ -158,7 +159,7 @@ export default function NotificationsScreen() {
       }
       // Navigate to property if available
       if (notification.propertyId) {
-        router.push(`/property/${notification.propertyId}`);
+        router.push(buildPropertyRoute(notification.propertyId, '/notifications'));
       }
     },
     [markOneRead]

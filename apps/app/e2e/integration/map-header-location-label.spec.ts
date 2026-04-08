@@ -31,6 +31,15 @@ async function waitForMapReady(page: Page, timeout = 60_000) {
     },
     { timeout, polling: 500 },
   );
+  await page.waitForFunction(
+    () => {
+      const map = (window as any).__mapInstance;
+      if (!map) return false;
+      return typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : !!map.getStyle?.();
+    },
+    { timeout, polling: 500 },
+  );
+  await page.locator('text=Loading map...').waitFor({ state: 'hidden', timeout }).catch(() => {});
 }
 
 async function setMapView(page: Page, center: [number, number], zoom: number) {
@@ -50,6 +59,8 @@ async function setMapView(page: Page, center: [number, number], zoom: number) {
     { zoom },
     { timeout: 10_000 },
   );
+
+  await page.waitForTimeout(1500);
 }
 
 async function expectHeaderLocation(page: Page, label: string) {

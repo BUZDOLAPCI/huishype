@@ -10,7 +10,7 @@
  * - Test authenticated guess submission via API
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
@@ -53,6 +53,18 @@ async function getTestProperty(request: APIRequestContext) {
   };
 }
 
+async function waitForPriceGuessUi(page: Page) {
+  const section = page.locator('[data-testid="price-guess-section"]');
+  const slider = page.locator('[data-testid="price-guess-slider"]');
+
+  await expect(section).toHaveCount(1, { timeout: 30000 });
+  await section.scrollIntoViewIfNeeded().catch(() => {});
+  await expect(slider).toHaveCount(1, { timeout: 30000 });
+  await slider.scrollIntoViewIfNeeded();
+
+  return { section, slider };
+}
+
 test.describe('Price Guess Flow', () => {
   let consoleErrors: string[] = [];
 
@@ -84,8 +96,7 @@ test.describe('Price Guess Flow', () => {
   test('price guess section renders on property detail page', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
 
     // Wait for the loading state to disappear
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
@@ -111,52 +122,40 @@ test.describe('Price Guess Flow', () => {
   test('slider UI elements are present', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
-    // Scroll to find the slider
-    const slider = page.locator('[data-testid="price-guess-slider"]');
-    if (await slider.count() > 0) {
-      await slider.scrollIntoViewIfNeeded();
+    await waitForPriceGuessUi(page);
 
-      // Verify header text (use .first() because text appears in both header and description)
-      await expect(page.locator('text=What do you think this property is worth?').first()).toBeVisible();
+    // Verify header text (use .first() because text appears in both header and description)
+    await expect(page.locator('text=What do you think this property is worth?').first()).toBeVisible();
 
-      // Verify price display
-      const priceDisplay = page.locator('[data-testid="price-display"]');
-      await expect(priceDisplay).toBeVisible();
-      const priceText = await priceDisplay.textContent();
-      // Should contain EUR symbol
-      expect(priceText).toContain('\u20AC');
+    // Verify price display
+    const priceDisplay = page.locator('[data-testid="price-display"]');
+    await expect(priceDisplay).toBeVisible();
+    const priceText = await priceDisplay.textContent();
+    expect(priceText).toContain('\u20AC');
 
-      // Verify slider thumb
-      const thumb = page.locator('[data-testid="slider-thumb"]');
-      await expect(thumb).toBeVisible();
+    // Verify slider thumb
+    const thumb = page.locator('[data-testid="slider-thumb"]');
+    await expect(thumb).toBeVisible();
 
-      // Verify submit button
-      const submitBtn = page.locator('[data-testid="submit-guess-button"]');
-      await expect(submitBtn).toBeVisible();
+    // Verify submit button
+    const submitBtn = page.locator('[data-testid="submit-guess-button"]');
+    await expect(submitBtn).toBeVisible();
 
-      // Verify min/max labels
-      await expect(page.locator('text=\u20AC50.000').first()).toBeVisible();
-      await expect(page.locator('text=\u20AC2.000.000').first()).toBeVisible();
-    }
+    // Verify min/max labels
+    await expect(page.locator('text=\u20AC50.000').first()).toBeVisible();
+    await expect(page.locator('text=\u20AC2.000.000').first()).toBeVisible();
   });
 
   test('quick adjustment buttons change price', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
-    const slider = page.locator('[data-testid="price-guess-slider"]');
-    if (await slider.count() === 0) {
-      test.skip();
-      return;
-    }
-    await slider.scrollIntoViewIfNeeded();
+    await waitForPriceGuessUi(page);
 
     // Verify quick adjustment buttons exist
     const plus50k = page.locator('[data-testid="adjust-plus-50k"]');
@@ -193,8 +192,7 @@ test.describe('Price Guess Flow', () => {
   }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     // The PriceGuessSection shows a "Sign in to submit your guess" prompt when not authenticated

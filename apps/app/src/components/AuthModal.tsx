@@ -32,6 +32,7 @@ import Animated, {
   withSpring,
   Easing,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../hooks/useAuth';
 import { HuisHypeLogo } from './branding';
 import { Icon } from './ui/Icon';
@@ -106,6 +107,7 @@ export function AuthModal({
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isRequestingEmail, setIsRequestingEmail] = useState(false);
   const reducedMotion = useReducedMotion();
+  const insets = useSafeAreaInsets();
 
   // Card entrance animation
   const scale = useSharedValue(0.9);
@@ -256,7 +258,12 @@ export function AuthModal({
       {/* Dev Login button — rendered OUTSIDE Animated.View so Android
           accessibility reports correct bounds */}
       {__DEV__ && (
-        <View style={styles.devLoginContainer}>
+        <View
+          style={[
+            styles.devLoginContainer,
+            { bottom: Math.max(insets.bottom + 96, 120) },
+          ]}
+        >
           <TouchableOpacity
             onPress={handleDevLogin}
             disabled={isSigningIn}
@@ -655,7 +662,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 24,
     right: 24,
-    bottom: 60,
     zIndex: 10000,
     elevation: 10000,
   },

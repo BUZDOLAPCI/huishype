@@ -13,15 +13,20 @@ appId: nl.huishype.app
 
 # Tap on the search bar input
 - tapOn:
+    id: 'search-bar-focus-target'
+- waitForAnimationToEnd
+
+- tapOn:
     id: 'search-bar-input'
 - waitForAnimationToEnd
 
 # Type the fixture address
 - inputText: 'Beeldbuisring 41 Eindhoven'
 
-# Wait for PDOK search results to appear (network call + debounce)
+# Wait for search results to appear (network call + debounce)
 - extendedWaitUntil:
-    visible: '.*Beeldbuisring 41.*'
+    visible:
+      id: 'search-result-item'
     timeout: 15000
 
 - takeScreenshot: test-results/visual-overhaul/search-results/android/search-results.png
@@ -41,16 +46,11 @@ appId: nl.huishype.app
 # 2. GroupPreviewCard appears inside Marker (not accessible to Maestro)
 # 3. PropertyBottomSheet peeks at 10% with property data
 #
-# Wait for the bottom sheet to peek (property data loaded)
-# The PropertyBottomSheet renders at index=0 (peek) when property loads
-- extendedWaitUntil:
-    visible: 'Zoom.*'
-    timeout: 15000
-
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/search-property-selected.png
 
-# Verify the search resolved correctly by checking the address is somewhere on screen
-# (this matches search bar input text that persists after result selection)
-- assertVisible: '.*Beeldbuisring.*'
+# Verify the resolved property preview card appeared
+- extendedWaitUntil:
+    visible: 'Like'
+    timeout: 10000
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/search-map-at-property.png

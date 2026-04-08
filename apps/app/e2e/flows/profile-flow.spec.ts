@@ -36,6 +36,16 @@ test.use({ trace: 'off' });
 test.describe('Profile Tab Flow', () => {
   let consoleErrors: string[] = [];
 
+  async function isAnyVisible(
+    page: import('@playwright/test').Page,
+    selectors: string[],
+  ): Promise<boolean> {
+    const visibilities = await Promise.all(
+      selectors.map((selector) => page.locator(selector).first().isVisible().catch(() => false)),
+    );
+    return visibilities.some(Boolean);
+  }
+
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     page.on('console', (msg) => {
@@ -63,8 +73,7 @@ test.describe('Profile Tab Flow', () => {
   });
 
   test('Profile tab shows auth-required state when not logged in', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
     // Navigate to Profile tab
@@ -86,15 +95,11 @@ test.describe('Profile Tab Flow', () => {
     await page.waitForTimeout(1000);
 
     // Should show auth-required state
-    const authRequired = page.locator('[data-testid="profile-auth-required"]');
-    const profileScreen = page.locator('[data-testid="profile-screen"]');
-
-    const isAuthRequired = await authRequired.isVisible().catch(() => false);
-    const isProfileScreen = await profileScreen.isVisible().catch(() => false);
-
-    // Either auth-required (not logged in) or profile screen (logged in) should be visible
     expect(
-      isAuthRequired || isProfileScreen,
+      await isAnyVisible(page, [
+        '[data-testid="profile-auth-required"]',
+        '[data-testid="profile-screen"]',
+      ]),
       'Profile tab should show auth-required or profile content'
     ).toBe(true);
 
@@ -102,8 +107,7 @@ test.describe('Profile Tab Flow', () => {
   });
 
   test('Profile tab auth overlay does NOT block tab bar navigation', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
     // Navigate to Profile tab

@@ -239,16 +239,14 @@ test.describe('HuisHype Visual E2E Tests', () => {
   });
 
   test.describe('Properties API Integration', () => {
-    test('should make successful API call to /properties', async ({ page }) => {
+    test('should load the merged vector-tile style and expose the property source', async ({ page }) => {
       ctx = createVisualTestContext(page, 'properties-api');
       ctx.start();
 
-      // Track properties API calls specifically
-      const propertiesCalls: { url: string; status: number | null; error?: string }[] = [];
-
+      const styleCalls: { url: string; status: number | null; error?: string }[] = [];
       page.on('response', (response) => {
-        if (response.url().includes('/properties')) {
-          propertiesCalls.push({
+        if (response.url().includes('/tiles/style.json')) {
+          styleCalls.push({
             url: response.url(),
             status: response.status(),
           });
@@ -256,8 +254,8 @@ test.describe('HuisHype Visual E2E Tests', () => {
       });
 
       page.on('requestfailed', (request) => {
-        if (request.url().includes('/properties')) {
-          propertiesCalls.push({
+        if (request.url().includes('/tiles/style.json')) {
+          styleCalls.push({
             url: request.url(),
             status: null,
             error: request.failure()?.errorText,
@@ -273,23 +271,43 @@ test.describe('HuisHype Visual E2E Tests', () => {
 
       await ctx.screenshots.capture('properties-loaded');
 
-      // Log API calls for debugging
-      console.log('Properties API calls:', JSON.stringify(propertiesCalls, null, 2));
+      console.log('Style API calls:', JSON.stringify(styleCalls, null, 2));
 
-      // Verify at least one call was made to properties endpoint
-      expect(propertiesCalls.length, 'Should make at least one /properties API call').toBeGreaterThan(0);
+      expect(styleCalls.length, 'Should request the merged map style').toBeGreaterThan(0);
 
-      // Check for any failed calls
-      const failedCalls = propertiesCalls.filter(c => c.error || (c.status && c.status >= 400));
+      const mapSourceInfo = await page.evaluate(() => {
+        const map = (window as any).__mapInstance;
+        if (!map) return null;
+
+        const style = map.getStyle?.();
+        const source = style?.sources?.['properties-source'];
+
+        return {
+          hasMap: true,
+          hasSource: source !== undefined,
+          sourceType: source?.type ?? null,
+          tileCount: Array.isArray(source?.tiles) ? source.tiles.length : 0,
+        };
+      });
+
+      console.log('Property source info:', JSON.stringify(mapSourceInfo, null, 2));
+
+      const failedCalls = styleCalls.filter(
+        (call) => call.error || (call.status !== null && call.status >= 400),
+      );
 
       if (failedCalls.length > 0) {
-        console.error('Failed properties API calls:', failedCalls);
+        console.error('Failed map bootstrap API calls:', failedCalls);
         await ctx.screenshots.capture('properties-api-error');
       }
 
-      // Expect successful API calls (status 2xx)
-      const successfulCalls = propertiesCalls.filter(c => c.status && c.status >= 200 && c.status < 300);
-      expect(successfulCalls.length, 'Should have at least one successful /properties call').toBeGreaterThan(0);
+      const successfulStyleCalls = styleCalls.filter((call) => call.status && call.status >= 200 && call.status < 300);
+
+      expect(successfulStyleCalls.length, 'Should have at least one successful style request').toBeGreaterThan(0);
+      expect(mapSourceInfo?.hasMap, 'Map instance should be available').toBe(true);
+      expect(mapSourceInfo?.hasSource, 'Merged style should expose properties-source').toBe(true);
+      expect(mapSourceInfo?.sourceType, 'Property source should be a vector source').toBe('vector');
+      expect(mapSourceInfo?.tileCount, 'Property source should advertise at least one tile URL').toBeGreaterThan(0);
 
       ctx.assertNoCriticalErrors();
     });

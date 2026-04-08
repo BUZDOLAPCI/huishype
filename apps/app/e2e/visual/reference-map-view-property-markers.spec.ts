@@ -13,17 +13,15 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 
 // Configuration
 const EXPECTATION_NAME = 'map-view-property-markers';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Zoom level for viewing property markers
-// The backend API returns individual points (with is_ghost field) at z17+
-// At z15-z16 there's a gap between frontend layer config and backend clustering
-// Use z17 to reliably see ghost-nodes and active-nodes layers
-const MARKER_VIEW_ZOOM_LEVEL = 17;
+// Zoom level for viewing active and ghost map nodes under the canonical contract.
+const MARKER_VIEW_ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
 const PITCH_3D = 45; // Slight 3D perspective
 
 // Center on Eindhoven area where properties and some listings exist
@@ -185,7 +183,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!canvas) return false;
 
         // Check for any property features at the current zoom
-        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
           .filter(l => mapInstance.getLayer(l));
         if (layerIds.length === 0) return false;
 
@@ -236,7 +234,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         );
 
         // Query rendered features using all available property layers
-        const availableLayers = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        const availableLayers = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
           .filter(l => mapInstance.getLayer(l));
         const canvas = mapInstance.getCanvas();
         let ghostNodes = 0, activeNodes = 0, clusters = 0;
@@ -283,17 +281,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log('Marker layer info:', markerInfo);
 
-    // Verify map is at correct zoom level (z17+)
+    // Verify map is at or beyond the ghost reveal threshold.
     if (markerInfo) {
-      expect(markerInfo.zoom).toBeGreaterThanOrEqual(17);
+      expect(markerInfo.zoom).toBeGreaterThanOrEqual(PROPERTY_GHOST_REVEAL_ZOOM);
 
       // Verify expected layers exist
       expect(markerInfo.markerLayerIds).toContain('ghost-nodes');
       expect(markerInfo.markerLayerIds).toContain('active-nodes');
 
-      // At z17+, ghost nodes should be visible (properties without listings/activity)
-      // Active nodes may or may not be present depending on whether listings exist nearby
-      // Verify that property features are rendered (ghost or active)
+      // At the reveal threshold, ghost nodes may appear and active nodes remain queryable.
       const totalFeatures = markerInfo.renderedMarkers.ghostNodes +
                            markerInfo.renderedMarkers.activeNodes;
       expect(totalFeatures, 'Should have rendered property features (ghost or active nodes) on map').toBeGreaterThan(0);

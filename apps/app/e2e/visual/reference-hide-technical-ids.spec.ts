@@ -136,7 +136,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const layerNames = [
           'ghost-nodes',
           'active-nodes',
-          'single-active-points',
+          'ghost-clusters',
           'property-clusters',
         ];
 

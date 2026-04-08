@@ -11,8 +11,6 @@ import {
 } from 'react-native';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { Icon } from './ui/Icon';
-import { shadows } from '@/src/lib/shadows';
-
 /**
  * Design spec (Section 7.3):
  * - Width: 370px or screen - 32px on narrow screens (handled by parent)
@@ -61,8 +59,16 @@ export function SearchResults({
   if (isLoading) {
     return (
       <View
-        style={[styles.dropdownContainer, shadows.dropdown]}
-        className="shadow-dropdown"
+        style={[
+          styles.dropdownContainer,
+          Platform.OS === 'web'
+            ? ({
+                boxShadow: '0 18px 34px rgba(90, 82, 73, 0.14), 0 4px 12px rgba(0, 0, 0, 0.06)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            : null,
+        ]}
         testID="search-results-loading"
       >
         <ActivityIndicator size="small" color={COLORS.gold500} />
@@ -76,8 +82,16 @@ export function SearchResults({
   if (results.length === 0) {
     return (
       <View
-        style={[styles.dropdownContainer, shadows.dropdown]}
-        className="shadow-dropdown"
+        style={[
+          styles.dropdownContainer,
+          Platform.OS === 'web'
+            ? ({
+                boxShadow: '0 18px 34px rgba(90, 82, 73, 0.14), 0 4px 12px rgba(0, 0, 0, 0.06)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            : null,
+        ]}
         testID="search-results-empty"
       >
         <Text style={styles.statusText}>
@@ -129,8 +143,16 @@ export function SearchResults({
 
   return (
     <View
-      style={[styles.resultListContainer, shadows.dropdown]}
-      className="shadow-dropdown"
+      style={[
+        styles.resultListContainer,
+        Platform.OS === 'web'
+          ? ({
+              boxShadow: '0 20px 36px rgba(90, 82, 73, 0.16), 0 4px 12px rgba(0, 0, 0, 0.05)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+            } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+          : null,
+      ]}
       testID="search-results-list"
     >
       <FlatList
@@ -146,11 +168,18 @@ export function SearchResults({
 
 const styles = StyleSheet.create({
   dropdownContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    marginTop: 8,
-    paddingVertical: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderRadius: 16,
+    marginTop: 10,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderColor: COLORS.warm200,
     alignItems: 'center',
+    shadowColor: '#6A5A48',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    elevation: 8,
   },
   statusText: {
     color: COLORS.warm500,
@@ -159,16 +188,23 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   resultListContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    marginTop: 8,
-    maxHeight: 340,
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderRadius: 16,
+    marginTop: 10,
+    maxHeight: 344,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.warm200,
+    shadowColor: '#6A5A48',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    elevation: 8,
   },
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 15,
     paddingHorizontal: 16,
     gap: 12,
   },

@@ -8,25 +8,26 @@ appId: nl.huishype.app
 # Android v11 alpha renders real native Views (visible to Maestro).
 # We expand the bottom sheet by swiping up from peek position (10% height).
 
-# The PropertyBottomSheet should be in peek state (index=0, 10% height)
-# after search resolved the property. Wait for property data to load.
-# The property-header-carousel resource-id appears when data loads.
+# The native search flow lands in preview-card + sheet-peek state.
+# The sheet peek is too small to expose the header carousel, so wait for the
+# preview surface instead and only assert sheet content after expansion.
 - extendedWaitUntil:
-    visible:
-      id: 'property-header-carousel'
+    visible: '.*Beeldbuisring.*'
     timeout: 15000
 
-# Swipe up to expand to partial height (50%).
-# Start at 88% to avoid tab bar at screen bottom, end at 40%.
-- swipe:
-    start: '50%,88%'
-    end: '50%,40%'
-    duration: 500
+# Tap the preview card body to open the bottom sheet to its partial state.
+- tapOn:
+    id: 'property-preview-card'
 - waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/property-detail/android/bottom-sheet-partial.png
 
-# Wait for sheet content to become visible
+# Wait for sheet content to become visible after the first expansion
+- extendedWaitUntil:
+    visible:
+      id: 'property-header-carousel'
+    timeout: 10000
+
 - extendedWaitUntil:
     visible: '.*Beeldbuisring.*'
     timeout: 10000

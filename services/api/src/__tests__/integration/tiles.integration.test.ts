@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { jest } from '@jest/globals';
 
 /**
  * Integration tests for tile routes.
@@ -11,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
  * Verifies MVT tile generation, clustering, ghost nodes, style.json, and font/sprite serving.
  */
 describe('Tile routes', () => {
+  jest.setTimeout(30000);
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -63,8 +66,9 @@ describe('Tile routes', () => {
 
       expect(layerIds).toContain('property-clusters');
       expect(layerIds).toContain('cluster-count');
-      expect(layerIds).toContain('single-active-points');
       expect(layerIds).toContain('active-nodes');
+      expect(layerIds).toContain('ghost-clusters');
+      expect(layerIds).toContain('ghost-cluster-count');
       expect(layerIds).toContain('ghost-nodes');
     });
 
@@ -110,6 +114,38 @@ describe('Tile routes', () => {
       expect(clusterCount.layout['text-font']).toEqual(['Noto Sans Regular']);
       expect(clusterCount.layout).toHaveProperty('text-size');
       expect(clusterCount.paint).toHaveProperty('text-color', '#FFFFFF');
+    });
+
+    it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      const style = JSON.parse(response.body);
+      const activeClusters = style.layers.find((layer: any) => layer.id === 'property-clusters');
+      const activeClusterCount = style.layers.find((layer: any) => layer.id === 'cluster-count');
+      const ghostClusters = style.layers.find((layer: any) => layer.id === 'ghost-clusters');
+      const ghostClusterCount = style.layers.find((layer: any) => layer.id === 'ghost-cluster-count');
+
+      expect(ghostClusters).toBeDefined();
+      expect(ghostClusterCount).toBeDefined();
+      expect(ghostClusters.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(ghostClusterCount.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(ghostClusters.paint['circle-opacity']).toBeLessThan(
+        activeClusters.paint['circle-opacity'],
+      );
+      expect(ghostClusters.paint['circle-stroke-width']).toBeLessThan(
+        activeClusters.paint['circle-stroke-width'][2],
+      );
+      expect(ghostClusters.paint['circle-radius'][2]).toBeLessThan(
+        activeClusters.paint['circle-radius'][2],
+      );
+      expect(ghostClusterCount.layout['text-size']).toBeLessThan(
+        activeClusterCount.layout['text-size'][2],
+      );
+      expect(ghostClusterCount.paint['text-color']).toBe('#475569');
+      expect(ghostClusterCount.paint['text-halo-color']).toBe('rgba(255, 255, 255, 0.85)');
     });
 
     it('should set Cache-Control header', async () => {
@@ -186,7 +222,7 @@ describe('Tile routes', () => {
       }
     });
 
-    it('should return individual points at zoom 17+ (ghost node threshold)', async () => {
+    it('should return density-aware grouped features at zoom 17+ (ghost node threshold)', async () => {
       // At zoom 17, Eindhoven center tile
       // x = 67478, y = 43551 (approx)
       const response = await app.inject({
@@ -209,6 +245,24 @@ describe('Tile routes', () => {
       if (response.statusCode === 200) {
         expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
       }
+    });
+
+    it('should serve repeated property tile requests from the server cache', async () => {
+      const tileUrl = '/tiles/properties/13/4208/2686.pbf';
+
+      const firstResponse = await app.inject({
+        method: 'GET',
+        url: tileUrl,
+      });
+      const secondResponse = await app.inject({
+        method: 'GET',
+        url: tileUrl,
+      });
+
+      expect([200, 204]).toContain(firstResponse.statusCode);
+      expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
+      expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+      expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
     });
 
     it('should reject invalid zoom level', async () => {

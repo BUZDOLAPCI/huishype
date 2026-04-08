@@ -17,7 +17,16 @@ import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
-import { fetchBatchProperties, type PropertyResolveResult, type NearbyClusterResult } from '@/src/utils/api';
+import {
+  fetchBatchProperties,
+  normalizeRenderedPropertyGroup,
+  type PropertyResolveResult,
+  type NearbyPropertyGroup,
+} from '@/src/utils/api';
+import {
+  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_PREVIEW_MEMBER_LIMIT,
+} from '@huishype/shared/config';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -76,6 +85,8 @@ export interface UseMapInteractionReturn {
   handleAuthSuccess: () => void;
   /** Dismiss bottom sheet + clear selection before auth flow starts (prevents crash). */
   handleAuthStarting: () => void;
+  /** Clear transient preview/auth UI when the map surface loses focus. */
+  resetTransientUI: () => void;
 
   // ── Quick-action handlers ───────────────────────────────────
   handleLike: (property?: any) => void;
@@ -97,8 +108,8 @@ export interface UseMapInteractionReturn {
   // ── Feature-press / map-tap logic ───────────────────────────
   /** Process rendered features at a tap point. Returns true if a feature was handled. */
   handleFeaturePress: (features: GeoJSON.Feature[], currentZoom: number, camera: MapCameraCommands) => Promise<boolean>;
-  /** Process a nearby-cluster API result (native fallback). Returns true if handled. */
-  handleNearbyResult: (result: NearbyClusterResult, currentZoom: number, camera: MapCameraCommands) => void;
+  /** Process a nearby grouped API result (native fallback). Returns true if handled. */
+  handleNearbyResult: (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => void;
   /** Decide whether to dismiss the preview (empty background tap). */
   handleEmptyMapTap: () => void;
   /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
@@ -149,6 +160,7 @@ export function estimateZoomForBbox(west: number, south: number, east: number, n
 
 const PREVIEW_FLY_DURATION_MS = 500;
 const SEARCH_PREVIEW_FLY_DURATION_MS = 1000;
+const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 
 function flyToPreviewAnchor(
   camera: MapCameraCommands,
@@ -217,7 +229,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
   const previewActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedPropertyForSheet = useMemo(() => {
-    if (!selectedProperty) return selectedProperty;
+    if (!selectedPropertyId || !selectedProperty) {
+      return null;
+    }
 
     const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
     const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
@@ -236,7 +250,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       aerialImageUrl,
       thumbnailUrl,
     };
-  }, [currentPreviewProperty, selectedProperty]);
+  }, [currentPreviewProperty, selectedProperty, selectedPropertyId]);
 
   // Sync selected property with current preview card index
   useEffect(() => {
@@ -251,6 +265,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
     const currentProperty = previewGroup.properties[currentPreviewIndex];
     if (!currentProperty || currentProperty.id !== selectedProperty.id) return;
 
+    const mergedOfficialValuation =
+      currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
+    const mergedAskingPrice =
+      currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
+    const mergedFmv =
+      currentProperty.fmv ??
+      (typeof selectedProperty.fmv === 'number'
+        ? selectedProperty.fmv
+        : selectedProperty.fmv?.fmv ?? null);
     const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
     const mergedAerialImageUrl =
       currentProperty.aerialImageUrl ??
@@ -268,9 +291,18 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (
         prevCurrent.aerialImageUrl === mergedAerialImageUrl &&
         prevCurrent.thumbnailUrl === mergedThumbnailUrl &&
+        prevCurrent.address === selectedProperty.address &&
+        prevCurrent.city === selectedProperty.city &&
+        prevCurrent.postalCode === selectedProperty.postalCode &&
         prevCurrent.yearBuilt === selectedProperty.yearBuilt &&
         prevCurrent.floorAreaM2 === selectedProperty.floorAreaM2 &&
-        prevCurrent.countryCode === selectedProperty.countryCode
+        prevCurrent.countryCode === selectedProperty.countryCode &&
+        prevCurrent.officialValuation === mergedOfficialValuation &&
+        prevCurrent.askingPrice === mergedAskingPrice &&
+        prevCurrent.fmv === mergedFmv &&
+        prevCurrent.likeCount === (selectedProperty.likeCount ?? prevCurrent.likeCount) &&
+        prevCurrent.commentCount === selectedProperty.commentCount &&
+        prevCurrent.guessCount === selectedProperty.guessCount
       ) {
         return prev;
       }
@@ -278,11 +310,20 @@ export function useMapInteraction(): UseMapInteractionReturn {
       const properties = [...prev.properties];
       properties[currentPreviewIndex] = {
         ...prevCurrent,
+        address: selectedProperty.address,
+        city: selectedProperty.city,
+        postalCode: selectedProperty.postalCode,
         countryCode: selectedProperty.countryCode,
+        officialValuation: mergedOfficialValuation,
+        askingPrice: mergedAskingPrice,
+        fmv: mergedFmv,
         aerialImageUrl: mergedAerialImageUrl,
         thumbnailUrl: mergedThumbnailUrl,
         yearBuilt: selectedProperty.yearBuilt,
         floorAreaM2: selectedProperty.floorAreaM2,
+        likeCount: selectedProperty.likeCount ?? prevCurrent.likeCount,
+        commentCount: selectedProperty.commentCount,
+        guessCount: selectedProperty.guessCount,
       };
       return { ...prev, properties };
     });
@@ -346,6 +387,13 @@ export function useMapInteraction(): UseMapInteractionReturn {
     setCurrentPreviewIndex(0);
   }, []);
 
+  const resetTransientUI = useCallback(() => {
+    setShowAuthModal(false);
+    bottomSheetRef.current?.close();
+    handleSheetIndexChange(-1);
+    clearPreviewSelection();
+  }, [clearPreviewSelection, handleSheetIndexChange]);
+
   const schedulePreviewActivation = useCallback((duration: number, action: () => void) => {
     if (previewActivationTimeoutRef.current) {
       clearTimeout(previewActivationTimeoutRef.current);
@@ -373,9 +421,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // Dismiss bottom sheet + clear selection before auth flow starts.
   // Prevents Reanimated/GestureDetector crash in PriceGuessSlider.
   const handleAuthStarting = useCallback(() => {
-    bottomSheetRef.current?.close();
-    clearPreviewSelection();
-  }, [clearPreviewSelection]);
+    resetTransientUI();
+  }, [resetTransientUI]);
 
   // ── Quick-action handlers ───────────────────────────────────
   const handleLike = useCallback((_property?: any) => {
@@ -427,7 +474,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
   const openClusterPreviewAtCoord = useCallback(
     async (propertyIds: string[], coordinate: [number, number]) => {
       try {
-        const batch = await fetchBatchProperties(propertyIds.slice(0, 50));
+        const batch = await fetchBatchProperties(
+          propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+        );
         if (batch.length > 0) {
           setPreviewGroup({
             properties: batch.map(b => toGroupProperty({ ...b, activityScore: 0 })),
@@ -450,104 +499,84 @@ export function useMapInteraction(): UseMapInteractionReturn {
       camera: MapCameraCommands,
     ): Promise<boolean> => {
       if (!features.length) return false;
-      const feature = features[0];
-      const properties = feature.properties;
-      if (!properties) return false;
+      const group = normalizeRenderedPropertyGroup(features[0]);
+      if (!group) return false;
 
-      const isCluster =
-        properties.point_count !== undefined && properties.point_count > 1;
+      if (group.groupKind === 'cluster') {
+        const previewPropertyIds = group.previewPropertyIds.length > 0
+          ? group.previewPropertyIds
+          : group.propertyIds;
+        const estimatedZoom = group.bbox
+          ? estimateZoomForBbox(
+              group.bbox.west,
+              group.bbox.south,
+              group.bbox.east,
+              group.bbox.north,
+            )
+          : null;
+        const shouldPreview =
+          previewPropertyIds.length > 0 &&
+          (
+            group.pointCount <= LARGE_CLUSTER_THRESHOLD ||
+            !group.bbox ||
+            estimatedZoom == null ||
+            estimatedZoom <= currentZoom + 0.5
+          );
 
-      if (isCluster) {
-        const pointCount = (properties.point_count as number) ?? 0;
-        const propertyIdsStr = properties.property_ids as string | undefined;
-        const clusterGeom = feature.geometry;
-
-        if (pointCount > LARGE_CLUSTER_THRESHOLD || !propertyIdsStr) {
-          // Large cluster or missing IDs — zoom into bbox
-          const bboxWest = properties.bbox_west as number | undefined;
-          const bboxSouth = properties.bbox_south as number | undefined;
-          const bboxEast = properties.bbox_east as number | undefined;
-          const bboxNorth = properties.bbox_north as number | undefined;
-
-          if (bboxWest != null && bboxSouth != null && bboxEast != null && bboxNorth != null) {
-            const estimatedZoom = estimateZoomForBbox(bboxWest, bboxSouth, bboxEast, bboxNorth);
-
-            if (estimatedZoom > currentZoom + 0.5) {
-              camera.fitBounds(
-                [bboxWest, bboxSouth, bboxEast, bboxNorth],
-                { padding: 80, duration: 500 },
-              );
-            } else {
-              camera.flyTo({
-                center: [(bboxWest + bboxEast) / 2, (bboxSouth + bboxNorth) / 2],
-                zoom: Math.min(currentZoom + 2, 18),
-                duration: 500,
-              });
-            }
-          } else if (clusterGeom && clusterGeom.type === 'Point') {
-            const [lng, lat] = clusterGeom.coordinates as [number, number];
-            camera.flyTo({
-              center: [lng, lat],
-              zoom: Math.min(currentZoom + 2, 18),
-              duration: 500,
-            });
-          }
-        } else {
-          // Small cluster — show geo-anchored GroupPreviewCard
-          const ids = propertyIdsStr.split(',');
-          if (clusterGeom && clusterGeom.type === 'Point') {
-            const coord = clusterGeom.coordinates as [number, number];
-            setHighlightedCoordinate(coord);
-            flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
-            schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-              void openClusterPreviewAtCoord(ids, coord);
-            });
-          }
-        }
-        return true;
-      } else {
-        // Individual property
-        const propertyId =
-          (properties.id as string) ||
-          (properties.property_ids as string | undefined)?.split(',')[0];
-        const activityScore =
-          (properties.activityScore as number) ??
-          (properties.max_activity as number) ?? 0;
-        const geom = feature.geometry;
-
-        if (propertyId && geom && geom.type === 'Point') {
-          const coord = geom.coordinates as [number, number];
+        if (shouldPreview) {
+          const coord = group.coordinate;
           setHighlightedCoordinate(coord);
           flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-            setSelectedPropertyId(propertyId);
-            setPreviewGroup({
-              properties: [{
-                id: propertyId,
-                address: (properties.address as string) ?? '',
-                city: (properties.city as string) ?? '',
-                postalCode: (properties.postalCode as string) ?? null,
-                officialValuation: (properties.officialValuation as number) ?? null,
-                askingPrice: (properties.askingPrice as number) ?? null,
-                activityLevel: getActivityLevel(activityScore),
-                activityScore,
-                thumbnailUrl: null,
-                aerialImageUrl: derivePropertyAerialImageUrl({
-                  geometry: { type: 'Point', coordinates: coord },
-                  countryCode: 'NL',
-                }),
-                yearBuilt: null,
-                floorAreaM2: null,
-                likeCount: (properties.likeCount as number) ?? 0,
-                commentCount: (properties.commentCount as number) ?? 0,
-                guessCount: (properties.guessCount as number) ?? 0,
-              }],
-              coordinate: coord,
-            });
-            setCurrentPreviewIndex(0);
+            void openClusterPreviewAtCoord(previewPropertyIds, coord);
           });
-          return true;
+        } else if (group.bbox) {
+          camera.fitBounds(
+            [group.bbox.west, group.bbox.south, group.bbox.east, group.bbox.north],
+            { padding: 80, duration: 500 },
+          );
+        } else {
+          const [lng, lat] = group.coordinate;
+          camera.flyTo({
+            center: [lng, lat],
+            zoom: Math.min(currentZoom + 2, 18),
+            duration: 500,
+          });
         }
+        return true;
+      } else {
+        const coord = group.coordinate;
+        setHighlightedCoordinate(coord);
+        flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+        schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+          setSelectedPropertyId(group.primaryPropertyId);
+          setPreviewGroup({
+            properties: [{
+              id: group.primaryPropertyId,
+              address: group.address ?? '',
+              city: group.city ?? '',
+              postalCode: group.postalCode ?? null,
+              countryCode: group.countryCode ?? undefined,
+              officialValuation: group.officialValuation ?? null,
+              askingPrice: group.askingPrice ?? null,
+              activityLevel: getActivityLevel(group.activityScore),
+              activityScore: group.activityScore,
+              thumbnailUrl: group.thumbnailUrl ?? null,
+              aerialImageUrl: derivePropertyAerialImageUrl({
+                geometry: { type: 'Point', coordinates: coord },
+                countryCode: group.countryCode ?? undefined,
+              }),
+              yearBuilt: group.yearBuilt ?? null,
+              floorAreaM2: group.floorAreaM2 ?? null,
+              likeCount: group.likeCount ?? 0,
+              commentCount: group.commentCount ?? 0,
+              guessCount: group.guessCount ?? 0,
+            }],
+            coordinate: coord,
+          });
+          setCurrentPreviewIndex(0);
+        });
+        return true;
       }
       return false;
     },
@@ -556,73 +585,71 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Handle nearby cluster result (native fallback) ──────────
   const handleNearbyResult = useCallback(
-    (result: NearbyClusterResult, currentZoom: number, camera: MapCameraCommands) => {
-      if (result.type === 'single') {
-        const coord = result.geometry?.coordinates as [number, number] | undefined;
-        if (coord) {
-          setHighlightedCoordinate(coord);
-          flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
-          schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-            const previewAerialImageUrl = derivePropertyAerialImageUrl({
-              geometry: { type: 'Point', coordinates: coord },
-              countryCode: 'NL',
-            });
-            setSelectedPropertyId(result.id);
-            setPreviewGroup({
-              properties: [{
-                id: result.id,
-                address: result.address,
-                city: result.city,
-                postalCode: result.postalCode,
-                officialValuation: result.officialValuation,
-                askingPrice: result.askingPrice,
-                thumbnailUrl: null,
-                activityLevel: getActivityLevel(result.activityScore ?? 0),
-                activityScore: result.activityScore ?? 0,
-                aerialImageUrl: previewAerialImageUrl,
-                likeCount: result.likeCount ?? 0,
-                commentCount: result.commentCount ?? 0,
-                guessCount: result.guessCount ?? 0,
-              }],
-              coordinate: coord,
-            });
-            setCurrentPreviewIndex(0);
+    (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => {
+      if (result.groupKind === 'single') {
+        const coord = result.coordinate;
+        setHighlightedCoordinate(coord);
+        flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+        schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+          const previewAerialImageUrl = derivePropertyAerialImageUrl({
+            geometry: { type: 'Point', coordinates: coord },
+            countryCode: result.countryCode ?? undefined,
           });
-        }
-      } else if (result.type === 'cluster') {
-        const pointCount = result.point_count ?? 0;
-        if (pointCount > LARGE_CLUSTER_THRESHOLD) {
-          // Large cluster — zoom in
-          if (result.bbox) {
-            const [west, south, east, north] = result.bbox;
-            const estimatedZoom = estimateZoomForBbox(west, south, east, north);
+          setSelectedPropertyId(result.primaryPropertyId);
+          setPreviewGroup({
+            properties: [{
+              id: result.primaryPropertyId,
+              address: result.address ?? '',
+              city: result.city ?? '',
+              postalCode: result.postalCode,
+              countryCode: result.countryCode ?? undefined,
+              officialValuation: result.officialValuation,
+              askingPrice: result.askingPrice,
+              thumbnailUrl: result.thumbnailUrl,
+              activityLevel: getActivityLevel(result.activityScore ?? 0),
+              activityScore: result.activityScore ?? 0,
+              aerialImageUrl: previewAerialImageUrl,
+              yearBuilt: result.yearBuilt ?? null,
+              floorAreaM2: result.floorAreaM2 ?? null,
+              likeCount: result.likeCount ?? 0,
+              commentCount: result.commentCount ?? 0,
+              guessCount: result.guessCount ?? 0,
+            }],
+            coordinate: coord,
+          });
+          setCurrentPreviewIndex(0);
+        });
+      } else if (result.groupKind === 'cluster') {
+        const previewIds = result.previewPropertyIds;
+        const shouldPreview =
+          previewIds.length > 0 &&
+          (
+            result.pointCount <= LARGE_CLUSTER_THRESHOLD ||
+            !result.bbox ||
+            estimateZoomForBbox(
+              result.bbox.west,
+              result.bbox.south,
+              result.bbox.east,
+              result.bbox.north,
+            ) <= currentZoom + 0.5
+          );
 
-            if (estimatedZoom > currentZoom + 0.5) {
-              camera.fitBounds(
-                [west, south, east, north],
-                { padding: 80, duration: 500 },
-              );
-            } else {
-              camera.flyTo({
-                center: [(west + east) / 2, (south + north) / 2],
-                zoom: Math.min(currentZoom + 2, 18),
-                duration: 500,
-              });
-            }
-          } else {
-            camera.flyTo({
-              center: result.coordinate,
-              zoom: Math.min(currentZoom + 2, 18),
-              duration: 500,
-            });
-          }
-        } else {
-          // Small cluster — show preview card
-          const ids = result.property_ids.split(',');
+        if (shouldPreview) {
           setHighlightedCoordinate(result.coordinate);
           flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-            void openClusterPreviewAtCoord(ids, result.coordinate);
+            void openClusterPreviewAtCoord(previewIds, result.coordinate);
+          });
+        } else if (result.bbox) {
+          camera.fitBounds(
+            [result.bbox.west, result.bbox.south, result.bbox.east, result.bbox.north],
+            { padding: 80, duration: 500 },
+          );
+        } else {
+          camera.flyTo({
+            center: result.coordinate,
+            zoom: Math.min(currentZoom + 2, 18),
+            duration: 500,
           });
         }
       }
@@ -655,7 +682,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
       setHighlightedCoordinate(coord);
-      flyToPreviewAnchor(camera, coord, 17, SEARCH_PREVIEW_FLY_DURATION_MS);
+      flyToPreviewAnchor(camera, coord, SEARCH_TARGET_ZOOM, SEARCH_PREVIEW_FLY_DURATION_MS);
       schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
         setSelectedPropertyId(property.id);
         setPreviewGroup({
@@ -671,7 +698,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
             thumbnailUrl: null,
             aerialImageUrl: derivePropertyAerialImageUrl({
               geometry: { type: 'Point', coordinates: coord },
-              countryCode: 'NL',
+              countryCode: undefined,
             }),
           }],
           coordinate: coord,
@@ -686,7 +713,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     (coordinates: { lon: number; lat: number }, _address: string, camera: MapCameraCommands) => {
       camera.flyTo({
         center: [coordinates.lon, coordinates.lat],
-        zoom: 17,
+        zoom: SEARCH_TARGET_ZOOM,
         duration: 1000,
       });
     },
@@ -728,6 +755,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     handleAuthModalClose,
     handleAuthSuccess,
     handleAuthStarting,
+    resetTransientUI,
 
     // Quick-action handlers
     handleLike,

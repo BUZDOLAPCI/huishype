@@ -120,11 +120,10 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
     width: '100%',
-    aspectRatio: 4 / 3, // 800x600 = 4:3
+    paddingTop: '75%', // 4:3 without aspectRatio parser issues on Android
   },
   aerialImage: {
-    width: '100%',
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

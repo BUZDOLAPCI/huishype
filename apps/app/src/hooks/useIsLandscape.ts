@@ -10,16 +10,22 @@
  */
 import { useState, useEffect } from 'react';
 
+function readIsLandscape(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth > window.innerHeight;
+}
+
 export function useIsLandscape(): boolean {
-  const [isLandscape, setIsLandscape] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return window.innerWidth > window.innerHeight;
-  });
+  // Keep the server render and the first client render identical so
+  // responsive panels do not hydrate with mismatched DOM on square/narrow viewports.
+  const [isLandscape, setIsLandscape] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    setIsLandscape(readIsLandscape());
+
     const handleResize = () => {
-      setIsLandscape(window.innerWidth > window.innerHeight);
+      setIsLandscape(readIsLandscape());
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);

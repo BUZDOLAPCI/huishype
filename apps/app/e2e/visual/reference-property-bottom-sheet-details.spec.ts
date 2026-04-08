@@ -110,7 +110,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       const canvas = mapInstance.getCanvas();
       if (!canvas) return false;
 
-      const layers = ['ghost-nodes', 'active-nodes', 'single-active-points', 'property-clusters']
+      const layers = ['ghost-nodes', 'active-nodes', 'ghost-clusters', 'property-clusters']
         .filter((layer) => mapInstance.getLayer(layer));
       if (layers.length === 0) return false;
 
@@ -230,13 +230,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await openExpandedPropertyPanel(page);
 
     const panel = page.locator('[data-testid="web-property-panel"]');
-    const aerialImage = page.getByTestId('property-header-aerial-image');
+    const heroImage = page.getByTestId('property-header-image');
     const marker = page.getByTestId('property-header-marker');
     await expect(panel.getByText('Save').first()).toBeVisible();
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
     await expect(page.locator('[data-testid="web-panel-backdrop"]')).toHaveClass(/open/);
-    await expect(aerialImage).toBeVisible({ timeout: 10000 });
+    await expect(heroImage).toBeVisible({ timeout: 10000 });
     await expect(marker).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(300);
 
@@ -258,7 +258,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await openExpandedPropertyPanel(page);
 
     const panel = page.locator('[data-testid="web-property-panel"]');
-    await expect(page.getByTestId('property-header-aerial-image')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('property-header-image')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('property-header-marker')).toBeVisible({ timeout: 10000 });
     await expect(panel.getByText('Property Details').first()).toBeVisible();
     await expect(panel.getByText('Guess the Price').first()).toBeVisible();

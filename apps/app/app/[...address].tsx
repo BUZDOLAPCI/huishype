@@ -174,9 +174,14 @@ export default function AddressScreen() {
   );
   const rootNavigationState = useRootNavigationState();
   const addressSurface = getAddressSurface(addressParams);
+  const [hasMounted, setHasMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const navigationReady = Boolean(rootNavigationState?.key);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!navigationReady || addressSurface !== 'property') {
@@ -247,6 +252,18 @@ export default function AddressScreen() {
     addressSurface,
     navigationReady,
   ]);
+
+  if (!hasMounted) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.container}>
+          <ActivityIndicator size="large" color="#F5A623" />
+          <Text style={styles.loadingText}>Resolving address...</Text>
+        </View>
+      </>
+    );
+  }
 
   if (addressSurface === 'city' || addressSurface === 'postcode') {
     return <PartialAddressScreen surface={addressSurface} params={addressParams} />;

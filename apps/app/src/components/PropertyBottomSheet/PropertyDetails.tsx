@@ -1,6 +1,8 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
 import type { SectionProps } from './types';
+import { SectionCard } from './SectionCard';
 
 interface DetailRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -9,19 +11,49 @@ interface DetailRowProps {
 }
 
 function DetailRow({ icon, label, value }: DetailRowProps) {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined) {
+    return null;
+  }
 
   return (
-    <View className="flex-row items-center py-2 border-b border-warm-50">
-      <View className="w-8 items-center">
+    <View style={styles.detailRow}>
+      <View style={styles.detailIconWrap}>
         <Ionicons name={icon} size={16} color="#9C958A" />
       </View>
-      <Text className="flex-1 text-warm-500 text-sm">{label}</Text>
-      <Text className="text-warm-900 text-sm font-medium" numberOfLines={1}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} numberOfLines={1}>
         {value}
       </Text>
     </View>
   );
+}
+
+function ActivityStat({
+  label,
+  value,
+  helperText,
+}: {
+  label: string;
+  value: string;
+  helperText?: string;
+}) {
+  return (
+    <View style={styles.activityTile}>
+      <Text style={styles.activityValue}>{value}</Text>
+      <Text style={styles.activityLabel}>{label}</Text>
+      {helperText ? <Text style={styles.activityHelper}>{helperText}</Text> : null}
+    </View>
+  );
+}
+
+function formatCompactCount(value: number): string {
+  if (value >= 1000000) {
+    return `${(value / 1000000).toFixed(1)}M`;
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
+  }
+  return String(value);
 }
 
 export function PropertyDetails({ property }: SectionProps) {
@@ -31,74 +63,124 @@ export function PropertyDetails({ property }: SectionProps) {
     demolished: 'Demolished',
   };
 
-  const statusColors: Record<string, string> = {
-    active: 'text-green-600',
-    inactive: 'text-yellow-600',
-    demolished: 'text-red-600',
-  };
-
   return (
-    <View className="px-4 py-4 border-t border-warm-100">
-      <View className="flex-row items-center mb-3">
-        <Ionicons name="information-circle" size={20} color="#F5A623" />
-        <Text className="text-lg font-semibold text-warm-900 ml-2">Property Details</Text>
-      </View>
-
-      <View className="bg-warm-50 rounded-xl p-3">
-        <DetailRow
-          icon="calendar-outline"
-          label="Year Built"
-          value={property.yearBuilt}
-        />
-
-        <DetailRow
-          icon="resize-outline"
-          label="Surface Area"
-          value={property.floorAreaM2 ? `${property.floorAreaM2} m\u00B2` : null}
-        />
-
-        {property.status && (
-          <View className="flex-row items-center py-2">
-            <View className="w-8 items-center">
-              <Ionicons name="checkmark-circle-outline" size={16} color="#9C958A" />
-            </View>
-            <Text className="flex-1 text-warm-500 text-sm">Status</Text>
-            <Text className={`text-sm font-medium ${statusColors[property.status]}`}>
-              {statusLabels[property.status]}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Activity Stats */}
-      <View className="flex-row justify-around mt-4 pt-4 border-t border-warm-100">
-        {property.viewCount > 0 && (
-          <View className="items-center">
-            <Text className="text-lg font-bold text-warm-900">{property.viewCount}</Text>
-            <Text className="text-xs text-warm-400">{property.viewCount === 1 ? 'View' : 'Views'}</Text>
-          </View>
-        )}
-        <View className="items-center">
-          {property.guessCount > 0 ? (
-            <>
-              <Text className="text-lg font-bold text-warm-900">{property.guessCount}</Text>
-              <Text className="text-xs text-warm-400">{property.guessCount === 1 ? 'Guess' : 'Guesses'}</Text>
-            </>
-          ) : (
-            <Text className="text-xs text-warm-400">Be the first to guess</Text>
-          )}
+    <View style={styles.stack}>
+      <SectionCard
+        title="Property Details"
+        icon="information-circle"
+        description="Core reference details for the address itself."
+      >
+        <View style={styles.detailTable}>
+          <DetailRow
+            icon="calendar-outline"
+            label="Year Built"
+            value={property.yearBuilt}
+          />
+          <DetailRow
+            icon="resize-outline"
+            label="Surface Area"
+            value={property.floorAreaM2 ? `${property.floorAreaM2} m²` : null}
+          />
+          <DetailRow
+            icon="pin-outline"
+            label="Postal code"
+            value={property.postalCode}
+          />
+          <DetailRow
+            icon="checkmark-circle-outline"
+            label="Status"
+            value={property.status ? statusLabels[property.status] : null}
+          />
         </View>
-        <View className="items-center">
-          {property.commentCount > 0 ? (
-            <>
-              <Text className="text-lg font-bold text-warm-900">{property.commentCount}</Text>
-              <Text className="text-xs text-warm-400">{property.commentCount === 1 ? 'Comment' : 'Comments'}</Text>
-            </>
-          ) : (
-            <Text className="text-xs text-warm-400">Start the conversation</Text>
-          )}
+      </SectionCard>
+
+      <SectionCard
+        title="Activity"
+        icon="pulse"
+        description="How much attention this property is getting right now."
+      >
+        <View style={styles.activityGrid}>
+          <ActivityStat label="Views" value={formatCompactCount(property.viewCount)} />
+          <ActivityStat
+            label="Guesses"
+            value={property.guessCount > 0 ? formatCompactCount(property.guessCount) : '0'}
+            helperText={property.guessCount === 0 ? 'Be the first to guess' : undefined}
+          />
+          <ActivityStat
+            label="Comments"
+            value={property.commentCount > 0 ? formatCompactCount(property.commentCount) : '0'}
+            helperText={property.commentCount === 0 ? 'Start the conversation' : undefined}
+          />
         </View>
-      </View>
+      </SectionCard>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: 14,
+  },
+  detailTable: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5EBDD',
+  },
+  detailIconWrap: {
+    width: 28,
+    alignItems: 'flex-start',
+  },
+  detailLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: '#8C8479',
+  },
+  detailValue: {
+    maxWidth: '48%',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2D2926',
+    textAlign: 'right',
+  },
+  activityGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  activityTile: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+  },
+  activityValue: {
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: '700',
+    color: '#2D2926',
+  },
+  activityLabel: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#8C8479',
+  },
+  activityHelper: {
+    marginTop: 6,
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 14,
+    color: '#AEA699',
+  },
+});

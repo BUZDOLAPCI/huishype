@@ -1,11 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Pressable, Text, View, ActivityIndicator } from 'react-native';
+import { Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
-import { Comment, CommentInput, KarmaBadge } from '../Comments';
-import type { CommentData } from '../Comments';
+import { Comment, CommentInput } from '../Comments';
 import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
+import { SectionCard } from './SectionCard';
 
 interface CommentsSectionProps extends SectionProps {
   onAddComment?: () => void;
@@ -28,7 +28,7 @@ export function CommentsSection({
   const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [showAllComments, setShowAllComments] = useState(false);
 
-  const { isAuthenticated, user } = useAuthContext();
+  const { isAuthenticated } = useAuthContext();
 
   // Fetch comments
   const {
@@ -136,61 +136,37 @@ export function CommentsSection({
     }
   }, [onViewAll, hasNextPage, fetchNextPage]);
 
-  // Handle load more
-  const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
   return (
-    <View className="px-4 py-4 border-t border-warm-100">
-      {/* Header */}
-      <View className="flex-row items-center justify-between mb-3">
-        <View className="flex-row items-center">
-          <Ionicons name="chatbubbles" size={20} color="#F5A623" />
-          <Text className="text-lg font-semibold text-warm-900 ml-2">Comments</Text>
-          {totalComments > 0 && (
-            <View className="ml-2 bg-warm-100 px-2 py-0.5 rounded-full">
-              <Text className="text-xs text-warm-600">{totalComments}</Text>
-            </View>
-          )}
+    <SectionCard
+      title="Comments"
+      icon="chatbubbles"
+      description="Read the neighborhood takes and add your own perspective on the address."
+      trailing={totalComments > 0 ? (
+        <View style={styles.commentBadge}>
+          <Text style={styles.commentBadgeText}>{totalComments}</Text>
         </View>
-
-        {/* Sort toggle */}
-        {totalComments > 0 && (
-          <View className="flex-row bg-warm-100 rounded-lg p-0.5">
-            <Pressable
-              onPress={() => handleSortChange('recent')}
-              className={`px-2.5 py-1 rounded-md ${
-                sortBy === 'recent' ? 'bg-surface-card shadow-sm' : ''
-              }`}
-            >
-              <Text
-                className={`text-xs ${
-                  sortBy === 'recent' ? 'text-warm-900 font-medium' : 'text-warm-500'
-                }`}
-              >
-                Recent
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => handleSortChange('popular')}
-              className={`px-2.5 py-1 rounded-md ${
-                sortBy === 'popular' ? 'bg-surface-card shadow-sm' : ''
-              }`}
-            >
-              <Text
-                className={`text-xs ${
-                  sortBy === 'popular' ? 'text-warm-900 font-medium' : 'text-warm-500'
-                }`}
-              >
-                Popular
-              </Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
+      ) : null}
+    >
+      {totalComments > 0 && (
+        <View style={styles.sortWrap}>
+          <Pressable
+            onPress={() => handleSortChange('recent')}
+            style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
+          >
+            <Text style={[styles.sortText, sortBy === 'recent' && styles.sortTextActive]}>
+              Recent
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => handleSortChange('popular')}
+            style={[styles.sortChip, sortBy === 'popular' && styles.sortChipActive]}
+          >
+            <Text style={[styles.sortText, sortBy === 'popular' && styles.sortTextActive]}>
+              Popular
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Loading state */}
       {isLoading && (
@@ -227,7 +203,7 @@ export function CommentsSection({
 
       {/* Comments list */}
       {!isLoading && !isError && displayedComments.length > 0 && (
-        <View>
+        <View style={styles.commentList}>
           {displayedComments.map((comment, index) => (
             <View key={comment.id}>
               {index > 0 && <View className="h-px bg-warm-100" />}
@@ -274,6 +250,54 @@ export function CommentsSection({
           }
         />
       </View>
-    </View>
+    </SectionCard>
   );
 }
+
+const styles = StyleSheet.create({
+  commentBadge: {
+    minWidth: 28,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#FFF3DD',
+    alignItems: 'center',
+  },
+  commentBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#C18A10',
+  },
+  sortWrap: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    backgroundColor: '#FBF4E7',
+    borderRadius: 999,
+    padding: 3,
+    marginBottom: 14,
+    gap: 4,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  sortChipActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  sortText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8C8479',
+  },
+  sortTextActive: {
+    color: '#2D2926',
+  },
+  commentList: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+  },
+});

@@ -27,6 +27,10 @@ export type {
   ActivityLevel,
   MapProperty,
   PropertyCluster,
+  PropertyNodeClass,
+  PropertyGroupKind,
+  PropertyGroupBounds,
+  PropertyNodeGroup,
 } from './property.js';
 
 // Listing types

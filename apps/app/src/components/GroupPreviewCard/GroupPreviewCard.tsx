@@ -15,8 +15,9 @@ import { PropertyPreviewCard } from '../PropertyPreviewCard';
 import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
-const CARD_WIDTH = 270;
+const CARD_WIDTH = 280;
 const PREVIEW_ARROW_SIZE = 10;
+const PAGE_PROGRESS_DOT_COUNT = 4;
 
 /** Maximum movement (px) to still count as a tap, not a drag. */
 const TAP_MOVE_THRESHOLD = 40;
@@ -64,6 +65,12 @@ function pointInRect(px: number, py: number, rect: Rect): boolean {
     py >= rect.y &&
     py <= rect.y + rect.height
   );
+}
+
+function getProgressDotIndex(currentIndex: number, total: number): number {
+  if (total <= 1) return 0;
+  const maxIndex = PAGE_PROGRESS_DOT_COUNT - 1;
+  return Math.round((currentIndex / (total - 1)) * maxIndex);
 }
 
 /** Minimum horizontal movement (px) before a swipe gesture is recognized. */
@@ -523,63 +530,79 @@ export function GroupPreviewCard({
       {/* Cluster navigation header — floats above the card content */}
       {isCluster && (
         <View style={styles.clusterHeader}>
-          {/* Left arrow */}
-          <Pressable
-            onPress={goLeft}
-            ref={isNative ? hitTest.zoneRef('navLeft') : undefined}
-            onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
-            collapsable={isNative ? false : undefined}
-            disabled={!canGoLeft}
-            hitSlop={6}
-            style={[
-              styles.navArrow,
-              { backgroundColor: canGoLeft ? COLORS.gold500 : COLORS.warm200 },
-            ]}
-            testID="group-preview-nav-left"
-            accessibilityLabel="Previous property"
-            accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canGoLeft }}
-          >
-            <Icon
-              name="CaretLeft"
-              size="md"
-              color={canGoLeft ? COLORS.white : COLORS.warm400}
-            />
-          </Pressable>
+          <View style={styles.clusterHeaderTopRow}>
+            <Pressable
+              onPress={goLeft}
+              ref={isNative ? hitTest.zoneRef('navLeft') : undefined}
+              onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
+              collapsable={isNative ? false : undefined}
+              disabled={!canGoLeft}
+              hitSlop={6}
+              style={[
+                styles.navArrow,
+                styles.navArrowDark,
+                !canGoLeft && styles.navArrowDisabled,
+              ]}
+              testID="group-preview-nav-left"
+              accessibilityLabel="Previous property"
+              accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canGoLeft }}
+            >
+              <Icon
+                name="CaretLeft"
+                size="md"
+                color={COLORS.white}
+              />
+            </Pressable>
 
-          {/* Page indicator pill */}
-          <View style={styles.pageIndicator} testID="group-preview-page-indicator">
-            <Icon name="ListBullets" size={14} color={COLORS.white} />
-            <Text style={styles.pageText} testID="group-preview-page-text">
-              {currentIndex + 1} of {properties.length}
-            </Text>
+            <View style={styles.pageIndicator} testID="group-preview-page-indicator">
+              <Icon name="ListBullets" size={13} color={COLORS.white} />
+              <Text style={styles.pageText} testID="group-preview-page-text">
+                {currentIndex + 1} of {properties.length}
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={goRight}
+              ref={isNative ? hitTest.zoneRef('navRight') : undefined}
+              onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
+              collapsable={isNative ? false : undefined}
+              disabled={!canGoRight}
+              hitSlop={6}
+              style={[
+                styles.navArrow,
+                styles.navArrowGold,
+                !canGoRight && styles.navArrowGoldDisabled,
+              ]}
+              testID="group-preview-nav-right"
+              accessibilityLabel="Next property"
+              accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canGoRight }}
+            >
+              <Icon
+                name="CaretRight"
+                size="md"
+                color={COLORS.white}
+              />
+            </Pressable>
           </View>
 
-          {/* Right arrow */}
-          <Pressable
-            onPress={goRight}
-            ref={isNative ? hitTest.zoneRef('navRight') : undefined}
-            onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
-            collapsable={isNative ? false : undefined}
-            disabled={!canGoRight}
-            hitSlop={6}
-            style={[
-              styles.navArrow,
-              { backgroundColor: canGoRight ? COLORS.gold500 : COLORS.warm200 },
-            ]}
-            testID="group-preview-nav-right"
-            accessibilityLabel="Next property"
-            accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canGoRight }}
-          >
-            <Icon
-              name="CaretRight"
-              size="md"
-              color={canGoRight ? COLORS.white : COLORS.warm400}
-            />
-          </Pressable>
+          <View style={styles.pageDotsRow} testID="group-preview-page-dots">
+            {Array.from({ length: PAGE_PROGRESS_DOT_COUNT }, (_, index) => (
+              <View
+                key={`page-dot-${index}`}
+                testID="group-preview-page-dot"
+                style={[
+                  styles.pageDot,
+                  index === getProgressDotIndex(currentIndex, properties.length)
+                    ? styles.pageDotActive
+                    : styles.pageDotInactive,
+                ]}
+              />
+            ))}
+          </View>
         </View>
       )}
 
@@ -610,37 +633,16 @@ export function GroupPreviewCard({
               onGuess={() => onGuess?.(currentProperty)}
               onClose={onClose}
               showCloseButton={!isCluster}
+              closeButtonRef={!isCluster && isNative ? hitTest.zoneRef('close') : undefined}
+              closeButtonOnLayout={!isCluster && isNative ? hitTest.zoneLayout('close') : undefined}
+              likeButtonRef={isNative ? hitTest.zoneRef('like') : undefined}
+              likeButtonOnLayout={isNative ? hitTest.zoneLayout('like') : undefined}
+              commentButtonRef={isNative ? hitTest.zoneRef('comment') : undefined}
+              commentButtonOnLayout={isNative ? hitTest.zoneLayout('comment') : undefined}
+              guessButtonRef={isNative ? hitTest.zoneRef('guess') : undefined}
+              guessButtonOnLayout={isNative ? hitTest.zoneLayout('guess') : undefined}
             />
           </View>
-
-          {/* Hit-test zone refs for native action buttons — wrapped around the actual Pressables
-              inside PropertyPreviewCard. Since PropertyPreviewCard renders the buttons,
-              we register hit zones via overlay refs on the outer action row. */}
-          {isNative && (
-            <>
-              <View
-                ref={hitTest.zoneRef('like')}
-                onLayout={hitTest.zoneLayout('like')}
-                collapsable={false}
-                style={styles.hitZoneMarker}
-                testID="group-preview-like-hitzone"
-              />
-              <View
-                ref={hitTest.zoneRef('comment')}
-                onLayout={hitTest.zoneLayout('comment')}
-                collapsable={false}
-                style={styles.hitZoneMarker}
-                testID="group-preview-comment-hitzone"
-              />
-              <View
-                ref={hitTest.zoneRef('guess')}
-                onLayout={hitTest.zoneLayout('guess')}
-                collapsable={false}
-                style={styles.hitZoneMarker}
-                testID="group-preview-guess-hitzone"
-              />
-            </>
-          )}
         </Animated.View>
 
         {/* Close button — in cluster mode, positioned over the image area */}
@@ -659,18 +661,6 @@ export function GroupPreviewCard({
           >
             <Icon name="X" size={14} color={COLORS.warm700} />
           </Pressable>
-        )}
-
-        {/* For single property mode, register the close button from PropertyPreviewCard
-            for hit testing (it renders inside PropertyPreviewCard) */}
-        {!isCluster && isNative && (
-          <View
-            ref={hitTest.zoneRef('close')}
-            onLayout={hitTest.zoneLayout('close')}
-            collapsable={false}
-            style={styles.hitZoneMarker}
-            testID="group-preview-close-hitzone"
-          />
         )}
 
       </View>
@@ -718,74 +708,135 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     backgroundColor: COLORS.white,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     position: 'relative',
     // Preview shadow from design spec
     ...Platform.select({
       ios: {
-        shadowColor: '#B47712',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
+        shadowColor: '#1A1918',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.18,
+        shadowRadius: 20,
       },
-      android: { elevation: 6 },
+      android: { elevation: 8 },
       default: {},
     }),
     // Web shadow
     ...(Platform.OS === 'web'
-      ? { boxShadow: '0px 4px 20px rgba(180, 119, 18, 0.12)' } as any
+      ? { boxShadow: '0px 14px 30px rgba(26, 25, 24, 0.18), 0px 4px 12px rgba(180, 119, 18, 0.10)' } as any
       : {}),
   },
 
   // Cluster header
   clusterHeader: {
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  clusterHeaderTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
-    paddingTop: 4,
-    paddingBottom: 6,
-    paddingHorizontal: 8,
-    gap: 8,
+    gap: 10,
   },
   navArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1A1918',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.14,
+        shadowRadius: 4,
+      },
+      android: { elevation: 3 },
+      default: {},
+    }),
+  },
+  navArrowDark: {
+    backgroundColor: 'rgba(30, 27, 24, 0.92)',
+  },
+  navArrowDisabled: {
+    opacity: 0.56,
+  },
+  navArrowGold: {
+    backgroundColor: COLORS.gold500,
+  },
+  navArrowGoldDisabled: {
+    opacity: 0.5,
   },
   pageIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.warm800,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    backgroundColor: 'rgba(31, 29, 27, 0.94)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     gap: 5,
+    minHeight: 34,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1A1918',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.14,
+        shadowRadius: 4,
+      },
+      android: { elevation: 3 },
+      default: {},
+    }),
   },
   pageText: {
     color: COLORS.white,
     fontSize: 13,
     fontWeight: '600',
   },
+  pageDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 7,
+  },
+  pageDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  pageDotActive: {
+    backgroundColor: COLORS.gold500,
+  },
+  pageDotInactive: {
+    backgroundColor: 'rgba(45, 41, 38, 0.22)',
+  },
 
   // Close button for cluster mode
   clusterCloseButton: {
     position: 'absolute',
     // Position over the image area in the card's top-right corner.
-    top: 5,
-    right: 5,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderWidth: 1,
     borderColor: '#F5F0E8',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1A1918',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.12,
+        shadowRadius: 3,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
   },
 
   // Touch overlay for native hit-testing
@@ -797,14 +848,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 100,
     backgroundColor: 'transparent',
-  },
-
-  // Hidden hit-zone marker (zero-size, for native measureLayout registration)
-  hitZoneMarker: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    opacity: 0,
   },
 
   // Arrow pointers

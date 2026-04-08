@@ -284,14 +284,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const mapView = page.locator('[data-testid="map-view"]');
     await expect(mapView).toBeVisible();
 
-    // Loading indicator should not be visible
-    const loadingIndicator = page.locator('[data-testid="map-loading-indicator"]');
-    const loadingVisible = await loadingIndicator.isVisible().catch(() => false);
-    expect(loadingVisible, 'Loading indicator should not be visible after map loads').toBe(false);
-
-    // Canvas should be visible
+    // Canvas should be visible before the overlay can disappear.
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible({ timeout: 10000 });
+
+    // The web overlay clears on the first complete render, which can lag
+    // behind style-load by a short moment on static-export builds.
+    const loadingIndicator = page.locator('[data-testid="map-loading-indicator"]');
+    await expect(loadingIndicator).toBeHidden({ timeout: 15000 });
 
     // Take final screenshot
     await page.screenshot({

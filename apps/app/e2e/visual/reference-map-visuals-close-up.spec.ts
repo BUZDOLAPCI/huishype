@@ -16,6 +16,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
+import { getPitchForZoom } from '../../src/lib/mapPitch';
 
 // Configuration
 const EXPECTATION_NAME = 'map-visuals-close-up';
@@ -23,14 +24,13 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 
 // Zoom level for close-up view (where 3D buildings should be visible)
 // Reference shows zoom 17-18 for individual building visibility
-const CLOSE_UP_ZOOM_LEVEL = 17.5;
-const PITCH_3D = 60; // 3D perspective angle (60 degrees for visible walls like Snap Maps)
+const CLOSE_UP_ZOOM_LEVEL = 18.5;
+const PITCH_3D = getPitchForZoom(CLOSE_UP_ZOOM_LEVEL);
 const BEARING_3D = -20; // Slight rotation for better 3D effect
 
-// Center on Zwaanstraat/Deflectiespoelstraat area - dense residential buildings
-// This is the exact area shown in the reference image (Snap Maps screenshot)
-// Zwaanstraat in Eindhoven-Noord with dense row houses
-const CENTER_COORDINATES: [number, number] = [5.4645, 51.4575]; // Zwaanstraat residential area in Eindhoven-Noord
+// Center on the Zwaanstraat / Deflectiespoelstraat row-house block from the
+// reference. The previous coordinates pointed at a different neighborhood.
+const CENTER_COORDINATES: [number, number] = [5.44592, 51.45246];
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -171,6 +171,32 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     }
 
+    await page.waitForFunction(
+      ({ center, zoom, bearing, pitch }) => {
+        const map = (window as any).__mapInstance;
+        if (!map) return false;
+
+        const currentCenter = map.getCenter?.();
+        if (!currentCenter) return false;
+
+        const centerMatches =
+          Math.abs(currentCenter.lng - center[0]) < 0.0008 &&
+          Math.abs(currentCenter.lat - center[1]) < 0.0008;
+        const zoomMatches = Math.abs((map.getZoom?.() ?? 0) - zoom) < 0.15;
+        const bearingMatches = Math.abs((map.getBearing?.() ?? 0) - bearing) < 1;
+        const pitchMatches = Math.abs((map.getPitch?.() ?? 0) - pitch) < 1;
+
+        return centerMatches && zoomMatches && bearingMatches && pitchMatches;
+      },
+      {
+        center: CENTER_COORDINATES,
+        zoom: CLOSE_UP_ZOOM_LEVEL,
+        bearing: BEARING_3D,
+        pitch: PITCH_3D,
+      },
+      { timeout: 10000 }
+    );
+
     // Wait for map to be idle (tiles loaded) before proceeding
     await page.evaluate(() => {
       return new Promise<void>((resolve) => {
@@ -229,12 +255,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log('3D layer info:', layerInfo);
 
-    // Verify 3D buildings layer was added
+    const expectedPitch = getPitchForZoom(CLOSE_UP_ZOOM_LEVEL);
+
     expect(layerInfo?.buildingsExist, '3D buildings layer should exist').toBe(true);
-    // Verify pitch is at the expected 60 degrees for 3D perspective
-    expect(layerInfo?.pitch, 'Map should have pitch around 60 degrees').toBeGreaterThanOrEqual(55);
-    // Verify zoom is close enough to see individual buildings
-    expect(layerInfo?.zoom, 'Map should be zoomed to level 17+').toBeGreaterThanOrEqual(17);
+    expect(layerInfo?.zoom, 'Map should be zoomed to level 18+').toBeGreaterThanOrEqual(18);
+    expect(layerInfo?.pitch, 'Map should retain a visible 3D pitch').toBeGreaterThan(0);
+    expect(layerInfo?.pitch, 'Map pitch should follow the zoom-derived pitch curve').toBeCloseTo(expectedPitch, 1);
   });
 
   test('verify 3D buildings and map configuration', async ({ page }) => {
@@ -281,14 +307,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Verify configuration
     expect(mapConfig).not.toBeNull();
     if (mapConfig) {
-      // Map should have default pitch of 50 degrees (initial default from app)
-      // Note: This test checks the initial load state, not the configured test state
-      expect(mapConfig.pitch, 'Map should have 3D pitch configured').toBeGreaterThanOrEqual(50);
+      const expectedInitialPitch = getPitchForZoom(mapConfig.zoom);
 
-      // 3D buildings layer should exist
+      expect(mapConfig.pitch, 'Map pitch should match the zoom-derived pitch curve').toBeCloseTo(expectedInitialPitch, 1);
       expect(mapConfig.has3DLayer, '3D buildings layer should exist').toBe(true);
-
-      // Lighting should be configured
       expect(mapConfig.light, 'Lighting should be configured').not.toBeNull();
     }
 

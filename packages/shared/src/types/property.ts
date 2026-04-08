@@ -17,6 +17,16 @@ export interface Coordinates {
 export type ActivityLevel = 'cold' | 'warm' | 'hot';
 
 /**
+ * Canonical map-node class used by both tiles and nearby fallback.
+ */
+export type PropertyNodeClass = 'active' | 'ghost';
+
+/**
+ * Canonical map-node grouping kind used by both tiles and nearby fallback.
+ */
+export type PropertyGroupKind = 'single' | 'cluster';
+
+/**
  * Core property information (multi-country)
  */
 export interface Property {
@@ -184,12 +194,13 @@ export interface PropertyPhoto {
 }
 
 /**
- * Property for map display (clustered or individual)
+ * Legacy single-property map shape retained for non-grouped consumers.
+ * Density-aware runtime code should prefer PropertyNodeGroup.
  */
 export interface MapProperty {
   id: string;
   coordinates: Coordinates;
-  /** Whether this is a ghost node (listing exists but no social activity) */
+  /** Whether this is a ghost node (no listing and activity score is zero) */
   isGhost: boolean;
   /** Activity level for styling */
   activityLevel: ActivityLevel;
@@ -203,7 +214,8 @@ export interface MapProperty {
 }
 
 /**
- * Clustered properties for map at low zoom levels
+ * Legacy cluster shape retained for older consumers.
+ * Density-aware runtime code should prefer PropertyNodeGroup.
  */
 export interface PropertyCluster {
   id: string;
@@ -219,4 +231,43 @@ export interface PropertyCluster {
     east: number;
     west: number;
   };
+}
+
+/**
+ * Bounding box for a grouped map node.
+ */
+export interface PropertyGroupBounds {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+/**
+ * Canonical grouped map node model shared across tile features and nearby JSON.
+ */
+export interface PropertyNodeGroup {
+  nodeClass: PropertyNodeClass;
+  groupKind: PropertyGroupKind;
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  bbox: PropertyGroupBounds | null;
+  hasListing: boolean;
+  activityScore: number;
+  activityScoreTotal: number;
+  likeCount: number;
+  commentCount: number;
+  guessCount: number;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  countryCode: string | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
 }

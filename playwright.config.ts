@@ -14,6 +14,7 @@ const PLAYWRIGHT_API_PORT = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || '
 const PLAYWRIGHT_WEB_PORT = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || '8082', 10);
 const PLAYWRIGHT_API_URL = `http://127.0.0.1:${PLAYWRIGHT_API_PORT}`;
 const PLAYWRIGHT_WEB_URL = `http://127.0.0.1:${PLAYWRIGHT_WEB_PORT}`;
+const DISABLE_WEBSERVER = process.env.PLAYWRIGHT_DISABLE_WEBSERVER === '1';
 
 process.env.API_URL = PLAYWRIGHT_API_URL;
 process.env.EXPO_PUBLIC_API_URL = PLAYWRIGHT_API_URL;
@@ -29,8 +30,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI */
-  workers: process.env.CI ? 1 : undefined,
+  /* Local runs share a single Expo/API runtime; saturating all CPU cores makes the
+   * browser tests flaky by overdriving that shared server pair.
+   */
+  workers: 1,
   /* Reporter to use */
   reporter: [
     ['html', { open: 'never' }],
@@ -105,13 +108,15 @@ export default defineConfig({
         },
       ],
   /* Run local dev server before starting the tests */
-  webServer: {
-    // Start the dedicated test-only API and Expo web servers on isolated ports.
-    command: 'node ./scripts/playwright/integration-runtime.mjs',
-    url: PLAYWRIGHT_WEB_URL,
-    reuseExistingServer: false,
-    timeout: 120 * 1000, // Expo web startup can be slow on the first request
-  },
+  webServer: DISABLE_WEBSERVER
+    ? undefined
+    : {
+        // Start the dedicated test-only API and Expo web servers on isolated ports.
+        command: 'node ./scripts/playwright/integration-runtime.mjs',
+        url: PLAYWRIGHT_WEB_URL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120 * 1000,
+      },
   /* Output directory for test artifacts */
   outputDir: './test-results/playwright',
 });

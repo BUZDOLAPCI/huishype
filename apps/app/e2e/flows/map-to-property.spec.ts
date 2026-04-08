@@ -2,7 +2,7 @@
  * Flow E2E Test: Map to Property
  *
  * Tests the map interaction flow leading to property selection:
- * - Zoom to property level (z17+) and see rendered property markers
+ * - Zoom to property level and see rendered property markers
  * - Click on map at property location to trigger preview card
  * - Preview card shows real address data (not placeholders)
  * - Property layers exist at correct zoom levels
@@ -11,6 +11,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 
@@ -22,8 +23,8 @@ const SCREENSHOT_DIR = 'test-results/flows';
 // Eindhoven center where seeded data exists
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
-// z17+ shows individual property points with is_ghost
-const PROPERTY_ZOOM = 17;
+// Match the shared ghost-reveal threshold used by the map contract.
+const PROPERTY_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
 
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -48,10 +49,9 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 test.use({ trace: 'off' });
 
 async function focusMapOnSeededPropertyArea(page: Page) {
-  await page.goto('/');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-  await waitForMapStyleLoaded(page);
+  await waitForMapStyleLoaded(page, 60000);
 
   await page.evaluate(({ center, zoom }) => {
     const map = (window as any).__mapInstance;
@@ -76,7 +76,7 @@ async function clickPropertyMarkerById(page: Page, propertyId: string) {
       return { success: false, reason: 'No canvas' };
     }
 
-    const layerNames = ['single-active-points', 'active-nodes', 'ghost-nodes'];
+    const layerNames = ['ghost-clusters', 'active-nodes', 'ghost-nodes'];
     const rect = canvas.getBoundingClientRect();
 
     for (const layerName of layerNames) {
@@ -167,12 +167,11 @@ test.describe('Map to Property Flow', () => {
   });
 
   test('zoom to property level and see markers', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
     // Wait for map style to load
-    await waitForMapStyleLoaded(page);
+    await waitForMapStyleLoaded(page, 60000);
 
     // Zoom to property level centered on Eindhoven
     const mapConfigured = await page.evaluate(
@@ -208,7 +207,7 @@ test.describe('Map to Property Flow', () => {
         const canvas = map.getCanvas();
         if (!canvas) return false;
 
-        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'single-active-points']
+        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
           .filter((l) => map.getLayer(l));
         if (layerIds.length === 0) return false;
 
@@ -262,18 +261,17 @@ test.describe('Map to Property Flow', () => {
       return { ghost, active, clusters };
     });
 
-    console.log('Feature counts at z17:', featureCounts);
+    console.log(`Feature counts at z${PROPERTY_ZOOM}:`, featureCounts);
 
-    // At z17+ in Eindhoven, we should have property features rendered
+    // At the ghost-reveal threshold in Eindhoven, property features should render.
     const totalFeatures = featureCounts.ghost + featureCounts.active;
-    expect(totalFeatures, 'Should have rendered property features at z17+').toBeGreaterThan(0);
+    expect(totalFeatures, `Should have rendered property features at z${PROPERTY_ZOOM}+`).toBeGreaterThan(0);
   });
 
   test('property layers exist in map style', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await waitForMapStyleLoaded(page);
+    await waitForMapStyleLoaded(page, 60000);
 
     // Zoom to property level to trigger layer loading
     await page.evaluate(({ center, zoom }) => {
@@ -298,8 +296,9 @@ test.describe('Map to Property Flow', () => {
         l.id === 'ghost-nodes' ||
         l.id === 'active-nodes' ||
         l.id === 'property-clusters' ||
-        l.id === 'single-active-points' ||
-        l.id === 'cluster-count'
+        l.id === 'ghost-clusters' ||
+        l.id === 'cluster-count' ||
+        l.id === 'ghost-cluster-count'
       );
 
       return {

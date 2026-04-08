@@ -1,20 +1,115 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { startStaticWebServer } from './static-web-server.mjs';
 
 const DEFAULT_API_PORT = 3101;
 const DEFAULT_WEB_PORT = 8082;
 const READY_TIMEOUT_MS = 120_000;
+const EXPO_WEB_NODE_HEAP_MB = 8192;
+const repoRoot = process.cwd();
+const apiCwd = path.join(repoRoot, 'services', 'api');
+const appCwd = path.join(repoRoot, 'apps', 'app');
+const expoBin = './node_modules/.bin/expo';
+const webDistDir = path.join(appCwd, 'dist');
+const pnpmStoreDir = path.join(repoRoot, 'node_modules', '.pnpm');
+const tsxStoreEntry = fs.readdirSync(pnpmStoreDir).find((entry) => (
+  entry.startsWith('tsx@') &&
+  fs.existsSync(path.join(pnpmStoreDir, entry, 'node_modules', 'tsx', 'dist', 'preflight.cjs'))
+));
+
+if (!tsxStoreEntry) {
+  throw new Error(`Unable to locate tsx dist files under ${pnpmStoreDir}`);
+}
+
+const tsxDistDir = path.join(pnpmStoreDir, tsxStoreEntry, 'node_modules', 'tsx', 'dist');
+const tsxPreflight = path.join(tsxDistDir, 'preflight.cjs');
+const tsxLoader = pathToFileURL(path.join(tsxDistDir, 'loader.mjs')).href;
 
 const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
 const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
+let cleanupOnFatal = async () => {};
 
 function assertPositivePort(value, name) {
   if (!Number.isInteger(value) || value <= 0 || value > 65535) {
     throw new Error(`${name} must be a valid TCP port, received "${value}"`);
+  }
+}
+
+function getListeningPids(port) {
+  try {
+    const output = execFileSync(
+      'lsof',
+      [`-tiTCP:${port}`, '-sTCP:LISTEN'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+
+    if (!output) {
+      return [];
+    }
+
+    return [...new Set(
+      output
+        .split(/\s+/)
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid),
+    )];
+  } catch {
+    return [];
+  }
+}
+
+async function waitForPortRelease(port, timeoutMs = 10_000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (getListeningPids(port).length === 0) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return getListeningPids(port).length === 0;
+}
+
+async function ensurePortAvailable(port, label) {
+  const pids = getListeningPids(port);
+  if (pids.length === 0) {
+    return;
+  }
+
+  console.log(`${label} port ${port} is occupied by PID(s) ${pids.join(', ')}. Terminating stale listeners...`);
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // Ignore shutdown races.
+    }
+  }
+
+  if (await waitForPortRelease(port)) {
+    return;
+  }
+
+  const remainingPids = getListeningPids(port);
+  for (const pid of remainingPids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Ignore shutdown races.
+    }
+  }
+
+  if (!(await waitForPortRelease(port, 5_000))) {
+    throw new Error(`${label} port ${port} is still occupied after terminating stale listeners`);
   }
 }
 
@@ -39,10 +134,11 @@ async function waitForHttp(url, label) {
   }
 }
 
-function spawnService(command, args, env) {
+function spawnService(command, args, env, cwd = repoRoot) {
   const child = spawn(command, args, {
+    cwd,
     env,
-    stdio: 'inherit',
+    stdio: ['ignore', 'inherit', 'inherit'],
     shell: false,
   });
 
@@ -52,6 +148,29 @@ function spawnService(command, args, env) {
   });
 
   return child;
+}
+
+function stopService(child, signal) {
+  if (!child || child.killed) {
+    return;
+  }
+
+  try {
+    child.kill(signal);
+  } catch {
+    // Ignore shutdown races.
+  }
+}
+
+function withNodeOption(env, option) {
+  const current = env.NODE_OPTIONS?.trim();
+  if (!current) {
+    return { ...env, NODE_OPTIONS: option };
+  }
+  if (current.includes(option)) {
+    return env;
+  }
+  return { ...env, NODE_OPTIONS: `${current} ${option}` };
 }
 
 function waitForExit(child, name, stopping) {
@@ -67,28 +186,84 @@ function waitForExit(child, name, stopping) {
   });
 }
 
+async function startServiceWithRetry({
+  label,
+  command,
+  args,
+  env,
+  cwd,
+  port,
+  readyUrl,
+  stopping,
+  attempts = 2,
+}) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    await ensurePortAvailable(port, label);
+
+    const child = spawnService(command, args, env, cwd);
+    const exitPromise = waitForExit(child, label, stopping);
+
+    try {
+      await Promise.race([waitForHttp(readyUrl, label), exitPromise]);
+      return { child, exitPromise };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      stopService(child, 'SIGTERM');
+      await Promise.race([
+        exitPromise.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+
+      if (stopping.current || attempt === attempts) {
+        break;
+      }
+
+      console.warn(
+        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`,
+      );
+    }
+  }
+
+  throw lastError ?? new Error(`${label} failed to start`);
+}
+
 async function main() {
   assertPositivePort(apiPort, 'PLAYWRIGHT_API_PORT');
   assertPositivePort(webPort, 'PLAYWRIGHT_WEB_PORT');
 
   const childEnv = {
     ...process.env,
+    EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
   };
+  // Detached service children do not keep the supervisor event loop alive by
+  // themselves. Hold a lightweight interval open so this process remains the
+  // lifetime owner until Playwright signals shutdown.
+  const supervisorKeepAlive = setInterval(() => {}, 60_000);
 
-  const apiChild = spawnService(
-    'pnpm',
-    ['--filter', '@huishype/api', 'dev'],
-    {
+  const stopping = { current: false };
+  let apiChild = null;
+  let webServerRuntime = null;
+  let apiExit = Promise.resolve();
+
+  console.log(`Waiting for API at ${apiUrl} ...`);
+  const apiRuntime = await startServiceWithRetry({
+    label: 'API server',
+    command: process.execPath,
+    args: ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
+    env: {
       ...childEnv,
       PORT: String(apiPort),
     },
-  );
-
-  const stopping = { current: false };
-  const apiExit = waitForExit(apiChild, 'API server', stopping);
-  let webChild = null;
-  let webExit = Promise.resolve();
+    cwd: apiCwd,
+    port: apiPort,
+    readyUrl: `${apiUrl}/health`,
+    stopping,
+  });
+  apiChild = apiRuntime.child;
+  apiExit = apiRuntime.exitPromise;
 
   const stop = async (signal) => {
     if (stopping.current) {
@@ -96,15 +271,20 @@ async function main() {
     }
 
     stopping.current = true;
-    apiChild.kill(signal);
-    if (webChild) {
-      webChild.kill(signal);
+    stopService(apiChild, signal);
+    if (webServerRuntime) {
+      await webServerRuntime.stop().catch(() => {});
     }
 
     await Promise.race([
-      Promise.allSettled([apiExit, webExit]),
+      Promise.allSettled([apiExit]),
       new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]);
+    clearInterval(supervisorKeepAlive);
+  };
+
+  cleanupOnFatal = async () => {
+    await stop('SIGTERM');
   };
 
   const onSignal = (signal) => {
@@ -116,32 +296,40 @@ async function main() {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  console.log(`Waiting for API at ${apiUrl} ...`);
-  await Promise.race([waitForHttp(`${apiUrl}/health`, 'API server'), apiExit]);
   if (stopping.current) {
     return;
   }
 
-  webChild = spawnService(
-    'pnpm',
-    ['--filter', '@huishype/app', 'exec', 'expo', 'start', '--web', '--port', String(webPort)],
+  console.log('Building Expo web bundle for Playwright runtime ...');
+  execFileSync(
+    expoBin,
+    ['export', '--platform', 'web'],
     {
-      ...childEnv,
-      EXPO_PUBLIC_API_URL: apiUrl,
+      cwd: appCwd,
+      env: withNodeOption({
+        ...childEnv,
+        NODE_ENV: 'production',
+        EXPO_PUBLIC_API_URL: apiUrl,
+      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
+      stdio: 'inherit',
     },
   );
 
-  webExit = waitForExit(webChild, 'Expo web server', stopping);
-
-  console.log(`Waiting for Expo web at ${webUrl} ...`);
-  await Promise.race([waitForHttp(webUrl, 'Expo web server'), apiExit, webExit]);
+  console.log(`Waiting for static web server at ${webUrl} ...`);
+  await ensurePortAvailable(webPort, 'Static web server');
+  webServerRuntime = startStaticWebServer({
+    port: webPort,
+    rootDir: webDistDir,
+  });
+  await webServerRuntime.ready;
+  await waitForHttp(webUrl, 'Static web server');
   if (stopping.current) {
     return;
   }
   console.log(`Integration runtime ready: ${apiUrl} and ${webUrl}`);
 
   try {
-    await Promise.race([apiExit, webExit]);
+    await apiExit;
   } finally {
     await stop('SIGTERM');
   }
@@ -149,5 +337,9 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-  process.exitCode = 1;
+  Promise.resolve(cleanupOnFatal())
+    .catch(() => {})
+    .finally(() => {
+      process.exitCode = 1;
+    });
 });

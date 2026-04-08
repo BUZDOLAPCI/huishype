@@ -1,10 +1,68 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
+
 import type { SectionProps } from './types';
+import { SectionCard } from './SectionCard';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
+}
+
+interface PriceTileProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  tone?: 'default' | 'warm' | 'accent';
+  hint?: string;
+}
+
+function PriceTile({
+  icon,
+  label,
+  value,
+  tone = 'default',
+  hint,
+}: PriceTileProps) {
+  const tones = {
+    default: {
+      bg: '#FFF9F1',
+      border: '#F2E4D1',
+      icon: '#BFA585',
+      label: '#8C8479',
+      value: '#2D2926',
+      hint: '#8C8479',
+    },
+    warm: {
+      bg: '#FFF5EC',
+      border: '#F6D7BD',
+      icon: '#F97316',
+      label: '#C26A1B',
+      value: '#E66F1C',
+      hint: '#C26A1B',
+    },
+    accent: {
+      bg: '#FFF6DE',
+      border: '#F5D48A',
+      icon: '#D99200',
+      label: '#BE8500',
+      value: '#D99200',
+      hint: '#BE8500',
+    },
+  } as const;
+
+  const palette = tones[tone];
+
+  return (
+    <View style={[styles.tile, { backgroundColor: palette.bg, borderColor: palette.border }]}>
+      <View style={styles.tileLabelRow}>
+        <Ionicons name={icon} size={14} color={palette.icon} />
+        <Text style={[styles.tileLabel, { color: palette.label }]}>{label}</Text>
+      </View>
+      <Text style={[styles.tileValue, { color: palette.value }]}>{value}</Text>
+      {hint ? <Text style={[styles.tileHint, { color: palette.hint }]}>{hint}</Text> : null}
+    </View>
+  );
 }
 
 function PriceComparisonBar({
@@ -18,49 +76,51 @@ function PriceComparisonBar({
   fmv?: number;
   countryCode?: string;
 }) {
-  if (!officialValuation) return null;
+  if (!officialValuation) {
+    return null;
+  }
 
-  const valuationLabel = getValuationLabel(countryCode);
-  // Use short label for comparison bar legend
-  const shortValuationLabel = countryCode === 'NL' ? 'WOZ' : 'Val.';
-
+  const shortValuationLabel = countryCode === 'NL' ? 'WOZ' : 'Valuation';
   const prices = [
-    { label: shortValuationLabel, value: officialValuation, color: 'bg-warm-400' },
-    askingPrice ? { label: 'Asking', value: askingPrice, color: 'bg-orange-500' } : null,
-    fmv ? { label: 'FMV', value: fmv, color: 'bg-primary-500' } : null,
-  ].filter(Boolean) as { label: string; value: number; color: string }[];
+    { label: shortValuationLabel, value: officialValuation, color: '#C7BFB3' },
+    askingPrice ? { label: 'Asking', value: askingPrice, color: '#F97316' } : null,
+    fmv ? { label: 'FMV', value: fmv, color: '#D99200' } : null,
+  ].filter(Boolean) as Array<{ label: string; value: number; color: string }>;
 
-  if (prices.length < 2) return null;
+  if (prices.length < 2) {
+    return null;
+  }
 
-  const minPrice = Math.min(...prices.map(p => p.value));
-  const maxPrice = Math.max(...prices.map(p => p.value));
-  const range = maxPrice - minPrice;
+  const minPrice = Math.min(...prices.map((price) => price.value));
+  const maxPrice = Math.max(...prices.map((price) => price.value));
+  const range = maxPrice - minPrice || 1;
 
   return (
-    <View className="mt-4">
-      <Text className="text-xs text-warm-400 mb-2">Price Comparison</Text>
-      <View className="h-2 bg-warm-100 rounded-full relative">
-        {prices.map((price, index) => {
-          const position = range > 0 ? ((price.value - minPrice) / range) * 100 : 50;
+    <View style={styles.comparisonWrap}>
+      <Text style={styles.comparisonLabel}>Price comparison</Text>
+      <View style={styles.comparisonTrack}>
+        {prices.map((price) => {
+          const position = ((price.value - minPrice) / range) * 100;
           return (
             <View
               key={price.label}
-              className={`absolute w-3 h-3 ${price.color} rounded-full -top-0.5`}
-              style={{ left: `${Math.max(0, Math.min(100 - 4, position))}%` }}
+              style={[
+                styles.comparisonDot,
+                { backgroundColor: price.color, left: `${Math.max(2, Math.min(96, position))}%` },
+              ]}
             />
           );
         })}
       </View>
-      <View className="flex-row justify-between mt-1">
-        <Text className="text-xs text-warm-400">{formatPrice(minPrice, countryCode)}</Text>
-        <Text className="text-xs text-warm-400">{formatPrice(maxPrice, countryCode)}</Text>
+      <View style={styles.comparisonBounds}>
+        <Text style={styles.comparisonBoundText}>{formatPrice(minPrice, countryCode)}</Text>
+        <Text style={styles.comparisonBoundText}>{formatPrice(maxPrice, countryCode)}</Text>
       </View>
-      {/* Legend */}
-      <View className="flex-row flex-wrap gap-3 mt-2">
+      <View style={styles.legendRow}>
         {prices.map((price) => (
-          <View key={price.label} className="flex-row items-center">
-            <View className={`w-2 h-2 ${price.color} rounded-full mr-1`} />
-            <Text className="text-xs text-warm-500">{price.label}</Text>
+          <View key={price.label} style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: price.color }]} />
+            <Text style={styles.legendLabel}>{price.label}</Text>
           </View>
         ))}
       </View>
@@ -71,90 +131,190 @@ function PriceComparisonBar({
 export function PriceSection({ property }: SectionProps) {
   const { officialValuation, askingPrice, fmv: fmvData, guessCount, countryCode } = property;
   const fmv = fmvData?.fmv ?? undefined;
-  const fmvConfidence = fmvData?.confidence;
+  const confidence = fmvData?.confidence;
 
-  const confidenceLabels: Record<string, string> = {
-    none: 'No data yet',
-    low: 'Low confidence',
-    medium: 'Medium confidence',
-    high: 'High confidence',
-  };
+  const confidenceLabel =
+    confidence === 'high'
+      ? 'High confidence'
+      : confidence === 'medium'
+        ? 'Medium confidence'
+        : confidence === 'low'
+          ? 'Low confidence'
+          : null;
 
-  const confidenceColors: Record<string, string> = {
-    none: 'text-warm-400',
-    low: 'text-red-500',
-    medium: 'text-yellow-600',
-    high: 'text-green-500',
-  };
+  const confidenceColor =
+    confidence === 'high'
+      ? '#3E8B51'
+      : confidence === 'medium'
+        ? '#C18A10'
+        : '#C26A1B';
 
   return (
-    <View className="px-4 py-4 border-t border-warm-100">
-      <View className="flex-row flex-wrap">
-        {/* Official Valuation */}
-        {officialValuation && (
-          <View className="w-1/2 mb-4 pr-2">
-            <View className="flex-row items-center">
-              <Ionicons name="home-outline" size={14} color="#C7BFB3" />
-              <Text className="text-xs text-warm-400 ml-1">{getValuationLabel(countryCode)}</Text>
-            </View>
-            <Text className="text-lg font-semibold text-warm-700 mt-1">
-              {formatPrice(officialValuation, countryCode)}
+    <SectionCard
+      title="Price Snapshot"
+      icon="stats-chart"
+      description="Ground the listing with the official valuation, live asking price, and the crowd signal."
+      trailing={
+        confidenceLabel ? (
+          <View style={[styles.confidenceBadge, { backgroundColor: `${confidenceColor}14` }]}>
+            <Text style={[styles.confidenceText, { color: confidenceColor }]}>
+              {confidenceLabel}
             </Text>
           </View>
-        )}
+        ) : null
+      }
+    >
+      <View style={styles.grid}>
+        {officialValuation ? (
+          <View style={styles.halfTile}>
+            <PriceTile
+              icon="home-outline"
+              label={getValuationLabel(countryCode)}
+              value={formatPrice(officialValuation, countryCode)}
+            />
+          </View>
+        ) : null}
 
-        {/* Asking Price */}
-        {askingPrice && (
-          <View className="w-1/2 mb-4 pl-2">
-            <View className="flex-row items-center">
-              <Ionicons name="pricetag-outline" size={14} color="#F97316" />
-              <Text className="text-xs text-warm-400 ml-1">Asking Price</Text>
-            </View>
-            <Text className="text-lg font-semibold text-orange-600 mt-1">
-              {formatPrice(askingPrice, countryCode)}
-            </Text>
+        {askingPrice ? (
+          <View style={styles.halfTile}>
+            <PriceTile
+              icon="pricetag-outline"
+              label="Asking Price"
+              value={formatPrice(askingPrice, countryCode)}
+              tone="warm"
+            />
           </View>
-        )}
+        ) : null}
 
-        {/* FMV Estimate */}
-        {fmv && (
-          <View className="w-1/2 mb-4 pr-2">
-            <View className="flex-row items-center">
-              <Ionicons name="people-outline" size={14} color="#F5A623" />
-              <Text className="text-xs text-warm-400 ml-1">Crowd FMV</Text>
-            </View>
-            <Text className="text-xl font-bold text-primary-600 mt-1">
-              {formatPrice(fmv, countryCode)}
-            </Text>
-            {fmvConfidence && (
-              <Text className={`text-xs ${confidenceColors[fmvConfidence]}`}>
-                {confidenceLabels[fmvConfidence]} ({guessCount} {guessCount === 1 ? 'guess' : 'guesses'})
-              </Text>
-            )}
-          </View>
-        )}
-
-        {/* Guess count */}
-        {!fmv && guessCount > 0 && (
-          <View className="w-1/2 mb-4 pl-2">
-            <View className="flex-row items-center">
-              <Ionicons name="stats-chart-outline" size={14} color="#C7BFB3" />
-              <Text className="text-xs text-warm-400 ml-1">Guesses</Text>
-            </View>
-            <Text className="text-lg font-semibold text-warm-700 mt-1">
-              {guessCount}
-            </Text>
-          </View>
+        {fmv ? (
+          <PriceTile
+            icon="people-outline"
+            label="Crowd FMV"
+            value={formatPrice(fmv, countryCode)}
+            tone="accent"
+            hint={`${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'} contributing`}
+          />
+        ) : (
+          <PriceTile
+            icon="git-compare-outline"
+            label="Crowd FMV"
+            value={guessCount > 0 ? `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'} so far` : 'Not enough signal yet'}
+            hint="More guesses will tighten the community estimate."
+          />
         )}
       </View>
 
-      {/* Price comparison visualization */}
       <PriceComparisonBar
         officialValuation={officialValuation}
         askingPrice={askingPrice}
         fmv={fmv}
         countryCode={countryCode}
       />
-    </View>
+    </SectionCard>
   );
 }
+
+const styles = StyleSheet.create({
+  confidenceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  confidenceText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  halfTile: {
+    width: '48.5%',
+  },
+  tile: {
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 108,
+  },
+  tileLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  tileLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tileValue: {
+    fontSize: 29,
+    lineHeight: 32,
+    fontWeight: '700',
+  },
+  tileHint: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  comparisonWrap: {
+    marginTop: 18,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F5EBDD',
+  },
+  comparisonLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8C8479',
+    marginBottom: 10,
+  },
+  comparisonTrack: {
+    position: 'relative',
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#FBF4E7',
+  },
+  comparisonDot: {
+    position: 'absolute',
+    top: -3,
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    marginLeft: -7,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  comparisonBounds: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  comparisonBoundText: {
+    fontSize: 12,
+    color: '#AEA699',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+    marginTop: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  legendLabel: {
+    fontSize: 12,
+    color: '#736C62',
+  },
+});

@@ -11,6 +11,7 @@ import {
   type ViewStateChangeEvent,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
@@ -23,7 +24,7 @@ import {
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
-import { fetchNearbyCluster } from '@/src/utils/api';
+import { fetchNearbyGroup } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
@@ -33,10 +34,12 @@ import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
   white: '#FFFFFF',
+  whiteOverlay: 'rgba(255, 255, 255, 0.92)',
   gray100: '#FFF8F0',    // warm-100
   gray200: '#F5F0E8',    // warm-200
   gray600: '#736C62',    // warm-600
@@ -114,12 +117,7 @@ function useMergedMapStyle(): Record<string, unknown> | null {
 }
 
 // Property layer IDs to query for features (matching server's /tiles/style.json)
-const PROPERTY_LAYER_IDS = [
-  'property-clusters',
-  'single-active-points',
-  'active-nodes',
-  'ghost-nodes',
-];
+const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const [hasLayout, setHasLayout] = useState(false);
@@ -139,10 +137,19 @@ export default function MapScreen() {
     handleEmptyMapTap,
     handlePropertyResolved: handleMapPropertyResolved,
     handleLocationResolved: handleMapLocationResolved,
+    resetTransientUI,
   } = interaction;
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        resetTransientUI();
+      };
+    }, [resetTransientUI])
+  );
 
   // Trigger initial reverse geocode for the default center
   useEffect(() => {
@@ -257,7 +264,7 @@ export default function MapScreen() {
       if (currentZoom >= 12) {
         const [lon, lat] = lngLat;
         try {
-          const nearby = await fetchNearbyCluster(lon, lat, currentZoom);
+          const nearby = await fetchNearbyGroup(lon, lat, currentZoom);
           if (nearby) {
             handleNearbyResult(nearby, currentZoom, cameraCommands);
             return;
@@ -460,6 +467,13 @@ export default function MapScreen() {
         </Map>
         )}
 
+        <View
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(255, 248, 240, 0.08)' }} />
+        </View>
+
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
@@ -495,75 +509,42 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Location button — bottom-right of map, above tab bar */}
-        <View style={{ position: 'absolute', bottom: 100, right: 16, zIndex: 10 }}>
-          <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
-        </View>
-
-        {/* Zoom controls — positioned below the location button */}
-        <View style={{
-          position: 'absolute',
-          bottom: 160,
-          right: 16,
-          borderRadius: 12,
-          overflow: 'hidden',
-          backgroundColor: COLORS.white,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.2,
-          shadowRadius: 6,
-          elevation: 5,
-          zIndex: 10,
-        }}>
+        {/* Floating controls — lighter circular treatment to match the pen */}
+        <View style={styles.controlRail}>
           <Pressable
             testID="zoom-in-button"
             onPress={handleZoomIn}
-            style={({ pressed }) => ({
-              width: 48,
-              height: 48,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: pressed ? COLORS.gray100 : COLORS.white,
-            })}
+            style={({ pressed }) => [styles.roundControl, pressed && styles.roundControlPressed]}
             accessibilityLabel="Zoom in"
             accessibilityRole="button"
           >
-            <Text style={{ fontSize: 22, fontWeight: '300', color: COLORS.gray800, lineHeight: 24 }}>+</Text>
+            <Text style={styles.roundControlText}>+</Text>
           </Pressable>
-          <View style={{ height: 1, backgroundColor: COLORS.gray200, marginHorizontal: 8 }} />
           <Pressable
             testID="zoom-out-button"
             onPress={handleZoomOut}
-            style={({ pressed }) => ({
-              width: 48,
-              height: 48,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: pressed ? COLORS.gray100 : COLORS.white,
-            })}
+            style={({ pressed }) => [styles.roundControl, pressed && styles.roundControlPressed]}
             accessibilityLabel="Zoom out"
             accessibilityRole="button"
           >
-            <Text style={{ fontSize: 22, fontWeight: '300', color: COLORS.gray800, lineHeight: 24 }}>{'\u2212'}</Text>
+            <Text style={styles.roundControlText}>{'\u2212'}</Text>
           </Pressable>
+          <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
           {DEBUG_CAMERA && (
-            <>
-              <View style={{ height: 1, backgroundColor: COLORS.gray200, marginHorizontal: 8 }} />
-              <Pressable
-                onPress={handleCopyCamera}
-                style={({ pressed }) => ({
-                  width: 48,
-                  height: 48,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: pressed ? COLORS.gray100 : copiedFlash ? '#D1FAE5' : COLORS.white,
-                })}
-                accessibilityLabel="Copy camera position"
-                accessibilityRole="button"
-              >
-                <Text style={{ fontSize: 16, color: copiedFlash ? '#059669' : COLORS.gray800 }}>{copiedFlash ? '\u2713' : '\u{1F4CB}'}</Text>
-              </Pressable>
-            </>
+            <Pressable
+              onPress={handleCopyCamera}
+              style={({ pressed }) => [
+                styles.roundControl,
+                pressed && styles.roundControlPressed,
+                copiedFlash && styles.roundControlCopied,
+              ]}
+              accessibilityLabel="Copy camera position"
+              accessibilityRole="button"
+            >
+              <Text style={[styles.copyControlText, copiedFlash && styles.copyControlTextCopied]}>
+                {copiedFlash ? '\u2713' : '\u{1F4CB}'}
+              </Text>
+            </Pressable>
           )}
         </View>
       </View>
@@ -598,3 +579,46 @@ export default function MapScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  controlRail: {
+    position: 'absolute',
+    right: 16,
+    bottom: 108,
+    zIndex: 10,
+    alignItems: 'center',
+    gap: 10,
+  },
+  roundControl: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.whiteOverlay,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  roundControlPressed: {
+    backgroundColor: COLORS.gray100,
+  },
+  roundControlCopied: {
+    backgroundColor: '#D1FAE5',
+  },
+  roundControlText: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: '400',
+    color: COLORS.gray800,
+  },
+  copyControlText: {
+    fontSize: 16,
+    color: COLORS.gray800,
+  },
+  copyControlTextCopied: {
+    color: '#059669',
+  },
+});

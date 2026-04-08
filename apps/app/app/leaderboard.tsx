@@ -35,6 +35,7 @@ import { formatPropertyPrice } from '@huishype/shared';
 import type { CountryCode } from '@huishype/shared/config';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { shadows } from '@/src/lib/shadows';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
 // --- Period config ---
 
@@ -213,7 +214,7 @@ function FeaturedPropertyCard({
   return (
     <Pressable
       style={[styles.featuredCard, shadows.card]}
-      onPress={() => router.push(`/property/${property.id}`)}
+      onPress={() => router.push(buildPropertyRoute(property.id, '/leaderboard'))}
       accessibilityRole="button"
       accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
     >

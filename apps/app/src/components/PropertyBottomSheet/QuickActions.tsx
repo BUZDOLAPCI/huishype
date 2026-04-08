@@ -9,6 +9,7 @@ import { View } from 'react-native';
 import { QuickActions as SharedQuickActions } from '../QuickActions';
 import type { SectionProps } from './types';
 import { Share } from 'react-native';
+import { SectionCard } from './SectionCard';
 
 interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
@@ -35,7 +36,11 @@ export function QuickActions({
   };
 
   return (
-    <View className="px-4 py-3 border-t border-warm-100">
+    <SectionCard
+      title="Take Action"
+      icon="flash-outline"
+      description="React, save, or share without leaving the detail surface."
+    >
       <SharedQuickActions
         isLiked={property.isLiked}
         isSaved={property.isSaved}
@@ -47,6 +52,6 @@ export function QuickActions({
         onShare={handleShare}
         variant="full"
       />
-    </View>
+    </SectionCard>
   );
 }

@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
-import { View, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useProperty } from '../../hooks/useProperties';
@@ -133,41 +133,43 @@ function PropertyContentSections({
 
   return (
     <>
-      <View>
+      <View style={styles.contentShell}>
         <PropertyHeader property={property} containerWidth={contentWidth} />
 
-        <PriceSection property={property} />
+        <View style={styles.sectionStack}>
+          <PriceSection property={property} />
 
-        <QuickActions
-          property={property}
-          onSave={onSave}
-          onShare={onShare}
-          onLike={onLike}
-        />
-
-        <ListingLinks
-          listings={listings}
-          onAddListing={() => setShowSubmission(true)}
-        />
-
-        <View onLayout={guessSectionLayout}>
-          <PriceGuessSection
+          <QuickActions
             property={property}
-            onGuessPress={() => onGuessPress?.(property.id)}
-            onLoginRequired={onAuthRequired}
+            onSave={onSave}
+            onShare={onShare}
+            onLike={onLike}
           />
-        </View>
 
-        <View onLayout={commentsSectionLayout}>
-          <CommentsSection
-            property={property}
-            onAddComment={() => onCommentPress?.(property.id)}
-            onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
-            onAuthRequired={onAuthRequired}
+          <ListingLinks
+            listings={listings}
+            onAddListing={() => setShowSubmission(true)}
           />
-        </View>
 
-        <PropertyDetails property={property} />
+          <View onLayout={guessSectionLayout}>
+            <PriceGuessSection
+              property={property}
+              onGuessPress={() => onGuessPress?.(property.id)}
+              onLoginRequired={onAuthRequired}
+            />
+          </View>
+
+          <View onLayout={commentsSectionLayout}>
+            <CommentsSection
+              property={property}
+              onAddComment={() => onCommentPress?.(property.id)}
+              onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
+              onAuthRequired={onAuthRequired}
+            />
+          </View>
+
+          <PropertyDetails property={property} />
+        </View>
       </View>
 
       <ListingSubmissionSheet
@@ -183,6 +185,18 @@ function PropertyContentSections({
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  contentShell: {
+    backgroundColor: '#FFFBF5',
+  },
+  sectionStack: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 14,
+  },
+});
 
 function ManagedPropertyInteractions({
   propertyId,

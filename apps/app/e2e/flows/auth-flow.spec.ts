@@ -30,18 +30,29 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /GL Driver Message/,
   /Expected value to be of type/,
   /Failed to load resource.*\/sprites\//,
+  /Failed to load resource: the server responded with a status of 401 \(Unauthorized\)/,
 ];
 
 test.use({ trace: 'off' });
 
 test.describe('Auth Flow', () => {
   let consoleErrors: string[] = [];
+  let allowUnauthorizedConsoleError = false;
 
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
+    allowUnauthorizedConsoleError = false;
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
+        if (
+          allowUnauthorizedConsoleError &&
+          /Failed to load resource: the server responded with a status of 401 \(Unauthorized\)/.test(
+            text,
+          )
+        ) {
+          return;
+        }
         if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
           consoleErrors.push(text);
         }
@@ -65,7 +76,7 @@ test.describe('Auth Flow', () => {
 
   test('Unauthenticated profile opens the auth modal', async ({ page }) => {
     await page.goto('/profile');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-testid="profile-auth-required"]', { timeout: 30000 });
 
     const signInButton = page.locator('[data-testid="profile-sign-in-button"]');
@@ -159,10 +170,11 @@ test.describe('Auth Flow', () => {
   });
 
   test('Magic link callback: invalid token shows error and home link', async ({ page }) => {
+    allowUnauthorizedConsoleError = true;
     // Use a 64-char hex string so it passes Zod's length(64) schema
     // validation and actually tests the token-lookup failure path.
     await page.goto('/auth/callback?emailToken=deadbeef00000000000000000000000000000000000000000000000000000000');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // The callback component should initially show a loading/verifying state,
     // then transition to an error state once the API rejects the token.

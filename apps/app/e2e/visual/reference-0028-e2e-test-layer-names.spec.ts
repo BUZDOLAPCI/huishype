@@ -4,12 +4,13 @@
  * This test verifies that all E2E tests use correct MapLibre layer names
  * that match the actual layer definitions in index.web.tsx.
  *
- * Expected layers (from addPropertyLayers() in index.web.tsx):
- * - property-clusters: Cluster circles (Z0-Z14)
- * - cluster-count: Cluster count labels (Z0-Z14)
- * - single-active-points: Single active points at low zoom (Z0-Z14)
- * - active-nodes: Active nodes at high zoom (Z15+)
- * - ghost-nodes: Ghost nodes at high zoom (Z15+)
+ * Expected layers (from the shared density-aware grouping contract):
+ * - property-clusters: Active cluster circles at any zoom
+ * - cluster-count: Active cluster count labels at any zoom
+ * - active-nodes: Active singles at any zoom
+ * - ghost-clusters: Ghost-only clusters once ghost reveal is active
+ * - ghost-cluster-count: Ghost cluster count labels once ghost reveal is active
+ * - ghost-nodes: Ghost singles once ghost reveal is active
  *
  * Screenshot saved to: test-results/reference-expectations/0028-e2e-test-layer-names/
  */
@@ -168,7 +169,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify low-zoom layers exist
     expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.CLUSTERS], 'property-clusters layer should exist').toBe(true);
-    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS], 'single-active-points layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.CLUSTER_COUNT], 'cluster-count layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.ACTIVE_NODES], 'active-nodes layer should exist').toBe(true);
 
     // Take screenshot
     await page.screenshot({
@@ -245,7 +247,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         propertyRelatedLayers,
         currentZoom: mapInstance.getZoom(),
       };
-    }, [...HIGH_ZOOM_LAYERS, MAP_LAYER_NAMES.CLUSTERS, MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS]);
+    }, HIGH_ZOOM_LAYERS);
 
     console.log('Layer info at high zoom:', JSON.stringify(layerInfo, null, 2));
 
@@ -391,8 +393,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const expectedLayerIds = [
       MAP_LAYER_NAMES.CLUSTERS,
       MAP_LAYER_NAMES.CLUSTER_COUNT,
-      MAP_LAYER_NAMES.SINGLE_ACTIVE_POINTS,
       MAP_LAYER_NAMES.ACTIVE_NODES,
+      MAP_LAYER_NAMES.GHOST_CLUSTERS,
+      MAP_LAYER_NAMES.GHOST_CLUSTER_COUNT,
       MAP_LAYER_NAMES.GHOST_NODES,
     ];
 

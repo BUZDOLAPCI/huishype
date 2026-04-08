@@ -17,6 +17,7 @@ import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { FeedProperty } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
 export default function SavedScreen() {
   const { user } = useAuthContext();
@@ -48,7 +49,7 @@ export default function SavedScreen() {
   }, [refetch]);
 
   const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(`/property/${propertyId}`);
+    router.push(buildPropertyRoute(propertyId, '/saved'));
   }, []);
 
   const handleLoadMore = useCallback(() => {

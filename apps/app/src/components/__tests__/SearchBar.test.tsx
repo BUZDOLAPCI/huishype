@@ -37,6 +37,11 @@ function createMockAddress(overrides?: Partial<ResolvedAddress>): ResolvedAddres
   };
 }
 
+function focusNativeSearchInput() {
+  fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+  return screen.getByTestId('search-bar-input');
+}
+
 describe('SearchBar', () => {
   const onPropertyResolved = jest.fn();
   const onLocationResolved = jest.fn();
@@ -64,7 +69,7 @@ describe('SearchBar', () => {
       />
     );
 
-    expect(screen.getByTestId('search-bar-input')).toBeTruthy();
+    expect(screen.getByTestId('search-bar-focus-target')).toBeTruthy();
     expect(screen.getByTestId('search-bar-container')).toBeTruthy();
   });
 
@@ -76,7 +81,22 @@ describe('SearchBar', () => {
       />
     );
 
-    expect(screen.getByPlaceholderText('Search address...')).toBeTruthy();
+    expect(screen.getByText('Search address...')).toBeTruthy();
+  });
+
+  it('enters the focused search state when the native focus target is pressed', () => {
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+
+    expect(screen.getByTestId('search-overlay-backdrop')).toBeTruthy();
+    expect(screen.queryByTestId('search-bar-focus-target')).toBeNull();
+    expect(screen.getByTestId('search-bar-input')).toBeTruthy();
   });
 
   it('debounces input - does not call search immediately', () => {
@@ -87,7 +107,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Test');
 
     // Before debounce timer fires, query should still be empty
@@ -103,7 +123,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat');
 
     // Advance past debounce timer
@@ -133,7 +153,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat');
 
     // Advance past debounce
@@ -183,7 +203,7 @@ describe('SearchBar', () => {
 
     // Simulate typing + debounce by directly setting the debounced query state
     // We need to trigger the results to show
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat 42');
 
     // Wait for debounce
@@ -230,7 +250,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat 42');
 
     await waitFor(() => {
@@ -261,7 +281,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
 
     // Initially no clear button
     expect(screen.queryByTestId('search-clear-button')).toBeNull();
@@ -288,7 +308,7 @@ describe('SearchBar', () => {
       />
     );
 
-    const input = screen.getByTestId('search-bar-input');
+    const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'T');
 
     act(() => {

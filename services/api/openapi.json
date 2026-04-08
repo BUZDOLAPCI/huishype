@@ -1192,7 +1192,7 @@
         "tags": [
           "properties"
         ],
-        "description": "Find the nearest properties to a given coordinate using PostGIS KNN. The search radius is derived from the zoom level. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. When cluster=true, detects if the tap lands on a cluster or single property.",
+        "description": "Find the nearest properties to a given coordinate using PostGIS KNN. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. Returns the nearest emitted grouped feature using the same density-aware grouping engine as vector tiles.",
         "parameters": [
           {
             "schema": {
@@ -1235,14 +1235,6 @@
             "in": "query",
             "name": "limit",
             "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "cluster",
-            "required": false
           }
         ],
         "responses": {
@@ -1253,375 +1245,225 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
+                      "type": "object",
+                      "properties": {
+                        "node_class": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "ghost"
+                          ]
+                        },
+                        "group_kind": {
+                          "type": "string",
+                          "enum": [
+                            "single",
+                            "cluster"
+                          ]
+                        },
+                        "primary_property_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "point_count": {
+                          "type": "number"
+                        },
+                        "property_ids": {
+                          "type": "array",
+                          "items": {
                             "type": "string",
                             "format": "uuid",
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "street": {
-                            "type": "string"
-                          },
-                          "houseNumber": {
-                            "type": "number"
-                          },
-                          "houseNumberAddition": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "address": {
-                            "type": "string"
-                          },
-                          "city": {
-                            "type": "string"
-                          },
-                          "postalCode": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "officialValuation": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "hasListing": {
-                            "type": "boolean"
-                          },
-                          "askingPrice": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "thumbnailUrl": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "activityScore": {
-                            "type": "number"
-                          },
-                          "likeCount": {
-                            "type": "number"
-                          },
-                          "commentCount": {
-                            "type": "number"
-                          },
-                          "guessCount": {
-                            "type": "number"
-                          },
-                          "distanceMeters": {
-                            "type": "number"
-                          },
-                          "geometry": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "Point"
-                                    ]
-                                  },
-                                  "coordinates": {
-                                    "type": "array",
-                                    "prefixItems": [
-                                      {
-                                        "type": "number"
-                                      },
-                                      {
-                                        "type": "number"
-                                      }
-                                    ],
-                                    "description": "[longitude, latitude]"
-                                  }
-                                },
-                                "required": [
-                                  "type",
-                                  "coordinates"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
                           }
                         },
-                        "required": [
-                          "id",
-                          "street",
-                          "houseNumber",
-                          "houseNumberAddition",
-                          "address",
-                          "city",
-                          "postalCode",
-                          "officialValuation",
-                          "hasListing",
-                          "askingPrice",
-                          "thumbnailUrl",
-                          "activityScore",
-                          "likeCount",
-                          "commentCount",
-                          "guessCount",
-                          "distanceMeters",
-                          "geometry"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    {
-                      "anyOf": [
-                        {
-                          "oneOf": [
+                        "preview_property_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          }
+                        },
+                        "coordinate": {
+                          "type": "array",
+                          "prefixItems": [
                             {
-                              "type": "object",
-                              "properties": {
-                                "type": {
-                                  "type": "string",
-                                  "enum": [
-                                    "cluster"
-                                  ]
-                                },
-                                "point_count": {
-                                  "type": "number"
-                                },
-                                "property_ids": {
-                                  "type": "string",
-                                  "description": "Comma-separated UUIDs"
-                                },
-                                "coordinate": {
-                                  "type": "array",
-                                  "prefixItems": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "number"
-                                    }
-                                  ],
-                                  "description": "[longitude, latitude]"
-                                },
-                                "distanceMeters": {
-                                  "type": "number"
-                                },
-                                "bbox": {
-                                  "type": "array",
-                                  "prefixItems": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "number"
-                                    }
-                                  ],
-                                  "description": "[west, south, east, north]"
-                                }
-                              },
-                              "required": [
-                                "type",
-                                "point_count",
-                                "property_ids",
-                                "coordinate",
-                                "distanceMeters",
-                                "bbox"
-                              ],
-                              "additionalProperties": false
+                              "type": "number"
                             },
                             {
-                              "type": "object",
-                              "properties": {
-                                "type": {
-                                  "type": "string",
-                                  "enum": [
-                                    "single"
-                                  ]
-                                },
-                                "id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "street": {
-                                  "type": "string"
-                                },
-                                "houseNumber": {
+                              "type": "number"
+                            }
+                          ],
+                          "description": "[longitude, latitude]"
+                        },
+                        "distanceMeters": {
+                          "type": "number"
+                        },
+                        "bbox": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "prefixItems": [
+                                {
                                   "type": "number"
                                 },
-                                "houseNumberAddition": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "address": {
-                                  "type": "string"
-                                },
-                                "city": {
-                                  "type": "string"
-                                },
-                                "postalCode": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "officialValuation": {
-                                  "anyOf": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "hasListing": {
-                                  "type": "boolean"
-                                },
-                                "askingPrice": {
-                                  "anyOf": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "thumbnailUrl": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "activityScore": {
+                                {
                                   "type": "number"
                                 },
-                                "likeCount": {
+                                {
                                   "type": "number"
                                 },
-                                "commentCount": {
+                                {
                                   "type": "number"
-                                },
-                                "guessCount": {
-                                  "type": "number"
-                                },
-                                "distanceMeters": {
-                                  "type": "number"
-                                },
-                                "geometry": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "type": {
-                                          "type": "string",
-                                          "enum": [
-                                            "Point"
-                                          ]
-                                        },
-                                        "coordinates": {
-                                          "type": "array",
-                                          "prefixItems": [
-                                            {
-                                              "type": "number"
-                                            },
-                                            {
-                                              "type": "number"
-                                            }
-                                          ],
-                                          "description": "[longitude, latitude]"
-                                        }
-                                      },
-                                      "required": [
-                                        "type",
-                                        "coordinates"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
                                 }
-                              },
-                              "required": [
-                                "type",
-                                "id",
-                                "street",
-                                "houseNumber",
-                                "houseNumberAddition",
-                                "address",
-                                "city",
-                                "postalCode",
-                                "officialValuation",
-                                "hasListing",
-                                "askingPrice",
-                                "thumbnailUrl",
-                                "activityScore",
-                                "likeCount",
-                                "commentCount",
-                                "guessCount",
-                                "distanceMeters",
-                                "geometry"
-                              ],
-                              "additionalProperties": false
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "[west, south, east, north]"
+                        },
+                        "activityScore": {
+                          "type": "number"
+                        },
+                        "activityScoreTotal": {
+                          "type": "number"
+                        },
+                        "likeCount": {
+                          "type": "number"
+                        },
+                        "commentCount": {
+                          "type": "number"
+                        },
+                        "guessCount": {
+                          "type": "number"
+                        },
+                        "hasListing": {
+                          "type": "boolean"
+                        },
+                        "address": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
                             }
                           ]
                         },
-                        {
-                          "type": "null"
+                        "city": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "postalCode": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "countryCode": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "officialValuation": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "askingPrice": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "thumbnailUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "yearBuilt": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "floorAreaM2": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
-                      ]
+                      },
+                      "required": [
+                        "node_class",
+                        "group_kind",
+                        "primary_property_id",
+                        "point_count",
+                        "property_ids",
+                        "preview_property_ids",
+                        "coordinate",
+                        "distanceMeters",
+                        "bbox",
+                        "activityScore",
+                        "activityScoreTotal",
+                        "likeCount",
+                        "commentCount",
+                        "guessCount",
+                        "hasListing",
+                        "address",
+                        "city",
+                        "postalCode",
+                        "countryCode",
+                        "officialValuation",
+                        "askingPrice",
+                        "thumbnailUrl",
+                        "yearBuilt",
+                        "floorAreaM2"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
                     }
                   ]
                 }
@@ -4534,7 +4376,7 @@
         "tags": [
           "tiles"
         ],
-        "description": "Returns MVT/PBF vector tile with property data. Clustered at Z0-16, individual points at Z17+. Ghost nodes only shown at Z17+.",
+        "description": "Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.",
         "parameters": [
           {
             "schema": {

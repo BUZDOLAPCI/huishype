@@ -20,7 +20,7 @@ appId: nl.huishype.app
 # After flow 04, the bottom sheet may be fully expanded or in error state.
 # Tap the Map tab to navigate away and reset state.
 - tapOn:
-    text: 'Map'
+    id: 'tab-index'
     optional: true
 - waitForAnimationToEnd
 
@@ -39,7 +39,7 @@ appId: nl.huishype.app
 
 # Navigate to the Profile tab where the unauthenticated state owns the sign-in CTA
 - tapOn:
-    text: 'Profile'
+    id: 'tab-profile'
 - waitForAnimationToEnd
 
 - extendedWaitUntil:
@@ -65,7 +65,7 @@ appId: nl.huishype.app
 # Dev Login button is rendered outside the Reanimated Animated.View
 # so Android accessibility bounds are correct and Maestro can find it by label.
 - tapOn:
-    text: 'Dev Login'
+    id: 'dev-login-button'
 - waitForAnimationToEnd
 
 # Wait for auth state transition to complete
@@ -79,7 +79,7 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 
 - tapOn:
-    text: 'Map'
+    id: 'tab-index'
 - waitForAnimationToEnd
 
 - extendedWaitUntil:
@@ -91,15 +91,14 @@ appId: nl.huishype.app
 
 # Verify auth succeeded: navigate to Profile and confirm sign-in button is gone
 - tapOn:
-    text: 'Profile'
+    id: 'tab-profile'
 - waitForAnimationToEnd
 
 # The sign-in button should NOT be visible if login succeeded
 - assertNotVisible:
     id: 'profile-sign-in-button'
-    timeout: 5000
 
 # Return to Map tab for the next flow
 - tapOn:
-    text: 'Map'
+    id: 'tab-index'
 - waitForAnimationToEnd

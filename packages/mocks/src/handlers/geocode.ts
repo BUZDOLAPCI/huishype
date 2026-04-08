@@ -88,6 +88,21 @@ function findMockSuggestions(query: string, limit: number): MockGeocodeSuggestio
     .slice(0, limit);
 }
 
+function filterByCountryCode(
+  suggestions: MockGeocodeSuggestion[],
+  countryCode: string | null,
+  limit: number,
+): MockGeocodeSuggestion[] {
+  if (!countryCode) {
+    return suggestions.slice(0, limit);
+  }
+
+  const normalizedCountryCode = countryCode.trim().toUpperCase();
+  return suggestions
+    .filter((suggestion) => suggestion.countryCode?.toUpperCase() === normalizedCountryCode)
+    .slice(0, limit);
+}
+
 /**
  * Mock reverse geocode lookup data.
  * Maps approximate coordinate regions to city info.
@@ -213,6 +228,7 @@ export const geocodeHandlers = [
     const url = new URL(request.url);
     const query = url.searchParams.get('q');
     const limitValue = url.searchParams.get('limit');
+    const countryCode = url.searchParams.get('countrycode');
     const limit = limitValue == null ? 5 : Number.parseInt(limitValue, 10);
 
     if (!query || query.length < 1 || !Number.isInteger(limit) || limit < 1 || limit > 20) {
@@ -222,7 +238,7 @@ export const geocodeHandlers = [
       );
     }
 
-    const results = findMockSuggestions(query, limit);
+    const results = filterByCountryCode(findMockSuggestions(query, limit), countryCode, limit);
     return HttpResponse.json(results);
   }),
 

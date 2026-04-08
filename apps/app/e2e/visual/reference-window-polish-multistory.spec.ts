@@ -2,9 +2,14 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import { waitForMapIdle, waitForMapStyleLoaded } from './helpers/visual-test-helpers';
+import { getPitchForZoom } from '../../src/lib/mapPitch';
 
 const EXPECTATION_NAME = 'window-polish-multistory';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const CENTER: [number, number] = [5.44866, 51.4501];
+const ZOOM = 18.5;
+const PITCH = getPitchForZoom(ZOOM);
+const BEARING = 0;
 
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /ResizeObserver loop/,
@@ -58,6 +63,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
     await waitForMapStyleLoaded(page);
+
+    await page.evaluate(
+      ({ center, zoom, pitch, bearing }) => {
+        const map = (window as any).__mapInstance;
+        if (!map) return false;
+        map.jumpTo({ center, zoom, pitch, bearing });
+        return true;
+      },
+      { center: CENTER, zoom: ZOOM, pitch: PITCH, bearing: BEARING },
+    );
+
     await waitForMapIdle(page);
     await page.waitForTimeout(2500);
 
@@ -74,6 +90,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     expect(mapState?.has3DBuildings).toBe(true);
     expect(mapState?.zoom).toBeGreaterThanOrEqual(17);
+    expect(mapState?.pitch).toBeCloseTo(PITCH, 1);
     expect(page.locator('canvas').first()).toBeVisible();
 
     await page.screenshot({

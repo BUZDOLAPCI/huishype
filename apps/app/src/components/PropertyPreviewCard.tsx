@@ -18,7 +18,6 @@ import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import {
   formatPropertyPrice,
-  getValuationLabel,
   type CountryCode,
 } from '@huishype/shared';
 import {
@@ -51,13 +50,16 @@ const COLORS = {
 } as const;
 
 const ACTIVITY_CONFIG = {
-  hot: { dot: '#FF6B35', label: 'Hot', bg: 'rgba(232, 245, 233, 0.12)', textColor: '#FF6B35' },
-  warm: { dot: '#4CAF50', label: 'Active', bg: 'rgba(232, 245, 233, 0.12)', textColor: '#4CAF50' },
-  cold: { dot: '#C7BFB3', label: 'Quiet', bg: 'rgba(245, 240, 232, 0.5)', textColor: '#9C958A' },
+  hot: { dot: '#FF6B35', label: 'Hot', bg: 'rgba(255, 107, 53, 0.12)', textColor: '#E6662F' },
+  warm: { dot: '#4CAF50', label: 'Active', bg: 'rgba(76, 175, 80, 0.12)', textColor: '#4A9B55' },
+  cold: { dot: '#C7BFB3', label: 'Quiet', bg: 'rgba(231, 223, 213, 0.68)', textColor: '#9C958A' },
 } as const;
 
 const IMAGE_HEIGHT = 100;
-const CARD_WIDTH = 270;
+const CARD_RADIUS = 20;
+
+type HitZoneRef = ((node: any) => void) | undefined;
+type HitZoneLayout = (() => void) | undefined;
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -97,6 +99,16 @@ export interface PropertyPreviewCardProps {
   showCloseButton?: boolean;
   /** Whether to show the speech bubble arrow pointing downwards */
   showArrow?: boolean;
+  /** Optional native hit-test registration for the close button. */
+  closeButtonRef?: HitZoneRef;
+  closeButtonOnLayout?: HitZoneLayout;
+  /** Optional native hit-test registration for action buttons. */
+  likeButtonRef?: HitZoneRef;
+  likeButtonOnLayout?: HitZoneLayout;
+  commentButtonRef?: HitZoneRef;
+  commentButtonOnLayout?: HitZoneLayout;
+  guessButtonRef?: HitZoneRef;
+  guessButtonOnLayout?: HitZoneLayout;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -108,15 +120,6 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
 
 function getDisplayPrice(property: PropertyPreviewData): number | null {
   return property.fmv ?? property.askingPrice ?? property.officialValuation ?? null;
-}
-
-function getPriceLabel(property: PropertyPreviewData): string {
-  if (property.fmv != null) return 'FMV';
-  if (property.askingPrice != null) return 'Ask';
-  if (property.officialValuation != null) {
-    return property.countryCode === 'NL' ? 'WOZ' : 'Val.';
-  }
-  return '';
 }
 
 // ─── Component ───────────────────────────────────────────────────────────
@@ -131,11 +134,18 @@ export function PropertyPreviewCard({
   onClose,
   showCloseButton = false,
   showArrow = false,
+  closeButtonRef,
+  closeButtonOnLayout,
+  likeButtonRef,
+  likeButtonOnLayout,
+  commentButtonRef,
+  commentButtonOnLayout,
+  guessButtonRef,
+  guessButtonOnLayout,
 }: PropertyPreviewCardProps) {
   const activityLevel = property.activityLevel ?? 'cold';
   const activity = ACTIVITY_CONFIG[activityLevel];
   const displayPrice = getDisplayPrice(property);
-  const priceLabel = getPriceLabel(property);
   const formattedPrice = formatPrice(displayPrice, property.countryCode);
 
   // Resolve image using shared fallback rules
@@ -174,6 +184,8 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onClose();
             }}
+            ref={closeButtonRef}
+            onLayout={closeButtonOnLayout}
             style={styles.closeButton}
             hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
             testID="property-preview-close-button"
@@ -209,25 +221,23 @@ export function PropertyPreviewCard({
 
         {/* Stat pills row: like count | comment count | price */}
         <View style={styles.statPillsRow}>
-          {/* Like count pill */}
           {property.likeCount != null && property.likeCount > 0 && (
-            <View style={[styles.statPill, { backgroundColor: 'rgba(245, 166, 35, 0.09)' }]}>
+            <View style={styles.statMetric} testID="property-preview-like-count">
               <Icon name="Heart" size={14} color={COLORS.gold500} />
-              <Text style={[styles.statPillText, { color: COLORS.gold600 }]}>
+              <Text style={[styles.statMetricText, { color: COLORS.gold600 }]}>
                 {formatCompactCount(property.likeCount)}
               </Text>
             </View>
           )}
 
-          {/* Comment count pill */}
           {property.commentCount != null && property.commentCount > 0 && (
             <>
               {property.likeCount != null && property.likeCount > 0 && (
-                <Text style={styles.pillSeparator}>|</Text>
+                <View style={styles.statDivider} />
               )}
-              <View style={[styles.statPill, { backgroundColor: 'rgba(66, 165, 245, 0.09)' }]}>
+              <View style={styles.statMetric} testID="property-preview-comment-count">
                 <Icon name="ChatCircle" size={14} color={COLORS.infoBlue500} />
-                <Text style={[styles.statPillText, { color: '#1E88E5' }]}>
+                <Text style={[styles.statMetricText, { color: '#1E88E5' }]}>
                   {formatCompactCount(property.commentCount)}
                 </Text>
               </View>
@@ -251,6 +261,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onLike?.();
           }}
+          ref={likeButtonRef}
+          onLayout={likeButtonOnLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-like-button"
@@ -273,6 +285,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onComment?.();
           }}
+          ref={commentButtonRef}
+          onLayout={commentButtonOnLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-comment-button"
@@ -288,6 +302,8 @@ export function PropertyPreviewCard({
             e?.stopPropagation?.();
             onGuess?.();
           }}
+          ref={guessButtonRef}
+          onLayout={guessButtonOnLayout}
           style={styles.actionButton}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           testID="group-preview-guess-button"
@@ -335,7 +351,7 @@ function formatCompactCount(n: number): string {
 const styles = StyleSheet.create({
   cardPressable: {
     backgroundColor: COLORS.white,
-    borderRadius: 16,
+    borderRadius: CARD_RADIUS,
     overflow: 'hidden',
     width: '100%',
   },
@@ -362,56 +378,71 @@ const styles = StyleSheet.create({
   // Close button
   closeButton: {
     position: 'absolute',
-    top: 5,
-    right: 5,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderWidth: 1,
     borderColor: COLORS.warm200,
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1A1918',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.12,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+      default: {},
+    }),
   },
 
   // Body
   body: {
-    paddingTop: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 2,
-    gap: 2,
+    paddingTop: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+    gap: 4,
   },
   addressRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 6,
+    gap: 8,
   },
   address: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
     color: COLORS.warm900,
   },
   activityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: 999,
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    gap: 5,
+    paddingVertical: 4,
+    gap: 4,
+    marginTop: 1,
   },
   activityDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   activityLabel: {
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   city: {
-    fontSize: 13,
+    fontSize: 13.5,
+    lineHeight: 18,
     color: COLORS.warm600,
   },
 
@@ -419,53 +450,56 @@ const styles = StyleSheet.create({
   statPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingTop: 2,
+    gap: 8,
+    paddingTop: 4,
+    minHeight: 22,
   },
-  statPill: {
+  statMetric: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    gap: 3,
+    gap: 4,
   },
-  statPillText: {
+  statMetricText: {
     fontSize: 13,
     fontWeight: '600',
   },
-  pillSeparator: {
-    fontSize: 13,
-    color: COLORS.warm300,
+  statDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: COLORS.warm200,
   },
   priceGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
     marginLeft: 'auto' as any,
   },
   priceText: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 15.5,
+    fontWeight: '800',
     color: COLORS.warm900,
   },
 
   // Quick actions
   actionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     borderTopWidth: 1,
     borderTopColor: COLORS.warm200,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingHorizontal: 8,
+    paddingTop: 9,
+    paddingBottom: 10,
+    marginTop: 4,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
     minHeight: 44,
     minWidth: 44,
-    paddingHorizontal: 8,
-    gap: 4,
+    paddingHorizontal: 6,
+    gap: 5,
   },
   actionLabel: {
     fontSize: 13,
@@ -483,9 +517,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 10,
+    borderLeftWidth: 11,
+    borderRightWidth: 11,
+    borderTopWidth: 11,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: COLORS.white,

@@ -20,45 +20,13 @@
 
 appId: nl.huishype.app
 ---
-# Clear app data to ensure unauthenticated state
-# This removes persisted auth tokens from SecureStore
-- clearState
-
-# Launch the app
-- launchApp
-
-# Handle Expo Dev Client server picker (after clearState, always shown)
-# Match both emulator (10.0.2.2:8081) and physical device (localhost:8081)
-- tapOn:
-    text: '.*10.0.2.2:8081.*'
-    optional: true
-- tapOn:
-    text: '.*localhost:8081.*'
-    optional: true
-
-# Wait for the app to connect and show HuisHype header (dev client or app)
-- extendedWaitUntil:
-    visible: 'HuisHype'
-    timeout: 120000
-
 # Dismiss Expo developer menu onboarding popup if it appears
 # This popup blocks the app with "Continue" button after first server connection
 - tapOn:
     text: 'Continue'
     optional: true
 - waitForAnimationToEnd
-
-# The developer menu may now be showing — dismiss it with back press
-# Unlike the dev client launcher, back press on the dev menu overlay just closes it
 - pressKey: back
-- waitForAnimationToEnd
-
-# Tap on the map area to dismiss any remaining overlay
-- tapOn:
-    point: '50%,30%'
-    optional: true
-
-# Wait for any dismissal animation
 - waitForAnimationToEnd
 
 # Wait for the map to fully load (JS bundle cold start after clearState can take 2+ min)

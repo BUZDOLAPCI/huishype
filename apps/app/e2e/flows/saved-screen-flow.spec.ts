@@ -37,6 +37,16 @@ test.use({ trace: 'off' });
 test.describe('Saved Screen Flow', () => {
   let consoleErrors: string[] = [];
 
+  async function isAnyVisible(
+    page: import('@playwright/test').Page,
+    selectors: string[],
+  ): Promise<boolean> {
+    const visibilities = await Promise.all(
+      selectors.map((selector) => page.locator(selector).first().isVisible().catch(() => false)),
+    );
+    return visibilities.some(Boolean);
+  }
+
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     page.on('console', (msg) => {
@@ -64,8 +74,7 @@ test.describe('Saved Screen Flow', () => {
   });
 
   test('Saved tab shows auth-required state when not logged in', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
     // Navigate to Saved tab
@@ -88,16 +97,12 @@ test.describe('Saved Screen Flow', () => {
     await page.waitForTimeout(1000);
 
     // Should show auth-required or empty/loaded state
-    const authRequired = page.locator('[data-testid="saved-auth-required"]');
-    const savedScreen = page.locator('[data-testid="saved-screen"]');
-    const savedEmpty = page.locator('[data-testid="saved-empty"]');
-
-    const isAuthRequired = await authRequired.isVisible().catch(() => false);
-    const isSavedScreen = await savedScreen.isVisible().catch(() => false);
-    const isSavedEmpty = await savedEmpty.isVisible().catch(() => false);
-
     expect(
-      isAuthRequired || isSavedScreen || isSavedEmpty,
+      await isAnyVisible(page, [
+        '[data-testid="saved-auth-required"]',
+        '[data-testid="saved-screen"]',
+        '[data-testid="saved-empty"]',
+      ]),
       'Saved tab should show auth-required, empty, or saved content'
     ).toBe(true);
 
@@ -105,8 +110,7 @@ test.describe('Saved Screen Flow', () => {
   });
 
   test('Saved tab auth overlay does NOT block tab bar navigation', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
     // Navigate to Saved tab

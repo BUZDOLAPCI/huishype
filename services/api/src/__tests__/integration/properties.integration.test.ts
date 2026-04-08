@@ -334,7 +334,7 @@ describe('Property routes', () => {
   });
 
   describe('GET /properties/nearby', () => {
-    it('should return nearby properties for Eindhoven center', async () => {
+    it('should return the nearest grouped feature for Eindhoven center', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&limit=5',
@@ -342,15 +342,12 @@ describe('Property routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBeGreaterThan(0);
-
-      const prop = body[0];
-      expect(prop).toHaveProperty('id');
-      expect(prop).toHaveProperty('address');
-      expect(prop).toHaveProperty('distanceMeters');
-      expect(prop).toHaveProperty('hasListing');
-      expect(prop).toHaveProperty('activityScore');
+      expect(body).not.toBeNull();
+      expect(body).toHaveProperty('primary_property_id');
+      expect(body).toHaveProperty('group_kind');
+      expect(body).toHaveProperty('distanceMeters');
+      expect(body).toHaveProperty('hasListing');
+      expect(body).toHaveProperty('activityScore');
     });
 
     it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
@@ -425,11 +422,10 @@ describe('Property routes', () => {
 
         expect(response.statusCode).toBe(200);
         const body = JSON.parse(response.body);
-        const property = body.find((item: { id: string }) => item.id === propertyId);
-
-        expect(property).toBeDefined();
-        expect(property.thumbnailUrl).toBe(thumbnailUrl);
-        expect(property.askingPrice).toBe(435000);
+        expect(body).not.toBeNull();
+        expect(body.primary_property_id).toBe(propertyId);
+        expect(body.thumbnailUrl).toBe(thumbnailUrl);
+        expect(body.askingPrice).toBe(435000);
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);

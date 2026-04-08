@@ -598,7 +598,7 @@ export interface paths {
         };
         /**
          * Find nearby properties
-         * @description Find the nearest properties to a given coordinate using PostGIS KNN. The search radius is derived from the zoom level. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. When cluster=true, detects if the tap lands on a cluster or single property.
+         * @description Find the nearest properties to a given coordinate using PostGIS KNN. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. Returns the nearest emitted grouped feature using the same density-aware grouping engine as vector tiles.
          */
         get: {
             parameters: {
@@ -607,7 +607,6 @@ export interface paths {
                     lat: number;
                     zoom?: number;
                     limit?: number;
-                    cluster?: string;
                 };
                 header?: never;
                 path?: never;
@@ -622,38 +621,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            /** Format: uuid */
-                            id: string;
-                            street: string;
-                            houseNumber: number;
-                            houseNumberAddition: string | null;
-                            address: string;
-                            city: string;
-                            postalCode: string | null;
-                            officialValuation: number | null;
-                            hasListing: boolean;
-                            askingPrice: number | null;
-                            thumbnailUrl: string | null;
-                            activityScore: number;
-                            likeCount: number;
-                            commentCount: number;
-                            guessCount: number;
-                            distanceMeters: number;
-                            geometry: {
-                                /** @enum {string} */
-                                type: "Point";
-                                /** @description [longitude, latitude] */
-                                coordinates: [
-                                    number,
-                                    number
-                                ];
-                            } | null;
-                        }[] | (({
                             /** @enum {string} */
-                            type: "cluster";
+                            node_class: "active" | "ghost";
+                            /** @enum {string} */
+                            group_kind: "single" | "cluster";
+                            /** Format: uuid */
+                            primary_property_id: string;
                             point_count: number;
-                            /** @description Comma-separated UUIDs */
-                            property_ids: string;
+                            property_ids: string[];
+                            preview_property_ids: string[];
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,
@@ -666,37 +642,23 @@ export interface paths {
                                 number,
                                 number,
                                 number
-                            ];
-                        } | {
-                            /** @enum {string} */
-                            type: "single";
-                            /** Format: uuid */
-                            id: string;
-                            street: string;
-                            houseNumber: number;
-                            houseNumberAddition: string | null;
-                            address: string;
-                            city: string;
-                            postalCode: string | null;
-                            officialValuation: number | null;
-                            hasListing: boolean;
-                            askingPrice: number | null;
-                            thumbnailUrl: string | null;
+                            ] | null;
                             activityScore: number;
+                            activityScoreTotal: number;
                             likeCount: number;
                             commentCount: number;
                             guessCount: number;
-                            distanceMeters: number;
-                            geometry: {
-                                /** @enum {string} */
-                                type: "Point";
-                                /** @description [longitude, latitude] */
-                                coordinates: [
-                                    number,
-                                    number
-                                ];
-                            } | null;
-                        }) | null);
+                            hasListing: boolean;
+                            address: string | null;
+                            city: string | null;
+                            postalCode: string | null;
+                            countryCode: string | null;
+                            officialValuation: number | null;
+                            askingPrice: number | null;
+                            thumbnailUrl: string | null;
+                            yearBuilt: number | null;
+                            floorAreaM2: number | null;
+                        } | null;
                     };
                 };
             };
@@ -2043,7 +2005,7 @@ export interface paths {
         };
         /**
          * Get property vector tile
-         * @description Returns MVT/PBF vector tile with property data. Clustered at Z0-16, individual points at Z17+. Ghost nodes only shown at Z17+.
+         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.
          */
         get: {
             parameters: {

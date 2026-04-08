@@ -70,42 +70,34 @@ export const propertyHandlers = [
   /**
    * GET /properties/nearby - Nearby properties
    */
-  http.get('/properties/nearby', ({ request }) => {
-    const url = new URL(request.url);
-    const cluster = url.searchParams.get('cluster');
-    const limit = parseInt(url.searchParams.get('limit') || '5', 10);
-
-    if (cluster === 'true') {
-      // Return a single result in cluster-aware format
-      return HttpResponse.json({
-        type: 'single' as const,
-        id: 'prop-001',
-        address: 'Prinsengracht 263',
-        city: 'Amsterdam',
-        postalCode: '1016 GV',
-        officialValuation: 2850000,
-        hasListing: true,
-        askingPrice: 2950000,
-        activityScore: 85,
-        distanceMeters: 12,
-        geometry: { type: 'Point', coordinates: [4.884, 52.3752] },
-      });
-    }
-
-    // Return array of nearby properties
-    return HttpResponse.json(
-      mockMapProperties.slice(0, limit).map((p, i) => ({
-        id: p.id,
-        address: `Mock address ${i}`,
-        city: 'Amsterdam',
-        postalCode: '1016 GV',
-        officialValuation: 450000,
-        hasListing: !p.isGhost,
-        activityScore: 50,
-        distanceMeters: i * 10 + 5,
-        geometry: { type: 'Point', coordinates: [p.coordinates.lon, p.coordinates.lat] },
-      }))
-    );
+  http.get('/properties/nearby', () => {
+    // Return a single result in density-aware grouped format
+    return HttpResponse.json({
+      node_class: 'active' as const,
+      group_kind: 'single' as const,
+      primary_property_id: mockMapProperties[0]?.id ?? 'prop-001',
+      point_count: 1,
+      property_ids: [mockMapProperties[0]?.id ?? 'prop-001'],
+      preview_property_ids: [mockMapProperties[0]?.id ?? 'prop-001'],
+      coordinate: [4.884, 52.3752] as [number, number],
+      bbox: null,
+      countryCode: 'NL',
+      address: 'Prinsengracht 263',
+      city: 'Amsterdam',
+      postalCode: '1016 GV',
+      officialValuation: 2850000,
+      hasListing: true,
+      askingPrice: 2950000,
+      activityScore: 85,
+      activityScoreTotal: 85,
+      likeCount: 12,
+      commentCount: 4,
+      guessCount: 3,
+      thumbnailUrl: null,
+      yearBuilt: 1912,
+      floorAreaM2: 184,
+      distanceMeters: 12,
+    });
   }),
 
   /**

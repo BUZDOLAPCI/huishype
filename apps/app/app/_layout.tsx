@@ -1,4 +1,4 @@
-import '../global.css';
+import '../src/bootstrap/styles';
 
 import {
   Inter_400Regular,

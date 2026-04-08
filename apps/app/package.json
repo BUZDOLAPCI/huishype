@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "expo start",
+    "dev": "expo start --dev-client",
     "build": "expo export --platform web",
     "android": "expo run:android",
     "ios": "expo run:ios",

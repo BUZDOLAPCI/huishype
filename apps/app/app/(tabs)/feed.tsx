@@ -30,6 +30,7 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
 // --- Header title per filter ---
 
@@ -108,7 +109,7 @@ export default function FeedScreen() {
   }, []);
 
   const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(`/property/${propertyId}`);
+    router.push(buildPropertyRoute(propertyId, '/feed'));
   }, []);
 
   const handleLoadMore = useCallback(() => {

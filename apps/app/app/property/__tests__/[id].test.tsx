@@ -1,20 +1,26 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { BackHandler } from 'react-native';
 
 import PropertyDetailScreen from '../[id]';
 import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 const mockUseProperty = jest.fn();
 const mockPropertyContent = jest.fn();
+const mockBack = jest.fn();
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+let mockSearchParams: { id: string; returnTo?: string | string[] } = { id: 'route-property-1' };
 
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ id: 'route-property-1' }),
+  useLocalSearchParams: () => mockSearchParams,
   Stack: {
     Screen: () => null,
   },
   router: {
-    back: jest.fn(),
-    push: jest.fn(),
+    back: (...args: unknown[]) => mockBack(...args),
+    push: (...args: unknown[]) => mockPush(...args),
+    replace: (...args: unknown[]) => mockReplace(...args),
   },
 }));
 
@@ -77,6 +83,7 @@ const property: PropertyDetails = {
 describe('app/property/[id]', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearchParams = { id: 'route-property-1' };
     mockUseProperty.mockReturnValue({
       data: property,
       isLoading: false,
@@ -104,5 +111,38 @@ describe('app/property/[id]', () => {
     fireEvent.press(screen.getByText('Trigger auth required'));
 
     expect(screen.getByText('Auth modal open')).toBeTruthy();
+  });
+
+  it('returns to the explicit origin when provided', () => {
+    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
+
+    render(<PropertyDetailScreen />);
+
+    fireEvent.press(screen.getByTestId('property-back-button'));
+
+    expect(mockReplace).toHaveBeenCalledWith('/feed');
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  it('falls back to router.back when no explicit origin exists', () => {
+    render(<PropertyDetailScreen />);
+
+    fireEvent.press(screen.getByTestId('property-back-button'));
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('intercepts Android hardware back to honor the explicit origin', () => {
+    const addEventListenerSpy = jest.spyOn(BackHandler, 'addEventListener');
+    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
+
+    render(<PropertyDetailScreen />);
+
+    const handler = addEventListenerSpy.mock.calls.at(-1)?.[1];
+
+    expect(handler).toBeDefined();
+    expect(handler?.()).toBe(true);
+    expect(mockReplace).toHaveBeenCalledWith('/feed');
   });
 });
