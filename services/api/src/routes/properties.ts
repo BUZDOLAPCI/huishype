@@ -191,6 +191,7 @@ const resolveQuerySchema = z.object({
 
 const resolveResponseSchema = z.object({
   id: z.string().uuid(),
+  countryCode: z.string(),
   address: z.string(),
   postalCode: z.string(),
   city: z.string(),
@@ -216,7 +217,6 @@ const nearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
-  limit: z.coerce.number().int().min(1).max(20).default(5),
 });
 
 const nearbyGroupedResultSchema = z.object({
@@ -754,6 +754,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const r = narrowed[0];
       return reply.send({
         id: r.id,
+        countryCode: r.country_code,
         address: formatDisplayAddress(
           {
             street: r.street,
@@ -776,7 +777,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /properties/nearby - Find nearest properties to a coordinate (KNN)
+  // GET /properties/nearby - Find the nearest grouped property to a coordinate
   // Used as a fallback for native map taps when queryRenderedFeatures fails
   typedApp.get(
     '/properties/nearby',
@@ -785,9 +786,9 @@ export async function propertyRoutes(app: FastifyInstance) {
         tags: ['properties'],
         summary: 'Find nearby properties',
         description:
-          'Find the nearest properties to a given coordinate using PostGIS KNN. ' +
-          'Used as a fallback for native map tap when queryRenderedFeatures is unreliable. ' +
-          'Returns the nearest emitted grouped feature using the same density-aware grouping engine as vector tiles.',
+          'Resolve the nearest grouped property feature to a coordinate. ' +
+          'Used as a fallback for native map taps when queryRenderedFeatures is unreliable. ' +
+          'Returns the canonical grouped feature using the same density-aware grouping engine as vector tiles.',
         querystring: nearbyQuerySchema,
         response: {
           200: nearbyGroupedResponseSchema,

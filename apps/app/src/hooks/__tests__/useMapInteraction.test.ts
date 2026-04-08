@@ -723,6 +723,7 @@ describe('useMapInteraction', () => {
         {
           id: 'prop-1',
           nationalId: null,
+          countryCode: 'NL',
           address: '123 Main St',
           city: 'Amsterdam',
           postalCode: '1012AB',
@@ -756,6 +757,8 @@ describe('useMapInteraction', () => {
         likeCount: 3,
         commentCount: 5,
         guessCount: 2,
+        activityScore: 7,
+        activityLevel: 'warm',
       });
     });
   });
@@ -777,9 +780,24 @@ describe('useMapInteraction', () => {
         hasListing: true,
         coordinates: { lon: 4.9, lat: 52.37 },
       };
+      const resolvedAddress = {
+        bagId: 'addr-1',
+        formattedAddress: '123 Main St, 1012AB Amsterdam',
+        lat: 52.37,
+        lon: 4.9,
+        details: {
+          city: 'Amsterdam',
+          zip: '1012AB',
+          street: 'Main St',
+          number: '123',
+          houseNumber: '123',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      };
 
       act(() => {
-        result.current.handlePropertyResolved(property, camera);
+        result.current.handlePropertyResolved(property, camera, resolvedAddress);
       });
 
       expect(camera.flyTo).toHaveBeenCalledWith({
@@ -798,6 +816,10 @@ describe('useMapInteraction', () => {
 
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
+      expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
+        { type: 'Point', coordinates: [4.9, 52.37] },
+        'NL',
+      );
     });
 
     it('handleLocationResolved flies to coordinate without setting preview', () => {

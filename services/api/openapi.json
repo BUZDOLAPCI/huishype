@@ -1061,6 +1061,9 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
+                    "countryCode": {
+                      "type": "string"
+                    },
                     "address": {
                       "type": "string"
                     },
@@ -1102,6 +1105,7 @@
                   },
                   "required": [
                     "id",
+                    "countryCode",
                     "address",
                     "postalCode",
                     "city",
@@ -1192,7 +1196,7 @@
         "tags": [
           "properties"
         ],
-        "description": "Find the nearest properties to a given coordinate using PostGIS KNN. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. Returns the nearest emitted grouped feature using the same density-aware grouping engine as vector tiles.",
+        "description": "Resolve the nearest grouped property feature to a coordinate. Used as a fallback for native map taps when queryRenderedFeatures is unreliable. Returns the canonical grouped feature using the same density-aware grouping engine as vector tiles.",
         "parameters": [
           {
             "schema": {
@@ -1223,17 +1227,6 @@
             },
             "in": "query",
             "name": "zoom",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": 5,
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20
-            },
-            "in": "query",
-            "name": "limit",
             "required": false
           }
         ],

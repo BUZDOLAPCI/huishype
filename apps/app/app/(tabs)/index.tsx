@@ -282,11 +282,15 @@ export default function MapScreen() {
 
   // Search bar callbacks
   const handlePropertyResolved = useCallback(
-    (property: Parameters<typeof handleMapPropertyResolved>[0]) => {
-      handleMapPropertyResolved(property, cameraCommands);
+    (
+      property: Parameters<typeof handleMapPropertyResolved>[0],
+      resolvedAddress?: ResolvedAddress,
+    ) => {
+      handleMapPropertyResolved(property, cameraCommands, resolvedAddress);
       // Set the search city from the resolved property
-      if (property.city) {
-        setSearchCity(property.city, [property.coordinates.lon, property.coordinates.lat]);
+      const city = property.city || resolvedAddress?.details.city;
+      if (city) {
+        setSearchCity(city, [property.coordinates.lon, property.coordinates.lat]);
       }
     },
     [handleMapPropertyResolved, cameraCommands, setSearchCity],

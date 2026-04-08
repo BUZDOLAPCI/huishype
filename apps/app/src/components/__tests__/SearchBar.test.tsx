@@ -227,7 +227,7 @@ describe('SearchBar', () => {
           street: 'Teststraat',
           city: 'Eindhoven',
         });
-        expect(onPropertyResolved).toHaveBeenCalledWith(mockProperty);
+        expect(onPropertyResolved).toHaveBeenCalledWith(mockProperty, mockAddress);
       });
     }
   });

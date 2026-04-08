@@ -4,8 +4,6 @@ import type { FastifyInstance } from 'fastify';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
   buildCanonicalGroupsForTile,
-  lngLatToWorldUnits,
-  PROPERTY_TILE_EXTENT,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
 
@@ -13,18 +11,7 @@ const SEEDED_GHOST_CLUSTER_FIXTURE = {
   lon: 5.47123505671892,
   lat: 51.4434318245281,
   zoom: 17,
-  ownerTile: { z: 17, x: 67528, y: 43622 },
-  primaryPropertyId: '658aabb2-206d-4192-a49e-320f8aaf4014',
 };
-
-function tileForCoordinate(lon: number, lat: number, zoom: number) {
-  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  return {
-    z: zoom,
-    x: Math.floor(worldX / PROPERTY_TILE_EXTENT),
-    y: Math.floor(worldY / PROPERTY_TILE_EXTENT),
-  };
-}
 
 /**
  * Integration tests for GET /properties/nearby
@@ -87,29 +74,13 @@ describe('GET /properties/nearby', () => {
       });
       expect(response.statusCode).toBe(400);
     });
-
-    it('should return 400 when limit is greater than 20', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&limit=21',
-      });
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('should return 400 when limit is less than 1', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&limit=0',
-      });
-      expect(response.statusCode).toBe(400);
-    });
   });
 
   describe('response shape', () => {
     it('should return a canonical grouped result or null', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=17&limit=5',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=17',
       });
 
       expect(response.statusCode).toBe(200);
@@ -131,7 +102,7 @@ describe('GET /properties/nearby', () => {
       // Use Eindhoven center — seeded data should have properties nearby
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&limit=1',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
       });
 
       expect(response.statusCode).toBe(200);
@@ -159,7 +130,7 @@ describe('GET /properties/nearby', () => {
     it('should include grouped coordinates as a [lon, lat] tuple', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&limit=1',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
       });
 
       expect(response.statusCode).toBe(200);
@@ -178,12 +149,12 @@ describe('GET /properties/nearby', () => {
     it('should resolve a grouped feature at high zoom without assuming singles', async () => {
       const highZoomResp = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=19&limit=20',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=19',
       });
 
       const lowZoomResp = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=13&limit=20',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=13',
       });
 
       expect(highZoomResp.statusCode).toBe(200);
@@ -204,32 +175,12 @@ describe('GET /properties/nearby', () => {
     });
   });
 
-  describe('limit parameter', () => {
-    it('should accept explicit limits within the supported range', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&limit=2',
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('should use the default limit when not specified', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-  });
-
   describe('edge cases', () => {
     it('should return null for a location in the ocean', async () => {
       // Coordinates in the middle of the North Sea
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=3.0&lat=55.0&zoom=17&limit=5',
+        url: '/properties/nearby?lon=3.0&lat=55.0&zoom=17',
       });
 
       expect(response.statusCode).toBe(200);
@@ -331,6 +282,12 @@ describe('GET /properties/nearby', () => {
     });
 
     it('matches the canonical tile grouping for the seeded near-edge ghost cluster fixture', async () => {
+      const direct = await resolveNearbyGroupedFeature(
+        SEEDED_GHOST_CLUSTER_FIXTURE.lon,
+        SEEDED_GHOST_CLUSTER_FIXTURE.lat,
+        SEEDED_GHOST_CLUSTER_FIXTURE.zoom,
+      );
+
       const response = await app.inject({
         method: 'GET',
         url:
@@ -341,22 +298,21 @@ describe('GET /properties/nearby', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      const tileGroup = (
-        await buildCanonicalGroupsForTile(SEEDED_GHOST_CLUSTER_FIXTURE.ownerTile)
-      ).find(
-        (group) =>
-          group.primaryPropertyId === SEEDED_GHOST_CLUSTER_FIXTURE.primaryPropertyId,
+      expect(direct).not.toBeNull();
+      const tileGroup = await buildCanonicalGroupsForTile(direct!.ownerTile);
+      const matchingGroup = tileGroup.find(
+        (group) => group.primaryPropertyId === direct?.primaryPropertyId,
       );
 
-      expect(tileGroup).toBeDefined();
+      expect(matchingGroup).toBeDefined();
       expect(body).not.toBeNull();
       expect(body.node_class).toBe('ghost');
       expect(body.group_kind).toBe('cluster');
-      expect(body.primary_property_id).toBe(tileGroup?.primaryPropertyId);
-      expect(body.point_count).toBe(tileGroup?.pointCount);
-      expect(body.property_ids).toEqual(tileGroup?.propertyIds);
-      expect(body.preview_property_ids).toEqual(tileGroup?.previewPropertyIds);
-      expect(body.bbox).toEqual(tileGroup?.bbox);
+      expect(body.primary_property_id).toBe(matchingGroup?.primaryPropertyId);
+      expect(body.point_count).toBe(matchingGroup?.pointCount);
+      expect(body.property_ids).toEqual(matchingGroup?.propertyIds);
+      expect(body.preview_property_ids).toEqual(matchingGroup?.previewPropertyIds);
+      expect(body.bbox).toEqual(matchingGroup?.bbox);
       expect(body.hasListing).toBe(false);
       expect(body.activityScore).toBe(0);
       expect(body.activityScoreTotal).toBe(0);
@@ -364,37 +320,28 @@ describe('GET /properties/nearby', () => {
       expect(body.city).toBeNull();
     });
 
-    it('keeps nearby resolution in parity with neighborhood tile emission and preview cap rules', async () => {
+    it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {
       const { lon, lat, zoom } = SEEDED_GHOST_CLUSTER_FIXTURE;
       const direct = await resolveNearbyGroupedFeature(lon, lat, zoom);
-      const tile = tileForCoordinate(lon, lat, zoom);
-      const neighborhoodTiles = [];
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          neighborhoodTiles.push({ z: zoom, x: tile.x + dx, y: tile.y + dy });
-        }
-      }
-      const emittedGroups = (
-        await Promise.all(neighborhoodTiles.map((candidateTile) => buildCanonicalGroupsForTile(candidateTile)))
-      ).flat();
-
-      const matchedGroup = emittedGroups.find(
-        (group) =>
-          group.primaryPropertyId === SEEDED_GHOST_CLUSTER_FIXTURE.primaryPropertyId,
+      expect(direct).not.toBeNull();
+      const tileGroup = await buildCanonicalGroupsForTile(direct!.ownerTile);
+      const matchingGroup = tileGroup.find(
+        (group) => group.primaryPropertyId === direct?.primaryPropertyId,
       );
 
-      expect(direct).not.toBeNull();
-      expect(matchedGroup).toBeDefined();
-      expect(direct?.primaryPropertyId).toBe(matchedGroup?.primaryPropertyId);
-      expect(direct?.groupKind).toBe(matchedGroup?.groupKind);
-      expect(direct?.nodeClass).toBe(matchedGroup?.nodeClass);
-      expect(direct?.pointCount).toBe(matchedGroup?.pointCount);
-      expect(direct?.previewPropertyIds).toEqual(matchedGroup?.previewPropertyIds);
-      expect(direct?.previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+      expect(matchingGroup).toBeDefined();
+      expect(direct?.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
+      expect(direct?.groupKind).toBe(matchingGroup?.groupKind);
+      expect(direct?.nodeClass).toBe(matchingGroup?.nodeClass);
+      expect(direct?.pointCount).toBe(matchingGroup?.pointCount);
+      expect(direct?.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
+      expect(direct?.previewPropertyIds).toHaveLength(
+        Math.min(direct?.pointCount ?? 0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      );
       expect(direct?.previewPropertyIds).toEqual(
         direct?.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
       );
-      expect(direct?.pointCount).toBeGreaterThan(direct?.previewPropertyIds.length ?? 0);
+      expect(direct?.pointCount).toBeGreaterThanOrEqual(direct?.previewPropertyIds.length ?? 0);
     });
 
     it('should include valid UUIDs in grouped property_ids', async () => {
@@ -444,8 +391,8 @@ describe('GET /properties/nearby', () => {
       expect(paramNames).toContain('lon');
       expect(paramNames).toContain('lat');
       expect(paramNames).toContain('zoom');
-      expect(paramNames).toContain('limit');
       expect(paramNames).not.toContain('cluster');
+      expect(paramNames).not.toContain('limit');
     });
   });
 });

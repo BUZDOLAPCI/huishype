@@ -16,6 +16,7 @@ import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
+import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import {
   fetchBatchProperties,
@@ -102,7 +103,11 @@ export interface UseMapInteractionReturn {
   handleClosePreview: () => void;
 
   // ── Search callbacks ────────────────────────────────────────
-  handlePropertyResolved: (property: PropertyResolveResult, camera: MapCameraCommands) => void;
+  handlePropertyResolved: (
+    property: PropertyResolveResult,
+    camera: MapCameraCommands,
+    resolvedAddress?: ResolvedAddress,
+  ) => void;
   handleLocationResolved: (coordinates: { lon: number; lat: number }, address: string, camera: MapCameraCommands) => void;
 
   // ── Feature-press / map-tap logic ───────────────────────────
@@ -181,7 +186,10 @@ function convertToGroupProperty(
   p: ToGroupPropertyInput,
   activityScore?: number,
 ): GroupPreviewProperty {
-  const score = activityScore ?? p.activityScore ?? 0;
+  const derivedScore =
+    (p.commentCount ?? 0) +
+    (p.guessCount ?? 0);
+  const score = activityScore ?? p.activityScore ?? derivedScore;
   const countryCode = p.countryCode ?? undefined;
   const aerialImageUrl = derivePropertyAerialImageUrl({
     aerialImageUrl: p.aerialImageUrl,
@@ -479,7 +487,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         );
         if (batch.length > 0) {
           setPreviewGroup({
-            properties: batch.map(b => toGroupProperty({ ...b, activityScore: 0 })),
+            properties: batch.map(b => toGroupProperty(b)),
             coordinate,
           });
           setCurrentPreviewIndex(0);
@@ -678,9 +686,14 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Search callbacks ────────────────────────────────────────
   const handlePropertyResolved = useCallback(
-    (property: PropertyResolveResult, camera: MapCameraCommands) => {
+    (
+      property: PropertyResolveResult,
+      camera: MapCameraCommands,
+      resolvedAddress?: ResolvedAddress,
+    ) => {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
+      const countryCode = property.countryCode ?? resolvedAddress?.details.countryCode ?? undefined;
       setHighlightedCoordinate(coord);
       flyToPreviewAnchor(camera, coord, SEARCH_TARGET_ZOOM, SEARCH_PREVIEW_FLY_DURATION_MS);
       schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
@@ -698,7 +711,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
             thumbnailUrl: null,
             aerialImageUrl: derivePropertyAerialImageUrl({
               geometry: { type: 'Point', coordinates: coord },
-              countryCode: undefined,
+              countryCode,
             }),
           }],
           coordinate: coord,

@@ -1,8 +1,13 @@
 import { describe, expect, it } from '@jest/globals';
-import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
+import { PROPERTY_MAP_FOOTPRINTS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
   GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
+  getActiveClusterRadiusPx,
+  getActiveSingleRadiusPx,
+  getGroupingBufferUnits,
+  getGhostClusterRadiusPx,
+  getGhostSingleRadiusPx,
   groupCandidatesForTile,
   lngLatToWorldUnits,
   shouldFetchGhostCandidates,
@@ -26,6 +31,8 @@ function tileForCoordinate(lon: number, lat: number, zoom: number) {
   };
 }
 
+const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / 512;
+
 function makeCandidate(
   id: string,
   lon: number,
@@ -47,6 +54,17 @@ function makeCandidate(
     worldY,
     ...overrides,
   };
+}
+
+function makeCandidateAtWorld(
+  id: string,
+  worldX: number,
+  worldY: number,
+  zoom: number,
+  overrides: Partial<GroupingCandidate> = {},
+): GroupingCandidate {
+  const [lon, lat] = worldUnitsToLngLat(worldX, worldY, zoom);
+  return makeCandidate(id, lon, lat, zoom, overrides);
 }
 
 describe('property-grouping', () => {
@@ -115,6 +133,128 @@ describe('property-grouping', () => {
     expect(groups.map((group) => group.primaryPropertyId).sort()).toEqual(
       [left.id, right.id].sort(),
     );
+  });
+
+  it('keeps the grouping buffer large enough for a six-member active cluster crossing the tile edge', () => {
+    const zoom = 18;
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const rightEdgeX = (tile.x + 1) * PROPERTY_TILE_EXTENT;
+    const centerY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const activePairThresholdPx =
+      getActiveClusterRadiusPx(2) +
+      PROPERTY_MAP_FOOTPRINTS.active.groupingGapPx +
+      getActiveClusterRadiusPx(2);
+    const requiredPx = activePairThresholdPx * 2;
+
+    const leftA = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000031',
+      rightEdgeX - 1,
+      centerY,
+      zoom,
+      { activityScore: 10, likeCount: 4 },
+    );
+    const leftB = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000032',
+      rightEdgeX - 1,
+      centerY,
+      zoom,
+      { activityScore: 9, likeCount: 3 },
+    );
+    const leftC = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000033',
+      rightEdgeX - 1,
+      centerY,
+      zoom,
+      { activityScore: 8, likeCount: 2 },
+    );
+    const leftD = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000034',
+      rightEdgeX - 1,
+      centerY,
+      zoom,
+      { activityScore: 7, likeCount: 1 },
+    );
+    const seed = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000035',
+      rightEdgeX + 33,
+      centerY,
+      zoom,
+      { activityScore: 100 },
+    );
+    const extra = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000036',
+      rightEdgeX + 66,
+      centerY,
+      zoom,
+      { activityScore: 1 },
+    );
+
+    const candidates = [leftA, leftB, leftC, leftD, seed, extra];
+    const groups = groupCandidatesForTile(tile, candidates);
+
+    expect(getGroupingBufferUnits() / TILE_UNITS_PER_PX).toBeGreaterThanOrEqual(requiredPx);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('cluster');
+    expect(groups[0].pointCount).toBe(6);
+    expect(groups[0].ownerTile).toEqual(tile);
+    expect(groups[0].propertyIds).toEqual([seed.id, leftA.id, leftB.id, leftC.id, leftD.id, extra.id]);
+  });
+
+  it('keeps the grouping buffer large enough for ghost suppression by large active clusters', () => {
+    const requiredPx =
+      getActiveClusterRadiusPx(100) +
+      PROPERTY_MAP_FOOTPRINTS.ghost.suppressionPaddingPx +
+      Math.max(getGhostSingleRadiusPx(), getGhostClusterRadiusPx(2));
+
+    expect(getGroupingBufferUnits() / TILE_UNITS_PER_PX).toBeGreaterThanOrEqual(requiredPx);
+  });
+
+  it('does not merge a bridge candidate through transitive hops across the tile buffer', () => {
+    const zoom = 18;
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const originX = tile.x * PROPERTY_TILE_EXTENT + 1024;
+    const originY = tile.y * PROPERTY_TILE_EXTENT + 1024;
+
+    const groupingRadiusUnits =
+      Math.max(getActiveSingleRadiusPx(10), getActiveClusterRadiusPx(2)) * TILE_UNITS_PER_PX;
+    const pairThresholdUnits = groupingRadiusUnits + groupingRadiusUnits + 2 * TILE_UNITS_PER_PX;
+    const stepUnits = Math.floor(pairThresholdUnits - 8);
+
+    const [alphaLon, alphaLat] = worldUnitsToLngLat(originX, originY, zoom);
+    const [betaLon, betaLat] = worldUnitsToLngLat(originX + stepUnits, originY, zoom);
+    const [gammaLon, gammaLat] = worldUnitsToLngLat(originX + stepUnits * 2, originY, zoom);
+
+    const alpha = makeCandidate(
+      '00000000-0000-0000-0000-000000000051',
+      alphaLon,
+      alphaLat,
+      zoom,
+      { activityScore: 10, hasListing: true, likeCount: 3 },
+    );
+    const beta = makeCandidate(
+      '00000000-0000-0000-0000-000000000052',
+      betaLon,
+      betaLat,
+      zoom,
+      { activityScore: 10, hasListing: true, likeCount: 2 },
+    );
+    const gamma = makeCandidate(
+      '00000000-0000-0000-0000-000000000053',
+      gammaLon,
+      gammaLat,
+      zoom,
+      { activityScore: 10, hasListing: true, likeCount: 1 },
+    );
+
+    const groups = groupCandidatesForTile(tile, [alpha, beta, gamma]);
+    const cluster = groups.find((group) => group.groupKind === 'cluster');
+    const loneGamma = groups.find((group) => group.primaryPropertyId === gamma.id);
+
+    expect(groups).toHaveLength(2);
+    expect(cluster?.propertyIds).toEqual([alpha.id, beta.id]);
+    expect(loneGamma?.groupKind).toBe('single');
+    expect(loneGamma?.primaryPropertyId).toBe(gamma.id);
   });
 
   it('suppresses ghosts that fall inside active occupancy once ghosts are revealed', () => {

@@ -177,6 +177,7 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
       const photonParams = new URLSearchParams({ q, limit: String(photonLimit) });
       if (lang) photonParams.set('lang', lang);
       if (requestedCountryCode) {
+        photonParams.set('countrycode', requestedCountryCode.toLowerCase());
         const [lon, lat] = getCountryConfig(requestedCountryCode).defaultCenter;
         photonParams.set('lon', String(lon));
         photonParams.set('lat', String(lat));

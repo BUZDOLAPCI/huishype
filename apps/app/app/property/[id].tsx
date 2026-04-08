@@ -18,7 +18,7 @@ function PropertyDetailSkeleton() {
   );
 }
 
-function PropertyNotFound() {
+function PropertyNotFound({ onGoBack }: { onGoBack: () => void }) {
   return (
     <View style={styles.notFoundContainer}>
       <Icon name="HouseLine" size={64} color="#E8E0D4" />
@@ -27,7 +27,7 @@ function PropertyNotFound() {
         The property you're looking for doesn't exist or has been removed.
       </Text>
       <Pressable
-        onPress={() => router.back()}
+        onPress={onGoBack}
         style={styles.goBackButton}
       >
         <Text style={styles.goBackText}>Go Back</Text>
@@ -101,7 +101,7 @@ export default function PropertyDetailScreen() {
             <Icon name="ArrowLeft" size={20} color="#3D3832" />
           </Pressable>
         </View>
-        <PropertyNotFound />
+        <PropertyNotFound onGoBack={handleBack} />
       </>
     );
   }

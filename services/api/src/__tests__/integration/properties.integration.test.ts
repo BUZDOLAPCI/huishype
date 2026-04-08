@@ -337,7 +337,7 @@ describe('Property routes', () => {
     it('should return the nearest grouped feature for Eindhoven center', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14&limit=5',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
       });
 
       expect(response.statusCode).toBe(200);
@@ -417,7 +417,7 @@ describe('Property routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: '/properties/nearby?lon=6.75&lat=53.2&zoom=20&limit=5',
+          url: '/properties/nearby?lon=6.75&lat=53.2&zoom=20',
         });
 
         expect(response.statusCode).toBe(200);

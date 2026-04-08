@@ -292,12 +292,23 @@ function getBufferedTileBBox(tile: TileId, bufferUnits: number): TileBBox {
   return { minLon, minLat, maxLon, maxLat };
 }
 
-function getGroupingBufferUnits(): number {
+export function getGroupingBufferUnits(): number {
   const maxActiveRadius = getActiveGroupingRadiusPx(100);
   const maxGhostRadius = getGhostGroupingRadiusPx();
+  const maxActiveSeedOwnedClusterSpanPx =
+    2 * (getActiveClusterRadiusPx(2) + ACTIVE_GROUPING_GAP_PX + getActiveClusterRadiusPx(2));
+  const maxActiveSuppressionRadius =
+    maxActiveRadius + GHOST_SUPPRESSION_PADDING_PX + maxGhostRadius;
+  const maxGhostSeedAndNeighborRadius = maxGhostRadius + maxGhostRadius + GHOST_GROUPING_GAP_PX;
+
+  // A seed-owned active cluster can span two active pair thresholds from a tile edge:
+  // one pair to reach the seed, another to reach the furthest owned member.
   return pxToTileUnits(
-    Math.max(maxActiveRadius + GHOST_SUPPRESSION_PADDING_PX + maxGhostRadius, maxGhostRadius) +
-      16,
+    Math.max(
+      maxActiveSeedOwnedClusterSpanPx,
+      maxActiveSuppressionRadius,
+      maxGhostSeedAndNeighborRadius,
+    ) + 16,
   );
 }
 
@@ -358,37 +369,32 @@ function clusterCandidates(
 
   const cellSize = config.maxRadiusUnits * 2 + config.gapUnits;
   const spatialHash = buildSpatialHash(candidates, cellSize, config.getRadiusUnits);
-  const visited = new Set<string>();
+  const orderedSeeds = [...candidates].sort(compareCandidatePriority);
+  const assigned = new Set<string>();
   const groups: GroupingCandidate[][] = [];
 
-  for (const root of candidates) {
-    if (visited.has(root.id)) continue;
+  for (const seed of orderedSeeds) {
+    if (assigned.has(seed.id)) continue;
 
-    const stack = [root];
-    const component: GroupingCandidate[] = [];
-    visited.add(root.id);
+    const component: GroupingCandidate[] = [seed];
+    assigned.add(seed.id);
+    const seedRadius = config.getRadiusUnits(seed);
+    const cellX = Math.floor(seed.worldX / cellSize);
+    const cellY = Math.floor(seed.worldY / cellSize);
 
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      component.push(current);
-      const currentRadius = config.getRadiusUnits(current);
-      const cellX = Math.floor(current.worldX / cellSize);
-      const cellY = Math.floor(current.worldY / cellSize);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = spatialHash.get(`${cellX + dx}:${cellY + dy}`);
+        if (!bucket) continue;
 
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const bucket = spatialHash.get(`${cellX + dx}:${cellY + dy}`);
-          if (!bucket) continue;
-
-          for (const entry of bucket) {
-            if (visited.has(entry.candidate.id)) continue;
-            const dxWorld = current.worldX - entry.candidate.worldX;
-            const dyWorld = current.worldY - entry.candidate.worldY;
-            const threshold = currentRadius + entry.radiusUnits + config.gapUnits;
-            if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
-              visited.add(entry.candidate.id);
-              stack.push(entry.candidate);
-            }
+        for (const entry of bucket) {
+          if (assigned.has(entry.candidate.id)) continue;
+          const dxWorld = seed.worldX - entry.candidate.worldX;
+          const dyWorld = seed.worldY - entry.candidate.worldY;
+          const threshold = seedRadius + entry.radiusUnits + config.gapUnits;
+          if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
+            assigned.add(entry.candidate.id);
+            component.push(entry.candidate);
           }
         }
       }
@@ -488,6 +494,13 @@ function getNearbyHitRadiusUnits(group: CanonicalPropertyGroup): number {
   return pxToTileUnits(pxRadius + NEARBY_TAP_TOLERANCE_PX);
 }
 
+function getBufferedWorldBBox(worldX: number, worldY: number, zoom: number, bufferUnits: number): TileBBox {
+  const [minLon, maxLat] = worldUnitsToLngLat(worldX - bufferUnits, worldY - bufferUnits, zoom);
+  const [maxLon, minLat] = worldUnitsToLngLat(worldX + bufferUnits, worldY + bufferUnits, zoom);
+
+  return { minLon, minLat, maxLon, maxLat };
+}
+
 function toCandidate(row: GroupingCandidateRow, zoom: number): GroupingCandidate {
   const [worldX, worldY] = lngLatToWorldUnits(row.lon, row.lat, zoom);
   return {
@@ -504,9 +517,11 @@ function toCandidate(row: GroupingCandidateRow, zoom: number): GroupingCandidate
   };
 }
 
-async function fetchGroupingCandidates(tile: TileId): Promise<GroupingCandidate[]> {
-  const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
-  const includeGhostCandidates = shouldFetchGhostCandidates(tile.z);
+async function fetchGroupingCandidatesInBBox(
+  bounds: TileBBox,
+  zoom: number,
+  includeGhostCandidates: boolean,
+): Promise<GroupingCandidate[]> {
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -538,10 +553,10 @@ async function fetchGroupingCandidates(tile: TileId): Promise<GroupingCandidate[
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
         AND p.geometry && ST_MakeEnvelope(
-          ${bufferedBounds.minLon},
-          ${bufferedBounds.minLat},
-          ${bufferedBounds.maxLon},
-          ${bufferedBounds.maxLat},
+          ${bounds.minLon},
+          ${bounds.minLat},
+          ${bounds.maxLon},
+          ${bounds.maxLat},
           4326
         )
         AND ${candidateVisibilityFilter}
@@ -593,7 +608,16 @@ async function fetchGroupingCandidates(tile: TileId): Promise<GroupingCandidate[
     LEFT JOIN like_counts lc ON lc.property_id = cp.id
   `);
 
-  return Array.from(rows).map((row) => toCandidate(row, tile.z));
+  return Array.from(rows).map((row) => toCandidate(row, zoom));
+}
+
+async function fetchGroupingCandidates(tile: TileId): Promise<GroupingCandidate[]> {
+  const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
+  return fetchGroupingCandidatesInBBox(
+    bufferedBounds,
+    tile.z,
+    shouldFetchGhostCandidates(tile.z),
+  );
 }
 
 async function fetchSinglePropertyDetails(
@@ -712,8 +736,8 @@ async function hydrateSinglePropertyDetails(
   });
 }
 
-export function groupCandidatesForTile(
-  tile: TileId,
+function buildCanonicalGroupsFromCandidates(
+  zoom: number,
   candidates: GroupingCandidate[],
 ): CanonicalPropertyGroup[] {
   const activeCandidates = candidates.filter((candidate) => !isGhostCandidate(candidate));
@@ -723,7 +747,7 @@ export function groupCandidatesForTile(
     maxRadiusUnits: pxToTileUnits(getActiveGroupingRadiusPx(100)),
     gapUnits: pxToTileUnits(ACTIVE_GROUPING_GAP_PX),
     getRadiusUnits: (candidate) => pxToTileUnits(getActiveGroupingRadiusPx(candidate.activityScore)),
-  }).map((members) => buildCanonicalGroup(members, 'active', tile.z));
+  }).map((members) => buildCanonicalGroup(members, 'active', zoom));
 
   const activeOccupancies = activeGroups.map((group) => ({
     x: group.anchorWorldX,
@@ -732,7 +756,7 @@ export function groupCandidatesForTile(
   }));
 
   const visibleGhostCandidates =
-    tile.z >= GHOST_NODE_REVEAL_ZOOM
+    zoom >= GHOST_NODE_REVEAL_ZOOM
       ? ghostCandidates.filter((candidate) => {
           const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
           return !activeOccupancies.some((occupancy) => {
@@ -748,9 +772,16 @@ export function groupCandidatesForTile(
     maxRadiusUnits: pxToTileUnits(getGhostGroupingRadiusPx()),
     gapUnits: pxToTileUnits(GHOST_GROUPING_GAP_PX),
     getRadiusUnits: () => pxToTileUnits(getGhostGroupingRadiusPx()),
-  }).map((members) => buildCanonicalGroup(members, 'ghost', tile.z));
+  }).map((members) => buildCanonicalGroup(members, 'ghost', zoom));
 
-  return [...activeGroups, ...ghostGroups].filter(
+  return [...activeGroups, ...ghostGroups];
+}
+
+export function groupCandidatesForTile(
+  tile: TileId,
+  candidates: GroupingCandidate[],
+): CanonicalPropertyGroup[] {
+  return buildCanonicalGroupsFromCandidates(tile.z, candidates).filter(
     (group) => group.ownerTile.x === tile.x && group.ownerTile.y === tile.y,
   );
 }
@@ -782,23 +813,15 @@ export async function resolveNearbyGroupedFeature(
   zoom: number,
 ): Promise<NearbyResolution | null> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  const tileX = Math.floor(worldX / PROPERTY_TILE_EXTENT);
-  const tileY = Math.floor(worldY / PROPERTY_TILE_EXTENT);
-  const tileCount = Math.pow(2, zoom);
-
-  const neighborhoodTiles: TileId[] = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      const x = tileX + dx;
-      const y = tileY + dy;
-      if (x < 0 || y < 0 || x >= tileCount || y >= tileCount) continue;
-      neighborhoodTiles.push({ z: zoom, x, y });
-    }
-  }
-
-  const emittedGroups = (
-    await Promise.all(neighborhoodTiles.map((tile) => buildCanonicalGroupsForTile(tile)))
-  ).flat();
+  const searchBounds = getBufferedWorldBBox(worldX, worldY, zoom, getGroupingBufferUnits());
+  const candidates = await fetchGroupingCandidatesInBBox(
+    searchBounds,
+    zoom,
+    shouldFetchGhostCandidates(zoom),
+  );
+  const emittedGroups = await hydrateSinglePropertyDetails(
+    buildCanonicalGroupsFromCandidates(zoom, candidates),
+  );
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;

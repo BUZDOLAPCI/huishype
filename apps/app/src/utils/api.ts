@@ -104,7 +104,9 @@ export async function apiFetch<T>(
 
 // --- Property resolve (imperative, not a hook) ---
 
-export type PropertyResolveResult = PropertyResolveResponse;
+export type PropertyResolveResult = PropertyResolveResponse & {
+  countryCode?: string | null;
+};
 
 export interface PropertyResolveRequest {
   postalCode: string;
@@ -461,6 +463,7 @@ export interface BatchProperty {
   likeCount: number;
   commentCount: number;
   guessCount: number;
+  activityScore?: number;
   aerialImageUrl?: string | null;
   thumbnailUrl?: string | null;
   createdAt: string;

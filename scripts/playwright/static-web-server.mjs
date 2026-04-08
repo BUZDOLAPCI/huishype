@@ -54,6 +54,11 @@ function listHtmlTemplates(rootDir, currentDir = rootDir) {
   return files;
 }
 
+function isAssetLikePath(pathname) {
+  const extension = path.extname(pathname);
+  return extension.length > 0;
+}
+
 function toRouteSegments(templatePath) {
   const withoutExtension = templatePath.replace(/\.html$/, '');
   if (withoutExtension === 'index') {
@@ -148,11 +153,11 @@ export function startStaticWebServer({
     const candidatePath = path.resolve(resolvedRoot, `.${relativePath}`);
 
     if (!candidatePath.startsWith(resolvedRoot)) {
-      return fallbackDocument;
+      return { statusCode: 404, filePath: null };
     }
 
     if (existsSync(candidatePath) && statSync(candidatePath).isFile()) {
-      return candidatePath;
+      return { statusCode: 200, filePath: candidatePath };
     }
 
     const htmlCandidatePath = path.resolve(resolvedRoot, `.${pathname}.html`);
@@ -161,7 +166,11 @@ export function startStaticWebServer({
       existsSync(htmlCandidatePath) &&
       statSync(htmlCandidatePath).isFile()
     ) {
-      return htmlCandidatePath;
+      return { statusCode: 200, filePath: htmlCandidatePath };
+    }
+
+    if (isAssetLikePath(pathname)) {
+      return { statusCode: 404, filePath: null };
     }
 
     const requestSegments = pathname.split('/').filter(Boolean);
@@ -184,17 +193,26 @@ export function startStaticWebServer({
       })[0];
 
     if (templateMatch) {
-      return templateMatch.absolutePath;
+      return { statusCode: 200, filePath: templateMatch.absolutePath };
     }
 
-    return fallbackDocument;
+    return { statusCode: 200, filePath: fallbackDocument };
   };
 
   const server = createServer((request, response) => {
-    const filePath = resolveRequestPath(request.url || '/');
+    const { statusCode, filePath } = resolveRequestPath(request.url || '/');
+
+    if (statusCode === 404 || !filePath) {
+      response.statusCode = 404;
+      response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-store');
+      response.end('Not Found');
+      return;
+    }
+
     const contentType = getContentType(filePath);
 
-    response.statusCode = 200;
+    response.statusCode = statusCode;
     response.setHeader('Content-Type', contentType);
     response.setHeader('Cache-Control', 'no-store');
 

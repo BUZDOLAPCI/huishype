@@ -140,7 +140,7 @@ describe('GET /geocode/search', () => {
     expect(calledUrl).toContain('lang=nl');
   });
 
-  it('filters Photon results by countrycode without forwarding an unsupported query parameter', async () => {
+  it('forwards countrycode to Photon and still filters results locally', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -166,7 +166,7 @@ describe('GET /geocode/search', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body)).toHaveLength(1);
     const calledUrl = (mockFetchFn.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).not.toContain('countrycode=');
+    expect(calledUrl).toContain('countrycode=nl');
     expect(calledUrl).toContain('lon=5.4697');
     expect(calledUrl).toContain('lat=51.4416');
   });

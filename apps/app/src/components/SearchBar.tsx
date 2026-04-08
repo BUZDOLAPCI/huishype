@@ -43,7 +43,10 @@ export interface SearchBarProps {
    * Called when a search result is tapped AND the property is found
    * in our local database via /properties/resolve.
    */
-  onPropertyResolved: (property: PropertyResolveResult) => void;
+  onPropertyResolved: (
+    property: PropertyResolveResult,
+    resolvedAddress?: ResolvedAddress,
+  ) => void;
   /**
    * Called when a search result is tapped but the property is NOT found
    * in our local database. Falls back to geocoder coordinates.
@@ -134,7 +137,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
           });
 
           if (property) {
-            onPropertyResolved(property);
+            onPropertyResolved(property, address);
           } else {
             // Property not in our DB - fly to geocoder coordinates
             onLocationResolved(

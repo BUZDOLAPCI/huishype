@@ -133,6 +133,22 @@ describe('app/property/[id]', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  it('uses returnTo when the not-found CTA is pressed', () => {
+    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
+    mockUseProperty.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: new Error('missing'),
+    });
+
+    render(<PropertyDetailScreen />);
+
+    fireEvent.press(screen.getByText('Go Back'));
+
+    expect(mockReplace).toHaveBeenCalledWith('/feed');
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
   it('intercepts Android hardware back to honor the explicit origin', () => {
     const addEventListenerSpy = jest.spyOn(BackHandler, 'addEventListener');
     mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };

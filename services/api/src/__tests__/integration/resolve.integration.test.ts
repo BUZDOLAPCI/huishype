@@ -17,6 +17,7 @@ describe('GET /properties/resolve', () => {
   let knownHouseNumberAddition: string | null;
   let knownPropertyId: string;
   let knownCity: string;
+  let knownCountryCode: string;
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -35,6 +36,7 @@ describe('GET /properties/resolve', () => {
     knownHouseNumberAddition = prop.houseNumberAddition;
     knownPropertyId = prop.id;
     knownCity = prop.city;
+    knownCountryCode = prop.countryCode;
   });
 
   afterAll(async () => {
@@ -55,6 +57,7 @@ describe('GET /properties/resolve', () => {
     const body = JSON.parse(response.body);
 
     expect(body.id).toBe(knownPropertyId);
+    expect(body.countryCode).toBe(knownCountryCode);
     expect(body.postalCode).toBe(knownPostalCode);
     expect(body.city).toBe(knownCity);
     expect(body).toHaveProperty('address');

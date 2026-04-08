@@ -808,7 +808,7 @@ export default function MapScreen() {
 
   // Search bar callbacks (adapting shared hook to local camera commands)
   const handlePropertyResolved = useCallback(
-    (property: PropertyResolveResult) => {
+    (property: PropertyResolveResult, resolvedAddress?: ResolvedAddress) => {
       // On web, single-property search also uses the deferred pattern
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
@@ -817,8 +817,9 @@ export default function MapScreen() {
       scheduleSinglePreviewSelection(property.id, coord, 0, 1000);
 
       // Set the search city from the resolved property
-      if (property.city) {
-        setSearchCity(property.city, coord);
+      const city = property.city || resolvedAddress?.details.city;
+      if (city) {
+        setSearchCity(city, coord);
       }
     },
     [cameraCommands, scheduleSinglePreviewSelection, setSearchCity],
