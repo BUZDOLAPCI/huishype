@@ -531,6 +531,7 @@ export interface paths {
                         "application/json": {
                             /** Format: uuid */
                             id: string;
+                            countryCode: string;
                             address: string;
                             postalCode: string;
                             city: string;
@@ -598,7 +599,7 @@ export interface paths {
         };
         /**
          * Find nearby properties
-         * @description Find the nearest properties to a given coordinate using PostGIS KNN. Used as a fallback for native map tap when queryRenderedFeatures is unreliable. Returns the nearest emitted grouped feature using the same density-aware grouping engine as vector tiles.
+         * @description Resolve the nearest grouped property feature to a coordinate. Used as a fallback for native map taps when queryRenderedFeatures is unreliable. Returns the canonical grouped feature using the same density-aware grouping engine as vector tiles.
          */
         get: {
             parameters: {
@@ -606,7 +607,6 @@ export interface paths {
                     lon: number;
                     lat: number;
                     zoom?: number;
-                    limit?: number;
                 };
                 header?: never;
                 path?: never;

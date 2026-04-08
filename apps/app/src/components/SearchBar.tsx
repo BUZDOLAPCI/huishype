@@ -56,6 +56,8 @@ export interface SearchBarProps {
     address: string,
     resolvedAddress?: ResolvedAddress,
   ) => void;
+  /** Incremented by the parent screen when it loses focus to clear transient search UI. */
+  transientResetKey?: number;
 }
 
 const DEBOUNCE_MS = 300;
@@ -66,7 +68,7 @@ const DEBOUNCE_MS = 300;
  * the backend /properties/resolve endpoint to map addresses
  * to local properties.
  */
-export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarProps) {
+export function SearchBar({ onPropertyResolved, onLocationResolved, transientResetKey = 0 }: SearchBarProps) {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
@@ -118,6 +120,7 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
       setShowResults(false);
       setIsFocused(false);
       suppressDebounce.current = true;
+      setDebouncedQuery('');
       setInputValue(address.formattedAddress);
       inputRef.current?.blur();
       setIsResolving(true);
@@ -183,6 +186,29 @@ export function SearchBar({ onPropertyResolved, onLocationResolved }: SearchBarP
     setIsFocused(false);
     setShowResults(false);
   }, []);
+
+  const clearTransientSearchState = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    suppressDebounce.current = false;
+    setInputValue('');
+    setDebouncedQuery('');
+    setShowResults(false);
+    setIsResolving(false);
+    setIsFocused(false);
+  }, []);
+
+  const lastTransientResetKey = useRef(transientResetKey);
+  useEffect(() => {
+    if (lastTransientResetKey.current === transientResetKey) {
+      return;
+    }
+
+    lastTransientResetKey.current = transientResetKey;
+    clearTransientSearchState();
+  }, [clearTransientSearchState, transientResetKey]);
 
   const handleFocus = useCallback(() => {
     setIsFocused(true);

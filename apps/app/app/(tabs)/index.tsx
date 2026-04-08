@@ -139,6 +139,7 @@ export default function MapScreen() {
     handleLocationResolved: handleMapLocationResolved,
     resetTransientUI,
   } = interaction;
+  const [searchResetToken, setSearchResetToken] = useState(0);
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -147,6 +148,7 @@ export default function MapScreen() {
     useCallback(() => {
       return () => {
         resetTransientUI();
+        setSearchResetToken((value) => value + 1);
       };
     }, [resetTransientUI])
   );
@@ -502,6 +504,7 @@ export default function MapScreen() {
         <SearchBar
           onPropertyResolved={handlePropertyResolved}
           onLocationResolved={handleLocationResolved}
+          transientResetKey={searchResetToken}
         />
 
         {/* Zoom level indicator (debug camera only) */}

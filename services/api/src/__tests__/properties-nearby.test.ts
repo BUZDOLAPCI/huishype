@@ -3,7 +3,9 @@ import { buildApp } from '../app.js';
 import type { FastifyInstance } from 'fastify';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
+  PROPERTY_TILE_EXTENT,
   buildCanonicalGroupsForTile,
+  lngLatToWorldUnits,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
 
@@ -12,6 +14,36 @@ const SEEDED_GHOST_CLUSTER_FIXTURE = {
   lat: 51.4434318245281,
   zoom: 17,
 };
+
+function tileForCoordinate(lon: number, lat: number, zoom: number) {
+  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  return {
+    z: zoom,
+    x: Math.floor(worldX / PROPERTY_TILE_EXTENT),
+    y: Math.floor(worldY / PROPERTY_TILE_EXTENT),
+  };
+}
+
+function getTileNeighborhood(tile: { z: number; x: number; y: number }) {
+  const tileCount = Math.pow(2, tile.z);
+  const tiles: Array<{ z: number; x: number; y: number }> = [];
+  const seen = new Set<string>();
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      const x = (tile.x + dx + tileCount) % tileCount;
+      const y = tile.y + dy;
+      if (y < 0 || y >= tileCount) continue;
+
+      const key = `${x}:${y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tiles.push({ z: tile.z, x, y });
+    }
+  }
+
+  return tiles;
+}
 
 /**
  * Integration tests for GET /properties/nearby
@@ -281,7 +313,7 @@ describe('GET /properties/nearby', () => {
       }
     });
 
-    it('matches the canonical tile grouping for the seeded near-edge ghost cluster fixture', async () => {
+    it('matches the canonical tile grouping emitted across the tap tile neighborhood', async () => {
       const direct = await resolveNearbyGroupedFeature(
         SEEDED_GHOST_CLUSTER_FIXTURE.lon,
         SEEDED_GHOST_CLUSTER_FIXTURE.lat,
@@ -299,8 +331,17 @@ describe('GET /properties/nearby', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(direct).not.toBeNull();
-      const tileGroup = await buildCanonicalGroupsForTile(direct!.ownerTile);
-      const matchingGroup = tileGroup.find(
+      const tapTile = tileForCoordinate(
+        SEEDED_GHOST_CLUSTER_FIXTURE.lon,
+        SEEDED_GHOST_CLUSTER_FIXTURE.lat,
+        SEEDED_GHOST_CLUSTER_FIXTURE.zoom,
+      );
+      const nearbyGroups = (
+        await Promise.all(
+          getTileNeighborhood(tapTile).map((tile) => buildCanonicalGroupsForTile(tile)),
+        )
+      ).flat();
+      const matchingGroup = nearbyGroups.find(
         (group) => group.primaryPropertyId === direct?.primaryPropertyId,
       );
 

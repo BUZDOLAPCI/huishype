@@ -704,6 +704,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
             address: property.address,
             city: property.city,
             postalCode: property.postalCode ?? null,
+            countryCode,
             officialValuation: property.officialValuation ?? null,
             askingPrice: null,
             activityLevel: 'cold',

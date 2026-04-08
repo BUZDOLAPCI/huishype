@@ -273,6 +273,58 @@ describe('SearchBar', () => {
     }
   });
 
+  it('clears the stale query after result selection so refocus does not reopen old suggestions', async () => {
+    jest.useRealTimers();
+
+    const mockAddress = createMockAddress();
+    const mockProperty = {
+      id: 'prop-123',
+      address: 'Teststraat 42',
+      postalCode: '5651HA',
+      city: 'Eindhoven',
+      coordinates: { lon: TEST_LNG, lat: TEST_LAT },
+      hasListing: true,
+      officialValuation: 350000,
+    };
+
+    mockUseAddressSearch.mockReturnValue({
+      data: [mockAddress],
+      isLoading: false,
+    });
+    mockResolveProperty.mockResolvedValue(mockProperty);
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Teststraat 42');
+
+    await waitFor(() => {
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+    }, { timeout: 1000 });
+
+    const resultItems = screen.queryAllByTestId('search-result-item');
+    expect(resultItems.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.press(resultItems[0]);
+    });
+
+    await waitFor(() => {
+      expect(mockUseAddressSearch).toHaveBeenLastCalledWith('', 5);
+    }, { timeout: 1000 });
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+
+    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.queryByTestId('search-results-loading')).toBeNull();
+    expect(screen.queryByTestId('search-results-empty')).toBeNull();
+  });
+
   it('shows clear button and resets on tap', () => {
     render(
       <SearchBar

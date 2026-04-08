@@ -776,6 +776,7 @@ describe('useMapInteraction', () => {
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
+        countryCode: 'NL',
         officialValuation: 250000,
         hasListing: true,
         coordinates: { lon: 4.9, lat: 52.37 },

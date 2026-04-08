@@ -129,6 +129,15 @@ export interface GetUserGuessHistoryResponse {
  * Used by the search feature: geocoder provides fuzzy address matching,
  * then the backend resolves the address to our local property.
  */
+export interface PropertyResolveRequest {
+  postalCode: string;
+  houseNumber: string | number;
+  houseNumberAddition?: string;
+  countryCode?: string;
+  street?: string;
+  city?: string;
+}
+
 export interface PropertyResolveResponse {
   id: string;
   address: string;        // formatted: "Street Number, PostalCode City"
@@ -137,6 +146,7 @@ export interface PropertyResolveResponse {
   coordinates: { lon: number; lat: number };
   hasListing: boolean;
   officialValuation: number | null;
+  countryCode: string;
 }
 
 export interface GetPropertyRequest {

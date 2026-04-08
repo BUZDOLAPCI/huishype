@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { Alert, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as maplibregl from 'maplibre-gl';
 
 import {
@@ -359,6 +360,7 @@ export default function MapScreen() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
+  const [searchResetToken, setSearchResetToken] = useState(0);
 
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
   const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
@@ -379,6 +381,7 @@ export default function MapScreen() {
     handleAuthRequired,
     handleFeaturePress,
     handleEmptyMapTap,
+    resetTransientUI,
     highlightedCoordinate,
     setHighlightedCoordinate,
     setSelectedPropertyId,
@@ -390,6 +393,15 @@ export default function MapScreen() {
   } = interaction;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        resetTransientUI();
+        setSearchResetToken((value) => value + 1);
+      };
+    }, [resetTransientUI]),
+  );
 
   const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
     if (highlightedCoordinate) {
@@ -996,6 +1008,7 @@ export default function MapScreen() {
         <SearchBar
           onPropertyResolved={handlePropertyResolved}
           onLocationResolved={handleLocationResolved}
+          transientResetKey={searchResetToken}
         />
 
         {/* Zoom level indicator (debug camera only) */}

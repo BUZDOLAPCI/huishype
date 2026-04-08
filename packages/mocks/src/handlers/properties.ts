@@ -46,6 +46,7 @@ export const propertyHandlers = [
     const url = new URL(request.url);
     const postalCode = url.searchParams.get('postalCode');
     const houseNumber = url.searchParams.get('houseNumber');
+    const countryCode = (url.searchParams.get('countryCode') || 'NL').toUpperCase();
 
     if (!postalCode || !houseNumber) {
       return HttpResponse.json(
@@ -62,6 +63,7 @@ export const propertyHandlers = [
       coordinates: { lon: 4.8952, lat: 52.3702 },
       hasListing: true,
       officialValuation: 450000,
+      countryCode,
     };
 
     return HttpResponse.json(response);

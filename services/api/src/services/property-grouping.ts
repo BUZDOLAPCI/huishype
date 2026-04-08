@@ -432,6 +432,41 @@ function worldToOwnerTile(worldX: number, worldY: number, zoom: number): TileId 
   };
 }
 
+function getTileNeighborhood(tile: TileId): TileId[] {
+  const tileCount = Math.pow(2, tile.z);
+  const tiles: TileId[] = [];
+  const seen = new Set<string>();
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      const x = (tile.x + dx + tileCount) % tileCount;
+      const y = tile.y + dy;
+      if (y < 0 || y >= tileCount) continue;
+
+      const key = `${x}:${y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tiles.push({ z: tile.z, x, y });
+    }
+  }
+
+  return tiles;
+}
+
+async function fetchNearbyEmittedGroups(
+  lon: number,
+  lat: number,
+  zoom: number,
+): Promise<CanonicalPropertyGroup[]> {
+  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const tapTile = worldToOwnerTile(worldX, worldY, zoom);
+  const tileGroups = await Promise.all(
+    getTileNeighborhood(tapTile).map((tile) => buildCanonicalGroupsForTile(tile)),
+  );
+
+  return tileGroups.flat();
+}
+
 function buildCanonicalGroup(
   members: GroupingCandidate[],
   nodeClass: NodeClass,
@@ -492,13 +527,6 @@ function getNearbyHitRadiusUnits(group: CanonicalPropertyGroup): number {
         : getActiveSingleRadiusPx(group.activityScore);
 
   return pxToTileUnits(pxRadius + NEARBY_TAP_TOLERANCE_PX);
-}
-
-function getBufferedWorldBBox(worldX: number, worldY: number, zoom: number, bufferUnits: number): TileBBox {
-  const [minLon, maxLat] = worldUnitsToLngLat(worldX - bufferUnits, worldY - bufferUnits, zoom);
-  const [maxLon, minLat] = worldUnitsToLngLat(worldX + bufferUnits, worldY + bufferUnits, zoom);
-
-  return { minLon, minLat, maxLon, maxLat };
 }
 
 function toCandidate(row: GroupingCandidateRow, zoom: number): GroupingCandidate {
@@ -813,15 +841,7 @@ export async function resolveNearbyGroupedFeature(
   zoom: number,
 ): Promise<NearbyResolution | null> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  const searchBounds = getBufferedWorldBBox(worldX, worldY, zoom, getGroupingBufferUnits());
-  const candidates = await fetchGroupingCandidatesInBBox(
-    searchBounds,
-    zoom,
-    shouldFetchGhostCandidates(zoom),
-  );
-  const emittedGroups = await hydrateSinglePropertyDetails(
-    buildCanonicalGroupsFromCandidates(zoom, candidates),
-  );
+  const emittedGroups = await fetchNearbyEmittedGroups(lon, lat, zoom);
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;

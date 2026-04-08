@@ -14,6 +14,7 @@ import type {
   AuthLoginResponse,
   AuthRefreshResponse,
   EmailAuthRequestResponse,
+  PropertyResolveRequest,
   PropertyResolveResponse,
   GetPropertyResponse,
   SubmitGuessResponse,
@@ -256,10 +257,22 @@ export class HuisHypeApiClient {
   async resolveProperty(
     postalCode: string,
     houseNumber: string,
-    houseNumberAddition?: string
+    houseNumberAddition?: string,
+    countryCode?: string,
+    street?: string,
+    city?: string,
   ): Promise<PropertyResolveResponse> {
+    const query = {
+      postalCode,
+      houseNumber,
+      ...(houseNumberAddition ? { houseNumberAddition } : {}),
+      ...(countryCode ? { countryCode } : {}),
+      ...(street ? { street } : {}),
+      ...(city ? { city } : {}),
+    } satisfies PropertyResolveRequest;
+
     return this.request<PropertyResolveResponse>('GET', '/properties/resolve', {
-      query: { postalCode, houseNumber, houseNumberAddition },
+      query: query as Record<string, string | number | boolean | undefined>,
     });
   }
 

@@ -139,6 +139,7 @@ export type {
   UpdateUserProfileResponse,
   GetUserGuessHistoryResponse,
   // Property
+  PropertyResolveRequest,
   PropertyResolveResponse,
   GetPropertyRequest,
   GetPropertyResponse,
