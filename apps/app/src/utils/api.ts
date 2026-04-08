@@ -143,6 +143,11 @@ function resolvedPropertyMatchesRequest(
   result: PropertyResolveResult,
   request: PropertyResolveRequest,
 ): boolean {
+  const requestCountryCode = request.countryCode?.trim().toUpperCase();
+  if (requestCountryCode && result.countryCode?.trim().toUpperCase() !== requestCountryCode) {
+    return false;
+  }
+
   if (
     normalizePostalCodeForCompare(result.postalCode) !==
     normalizePostalCodeForCompare(request.postalCode)

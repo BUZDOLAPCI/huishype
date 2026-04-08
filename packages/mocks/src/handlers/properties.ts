@@ -7,7 +7,6 @@
 
 import { http, HttpResponse } from 'msw';
 import {
-  mockMapProperties,
   mockPropertyDetails,
   mockPropertySummaries,
   getMockProperty,
@@ -15,6 +14,69 @@ import {
 } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 import type { PropertyResolveResponse } from '@huishype/shared';
+
+const MOCK_NEARBY_CLUSTER_IDS = [
+  'a0000000-0000-4000-a000-000000000001',
+  'a0000000-0000-4000-a000-000000000002',
+  'a0000000-0000-4000-a000-000000000003',
+  'a0000000-0000-4000-a000-000000000004',
+  'a0000000-0000-4000-a000-000000000005',
+  'a0000000-0000-4000-a000-000000000006',
+];
+
+const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
+const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
+
+function buildNearbySingleResponse({
+  nodeClass,
+  id,
+  property,
+  hasListing,
+  activityScore,
+  activityScoreTotal,
+  likeCount,
+  commentCount,
+  guessCount,
+  distanceMeters,
+}: {
+  nodeClass: 'active' | 'ghost';
+  id: string;
+  property: (typeof mockPropertyDetails)[number];
+  hasListing: boolean;
+  activityScore: number;
+  activityScoreTotal: number;
+  likeCount: number;
+  commentCount: number;
+  guessCount: number;
+  distanceMeters: number;
+}) {
+  return {
+    node_class: nodeClass,
+    group_kind: 'single' as const,
+    primary_property_id: id,
+    point_count: 1,
+    property_ids: [id],
+    preview_property_ids: [id],
+    coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+    bbox: null,
+    countryCode: property.countryCode,
+    address: property.address,
+    city: property.city,
+    postalCode: property.postalCode,
+    officialValuation: property.officialValuation ?? null,
+    hasListing,
+    askingPrice: hasListing ? property.activeListing?.askingPrice ?? null : null,
+    activityScore,
+    activityScoreTotal,
+    likeCount,
+    commentCount,
+    guessCount,
+    thumbnailUrl: hasListing ? property.activeListing?.thumbnailUrl ?? null : null,
+    yearBuilt: property.yearBuilt ?? null,
+    floorAreaM2: property.floorAreaM2 ?? null,
+    distanceMeters,
+  };
+}
 
 export const propertyHandlers = [
   /**
@@ -94,10 +156,10 @@ export const propertyHandlers = [
       return HttpResponse.json({
         node_class: 'active' as const,
         group_kind: 'cluster' as const,
-        primary_property_id: mockMapProperties[0]?.id ?? 'prop-001',
+        primary_property_id: MOCK_NEARBY_CLUSTER_IDS[0],
         point_count: 6,
-        property_ids: mockMapProperties.slice(0, 6).map((property) => property.id),
-        preview_property_ids: mockMapProperties.slice(0, 6).map((property) => property.id),
+        property_ids: MOCK_NEARBY_CLUSTER_IDS,
+        preview_property_ids: MOCK_NEARBY_CLUSTER_IDS,
         coordinate: [4.884, 52.3752] as [number, number],
         bbox: [4.8836, 52.3748, 4.8844, 52.3756] as [number, number, number, number],
         countryCode: null,
@@ -120,60 +182,38 @@ export const propertyHandlers = [
     }
 
     if (zoom >= 17 && lon > 5.3) {
-      return HttpResponse.json({
-        node_class: 'ghost' as const,
-        group_kind: 'single' as const,
-        primary_property_id: 'ghost-prop-001',
-        point_count: 1,
-        property_ids: ['ghost-prop-001'],
-        preview_property_ids: ['ghost-prop-001'],
-        coordinate: [lon, lat] as [number, number],
-        bbox: null,
-        countryCode: null,
-        address: null,
-        city: null,
-        postalCode: null,
-        officialValuation: null,
-        hasListing: false,
-        askingPrice: null,
-        activityScore: 0,
-        activityScoreTotal: 0,
-        likeCount: 0,
-        commentCount: 0,
-        guessCount: 0,
-        thumbnailUrl: null,
-        yearBuilt: null,
-        floorAreaM2: null,
-        distanceMeters: 9,
-      });
+      const property = mockPropertyDetails[3] ?? mockPropertyDetails[0];
+      return HttpResponse.json(
+        buildNearbySingleResponse({
+          nodeClass: 'ghost',
+          id: MOCK_NEARBY_GHOST_SINGLE_ID,
+          property,
+          hasListing: false,
+          activityScore: 0,
+          activityScoreTotal: 0,
+          likeCount: 0,
+          commentCount: 0,
+          guessCount: 0,
+          distanceMeters: 9,
+        }),
+      );
     }
 
-    return HttpResponse.json({
-      node_class: 'active' as const,
-      group_kind: 'single' as const,
-      primary_property_id: mockMapProperties[0]?.id ?? 'prop-001',
-      point_count: 1,
-      property_ids: [mockMapProperties[0]?.id ?? 'prop-001'],
-      preview_property_ids: [mockMapProperties[0]?.id ?? 'prop-001'],
-      coordinate: [4.884, 52.3752] as [number, number],
-      bbox: null,
-      countryCode: 'NL',
-      address: 'Prinsengracht 263',
-      city: 'Amsterdam',
-      postalCode: '1016 GV',
-      officialValuation: 2850000,
-      hasListing: true,
-      askingPrice: 2950000,
-      activityScore: 85,
-      activityScoreTotal: 85,
-      likeCount: 12,
-      commentCount: 4,
-      guessCount: 3,
-      thumbnailUrl: null,
-      yearBuilt: 1912,
-      floorAreaM2: 184,
-      distanceMeters: 12,
-    });
+    const property = mockPropertyDetails[0];
+    return HttpResponse.json(
+      buildNearbySingleResponse({
+        nodeClass: 'active',
+        id: MOCK_NEARBY_ACTIVE_SINGLE_ID,
+        property,
+        hasListing: true,
+        activityScore: 85,
+        activityScoreTotal: 85,
+        likeCount: 12,
+        commentCount: 4,
+        guessCount: 3,
+        distanceMeters: 12,
+      }),
+    );
   }),
 
   /**

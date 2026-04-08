@@ -1,5 +1,6 @@
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { PROPERTY_MAP_FOOTPRINTS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
+import { db } from '../db/index.js';
 import {
   GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
@@ -12,6 +13,7 @@ import {
   lngLatToWorldUnits,
   shouldFetchGhostCandidates,
   type GroupingCandidate,
+  resolveNearbyGroupedFeature,
 } from './property-grouping.js';
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
@@ -68,6 +70,10 @@ function makeCandidateAtWorld(
 }
 
 describe('property-grouping', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('skips ghost candidate fetches below the ghost reveal zoom and enables them at reveal zoom', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM - 1)).toBe(false);
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
@@ -414,5 +420,68 @@ describe('property-grouping', () => {
     expect(ownerGroups[0].groupKind).toBe('cluster');
     expect(ownerGroups[0].primaryPropertyId).toBe(left.id);
     expect(neighborGroups).toHaveLength(0);
+  });
+
+  it('hydrates nearby singles from a shared neighborhood pass', async () => {
+    const lon = 5.471235;
+    const lat = 51.443432;
+    const zoom = 17;
+    const propertyId = '00000000-0000-4000-a000-0000000000aa';
+
+    const executeSpy = jest
+      .spyOn(db, 'execute')
+      .mockResolvedValueOnce(
+        [
+          {
+            id: propertyId,
+            has_listing: true,
+            activity_score: 8,
+            like_count: 3,
+            comment_count: 2,
+            guess_count: 1,
+            lon,
+            lat,
+          },
+        ] as never,
+      )
+      .mockResolvedValueOnce(
+        [
+          {
+            id: propertyId,
+            country_code: 'NL',
+            street: 'Mockstraat',
+            house_number: 12,
+            house_number_addition: 'A',
+            city: 'Eindhoven',
+            postal_code: '5611 AA',
+            official_valuation: 345000,
+            year_built: 1998,
+            floor_area_m2: 87,
+            asking_price: 359000,
+            thumbnail_url: 'https://cdn.example.com/mock-thumb.jpg',
+          },
+        ] as never,
+      )
+      .mockImplementation(() => {
+        throw new Error('resolveNearbyGroupedFeature should only execute two shared queries');
+      });
+
+    const result = await resolveNearbyGroupedFeature(lon, lat, zoom);
+
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+    expect(result).not.toBeNull();
+    expect(result?.groupKind).toBe('single');
+    expect(result?.nodeClass).toBe('active');
+    expect(result?.primaryPropertyId).toBe(propertyId);
+    expect(result?.address).toEqual(expect.any(String));
+    expect(result?.city).toBe('Eindhoven');
+    expect(result?.postalCode).toBe('5611 AA');
+    expect(result?.countryCode).toBe('NL');
+    expect(result?.officialValuation).toBe(345000);
+    expect(result?.askingPrice).toBe(359000);
+    expect(result?.thumbnailUrl).toBe('https://cdn.example.com/mock-thumb.jpg');
+    expect(result?.yearBuilt).toBe(1998);
+    expect(result?.floorAreaM2).toBe(87);
+    expect(result?.distanceMeters).toBe(0);
   });
 });

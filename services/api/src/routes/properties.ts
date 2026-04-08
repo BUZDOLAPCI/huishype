@@ -724,7 +724,6 @@ export async function propertyRoutes(app: FastifyInstance) {
           AND p.postal_code = ${normalizedPostalCode}
           AND p.house_number = ${houseNumber}
           AND ${additionCondition}
-        LIMIT 10
       `);
 
       const result = Array.from(rows);

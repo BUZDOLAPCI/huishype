@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
+import { sql } from 'drizzle-orm';
 import { buildApp } from '../app.js';
+import { db } from '../db/index.js';
 import type { FastifyInstance } from 'fastify';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
+  GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
   buildCanonicalGroupsForTile,
   lngLatToWorldUnits,
@@ -383,6 +386,67 @@ describe('GET /properties/nearby', () => {
         direct?.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
       );
       expect(direct?.pointCount).toBeGreaterThanOrEqual(direct?.previewPropertyIds.length ?? 0);
+    });
+
+    it('hydrates ghost singles with real single-property fields', async () => {
+      const propertyId = crypto.randomUUID();
+      const lon = 3.15;
+      const lat = 55.05;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry,
+          official_valuation,
+          year_built,
+          floor_area_m2
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Remote Ghost Lane',
+          17,
+          'Remote City',
+          '9999 ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+          123456,
+          1994,
+          101
+        )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body).not.toBeNull();
+        expect(body.node_class).toBe('ghost');
+        expect(body.group_kind).toBe('single');
+        expect(body.primary_property_id).toBe(propertyId);
+        expect(body.address).toEqual(expect.any(String));
+        expect(body.city).toBe('Remote City');
+        expect(body.postalCode).toBe('9999 ZZ');
+        expect(body.countryCode).toBe('NL');
+        expect(body.officialValuation).toBe(123456);
+        expect(body.yearBuilt).toBe(1994);
+        expect(body.floorAreaM2).toBe(101);
+        expect(body.hasListing).toBe(false);
+        expect(body.askingPrice).toBeNull();
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
     });
 
     it('should include valid UUIDs in grouped property_ids', async () => {

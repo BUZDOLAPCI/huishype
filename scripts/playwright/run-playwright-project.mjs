@@ -116,6 +116,19 @@ async function waitForHttp(url, label) {
   }
 }
 
+function waitForExit(child, name, stopping) {
+  return new Promise((resolve, reject) => {
+    child.once('exit', (code, signal) => {
+      if (stopping.current) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${name} exited unexpectedly with code ${code} and signal ${signal}`));
+    });
+  });
+}
+
 async function waitForFile(filePath, label, timeoutMs = READY_TIMEOUT_MS) {
   const startedAt = Date.now();
 
@@ -171,6 +184,54 @@ function withNodeOption(env, option) {
   return { ...env, NODE_OPTIONS: `${current} ${option}` };
 }
 
+async function startServiceWithRetry({
+  label,
+  command,
+  args,
+  env,
+  cwd,
+  port,
+  readyUrl,
+  stopping,
+  attempts = 2,
+  spawnServiceImpl = spawnService,
+  waitForHttpImpl = waitForHttp,
+  waitForExitImpl = waitForExit,
+  ensurePortAvailableImpl = ensurePortAvailable,
+  stopServiceImpl = stopService,
+}) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    await ensurePortAvailableImpl(port, label);
+
+    const child = spawnServiceImpl(command, args, env, cwd);
+    const exitPromise = waitForExitImpl(child, label, stopping);
+
+    try {
+      await Promise.race([waitForHttpImpl(readyUrl, label), exitPromise]);
+      return { child, exitPromise };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      stopServiceImpl(child, 'SIGTERM');
+      await Promise.race([
+        exitPromise.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+
+      if (stopping.current || attempt === attempts) {
+        break;
+      }
+
+      console.warn(
+        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`,
+      );
+    }
+  }
+
+  throw lastError ?? new Error(`${label} failed to start`);
+}
+
 async function waitForChildExit(child, name, timeoutMs = 5_000) {
   if (!child) {
     return;
@@ -207,14 +268,14 @@ async function main() {
   let apiChild = null;
   let webRuntime = null;
   let playwrightChild = null;
-  let stopping = false;
+  const stopping = { current: false };
 
   const stop = async (signal) => {
-    if (stopping) {
+    if (stopping.current) {
       return;
     }
 
-    stopping = true;
+    stopping.current = true;
     stopService(playwrightChild, signal);
     stopService(apiChild, signal);
     await Promise.all([
@@ -237,21 +298,25 @@ async function main() {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  await ensurePortAvailable(apiPort, 'API server');
   await ensurePortAvailable(webPort, 'Static web server');
 
   console.log(`Starting API server on ${apiUrl} ...`);
-  apiChild = spawnService(
-    process.execPath,
-    ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
-    {
+  const apiRuntime = await startServiceWithRetry({
+    label: 'API server',
+    command: process.execPath,
+    args: ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
+    env: {
       ...childEnv,
       PORT: String(apiPort),
     },
-    apiCwd,
-    ['ignore', 'ignore', 'ignore'],
-  );
-  await waitForHttp(`${apiUrl}/health`, 'API server');
+    cwd: apiCwd,
+    port: apiPort,
+    readyUrl: `${apiUrl}/health`,
+    stopping,
+    spawnServiceImpl: (command, args, env, cwd) =>
+      spawnService(command, args, env, cwd, ['ignore', 'ignore', 'ignore']),
+  });
+  apiChild = apiRuntime.child;
 
   console.log('Building Expo web bundle for Playwright runtime ...');
   execFileSync(
@@ -288,7 +353,7 @@ async function main() {
   const exitCode = await new Promise((resolve, reject) => {
     playwrightChild.once('exit', (code, signal) => {
       if (signal) {
-        if (stopping) {
+        if (stopping.current) {
           resolve(0);
           return;
         }
@@ -305,11 +370,17 @@ async function main() {
   process.exit(Number(exitCode));
 }
 
-main().catch((error) => {
-  console.error(error);
-  Promise.resolve(cleanupOnFatal())
-    .catch(() => {})
-    .finally(() => {
-      process.exit(1);
-    });
-});
+export { startServiceWithRetry, waitForExit, waitForHttp };
+
+const isMainModule = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+
+if (isMainModule) {
+  main().catch((error) => {
+    console.error(error);
+    Promise.resolve(cleanupOnFatal())
+      .catch(() => {})
+      .finally(() => {
+        process.exit(1);
+      });
+  });
+}

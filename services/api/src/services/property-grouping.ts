@@ -36,6 +36,13 @@ type TileBBox = {
   maxLat: number;
 };
 
+type WorldBBox = {
+  minWorldX: number;
+  minWorldY: number;
+  maxWorldX: number;
+  maxWorldY: number;
+};
+
 type GroupingCandidateRow = {
   id: string;
   has_listing: boolean;
@@ -261,6 +268,16 @@ function tileWorldBounds(tile: TileId) {
   };
 }
 
+function getBufferedTileWorldBounds(tile: TileId, bufferUnits: number): WorldBBox {
+  const bounds = tileWorldBounds(tile);
+  return {
+    minWorldX: bounds.minWorldX - bufferUnits,
+    minWorldY: bounds.minWorldY - bufferUnits,
+    maxWorldX: bounds.maxWorldX + bufferUnits,
+    maxWorldY: bounds.maxWorldY + bufferUnits,
+  };
+}
+
 export function tileToBBox(tile: TileId): TileBBox {
   const [minLon, maxLat] = worldUnitsToLngLat(
     tile.x * PROPERTY_TILE_EXTENT,
@@ -458,6 +475,10 @@ function getTileNeighborhood(tile: TileId): TileId[] {
   return tiles;
 }
 
+function tileKey(tile: TileId): string {
+  return `${tile.z}:${tile.x}:${tile.y}`;
+}
+
 async function fetchNearbyEmittedGroups(
   lon: number,
   lat: number,
@@ -465,11 +486,42 @@ async function fetchNearbyEmittedGroups(
 ): Promise<CanonicalPropertyGroup[]> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const tapTile = worldToOwnerTile(worldX, worldY, zoom);
-  const tileGroups = await Promise.all(
-    getTileNeighborhood(tapTile).map((tile) => buildCanonicalGroupsForTile(tile)),
+  const tiles = getTileNeighborhood(tapTile);
+  const bufferUnits = getGroupingBufferUnits();
+  const tileBounds = tiles.map((tile) => ({
+    tile,
+    worldBounds: getBufferedTileWorldBounds(tile, bufferUnits),
+  }));
+  const candidates = await fetchGroupingCandidatesInBBoxes(
+    tiles.map((tile) => getBufferedTileBBox(tile, bufferUnits)),
+    zoom,
+    shouldFetchGhostCandidates(zoom),
+  );
+  const candidatesByTile = new Map<string, GroupingCandidate[]>();
+  for (const { tile } of tileBounds) {
+    candidatesByTile.set(tileKey(tile), []);
+  }
+
+  for (const candidate of candidates) {
+    for (const { tile, worldBounds } of tileBounds) {
+      if (
+        candidate.worldX < worldBounds.minWorldX ||
+        candidate.worldX > worldBounds.maxWorldX ||
+        candidate.worldY < worldBounds.minWorldY ||
+        candidate.worldY > worldBounds.maxWorldY
+      ) {
+        continue;
+      }
+
+      candidatesByTile.get(tileKey(tile))!.push(candidate);
+    }
+  }
+
+  const tileGroups = tileBounds.flatMap(({ tile }) =>
+    groupCandidatesForTile(tile, candidatesByTile.get(tileKey(tile)) ?? []),
   );
 
-  return tileGroups.flat();
+  return hydrateSinglePropertyDetails(tileGroups);
 }
 
 function buildCanonicalGroup(
@@ -555,6 +607,14 @@ async function fetchGroupingCandidatesInBBox(
   zoom: number,
   includeGhostCandidates: boolean,
 ): Promise<GroupingCandidate[]> {
+  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates);
+}
+
+async function fetchGroupingCandidatesInBBoxes(
+  boundsList: TileBBox[],
+  zoom: number,
+  includeGhostCandidates: boolean,
+): Promise<GroupingCandidate[]> {
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -573,8 +633,21 @@ async function fetchGroupingCandidatesInBBox(
           SELECT 1
           FROM price_guesses g
           WHERE g.property_id = p.id
-        )
-      )`;
+      )
+    )`;
+
+  const bboxFilter = sql.join(
+    boundsList.map(
+      (bounds) => sql`p.geometry && ST_MakeEnvelope(
+          ${bounds.minLon},
+          ${bounds.minLat},
+          ${bounds.maxLon},
+          ${bounds.maxLat},
+          4326
+        )`,
+    ),
+    sql` OR `,
+  );
 
   const rows = await db.execute<GroupingCandidateRow>(sql`
     WITH candidate_properties AS (
@@ -585,13 +658,7 @@ async function fetchGroupingCandidatesInBBox(
       FROM properties p
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
-        AND p.geometry && ST_MakeEnvelope(
-          ${bounds.minLon},
-          ${bounds.minLat},
-          ${bounds.maxLon},
-          ${bounds.maxLat},
-          4326
-        )
+        AND (${bboxFilter})
         AND ${candidateVisibilityFilter}
     ),
     latest_active_listing AS (

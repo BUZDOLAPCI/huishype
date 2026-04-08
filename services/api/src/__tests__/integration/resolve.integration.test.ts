@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { db, properties as propertiesTable } from '../../db/index.js';
+import { and, eq, sql } from 'drizzle-orm';
 
 /**
  * Integration tests for GET /properties/resolve endpoint.
@@ -10,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
  */
 describe('GET /properties/resolve', () => {
   let app: FastifyInstance;
+  const cleanupPropertyIds: string[] = [];
 
   // We'll discover a real property from the DB to use in tests
   let knownPostalCode: string;
@@ -18,6 +21,39 @@ describe('GET /properties/resolve', () => {
   let knownPropertyId: string;
   let knownCity: string;
   let knownCountryCode: string;
+  let disambiguationFixture: {
+    postalCode: string;
+    houseNumber: number;
+    street: string;
+    city: string;
+    countryCode: string;
+  } | null = null;
+
+  async function findUnusedAddressKey(countryCode: string) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const postalCode = `${9000 + attempt}${String.fromCharCode(65 + (attempt % 26))}${String.fromCharCode(90 - (attempt % 26))}`;
+      const houseNumber = 7000 + attempt;
+      const [row] = await db
+        .select({
+          count: sql<number>`count(*)::int`,
+        })
+        .from(propertiesTable)
+        .where(
+          and(
+            eq(propertiesTable.countryCode, countryCode),
+            eq(propertiesTable.postalCode, postalCode),
+            eq(propertiesTable.houseNumber, houseNumber),
+            sql`${propertiesTable.houseNumberAddition} IS NULL`,
+          ),
+        );
+
+      if (Number(row?.count ?? 0) === 0) {
+        return { postalCode, houseNumber };
+      }
+    }
+
+    throw new Error('Failed to find an unused address key for resolve integration tests');
+  }
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -37,9 +73,55 @@ describe('GET /properties/resolve', () => {
     knownPropertyId = prop.id;
     knownCity = prop.city;
     knownCountryCode = prop.countryCode;
+
+    const key = await findUnusedAddressKey('NL');
+    const tempRows = Array.from({ length: 11 }, (_, index) => ({
+      countryCode: 'NL',
+      postalCode: key.postalCode,
+      houseNumber: key.houseNumber,
+      houseNumberAddition: null,
+      street:
+        index === 10
+          ? 'Resolve Matchstraat'
+          : `Resolve Decoy ${String(index + 1).padStart(2, '0')}`,
+      city:
+        index === 10
+          ? 'Resolve Matchstad'
+          : `Resolve Decoystad ${String(index + 1).padStart(2, '0')}`,
+      status: 'active' as const,
+    }));
+
+    const inserted = await db
+      .insert(propertiesTable)
+      .values(tempRows)
+      .returning({ id: propertiesTable.id });
+    cleanupPropertyIds.push(...inserted.map((row) => row.id));
+
+    disambiguationFixture = {
+      postalCode: key.postalCode,
+      houseNumber: key.houseNumber,
+      street: 'Resolve Matchstraat',
+      city: 'Resolve Matchstad',
+      countryCode: 'NL',
+    };
   });
 
+  function getDisambiguationFixture() {
+    if (!disambiguationFixture) {
+      throw new Error('Resolve disambiguation fixture was not initialized');
+    }
+
+    return disambiguationFixture;
+  }
+
   afterAll(async () => {
+    for (const id of cleanupPropertyIds) {
+      try {
+        await db.delete(propertiesTable).where(eq(propertiesTable.id, id));
+      } catch {
+        // Ignore cleanup failures so the app can still close cleanly.
+      }
+    }
     await app.close();
   });
 
@@ -165,5 +247,33 @@ describe('GET /properties/resolve', () => {
       url: '/properties/resolve?postalCode=5658DP&houseNumber=abc',
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('should resolve the correct property even when more than ten peers share the same postal code and house number', async () => {
+    const fixture = getDisambiguationFixture();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${fixture.postalCode}&houseNumber=${fixture.houseNumber}&street=${encodeURIComponent(fixture.street)}&city=${encodeURIComponent(fixture.city)}&countryCode=${fixture.countryCode}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+
+    expect(body.postalCode).toBe(fixture.postalCode);
+    expect(body.city).toBe(fixture.city);
+    expect(body.countryCode).toBe(fixture.countryCode);
+    expect(body.address).toContain(fixture.street);
+  });
+
+  it('should return 409 when multiple real matches remain after filtering', async () => {
+    const fixture = getDisambiguationFixture();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${fixture.postalCode}&houseNumber=${fixture.houseNumber}&countryCode=${fixture.countryCode}`,
+    });
+
+    expect(response.statusCode).toBe(409);
+    const body = JSON.parse(response.body);
+    expect(body.error).toBe('AMBIGUOUS_ADDRESS');
   });
 });
