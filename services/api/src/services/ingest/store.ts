@@ -492,6 +492,7 @@ export async function collectRecoveryDispatchWork(
   staleProcessingBefore: Date,
   limit = 100,
 ): Promise<SweepDispatchResult> {
+  const staleProcessingBeforeIso = staleProcessingBefore.toISOString();
   const staleRows = await db.execute<{ id: string }>(sql`
     UPDATE ingest_batches
     SET
@@ -500,7 +501,7 @@ export async function collectRecoveryDispatchWork(
       last_error_at = NOW()
     WHERE status = 'processing'
       AND started_at IS NOT NULL
-      AND started_at < ${staleProcessingBefore}
+      AND started_at < ${staleProcessingBeforeIso}
     RETURNING id
   `);
 

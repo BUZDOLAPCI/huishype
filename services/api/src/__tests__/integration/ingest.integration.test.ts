@@ -13,6 +13,7 @@ import {
 } from '../../db/schema.js';
 import {
   acceptIngestBatch,
+  collectRecoveryDispatchWork,
   encodeOpaqueIngestCursor,
   processIngestBatch,
   createMaintenanceRefreshRequest,
@@ -174,6 +175,49 @@ describe('Durable ingest API contract', () => {
       lastCommittedChangedAt: '2026-04-06T12:34:56.000Z',
       lastCommittedListingKey: 'idealista-acceptance-1',
       lastBatchId: body.batchId,
+    });
+  });
+
+  it('requeues stale processing batches during the recovery sweep', async () => {
+    const staleStartedAt = new Date('2026-04-09T03:30:00.000Z');
+    const cutoff = new Date('2026-04-09T03:45:00.000Z');
+    const idempotencyKey = `idealista-stale-${Date.now()}`;
+
+    const [staleBatch] = await db
+      .insert(ingestBatches)
+      .values({
+        sourceName: 'idealista',
+        batchSequence: 0,
+        idempotencyKey,
+        cursorEnd: encodeOpaqueIngestCursor({
+          changedAt: staleStartedAt.toISOString(),
+          listingKey: idempotencyKey,
+        }),
+        payloadJson: {
+          sourceName: 'idealista',
+          listings: [],
+        },
+        status: 'processing',
+        startedAt: staleStartedAt,
+      })
+      .returning({ id: ingestBatches.id });
+
+    const result = await collectRecoveryDispatchWork(cutoff);
+
+    expect(result.staleProcessingBatchIds).toContain(staleBatch.id);
+
+    const [updatedBatch] = await db
+      .select({
+        status: ingestBatches.status,
+        errorJson: ingestBatches.errorJson,
+      })
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, staleBatch.id))
+      .limit(1);
+
+    expect(updatedBatch?.status).toBe('retryable');
+    expect(updatedBatch?.errorJson).toMatchObject({
+      message: 'Requeued by recovery sweep after stale processing window',
     });
   });
 
