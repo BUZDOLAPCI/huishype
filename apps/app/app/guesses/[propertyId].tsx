@@ -36,6 +36,7 @@ import { AuthModal } from '@/src/components';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 
@@ -178,6 +179,7 @@ function GuessEntry({
   fmvValue: number | null;
   countryCode?: string;
 }) {
+  const hydratedNow = useHydratedNow();
   const displayName = guess.user?.displayName || guess.user?.username || 'Anonymous';
   const initials = displayName
     .split(' ')
@@ -209,7 +211,7 @@ function GuessEntry({
           )}
         </View>
         <Text style={styles.guessEntryTime}>
-          {formatRelativeTime(guess.createdAt)}
+          {hydratedNow === null ? '\u00A0' : formatRelativeTime(guess.createdAt, hydratedNow)}
         </Text>
       </View>
       <View style={styles.guessEntryPriceCol}>
@@ -316,12 +318,8 @@ export default function GuessesPage() {
   );
 
   const handleMakeGuess = useCallback(() => {
-    if (!isAuthenticated) {
-      setShowAuthModal(true);
-      return;
-    }
     setShowSlider(true);
-  }, [isAuthenticated]);
+  }, []);
 
   // Divergence from asking price
   const divergence = guessData?.fmv?.divergence ?? null;
@@ -431,7 +429,7 @@ export default function GuessesPage() {
                 currentFMV={fmvData?.value ?? undefined}
                 userGuess={guessData?.userGuess?.guessedPrice}
                 onGuessSubmit={handleGuessSubmit}
-                disabled={!isAuthenticated}
+                disabled={!guessData?.canEdit && !!guessData?.userGuess}
                 isSubmitting={submitGuess.isPending}
               />
             )}

@@ -32,9 +32,7 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('@/src/hooks/useProperties', () => {
-  const actual = jest.requireActual('@/src/hooks/useProperties');
   return {
-    ...actual,
     useProperty: (...args: unknown[]) => mockUseProperty(...args),
   };
 });

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, comments, properties, users } from '../db/index.js';
-import { eq, sql } from 'drizzle-orm';
+import { db, comments, properties, reactions, users } from '../db/index.js';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 // Type for comment rows from raw SQL
 type CommentRow = {
@@ -59,6 +59,7 @@ const baseCommentSchema = z.object({
   updatedAt: z.string().datetime(),
   user: commentUserSchema,
   likeCount: z.number(),
+  isLiked: z.boolean(),
 });
 
 // Comments with replies (1 level deep, like TikTok/YouTube)
@@ -92,7 +93,7 @@ const commentListResponseSchema = z.object({
 });
 
 // Helper to format a comment row
-function formatComment(c: CommentRow) {
+function formatComment(c: CommentRow, likedCommentIds: Set<string> = new Set()) {
   return {
     id: c.id,
     propertyId: c.property_id,
@@ -109,6 +110,7 @@ function formatComment(c: CommentRow) {
       karma: c.user_karma,
     },
     likeCount: c.like_count,
+    isLiked: likedCommentIds.has(c.id),
   };
 }
 
@@ -119,6 +121,7 @@ export async function commentRoutes(app: FastifyInstance) {
   typedApp.get(
     '/properties/:id/comments',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['comments'],
         summary: 'Get comments for a property',
@@ -137,6 +140,7 @@ export async function commentRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id: propertyId } = request.params;
       const { page, limit, sort } = request.query;
+      const userId = request.userId;
       const offset = (page - 1) * limit;
 
       // Check if property exists
@@ -232,6 +236,7 @@ export async function commentRoutes(app: FastifyInstance) {
       const commentIds = commentsArray.map((c) => c.id);
 
       const repliesMap = new Map<string, CommentRow[]>();
+      const allCommentIds = [...commentIds];
 
       if (commentIds.length > 0) {
         const replies = await db.execute<CommentRow>(sql`
@@ -260,6 +265,7 @@ export async function commentRoutes(app: FastifyInstance) {
 
         // Group replies by parent
         for (const reply of replies) {
+          allCommentIds.push(reply.id);
           if (reply.parent_id) {
             if (!repliesMap.has(reply.parent_id)) {
               repliesMap.set(reply.parent_id, []);
@@ -269,9 +275,28 @@ export async function commentRoutes(app: FastifyInstance) {
         }
       }
 
+      let likedCommentIds = new Set<string>();
+      if (userId && allCommentIds.length > 0) {
+        const likedRows = await db
+          .select({ targetId: reactions.targetId })
+          .from(reactions)
+          .where(
+            and(
+              eq(reactions.targetType, 'comment'),
+              eq(reactions.userId, userId),
+              eq(reactions.reactionType, 'like'),
+              inArray(reactions.targetId, allCommentIds)
+            )
+          );
+
+        likedCommentIds = new Set(likedRows.map((row) => row.targetId));
+      }
+
       const data = commentsArray.map((comment) => ({
-        ...formatComment(comment),
-        replies: (repliesMap.get(comment.id) ?? []).map(formatComment),
+        ...formatComment(comment, likedCommentIds),
+        replies: (repliesMap.get(comment.id) ?? []).map((replyComment) =>
+          formatComment(replyComment, likedCommentIds)
+        ),
       }));
 
       return reply.send({
@@ -405,6 +430,7 @@ export async function commentRoutes(app: FastifyInstance) {
           karma: user.karma,
         },
         likeCount: 0,
+        isLiked: false,
         message: 'Comment added successfully',
       });
     }

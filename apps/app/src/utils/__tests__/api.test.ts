@@ -1,4 +1,4 @@
-import { resolveProperty } from '../api';
+import { api, resolveProperty, setApiAccessTokenResolver } from '../api';
 
 jest.mock('expo-constants', () => ({
   __esModule: true,
@@ -24,6 +24,7 @@ describe('resolveProperty', () => {
   beforeEach(() => {
     mockFetch.mockReset();
     global.fetch = mockFetch as unknown as typeof fetch;
+    setApiAccessTokenResolver(null);
   });
 
   afterAll(() => {
@@ -61,5 +62,59 @@ describe('resolveProperty', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/resolve?');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('countryCode=DE');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('postalCode=1234AB');
+  });
+});
+
+describe('api auth attachment', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+    setApiAccessTokenResolver(null);
+  });
+
+  afterEach(() => {
+    setApiAccessTokenResolver(null);
+  });
+
+  it('attaches the current access token when no Authorization header is provided', async () => {
+    setApiAccessTokenResolver(async () => 'resolver-token');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    await api.get('/properties/test-property');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/properties/test-property',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.any(Headers),
+      }),
+    );
+
+    const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer resolver-token');
+  });
+
+  it('preserves an explicit Authorization header', async () => {
+    setApiAccessTokenResolver(async () => 'resolver-token');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    await api.get('/properties/test-property', {
+      headers: {
+        Authorization: 'Bearer explicit-token',
+      },
+    });
+
+    const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer explicit-token');
   });
 });

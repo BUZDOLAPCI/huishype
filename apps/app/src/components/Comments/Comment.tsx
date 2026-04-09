@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { Pressable, Text, View, Animated } from 'react-native';
+import { useCallback, useRef } from 'react';
+import { Pressable, Text, View, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { KarmaBadge } from './KarmaBadge';
 import { UserAvatar } from '../ui/UserAvatar';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 
 export interface CommentUser {
   id: string;
@@ -18,6 +19,7 @@ export interface CommentData {
   content: string;
   user: CommentUser;
   likeCount: number;
+  isLiked?: boolean;
   createdAt: string;
   replies?: CommentData[];
 }
@@ -28,17 +30,14 @@ export interface CommentProps {
   onReply: (commentId: string, username: string) => void;
   isReply?: boolean;
   isLiked?: boolean;
-  /** Set of comment IDs the current user has liked. Used to resolve liked state for replies. */
-  likedCommentIds?: Set<string>;
 }
 
 /**
  * Format a date string to relative time (e.g., "2h ago", "3d ago")
  */
-export function formatRelativeTime(dateString: string): string {
+export function formatRelativeTime(dateString: string, nowMs: number = Date.now()): string {
   const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const diffMs = nowMs - date.getTime();
   const diffSeconds = Math.floor(diffMs / 1000);
   const diffMinutes = Math.floor(diffSeconds / 60);
   const diffHours = Math.floor(diffMinutes / 60);
@@ -66,16 +65,11 @@ export function Comment({
   onReply,
   isReply = false,
   isLiked = false,
-  likedCommentIds,
 }: CommentProps) {
-  const [localIsLiked, setLocalIsLiked] = useState(isLiked);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const reducedMotion = useReducedMotion();
-
-  // Sync local state with prop when it changes
-  useEffect(() => {
-    setLocalIsLiked(isLiked);
-  }, [isLiked]);
+  const hydratedNow = useHydratedNow();
+  const resolvedIsLiked = isLiked || !!comment.isLiked;
 
   const handleLike = useCallback(() => {
     // Animate the heart (skip when reduced motion is preferred)
@@ -84,17 +78,16 @@ export function Comment({
         Animated.timing(scaleAnim, {
           toValue: 1.3,
           duration: 100,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
         Animated.timing(scaleAnim, {
           toValue: 1,
           duration: 100,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
       ]).start();
     }
 
-    setLocalIsLiked((prev) => !prev);
     onLike(comment.id);
   }, [comment.id, onLike, scaleAnim, reducedMotion]);
 
@@ -129,7 +122,7 @@ export function Comment({
             </Text>
           </View>
           <Text className="text-xs text-warm-400">
-            {formatRelativeTime(comment.createdAt)}
+            {hydratedNow === null ? '\u00A0' : formatRelativeTime(comment.createdAt, hydratedNow)}
           </Text>
         </View>
 
@@ -145,19 +138,19 @@ export function Comment({
             hitSlop={4}
             testID="like-button"
             accessibilityRole="button"
-            accessibilityLabel={localIsLiked ? 'Unlike comment' : 'Like comment'}
-            accessibilityState={{ selected: localIsLiked }}
+            accessibilityLabel={resolvedIsLiked ? 'Unlike comment' : 'Like comment'}
+            accessibilityState={{ selected: resolvedIsLiked }}
           >
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
               <Ionicons
-                name={localIsLiked ? 'heart' : 'heart-outline'}
+                name={resolvedIsLiked ? 'heart' : 'heart-outline'}
                 size={18}
-                color={localIsLiked ? '#EF4444' : '#9C958A'}
+                color={resolvedIsLiked ? '#EF4444' : '#9C958A'}
               />
             </Animated.View>
             <Text
               className={`ml-1 text-sm ${
-                localIsLiked ? 'text-red-500' : 'text-warm-500'
+                resolvedIsLiked ? 'text-red-500' : 'text-warm-500'
               }`}
             >
               {comment.likeCount > 0 ? comment.likeCount : ''}
@@ -191,8 +184,7 @@ export function Comment({
               onLike={onLike}
               onReply={onReply}
               isReply
-              isLiked={likedCommentIds ? likedCommentIds.has(reply.id) : false}
-              likedCommentIds={likedCommentIds}
+              isLiked={reply.isLiked}
             />
           ))}
         </View>

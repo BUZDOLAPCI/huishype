@@ -25,9 +25,8 @@ export interface CommentsListProps {
 export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) {
   const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
-  const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
 
-  const { isAuthenticated, user } = useAuthContext();
+  const { isAuthenticated } = useAuthContext();
 
   // Data fetching hooks
   const {
@@ -61,23 +60,15 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         return;
       }
 
-      const isCurrentlyLiked = likedComments.has(commentId);
+      const targetComment = comments.find((comment) => comment.id === commentId)
+        ?? comments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
 
-      // Optimistically update local state
-      setLikedComments((prev) => {
-        const next = new Set(prev);
-        if (isCurrentlyLiked) {
-          next.delete(commentId);
-        } else {
-          next.add(commentId);
-        }
-        return next;
-      });
+      const isCurrentlyLiked = targetComment?.isLiked ?? false;
 
       // Call mutation
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [isAuthenticated, likedComments, likeMutation, onAuthRequired]
+    [comments, isAuthenticated, likeMutation, onAuthRequired]
   );
 
   // Handle reply action
@@ -136,10 +127,10 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         comment={item}
         onLike={handleLike}
         onReply={handleReply}
-        isLiked={likedComments.has(item.id)}
+        isLiked={item.isLiked}
       />
     ),
-    [handleLike, handleReply, likedComments]
+    [handleLike, handleReply]
   );
 
   // Render separator

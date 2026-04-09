@@ -25,7 +25,6 @@ export function CommentsSection({
 }: CommentsSectionProps) {
   const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
-  const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [showAllComments, setShowAllComments] = useState(false);
 
   const { isAuthenticated } = useAuthContext();
@@ -63,22 +62,14 @@ export function CommentsSection({
         return;
       }
 
-      const isCurrentlyLiked = likedComments.has(commentId);
+      const targetComment = allComments.find((comment) => comment.id === commentId)
+        ?? allComments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
 
-      // Optimistic update
-      setLikedComments((prev) => {
-        const next = new Set(prev);
-        if (isCurrentlyLiked) {
-          next.delete(commentId);
-        } else {
-          next.add(commentId);
-        }
-        return next;
-      });
+      const isCurrentlyLiked = targetComment?.isLiked ?? false;
 
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [isAuthenticated, likedComments, likeMutation, onAuthRequired]
+    [allComments, isAuthenticated, likeMutation, onAuthRequired]
   );
 
   // Handle reply
@@ -211,7 +202,7 @@ export function CommentsSection({
                 comment={comment}
                 onLike={handleLike}
                 onReply={handleReply}
-                isLiked={likedComments.has(comment.id)}
+                isLiked={comment.isLiked}
               />
             </View>
           ))}

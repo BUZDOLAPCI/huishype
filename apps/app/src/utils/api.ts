@@ -8,6 +8,27 @@ import type {
 import { withDerivedPropertyImageData } from './property-image';
 
 const DEFAULT_API_PORT = '3100';
+type ApiAccessTokenResolver = () => Promise<string | null>;
+
+let apiAccessTokenResolver: ApiAccessTokenResolver | null = null;
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function setApiAccessTokenResolver(
+  resolver: ApiAccessTokenResolver | null,
+): void {
+  apiAccessTokenResolver = resolver;
+}
 
 // Extract the port from a URL string, or return undefined if none is present.
 const extractPort = (url: string): string | undefined => {
@@ -85,18 +106,36 @@ export async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_URL}${endpoint}`;
+  const headers = new Headers(options.headers);
+
+  const isFormDataBody =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+  if (!headers.has('Content-Type') && !isFormDataBody) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (!headers.has('Authorization') && apiAccessTokenResolver) {
+    const accessToken = await apiAccessTokenResolver();
+    if (accessToken) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+  }
 
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'An error occurred' }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    const error = await response
+      .json()
+      .catch(() => ({ message: `HTTP error! status: ${response.status}` }));
+    throw new ApiError(
+      response.status,
+      error.message || `HTTP error! status: ${response.status}`,
+      error.error,
+    );
   }
 
   return response.json();
@@ -238,7 +277,7 @@ export async function resolveProperty(
     return result;
   } catch (err) {
     // 404 means property not found — return null
-    if (err instanceof Error && err.message.includes('404')) {
+    if (err instanceof ApiError && err.status === 404) {
       return null;
     }
     console.warn('[HuisHype] resolveProperty failed:', err);

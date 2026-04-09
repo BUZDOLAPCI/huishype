@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
+import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 
 // Types for property data
@@ -112,9 +113,18 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   };
 };
 
-const fetchPropertyById = async (id: string): Promise<PropertyDetails | null> => {
+const fetchPropertyById = async (
+  id: string,
+  accessToken?: string | null,
+): Promise<PropertyDetails | null> => {
   try {
-    const property = await api.get<PropertyDetails>(`/properties/${id}`);
+    const property = await api.get<PropertyDetails>(`/properties/${id}`, accessToken
+      ? {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      : undefined);
     return withDerivedPropertyImages(property);
   } catch (error) {
     console.error('Failed to fetch property:', error);
@@ -184,9 +194,18 @@ export function useAllProperties(limit = 100) {
 
 // Hook to fetch a single property's details
 export function useProperty(id: string | null) {
+  const { getAccessToken } = useAuthContext();
+
   return useQuery({
     queryKey: id ? propertyKeys.detail(id) : propertyKeys.details(),
-    queryFn: () => (id ? fetchPropertyById(id) : null),
+    queryFn: async () => {
+      if (!id) {
+        return null;
+      }
+
+      const accessToken = await getAccessToken();
+      return fetchPropertyById(id, accessToken);
+    },
     enabled: !!id,
   });
 }

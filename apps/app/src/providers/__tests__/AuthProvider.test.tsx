@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { act, renderHook } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ jest.mock('expo-crypto', () => ({
 
 jest.mock('../../utils/api', () => ({
   API_URL: 'http://localhost:3100',
+  setApiAccessTokenResolver: jest.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -88,7 +90,18 @@ function clearStorage() {
 
 /** Wrapper that renders children inside AuthProvider. */
 function wrapper({ children }: PropsWithChildren) {
-  return <AuthProvider>{children}</AuthProvider>;
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  );
 }
 
 async function settleAuthBoot() {
@@ -171,6 +184,24 @@ describe('AuthProvider startup token refresh', () => {
     expect(timerCalls.length).toBeGreaterThanOrEqual(1);
 
     spySetTimeout.mockRestore();
+  });
+
+  it('invalidates property detail queries after restoring an authenticated session', async () => {
+    seedStorage({
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      accessToken: 'fresh-access-token',
+    });
+
+    const invalidateQueries = jest.spyOn(QueryClient.prototype, 'invalidateQueries');
+
+    renderHook(() => useAuthContext(), { wrapper });
+    await settleAuthBoot();
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['properties', 'detail'],
+    });
+
+    invalidateQueries.mockRestore();
   });
 
   it('clears auth and stops loading when refresh fails on boot', async () => {

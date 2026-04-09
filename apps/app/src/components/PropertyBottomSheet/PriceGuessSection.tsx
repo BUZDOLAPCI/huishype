@@ -194,7 +194,6 @@ export function PriceGuessSection({
   // Determine if user can submit
   const hasExistingGuess = !!guessData?.userGuess;
   const isInCooldown = !guessData?.canEdit && hasExistingGuess;
-  const canSubmit = !isInCooldown && !submitGuess.isPending;
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -263,7 +262,7 @@ export function PriceGuessSection({
           currentFMV={fmvData?.value ?? undefined}
           userGuess={guessData?.userGuess?.guessedPrice}
           onGuessSubmit={handleGuessSubmit}
-          disabled={isInCooldown || !isAuthenticated}
+          disabled={isInCooldown}
           isSubmitting={submitGuess.isPending}
           testID="price-guess-slider"
         />

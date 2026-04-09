@@ -12,13 +12,15 @@ import React, {
   useRef,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Linking, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import type { User } from '@huishype/shared';
-import { API_URL } from '../utils/api';
+import { propertyKeys } from '../hooks/useProperties';
+import { API_URL, setApiAccessTokenResolver } from '../utils/api';
 
 // Complete auth session for web
 WebBrowser.maybeCompleteAuthSession();
@@ -107,6 +109,7 @@ interface AuthProviderProps {
 class ExpectedEmailAuthError extends Error {}
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
@@ -117,6 +120,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshAuthRef = useRef<() => Promise<boolean>>(null!);
+  const authSignatureRef = useRef<string | null>(null);
 
   /**
    * Schedule token refresh before expiry.
@@ -268,6 +272,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return token;
   }, [refreshAuth]);
+
+  useEffect(() => {
+    setApiAccessTokenResolver(() => getAccessToken());
+
+    return () => {
+      setApiAccessTokenResolver(null);
+    };
+  }, [getAccessToken]);
+
+  useEffect(() => {
+    if (state.isLoading) {
+      return;
+    }
+
+    const signature =
+      state.isAuthenticated && state.user ? `auth:${state.user.id}` : 'anon';
+    const previousSignature = authSignatureRef.current;
+    authSignatureRef.current = signature;
+
+    const shouldInvalidatePropertyDetails =
+      previousSignature === null ? state.isAuthenticated : previousSignature !== signature;
+
+    if (shouldInvalidatePropertyDetails) {
+      void queryClient.invalidateQueries({ queryKey: propertyKeys.details() });
+    }
+  }, [
+    queryClient,
+    state.isAuthenticated,
+    state.isLoading,
+    state.user,
+  ]);
 
   /**
    * Sign in with Google

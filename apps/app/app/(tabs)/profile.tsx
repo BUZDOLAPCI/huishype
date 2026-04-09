@@ -34,6 +34,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { buildPropertyRoute } from '@/src/utils/property-route';
 
 import type { AchievementDefinition } from '@huishype/shared';
@@ -55,8 +56,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
   save: 'Saved',
 };
 
-function formatRelativeTime(isoDate: string): string {
-  const diffMs = Date.now() - new Date(isoDate).getTime();
+function formatRelativeTime(isoDate: string, nowMs: number): string {
+  const diffMs = nowMs - new Date(isoDate).getTime();
   const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
   if (diffHrs < 1) return 'just now';
   if (diffHrs < 24) return `${diffHrs}h`;
@@ -103,6 +104,7 @@ export default function ProfileScreen() {
   const updateProfile = useUpdateProfile();
   const { data: achievementsData } = useAchievements();
   const { data: activityData } = useUserActivity();
+  const hydratedNow = useHydratedNow();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -112,22 +114,23 @@ export default function ProfileScreen() {
 
   const canChangeName = useMemo(() => {
     if (!profile?.lastNameChangeAt) return true;
+    if (hydratedNow === null) return false;
     const cooldownEnd = new Date(profile.lastNameChangeAt);
     cooldownEnd.setDate(cooldownEnd.getDate() + 30);
-    return new Date() >= cooldownEnd;
-  }, [profile?.lastNameChangeAt]);
+    return hydratedNow >= cooldownEnd.getTime();
+  }, [hydratedNow, profile?.lastNameChangeAt]);
 
   const nextNameChangeDate = useMemo(() => {
-    if (!profile?.lastNameChangeAt) return null;
+    if (!profile?.lastNameChangeAt || hydratedNow === null) return null;
     const cooldownEnd = new Date(profile.lastNameChangeAt);
     cooldownEnd.setDate(cooldownEnd.getDate() + 30);
-    if (new Date() >= cooldownEnd) return null;
+    if (hydratedNow >= cooldownEnd.getTime()) return null;
     return cooldownEnd.toLocaleDateString(undefined, {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
     });
-  }, [profile?.lastNameChangeAt]);
+  }, [hydratedNow, profile?.lastNameChangeAt]);
 
   const recentActivities = useMemo(() => {
     if (!activityData?.pages) return [];
@@ -158,7 +161,9 @@ export default function ProfileScreen() {
     if (!canChangeName) {
       Alert.alert(
         'Name Change Cooldown',
-        `You can change your display name again on ${nextNameChangeDate}.`
+        nextNameChangeDate
+          ? `You can change your display name again on ${nextNameChangeDate}.`
+          : 'You can change your display name again a little later.'
       );
       return;
     }
@@ -423,7 +428,7 @@ export default function ProfileScreen() {
                   </Text>
                   <View style={styles.activityMeta}>
                     <Text style={styles.activityTime}>
-                      {formatRelativeTime(item.createdAt)}
+                      {hydratedNow === null ? '\u00A0' : formatRelativeTime(item.createdAt, hydratedNow)}
                     </Text>
                     <Icon name="CaretRight" size={14} color="#C7BFB3" />
                   </View>

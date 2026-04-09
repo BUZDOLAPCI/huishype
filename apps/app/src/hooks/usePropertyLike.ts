@@ -31,6 +31,36 @@ export interface EnrichedProperty extends Property {
   isSaved?: boolean;
 }
 
+class PropertyLikeMutationError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = 'PropertyLikeMutationError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+interface LikeMutationContext {
+  key: ReturnType<typeof propertyKeys.detail>;
+  previous?: EnrichedProperty;
+  optimistic?: EnrichedProperty;
+}
+
+function isRecoverableLikeConflict(error: unknown, nextLiked: boolean): boolean {
+  if (!(error instanceof PropertyLikeMutationError)) {
+    return false;
+  }
+
+  if (nextLiked) {
+    return error.status === 409 || error.code === 'ALREADY_LIKED';
+  }
+
+  return error.status === 404 || error.code === 'NOT_FOUND';
+}
+
 async function likeProperty(propertyId: string, accessToken: string): Promise<{ liked: boolean; likeCount: number }> {
   const response = await fetch(`${API_URL}/properties/${propertyId}/like`, {
     method: 'POST',
@@ -41,7 +71,11 @@ async function likeProperty(propertyId: string, accessToken: string): Promise<{ 
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Failed to like property' }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    throw new PropertyLikeMutationError(
+      response.status,
+      error.message || `HTTP error! status: ${response.status}`,
+      error.error,
+    );
   }
 
   return response.json();
@@ -57,7 +91,11 @@ async function unlikeProperty(propertyId: string, accessToken: string): Promise<
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Failed to unlike property' }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    throw new PropertyLikeMutationError(
+      response.status,
+      error.message || `HTTP error! status: ${response.status}`,
+      error.error,
+    );
   }
 
   return response.json();
@@ -68,7 +106,7 @@ export function usePropertyLike({
   onAuthRequired,
 }: UsePropertyLikeOptions): UsePropertyLikeReturn {
   const queryClient = useQueryClient();
-  const { user, accessToken } = useAuthContext();
+  const { user, getAccessToken } = useAuthContext();
 
   // Subscribe to the property detail query cache reactively
   const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
@@ -89,21 +127,32 @@ export function usePropertyLike({
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const optimistic = previous
+        ? {
+            ...previous,
+            isLiked: true,
+            likeCount: (previous.likeCount ?? 0) + 1,
+          }
+        : undefined;
 
       // Optimistic update
-      if (previous) {
-        queryClient.setQueryData<EnrichedProperty>(key, {
-          ...previous,
-          isLiked: true,
-          likeCount: (previous.likeCount ?? 0) + 1,
-        });
+      if (optimistic) {
+        queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
 
-      return { previous, key };
+      return { previous, key, optimistic };
     },
-    onError: (_err, _vars, context) => {
-      // Rollback
-      if (context?.previous && context.key) {
+    onError: (error, _vars, context?: LikeMutationContext) => {
+      if (!context?.key) {
+        return;
+      }
+
+      if (context.optimistic && isRecoverableLikeConflict(error, true)) {
+        queryClient.setQueryData(context.key, context.optimistic);
+        return;
+      }
+
+      if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
     },
@@ -120,21 +169,32 @@ export function usePropertyLike({
       const key = propertyKeys.detail(propId);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const optimistic = previous
+        ? {
+            ...previous,
+            isLiked: false,
+            likeCount: Math.max((previous.likeCount ?? 0) - 1, 0),
+          }
+        : undefined;
 
       // Optimistic update
-      if (previous) {
-        queryClient.setQueryData<EnrichedProperty>(key, {
-          ...previous,
-          isLiked: false,
-          likeCount: Math.max((previous.likeCount ?? 0) - 1, 0),
-        });
+      if (optimistic) {
+        queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
 
-      return { previous, key };
+      return { previous, key, optimistic };
     },
-    onError: (_err, _vars, context) => {
-      // Rollback
-      if (context?.previous && context.key) {
+    onError: (error, _vars, context?: LikeMutationContext) => {
+      if (!context?.key) {
+        return;
+      }
+
+      if (context.optimistic && isRecoverableLikeConflict(error, false)) {
+        queryClient.setQueryData(context.key, context.optimistic);
+        return;
+      }
+
+      if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
     },
@@ -146,18 +206,25 @@ export function usePropertyLike({
   const toggleLike = useCallback(() => {
     if (!propertyId) return;
 
-    // Auth gate
-    if (!user || !accessToken) {
-      onAuthRequired?.();
-      return;
-    }
+    void (async () => {
+      if (!user) {
+        onAuthRequired?.();
+        return;
+      }
 
-    if (isLiked) {
-      unlikeMutation.mutate({ propId: propertyId, token: accessToken });
-    } else {
-      likeMutation.mutate({ propId: propertyId, token: accessToken });
-    }
-  }, [propertyId, user, accessToken, isLiked, onAuthRequired, likeMutation, unlikeMutation]);
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        onAuthRequired?.();
+        return;
+      }
+
+      if (isLiked) {
+        unlikeMutation.mutate({ propId: propertyId, token: accessToken });
+      } else {
+        likeMutation.mutate({ propId: propertyId, token: accessToken });
+      }
+    })();
+  }, [propertyId, user, getAccessToken, isLiked, onAuthRequired, likeMutation, unlikeMutation]);
 
   return {
     isLiked,

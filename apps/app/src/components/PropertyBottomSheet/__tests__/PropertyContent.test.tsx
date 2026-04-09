@@ -12,9 +12,7 @@ const mockUsePropertyLike = jest.fn();
 const mockUsePropertySave = jest.fn();
 
 jest.mock('../../../hooks/useProperties', () => {
-  const actual = jest.requireActual('../../../hooks/useProperties');
   return {
-    ...actual,
     useProperty: (...args: unknown[]) => mockUseProperty(...args),
   };
 });

@@ -8,6 +8,7 @@ import { propertyKeys } from '../useProperties';
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
 let mockAuthUser: typeof mockUser | null = mockUser;
+const mockGetAccessToken = jest.fn();
 
 jest.mock('../../providers/AuthProvider', () => ({
   useAuthContext: () => ({
@@ -19,7 +20,7 @@ jest.mock('../../providers/AuthProvider', () => ({
     signInWithGoogle: jest.fn(),
     signInWithMockToken: jest.fn(),
     signOut: jest.fn(),
-    getAccessToken: jest.fn(),
+    getAccessToken: mockGetAccessToken,
     refreshAuth: jest.fn(),
   }),
 }));
@@ -63,6 +64,7 @@ describe('usePropertyLike', () => {
   beforeEach(() => {
     queryClient = createQueryClient();
     mockAuthUser = mockUser;
+    mockGetAccessToken.mockResolvedValue('mock-token');
     mockFetch.mockReset();
   });
 
@@ -258,6 +260,80 @@ describe('usePropertyLike', () => {
     });
   });
 
+  it('keeps the liked state on already-liked conflicts until refetch corrects the count', async () => {
+    const propertyId = 'prop-5';
+    const queryKey = propertyKeys.detail(propertyId);
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '202 Birch St',
+      city: 'Leiden',
+      isLiked: false,
+      likeCount: 7,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'ALREADY_LIKED',
+        message: 'You have already liked this property.',
+      }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertyLike({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      result.current.toggleLike();
+    });
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<{ isLiked: boolean; likeCount: number }>(queryKey);
+      expect(cached?.isLiked).toBe(true);
+      expect(cached?.likeCount).toBe(8);
+    });
+  });
+
+  it('keeps the unliked state on stale unlike conflicts instead of rolling back', async () => {
+    const propertyId = 'prop-6';
+    const queryKey = propertyKeys.detail(propertyId);
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '303 Cedar St',
+      city: 'Haarlem',
+      isLiked: true,
+      likeCount: 1,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: 'NOT_FOUND',
+        message: 'You have not liked this property.',
+      }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertyLike({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      result.current.toggleLike();
+    });
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<{ isLiked: boolean; likeCount: number }>(queryKey);
+      expect(cached?.isLiked).toBe(false);
+      expect(cached?.likeCount).toBe(0);
+    });
+  });
+
   it('does nothing when propertyId is null', () => {
     const onAuthRequired = jest.fn();
 
@@ -271,6 +347,23 @@ describe('usePropertyLike', () => {
     });
 
     expect(onAuthRequired).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('calls onAuthRequired when token refresh returns null', async () => {
+    mockGetAccessToken.mockResolvedValueOnce(null);
+    const onAuthRequired = jest.fn();
+
+    const { result } = renderHook(
+      () => usePropertyLike({ propertyId: 'prop-1', onAuthRequired }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      result.current.toggleLike();
+    });
+
+    expect(onAuthRequired).toHaveBeenCalledTimes(1);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

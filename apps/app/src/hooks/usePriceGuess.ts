@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
+import { useAuthContext } from '../providers/AuthProvider';
 
 // Types matching the API response
 export interface GuessUser {
@@ -85,6 +86,8 @@ export interface CooldownError {
 export const guessKeys = {
   all: ['guesses'] as const,
   property: (propertyId: string) => [...guessKeys.all, propertyId] as const,
+  viewer: (propertyId: string, userId?: string | null) =>
+    [...guessKeys.property(propertyId), 'viewer', userId ?? 'anonymous'] as const,
   userGuess: (propertyId: string, userId: string) =>
     [...guessKeys.property(propertyId), 'user', userId] as const,
 };
@@ -113,7 +116,7 @@ function getCooldownEndDate(guess: PriceGuess): string | null {
  */
 export function useFetchPriceGuess(propertyId: string | null, userId?: string | null) {
   return useQuery({
-    queryKey: guessKeys.property(propertyId ?? ''),
+    queryKey: guessKeys.viewer(propertyId ?? '', userId),
     queryFn: async (): Promise<PriceGuessData> => {
       if (!propertyId) {
         return {
@@ -168,12 +171,23 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
  */
 export function useSubmitGuess() {
   const queryClient = useQueryClient();
+  const { getAccessToken } = useAuthContext();
 
   return useMutation({
     mutationFn: async ({ propertyId, guessedPrice }: SubmitGuessParams): Promise<SubmitGuessResponse> => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Authentication required');
+      }
+
       const response = await api.post<SubmitGuessResponse>(
         `/properties/${propertyId}/guesses`,
-        { guessedPrice }
+        { guessedPrice },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
       );
       return response;
     },

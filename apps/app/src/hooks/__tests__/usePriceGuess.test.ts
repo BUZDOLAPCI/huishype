@@ -10,6 +10,14 @@ import {
 } from '../usePriceGuess';
 import { api } from '../../utils/api';
 
+const mockGetAccessToken = jest.fn();
+
+jest.mock('../../providers/AuthProvider', () => ({
+  useAuthContext: () => ({
+    getAccessToken: mockGetAccessToken,
+  }),
+}));
+
 // Mock the API module
 jest.mock('../../utils/api', () => ({
   api: {
@@ -42,6 +50,18 @@ describe('guessKeys', () => {
   it('generates correct query keys', () => {
     expect(guessKeys.all).toEqual(['guesses']);
     expect(guessKeys.property('property-123')).toEqual(['guesses', 'property-123']);
+    expect(guessKeys.viewer('property-123', 'user-456')).toEqual([
+      'guesses',
+      'property-123',
+      'viewer',
+      'user-456',
+    ]);
+    expect(guessKeys.viewer('property-123', null)).toEqual([
+      'guesses',
+      'property-123',
+      'viewer',
+      'anonymous',
+    ]);
     expect(guessKeys.userGuess('property-123', 'user-456')).toEqual([
       'guesses',
       'property-123',
@@ -212,6 +232,54 @@ describe('useFetchPriceGuess', () => {
     expect(result.current.data?.userGuess?.userId).toBe('user-456');
   });
 
+  it('refetches viewer-derived guess data when the viewer changes', async () => {
+    const mockResponse = {
+      data: [
+        {
+          id: 'guess-1',
+          propertyId: 'property-123',
+          userId: 'user-456',
+          guessedPrice: 350000,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      meta: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      fmv: {
+        fmv: 350000,
+        confidence: 'low' as const,
+        guessCount: 1,
+        distribution: null,
+        officialValuation: null,
+        askingPrice: null,
+        divergence: null,
+      },
+    };
+
+    mockApi.get.mockResolvedValue(mockResponse);
+
+    const { result, rerender } = renderHook(
+      ({ userId }: { userId?: string | null }) => useFetchPriceGuess('property-123', userId),
+      {
+        initialProps: { userId: null },
+        wrapper: createWrapper(),
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expect(result.current.data?.userGuess).toBeNull();
+
+    rerender({ userId: 'user-456' });
+
+    await waitFor(() => {
+      expect(result.current.data?.userGuess?.userId).toBe('user-456');
+    });
+
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+  });
+
   it('returns distribution from API fmv response', async () => {
     const mockDistribution = {
       p10: 310000,
@@ -258,9 +326,10 @@ describe('useFetchPriceGuess', () => {
 describe('useSubmitGuess', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetAccessToken.mockResolvedValue('mock-token');
   });
 
-  it('calls api.post with correct parameters', async () => {
+  it('calls api.post with auth headers', async () => {
     const mockResponse = {
       id: 'guess-new',
       propertyId: 'property-123',
@@ -287,9 +356,31 @@ describe('useSubmitGuess', () => {
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith(
         '/properties/property-123/guesses',
-        { guessedPrice: 350000 }
+        { guessedPrice: 350000 },
+        {
+          headers: {
+            Authorization: 'Bearer mock-token',
+          },
+        }
       );
     });
+  });
+
+  it('throws when no access token is available', async () => {
+    mockGetAccessToken.mockResolvedValueOnce(null);
+
+    const { result } = renderHook(() => useSubmitGuess(), {
+      wrapper: createWrapper(),
+    });
+
+    await expect(
+      result.current.mutateAsync({
+        propertyId: 'property-123',
+        guessedPrice: 350000,
+      })
+    ).rejects.toThrow('Authentication required');
+
+    expect(mockApi.post).not.toHaveBeenCalled();
   });
 
   it('returns mutation hook with expected methods', () => {

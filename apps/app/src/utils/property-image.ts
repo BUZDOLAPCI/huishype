@@ -50,6 +50,27 @@ export interface PropertyImageRecord extends PropertyImageSource {
  * Add more countries as aerial services become available.
  */
 const COUNTRIES_WITH_AERIAL: ReadonlySet<string> = new Set(['NL']);
+const INVALID_PROPERTY_IMAGE_HOSTS: ReadonlySet<string> = new Set(['placeholder.test']);
+
+function normalizePropertyImageUrl(url?: string | null): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return null;
+    }
+    if (INVALID_PROPERTY_IMAGE_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve the best available image URL for a property.
@@ -58,14 +79,17 @@ const COUNTRIES_WITH_AERIAL: ReadonlySet<string> = new Set(['NL']);
  * (meaning the component should render a branded placeholder).
  */
 export function resolvePropertyImage(source: PropertyImageSource): string | null {
+  const listingPhotoUrl = normalizePropertyImageUrl(source.listingPhotoUrl);
+  const aerialImageUrl = normalizePropertyImageUrl(source.aerialImageUrl);
+
   // Priority 1: Listing photo
-  if (source.listingPhotoUrl) {
-    return source.listingPhotoUrl;
+  if (listingPhotoUrl) {
+    return listingPhotoUrl;
   }
 
   // Priority 2: Aerial/official image (only for supported countries)
-  if (source.aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
-    return source.aerialImageUrl;
+  if (aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
+    return aerialImageUrl;
   }
 
   // Priority 3: Branded placeholder — return null, let the component render UI
@@ -138,13 +162,15 @@ export function getPropertyImageCandidates(
   source: PropertyImageSource,
 ): ResolvedPropertyImageSource[] {
   const candidates: ResolvedPropertyImageSource[] = [];
+  const listingPhotoUrl = normalizePropertyImageUrl(source.listingPhotoUrl);
+  const aerialImageUrl = normalizePropertyImageUrl(source.aerialImageUrl);
 
-  if (source.listingPhotoUrl) {
-    candidates.push({ url: source.listingPhotoUrl, type: 'listing' });
+  if (listingPhotoUrl) {
+    candidates.push({ url: listingPhotoUrl, type: 'listing' });
   }
 
-  if (source.aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
-    candidates.push({ url: source.aerialImageUrl, type: 'aerial' });
+  if (aerialImageUrl && source.countryCode && COUNTRIES_WITH_AERIAL.has(source.countryCode)) {
+    candidates.push({ url: aerialImageUrl, type: 'aerial' });
   }
 
   return candidates;

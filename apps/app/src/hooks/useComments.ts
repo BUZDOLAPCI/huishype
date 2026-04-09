@@ -3,7 +3,12 @@
  * Provides data fetching and mutations for the comments system using TanStack Query
  */
 
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 
@@ -26,6 +31,7 @@ export interface Comment {
   updatedAt: string;
   user: CommentUser;
   likeCount: number;
+  isLiked: boolean;
   replies: Comment[];
 }
 
@@ -45,17 +51,104 @@ export type CommentSortBy = 'recent' | 'popular';
 export const commentKeys = {
   all: ['comments'] as const,
   lists: () => [...commentKeys.all, 'list'] as const,
-  list: (propertyId: string, sortBy: CommentSortBy) =>
-    [...commentKeys.lists(), propertyId, sortBy] as const,
+  list: (propertyId: string, sortBy: CommentSortBy, viewerKey: string) =>
+    [...commentKeys.lists(), propertyId, sortBy, viewerKey] as const,
   detail: (commentId: string) => [...commentKeys.all, 'detail', commentId] as const,
 };
+
+type CommentListQueryData = InfiniteData<CommentListResponse>;
+type CommentLikeState = Pick<Comment, 'isLiked' | 'likeCount'>;
+type LikeStatusResponse = { liked: boolean; likeCount: number };
+
+function getCommentQueryFilter(propertyId: string, viewerKey?: string) {
+  return {
+    queryKey: commentKeys.lists(),
+    predicate: (query: { queryKey: readonly unknown[] }) => {
+      const key = query.queryKey;
+      return (
+        Array.isArray(key) &&
+        key[0] === 'comments' &&
+        key[1] === 'list' &&
+        key[2] === propertyId &&
+        (viewerKey === undefined || key[4] === viewerKey)
+      );
+    },
+  };
+}
+
+function updateCommentCollection(
+  comments: Comment[],
+  commentId: string,
+  updater: (comment: Comment) => Comment
+): Comment[] {
+  return comments.map((comment) => {
+    if (comment.id === commentId) {
+      return updater(comment);
+    }
+
+    if (comment.replies.length === 0) {
+      return comment;
+    }
+
+    return {
+      ...comment,
+      replies: updateCommentCollection(comment.replies, commentId, updater),
+    };
+  });
+}
+
+function updateCommentLikeState(
+  queryClient: ReturnType<typeof useQueryClient>,
+  propertyId: string,
+  viewerKey: string,
+  commentId: string,
+  updater: (comment: Comment) => CommentLikeState
+) {
+  queryClient.setQueriesData<CommentListQueryData>(
+    getCommentQueryFilter(propertyId, viewerKey),
+    (old) => {
+      if (!old) {
+        return old;
+      }
+
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          data: updateCommentCollection(page.data, commentId, (comment) => {
+            const nextState = updater(comment);
+            return {
+              ...comment,
+              isLiked: nextState.isLiked,
+              likeCount: Math.max(0, nextState.likeCount),
+            };
+          }),
+        })),
+      };
+    }
+  );
+}
+
+function applyAuthoritativeCommentLikeState(
+  queryClient: ReturnType<typeof useQueryClient>,
+  propertyId: string,
+  viewerKey: string,
+  commentId: string,
+  nextState: LikeStatusResponse | CommentLikeState
+) {
+  updateCommentLikeState(queryClient, propertyId, viewerKey, commentId, () => ({
+    isLiked: 'isLiked' in nextState ? nextState.isLiked : nextState.liked,
+    likeCount: nextState.likeCount,
+  }));
+}
 
 // Fetch comments from API
 async function fetchComments(
   propertyId: string,
   page: number = 1,
   limit: number = 20,
-  sortBy: CommentSortBy = 'recent'
+  sortBy: CommentSortBy = 'recent',
+  accessToken?: string
 ): Promise<CommentListResponse> {
   const params = new URLSearchParams({
     page: String(page),
@@ -63,9 +156,14 @@ async function fetchComments(
     sort: sortBy,
   });
 
-  const response = await fetch(
-    `${API_URL}/properties/${propertyId}/comments?${params.toString()}`
-  );
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(`${API_URL}/properties/${propertyId}/comments?${params.toString()}`, {
+    headers,
+  });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Failed to fetch comments' }));
@@ -79,9 +177,13 @@ async function fetchComments(
  * Hook to fetch comments for a property with infinite scrolling
  */
 export function useComments(propertyId: string, sortBy: CommentSortBy = 'recent') {
+  const { accessToken, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anonymous';
+
   return useInfiniteQuery({
-    queryKey: commentKeys.list(propertyId, sortBy),
-    queryFn: ({ pageParam = 1 }) => fetchComments(propertyId, pageParam, 20, sortBy),
+    queryKey: commentKeys.list(propertyId, sortBy, viewerKey),
+    queryFn: ({ pageParam = 1 }) =>
+      fetchComments(propertyId, pageParam, 20, sortBy, accessToken ?? undefined),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
       const { page, totalPages } = lastPage.meta;
@@ -97,7 +199,7 @@ export function useComments(propertyId: string, sortBy: CommentSortBy = 'recent'
  */
 export function useSubmitComment(propertyId: string) {
   const queryClient = useQueryClient();
-  const { accessToken, user } = useAuthContext();
+  const { accessToken } = useAuthContext();
 
   return useMutation({
     mutationFn: async ({
@@ -130,13 +232,7 @@ export function useSubmitComment(propertyId: string) {
     },
     onSuccess: () => {
       // Invalidate all comment queries for this property to refetch
-      queryClient.invalidateQueries({
-        queryKey: commentKeys.lists(),
-        predicate: (query) => {
-          const key = query.queryKey;
-          return Array.isArray(key) && key[0] === 'comments' && key[2] === propertyId;
-        },
-      });
+      queryClient.invalidateQueries(getCommentQueryFilter(propertyId));
     },
   });
 }
@@ -147,6 +243,7 @@ export function useSubmitComment(propertyId: string) {
 export function useLikeComment(propertyId: string) {
   const queryClient = useQueryClient();
   const { accessToken, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anonymous';
 
   return useMutation({
     mutationFn: async ({
@@ -169,6 +266,13 @@ export function useLikeComment(propertyId: string) {
       });
 
       if (!response.ok) {
+        if (
+          (response.status === 409 && !isCurrentlyLiked) ||
+          (response.status === 404 && isCurrentlyLiked)
+        ) {
+          return checkCommentLiked(commentId, accessToken ?? undefined);
+        }
+
         const error = await response.json().catch(() => ({ message: 'Failed to update like' }));
         throw new Error(error.message || `HTTP error! status: ${response.status}`);
       }
@@ -177,56 +281,30 @@ export function useLikeComment(propertyId: string) {
     },
     onMutate: async ({ commentId, isCurrentlyLiked }) => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: commentKeys.lists() });
+      await queryClient.cancelQueries(getCommentQueryFilter(propertyId, viewerKey));
 
       // Snapshot the previous values
-      const previousData = queryClient.getQueriesData({ queryKey: commentKeys.lists() });
+      const previousData = queryClient.getQueriesData<CommentListQueryData>(
+        getCommentQueryFilter(propertyId, viewerKey)
+      );
 
       // Optimistically update to the new value
-      queryClient.setQueriesData(
-        { queryKey: commentKeys.lists() },
-        (old: { pages: { data: Comment[] }[] } | undefined) => {
-          if (!old) return old;
-
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              data: page.data.map((comment) => {
-                // Check if this is the comment we're updating
-                if (comment.id === commentId) {
-                  return {
-                    ...comment,
-                    likeCount: isCurrentlyLiked
-                      ? comment.likeCount - 1
-                      : comment.likeCount + 1,
-                  };
-                }
-                // Check replies
-                if (comment.replies) {
-                  return {
-                    ...comment,
-                    replies: comment.replies.map((reply) =>
-                      reply.id === commentId
-                        ? {
-                            ...reply,
-                            likeCount: isCurrentlyLiked
-                              ? reply.likeCount - 1
-                              : reply.likeCount + 1,
-                          }
-                        : reply
-                    ),
-                  };
-                }
-                return comment;
-              }),
-            })),
-          };
-        }
+      updateCommentLikeState(
+        queryClient,
+        propertyId,
+        viewerKey,
+        commentId,
+        (comment) => ({
+          isLiked: !isCurrentlyLiked,
+          likeCount: comment.likeCount + (isCurrentlyLiked ? -1 : 1),
+        })
       );
 
       // Return context with the previous value for rollback
       return { previousData };
+    },
+    onSuccess: (data, variables) => {
+      applyAuthoritativeCommentLikeState(queryClient, propertyId, viewerKey, variables.commentId, data);
     },
     onError: (_err, _variables, context) => {
       // Rollback to previous state on error
@@ -238,20 +316,14 @@ export function useLikeComment(propertyId: string) {
     },
     onSettled: () => {
       // Always refetch after error or success to ensure we're in sync
-      queryClient.invalidateQueries({
-        queryKey: commentKeys.lists(),
-        predicate: (query) => {
-          const key = query.queryKey;
-          return Array.isArray(key) && key[0] === 'comments' && key[2] === propertyId;
-        },
-      });
+      queryClient.invalidateQueries(getCommentQueryFilter(propertyId));
     },
   });
 }
 
 /**
- * Hook to check if a comment is liked by the current user
- * This is a simple fetch, not a query, since we track liked state locally
+ * Fetch the authoritative like state for a single comment.
+ * Used to reconcile stale client state after idempotent 409/404 like conflicts.
  */
 export async function checkCommentLiked(
   commentId: string,

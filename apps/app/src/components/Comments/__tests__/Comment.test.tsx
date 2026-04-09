@@ -66,6 +66,7 @@ describe('Comment', () => {
       karma: 50,
     },
     likeCount: 10,
+    isLiked: false,
     createdAt: new Date().toISOString(),
     replies: [],
   };
@@ -217,6 +218,18 @@ describe('Comment', () => {
     );
 
     expect(getByText('10')).toBeTruthy();
+  });
+
+  it('renders the liked state from comment data', () => {
+    const { getByLabelText } = render(
+      <Comment
+        comment={{ ...mockComment, isLiked: true }}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+      />
+    );
+
+    expect(getByLabelText('Unlike comment')).toBeTruthy();
   });
 
   it('does not render like count when 0', () => {

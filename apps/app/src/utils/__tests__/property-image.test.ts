@@ -49,6 +49,24 @@ describe('resolvePropertyImage', () => {
     expect(result).toBeNull();
   });
 
+  it('ignores blocked placeholder.test image hosts', () => {
+    const result = resolvePropertyImage({
+      listingPhotoUrl: 'https://placeholder.test/fixture.jpg',
+      aerialImageUrl: 'https://pdok.nl/aerial.jpg',
+      countryCode: 'NL',
+    });
+    expect(result).toBe('https://pdok.nl/aerial.jpg');
+  });
+
+  it('ignores non-http image URLs', () => {
+    const result = resolvePropertyImage({
+      listingPhotoUrl: 'file:///tmp/image.jpg',
+      aerialImageUrl: 'https://pdok.nl/aerial.jpg',
+      countryCode: 'NL',
+    });
+    expect(result).toBe('https://pdok.nl/aerial.jpg');
+  });
+
   it('prioritizes listing photo over aerial', () => {
     const result = resolvePropertyImage({
       listingPhotoUrl: 'https://listing.jpg',
@@ -66,6 +84,7 @@ describe('resolvePropertyImage', () => {
     });
     expect(result).toBe('https://aerial.jpg');
   });
+
 });
 
 describe('resolvePropertyImageWithType', () => {

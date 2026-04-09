@@ -156,7 +156,7 @@ async function seedTestFixture() {
         ${3},
         ${144},
         ${'C'},
-        ${'https://placeholder.test/fixture.jpg'},
+        ${null},
         ${'Te koop: Beeldbuisring 41, Eindhoven'},
         ${'sale'}
       )

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { users, comments } from '../../db/schema.js';
+import { users, comments, reactions } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -15,6 +15,7 @@ describe('Comment routes', () => {
   let app: FastifyInstance;
   let userId: string;
   let accessToken: string;
+  let likerAccessToken: string;
   let propertyId: string;
   const createdCommentIds: string[] = [];
   const testUserIds: string[] = [];
@@ -34,6 +35,16 @@ describe('Comment routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
+    const likerUniqueId = `commtestliker${Date.now()}`;
+    const likerResp = await app.inject({
+      method: 'POST',
+      url: '/auth/google',
+      payload: { idToken: `mock-google-${likerUniqueId}-gid${likerUniqueId}` },
+    });
+    const likerBody = JSON.parse(likerResp.body);
+    likerAccessToken = likerBody.session.accessToken;
+    testUserIds.push(likerBody.session.user.id);
+
     // Fetch a real property ID from DB
     const propResp = await app.inject({
       method: 'GET',
@@ -45,6 +56,13 @@ describe('Comment routes', () => {
   });
 
   afterAll(async () => {
+    for (const commentId of createdCommentIds) {
+      try {
+        await db.delete(reactions).where(eq(reactions.targetId, commentId));
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
     // Clean up test comments
     for (const commentId of createdCommentIds) {
       try {
@@ -83,6 +101,7 @@ describe('Comment routes', () => {
       expect(body).toHaveProperty('user');
       expect(body.user.id).toBe(userId);
       expect(body.likeCount).toBe(0);
+      expect(body.isLiked).toBe(false);
       expect(body.message).toBe('Comment added successfully');
 
       createdCommentIds.push(body.id);
@@ -195,6 +214,7 @@ describe('Comment routes', () => {
         expect(comment).toHaveProperty('content');
         expect(comment).toHaveProperty('user');
         expect(comment).toHaveProperty('likeCount');
+        expect(comment).toHaveProperty('isLiked');
         expect(comment).toHaveProperty('replies');
         expect(Array.isArray(comment.replies)).toBe(true);
         expect(comment.user).toHaveProperty('username');
@@ -276,6 +296,63 @@ describe('Comment routes', () => {
       const reply = parent.replies.find((r: { id: string }) => r.id === replyBody.id);
       expect(reply).toBeDefined();
       expect(reply.content).toBe('Reply for replies test GET');
+    });
+
+    it('should return viewer-aware isLiked state for comments and replies', async () => {
+      const parentResp = await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/comments`,
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { content: 'Parent for viewer state test' },
+      });
+      const parentBody = JSON.parse(parentResp.body);
+      createdCommentIds.push(parentBody.id);
+
+      const replyResp = await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/comments`,
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { content: 'Reply for viewer state test', parentId: parentBody.id },
+      });
+      const replyBody = JSON.parse(replyResp.body);
+      createdCommentIds.push(replyBody.id);
+
+      await app.inject({
+        method: 'POST',
+        url: `/comments/${parentBody.id}/like`,
+        headers: { authorization: `Bearer ${likerAccessToken}` },
+      });
+
+      await app.inject({
+        method: 'POST',
+        url: `/comments/${replyBody.id}/like`,
+        headers: { authorization: `Bearer ${likerAccessToken}` },
+      });
+
+      const anonymousResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+      });
+      expect(anonymousResponse.statusCode).toBe(200);
+      const anonymousBody = JSON.parse(anonymousResponse.body);
+      const anonymousParent = anonymousBody.data.find((c: { id: string }) => c.id === parentBody.id);
+      expect(anonymousParent.isLiked).toBe(false);
+      expect(anonymousParent.likeCount).toBe(1);
+      const anonymousReply = anonymousParent.replies.find((r: { id: string }) => r.id === replyBody.id);
+      expect(anonymousReply.isLiked).toBe(false);
+      expect(anonymousReply.likeCount).toBe(1);
+
+      const viewerResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+        headers: { authorization: `Bearer ${likerAccessToken}` },
+      });
+      expect(viewerResponse.statusCode).toBe(200);
+      const viewerBody = JSON.parse(viewerResponse.body);
+      const viewerParent = viewerBody.data.find((c: { id: string }) => c.id === parentBody.id);
+      expect(viewerParent.isLiked).toBe(true);
+      const viewerReply = viewerParent.replies.find((r: { id: string }) => r.id === replyBody.id);
+      expect(viewerReply.isLiked).toBe(true);
     });
   });
 });
