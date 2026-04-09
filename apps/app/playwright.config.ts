@@ -73,7 +73,8 @@ export default defineConfig({
             trace: 'retain-on-failure',
             video: 'retain-on-failure',
           },
-          timeout: 60000,
+          workers: 2,
+          timeout: 120000,
         },
         {
           name: 'integration',

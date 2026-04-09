@@ -271,3 +271,10 @@ export interface PropertyNodeGroup {
   yearBuilt: number | null;
   floorAreaM2: number | null;
 }
+
+/**
+ * Nearby grouped node response adds the tap distance to the canonical grouped model.
+ */
+export interface NearbyPropertyGroup extends PropertyNodeGroup {
+  distanceMeters: number;
+}

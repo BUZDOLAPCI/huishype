@@ -122,14 +122,20 @@ describe('GET /properties/nearby', () => {
       const body = JSON.parse(response.body);
 
       if (body !== null) {
-        expect(body).toHaveProperty('node_class');
-        expect(body).toHaveProperty('group_kind');
-        expect(body).toHaveProperty('primary_property_id');
-        expect(body).toHaveProperty('point_count');
-        expect(Array.isArray(body.property_ids)).toBe(true);
-        expect(Array.isArray(body.preview_property_ids)).toBe(true);
+        expect(body).toHaveProperty('nodeClass');
+        expect(body).toHaveProperty('groupKind');
+        expect(body).toHaveProperty('primaryPropertyId');
+        expect(body).toHaveProperty('pointCount');
+        expect(Array.isArray(body.propertyIds)).toBe(true);
+        expect(Array.isArray(body.previewPropertyIds)).toBe(true);
         expect(Array.isArray(body.coordinate)).toBe(true);
         expect(body.coordinate).toHaveLength(2);
+        expect(body).not.toHaveProperty('node_class');
+        expect(body).not.toHaveProperty('group_kind');
+        expect(body).not.toHaveProperty('primary_property_id');
+        expect(body).not.toHaveProperty('point_count');
+        expect(body).not.toHaveProperty('property_ids');
+        expect(body).not.toHaveProperty('preview_property_ids');
       }
     });
 
@@ -144,14 +150,14 @@ describe('GET /properties/nearby', () => {
       const body = JSON.parse(response.body);
 
       if (body !== null) {
-        expect(typeof body.primary_property_id).toBe('string');
-        expect(typeof body.point_count).toBe('number');
+        expect(typeof body.primaryPropertyId).toBe('string');
+        expect(typeof body.pointCount).toBe('number');
         expect(typeof body.hasListing).toBe('boolean');
         expect(typeof body.activityScore).toBe('number');
         expect(typeof body.activityScoreTotal).toBe('number');
         expect(typeof body.distanceMeters).toBe('number');
 
-        if (body.group_kind === 'single') {
+        if (body.groupKind === 'single') {
           expect(typeof body.address).toBe('string');
           expect(typeof body.city).toBe('string');
         } else {
@@ -199,8 +205,8 @@ describe('GET /properties/nearby', () => {
       const lowZoomBody = JSON.parse(lowZoomResp.body);
 
       if (highZoomBody !== null) {
-        expect(['single', 'cluster']).toContain(highZoomBody.group_kind);
-        expect(highZoomBody.point_count).toBeGreaterThanOrEqual(1);
+        expect(['single', 'cluster']).toContain(highZoomBody.groupKind);
+        expect(highZoomBody.pointCount).toBeGreaterThanOrEqual(1);
       }
 
       if (lowZoomBody !== null && highZoomBody !== null) {
@@ -246,14 +252,14 @@ describe('GET /properties/nearby', () => {
       const body = JSON.parse(response.body);
 
       if (body !== null) {
-        expect(body).toHaveProperty('node_class');
-        expect(body).toHaveProperty('group_kind');
-        expect(Array.isArray(body.property_ids)).toBe(true);
-        expect(Array.isArray(body.preview_property_ids)).toBe(true);
-        expect(typeof body.primary_property_id).toBe('string');
-        if (body.group_kind === 'cluster') {
-          expect(body.point_count).toBeGreaterThan(1);
-          expect(body.property_ids.length).toBe(body.point_count);
+        expect(body).toHaveProperty('nodeClass');
+        expect(body).toHaveProperty('groupKind');
+        expect(Array.isArray(body.propertyIds)).toBe(true);
+        expect(Array.isArray(body.previewPropertyIds)).toBe(true);
+        expect(typeof body.primaryPropertyId).toBe('string');
+        if (body.groupKind === 'cluster') {
+          expect(body.pointCount).toBeGreaterThan(1);
+          expect(body.propertyIds.length).toBe(body.pointCount);
           expect(Array.isArray(body.coordinate)).toBe(true);
           expect(body.coordinate).toHaveLength(2);
           expect(typeof body.coordinate[0]).toBe('number');
@@ -261,8 +267,8 @@ describe('GET /properties/nearby', () => {
           expect(typeof body.distanceMeters).toBe('number');
           expect(body.bbox).not.toBeNull();
         } else {
-          expect(body.group_kind).toBe('single');
-          expect(body.point_count).toBe(1);
+          expect(body.groupKind).toBe('single');
+          expect(body.pointCount).toBe(1);
           expect(body.address).toEqual(expect.any(String));
         }
       }
@@ -278,10 +284,10 @@ describe('GET /properties/nearby', () => {
       const body = JSON.parse(response.body);
 
       if (body !== null) {
-        expect(['single', 'cluster']).toContain(body.group_kind);
-        expect(body.point_count).toBeGreaterThanOrEqual(1);
-        expect(body).toHaveProperty('primary_property_id');
-        if (body.group_kind === 'single') {
+        expect(['single', 'cluster']).toContain(body.groupKind);
+        expect(body.pointCount).toBeGreaterThanOrEqual(1);
+        expect(body).toHaveProperty('primaryPropertyId');
+        if (body.groupKind === 'single') {
           expect(body).toHaveProperty('address');
           expect(body).toHaveProperty('city');
         }
@@ -311,8 +317,8 @@ describe('GET /properties/nearby', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       if (body !== null) {
-        expect(body).toHaveProperty('group_kind');
-        expect(body).toHaveProperty('point_count');
+        expect(body).toHaveProperty('groupKind');
+        expect(body).toHaveProperty('pointCount');
       }
     });
 
@@ -350,12 +356,12 @@ describe('GET /properties/nearby', () => {
 
       expect(matchingGroup).toBeDefined();
       expect(body).not.toBeNull();
-      expect(body.node_class).toBe('ghost');
-      expect(body.group_kind).toBe('cluster');
-      expect(body.primary_property_id).toBe(matchingGroup?.primaryPropertyId);
-      expect(body.point_count).toBe(matchingGroup?.pointCount);
-      expect(body.property_ids).toEqual(matchingGroup?.propertyIds);
-      expect(body.preview_property_ids).toEqual(matchingGroup?.previewPropertyIds);
+      expect(body.nodeClass).toBe('ghost');
+      expect(body.groupKind).toBe('cluster');
+      expect(body.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
+      expect(body.pointCount).toBe(matchingGroup?.pointCount);
+      expect(body.propertyIds).toEqual(matchingGroup?.propertyIds);
+      expect(body.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
       expect(body.bbox).toEqual(matchingGroup?.bbox);
       expect(body.hasListing).toBe(false);
       expect(body.activityScore).toBe(0);
@@ -432,9 +438,9 @@ describe('GET /properties/nearby', () => {
         const body = JSON.parse(response.body);
 
         expect(body).not.toBeNull();
-        expect(body.node_class).toBe('ghost');
-        expect(body.group_kind).toBe('single');
-        expect(body.primary_property_id).toBe(propertyId);
+        expect(body.nodeClass).toBe('ghost');
+        expect(body.groupKind).toBe('single');
+        expect(body.primaryPropertyId).toBe(propertyId);
         expect(body.address).toEqual(expect.any(String));
         expect(body.city).toBe('Remote City');
         expect(body.postalCode).toBe('9999 ZZ');
@@ -449,7 +455,7 @@ describe('GET /properties/nearby', () => {
       }
     });
 
-    it('should include valid UUIDs in grouped property_ids', async () => {
+    it('should include valid UUIDs in grouped propertyIds', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10',
@@ -459,7 +465,7 @@ describe('GET /properties/nearby', () => {
       const body = JSON.parse(response.body);
 
       if (body !== null) {
-        const ids = body.property_ids;
+        const ids = body.propertyIds;
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         for (const id of ids) {
           expect(id).toMatch(uuidRegex);

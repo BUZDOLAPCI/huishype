@@ -30,27 +30,27 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /GL Driver Message/,
   /Expected value to be of type/,
   /Failed to load resource.*\/sprites\//,
-  /Failed to load resource: the server responded with a status of 401 \(Unauthorized\)/,
 ];
 
 test.use({ trace: 'off' });
 
 test.describe('Auth Flow', () => {
   let consoleErrors: string[] = [];
-  let allowUnauthorizedConsoleError = false;
+  let allowedUnauthorizedConsoleErrors = 0;
 
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
-    allowUnauthorizedConsoleError = false;
+    allowedUnauthorizedConsoleErrors = 0;
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
         if (
-          allowUnauthorizedConsoleError &&
           /Failed to load resource: the server responded with a status of 401 \(Unauthorized\)/.test(
             text,
-          )
+          ) &&
+          allowedUnauthorizedConsoleErrors > 0
         ) {
+          allowedUnauthorizedConsoleErrors -= 1;
           return;
         }
         if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
@@ -170,7 +170,7 @@ test.describe('Auth Flow', () => {
   });
 
   test('Magic link callback: invalid token shows error and home link', async ({ page }) => {
-    allowUnauthorizedConsoleError = true;
+    allowedUnauthorizedConsoleErrors = 1;
     // Use a 64-char hex string so it passes Zod's length(64) schema
     // validation and actually tests the token-lookup failure path.
     await page.goto('/auth/callback?emailToken=deadbeef00000000000000000000000000000000000000000000000000000000');
@@ -181,6 +181,7 @@ test.describe('Auth Flow', () => {
     // Wait for the error message or "Go to home screen" link to appear.
     const errorOrHome = page.locator('text=/Invalid or expired|Go to home screen/');
     await expect(errorOrHome.first()).toBeVisible({ timeout: 30000 });
+    allowedUnauthorizedConsoleErrors = 0;
 
     // Verify the "Go to home screen" navigation link is present
     const homeLink = page.locator('text=Go to home screen');

@@ -4,7 +4,11 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
 import { sql, eq, and } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
-import { isValidCountryCode, getCountryConfig, type CountryCode } from '@huishype/shared';
+import {
+  isValidCountryCode,
+  getCountryConfig,
+  type CountryCode,
+} from '@huishype/shared';
 import { calculateActivityLevel } from './views.js';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import { resolveNearbyGroupedFeature } from '../services/property-grouping.js';
@@ -212,6 +216,14 @@ function normalizeComparableAddressPart(value: string | null | undefined): strin
     .toUpperCase();
 }
 
+function buildComparableAddressPredicate(column: string, value: string) {
+  const normalizedValue = normalizeComparableAddressPart(value);
+  return sql`(
+    ${sql.raw(column)} = ${value}
+    OR upper(regexp_replace(regexp_replace(${sql.raw(column)}, '[^[:alnum:]]+', ' ', 'g'), '\\s+', ' ', 'g')) = ${normalizedValue}
+  )`;
+}
+
 // Schema for /properties/nearby endpoint
 const nearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
@@ -220,12 +232,12 @@ const nearbyQuerySchema = z.object({
 });
 
 const nearbyGroupedResultSchema = z.object({
-  node_class: z.enum(['active', 'ghost']),
-  group_kind: z.enum(['single', 'cluster']),
-  primary_property_id: z.string().uuid(),
-  point_count: z.number(),
-  property_ids: z.array(z.string().uuid()),
-  preview_property_ids: z.array(z.string().uuid()),
+  nodeClass: z.enum(['active', 'ghost']),
+  groupKind: z.enum(['single', 'cluster']),
+  primaryPropertyId: z.string().uuid(),
+  pointCount: z.number(),
+  propertyIds: z.array(z.string().uuid()),
+  previewPropertyIds: z.array(z.string().uuid()),
   coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
   distanceMeters: z.number(),
   bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable()
@@ -352,12 +364,12 @@ function mapNearbyGroupedResult(
   }
 
   return {
-    node_class: result.nodeClass,
-    group_kind: result.groupKind,
-    primary_property_id: result.primaryPropertyId,
-    point_count: result.pointCount,
-    property_ids: result.propertyIds,
-    preview_property_ids: result.previewPropertyIds,
+    nodeClass: result.nodeClass,
+    groupKind: result.groupKind,
+    primaryPropertyId: result.primaryPropertyId,
+    pointCount: result.pointCount,
+    propertyIds: result.propertyIds,
+    previewPropertyIds: result.previewPropertyIds,
     coordinate: result.coordinate,
     distanceMeters: result.distanceMeters,
     bbox: result.bbox,
@@ -682,53 +694,72 @@ export async function propertyRoutes(app: FastifyInstance) {
       const normalizedStreet = normalizeComparableAddressPart(street);
       const normalizedCity = normalizeComparableAddressPart(city);
 
-      // Exact match using the canonical address key. Country is always part of the
-      // predicate; street/city are applied in-memory because the candidate set at a
-      // fixed postal code + house number + addition is intentionally tiny.
       const additionCondition = normalizedAddition
         ? sql`p.house_number_addition = ${normalizedAddition}`
         : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
 
-      const rows = await db.execute<{
-        id: string;
-        country_code: string;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string;
-        official_valuation: number | null;
-        has_listing: boolean;
-        lon: number | null;
-        lat: number | null;
-      }>(sql`
-        SELECT
-          p.id,
-          p.country_code,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          p.official_valuation,
-          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat
-        FROM properties p
-        LEFT JOIN LATERAL (
-          SELECT id FROM listings
-          WHERE property_id = p.id AND status = 'active'
-          LIMIT 1
-        ) l ON true
-        WHERE p.country_code = ${cc}
-          AND p.postal_code = ${normalizedPostalCode}
-          AND p.house_number = ${houseNumber}
-          AND ${additionCondition}
-      `);
+      const hasStreetOrCity = Boolean(street || city);
 
-      const result = Array.from(rows);
+      const fetchCandidates = async (narrowByStreetCity: boolean) => {
+        const conditions: ReturnType<typeof sql>[] = [
+          sql`p.country_code = ${cc}`,
+          sql`p.postal_code = ${normalizedPostalCode}`,
+          sql`p.house_number = ${houseNumber}`,
+          additionCondition,
+        ];
 
-      const narrowed = result.filter((row) => {
+        if (narrowByStreetCity && street) {
+          conditions.push(buildComparableAddressPredicate('p.street', street));
+        }
+
+        if (narrowByStreetCity && city) {
+          conditions.push(buildComparableAddressPredicate('p.city', city));
+        }
+
+        const limitClause = narrowByStreetCity || !hasStreetOrCity
+          ? sql`LIMIT 2`
+          : sql``;
+
+        const rows = await db.execute<{
+          id: string;
+          country_code: string;
+          street: string;
+          house_number: number;
+          house_number_addition: string | null;
+          city: string;
+          postal_code: string;
+          official_valuation: number | null;
+          has_listing: boolean;
+          lon: number | null;
+          lat: number | null;
+        }>(sql`
+          SELECT
+            p.id,
+            p.country_code,
+            p.street,
+            p.house_number,
+            p.house_number_addition,
+            p.city,
+            p.postal_code,
+            p.official_valuation,
+            CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
+            ST_X(p.geometry) AS lon,
+            ST_Y(p.geometry) AS lat
+          FROM properties p
+          LEFT JOIN LATERAL (
+            SELECT id FROM listings
+            WHERE property_id = p.id AND status = 'active'
+            LIMIT 1
+          ) l ON true
+          WHERE ${sql.join(conditions, sql` AND `)}
+          ${limitClause}
+        `);
+
+        return Array.from(rows);
+      };
+
+      const narrowRows = await fetchCandidates(true);
+      const narrowed = narrowRows.filter((row) => {
         const streetMatches = !normalizedStreet
           || normalizeComparableAddressPart(row.street) === normalizedStreet;
         const cityMatches = !normalizedCity
@@ -736,21 +767,31 @@ export async function propertyRoutes(app: FastifyInstance) {
         return streetMatches && cityMatches;
       });
 
-      if (narrowed.length === 0) {
+      const rows = narrowed.length > 0 || !hasStreetOrCity
+        ? narrowed
+        : (await fetchCandidates(false)).filter((row) => {
+            const streetMatches = !normalizedStreet
+              || normalizeComparableAddressPart(row.street) === normalizedStreet;
+            const cityMatches = !normalizedCity
+              || normalizeComparableAddressPart(row.city) === normalizedCity;
+            return streetMatches && cityMatches;
+          });
+
+      if (rows.length === 0) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `No property found for ${cc} ${normalizedPostalCode} ${houseNumber}${normalizedAddition ?? ''}`,
         });
       }
 
-      if (narrowed.length > 1) {
+      if (rows.length > 1) {
         return reply.status(409).send({
           error: 'AMBIGUOUS_ADDRESS',
           message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
         });
       }
 
-      const r = narrowed[0];
+      const r = rows[0];
       return reply.send({
         id: r.id,
         countryCode: r.country_code,

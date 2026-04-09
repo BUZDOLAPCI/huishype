@@ -315,14 +315,19 @@ export function useMapInteraction(): UseMapInteractionReturn {
       currentProperty.thumbnailUrl ??
       selectedProperty.thumbnailUrl ??
       null;
+    const mergedActivityLevel =
+      selectedProperty.activityLevel ??
+      currentProperty.activityLevel ??
+      getActivityLevel(currentProperty.activityScore ?? 0);
+    // Preserve the grouped preview's activity score; detail hydration should
+    // refine the badge level, not recalculate a new score from different fields.
     const mergedCommentCount =
       selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
     const mergedGuessCount =
       selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
     const mergedLikeCount =
       selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
-    const mergedActivityScore = mergedCommentCount + mergedGuessCount;
-    const mergedActivityLevel = getActivityLevel(mergedActivityScore);
+    const mergedActivityScore = currentProperty.activityScore ?? 0;
 
     setPreviewGroup((prev) => {
       if (!prev) return prev;

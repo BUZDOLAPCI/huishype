@@ -51,6 +51,7 @@ const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAUL
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
+const webExportNodeEnv = 'production';
 const playwrightArgs = process.argv.slice(2);
 let cleanupOnFatal = async () => {};
 
@@ -324,7 +325,10 @@ async function main() {
     ['export', '--platform', 'web'],
     {
       cwd: appCwd,
-      env: withNodeOption(childEnv, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
+      env: withNodeOption({
+        ...childEnv,
+        NODE_ENV: webExportNodeEnv,
+      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
       stdio: 'inherit',
     },
   );

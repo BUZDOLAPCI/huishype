@@ -50,6 +50,7 @@ const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAUL
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
+const webExportNodeEnv = 'production';
 let cleanupOnFatal = async () => {};
 
 function assertPositivePort(value, name) {
@@ -288,7 +289,7 @@ async function main() {
       cwd: appCwd,
       env: withNodeOption({
         ...childEnv,
-        NODE_ENV: 'production',
+        NODE_ENV: webExportNodeEnv,
         EXPO_PUBLIC_API_URL: apiUrl,
       }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
       stdio: 'inherit',

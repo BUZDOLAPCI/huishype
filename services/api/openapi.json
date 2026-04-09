@@ -1240,29 +1240,29 @@
                     {
                       "type": "object",
                       "properties": {
-                        "node_class": {
+                        "nodeClass": {
                           "type": "string",
                           "enum": [
                             "active",
                             "ghost"
                           ]
                         },
-                        "group_kind": {
+                        "groupKind": {
                           "type": "string",
                           "enum": [
                             "single",
                             "cluster"
                           ]
                         },
-                        "primary_property_id": {
+                        "primaryPropertyId": {
                           "type": "string",
                           "format": "uuid",
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                         },
-                        "point_count": {
+                        "pointCount": {
                           "type": "number"
                         },
-                        "property_ids": {
+                        "propertyIds": {
                           "type": "array",
                           "items": {
                             "type": "string",
@@ -1270,7 +1270,7 @@
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                           }
                         },
-                        "preview_property_ids": {
+                        "previewPropertyIds": {
                           "type": "array",
                           "items": {
                             "type": "string",
@@ -1428,12 +1428,12 @@
                         }
                       },
                       "required": [
-                        "node_class",
-                        "group_kind",
-                        "primary_property_id",
-                        "point_count",
-                        "property_ids",
-                        "preview_property_ids",
+                        "nodeClass",
+                        "groupKind",
+                        "primaryPropertyId",
+                        "pointCount",
+                        "propertyIds",
+                        "previewPropertyIds",
                         "coordinate",
                         "distanceMeters",
                         "bbox",

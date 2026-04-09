@@ -10,7 +10,7 @@
  * - Verify vector tiles load at different zoom levels
  */
 
-import { test, expect, type TestInfo } from '@playwright/test';
+import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
@@ -148,6 +148,62 @@ async function waitForPointFeatures(page: import('@playwright/test').Page, timeo
       return false;
     }
   }, { timeout, polling: 500 });
+}
+
+async function clickPropertyMarkerById(page: Page, propertyId: string) {
+  const result = await page.evaluate((targetPropertyId) => {
+    const mapInstance = (window as any).__mapInstance;
+    if (!mapInstance || !mapInstance.isStyleLoaded()) {
+      return { success: false, reason: 'Map not ready' };
+    }
+
+    const canvas = mapInstance.getCanvas();
+    if (!canvas) {
+      return { success: false, reason: 'No canvas' };
+    }
+
+    const layerNames = ['ghost-clusters', 'active-nodes', 'ghost-nodes'];
+    const rect = canvas.getBoundingClientRect();
+
+    for (const layerName of layerNames) {
+      try {
+        if (!mapInstance.getLayer(layerName)) continue;
+
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: [layerName] }
+        ) || [];
+
+        const match = features.find((feature: any) => {
+          const id = feature.properties?.id ||
+            (feature.properties?.property_ids as string | undefined)?.split(',')[0];
+          return id === targetPropertyId && feature.geometry?.type === 'Point';
+        });
+
+        if (match) {
+          const point = mapInstance.project(match.geometry.coordinates);
+          return {
+            success: true,
+            screenX: rect.left + point.x,
+            screenY: rect.top + point.y,
+            propertyId: targetPropertyId,
+          };
+        }
+      } catch {
+        // ignore layer query errors
+      }
+    }
+
+    return { success: false, reason: 'Property not found in rendered features' };
+  }, propertyId);
+
+  if (result.success) {
+    await page.mouse.move(result.screenX, result.screenY);
+    await page.mouse.click(result.screenX, result.screenY);
+    await page.waitForTimeout(500);
+  }
+
+  return result;
 }
 
 test.describe('Map Interactions', () => {
@@ -387,6 +443,11 @@ test.describe('Map Interactions', () => {
     expect(clickResult.success).toBe(true);
     expect(clickResult.screenX).toBeDefined();
     expect(clickResult.screenY).toBeDefined();
+    expect(clickResult.propertyId).toBeDefined();
+    const propertyId = clickResult.propertyId;
+    if (!propertyId) {
+      throw new Error('Expected clicked marker to provide a propertyId');
+    }
     await expect(previewCard).toBeVisible();
 
     const closeButton = page
@@ -395,8 +456,9 @@ test.describe('Map Interactions', () => {
     await closeButton.click();
     await expect(previewCard).toHaveCount(0);
 
-    const reopenedClick = await clickOnPropertyMarker(page);
+    const reopenedClick = await clickPropertyMarkerById(page, propertyId);
     expect(reopenedClick.success).toBe(true);
+    expect(reopenedClick.propertyId).toBe(propertyId);
     await expect(previewCard).toBeVisible();
   });
 

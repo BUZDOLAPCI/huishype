@@ -622,14 +622,14 @@ export interface paths {
                     content: {
                         "application/json": {
                             /** @enum {string} */
-                            node_class: "active" | "ghost";
+                            nodeClass: "active" | "ghost";
                             /** @enum {string} */
-                            group_kind: "single" | "cluster";
+                            groupKind: "single" | "cluster";
                             /** Format: uuid */
-                            primary_property_id: string;
-                            point_count: number;
-                            property_ids: string[];
-                            preview_property_ids: string[];
+                            primaryPropertyId: string;
+                            pointCount: number;
+                            propertyIds: string[];
+                            previewPropertyIds: string[];
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,

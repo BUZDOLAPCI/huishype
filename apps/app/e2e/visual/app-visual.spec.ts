@@ -23,6 +23,10 @@ import * as path from 'path';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
+// This suite exercises the real app with screenshots and map rendering under load.
+// A 60s cap is too tight on this machine once the visual project runs in parallel.
+test.setTimeout(120000);
+
 // Ensure screenshot directory exists
 test.beforeAll(async () => {
   const baseDir = path.resolve(VISUAL_SCREENSHOT_DIR);

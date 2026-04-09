@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { waitForFeedLoaded, waitForMapReady } from './helpers';
 
 /**
  * Integration tests for HuisHype that test the FULL STACK:
@@ -167,6 +168,8 @@ test.describe('Critical Flows - Full Stack Integration', () => {
   });
 
   test.describe('Frontend + API Integration', () => {
+    test.setTimeout(60_000);
+
     test('Map view loads without API errors', async ({ page }) => {
       // Listen for console errors
       const consoleErrors: string[] = [];
@@ -214,8 +217,11 @@ test.describe('Critical Flows - Full Stack Integration', () => {
         }
       });
 
+      const firstPropertiesRequest = page.waitForRequest((request) =>
+        request.url().includes('/properties')
+      );
       await page.goto('/');
-      await page.waitForTimeout(5000); // Wait for API calls
+      await firstPropertiesRequest;
 
       // Take screenshot
       await page.screenshot({
@@ -249,7 +255,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       if (isFeedTabVisible) {
         await feedTab.first().click();
-        await page.waitForTimeout(3000);
+        await waitForFeedLoaded(page);
 
         // Take screenshot
         await page.screenshot({
@@ -282,7 +288,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       });
 
       await page.goto('/');
-      await page.waitForTimeout(5000);
+      await waitForMapReady(page);
 
       // Verify no 404s on API endpoints
       const notFoundRequests = apiRequests.filter((r) => r.status === 404);
@@ -303,7 +309,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       await page.goto('/');
       await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(3000);
+      await waitForMapReady(page);
 
       // Take screenshot
       await page.screenshot({

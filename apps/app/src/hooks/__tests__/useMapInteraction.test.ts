@@ -1149,6 +1149,7 @@ describe('useMapInteraction', () => {
           status: 'active',
           officialValuation: 425000,
           askingPrice: 449000,
+          activityLevel: 'hot',
           fmv: {
             fmv: 431000,
             confidence: 'medium',
@@ -1182,6 +1183,8 @@ describe('useMapInteraction', () => {
             countryCode: 'NL',
             officialValuation: null,
             askingPrice: null,
+            activityLevel: 'warm',
+            activityScore: 7,
             fmv: null,
             likeCount: 0,
             commentCount: 0,
@@ -1202,6 +1205,8 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
+          activityLevel: 'hot',
+          activityScore: 7,
         });
       });
     });

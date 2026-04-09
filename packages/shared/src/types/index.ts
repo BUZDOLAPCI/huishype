@@ -31,6 +31,7 @@ export type {
   PropertyGroupKind,
   PropertyGroupBounds,
   PropertyNodeGroup,
+  NearbyPropertyGroup,
 } from './property.js';
 
 // Listing types

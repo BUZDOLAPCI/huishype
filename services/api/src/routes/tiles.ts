@@ -86,6 +86,7 @@ const spriteParamsSchema = z.object({
 });
 
 const PROPERTY_TILE_CACHE_TTL_MS = 30_000;
+const PROPERTY_TILE_CACHE_MAX_ENTRIES = 1_024;
 
 type PropertyTileCacheEntry = {
   expiresAt: number;
@@ -94,6 +95,39 @@ type PropertyTileCacheEntry = {
 };
 
 const propertyTileCache = new Map<string, PropertyTileCacheEntry>();
+
+function prunePropertyTileCache(now = Date.now()): void {
+  for (const [key, entry] of propertyTileCache) {
+    if (entry.expiresAt <= now) {
+      propertyTileCache.delete(key);
+    }
+  }
+}
+
+function touchPropertyTileCache(cacheKey: string, entry: PropertyTileCacheEntry): void {
+  propertyTileCache.delete(cacheKey);
+  propertyTileCache.set(cacheKey, entry);
+}
+
+function setPropertyTileCache(
+  cacheKey: string,
+  entry: PropertyTileCacheEntry,
+  now = Date.now(),
+): void {
+  prunePropertyTileCache(now);
+
+  if (propertyTileCache.has(cacheKey)) {
+    propertyTileCache.delete(cacheKey);
+  }
+
+  while (propertyTileCache.size >= PROPERTY_TILE_CACHE_MAX_ENTRIES) {
+    const oldestKey = propertyTileCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    propertyTileCache.delete(oldestKey);
+  }
+
+  propertyTileCache.set(cacheKey, entry);
+}
 
 // --- Sprite manifest + layer filtering ---
 
@@ -1106,6 +1140,8 @@ export async function tileRoutes(app: FastifyInstance) {
       const cachedTile = propertyTileCache.get(cacheKey);
 
       if (cachedTile && cachedTile.expiresAt > now) {
+        touchPropertyTileCache(cacheKey, cachedTile);
+
         if (cachedTile.statusCode === 204) {
           return reply
             .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
@@ -1144,7 +1180,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
       // Empty tile
       if (!mvtBuffer || mvtBuffer.length === 0) {
-        propertyTileCache.set(cacheKey, {
+        setPropertyTileCache(cacheKey, {
           expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
           payload: null,
           statusCode: 204,
@@ -1158,7 +1194,7 @@ export async function tileRoutes(app: FastifyInstance) {
           .send();
       }
 
-      propertyTileCache.set(cacheKey, {
+      setPropertyTileCache(cacheKey, {
         expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
         payload: mvtBuffer,
         statusCode: 200,

@@ -16,6 +16,11 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import {
+  waitForFeedLoaded,
+  waitForMapReady,
+  waitForPropertyDetailReady,
+} from './helpers';
 
 // Configuration
 const EXPECTATION_NAME = '0019-real-address-routing';
@@ -47,6 +52,8 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 ];
 
 test.describe('Address Display - Non-Mocked Integration Tests', () => {
+  test.setTimeout(60_000);
+
   let consoleErrors: string[] = [];
 
   test.beforeAll(async () => {
@@ -148,7 +155,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // Navigate to map view
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000); // Wait for map to load
+    await waitForMapReady(page);
 
     // Take screenshot of initial map state
     await page.screenshot({
@@ -211,7 +218,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // Navigate to the property page
     await page.goto(`/property/${propertyId}`);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await waitForPropertyDetailReady(page, address);
 
     // Take screenshot
     await page.screenshot({
@@ -256,7 +263,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
 
     await expect(feedTab.first()).toBeVisible({ timeout: 10000 });
     await feedTab.first().click();
-    await page.waitForTimeout(3000);
+    await waitForFeedLoaded(page);
 
     // Take screenshot
     await page.screenshot({
@@ -281,7 +288,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // Navigate to map
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
+    await waitForMapReady(page);
 
     // Wait for map to be visible
     const mapContainer = page.locator('[data-testid="map-view"]');

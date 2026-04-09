@@ -178,7 +178,7 @@ test.describe('Cluster Tap - API Integration', () => {
 
     if (resp.ok()) {
       const data = await resp.json();
-      if (data && data.group_kind === 'cluster') {
+      if (data && data.groupKind === 'cluster') {
         expect(data).toHaveProperty('bbox');
         expect(data.bbox).toHaveLength(4);
         const [west, south, east, north] = data.bbox;
@@ -190,7 +190,7 @@ test.describe('Cluster Tap - API Integration', () => {
         expect(south).toBeGreaterThanOrEqual(-90);
         expect(north).toBeLessThanOrEqual(90);
         console.log(`Cluster bbox: [${west}, ${south}, ${east}, ${north}]`);
-      } else if (data && data.group_kind === 'single') {
+      } else if (data && data.groupKind === 'single') {
         console.log('Nearby returned a single result, not a cluster — bbox test not applicable');
       }
     } else {

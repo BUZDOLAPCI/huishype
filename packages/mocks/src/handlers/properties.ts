@@ -51,12 +51,12 @@ function buildNearbySingleResponse({
   distanceMeters: number;
 }) {
   return {
-    node_class: nodeClass,
-    group_kind: 'single' as const,
-    primary_property_id: id,
-    point_count: 1,
-    property_ids: [id],
-    preview_property_ids: [id],
+    nodeClass,
+    groupKind: 'single' as const,
+    primaryPropertyId: id,
+    pointCount: 1,
+    propertyIds: [id],
+    previewPropertyIds: [id],
     coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
     bbox: null,
     countryCode: property.countryCode,
@@ -154,12 +154,12 @@ export const propertyHandlers = [
 
     if (zoom < 14) {
       return HttpResponse.json({
-        node_class: 'active' as const,
-        group_kind: 'cluster' as const,
-        primary_property_id: MOCK_NEARBY_CLUSTER_IDS[0],
-        point_count: 6,
-        property_ids: MOCK_NEARBY_CLUSTER_IDS,
-        preview_property_ids: MOCK_NEARBY_CLUSTER_IDS,
+        nodeClass: 'active' as const,
+        groupKind: 'cluster' as const,
+        primaryPropertyId: MOCK_NEARBY_CLUSTER_IDS[0],
+        pointCount: 6,
+        propertyIds: MOCK_NEARBY_CLUSTER_IDS,
+        previewPropertyIds: MOCK_NEARBY_CLUSTER_IDS,
         coordinate: [4.884, 52.3752] as [number, number],
         bbox: [4.8836, 52.3748, 4.8844, 52.3756] as [number, number, number, number],
         countryCode: null,

@@ -12,7 +12,7 @@
  * Screenshot saved to: test-results/reference-expectations/0021-map-property-preview/
  */
 
-import { test, expect, Page, Route } from '@playwright/test';
+import { test, expect, Page, Route, Locator } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from './helpers/screenshot-harness';
@@ -114,6 +114,18 @@ async function waitForMapReady(page: Page): Promise<void> {
 
   // Wait for map to be idle (all tiles fully rendered)
   await waitForMapIdle(page, 10000);
+}
+
+async function waitForPreviewCardVisible(
+  previewCard: Locator,
+  timeout = 10000,
+): Promise<boolean> {
+  try {
+    await expect(previewCard).toBeVisible({ timeout });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -273,8 +285,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const clickResult = await clickOnPropertyMarker(page);
     console.log(`Marker click attempt: success=${clickResult.success}, features=${clickResult.featureCount}`);
 
-    await page.waitForTimeout(1000); // Wait for spring animation
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewCardVisible(previewCard);
     console.log(`Preview visible after marker click: ${previewVisible}`);
 
     // Wait additional time for thumbnail image to load from PDOK
@@ -319,9 +330,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!pos) continue;
         console.log(`Clicking at screen position (${Math.round(pos.x)}, ${Math.round(pos.y)})...`);
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewCardVisible(previewCard);
         if (previewVisible) {
           console.log('Preview card appeared!');
           break;
@@ -412,8 +421,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const clickResult = await clickOnPropertyMarker(page);
     console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
 
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewCardVisible(previewCard);
 
     // Fallback click attempts
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -442,8 +450,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewCardVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -660,8 +667,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewCardVisible(previewCard);
 
     // Fallback click attempts if preview not visible
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -690,8 +696,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewCardVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -826,8 +831,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewCardVisible(previewCard);
 
     if (previewVisible) {
       console.log('Preview card is visible, now tapping map background to dismiss');

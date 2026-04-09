@@ -250,12 +250,12 @@ export async function resolveProperty(
 
 /** Density-aware grouped result from GET /properties/nearby */
 export interface NearbyGroupedResult {
-  node_class: 'active' | 'ghost';
-  group_kind: 'single' | 'cluster';
-  primary_property_id: string;
-  point_count: number;
-  property_ids: string[];
-  preview_property_ids: string[];
+  nodeClass: 'active' | 'ghost';
+  groupKind: 'single' | 'cluster';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -329,12 +329,12 @@ function normalizeBbox(
 
 export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): NearbyPropertyGroup {
   return {
-    nodeClass: result.node_class,
-    groupKind: result.group_kind,
-    primaryPropertyId: result.primary_property_id,
-    pointCount: result.point_count,
-    propertyIds: result.property_ids,
-    previewPropertyIds: result.preview_property_ids,
+    nodeClass: result.nodeClass,
+    groupKind: result.groupKind,
+    primaryPropertyId: result.primaryPropertyId,
+    pointCount: result.pointCount,
+    propertyIds: result.propertyIds,
+    previewPropertyIds: result.previewPropertyIds,
     coordinate: result.coordinate,
     bbox: normalizeBbox(result.bbox),
     hasListing: result.hasListing,
