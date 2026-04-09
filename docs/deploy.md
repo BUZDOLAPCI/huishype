@@ -46,15 +46,54 @@ CPX32 (150GB) is too small. Photon planet DB (~88GB) + PostgreSQL (~51GB) + Dock
 
 **Alpine IPv6 healthchecks**: Alpine resolves `localhost` to `::1` but services bind `0.0.0.0` (IPv4). Healthchecks must use `127.0.0.1`. Exception: Photon's JRE image handles both (healthcheck uses `localhost`).
 
-**Traefik routing loss after deploys**: Coolify recreates containers on each deploy. Traefik often fails to pick up the new containers, causing gateway timeouts. A systemd watchdog (`traefik-watchdog.timer`) runs every 30s on the VPS, checks both `huishype.nl` and `api.huishype.nl/health`, and auto-restarts `coolify-proxy` + bounces app containers if routing is broken (with a 3-minute cooldown to prevent loops). Script: `/usr/local/bin/traefik-watchdog.sh`. Logs: `journalctl -u traefik-watchdog.service`.
+**Traefik routing loss after deploys**: Coolify recreates containers on each deploy. Traefik can miss the replacement containers, which causes public gateway failures while the app containers themselves remain healthy.
+
+The production fix is a guarded systemd watchdog:
+- Repo source of truth: `tools/ops/traefik-watchdog.sh`, `tools/ops/traefik-watchdog.service`, `tools/ops/traefik-watchdog.timer`
+- Install/sync command: `./tools/install-traefik-watchdog.sh`
+- Server runtime paths:
+  - `/usr/local/bin/traefik-watchdog.sh`
+  - `/etc/systemd/system/traefik-watchdog.service`
+  - `/etc/systemd/system/traefik-watchdog.timer`
+  - `/etc/default/traefik-watchdog`
+- Logs: `journalctl -u traefik-watchdog.service`
+
+Behavior:
+- Timer runs every 30s
+- Requires 3 consecutive public failures before acting
+- Checks both public routing and container-local health before recovery
+- Reconnects `coolify-proxy` to the app network if needed
+- Restarts `coolify-proxy` only if routing is still broken after the network repair
+- Never restarts `web` or `api`; if app health is bad, the watchdog logs and exits without touching them
+- Uses a 5-minute cooldown after recovery to avoid proxy restart loops
+
+Verification:
+```bash
+ssh root@94.130.105.129 systemctl status traefik-watchdog.timer
+ssh root@94.130.105.129 journalctl -u traefik-watchdog.service -n 50 --no-pager
+curl -fsS https://huishype.nl/
+curl -fsS https://api.huishype.nl/health
+```
 
 Manual fix if the watchdog isn't running:
 ```bash
-docker restart coolify-proxy
-sleep 5
 docker network connect cop1e1822hijj6g3zmxhrs0k coolify-proxy 2>/dev/null || true
-# If API still doesn't route, bounce it:
-docker restart $(docker ps --filter "name=api-cop1e1822hijj6g3zmxhrs0k" -q)
+docker restart coolify-proxy
+```
+
+If the app-local health checks fail, fix `web` / `api` first and do not use the watchdog or proxy restart as a substitute.
+
+Watchdog admin:
+```bash
+# Install or resync the managed watchdog from the repo
+./tools/install-traefik-watchdog.sh
+
+# Dry run once
+ssh root@94.130.105.129 systemctl start traefik-watchdog.service
+ssh root@94.130.105.129 journalctl -u traefik-watchdog.service -n 20 --no-pager
+
+# Enable the timer
+ssh root@94.130.105.129 systemctl enable --now traefik-watchdog.timer
 ```
 
 **EXPO_PUBLIC_API_URL is build-time**: Baked into the JS bundle during `docker build`. Changing it requires a full redeploy, not just container restart. Coolify may show duplicate env vars (one with a value, one empty) — ensure the empty one doesn't override.
