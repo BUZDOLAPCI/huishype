@@ -351,6 +351,10 @@ For complex multi-step work, use task tools: `TaskCreate`, `TaskList`, `TaskGet`
 
 Launch multiple independent subagents in a single message for maximum efficiency.
 
+### Parallel Work Coordination
+
+Other agents may be editing nearby files at the same time. Do not overwrite, revert, or "clean up" unrelated work of other agents.
+
 ## Verification
 
 Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical `pnpm test` gate includes app, API, worker, shared, api-client, and mocks unit coverage plus API integration and Playwright integration. Follow "All tests green" development.
