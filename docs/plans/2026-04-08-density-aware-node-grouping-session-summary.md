@@ -150,7 +150,8 @@ What changed:
 - Reworked `apps/app/src/utils/api.ts` to:
   - replace the old `fetchNearbyProperty` and `fetchNearbyCluster` assumptions
     with grouped nearby results,
-  - normalize `/properties/nearby` transport into a shared grouped node shape,
+  - normalize `/properties/nearby` transport into a shared grouped node shape
+    that matches the API's camelCase JSON contract,
   - normalize rendered vector-tile features into the same shape.
 - `apps/app/src/hooks/useMapInteraction.ts` was updated so cluster vs single
   behavior is driven by final feature metadata rather than the old zoom split.
@@ -163,6 +164,8 @@ Why this is the correct fix:
 
 - App behavior now follows the final grouped contract instead of guessing from
   zoom thresholds.
+- The transport contract is now explicit: internal grouped semantics stay
+  canonical, while JSON transport follows the API's camelCase field names.
 - Nearby fallback and rendered-feature taps resolve through the same conceptual
   shape.
 

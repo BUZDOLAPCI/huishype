@@ -216,12 +216,20 @@ function normalizeComparableAddressPart(value: string | null | undefined): strin
     .toUpperCase();
 }
 
+function buildComparableAddressExpression(column: string) {
+  return sql`trim(upper(
+    regexp_replace(
+      regexp_replace(normalize(${sql.raw(column)}, NFKD), '[\\u0300-\\u036f]', '', 'g'),
+      '[^[:alnum:]]+',
+      ' ',
+      'g'
+    )
+  ))`;
+}
+
 function buildComparableAddressPredicate(column: string, value: string) {
   const normalizedValue = normalizeComparableAddressPart(value);
-  return sql`(
-    ${sql.raw(column)} = ${value}
-    OR upper(regexp_replace(regexp_replace(${sql.raw(column)}, '[^[:alnum:]]+', ' ', 'g'), '\\s+', ' ', 'g')) = ${normalizedValue}
-  )`;
+  return sql`${buildComparableAddressExpression(column)} = ${normalizedValue}`;
 }
 
 // Schema for /properties/nearby endpoint
@@ -698,9 +706,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         ? sql`p.house_number_addition = ${normalizedAddition}`
         : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
 
-      const hasStreetOrCity = Boolean(street || city);
-
-      const fetchCandidates = async (narrowByStreetCity: boolean) => {
+      const fetchCandidates = async () => {
         const conditions: ReturnType<typeof sql>[] = [
           sql`p.country_code = ${cc}`,
           sql`p.postal_code = ${normalizedPostalCode}`,
@@ -708,17 +714,13 @@ export async function propertyRoutes(app: FastifyInstance) {
           additionCondition,
         ];
 
-        if (narrowByStreetCity && street) {
+        if (street) {
           conditions.push(buildComparableAddressPredicate('p.street', street));
         }
 
-        if (narrowByStreetCity && city) {
+        if (city) {
           conditions.push(buildComparableAddressPredicate('p.city', city));
         }
-
-        const limitClause = narrowByStreetCity || !hasStreetOrCity
-          ? sql`LIMIT 2`
-          : sql``;
 
         const rows = await db.execute<{
           id: string;
@@ -752,30 +754,19 @@ export async function propertyRoutes(app: FastifyInstance) {
             LIMIT 1
           ) l ON true
           WHERE ${sql.join(conditions, sql` AND `)}
-          ${limitClause}
+          LIMIT 2
         `);
 
         return Array.from(rows);
       };
 
-      const narrowRows = await fetchCandidates(true);
-      const narrowed = narrowRows.filter((row) => {
+      const rows = (await fetchCandidates()).filter((row) => {
         const streetMatches = !normalizedStreet
           || normalizeComparableAddressPart(row.street) === normalizedStreet;
         const cityMatches = !normalizedCity
           || normalizeComparableAddressPart(row.city) === normalizedCity;
         return streetMatches && cityMatches;
       });
-
-      const rows = narrowed.length > 0 || !hasStreetOrCity
-        ? narrowed
-        : (await fetchCandidates(false)).filter((row) => {
-            const streetMatches = !normalizedStreet
-              || normalizeComparableAddressPart(row.street) === normalizedStreet;
-            const cityMatches = !normalizedCity
-              || normalizeComparableAddressPart(row.city) === normalizedCity;
-            return streetMatches && cityMatches;
-          });
 
       if (rows.length === 0) {
         return reply.status(404).send({

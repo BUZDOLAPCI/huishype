@@ -1205,7 +1205,7 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          activityLevel: 'hot',
+          activityLevel: 'warm',
           activityScore: 7,
         });
       });

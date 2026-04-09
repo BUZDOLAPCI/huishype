@@ -55,7 +55,7 @@ The production fix is a guarded systemd watchdog:
   - `/usr/local/bin/traefik-watchdog.sh`
   - `/etc/systemd/system/traefik-watchdog.service`
   - `/etc/systemd/system/traefik-watchdog.timer`
-  - `/etc/default/traefik-watchdog`
+  - `/etc/default/traefik-watchdog` - host-local config; created on first install and preserved on reruns
 - Logs: `journalctl -u traefik-watchdog.service`
 
 Behavior:
@@ -85,7 +85,13 @@ If the app-local health checks fail, fix `web` / `api` first and do not use the 
 
 Watchdog admin:
 ```bash
-# Install or resync the managed watchdog from the repo
+# Fresh host: seed config explicitly, then install.
+APP_LABEL=coolify.applicationId=1 APP_NETWORK=cop1e1822hijj6g3zmxhrs0k \
+PROXY_CONTAINER=coolify-proxy WEB_PUBLIC_URL=https://huishype.nl/ \
+API_PUBLIC_URL=https://api.huishype.nl/health WEB_INTERNAL_URL=http://127.0.0.1:80/ \
+API_INTERNAL_URL=http://127.0.0.1:3100/health ./tools/install-traefik-watchdog.sh
+
+# Rerun on the same host: preserves /etc/default/traefik-watchdog if it already exists.
 ./tools/install-traefik-watchdog.sh
 
 # Dry run once

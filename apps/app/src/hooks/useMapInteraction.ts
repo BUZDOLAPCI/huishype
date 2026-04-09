@@ -205,6 +205,58 @@ function flyToPreviewAnchor(
   });
 }
 
+function mergeHydratedPreviewProperty(
+  currentProperty: GroupPreviewProperty,
+  selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
+): GroupPreviewProperty {
+  const mergedActivityScore = currentProperty.activityScore ?? 0;
+  const mergedActivityLevel = getActivityLevel(mergedActivityScore);
+  const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
+  const mergedOfficialValuation =
+    currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
+  const mergedAskingPrice =
+    currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
+  const mergedFmv =
+    currentProperty.fmv ??
+    (typeof selectedProperty.fmv === 'number'
+      ? selectedProperty.fmv
+      : selectedProperty.fmv?.fmv ?? null);
+  const mergedAerialImageUrl =
+    currentProperty.aerialImageUrl ??
+    selectedProperty.aerialImageUrl ??
+    nextAerialImageUrl;
+  const mergedThumbnailUrl =
+    currentProperty.thumbnailUrl ??
+    selectedProperty.thumbnailUrl ??
+    null;
+  const mergedCommentCount =
+    selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
+  const mergedGuessCount =
+    selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
+  const mergedLikeCount =
+    selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
+
+  return {
+    ...currentProperty,
+    address: selectedProperty.address,
+    city: selectedProperty.city,
+    postalCode: selectedProperty.postalCode,
+    countryCode: selectedProperty.countryCode,
+    officialValuation: mergedOfficialValuation,
+    askingPrice: mergedAskingPrice,
+    fmv: mergedFmv,
+    activityLevel: mergedActivityLevel,
+    activityScore: mergedActivityScore,
+    aerialImageUrl: mergedAerialImageUrl,
+    thumbnailUrl: mergedThumbnailUrl,
+    yearBuilt: selectedProperty.yearBuilt,
+    floorAreaM2: selectedProperty.floorAreaM2,
+    likeCount: mergedLikeCount,
+    commentCount: mergedCommentCount,
+    guessCount: mergedGuessCount,
+  };
+}
+
 /** Convert a property-like object to GroupPreviewProperty. */
 function convertToGroupProperty(
   p: ToGroupPropertyInput,
@@ -296,84 +348,35 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
     const currentProperty = previewGroup.properties[currentPreviewIndex];
     if (!currentProperty || currentProperty.id !== selectedProperty.id) return;
-
-    const mergedOfficialValuation =
-      currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
-    const mergedAskingPrice =
-      currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
-    const mergedFmv =
-      currentProperty.fmv ??
-      (typeof selectedProperty.fmv === 'number'
-        ? selectedProperty.fmv
-        : selectedProperty.fmv?.fmv ?? null);
-    const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
-    const mergedAerialImageUrl =
-      currentProperty.aerialImageUrl ??
-      selectedProperty.aerialImageUrl ??
-      nextAerialImageUrl;
-    const mergedThumbnailUrl =
-      currentProperty.thumbnailUrl ??
-      selectedProperty.thumbnailUrl ??
-      null;
-    const mergedActivityLevel =
-      selectedProperty.activityLevel ??
-      currentProperty.activityLevel ??
-      getActivityLevel(currentProperty.activityScore ?? 0);
-    // Preserve the grouped preview's activity score; detail hydration should
-    // refine the badge level, not recalculate a new score from different fields.
-    const mergedCommentCount =
-      selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
-    const mergedGuessCount =
-      selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
-    const mergedLikeCount =
-      selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
-    const mergedActivityScore = currentProperty.activityScore ?? 0;
+    const mergedProperty = mergeHydratedPreviewProperty(currentProperty, selectedProperty);
 
     setPreviewGroup((prev) => {
       if (!prev) return prev;
       const prevCurrent = prev.properties[currentPreviewIndex];
       if (!prevCurrent || prevCurrent.id !== selectedProperty.id) return prev;
       if (
-        prevCurrent.aerialImageUrl === mergedAerialImageUrl &&
-        prevCurrent.thumbnailUrl === mergedThumbnailUrl &&
-        prevCurrent.address === selectedProperty.address &&
-        prevCurrent.city === selectedProperty.city &&
-        prevCurrent.postalCode === selectedProperty.postalCode &&
-        prevCurrent.yearBuilt === selectedProperty.yearBuilt &&
-        prevCurrent.floorAreaM2 === selectedProperty.floorAreaM2 &&
-        prevCurrent.countryCode === selectedProperty.countryCode &&
-        prevCurrent.officialValuation === mergedOfficialValuation &&
-        prevCurrent.askingPrice === mergedAskingPrice &&
-        prevCurrent.fmv === mergedFmv &&
-        prevCurrent.activityLevel === mergedActivityLevel &&
-        prevCurrent.activityScore === mergedActivityScore &&
-        prevCurrent.likeCount === mergedLikeCount &&
-        prevCurrent.commentCount === mergedCommentCount &&
-        prevCurrent.guessCount === mergedGuessCount
+        prevCurrent.aerialImageUrl === mergedProperty.aerialImageUrl &&
+        prevCurrent.thumbnailUrl === mergedProperty.thumbnailUrl &&
+        prevCurrent.address === mergedProperty.address &&
+        prevCurrent.city === mergedProperty.city &&
+        prevCurrent.postalCode === mergedProperty.postalCode &&
+        prevCurrent.yearBuilt === mergedProperty.yearBuilt &&
+        prevCurrent.floorAreaM2 === mergedProperty.floorAreaM2 &&
+        prevCurrent.countryCode === mergedProperty.countryCode &&
+        prevCurrent.officialValuation === mergedProperty.officialValuation &&
+        prevCurrent.askingPrice === mergedProperty.askingPrice &&
+        prevCurrent.fmv === mergedProperty.fmv &&
+        prevCurrent.activityLevel === mergedProperty.activityLevel &&
+        prevCurrent.activityScore === mergedProperty.activityScore &&
+        prevCurrent.likeCount === mergedProperty.likeCount &&
+        prevCurrent.commentCount === mergedProperty.commentCount &&
+        prevCurrent.guessCount === mergedProperty.guessCount
       ) {
         return prev;
       }
 
       const properties = [...prev.properties];
-      properties[currentPreviewIndex] = {
-        ...prevCurrent,
-        address: selectedProperty.address,
-        city: selectedProperty.city,
-        postalCode: selectedProperty.postalCode,
-        countryCode: selectedProperty.countryCode,
-        officialValuation: mergedOfficialValuation,
-        askingPrice: mergedAskingPrice,
-        fmv: mergedFmv,
-        activityLevel: mergedActivityLevel,
-        activityScore: mergedActivityScore,
-        aerialImageUrl: mergedAerialImageUrl,
-        thumbnailUrl: mergedThumbnailUrl,
-        yearBuilt: selectedProperty.yearBuilt,
-        floorAreaM2: selectedProperty.floorAreaM2,
-        likeCount: mergedLikeCount,
-        commentCount: mergedCommentCount,
-        guessCount: mergedGuessCount,
-      };
+      properties[currentPreviewIndex] = mergedProperty;
       return { ...prev, properties };
     });
   }, [currentPreviewIndex, previewGroup, selectedProperty]);

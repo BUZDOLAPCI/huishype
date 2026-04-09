@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_LABEL="${APP_LABEL:-coolify.applicationId=1}"
-APP_NETWORK="${APP_NETWORK:-cop1e1822hijj6g3zmxhrs0k}"
-PROXY_CONTAINER="${PROXY_CONTAINER:-coolify-proxy}"
+APP_LABEL="${APP_LABEL:?APP_LABEL must be set in /etc/default/traefik-watchdog}"
+APP_NETWORK="${APP_NETWORK:?APP_NETWORK must be set in /etc/default/traefik-watchdog}"
+PROXY_CONTAINER="${PROXY_CONTAINER:?PROXY_CONTAINER must be set in /etc/default/traefik-watchdog}"
 STATE_DIR="${STATE_DIR:-/var/lib/traefik-watchdog}"
 LOCK_FILE="${LOCK_FILE:-$STATE_DIR/lock}"
 STATUS_FILE="${STATUS_FILE:-$STATE_DIR/status}"
@@ -16,13 +16,13 @@ RECOVERY_SETTLE_SECONDS="${RECOVERY_SETTLE_SECONDS:-10}"
 RECONCILE_SETTLE_SECONDS="${RECONCILE_SETTLE_SECONDS:-3}"
 
 declare -Ar PUBLIC_URLS=(
-  [web]="${WEB_PUBLIC_URL:-https://huishype.nl/}"
-  [api]="${API_PUBLIC_URL:-https://api.huishype.nl/health}"
+  [web]="${WEB_PUBLIC_URL:?WEB_PUBLIC_URL must be set in /etc/default/traefik-watchdog}"
+  [api]="${API_PUBLIC_URL:?API_PUBLIC_URL must be set in /etc/default/traefik-watchdog}"
 )
 
 declare -Ar INTERNAL_URLS=(
-  [web]="${WEB_INTERNAL_URL:-http://127.0.0.1:80/}"
-  [api]="${API_INTERNAL_URL:-http://127.0.0.1:3100/health}"
+  [web]="${WEB_INTERNAL_URL:?WEB_INTERNAL_URL must be set in /etc/default/traefik-watchdog}"
+  [api]="${API_INTERNAL_URL:?API_INTERNAL_URL must be set in /etc/default/traefik-watchdog}"
 )
 
 mkdir -p "$STATE_DIR"

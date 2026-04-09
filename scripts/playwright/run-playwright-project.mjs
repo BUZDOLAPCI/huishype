@@ -119,6 +119,16 @@ async function waitForHttp(url, label) {
 
 function waitForExit(child, name, stopping) {
   return new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      if (stopping.current) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${name} exited unexpectedly with code ${child.exitCode} and signal ${child.signalCode}`));
+      return;
+    }
+
     child.once('exit', (code, signal) => {
       if (stopping.current) {
         resolve();
@@ -127,6 +137,42 @@ function waitForExit(child, name, stopping) {
 
       reject(new Error(`${name} exited unexpectedly with code ${code} and signal ${signal}`));
     });
+  });
+}
+
+function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
+  return new Promise((resolve, reject) => {
+    const fail = (message) => {
+      if (stopping.current) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${message} while Playwright was running`));
+    };
+
+    if (apiChild) {
+      if (apiChild.exitCode !== null || apiChild.signalCode !== null) {
+        fail(`API server exited unexpectedly with code ${apiChild.exitCode} and signal ${apiChild.signalCode}`);
+        return;
+      }
+
+      apiChild.once('exit', (code, signal) => {
+        fail(`API server exited unexpectedly with code ${code} and signal ${signal}`);
+      });
+    }
+
+    const webServer = webRuntime?.server;
+    if (webServer) {
+      webServer.once('close', () => {
+        fail('Static web server closed unexpectedly');
+      });
+
+      webServer.once('error', (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        fail(`Static web server failed unexpectedly: ${message}`);
+      });
+    }
   });
 }
 
@@ -163,7 +209,7 @@ function spawnService(command, args, env, cwd = repoRoot, stdio = ['ignore', 'in
 }
 
 function stopService(child, signal) {
-  if (!child || child.killed) {
+  if (!child || child.killed || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
 
@@ -267,8 +313,10 @@ async function main() {
   };
 
   let apiChild = null;
+  let apiExitPromise = Promise.resolve();
   let webRuntime = null;
   let playwrightChild = null;
+  let playwrightExitPromise = Promise.resolve(0);
   const stopping = { current: false };
 
   const stop = async (signal) => {
@@ -280,9 +328,11 @@ async function main() {
     stopService(playwrightChild, signal);
     stopService(apiChild, signal);
     await Promise.all([
-      waitForChildExit(playwrightChild, 'Playwright'),
-      waitForChildExit(apiChild, 'API server'),
-      webRuntime?.stop?.() ?? Promise.resolve(),
+      Promise.resolve(playwrightExitPromise).catch(() => {}),
+      Promise.resolve(apiExitPromise).catch(() => {}),
+      Promise.resolve()
+        .then(() => webRuntime?.stop?.())
+        .catch(() => {}),
     ]);
   };
 
@@ -318,6 +368,7 @@ async function main() {
       spawnService(command, args, env, cwd, ['ignore', 'ignore', 'ignore']),
   });
   apiChild = apiRuntime.child;
+  apiExitPromise = apiRuntime.exitPromise;
 
   console.log('Building Expo web bundle for Playwright runtime ...');
   execFileSync(
@@ -347,6 +398,11 @@ async function main() {
   await waitForHttp(webUrl, 'Static web server');
 
   console.log(`Runtime ready: ${apiUrl} and ${webUrl}`);
+  const runtimeDeathPromise = watchRuntimeDeaths({
+    apiChild,
+    webRuntime,
+    stopping,
+  });
   playwrightChild = spawnService(
     playwrightBin,
     ['test', ...playwrightArgs],
@@ -354,7 +410,7 @@ async function main() {
     repoRoot,
   );
 
-  const exitCode = await new Promise((resolve, reject) => {
+  playwrightExitPromise = new Promise((resolve, reject) => {
     playwrightChild.once('exit', (code, signal) => {
       if (signal) {
         if (stopping.current) {
@@ -370,11 +426,16 @@ async function main() {
     playwrightChild.once('error', reject);
   });
 
+  const exitCode = await Promise.race([
+    playwrightExitPromise,
+    runtimeDeathPromise,
+  ]);
+
   await stop('SIGTERM');
   process.exit(Number(exitCode));
 }
 
-export { startServiceWithRetry, waitForExit, waitForHttp };
+export { startServiceWithRetry, waitForExit, waitForHttp, watchRuntimeDeaths };
 
 const isMainModule = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 

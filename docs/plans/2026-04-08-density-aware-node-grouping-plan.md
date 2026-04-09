@@ -380,7 +380,9 @@ Transport rules:
 
 - tiles may encode arrays or objects into transport-safe MVT properties at the
   serialization edge only
-- nearby JSON should expose the canonical shape directly
+- nearby JSON should use the API's camelCase transport contract directly
+  (`nodeClass`, `groupKind`, `primaryPropertyId`, `pointCount`,
+  `propertyIds`, `previewPropertyIds`, `bbox`, etc.)
 - app code should normalize both tile features and nearby JSON into one final
   client-side group model
 

@@ -265,6 +265,38 @@ describe('GET /properties/resolve', () => {
     expect(body.address).toContain(fixture.street);
   });
 
+  it('should match accented street and city names using the shared normalization contract', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const street = 'Café de la Résistance';
+    const city = 'München';
+
+    const [inserted] = await db
+      .insert(propertiesTable)
+      .values({
+        countryCode: 'NL',
+        postalCode: key.postalCode,
+        houseNumber: key.houseNumber,
+        houseNumberAddition: null,
+        street,
+        city,
+        status: 'active',
+      })
+      .returning({ id: propertiesTable.id });
+
+    cleanupPropertyIds.push(inserted.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&street=${encodeURIComponent(street)}&city=${encodeURIComponent(city)}&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(inserted.id);
+    expect(body.address).toContain('Café');
+    expect(body.city).toBe(city);
+  });
+
   it('should return 409 when multiple real matches remain after filtering', async () => {
     const fixture = getDisambiguationFixture();
     const response = await app.inject({

@@ -1,18 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { startServiceWithRetry } from './run-playwright-project.mjs';
+import { startServiceWithRetry, watchRuntimeDeaths } from './run-playwright-project.mjs';
 
 class FakeChild extends EventEmitter {
   constructor() {
     super();
     this.killed = false;
+    this.exitCode = null;
+    this.signalCode = null;
   }
 
   kill(signal) {
     this.killed = true;
     this.signal = signal;
     return true;
+  }
+}
+
+class FakeServer extends EventEmitter {
+  constructor() {
+    super();
+    this.listening = true;
+  }
+
+  close() {
+    this.listening = false;
+    this.emit('close');
   }
 }
 
@@ -57,4 +71,43 @@ test('fails fast when the API child exits before readiness', async () => {
   assert.deepEqual(stopSignals, ['SIGTERM']);
   assert.equal(child.killed, true);
   assert.equal(stopping.current, false);
+});
+
+test('reports mid-run API death with a useful error', async () => {
+  const child = new FakeChild();
+  const stopping = { current: false };
+  const runtimeDeath = watchRuntimeDeaths({
+    apiChild: child,
+    webRuntime: { server: new FakeServer() },
+    stopping,
+  });
+
+  queueMicrotask(() => {
+    child.exitCode = 1;
+    child.emit('exit', 1, null);
+  });
+
+  await assert.rejects(
+    runtimeDeath,
+    /API server exited unexpectedly with code 1 and signal null while Playwright was running/,
+  );
+});
+
+test('reports unexpected static web server shutdown during a run', async () => {
+  const stopping = { current: false };
+  const webServer = new FakeServer();
+  const runtimeDeath = watchRuntimeDeaths({
+    apiChild: new FakeChild(),
+    webRuntime: { server: webServer },
+    stopping,
+  });
+
+  queueMicrotask(() => {
+    webServer.close();
+  });
+
+  await assert.rejects(
+    runtimeDeath,
+    /Static web server closed unexpectedly while Playwright was running/,
+  );
 });
