@@ -35,7 +35,6 @@ async function likeProperty(propertyId: string, accessToken: string): Promise<{ 
   const response = await fetch(`${API_URL}/properties/${propertyId}/like`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       'Authorization': `Bearer ${accessToken}`,
     },
   });
@@ -52,7 +51,6 @@ async function unlikeProperty(propertyId: string, accessToken: string): Promise<
   const response = await fetch(`${API_URL}/properties/${propertyId}/like`, {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json',
       'Authorization': `Bearer ${accessToken}`,
     },
   });

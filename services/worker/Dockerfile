@@ -31,8 +31,10 @@ COPY --from=build /app/pnpm-workspace.yaml ./
 COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/services/api/package.json ./services/api/package.json
+COPY --from=build /app/services/api/node_modules ./services/api/node_modules
 COPY --from=build /app/services/api/dist ./services/api/dist
 COPY --from=build /app/services/worker/package.json ./services/worker/package.json
+COPY --from=build /app/services/worker/node_modules ./services/worker/node_modules
 COPY --from=build /app/services/worker/dist ./services/worker/dist
 
 RUN addgroup -g 1001 -S huishype && adduser -S -u 1001 huishype

@@ -156,9 +156,7 @@ export function useLikeComment(propertyId: string) {
       commentId: string;
       isCurrentlyLiked: boolean;
     }) => {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
+      const headers: Record<string, string> = {};
 
       if (accessToken) {
         headers['Authorization'] = `Bearer ${accessToken}`;

@@ -169,7 +169,10 @@ describe('usePropertyLike', () => {
     // Verify fetch was called with POST
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/like`,
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Authorization: 'Bearer mock-token' },
+      })
     );
   });
 
@@ -211,7 +214,10 @@ describe('usePropertyLike', () => {
     // Verify fetch was called with DELETE
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/like`,
-      expect.objectContaining({ method: 'DELETE' })
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer mock-token' },
+      })
     );
   });
 
