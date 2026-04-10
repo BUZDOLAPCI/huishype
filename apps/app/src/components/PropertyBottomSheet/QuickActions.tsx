@@ -5,7 +5,6 @@
  * Replaces the old Ionicons-based implementation with Phosphor icons
  * from the shared QuickActions component.
  */
-import { View } from 'react-native';
 import { QuickActions as SharedQuickActions } from '../QuickActions';
 import type { SectionProps } from './types';
 import { Share } from 'react-native';
@@ -15,6 +14,8 @@ interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
   onShare?: () => void;
   onLike?: () => void;
+  onComment?: () => void;
+  onGuess?: () => void;
 }
 
 export function QuickActions({
@@ -22,6 +23,8 @@ export function QuickActions({
   onSave,
   onShare,
   onLike,
+  onComment,
+  onGuess,
 }: QuickActionsProps) {
   const handleShare = async () => {
     try {
@@ -48,6 +51,8 @@ export function QuickActions({
         commentCount={property.commentCount}
         guessCount={property.guessCount}
         onLike={onLike}
+        onComment={onComment}
+        onGuess={onGuess}
         onSave={onSave}
         onShare={handleShare}
         variant="full"

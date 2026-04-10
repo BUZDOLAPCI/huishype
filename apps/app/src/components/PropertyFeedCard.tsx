@@ -186,6 +186,7 @@ export function PropertyFeedCard({
               viewCount,
             }}
             variant="stats"
+            showAllStats
             testID="feed-card-stats"
           />
         </View>

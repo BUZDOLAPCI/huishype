@@ -35,7 +35,11 @@ export interface FeaturedProperty {
   city: string;
   postalCode: string | null;
   countryCode: string;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   officialValuation: number | null;
+  thumbnailUrl: string | null;
+  aerialImageUrl?: string | null;
   commentCount: number;
   likeCount: number;
   engagementScore: number;

@@ -14,6 +14,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   FlatList,
+  Image,
   Pressable,
   Text,
   View,
@@ -36,6 +37,8 @@ import type { CountryCode } from '@huishype/shared/config';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { shadows } from '@/src/lib/shadows';
 import { buildPropertyRoute } from '@/src/utils/property-route';
+import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
+import { toPropertyImageSource } from '@/src/utils/property-image';
 
 // --- Period config ---
 
@@ -44,6 +47,8 @@ const PERIODS: Array<{ key: LeaderboardPeriod; label: string }> = [
   { key: 'month', label: 'This Month' },
   { key: 'all', label: 'All Time' },
 ];
+
+const placeholderImage = require('../assets/images/property-placeholder.png');
 
 // --- Podium component ---
 
@@ -57,7 +62,6 @@ function PodiumEntry({
   isCurrentUser: boolean;
 }) {
   const isFirst = position === 1;
-  const avatarSize = isFirst ? 52 : 44;
   const nameFontSize = isFirst ? 14 : 13;
 
   return (
@@ -204,6 +208,7 @@ function FeaturedPropertyCard({
   property: FeaturedProperty;
   period: LeaderboardPeriod;
 }) {
+  const imageSource = toPropertyImageSource(property);
   const periodLabel =
     period === 'week'
       ? 'This week'
@@ -218,6 +223,28 @@ function FeaturedPropertyCard({
       accessibilityRole="button"
       accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
     >
+      <View style={styles.featuredMedia}>
+        <PropertyImageSurface
+          source={imageSource}
+          style={styles.featuredMediaSurface}
+          imageStyle={styles.featuredMediaImage}
+          markerSize={34}
+          imageTestID="featured-property-image"
+          markerTestID="featured-property-image-marker"
+          placeholder={(
+            <View style={styles.featuredPlaceholder} testID="featured-property-image-placeholder">
+              <Image
+                source={placeholderImage}
+                style={styles.featuredPlaceholderImage}
+                resizeMode="cover"
+              />
+            </View>
+          )}
+        />
+      </View>
+
+      <View style={styles.featuredImageTint} />
+
       <View style={styles.featuredBackdrop}>
         <View style={styles.featuredGlowLarge} />
         <View style={styles.featuredGlowSmall} />
@@ -228,7 +255,7 @@ function FeaturedPropertyCard({
         <Text style={styles.featuredBadgeText}>{`MOST DISCUSSED · ${periodLabel}`}</Text>
       </View>
 
-      <View style={styles.featuredGradient} />
+      <View style={styles.featuredContentBackdrop} />
 
       {/* Content overlay */}
       <View style={styles.featuredContent}>
@@ -466,13 +493,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#2D2926',
     position: 'relative',
   },
+  featuredMedia: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  featuredMediaSurface: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#2D2926',
+  },
+  featuredMediaImage: {
+    width: '100%',
+    height: '100%',
+  },
+  featuredPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#2D2926',
+  },
+  featuredPlaceholderImage: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.88,
+  },
+  featuredImageTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(25, 19, 13, 0.28)',
+  },
   featuredBackdrop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#2D2926',
   },
   featuredGlowLarge: {
     position: 'absolute',
@@ -518,20 +570,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.7,
   },
-  featuredGradient: {
+  featuredContentBackdrop: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 100,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    height: 54,
+    backgroundColor: 'rgba(0,0,0,0.46)',
   },
   featuredContent: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',

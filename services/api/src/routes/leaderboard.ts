@@ -14,6 +14,15 @@ import { getKarmaRank } from '../services/karma.js';
 
 // --- Schemas ---
 
+const coordinateSchema = z.object({
+  type: z.literal('Point'),
+  coordinates: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
+});
+
+const imageryCoordinateSchema = coordinateSchema.describe(
+  'Geometry used for imagery framing. May snap to a nearby building surface point.',
+);
+
 const leaderboardEntrySchema = z.object({
   rank: z.number(),
   userId: z.string().uuid(),
@@ -36,7 +45,10 @@ const featuredPropertySchema = z.object({
   city: z.string(),
   postalCode: z.string().nullable(),
   countryCode: z.string(),
+  geometry: coordinateSchema.nullable(),
+  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
   officialValuation: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
   commentCount: z.number(),
   likeCount: z.number(),
   engagementScore: z.number(),
@@ -53,6 +65,48 @@ const errorResponseSchema = z.object({
   error: z.string(),
   message: z.string(),
 });
+
+const IMAGERY_BUILDING_SEARCH_DEGREES = 0.001;
+const IMAGERY_BUILDING_MAX_DISTANCE_METERS = 80;
+
+const featuredImageryJoin = sql`LEFT JOIN LATERAL (
+  SELECT
+    ST_PointOnSurface(geometry) AS imagery_geom,
+    ST_Distance(p.geometry::geography, geometry::geography) AS distance_to_building_m
+  FROM osm_buildings
+  WHERE p.geometry IS NOT NULL
+    AND geometry && ST_Expand(p.geometry, ${IMAGERY_BUILDING_SEARCH_DEGREES})
+  ORDER BY p.geometry <-> geometry
+  LIMIT 1
+) img ON true`;
+
+const featuredImageryLonSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  WHEN p.country_code = 'NL'
+    AND img.imagery_geom IS NOT NULL
+    AND img.distance_to_building_m <= ${IMAGERY_BUILDING_MAX_DISTANCE_METERS}
+    THEN ST_X(img.imagery_geom)
+  ELSE ST_X(p.geometry)
+END`;
+
+const featuredImageryLatSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  WHEN p.country_code = 'NL'
+    AND img.imagery_geom IS NOT NULL
+    AND img.distance_to_building_m <= ${IMAGERY_BUILDING_MAX_DISTANCE_METERS}
+    THEN ST_Y(img.imagery_geom)
+  ELSE ST_Y(p.geometry)
+END`;
+
+const featuredThumbnailJoin = sql`LEFT JOIN LATERAL (
+  SELECT thumbnail_url
+  FROM listings
+  WHERE property_id = p.id
+    AND status = 'active'
+    AND thumbnail_url IS NOT NULL
+  ORDER BY created_at DESC
+  LIMIT 1
+) lt ON true`;
 
 // --- Route ---
 
@@ -411,7 +465,12 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
           p.city,
           p.postal_code,
           p.country_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          ${featuredImageryLonSelect} AS imagery_lon,
+          ${featuredImageryLatSelect} AS imagery_lat,
           p.official_valuation,
+          lt.thumbnail_url,
           fs.comment_count,
           fs.like_count,
           (
@@ -426,9 +485,11 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
                   14 - (EXTRACT(EPOCH FROM (NOW() - fs.latest_activity_at)) / 86400.0)
                 )
               END
-          )::float8 AS engagement_score
+        )::float8 AS engagement_score
         FROM featured_scores fs
         JOIN properties p ON p.id = fs.property_id
+        ${featuredThumbnailJoin}
+        ${featuredImageryJoin}
         ORDER BY engagement_score DESC, fs.latest_activity_at DESC
         LIMIT 1
       `;
@@ -439,7 +500,12 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         city: string;
         postal_code: string | null;
         country_code: string;
+        lon: number | null;
+        lat: number | null;
+        imagery_lon: number | null;
+        imagery_lat: number | null;
         official_valuation: number | null;
+        thumbnail_url: string | null;
         comment_count: number;
         like_count: number;
         engagement_score: number;
@@ -453,9 +519,24 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
             city: featuredRow.city,
             postalCode: featuredRow.postal_code,
             countryCode: featuredRow.country_code,
+            geometry:
+              featuredRow.lon != null && featuredRow.lat != null
+                ? {
+                    type: 'Point' as const,
+                    coordinates: [featuredRow.lon, featuredRow.lat] as [number, number],
+                  }
+                : null,
+            imageryGeometry:
+              featuredRow.imagery_lon != null && featuredRow.imagery_lat != null
+                ? {
+                    type: 'Point' as const,
+                    coordinates: [featuredRow.imagery_lon, featuredRow.imagery_lat] as [number, number],
+                  }
+                : null,
             officialValuation: featuredRow.official_valuation != null
               ? Number(featuredRow.official_valuation)
               : null,
+            thumbnailUrl: featuredRow.thumbnail_url,
             commentCount: Number(featuredRow.comment_count),
             likeCount: Number(featuredRow.like_count),
             engagementScore: Number(featuredRow.engagement_score),

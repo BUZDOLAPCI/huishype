@@ -96,4 +96,38 @@ describe('PropertyBottomSheet.web', () => {
       }));
     });
   });
+
+  it('passes section scroll callbacks into PropertyContent', () => {
+    setWindowSize(1280, 720);
+
+    render(
+      <PropertyBottomSheet
+        property={property}
+        isPreviewCardVisible
+      />
+    );
+
+    const lastProps =
+      mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+
+    expect(lastProps).toEqual(expect.objectContaining({
+      onScrollToComments: expect.any(Function),
+      onScrollToGuess: expect.any(Function),
+    }));
+  });
+
+  it('exposes the preview-open imperative handle', () => {
+    setWindowSize(390, 844);
+    const ref = React.createRef<any>();
+
+    render(
+      <PropertyBottomSheet
+        ref={ref}
+        property={property}
+        isPreviewCardVisible
+      />
+    );
+
+    expect(ref.current?.openFromPreview).toEqual(expect.any(Function));
+  });
 });

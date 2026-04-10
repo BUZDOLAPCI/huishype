@@ -183,12 +183,17 @@ describe('Leaderboard routes', () => {
       expect(fp).toHaveProperty('city');
       expect(fp).toHaveProperty('postalCode');
       expect(fp).toHaveProperty('countryCode');
+      expect(fp).toHaveProperty('geometry');
+      expect(fp).toHaveProperty('imageryGeometry');
+      expect(fp).toHaveProperty('thumbnailUrl');
       expect(fp).toHaveProperty('commentCount');
       expect(fp).toHaveProperty('likeCount');
       expect(fp).toHaveProperty('engagementScore');
       expect(fp.engagementScore).toBeGreaterThan(0);
       expect(typeof fp.commentCount).toBe('number');
       expect(typeof fp.likeCount).toBe('number');
+      expect(fp.geometry).toMatchObject({ type: 'Point' });
+      expect(fp.imageryGeometry).toMatchObject({ type: 'Point' });
     });
 
     it('should return featuredProperty respecting period filter', async () => {

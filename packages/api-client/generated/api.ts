@@ -3524,7 +3524,26 @@ export interface paths {
                                 city: string;
                                 postalCode: string | null;
                                 countryCode: string;
+                                geometry: {
+                                    /** @enum {string} */
+                                    type: "Point";
+                                    /** @description [longitude, latitude] */
+                                    coordinates: [
+                                        number,
+                                        number
+                                    ];
+                                } | null;
+                                imageryGeometry?: {
+                                    /** @enum {string} */
+                                    type: "Point";
+                                    /** @description [longitude, latitude] */
+                                    coordinates: [
+                                        number,
+                                        number
+                                    ];
+                                } | null;
                                 officialValuation: number | null;
+                                thumbnailUrl: string | null;
                                 commentCount: number;
                                 likeCount: number;
                                 engagementScore: number;
