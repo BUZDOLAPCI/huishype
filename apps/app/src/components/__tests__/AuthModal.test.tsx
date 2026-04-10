@@ -54,6 +54,11 @@ describe('AuthModal', () => {
   });
 
   describe('rendering', () => {
+    it('renders a full-screen blur backdrop behind the modal', () => {
+      const { getByTestId } = render(<AuthModal {...defaultProps} />);
+      expect(getByTestId('auth-modal-backdrop-blur')).toBeTruthy();
+    });
+
     it('renders welcome title', () => {
       const { getByText } = render(<AuthModal {...defaultProps} />);
       expect(getByText('Welcome to HuisHype')).toBeTruthy();
@@ -61,16 +66,30 @@ describe('AuthModal', () => {
 
     it('renders default subtitle when no message provided', () => {
       const { getByText } = render(<AuthModal {...defaultProps} />);
-      expect(
-        getByText('Sign in to save properties, guess prices, and join the conversation')
-      ).toBeTruthy();
+      expect(getByText('Sign in to continue')).toBeTruthy();
     });
 
-    it('renders custom message when provided', () => {
+    it('renders legacy custom message when provided', () => {
       const { getByText } = render(
         <AuthModal {...defaultProps} message="Sign in to save this property" />
       );
       expect(getByText('Sign in to save this property')).toBeTruthy();
+    });
+
+    it('keeps the welcome title and uses contextual copy as the one-line message', () => {
+      const { getByText, queryByText } = render(
+        <AuthModal
+          {...defaultProps}
+          copy={{
+            title: 'Ignored title',
+            subtitle: 'Sign in to submit your guess',
+          }}
+        />
+      );
+
+      expect(getByText('Welcome to HuisHype')).toBeTruthy();
+      expect(getByText('Sign in to submit your guess')).toBeTruthy();
+      expect(queryByText('Ignored title')).toBeNull();
     });
 
     it('renders Google Sign In button', () => {
@@ -113,6 +132,11 @@ describe('AuthModal', () => {
     it('renders close button', () => {
       const { getByLabelText } = render(<AuthModal {...defaultProps} />);
       expect(getByLabelText('Close')).toBeTruthy();
+    });
+
+    it('renders the modal card with a dedicated card container', () => {
+      const { getByTestId } = render(<AuthModal {...defaultProps} />);
+      expect(getByTestId('auth-modal-card')).toBeTruthy();
     });
 
     it('returns null when not visible', () => {

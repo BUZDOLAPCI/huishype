@@ -112,7 +112,7 @@ module.exports = {
         'tab-bar': '0 2px 12px #00000010',
         search: '0 2px 10px #00000012',
         dropdown: '0 4px 16px #00000018, 0 1px 4px #00000010',
-        'auth-glow': '0 12px 48px #F5A62330',
+        'auth-glow': '0 18px 56px rgba(245, 166, 35, 0.22), 0 32px 96px rgba(245, 166, 35, 0.08)',
         'bottom-sheet': '0 -4px 24px #B4771216',
       },
     },

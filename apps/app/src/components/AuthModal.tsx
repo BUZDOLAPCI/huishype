@@ -5,14 +5,13 @@
  * Matches the pen design: warm card with gold glow shadow, centered
  * on a dark backdrop.
  *
- * Uses an absolutely positioned View instead of React Native's <Modal>
- * so that Maestro (and other accessibility scanners) can detect the content
- * within the primary window's view hierarchy.
+ * Uses React Native's <Modal> so the overlay escapes the screen subtree and
+ * covers the full app window, including floating headers/tab bars.
  *
  * Design spec: Section 7.13, 8.6
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,20 +23,27 @@ import {
   BackHandler,
   TextInput,
   Keyboard,
+  Modal,
 } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
   Easing,
+  runOnJS,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../hooks/useAuth';
 import { HuisHypeLogo } from './branding';
 import { Icon } from './ui/Icon';
+import { BlurContainer } from './ui/BlurContainer';
 import { shadows } from '../lib/shadows';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import {
+  DEFAULT_AUTH_MODAL_COPY,
+  resolveAuthModalCopy,
+  type AuthModalCopyInput,
+} from '../lib/authModalCopy';
 
 // ── Auth modal cool grays (Section 1.6) ─────────────────────
 // Scoped to this component only — intentionally NOT in global theme.
@@ -56,6 +62,13 @@ const GOLD_700 = '#B47712';
 const WARM_500 = '#9C958A';
 const WARM_700 = '#504A42';
 const WARM_900 = '#2D2926';
+const CARD_ENTER_OFFSET_Y = 12;
+const CARD_EXIT_OFFSET_Y = 8;
+const CARD_ENTER_SCALE = 0.985;
+const CARD_EXIT_SCALE = 0.99;
+const BACKDROP_ENTER_DURATION = 150;
+const CARD_ENTER_DURATION = 180;
+const CARD_EXIT_DURATION = 120;
 
 type AuthView = 'main' | 'email-input' | 'email-sent';
 
@@ -64,8 +77,10 @@ interface AuthModalProps {
   visible: boolean;
   /** Called when the modal should be closed */
   onClose: () => void;
-  /** Optional message explaining why auth is needed */
+  /** Optional contextual one-line message explaining why auth is needed */
   message?: string;
+  /** Optional contextual copy; only the one-line subtitle is shown in the main auth view */
+  copy?: AuthModalCopyInput;
   /** Called after successful authentication */
   onSuccess?: () => void;
   /** Called right before auth sign-in starts (user clicked a sign-in button, not cancel) */
@@ -81,7 +96,7 @@ interface AuthModalProps {
  * <AuthModal
  *   visible={showAuth}
  *   onClose={() => setShowAuth(false)}
- *   message="Sign in to save this property"
+ *   copy="Sign in to save this property"
  *   onSuccess={() => saveProperty()}
  * />
  * ```
@@ -90,6 +105,7 @@ export function AuthModal({
   visible,
   onClose,
   message,
+  copy,
   onSuccess,
   onAuthStarting,
 }: AuthModalProps) {
@@ -106,33 +122,106 @@ export function AuthModal({
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isRequestingEmail, setIsRequestingEmail] = useState(false);
+  const [isMounted, setIsMounted] = useState(visible);
   const reducedMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
+  const visibleRef = useRef(visible);
 
   // Card entrance animation
-  const scale = useSharedValue(0.9);
-  const opacity = useSharedValue(0);
+  const scale = useSharedValue(visible ? 1 : CARD_ENTER_SCALE);
+  const opacity = useSharedValue(visible ? 1 : 0);
+  const translateY = useSharedValue(visible ? 0 : CARD_ENTER_OFFSET_Y);
+
+  const resetModalState = useCallback(() => {
+    setView('main');
+    setEmail('');
+    setEmailError(null);
+    setIsRequestingEmail(false);
+  }, []);
 
   useEffect(() => {
+    if (!visible && !isMounted) {
+      return;
+    }
+
     if (visible) {
+      visibleRef.current = true;
+      if (!isMounted) {
+        setIsMounted(true);
+      }
       if (reducedMotion) {
         // Skip animation — instant show
         opacity.value = 1;
         scale.value = 1;
+        translateY.value = 0;
       } else {
-        opacity.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) });
-        scale.value = withSpring(1, { damping: 20, stiffness: 300 });
+        opacity.value = withTiming(1, {
+          duration: BACKDROP_ENTER_DURATION,
+          easing: Easing.out(Easing.cubic),
+        });
+        scale.value = withTiming(1, {
+          duration: CARD_ENTER_DURATION,
+          easing: Easing.out(Easing.cubic),
+        });
+        translateY.value = withTiming(0, {
+          duration: CARD_ENTER_DURATION,
+          easing: Easing.out(Easing.cubic),
+        });
       }
     } else {
-      opacity.value = 0;
-      scale.value = 0.9;
-      // Reset state when closing
-      setView('main');
-      setEmail('');
-      setEmailError(null);
-      setIsRequestingEmail(false);
+      visibleRef.current = false;
+      if (reducedMotion) {
+        opacity.value = 0;
+        scale.value = CARD_ENTER_SCALE;
+        translateY.value = CARD_ENTER_OFFSET_Y;
+        resetModalState();
+        setIsMounted(false);
+        return;
+      }
+
+      opacity.value = withTiming(0, {
+        duration: CARD_EXIT_DURATION,
+        easing: Easing.in(Easing.quad),
+      });
+      scale.value = withTiming(CARD_EXIT_SCALE, {
+        duration: CARD_EXIT_DURATION,
+        easing: Easing.in(Easing.quad),
+      });
+      translateY.value = withTiming(CARD_EXIT_OFFSET_Y, {
+        duration: CARD_EXIT_DURATION,
+        easing: Easing.in(Easing.quad),
+      });
+
+      const finishHide = () => {
+        if (visibleRef.current) {
+          return;
+        }
+        resetModalState();
+        setIsMounted(false);
+      };
+
+      opacity.value = withTiming(
+        0,
+        {
+          duration: CARD_EXIT_DURATION,
+          easing: Easing.in(Easing.quad),
+        },
+        (finished) => {
+          if (finished) {
+            runOnJS(finishHide)();
+          }
+        }
+      );
     }
-  }, [visible, opacity, scale, reducedMotion]);
+  }, [
+    visible,
+    opacity,
+    scale,
+    translateY,
+    reducedMotion,
+    isMounted,
+    resetModalState,
+  ]);
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -140,8 +229,12 @@ export function AuthModal({
 
   const cardStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    transform: [
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
   }));
+  const resolvedCopy = resolveAuthModalCopy(copy ?? message, DEFAULT_AUTH_MODAL_COPY);
 
   // Handle Android back button
   useEffect(() => {
@@ -217,73 +310,90 @@ export function AuthModal({
     onClose();
   }, [clearError, onClose]);
 
-  if (!visible) return null;
+  if (!isMounted) return null;
 
   return (
-    <View
-      style={[StyleSheet.absoluteFill, styles.overlay]}
-      testID="auth-modal-overlay"
+    <Modal
+      visible={isMounted}
+      transparent
+      animationType="none"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent={Platform.OS === 'android'}
+      onRequestClose={handleClose}
     >
-      {/* Backdrop — warm-900 at 75% */}
-      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={handleClose}
-          accessibilityLabel="Close backdrop"
-        />
-      </Animated.View>
+      <View style={styles.overlay} testID="auth-modal-overlay">
+        {/* Backdrop — blur + warm dark tint across the full screen */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, backdropStyle]}>
+          <BlurContainer
+            intensity={Platform.OS === 'web' ? 92 : 84}
+            tint="dark"
+            style={styles.backdropBlur}
+            testID="auth-modal-backdrop-blur"
+          />
+          <View style={[StyleSheet.absoluteFillObject, styles.backdropTint]} />
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={handleClose}
+            accessibilityLabel="Close backdrop"
+          />
+        </Animated.View>
 
-      {/* Centered card */}
-      <Animated.View style={[styles.cardWrapper, cardStyle]}>
-        <View style={[styles.card, shadows['auth-glow']]} className="shadow-auth-glow">
-          {/* Close button — top right, cool gray circle */}
-          <View style={styles.closeRow}>
-            <View style={styles.closeRowSpacer} />
+        {/* Centered card */}
+        <Animated.View style={[styles.cardWrapper, cardStyle]}>
+          <View
+            style={[styles.card, shadows['auth-glow']]}
+            className="shadow-auth-glow"
+            testID="auth-modal-card"
+          >
+            {/* Close button — top right, cool gray circle */}
+            <View style={styles.closeRow}>
+              <View style={styles.closeRowSpacer} />
+              <TouchableOpacity
+                onPress={handleClose}
+                style={styles.closeButton}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
+              >
+                <Icon name="X" size={18} color={AUTH_COLORS.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {view === 'main' && renderMainView()}
+            {view === 'email-input' && renderEmailInputView()}
+            {view === 'email-sent' && renderEmailSentView()}
+          </View>
+        </Animated.View>
+
+        {/* Dev Login button — rendered OUTSIDE Animated.View so Android
+            accessibility reports correct bounds */}
+        {__DEV__ && (
+          <View
+            style={[
+              styles.devLoginContainer,
+              { bottom: Math.max(insets.bottom + 96, 120) },
+            ]}
+          >
             <TouchableOpacity
-              onPress={handleClose}
-              style={styles.closeButton}
-              accessibilityLabel="Close"
+              onPress={handleDevLogin}
+              disabled={isSigningIn}
+              style={styles.devLoginButton}
+              accessibilityLabel="Dev Login"
               accessibilityRole="button"
+              testID="dev-login-button"
             >
-              <Icon name="X" size={18} color={AUTH_COLORS.textMuted} />
+              {isSigningIn ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Icon name="GearSix" size={20} color="#FFFFFF" />
+                  <Text style={styles.devLoginText}>Dev Login</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
-
-          {view === 'main' && renderMainView()}
-          {view === 'email-input' && renderEmailInputView()}
-          {view === 'email-sent' && renderEmailSentView()}
-        </View>
-      </Animated.View>
-
-      {/* Dev Login button — rendered OUTSIDE Animated.View so Android
-          accessibility reports correct bounds */}
-      {__DEV__ && (
-        <View
-          style={[
-            styles.devLoginContainer,
-            { bottom: Math.max(insets.bottom + 96, 120) },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={handleDevLogin}
-            disabled={isSigningIn}
-            style={styles.devLoginButton}
-            accessibilityLabel="Dev Login"
-            accessibilityRole="button"
-            testID="dev-login-button"
-          >
-            {isSigningIn ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Icon name="GearSix" size={20} color="#FFFFFF" />
-                <Text style={styles.devLoginText}>Dev Login</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
+        )}
+      </View>
+    </Modal>
   );
 
   // ── View renderers ────────────────────────────────────────
@@ -294,12 +404,10 @@ export function AuthModal({
         <HuisHypeLogo size={72} style={styles.logoContainer} />
 
         {/* Title */}
-        <Text style={styles.title}>Welcome to HuisHype</Text>
+        <Text style={styles.title}>{DEFAULT_AUTH_MODAL_COPY.title}</Text>
 
-        {/* Subtitle */}
-        <Text style={styles.subtitle}>
-          {message || 'Sign in to save properties, guess prices, and join the conversation'}
-        </Text>
+        {/* Context message */}
+        <Text style={styles.subtitle}>{resolvedCopy.subtitle}</Text>
 
         {/* Error */}
         {error && (
@@ -459,13 +567,17 @@ export default AuthModal;
 
 const styles = StyleSheet.create({
   overlay: {
+    flex: 1,
     zIndex: 9999,
     elevation: 9999,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backdrop: {
-    backgroundColor: '#2D2926BF', // warm-900 at 75%
+  backdropTint: {
+    backgroundColor: 'rgba(28, 24, 19, 0.62)',
+  },
+  backdropBlur: {
+    ...StyleSheet.absoluteFillObject,
   },
   cardWrapper: {
     width: '100%',
@@ -478,6 +590,8 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 28,
     paddingHorizontal: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(247, 201, 72, 0.16)',
   },
   closeRow: {
     flexDirection: 'row',

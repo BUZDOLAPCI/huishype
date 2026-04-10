@@ -96,12 +96,14 @@ export const shadows = {
   'auth-glow': Platform.select<ViewStyle>({
     ios: {
       shadowColor: '#F5A623',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.19,
-      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.22,
+      shadowRadius: 28,
     },
-    android: { elevation: 12 },
-    default: {},
+    android: { elevation: 16 },
+    default: {
+      boxShadow: '0 18px 56px rgba(245, 166, 35, 0.22), 0 32px 96px rgba(245, 166, 35, 0.08)',
+    } as ViewStyle,
   }),
 
   /** Bottom sheet top edge */
