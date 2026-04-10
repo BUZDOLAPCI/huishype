@@ -43,8 +43,6 @@ export interface MetricPillsProps {
   stats?: StatPillData;
   /** Display variant. Auto-detected from provided data if omitted. */
   variant?: MetricPillsVariant;
-  /** Force the full likes/comments/guesses/views row to render with zero defaults. */
-  showAllStats?: boolean;
   testID?: string;
 }
 
@@ -117,17 +115,12 @@ function InfoPill({
 function StatPill({
   config,
   value,
-  testID,
 }: {
   config: PillConfig;
   value: number;
-  testID?: string;
 }) {
   return (
-    <View
-      style={[styles.statPill, { backgroundColor: config.bg }]}
-      testID={testID}
-    >
+    <View style={[styles.statPill, { backgroundColor: config.bg }]}>
       <Icon name={config.icon} size={14} color={config.iconColor} />
       <Text style={[styles.statPillText, { color: config.textColor }]}>
         {formatCount(value)}
@@ -142,7 +135,6 @@ export function MetricPills({
   info,
   stats,
   variant,
-  showAllStats = false,
   testID,
 }: MetricPillsProps) {
   const resolvedVariant = variant ?? (stats ? 'stats' : 'info');
@@ -179,24 +171,27 @@ export function MetricPills({
   }
 
   if (resolvedVariant === 'stats' && stats) {
-    const entries: Array<{ key: string; config: PillConfig; value: number }> = [
-      { key: 'likes', config: STAT_PILL_CONFIGS.likes, value: stats.likeCount ?? 0 },
-      { key: 'comments', config: STAT_PILL_CONFIGS.comments, value: stats.commentCount ?? 0 },
-      { key: 'guesses', config: STAT_PILL_CONFIGS.guesses, value: stats.guessCount ?? 0 },
-      { key: 'views', config: STAT_PILL_CONFIGS.views, value: stats.viewCount ?? 0 },
-    ].filter((entry) => showAllStats || entry.value > 0);
+    const entries: Array<{ key: string; config: PillConfig; value: number }> = [];
+
+    if (stats.likeCount !== undefined && stats.likeCount > 0) {
+      entries.push({ key: 'likes', config: STAT_PILL_CONFIGS.likes, value: stats.likeCount });
+    }
+    if (stats.commentCount !== undefined && stats.commentCount > 0) {
+      entries.push({ key: 'comments', config: STAT_PILL_CONFIGS.comments, value: stats.commentCount });
+    }
+    if (stats.guessCount !== undefined && stats.guessCount > 0) {
+      entries.push({ key: 'guesses', config: STAT_PILL_CONFIGS.guesses, value: stats.guessCount });
+    }
+    if (stats.viewCount !== undefined && stats.viewCount > 0) {
+      entries.push({ key: 'views', config: STAT_PILL_CONFIGS.views, value: stats.viewCount });
+    }
 
     if (entries.length === 0) return null;
 
     return (
       <View style={styles.row} testID={testID ?? 'metric-pills-stats'}>
         {entries.map((entry) => (
-          <StatPill
-            key={entry.key}
-            config={entry.config}
-            value={entry.value}
-            testID={`${testID ?? 'metric-pills-stats'}-${entry.key}`}
-          />
+          <StatPill key={entry.key} config={entry.config} value={entry.value} />
         ))}
       </View>
     );
@@ -213,6 +208,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+
   // Info variant
   infoPill: {
     flexDirection: 'row',

@@ -192,9 +192,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       // At least one should be true (image or placeholder)
       expect(hasImage || hasPlaceholder).toBe(true);
-
-      const statPills = propertyCard.locator('[data-testid^="feed-card-stats-"]');
-      await expect(statPills).toHaveCount(4);
     } else {
       // If no cards visible, check for loading or empty state
       const loadingState = page.locator('text=Loading');

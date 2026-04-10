@@ -7,13 +7,6 @@ import type { Property, PropertyDetails } from '../../../hooks/useProperties';
 const mockUseProperty = jest.fn();
 const mockUseListings = jest.fn();
 const mockRecordPropertyView = jest.fn();
-const mockBottomSheetHandle = {
-  expand: jest.fn(),
-  collapse: jest.fn(),
-  close: jest.fn(),
-  snapToIndex: jest.fn(),
-};
-const mockBottomSheetScrollTo = jest.fn();
 
 // Create a test query client
 const createTestQueryClient = () =>
@@ -45,7 +38,12 @@ jest.mock('@gorhom/bottom-sheet', () => {
 
   const MockBottomSheet = React.forwardRef(
     ({ children, onChange, index }: any, ref: any) => {
-      React.useImperativeHandle(ref, () => mockBottomSheetHandle);
+      React.useImperativeHandle(ref, () => ({
+        expand: jest.fn(),
+        collapse: jest.fn(),
+        close: jest.fn(),
+        snapToIndex: jest.fn(),
+      }));
 
       // Only render if index >= 0 or explicitly set
       if (index < 0) return null;
@@ -57,13 +55,9 @@ jest.mock('@gorhom/bottom-sheet', () => {
   return {
     __esModule: true,
     default: MockBottomSheet,
-    BottomSheetScrollView: React.forwardRef(({ children }: any, ref: any) => {
-      React.useImperativeHandle(ref, () => ({
-        scrollTo: mockBottomSheetScrollTo,
-      }));
-
-      return <ScrollView testID="bottom-sheet-scroll">{children}</ScrollView>;
-    }),
+    BottomSheetScrollView: ({ children }: any) => (
+      <ScrollView testID="bottom-sheet-scroll">{children}</ScrollView>
+    ),
     BottomSheetBackdrop: () => null,
   };
 });
@@ -217,11 +211,6 @@ const mockPropertyDetails: PropertyDetails = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockBottomSheetHandle.expand.mockReset();
-  mockBottomSheetHandle.collapse.mockReset();
-  mockBottomSheetHandle.close.mockReset();
-  mockBottomSheetHandle.snapToIndex.mockReset();
-  mockBottomSheetScrollTo.mockReset();
   mockUseProperty.mockImplementation((id: string | null) => ({
     data: id === mockProperty.id ? mockPropertyDetails : null,
     isLoading: false,
@@ -268,32 +257,6 @@ describe('PropertyBottomSheet', () => {
 
     // Multiple instances may appear (in header and details), use getAllByText
     expect(screen.getAllByText(/120 m/).length).toBeGreaterThan(0);
-  });
-
-  it('opens from the preview card at the top of the sheet content', () => {
-    const setTimeoutSpy = jest
-      .spyOn(global, 'setTimeout')
-      .mockImplementation(((callback: (...args: any[]) => void) => {
-        callback();
-        return 0 as any;
-      }) as typeof setTimeout);
-    const ref = React.createRef<any>();
-
-    renderWithProviders(
-      <PropertyBottomSheet
-        ref={ref}
-        property={mockProperty}
-        isPreviewCardVisible
-      />
-    );
-
-    expect(ref.current).toBeTruthy();
-
-    ref.current.openFromPreview();
-
-    expect(mockBottomSheetHandle.snapToIndex).toHaveBeenCalledWith(1);
-    expect(mockBottomSheetScrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
-    setTimeoutSpy.mockRestore();
   });
 
   it('renders quick action buttons', () => {

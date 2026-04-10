@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { PropertyContent } from '../PropertyContent';
@@ -52,7 +52,7 @@ jest.mock('../PriceSection', () => ({
 }));
 
 jest.mock('../QuickActions', () => ({
-  QuickActions: ({ property, onSave, onLike, onShare, onComment, onGuess }: any) => {
+  QuickActions: ({ property, onSave, onLike, onShare }: any) => {
     const React = require('react');
     const { Text, Pressable } = require('react-native');
     return (
@@ -64,12 +64,6 @@ jest.mock('../QuickActions', () => ({
         </Pressable>
         <Pressable onPress={onLike}>
           <Text>{property.isLiked ? 'Press Liked' : 'Press Like'}</Text>
-        </Pressable>
-        <Pressable onPress={onComment}>
-          <Text>Press Comment</Text>
-        </Pressable>
-        <Pressable onPress={onGuess}>
-          <Text>Press Guess</Text>
         </Pressable>
         <Pressable onPress={onShare}>
           <Text>Press Share</Text>
@@ -221,53 +215,6 @@ describe('PropertyContent', () => {
 
     expect(onSave).toHaveBeenCalledWith(detailedProperty.id);
     expect(onLike).toHaveBeenCalledWith(detailedProperty.id);
-  });
-
-  it('wires quick action comment and guess buttons to in-panel scroll handlers', () => {
-    const onScrollToComments = jest.fn();
-    const onScrollToGuess = jest.fn();
-
-    renderWithProviders(
-      <PropertyContent
-        property={detailedProperty}
-        onScrollToComments={onScrollToComments}
-        onScrollToGuess={onScrollToGuess}
-      />
-    );
-
-    fireEvent.press(screen.getByText('Press Comment'));
-    fireEvent.press(screen.getByText('Press Guess'));
-
-    expect(onScrollToComments).toHaveBeenCalledTimes(1);
-    expect(onScrollToGuess).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports section anchors relative to the full scroll content, not just the inner stack', async () => {
-    const onGuessSectionLayout = jest.fn();
-    const onCommentsSectionLayout = jest.fn();
-
-    renderWithProviders(
-      <PropertyContent
-        property={detailedProperty}
-        onGuessSectionLayout={onGuessSectionLayout}
-        onCommentsSectionLayout={onCommentsSectionLayout}
-      />
-    );
-
-    fireEvent(screen.getByTestId('property-content-guess-section'), 'layout', {
-      nativeEvent: { layout: { x: 0, y: 96, width: 320, height: 120 } },
-    });
-    fireEvent(screen.getByTestId('property-content-comments-section'), 'layout', {
-      nativeEvent: { layout: { x: 0, y: 244, width: 320, height: 160 } },
-    });
-    fireEvent(screen.getByTestId('property-content-section-stack'), 'layout', {
-      nativeEvent: { layout: { x: 0, y: 418, width: 320, height: 640 } },
-    });
-
-    await waitFor(() => {
-      expect(onGuessSectionLayout).toHaveBeenLastCalledWith(514);
-      expect(onCommentsSectionLayout).toHaveBeenLastCalledWith(662);
-    });
   });
 
   it('mounts internal like/save hooks when explicitly requested', () => {

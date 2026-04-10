@@ -73,22 +73,6 @@ describe('MetricPills - Stats variant', () => {
     expect(toJSON()).toBeNull();
   });
 
-  it('renders the full stat row when showAllStats is enabled', () => {
-    render(
-      <MetricPills
-        stats={{ likeCount: 0, commentCount: 0, guessCount: 0, viewCount: 0 }}
-        showAllStats
-        testID="all-stats"
-      />
-    );
-
-    expect(screen.getByTestId('all-stats-likes')).toBeTruthy();
-    expect(screen.getByTestId('all-stats-comments')).toBeTruthy();
-    expect(screen.getByTestId('all-stats-guesses')).toBeTruthy();
-    expect(screen.getByTestId('all-stats-views')).toBeTruthy();
-    expect(screen.getAllByText('0')).toHaveLength(4);
-  });
-
   it('uses correct testID', () => {
     render(
       <MetricPills stats={{ likeCount: 5 }} testID="custom-pills" />
