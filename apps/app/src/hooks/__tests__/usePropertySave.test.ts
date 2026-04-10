@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { usePropertySave } from '../usePropertySave';
 import { propertyKeys } from '../useProperties';
+import { savedPropertyKeys } from '../useSavedProperties';
 
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
@@ -129,6 +130,8 @@ describe('usePropertySave', () => {
   it('toggleSave fires save mutation and optimistically updates cache', async () => {
     const propertyId = 'prop-2';
     const queryKey = propertyKeys.detail(propertyId);
+    const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    let resolveFetch: ((value: { ok: boolean; json: () => Promise<{ saved: boolean }> }) => void) | undefined;
 
     // Seed cache: not saved
     queryClient.setQueryData(queryKey, {
@@ -139,10 +142,9 @@ describe('usePropertySave', () => {
     });
 
     // Mock successful save API call
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ saved: true }),
-    });
+    mockFetch.mockReturnValueOnce(new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
 
     const { result } = renderHook(
       () => usePropertySave({ propertyId }),
@@ -151,24 +153,43 @@ describe('usePropertySave', () => {
 
     expect(result.current.isSaved).toBe(false);
 
+    let togglePromise: Promise<void> | undefined;
     await act(async () => {
-      await result.current.toggleSave();
+      togglePromise = result.current.toggleSave();
     });
 
-    // After optimistic update, cache should be updated
-    const cached = queryClient.getQueryData<{ isSaved: boolean }>(queryKey);
-    expect(cached?.isSaved).toBe(true);
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<{ isSaved: boolean }>(queryKey);
+      expect(cached?.isSaved).toBe(true);
+    });
+
+    resolveFetch?.({
+      ok: true,
+      json: async () => ({ saved: true }),
+    });
+
+    await act(async () => {
+      await togglePromise;
+    });
 
     // Verify fetch was called with POST
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/save`,
       expect.objectContaining({ method: 'POST' })
     );
+    expect(invalidateQueriesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey })
+    );
+    expect(invalidateQueriesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: savedPropertyKeys.all })
+    );
   });
 
   it('toggleSave fires unsave mutation when already saved', async () => {
     const propertyId = 'prop-3';
     const queryKey = propertyKeys.detail(propertyId);
+    const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    let resolveFetch: ((value: { ok: boolean; json: () => Promise<{ saved: boolean }> }) => void) | undefined;
 
     // Seed cache: already saved
     queryClient.setQueryData(queryKey, {
@@ -179,10 +200,9 @@ describe('usePropertySave', () => {
     });
 
     // Mock successful unsave API call
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ saved: false }),
-    });
+    mockFetch.mockReturnValueOnce(new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
 
     const { result } = renderHook(
       () => usePropertySave({ propertyId }),
@@ -191,18 +211,35 @@ describe('usePropertySave', () => {
 
     expect(result.current.isSaved).toBe(true);
 
+    let togglePromise: Promise<void> | undefined;
     await act(async () => {
-      await result.current.toggleSave();
+      togglePromise = result.current.toggleSave();
     });
 
-    // After optimistic update
-    const cached = queryClient.getQueryData<{ isSaved: boolean }>(queryKey);
-    expect(cached?.isSaved).toBe(false);
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<{ isSaved: boolean }>(queryKey);
+      expect(cached?.isSaved).toBe(false);
+    });
+
+    resolveFetch?.({
+      ok: true,
+      json: async () => ({ saved: false }),
+    });
+
+    await act(async () => {
+      await togglePromise;
+    });
 
     // Verify fetch was called with DELETE
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/save`,
       expect.objectContaining({ method: 'DELETE' })
+    );
+    expect(invalidateQueriesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey })
+    );
+    expect(invalidateQueriesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: savedPropertyKeys.all })
     );
   });
 
@@ -239,6 +276,78 @@ describe('usePropertySave', () => {
       const cached = queryClient.getQueryData<{ isSaved: boolean }>(queryKey);
       expect(cached?.isSaved).toBe(false);
     });
+  });
+
+  it('keeps the saved state on already-saved conflicts until refetch reconciles canonical data', async () => {
+    const propertyId = 'prop-5';
+    const queryKey = propertyKeys.detail(propertyId);
+    const setQueryDataSpy = jest.spyOn(queryClient, 'setQueryData');
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '202 Birch St',
+      city: 'Leiden',
+      isSaved: false,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'ALREADY_SAVED',
+        message: 'You have already saved this property.',
+      }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertySave({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      await result.current.toggleSave();
+    });
+
+    expect(setQueryDataSpy).toHaveBeenLastCalledWith(
+      queryKey,
+      expect.objectContaining({ isSaved: true })
+    );
+  });
+
+  it('keeps the unsaved state on stale unsave conflicts instead of rolling back', async () => {
+    const propertyId = 'prop-6';
+    const queryKey = propertyKeys.detail(propertyId);
+    const setQueryDataSpy = jest.spyOn(queryClient, 'setQueryData');
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '303 Cedar St',
+      city: 'Haarlem',
+      isSaved: true,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: 'NOT_FOUND',
+        message: 'You have not saved this property.',
+      }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertySave({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      await result.current.toggleSave();
+    });
+
+    expect(setQueryDataSpy).toHaveBeenLastCalledWith(
+      queryKey,
+      expect.objectContaining({ isSaved: false })
+    );
   });
 
   it('does nothing when propertyId is null', () => {
