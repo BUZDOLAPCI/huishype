@@ -10,27 +10,53 @@ const ACTIVE_CLUSTER_RADIUS_STOPS_PX = [
   [50, 28],
   [100, 36],
 ] as const;
+const ACTIVE_CLUSTERING_RADIUS_PX = 34;
+const ACTIVE_GROUPING_GAP_PX = 2;
 
 const GHOST_CLUSTER_RADIUS_STOPS_PX = [
   [2, 10],
   [10, 12],
   [30, 14],
 ] as const;
+const GHOST_CLUSTERING_RADIUS_PX = 21;
+const GHOST_GROUPING_GAP_PX = 1;
+const GHOST_SUPPRESSION_PADDING_PX = 4;
+const PROPERTY_NEARBY_HIT_TOLERANCE_PX = 8;
 
 export const PROPERTY_MAP_FOOTPRINTS = {
   active: {
+    rendered: {
+      singleRadiusStopsPx: ACTIVE_SINGLE_RADIUS_STOPS_PX,
+      clusterRadiusStopsPx: ACTIVE_CLUSTER_RADIUS_STOPS_PX,
+    },
+    clustering: {
+      radiusPx: ACTIVE_CLUSTERING_RADIUS_PX,
+      groupingGapPx: ACTIVE_GROUPING_GAP_PX,
+    },
     singleRadiusStopsPx: ACTIVE_SINGLE_RADIUS_STOPS_PX,
     clusterRadiusStopsPx: ACTIVE_CLUSTER_RADIUS_STOPS_PX,
-    groupingGapPx: 2,
+    groupingGapPx: ACTIVE_GROUPING_GAP_PX,
   },
   ghost: {
     revealZoom: 17,
+    rendered: {
+      singleRadiusPx: 3,
+      clusterRadiusStopsPx: GHOST_CLUSTER_RADIUS_STOPS_PX,
+    },
+    clustering: {
+      radiusPx: GHOST_CLUSTERING_RADIUS_PX,
+      groupingGapPx: GHOST_GROUPING_GAP_PX,
+      suppressionPaddingPx: GHOST_SUPPRESSION_PADDING_PX,
+    },
     singleRadiusPx: 3,
     clusterRadiusStopsPx: GHOST_CLUSTER_RADIUS_STOPS_PX,
-    groupingGapPx: 1,
-    suppressionPaddingPx: 4,
+    groupingGapPx: GHOST_GROUPING_GAP_PX,
+    suppressionPaddingPx: GHOST_SUPPRESSION_PADDING_PX,
   },
-  nearbyTapTolerancePx: 8,
+  hit: {
+    nearbyTolerancePx: PROPERTY_NEARBY_HIT_TOLERANCE_PX,
+  },
+  nearbyTapTolerancePx: PROPERTY_NEARBY_HIT_TOLERANCE_PX,
 } as const;
 
 export const PROPERTY_GHOST_REVEAL_ZOOM = PROPERTY_MAP_FOOTPRINTS.ghost.revealZoom;

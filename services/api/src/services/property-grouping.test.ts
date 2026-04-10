@@ -216,7 +216,7 @@ describe('property-grouping', () => {
     expect(getGroupingBufferUnits() / TILE_UNITS_PER_PX).toBeGreaterThanOrEqual(requiredPx);
   });
 
-  it('merges a connected dense neighborhood through transitive overlaps', () => {
+  it('keeps bridge candidates separate to avoid transitive chain clustering', () => {
     const zoom = 18;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + 1024;
@@ -255,10 +255,13 @@ describe('property-grouping', () => {
 
     const groups = groupCandidatesForTile(tile, [alpha, beta, gamma]);
 
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(2);
     expect(groups[0].groupKind).toBe('cluster');
-    expect(groups[0].pointCount).toBe(3);
-    expect(groups[0].propertyIds).toEqual([alpha.id, beta.id, gamma.id]);
+    expect(groups[0].pointCount).toBe(2);
+    expect(groups[0].propertyIds).toEqual([alpha.id, beta.id]);
+    expect(groups[1].groupKind).toBe('single');
+    expect(groups[1].pointCount).toBe(1);
+    expect(groups[1].propertyIds).toEqual([gamma.id]);
   });
 
   it('suppresses ghosts that fall inside active occupancy once ghosts are revealed', () => {
