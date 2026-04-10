@@ -10,7 +10,14 @@
  */
 
 import React, { type ReactNode } from 'react';
-import { Pressable, Text, View, StyleSheet, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  Text,
+  View,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -26,10 +33,14 @@ export interface ButtonProps {
   onPress?: () => void;
   /** Disable interaction. */
   disabled?: boolean;
+  /** Optional explicit accessibility label. Defaults to `label`. */
+  accessibilityLabel?: string;
   /** Optional leading icon/element. */
   leading?: ReactNode;
   /** Optional trailing icon/element. */
   trailing?: ReactNode;
+  /** Optional container style override. */
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
@@ -43,8 +54,10 @@ export function Button({
   size = 'md',
   onPress,
   disabled = false,
+  accessibilityLabel,
   leading,
   trailing,
+  style,
   testID,
 }: ButtonProps) {
   return (
@@ -53,6 +66,7 @@ export function Button({
       disabled={disabled}
       testID={testID}
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled }}
       style={({ pressed }) => [
         styles.base,
@@ -63,6 +77,7 @@ export function Button({
         variantStyles[variant].container,
         pressed && !disabled && variantStyles[variant].pressed,
         disabled && styles.disabled,
+        style,
       ]}
     >
       {leading && <View style={styles.leading}>{leading}</View>}

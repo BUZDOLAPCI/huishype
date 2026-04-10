@@ -8,10 +8,11 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { PropertyFeedCard, FeedLoadingMore, AuthModal } from '@/src/components';
+import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
@@ -111,15 +112,12 @@ export default function SavedScreen() {
           <Text className="text-warm-600 text-center mb-6">
             Save properties while browsing the map and find them all here.
           </Text>
-          <Pressable
+          <Button
+            label="Sign In"
             onPress={() => setShowAuth(true)}
-            className="bg-primary-700 mx-6 py-3 rounded-xl items-center self-stretch"
+            style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
             testID="saved-sign-in-button"
-            accessibilityRole="button"
-            accessibilityLabel="Sign in"
-          >
-            <Text className="text-white font-semibold text-base">Sign In</Text>
-          </Pressable>
+          />
           <AuthModal
             visible={showAuth}
             onClose={() => setShowAuth(false)}
@@ -163,15 +161,12 @@ export default function SavedScreen() {
           <Text className="text-warm-600 text-center mb-6">
             {error?.message || 'Failed to load saved properties'}
           </Text>
-          <Pressable
+          <Button
+            label="Try Again"
             onPress={() => refetch()}
-            className="bg-primary-700 px-6 py-3 rounded-xl flex-row items-center"
+            style={{ paddingHorizontal: 24 }}
             testID="saved-retry-button"
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading saved properties"
-          >
-            <Text className="text-white font-semibold">Try Again</Text>
-          </Pressable>
+          />
         </View>
       </View>
     );

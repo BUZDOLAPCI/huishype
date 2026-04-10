@@ -505,7 +505,7 @@ export function PriceGuessSlider({
           className={`w-full rounded-xl overflow-hidden flex-row items-center justify-center py-3.5 ${
             disabled || isSubmitting
               ? 'bg-warm-200'
-              : 'bg-primary-700 active:bg-primary-800'
+              : 'bg-primary-500 active:bg-primary-600'
           }`}
         >
           <Animated.View style={submitAnimatedStyle}>

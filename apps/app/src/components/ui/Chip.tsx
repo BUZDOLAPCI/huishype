@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   chipActive: {
-    backgroundColor: '#B47712', // gold-700 — AA contrast with white text (4.8:1)
+    backgroundColor: '#F5A623', // gold-500 — primary brand fill from design
   },
   chipInactive: {
     backgroundColor: '#FFFFFF',

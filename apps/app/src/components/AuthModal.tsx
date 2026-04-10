@@ -35,6 +35,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../hooks/useAuth';
 import { HuisHypeLogo } from './branding';
+import { Button } from './ui/Button';
 import { Icon } from './ui/Icon';
 import { BlurContainer } from './ui/BlurContainer';
 import { shadows } from '../lib/shadows';
@@ -495,23 +496,14 @@ export function AuthModal({
         )}
 
         {/* Send magic link button */}
-        <TouchableOpacity
+        <Button
+          label={isRequestingEmail ? 'Sending...' : 'Send Magic Link'}
           onPress={handleEmailSubmit}
           disabled={isRequestingEmail || !email.trim()}
-          style={[
-            styles.sendLinkButton,
-            (!email.trim() || isRequestingEmail) && styles.sendLinkButtonDisabled,
-          ]}
           accessibilityLabel="Send magic link"
-          accessibilityRole="button"
+          style={styles.sendLinkButton}
           testID="send-magic-link-button"
-        >
-          {isRequestingEmail ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.sendLinkText}>Send Magic Link</Text>
-          )}
-        </TouchableOpacity>
+        />
 
         {/* Back to main */}
         <TouchableOpacity
@@ -736,21 +728,7 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   sendLinkButton: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: GOLD_700, // gold-700 — AA contrast with white text
-    alignItems: 'center',
-    justifyContent: 'center',
     width: '100%',
-  },
-  sendLinkButtonDisabled: {
-    opacity: 0.5,
-  },
-  sendLinkText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   backLink: {
     paddingVertical: 4,

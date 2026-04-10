@@ -23,6 +23,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
@@ -219,15 +220,12 @@ export default function ProfileScreen() {
           <Text className="text-warm-600 text-center mb-6">
             Track your guess history, karma, and saved properties.
           </Text>
-          <Pressable
+          <Button
+            label="Sign In"
             onPress={() => setShowAuth(true)}
-            className="bg-primary-700 mx-6 py-3 rounded-xl items-center self-stretch"
+            style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
             testID="profile-sign-in-button"
-            accessibilityRole="button"
-            accessibilityLabel="Sign in"
-          >
-            <Text className="text-white font-semibold text-base">Sign In</Text>
-          </Pressable>
+          />
           <AuthModal
             visible={showAuth}
             onClose={() => setShowAuth(false)}

@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import { Button } from './ui/Button';
 import { Icon } from './ui/Icon';
 
 interface FeedErrorStateProps {
@@ -30,15 +31,12 @@ export function FeedErrorState({
       </Text>
       <Text className="text-warm-600 text-center mb-6">{message}</Text>
       {onRetry && (
-        <Pressable
+        <Button
+          label="Try Again"
           onPress={onRetry}
-          className="bg-primary-700 px-6 py-3 rounded-xl flex-row items-center"
+          style={{ paddingHorizontal: 24 }}
           testID="feed-retry-button"
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading feed"
-        >
-          <Text className="text-white font-semibold">Try Again</Text>
-        </Pressable>
+        />
       )}
     </View>
   );
