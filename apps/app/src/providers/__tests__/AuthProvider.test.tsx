@@ -18,6 +18,9 @@ import type { PropsWithChildren } from 'react';
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
+var mockMakeRedirectUri: jest.Mock;
+var mockPromptAsync: jest.Mock;
+var mockAuthRequest: jest.Mock;
 
 const mockSecureStore: Record<string, string> = {};
 
@@ -31,11 +34,20 @@ jest.mock('expo-secure-store', () => ({
   }),
 }));
 
-jest.mock('expo-auth-session', () => ({
-  makeRedirectUri: jest.fn(),
-  AuthRequest: jest.fn(),
-  ResponseType: { IdToken: 'id_token' },
-}));
+jest.mock('expo-auth-session', () => {
+  mockMakeRedirectUri = jest.fn(() => 'https://huishype.test/auth/callback');
+  mockPromptAsync = jest.fn();
+  mockAuthRequest = jest.fn().mockImplementation((config: unknown) => ({
+    config,
+    promptAsync: mockPromptAsync,
+  }));
+
+  return {
+    makeRedirectUri: mockMakeRedirectUri,
+    AuthRequest: mockAuthRequest,
+    ResponseType: { IdToken: 'id_token' },
+  };
+});
 
 jest.mock('expo-web-browser', () => ({
   maybeCompleteAuthSession: jest.fn(),
@@ -121,6 +133,9 @@ describe('AuthProvider startup token refresh', () => {
     jest.useRealTimers();
     clearStorage();
     mockFetch.mockReset();
+    mockMakeRedirectUri.mockClear();
+    mockPromptAsync.mockReset();
+    mockAuthRequest.mockClear();
   });
 
   it('refreshes an expired token on boot and exposes the new token in context', async () => {
@@ -223,5 +238,33 @@ describe('AuthProvider startup token refresh', () => {
     // Storage should have been wiped by clearAuthData
     expect(mockSecureStore['huishype_access_token']).toBeUndefined();
     expect(mockSecureStore['huishype_refresh_token']).toBeUndefined();
+  });
+
+  it('disables PKCE for Google id_token sign-in requests', async () => {
+    mockPromptAsync.mockResolvedValueOnce({ type: 'dismiss' });
+
+    const { result } = renderHook(() => useAuthContext(), { wrapper });
+    await settleAuthBoot();
+
+    await act(async () => {
+      await result.current.signInWithGoogle();
+    });
+
+    expect(mockMakeRedirectUri).toHaveBeenCalledWith({
+      scheme: 'huishype',
+      path: 'auth/callback',
+    });
+
+    expect(mockAuthRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: 'https://huishype.test/auth/callback',
+        responseType: 'id_token',
+        usePKCE: false,
+        extraParams: {
+          nonce: 'mock-uuid',
+        },
+      })
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

@@ -327,6 +327,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         scopes: ['openid', 'email', 'profile'],
         redirectUri,
         responseType: AuthSession.ResponseType.IdToken,
+        usePKCE: false,
+        extraParams: {
+          nonce: Crypto.randomUUID(),
+        },
       });
 
       const result = await request.promptAsync(discovery);
