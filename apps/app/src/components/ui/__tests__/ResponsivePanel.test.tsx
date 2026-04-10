@@ -9,7 +9,6 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { Text } from 'react-native';
 
 import { ResponsivePanel } from '../ResponsivePanel.web';
 
@@ -68,7 +67,7 @@ describe('ResponsivePanel.web', () => {
 
     renderToDOM(
       <ResponsivePanel title="Test Panel">
-        <Text>Child content</Text>
+        <span>Child content</span>
       </ResponsivePanel>
     );
 
@@ -85,7 +84,7 @@ describe('ResponsivePanel.web', () => {
 
     renderToDOM(
       <ResponsivePanel title="Comments">
-        <Text>Panel content</Text>
+        <span>Panel content</span>
       </ResponsivePanel>
     );
 
@@ -104,7 +103,7 @@ describe('ResponsivePanel.web', () => {
 
     renderToDOM(
       <ResponsivePanel title="Test">
-        <Text>Content</Text>
+        <span>Content</span>
       </ResponsivePanel>
     );
 
@@ -123,7 +122,7 @@ describe('ResponsivePanel.web', () => {
     const onClose = jest.fn();
     renderToDOM(
       <ResponsivePanel title="Test" onClose={onClose}>
-        <Text>Content</Text>
+        <span>Content</span>
       </ResponsivePanel>
     );
 
@@ -142,7 +141,7 @@ describe('ResponsivePanel.web', () => {
 
     renderToDOM(
       <ResponsivePanel title="Test">
-        <Text>Content</Text>
+        <span>Content</span>
       </ResponsivePanel>
     );
 
@@ -160,7 +159,7 @@ describe('ResponsivePanel.web', () => {
 
     renderToDOM(
       <ResponsivePanel>
-        <Text>Content</Text>
+        <span>Content</span>
       </ResponsivePanel>
     );
 

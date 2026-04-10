@@ -357,23 +357,29 @@ Other agents may be editing nearby files at the same time. Do not overwrite, rev
 
 ## Verification
 
-Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical `pnpm test` gate includes app, API, worker, shared, api-client, and mocks unit coverage plus API integration and Playwright integration. Follow "All tests green" development.
+Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical repo gate is `pnpm test`, which covers app, API, worker, shared, api-client, and mocks unit coverage plus API integration and Playwright integration. Follow "All tests green" development.
 
 ## Pre-Commit Quality Gate (Mandatory)
 
 Run these checks before every commit. All must pass.
 
 ```bash
-pnpm -C apps/app typecheck        # Zero TS errors
-pnpm -C apps/app test             # All unit tests green
+pnpm test                         # Canonical repo gate
 ```
 
-If e2e files changed, also run the impacted Playwright project(s):
+If the change touches web E2E, also run the relevant root Playwright wrappers:
 
 ```bash
-pnpm -C apps/app exec playwright test --project=visual    # visual e2e tests
-pnpm -C apps/app exec playwright test --project=integration  # integration e2e tests
-pnpm -C apps/app exec playwright test --project=flows     # flow e2e tests
+pnpm test:e2e:web                # Full Playwright suite via the root wrapper
+pnpm test:e2e:integration        # Integration Playwright project
+pnpm test:e2e:flows              # Flow Playwright project
+pnpm test:e2e:visual             # Visual Playwright project
+```
+
+If the change touches mobile, also run:
+
+```bash
+pnpm test:e2e:mobile             # Wrapper that bootstraps the device and runs Maestro
 ```
 
 ## Agent-Managed Tooling

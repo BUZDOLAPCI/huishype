@@ -2,6 +2,7 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -46,10 +47,10 @@ function resolveTsxRuntimePaths() {
 
 const { tsxPreflight, tsxLoader } = resolveTsxRuntimePaths();
 
-const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
-const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
-const apiUrl = `http://127.0.0.1:${apiPort}`;
-const webUrl = `http://127.0.0.1:${webPort}`;
+let apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
+let webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
+let apiUrl = `http://127.0.0.1:${apiPort}`;
+let webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
 const webExportNodeEnv = 'production';
 const playwrightArgs = process.argv.slice(2);
@@ -94,6 +95,51 @@ async function ensurePortAvailable(port, label) {
     `${label} port ${port} is already in use by PID(s) ${pids.join(', ')}. ` +
     'Stop the existing process or choose a different port.',
   );
+}
+
+function updateRuntimePorts(nextApiPort, nextWebPort) {
+  apiPort = nextApiPort;
+  webPort = nextWebPort;
+  apiUrl = `http://127.0.0.1:${apiPort}`;
+  webUrl = `http://127.0.0.1:${webPort}`;
+}
+
+async function claimPort(port, host = '127.0.0.1') {
+  return await new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.unref();
+    server.once('error', reject);
+    server.listen({ port, host }, () => {
+      const address = server.address();
+      const selectedPort =
+        typeof address === 'object' && address ? address.port : port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(selectedPort);
+      });
+    });
+  });
+}
+
+async function resolveRuntimePort(port, { strict = false, host = '127.0.0.1' } = {}) {
+  try {
+    return await claimPort(port, host);
+  } catch (error) {
+    if (
+      strict ||
+      !(error instanceof Error) ||
+      !('code' in error) ||
+      error.code !== 'EADDRINUSE'
+    ) {
+      throw error;
+    }
+
+    return await claimPort(0, host);
+  }
 }
 
 async function waitForHttp(url, label) {
@@ -284,6 +330,10 @@ async function waitForChildExit(child, name, timeoutMs = 5_000) {
     return;
   }
 
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
   await Promise.race([
     new Promise((resolve) => {
       child.once('exit', resolve);
@@ -293,12 +343,26 @@ async function waitForChildExit(child, name, timeoutMs = 5_000) {
 
   if (child.exitCode === null && !child.killed) {
     stopService(child, 'SIGKILL');
+    await Promise.race([
+      new Promise((resolve) => {
+        child.once('exit', resolve);
+      }),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 }
 
 async function main() {
+  const apiPortRequested = process.env.PLAYWRIGHT_API_PORT != null;
+  const webPortRequested = process.env.PLAYWRIGHT_WEB_PORT != null;
+
   assertPositivePort(apiPort, 'PLAYWRIGHT_API_PORT');
   assertPositivePort(webPort, 'PLAYWRIGHT_WEB_PORT');
+
+  updateRuntimePorts(
+    await resolveRuntimePort(apiPort, { strict: apiPortRequested }),
+    await resolveRuntimePort(webPort, { strict: webPortRequested }),
+  );
 
   const childEnv = {
     ...process.env,
@@ -328,8 +392,8 @@ async function main() {
     stopService(playwrightChild, signal);
     stopService(apiChild, signal);
     await Promise.all([
-      Promise.resolve(playwrightExitPromise).catch(() => {}),
-      Promise.resolve(apiExitPromise).catch(() => {}),
+      waitForChildExit(playwrightChild, 'Playwright process').catch(() => {}),
+      waitForChildExit(apiChild, 'API server').catch(() => {}),
       Promise.resolve()
         .then(() => webRuntime?.stop?.())
         .catch(() => {}),
@@ -435,7 +499,14 @@ async function main() {
   process.exit(Number(exitCode));
 }
 
-export { startServiceWithRetry, waitForExit, waitForHttp, watchRuntimeDeaths };
+export {
+  resolveRuntimePort,
+  startServiceWithRetry,
+  waitForChildExit,
+  waitForExit,
+  waitForHttp,
+  watchRuntimeDeaths,
+};
 
 const isMainModule = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 

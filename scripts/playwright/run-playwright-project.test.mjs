@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { startServiceWithRetry, watchRuntimeDeaths } from './run-playwright-project.mjs';
+import { createServer } from 'node:net';
+import {
+  resolveRuntimePort,
+  startServiceWithRetry,
+  waitForChildExit,
+  watchRuntimeDeaths,
+} from './run-playwright-project.mjs';
 
 class FakeChild extends EventEmitter {
   constructor() {
@@ -110,4 +116,63 @@ test('reports unexpected static web server shutdown during a run', async () => {
     runtimeDeath,
     /Static web server closed unexpectedly while Playwright was running/,
   );
+});
+
+test('waitForChildExit escalates to SIGKILL for a hung child process', async () => {
+  const child = new FakeChild();
+  const signals = [];
+  child.kill = (signal) => {
+    signals.push(signal);
+    child.killed = true;
+    if (signal === 'SIGKILL') {
+      child.signalCode = 'SIGKILL';
+      queueMicrotask(() => {
+        child.emit('exit', null, 'SIGKILL');
+      });
+    }
+    return true;
+  };
+
+  await waitForChildExit(child, 'hung child', 5);
+
+  assert.deepEqual(signals, ['SIGKILL']);
+});
+
+test('resolveRuntimePort falls back to an ephemeral port when the default is busy', async () => {
+  const occupied = createServer();
+  await new Promise((resolve) => {
+    occupied.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = occupied.address();
+  assert.ok(address && typeof address === 'object');
+  const busyPort = address.port;
+
+  const resolvedPort = await resolveRuntimePort(busyPort);
+
+  assert.notEqual(resolvedPort, busyPort);
+
+  await new Promise((resolve, reject) => {
+    occupied.close((error) => (error ? reject(error) : resolve()));
+  });
+});
+
+test('resolveRuntimePort honors explicitly requested busy ports', async () => {
+  const occupied = createServer();
+  await new Promise((resolve) => {
+    occupied.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = occupied.address();
+  assert.ok(address && typeof address === 'object');
+  const busyPort = address.port;
+
+  await assert.rejects(
+    resolveRuntimePort(busyPort, { strict: true }),
+    (error) => error?.code === 'EADDRINUSE',
+  );
+
+  await new Promise((resolve, reject) => {
+    occupied.close((error) => (error ? reject(error) : resolve()));
+  });
 });

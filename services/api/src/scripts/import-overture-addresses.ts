@@ -22,7 +22,7 @@ import {
   type CountryCode,
 } from '@huishype/shared/config';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 // ---------------------------------------------------------------------------
 // Constants

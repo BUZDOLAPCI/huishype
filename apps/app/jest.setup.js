@@ -1,4 +1,6 @@
 // Jest setup file for HuisHype app
+const { act } = require('@testing-library/react-native');
+const { notifyManager } = require('@tanstack/react-query');
 
 // Mock console.warn to suppress React Native warnings in tests
 const originalWarn = console.warn;
@@ -32,3 +34,10 @@ console.error = (...args) => {
 
 // Global test utilities
 global.IS_REACT_ACT_ENVIRONMENT = true;
+
+// Make TanStack Query flush async observer notifications inside React act().
+notifyManager.setNotifyFunction((callback) => {
+  act(() => {
+    callback();
+  });
+});

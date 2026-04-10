@@ -3,9 +3,27 @@ import postgres from 'postgres';
 import { config } from '../config.js';
 import * as schema from './schema.js';
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+const maxConnections = parsePositiveInt(
+  process.env.DATABASE_POOL_MAX,
+  config.isTest ? 2 : 10,
+);
+
 // Create the postgres connection
 const queryClient = postgres(config.database.url, {
-  max: 10, // Max pool size
+  max: maxConnections,
   idle_timeout: 20, // Close idle connections after 20 seconds
   connect_timeout: 10, // Fail connection after 10 seconds
 });

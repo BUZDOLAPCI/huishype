@@ -78,19 +78,21 @@ packages/mocks/     # MSW mock handlers
 
 ## Commands
 
+Unit-test runners are mixed by workspace: `apps/app` and `services/api` use Jest, `services/worker` uses `node --test`, and `packages/shared`, `packages/api-client`, and `packages/mocks` use Vitest.
+
 | Command | Description |
 |---------|-------------|
 | `pnpm dev` | Run workspace `dev` scripts via Turborepo |
 | `pnpm build` | Build all packages |
-| `pnpm test` | Canonical merge gate: lint + typecheck + unit (app + API + worker + shared packages) + API integration + Playwright integration |
-| `pnpm test:all` | Broader superset: `pnpm test` plus Playwright flows, visual reference tests, and mobile E2E |
+| `pnpm test` | Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration |
+| `pnpm test:all` | Broader superset: `pnpm test` plus Playwright flows, Playwright visual, and mobile E2E |
 | `pnpm test:unit` | Run unit tests for app, API, worker, shared, api-client, and mocks |
 | `pnpm test:integration` | Run API integration tests |
-| `pnpm test:e2e:web` | Run the full Playwright web suite |
-| `pnpm test:e2e:integration` | Run the critical Playwright integration project |
-| `pnpm test:e2e:flows` | Run the user-flow Playwright project |
-| `pnpm test:e2e:visual` | Run the visual reference Playwright project |
-| `pnpm test:e2e:mobile` | Run the Maestro mobile flow |
+| `pnpm test:e2e:web` | Run the full root Playwright suite via `scripts/playwright/run-playwright-project.mjs` |
+| `pnpm test:e2e:integration` | Run the Playwright integration project |
+| `pnpm test:e2e:flows` | Run the Playwright flows project |
+| `pnpm test:e2e:visual` | Run the Playwright visual project |
+| `pnpm test:e2e:mobile` | Run the mobile wrapper at `scripts/visual-overhaul/run-mobile-e2e.mjs` |
 | `pnpm typecheck` | TypeScript type checking |
 | `pnpm -C apps/app web` | Start the Expo web dev server |
 | `pnpm -C apps/app android` | Build and run the native Android app |

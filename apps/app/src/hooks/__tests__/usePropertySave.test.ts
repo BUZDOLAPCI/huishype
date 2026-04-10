@@ -152,7 +152,7 @@ describe('usePropertySave', () => {
     expect(result.current.isSaved).toBe(false);
 
     await act(async () => {
-      result.current.toggleSave();
+      await result.current.toggleSave();
     });
 
     // After optimistic update, cache should be updated
@@ -192,7 +192,7 @@ describe('usePropertySave', () => {
     expect(result.current.isSaved).toBe(true);
 
     await act(async () => {
-      result.current.toggleSave();
+      await result.current.toggleSave();
     });
 
     // After optimistic update
@@ -231,7 +231,7 @@ describe('usePropertySave', () => {
     );
 
     await act(async () => {
-      result.current.toggleSave();
+      await result.current.toggleSave();
     });
 
     // Wait for error rollback

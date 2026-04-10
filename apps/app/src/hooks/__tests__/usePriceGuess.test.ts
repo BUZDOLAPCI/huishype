@@ -324,9 +324,16 @@ describe('useFetchPriceGuess', () => {
 });
 
 describe('useSubmitGuess', () => {
+  let consoleErrorSpy: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAccessToken.mockResolvedValue('mock-token');
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('calls api.post with auth headers', async () => {
@@ -373,14 +380,26 @@ describe('useSubmitGuess', () => {
       wrapper: createWrapper(),
     });
 
-    await expect(
-      result.current.mutateAsync({
-        propertyId: 'property-123',
-        guessedPrice: 350000,
-      })
-    ).rejects.toThrow('Authentication required');
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          propertyId: 'property-123',
+          guessedPrice: 350000,
+        })
+      ).rejects.toThrow('Authentication required');
+    });
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
 
     expect(mockApi.post).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Submit guess error:',
+      expect.objectContaining({
+        message: 'Authentication required',
+      }),
+    );
   });
 
   it('returns mutation hook with expected methods', () => {

@@ -490,7 +490,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   const handleSave = useCallback((_propertyId?: string) => {
-    toggleSave();
+    void toggleSave();
   }, [toggleSave]);
 
   const handleShare = useCallback((_propertyId: string) => {

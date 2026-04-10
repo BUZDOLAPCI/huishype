@@ -220,7 +220,9 @@ function ManagedPropertyInteractions({
     isLiked: ownLike.isLiked,
     isSaved: ownSave.isSaved,
     onLike: () => ownLike.toggleLike(),
-    onSave: () => ownSave.toggleSave(),
+    onSave: () => {
+      void ownSave.toggleSave();
+    },
   });
 }
 

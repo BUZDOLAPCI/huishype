@@ -20,7 +20,7 @@ export interface UsePropertySaveOptions {
 
 export interface UsePropertySaveReturn {
   isSaved: boolean;
-  toggleSave: () => void;
+  toggleSave: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -100,9 +100,6 @@ export function usePropertySave({
         queryClient.setQueryData(context.key, context.previous);
       }
     },
-    onSettled: (_data, _error, { propId }) => {
-      queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) });
-    },
   });
 
   // Unsave mutation
@@ -130,12 +127,9 @@ export function usePropertySave({
         queryClient.setQueryData(context.key, context.previous);
       }
     },
-    onSettled: (_data, _error, { propId }) => {
-      queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) });
-    },
   });
 
-  const toggleSave = useCallback(() => {
+  const toggleSave = useCallback(async () => {
     if (!propertyId) return;
 
     // Auth gate
@@ -144,10 +138,15 @@ export function usePropertySave({
       return;
     }
 
-    if (isSaved) {
-      unsaveMutation.mutate({ propId: propertyId, token: accessToken });
-    } else {
-      saveMutation.mutate({ propId: propertyId, token: accessToken });
+    try {
+      if (isSaved) {
+        await unsaveMutation.mutateAsync({ propId: propertyId, token: accessToken });
+        return;
+      }
+
+      await saveMutation.mutateAsync({ propId: propertyId, token: accessToken });
+    } catch {
+      // Errors are reflected through mutation state and rollback logic.
     }
   }, [propertyId, user, accessToken, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
 

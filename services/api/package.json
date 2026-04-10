@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathIgnorePatterns='__tests__/integration'",
     "test:unit": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathIgnorePatterns='__tests__/integration'",
-    "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathPattern='__tests__/integration'",
+    "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --runInBand --testPathPattern='__tests__/integration' --testTimeout=15000",
     "test:all": "NODE_OPTIONS='--experimental-vm-modules' jest",
     "typecheck": "tsc --noEmit",
     "openapi:export": "tsx scripts/export-openapi.ts",

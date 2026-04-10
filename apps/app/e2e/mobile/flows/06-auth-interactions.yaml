@@ -2,12 +2,13 @@ appId: nl.huishype.app
 ---
 # 06-auth-interactions.yaml — Post-Login Interactions
 # After login, the property was deselected (handleAuthStarting clears it).
-# Re-search for the fixture property to get the bottom sheet open again,
-# then test authenticated interactions.
+# Re-search for the fixture property to restore the preview card, then tap the
+# card to open the bottom sheet before testing authenticated interactions.
 #
 # NOTE: GroupPreviewCard is in a MapLibre <Marker> (real native Views on
-# Android v11 alpha, visible to Maestro). We re-search to get the bottom
-# sheet open for authenticated interaction testing.
+# Android v11 alpha, visible to Maestro). Search selection restores the
+# preview card first; we tap that card to open the bottom sheet for
+# authenticated interaction testing.
 
 # Make sure we're on the Map tab
 - tapOn:
@@ -46,7 +47,16 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
-# Wait for property data to load (bottom sheet peeks)
+# Wait for the preview card to appear, then tap it to open the bottom sheet.
+- extendedWaitUntil:
+    visible: '.*Beeldbuisring.*'
+    timeout: 15000
+
+- tapOn:
+    id: 'property-preview-card'
+- waitForAnimationToEnd
+
+# Wait for property detail content to load after the sheet opens
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'

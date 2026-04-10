@@ -9,7 +9,6 @@
  * without any panel chrome since the route already handles safe areas.
  */
 import { useCallback, useEffect, type ReactNode } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
@@ -99,6 +98,17 @@ if (typeof document !== 'undefined') {
     .responsive-panel-close:hover {
       background: #F5F0E8;
     }
+    .responsive-panel-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2D2926;
+    }
+    .responsive-panel-content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
   `;
 }
 
@@ -142,9 +152,7 @@ export function ResponsivePanel({ children, title, onClose }: ResponsivePanelPro
       >
         {/* Header */}
         <div className="responsive-panel-header">
-          <Text style={styles.headerTitle}>
-            {title ?? ''}
-          </Text>
+          <span className="responsive-panel-title">{title ?? ''}</span>
           <button
             className="responsive-panel-close"
             onClick={handleClose}
@@ -156,22 +164,8 @@ export function ResponsivePanel({ children, title, onClose }: ResponsivePanelPro
         </div>
 
         {/* Content */}
-        <View style={styles.content}>
-          {children}
-        </View>
+        <div className="responsive-panel-content">{children}</div>
       </div>
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2D2926',
-  },
-  content: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-});

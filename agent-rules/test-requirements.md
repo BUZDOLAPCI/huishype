@@ -1,4 +1,4 @@
-# test-stack.md — Verification stack for agent-driven development
+# test-requirements.md — Verification stack for agent-driven development
 
 ## Goal
 Agents must be able to verify changes locally + in CI with:
@@ -13,8 +13,8 @@ Agents must be able to verify changes locally + in CI with:
 - **No feature merges without tests** (unit + at least one E2E path if it merits)
 - **Contract-first**: API + schema changes must update generated clients and tests
 - **Hermetic CI**: tests do not depend on developer machines or random external services
-- **One-command verification**: `pnpm test` is the canonical merge gate locally and in CI, and it must cover worker package unit tests alongside app/API/shared coverage
-- **Broader verification**: `pnpm test:all` is the wider superset path for extra web/mobile coverage beyond the canonical gate
+- **One-command verification**: `pnpm test` is the canonical merge gate locally and in CI, and it must cover app, API, worker, shared, api-client, and mocks unit tests alongside API integration and Playwright integration
+- **Broader verification**: `pnpm test:all` is the wider superset path for extra web and mobile coverage beyond the canonical gate
 
 ---
 
@@ -26,9 +26,16 @@ Agents must be able to verify changes locally + in CI with:
 - **What goes here:** pure logic, reducers/state, hooks, validation, formatting, view-model logic
 - **Rules:** no network; use dependency injection and mocks
 
-### Backend (Node.js / TypeScript)
+### Backend and worker
 - **Test runner:** **Jest**
+- **Backend packages:** `services/api`
+- **Worker package:** `services/worker`
 - **What goes here:** service logic, scoring/trending functions, moderation rules, auth/permission helpers, subscription entitlement checks, worker orchestration helpers
+
+### Shared and client packages
+- **Test runner:** **Vitest**
+- **Packages:** `packages/shared`, `packages/api-client`, `packages/mocks`
+- **What goes here:** pure utilities, generated client sanity checks, contract-aligned mock handlers, and shared helpers
 
 ---
 
@@ -134,12 +141,16 @@ For All new UI implementations and changes, implement an e2e test that screensho
 ---
 
 ## CI gating (agent verification pipeline)
-Minimum pipeline stages:
-1. **Lint + typecheck** (app + backend + shared packages)
-2. **Unit tests** (app + backend)
-3. **Integration tests** (backend + DB)
-4. **E2E web** (Playwright)
-5. **E2E mobile** (Maestro Android — `maestro test apps/app/e2e/mobile/full-flow.yaml`)
+Canonical repo gate:
+1. **Lint + typecheck** (app + backend + worker + shared + api-client + mocks)
+2. **Unit tests** (app + backend + worker + shared + api-client + mocks)
+3. **Integration tests** (API + DB)
+4. **E2E web integration** (Playwright integration project)
+
+Broader verification:
+1. **E2E web flows** (Playwright flows project)
+2. **E2E web visual** (Playwright visual project)
+3. **E2E mobile** (wrapper script around Maestro Android flow execution)
 
 Artifacts always captured:
 - logs, screenshots, traces, videos, coverage reports
@@ -153,12 +164,15 @@ Artifacts always captured:
 ---
 
 ## One-command workflows (must exist)
-- `test` — canonical repo gate: lint + typecheck + unit + backend integration + Playwright integration
-- `test:unit` — app + backend
+- `test` — canonical repo gate: lint + typecheck + unit + API integration + Playwright integration
+- `test:unit` — app + API + worker + shared + api-client + mocks
 - `test:integration` — backend with DB
-- `test:e2e:web` — Playwright
-- `test:e2e:mobile` — Maestro (requires running emulator)
-- `test:all` — broader superset: `test` plus additional Playwright projects and mobile E2E
+- `test:e2e:web` — full root Playwright suite via `scripts/playwright/run-playwright-project.mjs`
+- `test:e2e:flows` — Playwright flows project via the root wrapper
+- `test:e2e:visual` — Playwright visual project via the root wrapper
+- `test:e2e:integration` — Playwright integration project via the root wrapper
+- `test:e2e:mobile` — mobile wrapper at `scripts/visual-overhaul/run-mobile-e2e.mjs`, which bootstraps the device and invokes Maestro
+- `test:all` — broader superset: `test` plus flows, visual, and mobile E2E
 
 ---
 
@@ -236,19 +250,19 @@ When deciding which tests to run after a change:
 | UI component change | `pnpm test:unit` + `pnpm test:e2e:flows` |
 | Map/tile rendering change | `pnpm test:e2e:visual` + `pnpm test:e2e:flows` |
 | Worker/runtime orchestration change | `pnpm test:unit` |
-| Mobile-specific change | `maestro test apps/app/e2e/mobile/full-flow.yaml` (requires emulator) |
+| Mobile-specific change | `pnpm test:e2e:mobile` |
 | Cross-cutting or unsure | `pnpm test:all` |
-| Before marking any task done | `pnpm test` + `maestro test apps/app/e2e/mobile/full-flow.yaml` if mobile touched |
+| Before marking any task done | `pnpm test` + `pnpm test:e2e:mobile` if mobile touched |
 
 ### Quick Reference Commands
 ```
 pnpm test                   # Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration
-pnpm test:unit              # App + API + worker + shared + api-client + mocks unit tests (Jest / node:test)
+pnpm test:unit              # App + API + worker + shared + api-client + mocks unit tests (Jest / Vitest / node:test)
 pnpm test:integration       # API integration tests (runs via turbo → API jest)
-pnpm test:e2e:web          # All Playwright tests (visual + integration + flows)
-pnpm test:e2e:flows        # User flow E2E tests only
-pnpm test:e2e:visual       # Visual reference tests only
-pnpm test:e2e:integration  # Critical flow integration tests only
-pnpm test:e2e:mobile       # Maestro mobile tests — run directly: maestro test apps/app/e2e/mobile/full-flow.yaml
-pnpm test:all              # Broader superset: pnpm test + flows + visual + mobile
+pnpm test:e2e:web           # Full Playwright suite via the root wrapper
+pnpm test:e2e:flows         # User flow Playwright project
+pnpm test:e2e:visual        # Visual Playwright project
+pnpm test:e2e:integration   # Playwright integration project
+pnpm test:e2e:mobile        # Mobile wrapper script that bootstraps the device and runs Maestro
+pnpm test:all               # Broader superset: pnpm test + flows + visual + mobile
 ```
