@@ -91,6 +91,24 @@ describe('PropertyFeedCard', () => {
     expect(getByTestId('feed-card-stats')).toBeTruthy();
   });
 
+  it('renders all four stat pills even when counts are zero', () => {
+    const { getByTestId, getAllByText } = render(
+      <PropertyFeedCard
+        {...defaultProps}
+        likeCount={0}
+        commentCount={0}
+        guessCount={0}
+        viewCount={0}
+      />
+    );
+
+    expect(getByTestId('feed-card-stats-likes')).toBeTruthy();
+    expect(getByTestId('feed-card-stats-comments')).toBeTruthy();
+    expect(getByTestId('feed-card-stats-guesses')).toBeTruthy();
+    expect(getByTestId('feed-card-stats-views')).toBeTruthy();
+    expect(getAllByText('0')).toHaveLength(4);
+  });
+
   it('renders primary price when fmvValue is provided', () => {
     const { getByTestId } = render(
       <PropertyFeedCard {...defaultProps} fmvValue={550000} />
