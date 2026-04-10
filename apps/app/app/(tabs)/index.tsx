@@ -570,7 +570,7 @@ export default function MapScreen() {
           onLike={interaction.handleLike}
           onGuessPress={interaction.handleGuessPress}
           onCommentPress={interaction.handleCommentPress}
-          onAuthRequired={() => interaction.handleAuthRequired('Sign in to continue')}
+          onAuthRequired={interaction.handleAuthRequired}
         />
       </BottomSheetErrorBoundary>
 
@@ -578,7 +578,7 @@ export default function MapScreen() {
       <AuthModal
         visible={interaction.showAuthModal}
         onClose={interaction.handleAuthModalClose}
-        message={interaction.authMessage}
+        copy={interaction.authCopy}
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
       />

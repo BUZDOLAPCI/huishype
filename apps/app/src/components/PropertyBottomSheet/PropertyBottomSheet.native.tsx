@@ -14,6 +14,11 @@ import Animated, {
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
+import {
+  getPanelScrollDelay,
+  getPreviewOpenTargetIndex,
+  getSectionScrollTarget,
+} from './sectionScroll';
 
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
   function PropertyBottomSheet(
@@ -54,21 +59,35 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }, []);
 
     const scrollToSection = useCallback((sectionY: number) => {
+      const targetY = getSectionScrollTarget(sectionY);
+      const delay = getPanelScrollDelay(animatedIndex.value, 2);
+
       bottomSheetRef.current?.snapToIndex(2);
       setTimeout(() => {
-        scrollViewRef.current?.scrollTo?.({ y: sectionY, animated: true });
-      }, 300);
-    }, []);
+        scrollViewRef.current?.scrollTo?.({ y: targetY, animated: true });
+      }, delay);
+    }, [animatedIndex]);
+
+    const openFromPreview = useCallback(() => {
+      const targetIndex = getPreviewOpenTargetIndex(animatedIndex.value);
+      const delay = getPanelScrollDelay(animatedIndex.value, targetIndex);
+
+      bottomSheetRef.current?.snapToIndex(targetIndex);
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo?.({ y: 0, animated: false });
+      }, delay);
+    }, [animatedIndex]);
 
     useImperativeHandle(ref, () => ({
       expand: () => bottomSheetRef.current?.expand(),
       collapse: () => bottomSheetRef.current?.collapse(),
       close: () => bottomSheetRef.current?.snapToIndex(0),
       snapToIndex: (index: number) => bottomSheetRef.current?.snapToIndex(index),
+      openFromPreview,
       scrollToComments: () => scrollToSection(sectionPositions.current.comments),
       scrollToGuess: () => scrollToSection(sectionPositions.current.guess),
       getCurrentIndex: () => animatedIndex.value,
-    }));
+    }), [animatedIndex, openFromPreview, scrollToSection]);
 
     const renderBackdrop = useCallback(
       (props: BottomSheetBackdropProps) => {
@@ -135,6 +154,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onSave={onSave}
               onShare={onShare}
               onLike={onLike}
+              onScrollToComments={() => scrollToSection(sectionPositions.current.comments)}
+              onScrollToGuess={() => scrollToSection(sectionPositions.current.guess)}
               onGuessPress={onGuessPress}
               onCommentPress={onCommentPress}
               onAuthRequired={onAuthRequired}

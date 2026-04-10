@@ -120,13 +120,13 @@ describe('PriceGuessSection', () => {
       <PriceGuessSection property={property} onLoginRequired={onLoginRequired} />
     );
 
-    expect(screen.getByText('Sign in to submit your guess')).toBeTruthy();
     expect(screen.getByTestId('price-guess-slider-disabled').props.children).toBe('false');
+    expect(screen.queryByText('Sign in to submit your guess')).toBeNull();
 
     fireEvent.press(screen.getByTestId('price-guess-slider-submit'));
 
     await waitFor(() => {
-      expect(onLoginRequired).toHaveBeenCalledTimes(1);
+      expect(onLoginRequired).toHaveBeenCalledWith('Sign in to submit your guess');
     });
     expect(mockMutateAsync).not.toHaveBeenCalled();
   });

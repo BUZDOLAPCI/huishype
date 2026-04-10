@@ -5,13 +5,16 @@ import type { SectionProps } from './types';
 import { Comment, CommentInput } from '../Comments';
 import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
+import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 
 interface CommentsSectionProps extends SectionProps {
   onAddComment?: () => void;
   onViewAll?: () => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 }
+
+const COMMENT_AUTH_REQUIRED_COPY = 'Sign in to post your comment' satisfies AuthModalCopyInput;
 
 /**
  * CommentsSection Component
@@ -58,7 +61,7 @@ export function CommentsSection({
   const handleLike = useCallback(
     (commentId: string) => {
       if (!isAuthenticated) {
-        onAuthRequired?.();
+        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
         return;
       }
 
@@ -76,7 +79,7 @@ export function CommentsSection({
   const handleReply = useCallback(
     (commentId: string, username: string) => {
       if (!isAuthenticated) {
-        onAuthRequired?.();
+        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
         return;
       }
       setReplyTo({ id: commentId, username });
@@ -93,7 +96,7 @@ export function CommentsSection({
   const handleSubmit = useCallback(
     (content: string) => {
       if (!isAuthenticated) {
-        onAuthRequired?.();
+        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
         return;
       }
 

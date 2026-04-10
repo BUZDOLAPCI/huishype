@@ -143,6 +143,12 @@ test.describe('Price Guess Flow', () => {
     // Verify submit button
     const submitBtn = page.locator('[data-testid="submit-guess-button"]');
     await expect(submitBtn).toBeVisible();
+    await expect(submitBtn.locator('text=Submit Guess')).toBeVisible();
+    const submitBackground = await submitBtn.evaluate((element) =>
+      window.getComputedStyle(element).backgroundColor
+    );
+    expect(submitBackground).not.toBe('rgba(0, 0, 0, 0)');
+    expect(submitBackground).not.toBe('transparent');
 
     // Verify min/max labels
     await expect(page.locator('text=\u20AC50.000').first()).toBeVisible();
@@ -186,7 +192,7 @@ test.describe('Price Guess Flow', () => {
     expect(finalPrice).toContain('\u20AC');
   });
 
-  test('unauthenticated guess submission shows sign-in prompt on property detail page', async ({
+  test('unauthenticated guess submission opens auth modal on submit with guess-specific copy', async ({
     page,
     request,
   }) => {
@@ -194,27 +200,23 @@ test.describe('Price Guess Flow', () => {
 
     await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await waitForPriceGuessUi(page);
 
-    // The PriceGuessSection shows a "Sign in to submit your guess" prompt when not authenticated
-    // OR the slider is disabled with the submit button disabled
-    const signInPrompt = page.locator('text=Sign in to submit your guess');
-    const signInVisible = await signInPrompt.first().isVisible().catch(() => false);
+    await expect(page.locator('text=Sign in to submit your guess')).toHaveCount(0);
 
-    if (signInVisible) {
-      // Verify the sign-in button exists
-      const signInBtn = page.locator('text=Sign In');
-      await expect(signInBtn.first()).toBeVisible();
-    } else {
-      // The submit button should be disabled when not authenticated
-      const submitBtn = page.locator('[data-testid="submit-guess-button"]');
-      if (await submitBtn.count() > 0) {
-        await submitBtn.scrollIntoViewIfNeeded();
-        // The slider is disabled when not authenticated, so "Submit Guess" text
-        // should be visible but clicking should not trigger any action
-        const submitText = page.locator('text=Submit Guess');
-        await expect(submitText.first()).toBeVisible();
-      }
-    }
+    const submitBtn = page.locator('[data-testid="submit-guess-button"]');
+    await submitBtn.scrollIntoViewIfNeeded();
+    await expect(submitBtn).toBeVisible();
+
+    await submitBtn.click();
+
+    await expect(page.locator('[data-testid="auth-modal-overlay"]')).toBeVisible();
+    await expect(page.locator('text=Welcome to HuisHype').first()).toBeVisible();
+    await expect(page.locator('text=Sign in to submit your guess').first()).toBeVisible();
+    await expect(
+      page.locator('text=Your guess will be saved and you can track your prediction accuracy.')
+    ).toHaveCount(0);
+    await expect(page.locator('text=Continue with Google')).toBeVisible();
   });
 
   test('authenticated guess submission persists via API', async ({ request }) => {

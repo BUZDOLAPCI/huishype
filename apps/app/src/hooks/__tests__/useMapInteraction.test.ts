@@ -207,20 +207,29 @@ describe('useMapInteraction', () => {
         wrapper: createWrapper(queryClient),
       });
       expect(result.current.showAuthModal).toBe(false);
-      expect(result.current.authMessage).toBe('Sign in to continue');
+      expect(result.current.authCopy).toEqual({
+        title: 'Welcome to HuisHype',
+        subtitle: 'Sign in to continue',
+      });
     });
 
-    it('handleAuthRequired shows modal with custom message', () => {
+    it('handleAuthRequired shows modal with custom contextual copy', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
 
       act(() => {
-        result.current.handleAuthRequired('Sign in to like this property');
+        result.current.handleAuthRequired({
+          title: 'Ignored title',
+          subtitle: 'Save your reactions and follow homes you care about.',
+        });
       });
 
       expect(result.current.showAuthModal).toBe(true);
-      expect(result.current.authMessage).toBe('Sign in to like this property');
+      expect(result.current.authCopy).toEqual({
+        title: 'Welcome to HuisHype',
+        subtitle: 'Save your reactions and follow homes you care about.',
+      });
     });
 
     it('handleAuthModalClose hides modal', () => {
@@ -425,9 +434,24 @@ describe('useMapInteraction', () => {
       expect(result.current.currentPreviewIndex).toBe(0);
     });
 
-    it('handlePreviewPropertyTap updates selected property and opens sheet', () => {
+    it('handlePreviewPropertyTap updates selected property and opens sheet from the top', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
+      });
+      const openFromPreview = jest.fn();
+      const snapToIndex = jest.fn();
+
+      act(() => {
+        (result.current.bottomSheetRef as React.MutableRefObject<any>).current = {
+          expand: jest.fn(),
+          collapse: jest.fn(),
+          close: jest.fn(),
+          snapToIndex,
+          openFromPreview,
+          scrollToComments: jest.fn(),
+          scrollToGuess: jest.fn(),
+          getCurrentIndex: jest.fn().mockReturnValue(0),
+        };
       });
 
       act(() => {
@@ -439,6 +463,8 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.selectedPropertyId).toBe('prop-2');
+      expect(openFromPreview).toHaveBeenCalledTimes(1);
+      expect(snapToIndex).not.toHaveBeenCalled();
     });
 
     it('syncs selectedPropertyId with currentPreviewIndex', () => {

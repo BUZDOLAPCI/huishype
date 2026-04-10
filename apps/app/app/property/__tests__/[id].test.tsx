@@ -38,10 +38,22 @@ jest.mock('@/src/hooks/useProperties', () => {
 });
 
 jest.mock('@/src/components', () => ({
-  AuthModal: ({ visible }: { visible: boolean }) => {
+  AuthModal: ({
+    visible,
+    copy,
+  }: {
+    visible: boolean;
+    copy?: { title?: string; subtitle?: string };
+  }) => {
     const React = require('react');
     const { Text } = require('react-native');
-    return <Text>{visible ? 'Auth modal open' : 'Auth modal closed'}</Text>;
+    return (
+      <Text>
+        {visible
+          ? `Auth modal open: ${copy?.title ?? ''} | ${copy?.subtitle ?? ''}`
+          : 'Auth modal closed'}
+      </Text>
+    );
   },
 }));
 
@@ -53,7 +65,9 @@ jest.mock('@/src/components/PropertyBottomSheet/PropertyContent', () => ({
     return (
       <>
         <Text>{props.property.address}</Text>
-        <Pressable onPress={() => props.onAuthRequired?.()}>
+        <Pressable
+          onPress={() => props.onAuthRequired?.('Sign in to submit your guess')}
+        >
           <Text>Trigger auth required</Text>
         </Pressable>
       </>
@@ -117,7 +131,11 @@ describe('app/property/[id]', () => {
 
     fireEvent.press(screen.getByText('Trigger auth required'));
 
-    expect(screen.getByText('Auth modal open')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Auth modal open: Welcome to HuisHype | Sign in to submit your guess'
+      )
+    ).toBeTruthy();
   });
 
   it('returns to the explicit origin when provided', () => {

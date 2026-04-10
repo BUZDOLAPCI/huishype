@@ -1,4 +1,5 @@
 import type { Property, PropertyDetails, PropertyFmvData } from '../../hooks/useProperties';
+import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
 export type PropertyContentData = Property | PropertyDetails | PropertyDetailsData;
 
@@ -31,7 +32,7 @@ export interface PropertyBottomSheetProps {
   onLike?: (propertyId: string) => void;
   onGuessPress?: (propertyId: string) => void;
   onCommentPress?: (propertyId: string) => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 }
 
 export interface PropertyBottomSheetRef {
@@ -39,6 +40,7 @@ export interface PropertyBottomSheetRef {
   collapse: () => void;
   close: () => void;
   snapToIndex: (index: number) => void;
+  openFromPreview: () => void;
   scrollToComments: () => void;
   scrollToGuess: () => void;
   getCurrentIndex: () => number;

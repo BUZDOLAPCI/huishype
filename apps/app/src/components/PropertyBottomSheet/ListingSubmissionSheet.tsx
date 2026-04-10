@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
+import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
 interface PreviewData {
   url: string;
@@ -29,7 +30,7 @@ interface ListingSubmissionSheetProps {
   visible: boolean;
   onClose: () => void;
   onSubmitted: () => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 }
 
 type Step = 'input' | 'preview' | 'submitting' | 'success' | 'error';

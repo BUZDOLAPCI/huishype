@@ -502,15 +502,13 @@ export function PriceGuessSlider({
           onPress={handleSubmit}
           disabled={disabled || isSubmitting}
           testID="submit-guess-button"
+          className={`w-full rounded-xl overflow-hidden flex-row items-center justify-center py-3.5 ${
+            disabled || isSubmitting
+              ? 'bg-warm-200'
+              : 'bg-primary-700 active:bg-primary-800'
+          }`}
         >
-          <Animated.View
-            className={`rounded-xl items-center flex-row justify-center py-3.5 ${
-              disabled || isSubmitting
-                ? 'bg-warm-200'
-                : 'bg-primary-700 active:bg-primary-800'
-            }`}
-            style={submitAnimatedStyle}
-          >
+          <Animated.View style={submitAnimatedStyle}>
             {isSubmitting ? (
               <View className="flex-row items-center">
                 <Icon name="Calendar" size={20} color="#C7BFB3" />

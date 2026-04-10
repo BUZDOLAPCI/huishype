@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
@@ -22,11 +22,12 @@ import {
   type FmvResponse,
 } from '../../hooks/usePriceGuess';
 import { useAuth } from '../../hooks/useAuth';
+import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 
 interface PriceGuessSectionProps extends SectionProps {
   onGuessPress?: () => void;
-  onLoginRequired?: () => void;
+  onLoginRequired?: (copy?: AuthModalCopyInput) => void;
 }
 
 // Format price using country config (defaults to NL)
@@ -80,30 +81,7 @@ function CooldownMessage({ cooldownEndsAt }: { cooldownEndsAt: string }) {
   );
 }
 
-// Login prompt component
-function LoginPrompt({ onLogin }: { onLogin: () => void }) {
-  return (
-    <View className="bg-warm-50 border border-warm-200 rounded-xl p-4 mb-4">
-      <View className="flex-row items-center mb-2">
-        <Ionicons name="person-outline" size={20} color="#9C958A" />
-        <Text className="text-sm font-medium text-warm-700 ml-2">
-          Sign in to submit your guess
-        </Text>
-      </View>
-      <Text className="text-xs text-warm-500 mb-3">
-        Your guess will be saved and you can track your prediction accuracy.
-      </Text>
-      <Pressable
-        onPress={onLogin}
-        className="bg-primary-700 py-2.5 rounded-lg items-center active:bg-primary-800"
-        accessibilityRole="button"
-        accessibilityLabel="Sign in to submit your guess"
-      >
-        <Text className="text-white font-medium text-sm">Sign In</Text>
-      </Pressable>
-    </View>
-  );
-}
+const LOGIN_REQUIRED_COPY = 'Sign in to submit your guess' satisfies AuthModalCopyInput;
 
 // Success message after submission
 function SuccessMessage({ price }: { price: number }) {
@@ -128,7 +106,6 @@ function SuccessMessage({ price }: { price: number }) {
 
 export function PriceGuessSection({
   property,
-  onGuessPress,
   onLoginRequired,
 }: PriceGuessSectionProps) {
   const { user, isAuthenticated } = useAuth();
@@ -149,7 +126,7 @@ export function PriceGuessSection({
   const handleGuessSubmit = useCallback(
     async (price: number) => {
       if (!isAuthenticated) {
-        onLoginRequired?.();
+        onLoginRequired?.(LOGIN_REQUIRED_COPY);
         return;
       }
 
@@ -223,9 +200,6 @@ export function PriceGuessSection({
         {isInCooldown && guessData?.cooldownEndsAt && (
           <CooldownMessage cooldownEndsAt={guessData.cooldownEndsAt} />
         )}
-
-        {/* Login prompt for unauthenticated users */}
-        {!isAuthenticated && <LoginPrompt onLogin={() => onLoginRequired?.()} />}
 
         {/* FMV Visualization (if we have data) */}
         {fmvData && (

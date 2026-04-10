@@ -11,7 +11,7 @@
  * and lets PropertyContent manage like/save internally.
  */
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { View, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -20,6 +20,7 @@ import { useListings, type ListingData } from '../../hooks/useListings';
 import { usePropertyView } from '../../hooks/usePropertyView';
 import { usePropertyLike } from '../../hooks/usePropertyLike';
 import { usePropertySave } from '../../hooks/usePropertySave';
+import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import {
   hasPropertyDetails,
   toPropertyDetails,
@@ -48,9 +49,11 @@ export interface PropertyContentProps {
   onSave?: (id: string) => void;
   onLike?: (id: string) => void;
   onShare?: (id: string) => void;
+  onScrollToComments?: () => void;
+  onScrollToGuess?: () => void;
 
   // Auth
-  onAuthRequired?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 
   // Callbacks forwarded from native/web sheets (pass-through to child sections)
   onGuessPress?: (id: string) => void;
@@ -86,7 +89,9 @@ interface PropertyContentSectionsProps {
   onShare?: () => void;
   onLike?: () => void;
   onSave?: () => void;
-  onAuthRequired?: () => void;
+  onScrollToComments?: () => void;
+  onScrollToGuess?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
   onGuessPress?: (id: string) => void;
   onCommentPress?: (id: string) => void;
   onViewAllComments?: (id: string) => void;
@@ -102,6 +107,8 @@ function PropertyContentSections({
   onShare,
   onLike,
   onSave,
+  onScrollToComments,
+  onScrollToGuess,
   onAuthRequired,
   onGuessPress,
   onCommentPress,
@@ -112,20 +119,41 @@ function PropertyContentSections({
 }: PropertyContentSectionsProps) {
   const queryClient = useQueryClient();
   const [showSubmission, setShowSubmission] = useState(false);
+  const [sectionStackOffsetY, setSectionStackOffsetY] = useState(0);
+  const guessSectionLocalY = useRef<number | null>(null);
+  const commentsSectionLocalY = useRef<number | null>(null);
+
+  const handleSectionStackLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      setSectionStackOffsetY(event.nativeEvent.layout.y);
+    },
+    []
+  );
 
   const guessSectionLayout = useCallback(
     (event: LayoutChangeEvent) => {
-      onGuessSectionLayout?.(event.nativeEvent.layout.y);
+      guessSectionLocalY.current = event.nativeEvent.layout.y;
+      onGuessSectionLayout?.(sectionStackOffsetY + event.nativeEvent.layout.y);
     },
-    [onGuessSectionLayout]
+    [onGuessSectionLayout, sectionStackOffsetY]
   );
 
   const commentsSectionLayout = useCallback(
     (event: LayoutChangeEvent) => {
-      onCommentsSectionLayout?.(event.nativeEvent.layout.y);
+      commentsSectionLocalY.current = event.nativeEvent.layout.y;
+      onCommentsSectionLayout?.(sectionStackOffsetY + event.nativeEvent.layout.y);
     },
-    [onCommentsSectionLayout]
+    [onCommentsSectionLayout, sectionStackOffsetY]
   );
+
+  useEffect(() => {
+    if (guessSectionLocalY.current !== null) {
+      onGuessSectionLayout?.(sectionStackOffsetY + guessSectionLocalY.current);
+    }
+    if (commentsSectionLocalY.current !== null) {
+      onCommentsSectionLayout?.(sectionStackOffsetY + commentsSectionLocalY.current);
+    }
+  }, [onCommentsSectionLayout, onGuessSectionLayout, sectionStackOffsetY]);
 
   if (!property) {
     return null;
@@ -136,7 +164,11 @@ function PropertyContentSections({
       <View style={styles.contentShell}>
         <PropertyHeader property={property} containerWidth={contentWidth} />
 
-        <View style={styles.sectionStack}>
+        <View
+          style={styles.sectionStack}
+          onLayout={handleSectionStackLayout}
+          testID="property-content-section-stack"
+        >
           <PriceSection property={property} />
 
           <QuickActions
@@ -144,6 +176,8 @@ function PropertyContentSections({
             onSave={onSave}
             onShare={onShare}
             onLike={onLike}
+            onComment={onScrollToComments}
+            onGuess={onScrollToGuess}
           />
 
           <ListingLinks
@@ -151,7 +185,7 @@ function PropertyContentSections({
             onAddListing={() => setShowSubmission(true)}
           />
 
-          <View onLayout={guessSectionLayout}>
+          <View onLayout={guessSectionLayout} testID="property-content-guess-section">
             <PriceGuessSection
               property={property}
               onGuessPress={() => onGuessPress?.(property.id)}
@@ -159,7 +193,7 @@ function PropertyContentSections({
             />
           </View>
 
-          <View onLayout={commentsSectionLayout}>
+          <View onLayout={commentsSectionLayout} testID="property-content-comments-section">
             <CommentsSection
               property={property}
               onAddComment={() => onCommentPress?.(property.id)}
@@ -204,7 +238,7 @@ function ManagedPropertyInteractions({
   children,
 }: {
   propertyId: string | null;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
   children: (state: ManagedInteractionState) => ReactNode;
 }) {
   const ownLike = usePropertyLike({
@@ -236,6 +270,8 @@ export function PropertyContent({
   onSave,
   onLike,
   onShare,
+  onScrollToComments,
+  onScrollToGuess,
   onAuthRequired,
   onGuessPress,
   onCommentPress,
@@ -285,6 +321,8 @@ export function PropertyContent({
         onSave={interactionState?.onSave ?? (propertyDetails ? () => onSave?.(propertyDetails.id) : undefined)}
         onShare={propertyDetails ? () => onShare?.(propertyDetails.id) : undefined}
         onLike={interactionState?.onLike ?? (propertyDetails ? () => onLike?.(propertyDetails.id) : undefined)}
+        onScrollToComments={onScrollToComments}
+        onScrollToGuess={onScrollToGuess}
         onAuthRequired={onAuthRequired}
         onGuessPress={onGuessPress}
         onCommentPress={onCommentPress}

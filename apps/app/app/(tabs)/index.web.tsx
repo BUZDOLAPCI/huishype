@@ -11,6 +11,7 @@ import {
 import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
+import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import {
@@ -628,9 +629,9 @@ export default function MapScreen() {
       // Expose auth modal trigger for testing
       if (typeof window !== 'undefined') {
         (
-          window as unknown as { __triggerAuthModal: (message?: string) => void }
-        ).__triggerAuthModal = (message?: string) => {
-          handleAuthRequired(message);
+          window as unknown as { __triggerAuthModal: (copy?: AuthModalCopyInput) => void }
+        ).__triggerAuthModal = (copy?: AuthModalCopyInput) => {
+          handleAuthRequired(copy);
         };
       }
 
@@ -1004,14 +1005,14 @@ export default function MapScreen() {
         onLike={interaction.handleLike}
         onGuessPress={interaction.handleGuessPress}
         onCommentPress={interaction.handleCommentPress}
-        onAuthRequired={() => interaction.handleAuthRequired('Sign in to post your comment')}
+        onAuthRequired={interaction.handleAuthRequired}
       />
 
       {/* Auth Modal */}
       <AuthModal
         visible={interaction.showAuthModal}
         onClose={interaction.handleAuthModalClose}
-        message={interaction.authMessage}
+        copy={interaction.authCopy}
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
       />

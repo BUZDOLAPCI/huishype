@@ -24,6 +24,11 @@ import { Icon } from '../ui/Icon';
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
+import {
+  getPanelScrollDelay,
+  getPreviewOpenTargetIndex,
+  getSectionScrollTarget,
+} from './sectionScroll';
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 
 type SheetState = 'closed' | 'peek' | 'partial' | 'full';
@@ -177,7 +182,6 @@ if (typeof document !== 'undefined') {
 const FLICK_VELOCITY = 0.3;
 /** Minimum distance (px) to register as a drag rather than a tap */
 const TAP_THRESHOLD = 10;
-
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
   function PropertyBottomSheet(
     {
@@ -264,6 +268,30 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       return () => observer.disconnect();
     }, [isLandscape, isOpen]);
 
+    const scrollToSection = useCallback((sectionY: number) => {
+      const targetY = getSectionScrollTarget(sectionY);
+      const delay = getPanelScrollDelay(stateToIndex(sheetState), 2);
+
+      updateState('full');
+
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: targetY, animated: true });
+      }, delay);
+    }, [sheetState, updateState]);
+
+    const openFromPreview = useCallback(() => {
+      const currentIndex = stateToIndex(sheetState);
+      const targetIndex = isLandscape ? 2 : getPreviewOpenTargetIndex(currentIndex);
+      const delay = getPanelScrollDelay(currentIndex, targetIndex);
+      const nextState = targetIndex === 2 ? 'full' : 'partial';
+
+      updateState(nextState);
+
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      }, delay);
+    }, [isLandscape, sheetState, updateState]);
+
     // Expose ref methods matching native @gorhom/bottom-sheet behavior
     useImperativeHandle(ref, () => ({
       expand: () => updateState('full'),
@@ -284,20 +312,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           updateState('full');
         }
       },
-      scrollToComments: () => {
-        updateState('full');
-        setTimeout(() => {
-          scrollRef.current?.scrollTo({ y: commentsSectionY.current, animated: true });
-        }, 350);
-      },
-      scrollToGuess: () => {
-        updateState('full');
-        setTimeout(() => {
-          scrollRef.current?.scrollTo({ y: guessSectionY.current, animated: true });
-        }, 350);
-      },
+      openFromPreview,
+      scrollToComments: () => scrollToSection(commentsSectionY.current),
+      scrollToGuess: () => scrollToSection(guessSectionY.current),
       getCurrentIndex: () => stateToIndex(sheetState),
-    }), [updateState, onClose, isLandscape, sheetState, minState]);
+    }), [updateState, onClose, isLandscape, sheetState, minState, scrollToSection, openFromPreview]);
 
     // Dismiss on Escape key
     useEffect(() => {
@@ -545,6 +564,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onSave={onSave}
               onShare={onShare}
               onLike={onLike}
+              onScrollToComments={() => scrollToSection(commentsSectionY.current)}
+              onScrollToGuess={() => scrollToSection(guessSectionY.current)}
               onGuessPress={onGuessPress}
               onCommentPress={onCommentPress}
               onAuthRequired={onAuthRequired}

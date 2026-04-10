@@ -14,6 +14,11 @@ import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomShee
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
+import {
+  resolveAuthModalCopy,
+  type AuthModalCopyInput,
+  type ResolvedAuthModalCopy,
+} from '@/src/lib/authModalCopy';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
@@ -80,8 +85,8 @@ export interface UseMapInteractionReturn {
 
   // ── Auth modal ──────────────────────────────────────────────
   showAuthModal: boolean;
-  authMessage: string;
-  handleAuthRequired: (message?: string) => void;
+  authCopy: ResolvedAuthModalCopy;
+  handleAuthRequired: (copy?: AuthModalCopyInput) => void;
   handleAuthModalClose: () => void;
   handleAuthSuccess: () => void;
   /** Dismiss bottom sheet + clear selection before auth flow starts (prevents crash). */
@@ -401,10 +406,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   // ── Like / Save ─────────────────────────────────────────────
-  const handleAuthRequired = useCallback((message?: string) => {
-    setAuthMessage(message || 'Sign in to continue');
+  const defaultAuthCopy = useMemo(
+    () => resolveAuthModalCopy('Sign in to continue'),
+    [],
+  );
+
+  const handleAuthRequired = useCallback((copy?: AuthModalCopyInput) => {
+    setAuthCopy(resolveAuthModalCopy(copy, defaultAuthCopy));
     setShowAuthModal(true);
-  }, []);
+  }, [defaultAuthCopy]);
 
   const { isLiked, toggleLike } = usePropertyLike({
     propertyId: selectedPropertyId,
@@ -418,7 +428,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Auth modal ──────────────────────────────────────────────
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMessage, setAuthMessage] = useState('Sign in to continue');
+  const [authCopy, setAuthCopy] = useState(defaultAuthCopy);
 
   const handleAuthModalClose = useCallback(() => {
     setShowAuthModal(false);
@@ -508,7 +518,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // ── Preview card interaction handlers ───────────────────────
   const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {
     setSelectedPropertyId(property.id);
-    bottomSheetRef.current?.snapToIndex(1);
+    bottomSheetRef.current?.openFromPreview();
   }, []);
 
   const handleClosePreview = useCallback(() => {
@@ -808,7 +818,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
     // Auth modal
     showAuthModal,
-    authMessage,
+    authCopy,
     handleAuthRequired,
     handleAuthModalClose,
     handleAuthSuccess,

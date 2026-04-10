@@ -8,6 +8,11 @@ import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
 import { AuthModal } from '@/src/components';
 import { PropertyContent } from '@/src/components/PropertyBottomSheet/PropertyContent';
+import {
+  DEFAULT_AUTH_MODAL_COPY,
+  resolveAuthModalCopy,
+  type AuthModalCopyInput,
+} from '@/src/lib/authModalCopy';
 import { normalizePropertyReturnTarget } from '@/src/utils/property-route';
 
 function PropertyDetailSkeleton() {
@@ -45,7 +50,11 @@ export default function PropertyDetailScreen() {
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const handleAuthRequired = useCallback(() => setShowAuthModal(true), []);
+  const [authCopy, setAuthCopy] = useState(DEFAULT_AUTH_MODAL_COPY);
+  const handleAuthRequired = useCallback((copy?: AuthModalCopyInput) => {
+    setAuthCopy(resolveAuthModalCopy(copy, DEFAULT_AUTH_MODAL_COPY));
+    setShowAuthModal(true);
+  }, []);
 
   // Navigation handlers for sub-routes
   const handleViewAllComments = useCallback((propertyId: string) => {
@@ -153,6 +162,7 @@ export default function PropertyDetailScreen() {
       <AuthModal
         visible={showAuthModal}
         onClose={() => setShowAuthModal(false)}
+        copy={authCopy}
       />
     </>
   );
