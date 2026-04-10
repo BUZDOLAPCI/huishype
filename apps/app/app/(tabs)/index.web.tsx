@@ -1,15 +1,14 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
-import { createPortal } from 'react-dom';
 import { Alert, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import * as maplibregl from 'maplibre-gl';
 
 import {
-  GroupPreviewCard,
   AuthModal,
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
+import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
@@ -356,14 +355,10 @@ export default function MapScreen() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const previewMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
   const [searchResetToken, setSearchResetToken] = useState(0);
-
-  const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
-  const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -883,61 +878,6 @@ export default function MapScreen() {
     };
   }, [selectedMarkerCoordinate]);
 
-  // Manage the GroupPreviewCard via MapLibre Marker + React Portal
-  useEffect(() => {
-    const map = mapRef.current;
-
-    if (previewMarkerRef.current) {
-      previewMarkerRef.current.remove();
-      previewMarkerRef.current = null;
-    }
-    setPortalTarget(null);
-
-    if (!map || !interaction.previewGroup) return;
-
-    // Calculate anchor direction based on screen position
-    const screenPoint = map.project(interaction.previewGroup.coordinate);
-    const cardHeight = 200;
-    const topMargin = 80;
-    const shouldShowBelow = screenPoint.y < (cardHeight + topMargin);
-
-    setArrowDirection(shouldShowBelow ? 'up' : 'down');
-
-    // Create container element for the React Portal
-    const container = document.createElement('div');
-    container.style.pointerEvents = 'auto';
-    container.style.zIndex = '1000';
-    container.style.position = 'relative';
-    container.style.display = 'inline-flex';
-    container.style.justifyContent = 'center';
-    container.style.alignItems = 'center';
-    container.style.width = 'max-content';
-    container.style.overflow = 'visible';
-    container.setAttribute('data-testid', 'group-preview-marker-container');
-
-    // Prevent map interaction when interacting with the preview card
-    ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mousemove', 'mouseup', 'click', 'touchstart', 'touchmove', 'touchend', 'wheel', 'dblclick'].forEach(evt => {
-      container.addEventListener(evt, (e) => e.stopPropagation());
-    });
-
-    // Create MapLibre Marker anchored to the coordinate
-    const marker = new maplibregl.Marker({
-      element: container,
-      anchor: shouldShowBelow ? 'top' : 'bottom',
-      offset: [0, shouldShowBelow ? PREVIEW_CARD_MARKER_OFFSET_PX : -PREVIEW_CARD_MARKER_OFFSET_PX],
-    })
-      .setLngLat(interaction.previewGroup.coordinate)
-      .addTo(map);
-
-    previewMarkerRef.current = marker;
-    setPortalTarget(container);
-
-    return () => {
-      marker.remove();
-      previewMarkerRef.current = null;
-    };
-  }, [interaction.previewGroup]);
-
   return (
     <View className="flex-1 bg-warm-100">
       {/* Map View */}
@@ -1033,32 +973,19 @@ export default function MapScreen() {
           <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>
 
-        {/* GroupPreviewCard rendered via MapLibre Marker + React Portal (geo-anchored) */}
-        {portalTarget && interaction.previewGroup && createPortal(
-          <div
-            style={{
-              animation: 'popIn 0.3s ease-out forwards',
-              display: 'inline-flex',
-              justifyContent: 'center',
-              pointerEvents: 'auto',
-            }}
-          >
-            <GroupPreviewCard
-              properties={interaction.previewGroup.properties}
-              currentIndex={interaction.currentPreviewIndex}
-              onIndexChange={interaction.setCurrentPreviewIndex}
-              onClose={interaction.handleClosePreview}
-              onPropertyTap={interaction.handlePreviewPropertyTap}
-              onLike={interaction.handleLike}
-              onComment={interaction.handleComment}
-              onGuess={interaction.handleGuess}
-              isLiked={interaction.isLiked}
-              showArrow
-              arrowDirection={arrowDirection}
-            />
-          </div>,
-          portalTarget
-        )}
+        <WebPreviewMarkerPortal
+          map={mapRef.current}
+          previewGroup={interaction.previewGroup}
+          currentIndex={interaction.currentPreviewIndex}
+          markerOffsetPx={PREVIEW_CARD_MARKER_OFFSET_PX}
+          onIndexChange={interaction.setCurrentPreviewIndex}
+          onClose={interaction.handleClosePreview}
+          onPropertyTap={interaction.handlePreviewPropertyTap}
+          onLike={interaction.handleLike}
+          onComment={interaction.handleComment}
+          onGuess={interaction.handleGuess}
+          isLiked={interaction.isLiked}
+        />
 
       </View>
 
