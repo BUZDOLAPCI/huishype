@@ -136,6 +136,13 @@ describe('address-resolver', () => {
       });
     });
 
+    it('rejects ambiguous multi-word additions that look like a city or postal code fragment', () => {
+      expect(splitHouseNumber('5623 CH Eindhoven')).toEqual({
+        houseNumber: null,
+        houseNumberAddition: null,
+      });
+    });
+
     it('returns null parts for unparseable input', () => {
       expect(splitHouseNumber('ABCD')).toEqual({
         houseNumber: null,

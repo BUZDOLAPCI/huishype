@@ -23,6 +23,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
@@ -36,7 +37,10 @@ import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
+import { api } from '@/src/utils/api';
+import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 import type { AchievementDefinition } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
@@ -101,6 +105,7 @@ function SettingsDropdown({
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuthContext();
+  const queryClient = useQueryClient();
   const { data: profile, isLoading, refetch } = useMyProfile();
   const updateProfile = useUpdateProfile();
   const { data: achievementsData } = useAchievements();
@@ -112,6 +117,15 @@ export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const handlePropertyPress = useCallback(async (propertyId: string) => {
+    try {
+      const property = await api.get<PropertyDetails>(`/properties/${propertyId}`);
+      primePropertyDetailCache(queryClient, property);
+      router.push(toInternalAppHref(buildPropertyRoute(property, '/profile')));
+    } catch (error) {
+      console.error('Failed to resolve canonical property route from profile:', error);
+    }
+  }, [queryClient]);
 
   const canChangeName = useMemo(() => {
     if (!profile?.lastNameChangeAt) return true;
@@ -413,7 +427,9 @@ export default function ProfileScreen() {
                 <Pressable
                   key={item.id}
                   style={styles.activityRow}
-                  onPress={() => router.push(buildPropertyRoute(item.property.id, '/profile'))}
+                  onPress={() => {
+                    void handlePropertyPress(item.property.id);
+                  }}
                 >
                   <Icon
                     name={config.icon}

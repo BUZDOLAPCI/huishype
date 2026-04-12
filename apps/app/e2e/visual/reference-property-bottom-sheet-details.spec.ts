@@ -60,11 +60,34 @@ const MOCK_PROPERTY_DETAILS = {
 };
 
 async function setupPropertyMocking(page: Page): Promise<void> {
-  await page.route('**/properties/*', async (route: Route) => {
+  const handlePropertyRoute = async (route: Route) => {
     const url = route.request().url();
+    const pathname = new URL(url).pathname;
+    const method = route.request().method();
 
-    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
-      const propertyId = url.split('/').pop();
+    if (pathname === '/api/properties/resolve' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: MOCK_PROPERTY_DETAILS.id,
+          countryCode: MOCK_PROPERTY_DETAILS.countryCode,
+          address: `${MOCK_PROPERTY_DETAILS.address}, ${MOCK_PROPERTY_DETAILS.postalCode} ${MOCK_PROPERTY_DETAILS.city}`,
+          postalCode: MOCK_PROPERTY_DETAILS.postalCode,
+          city: MOCK_PROPERTY_DETAILS.city,
+          coordinates: {
+            lon: MOCK_PROPERTY_DETAILS.geometry.coordinates[0],
+            lat: MOCK_PROPERTY_DETAILS.geometry.coordinates[1],
+          },
+          hasListing: false,
+          officialValuation: MOCK_PROPERTY_DETAILS.officialValuation,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.match(/^\/api\/properties\/[^/]+$/i) && pathname !== '/api/properties/resolve' && method === 'GET') {
+      const propertyId = pathname.split('/').pop();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -76,8 +99,75 @@ async function setupPropertyMocking(page: Page): Promise<void> {
       return;
     }
 
+    if (pathname.match(/^\/api\/properties\/[^/]+\/listings$/i) && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [] }),
+      });
+      return;
+    }
+
+    if (pathname.match(/^\/api\/properties\/[^/]+\/guesses$/i) && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          meta: {
+            page: 1,
+            limit: 100,
+            total: 0,
+            totalPages: 1,
+          },
+          fmv: {
+            fmv: null,
+            confidence: 'none',
+            guessCount: 0,
+            distribution: null,
+            officialValuation: MOCK_PROPERTY_DETAILS.officialValuation,
+            askingPrice: null,
+            divergence: null,
+          },
+        }),
+      });
+      return;
+    }
+
+    if (pathname.match(/^\/api\/properties\/[^/]+\/comments$/i) && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          meta: {
+            page: 1,
+            limit: 20,
+            total: 0,
+            totalPages: 1,
+          },
+        }),
+      });
+      return;
+    }
+
+    if (pathname.match(/^\/api\/properties\/[^/]+\/view$/i) && method === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          viewCount: 1,
+          uniqueViewers: 1,
+        }),
+      });
+      return;
+    }
+
     await route.continue();
-  });
+  };
+
+  await page.route('**/api/properties/**', handlePropertyRoute);
+  await page.route('**/properties/**', handlePropertyRoute);
 }
 
 async function waitForMapReady(page: Page): Promise<void> {
@@ -265,9 +355,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(panel.getByText('Save').first()).toBeVisible();
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
-    await panel.getByText('Year Built', { exact: true }).scrollIntoViewIfNeeded();
-    await expect(panel.getByText('Year Built', { exact: true })).toBeVisible();
-    await expect(panel.getByText('Surface Area', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Postal code', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Activity', { exact: true })).toBeVisible();
   });
 
   test('verify map interaction', async ({ page }) => {

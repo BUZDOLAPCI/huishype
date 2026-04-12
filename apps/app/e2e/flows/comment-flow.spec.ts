@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -58,9 +59,21 @@ async function getTestProperty(request: APIRequestContext) {
   expect(response.ok()).toBe(true);
   const data = await response.json();
   expect(data.data.length).toBeGreaterThan(0);
+  const property = data.data[0];
+  expect(property.street).toBeTruthy();
+  expect(property.houseNumber).toBeTruthy();
+
   return {
-    id: data.data[0].id as string,
-    address: data.data[0].address as string,
+    id: property.id as string,
+    address: property.address as string,
+    path: buildCanonicalPropertyPath({
+      countryCode: property.countryCode,
+      city: property.city,
+      postalCode: property.postalCode,
+      streetName: property.street,
+      houseNumber: property.houseNumber,
+      houseNumberAddition: property.houseNumberAddition,
+    }),
   };
 }
 
@@ -95,35 +108,25 @@ test.describe('Comment Flow', () => {
   test('comments section renders on property detail page', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.path);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
-    // The property detail page uses mock comments from MOCK_COMMENTS
-    // and also has a live CommentsSection in the bottom sheet version
-    // Check for the "Comments" header
-    const commentsHeader = page.locator('text=Comments');
-    const hasComments = await commentsHeader.first().isVisible().catch(() => false);
-    expect(hasComments).toBe(true);
+    const commentsSection = page.locator('[data-testid="property-content-comments-section"]');
+    await commentsSection.scrollIntoViewIfNeeded();
+    await expect(commentsSection).toBeVisible();
+    await expect(page.getByText('Comments').first()).toBeVisible();
   });
 
   test('comment input is visible with appropriate placeholder', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.path);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     // Scroll to comments area
-    await page.evaluate(() => {
-      const allElements = Array.from(document.querySelectorAll('*'));
-      for (const el of allElements) {
-        if (el.textContent?.includes('Comments') && el.tagName !== 'SCRIPT') {
-          el.scrollIntoView({ behavior: 'instant', block: 'start' });
-          break;
-        }
-      }
-    });
+    await page.locator('[data-testid="property-content-comments-section"]').scrollIntoViewIfNeeded();
 
     await page.waitForTimeout(1000);
 

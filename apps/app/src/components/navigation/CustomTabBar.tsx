@@ -40,6 +40,7 @@ interface TabRoute {
 interface TabBarProps {
   state: {
     index: number;
+    key: string;
     routes: TabRoute[];
   };
   descriptors: Record<string, {
@@ -112,9 +113,11 @@ export function CustomTabBar({ state, descriptors, navigation }: TabBarProps) {
         canPreventDefault: true,
       });
 
-      if (!isFocused && !event.defaultPrevented) {
-        navigation.navigate(route.name, route.params);
+      if (isFocused || event.defaultPrevented) {
+        return;
       }
+
+      navigation.navigate(route.name, route.params);
     };
 
     const onLongPress = () => {

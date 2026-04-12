@@ -50,14 +50,19 @@ jest.mock('maplibre-gl', () => {
     return instance;
   });
 
-  return { Marker };
+  return {
+    __esModule: true,
+    default: { Marker },
+    Marker,
+  };
 });
 
 import { WebPreviewMarkerPortal } from '../WebPreviewMarkerPortal';
 
-const { Marker: mockMarkerConstructor } = jest.requireMock('maplibre-gl') as {
-  Marker: jest.Mock;
+const { default: mockMapLibreModule } = jest.requireMock('maplibre-gl') as {
+  default: { Marker: jest.Mock };
 };
+const { Marker: mockMarkerConstructor } = mockMapLibreModule;
 
 let container: HTMLDivElement;
 let root: Root;

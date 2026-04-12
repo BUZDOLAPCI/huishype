@@ -639,13 +639,53 @@ export async function waitForMapIdle(page: Page, timeout: number = 15000): Promi
   await page.evaluate((t) => {
     return new Promise<void>((resolve) => {
       const m = (window as any).__mapInstance;
-      if (!m) { resolve(); return; }
-      if (m.areTilesLoaded && m.areTilesLoaded() && m.isStyleLoaded()) { resolve(); }
-      else {
-        const h = () => { m.off('idle', h); resolve(); };
-        m.on('idle', h);
-        setTimeout(() => { m.off('idle', h); resolve(); }, t);
+      if (!m) {
+        resolve();
+        return;
       }
+
+      const isReady = () => {
+        try {
+          const loaded = typeof m.loaded === 'function' ? m.loaded() : true;
+          const styleLoaded = typeof m.isStyleLoaded === 'function' ? m.isStyleLoaded() : true;
+          return loaded && styleLoaded;
+        } catch {
+          return false;
+        }
+      };
+
+      if (isReady()) {
+        resolve();
+        return;
+      }
+
+      let done = false;
+      const cleanup = () => {
+        if (done) {
+          return;
+        }
+        done = true;
+        if (typeof m.off === 'function') {
+          m.off('idle', onIdle);
+        }
+        clearTimeout(timer);
+      };
+
+      const onIdle = () => {
+        if (isReady()) {
+          cleanup();
+          resolve();
+        }
+      };
+
+      if (typeof m.on === 'function') {
+        m.on('idle', onIdle);
+      }
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, t);
     });
   }, timeout);
 }

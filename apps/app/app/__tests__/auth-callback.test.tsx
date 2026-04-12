@@ -13,6 +13,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
   router: { replace: jest.fn() },
+  useLocalSearchParams: jest.fn(() => ({})),
 }));
 
 jest.mock('@/src/providers/AuthProvider', () => ({
@@ -84,14 +85,14 @@ describe('AuthCallbackScreen', () => {
 
     // Initially shows loading, not error
     expect(getByText('Verifying your link...')).toBeTruthy();
-    expect(queryByText('Link expired or invalid')).toBeNull();
+    expect(queryByText('Invalid or expired link')).toBeNull();
 
     // Advance past 15s timeout
     act(() => {
       jest.advanceTimersByTime(15_000);
     });
 
-    expect(getByText('Link expired or invalid')).toBeTruthy();
+    expect(getByText('Invalid or expired link')).toBeTruthy();
   });
 
   it('navigates home when "Go to home screen" pressed', () => {

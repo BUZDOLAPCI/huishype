@@ -1,0 +1,60 @@
+appId: nl.huishype.app
+---
+# Canonical property deep-link smoke.
+# The test runner is responsible for opening the app with a canonical
+# address URL before this flow starts.
+#
+# Example:
+# adb shell am start -W -a android.intent.action.VIEW \
+#   -d 'huishype:///eindhoven/5651ha/beeldbuisring/2' nl.huishype.app
+# maestro test apps/app/e2e/mobile/canonical-deeplink-smoke.yaml
+
+# Dismiss Expo developer menu onboarding popup if it appears.
+- waitForAnimationToEnd
+- tapOn:
+    text: 'Close'
+    optional: true
+- tapOn:
+    text: 'Continue'
+    optional: true
+- tapOn:
+    text: 'Go home'
+    optional: true
+- tapOn:
+    text: 'http://localhost:8081'
+    optional: true
+# Wait for the canonical property route to resolve and render.
+- extendedWaitUntil:
+    visible:
+      id: 'property-back-button'
+    timeout: 120000
+
+- assertVisible:
+    id: 'property-back-button'
+
+# Address content can take an extra beat to hydrate on slower boots.
+- extendedWaitUntil:
+    visible: '.*Beeldbuisring.*'
+    timeout: 20000
+    optional: true
+
+- takeScreenshot: test-results/mobile/canonical-deeplink-property.png
+
+# Back should return to the map experience, not a dead-end route.
+- tapOn:
+    id: 'property-back-button'
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-focus-target'
+    timeout: 30000
+
+- assertVisible:
+    id: 'map-view'
+- assertVisible:
+    id: 'search-bar-focus-target'
+- assertNotVisible:
+    id: 'property-back-button'
+
+- takeScreenshot: test-results/mobile/canonical-deeplink-back-to-map.png

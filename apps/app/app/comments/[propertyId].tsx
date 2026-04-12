@@ -7,18 +7,19 @@
  * threaded comment list, and pinned input bar at bottom.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   Pressable,
+  TouchableOpacity,
   FlatList,
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
   StyleSheet,
 } from 'react-native';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { Redirect, Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
@@ -39,6 +40,12 @@ import { AuthModal } from '@/src/components';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
+import {
+  buildPropertyMapRoute,
+  buildPropertyRoute,
+  normalizePropertyReturnTarget,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -90,10 +97,21 @@ function SortToggle({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────
 
-export default function CommentsPage() {
-  const { propertyId } = useLocalSearchParams<{ propertyId: string }>();
+export interface CommentsRouteScreenProps {
+  propertyId?: string | null;
+  returnTo?: string | string[] | null;
+  onNavigate?: (path: string) => void;
+}
+
+export function CommentsRouteScreen({
+  propertyId,
+  returnTo,
+  onNavigate,
+}: CommentsRouteScreenProps) {
   const insets = useSafeAreaInsets();
   const { isAuthenticated, user } = useAuthContext();
+  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const lastCloseAtRef = useRef(0);
 
   const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
@@ -190,12 +208,70 @@ export default function CommentsPage() {
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const navigateToTarget = useCallback((targetHref: string) => {
+    if (onNavigate) {
+      onNavigate(targetHref);
+      return;
+    }
+
+    const href = toInternalAppHref(targetHref);
+    if (Platform.OS === 'web') {
+      router.navigate(href);
+      return;
+    }
+
+    router.replace(href);
+  }, [onNavigate]);
+
+  const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.dismissTo(fallbackHref);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    if (normalizedReturnTarget) {
+      navigateToTarget(normalizedReturnTarget);
+      return;
+    }
+
+    if (property) {
+      const propertyRoute = buildPropertyRoute(property, buildPropertyMapRoute(property));
+      navigateToTarget(propertyRoute);
+      return;
+    }
+
+    if (Platform.OS !== 'web' && router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    navigateBackOrFallback('/');
+  }, [navigateBackOrFallback, navigateToTarget, normalizedReturnTarget, property]);
+
+  const triggerClose = useCallback(() => {
+    const now = Date.now();
+    if (now - lastCloseAtRef.current < 250) {
+      return;
+    }
+
+    lastCloseAtRef.current = now;
+    handleClose();
+  }, [handleClose]);
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title="Comments">
+      <ResponsivePanel title="Comments" onClose={triggerClose}>
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -203,15 +279,16 @@ export default function CommentsPage() {
         >
           {/* Header */}
           <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-            <Pressable
-              onPress={() => router.back()}
+            <TouchableOpacity
+              onPress={triggerClose}
               style={styles.headerBackButton}
-            testID="comments-back-button"
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Icon name="ArrowLeft" size={20} color="#3D3832" />
-          </Pressable>
+              testID="comments-back-button"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              activeOpacity={0.8}
+            >
+              <Icon name="ArrowLeft" size={20} color="#3D3832" />
+            </TouchableOpacity>
 
           {/* Property thumbnail + address */}
           {property && (
@@ -315,6 +392,10 @@ export default function CommentsPage() {
   );
 }
 
+export default function CommentsPage() {
+  return <Redirect href="/" />;
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -339,6 +420,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F0E8',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 4,
   },
   headerPropertyInfo: {
     flex: 1,

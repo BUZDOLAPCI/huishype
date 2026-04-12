@@ -96,23 +96,24 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('capture FMV distribution curve visualization from showcase', async ({ page }) => {
     // Navigate to the showcase page
-    await page.goto('/showcase/fmv-visualization');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/showcase/fmv-visualization', { waitUntil: 'domcontentloaded' });
 
     // Wait for the showcase page to load
-    await page.waitForSelector('[data-testid="fmv-visualization-showcase"]', { timeout: 30000 });
+    await expect(page.locator('[data-testid="fmv-visualization-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
     await page.waitForTimeout(2000); // Wait for animations to complete
 
-    // Verify high confidence state is visible (primary showcase)
-    const highConfidenceState = page.locator('[data-testid="fmv-visualization-high"]');
+    // Verify showcase state wrappers are visible (stable section-level targets)
+    const highConfidenceState = page.locator('[data-testid="fmv-high-confidence-state"]');
     const isHighConfidenceVisible = await highConfidenceState.isVisible().catch(() => false);
     console.log(`High confidence FMV visible: ${isHighConfidenceVisible}`);
 
-    // Verify all confidence states are rendered (scroll to each to check)
-    const mediumConfidenceState = page.locator('[data-testid="fmv-visualization-medium"]');
-    const lowConfidenceState = page.locator('[data-testid="fmv-visualization-low"]');
-    const wideDistributionState = page.locator('[data-testid="fmv-visualization-wide"]');
-    const noDataState = page.locator('[data-testid="fmv-no-data"]'); // Fixed: use the actual testID from the component
+    // Verify all showcase sections are rendered (scroll to each to check)
+    const mediumConfidenceState = page.locator('[data-testid="fmv-medium-confidence-state"]');
+    const lowConfidenceState = page.locator('[data-testid="fmv-low-confidence-state"]');
+    const wideDistributionState = page.locator('[data-testid="fmv-wide-distribution-state"]');
+    const noDataState = page.locator('[data-testid="fmv-no-data-state"]');
 
     // Scroll to medium and check
     await mediumConfidenceState.scrollIntoViewIfNeeded().catch(() => {});
@@ -171,17 +172,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Verify expected text content
     const pageContent = await page.textContent('body');
 
-    // Check for FMV value display (EUR format with Dutch locale)
+    // Check for FMV value display and current showcase copy
     expect(pageContent).toContain('Crowd Estimate');
-
-    // Check for confidence indicators
-    expect(pageContent).toContain('Low');
-    expect(pageContent).toContain('Medium');
-    expect(pageContent).toContain('High');
-
-    // Check for confidence messages
+    expect(pageContent).toContain('Low confidence');
     expect(pageContent).toContain('Building consensus');
-    expect(pageContent).toContain('Strong consensus');
+    expect(pageContent).toContain('High confidence');
 
     // Check for asking price comparison
     expect(pageContent).toContain('Asking price is');
@@ -192,9 +187,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check for distribution markers
     expect(pageContent).toContain('Median');
+    expect(pageContent).toContain('P10-P90');
+    expect(pageContent).toContain('P25-P75');
 
     // Check for no data state message
-    expect(pageContent).toContain('Not enough data');
+    expect(pageContent).toContain('Not enough data yet');
 
     // Assertions for component visibility
     expect(isHighConfidenceVisible, 'High confidence state should be visible').toBe(true);
@@ -210,9 +207,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify individual FMV visualization states', async ({ page }) => {
-    await page.goto('/showcase/fmv-visualization');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="fmv-visualization-showcase"]', { timeout: 30000 });
+    await page.goto('/showcase/fmv-visualization', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-testid="fmv-visualization-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
     await page.waitForTimeout(1500);
 
     // Capture each state individually for detailed comparison
@@ -308,7 +306,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         propertyId = selectedProperty.id;
         console.log('Selected property:', propertyId, 'Guess count:', selectedProperty.guessCount || 0);
       }
-    } catch (e) {
+    } catch {
       console.log('Could not fetch property from API, skipping property page test');
       return;
     }

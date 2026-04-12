@@ -7,6 +7,7 @@ import { formatDisplayAddress } from '../utils/address.js';
 import {
   isValidCountryCode,
   getCountryConfig,
+  getAllCountryCodes,
   type CountryCode,
 } from '@huishype/shared';
 import { calculateActivityLevel } from './views.js';
@@ -54,6 +55,11 @@ const propertyListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   city: z.string().optional(),
+  postalCode: z.string().optional(),
+  countryCode: z.string().length(2).toUpperCase().refine(
+    (value) => isValidCountryCode(value),
+    'Invalid country code',
+  ).optional(),
   minPrice: z.coerce.number().optional(),
   maxPrice: z.coerce.number().optional(),
   // Bounding box for geospatial queries
@@ -207,6 +213,23 @@ const resolveResponseSchema = z.object({
   officialValuation: z.number().nullable(),
 });
 
+const areaResolveQuerySchema = z.object({
+  city: z.string().min(1, 'City is required'),
+  postalCode: z.string().min(1).max(15).optional(),
+  countryCode: z.string().length(2).toUpperCase().default('NL'),
+});
+
+const areaResolveResponseSchema = z.object({
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  countryCode: z.string(),
+  center: z.object({
+    lon: z.number(),
+    lat: z.number(),
+  }),
+  propertyCount: z.number().int().positive(),
+});
+
 function normalizeComparableAddressPart(value: string | null | undefined): string {
   return (value ?? '')
     .normalize('NFKD')
@@ -230,6 +253,59 @@ function buildComparableAddressExpression(column: string) {
 function buildComparableAddressPredicate(column: string, value: string) {
   const normalizedValue = normalizeComparableAddressPart(value);
   return sql`${buildComparableAddressExpression(column)} = ${normalizedValue}`;
+}
+
+function normalizeComparableHouseNumberAddition(value: string | null | undefined): string | null {
+  const normalized = (value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .trim()
+    .toUpperCase()
+    .replace(/^[^\p{Letter}\p{Number}]+|[^\p{Letter}\p{Number}]+$/gu, '');
+
+  return normalized || null;
+}
+
+function buildComparableHouseNumberAdditionExpression(column: string) {
+  return sql`nullif(
+    regexp_replace(
+      upper(trim(
+        regexp_replace(normalize(coalesce(${sql.raw(column)}, ''), NFKD), '[\\u0300-\\u036f]', '', 'g')
+      )),
+      '^[^[:alnum:]]+|[^[:alnum:]]+$',
+      '',
+      'g'
+    ),
+    ''
+  )`;
+}
+
+function normalizePostalCodeForStorage(raw: string, countryCode: CountryCode): string | null {
+  const cfg = getCountryConfig(countryCode);
+  const trimmed = raw.trim().toUpperCase();
+
+  if (!cfg.postalCodeRegex.test(trimmed)) {
+    return null;
+  }
+
+  return cfg.postalCodeNormalize(trimmed).replace(/\s/g, '');
+}
+
+function buildPostalCodeFilter(postalCode: string) {
+  const conditions = getAllCountryCodes()
+    .map((countryCode) => {
+      const normalized = normalizePostalCodeForStorage(postalCode, countryCode);
+      if (!normalized) {
+        return null;
+      }
+
+      return sql`(p.country_code = ${countryCode} AND p.postal_code = ${normalized})`;
+    })
+    .filter((condition): condition is ReturnType<typeof sql> => condition !== null);
+
+  return conditions.length > 0
+    ? sql`(${sql.join(conditions, sql` OR `)})`
+    : sql`FALSE`;
 }
 
 // Schema for /properties/nearby endpoint
@@ -256,6 +332,9 @@ const nearbyGroupedResultSchema = z.object({
   commentCount: z.number(),
   guessCount: z.number(),
   hasListing: z.boolean(),
+  streetName: z.string().nullable(),
+  houseNumber: z.number().nullable(),
+  houseNumberAddition: z.string().nullable(),
   address: z.string().nullable(),
   city: z.string().nullable(),
   postalCode: z.string().nullable(),
@@ -387,6 +466,9 @@ function mapNearbyGroupedResult(
     commentCount: result.commentCount,
     guessCount: result.guessCount,
     hasListing: result.hasListing,
+    streetName: result.groupKind === 'single' ? result.streetName : null,
+    houseNumber: result.groupKind === 'single' ? result.houseNumber : null,
+    houseNumberAddition: result.groupKind === 'single' ? result.houseNumberAddition : null,
     address: result.groupKind === 'single' ? result.address : null,
     city: result.groupKind === 'single' ? result.city : null,
     postalCode: result.groupKind === 'single' ? result.postalCode : null,
@@ -476,7 +558,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       schema: {
         tags: ['properties'],
         summary: 'List properties',
-        description: 'Get a paginated list of properties with optional filtering by city, price range, or geographic bounds',
+        description: 'Get a paginated list of properties with optional filtering by city, postal code, price range, or geographic bounds',
         querystring: propertyListQuerySchema,
         response: {
           200: propertyListResponseSchema,
@@ -484,14 +566,40 @@ export async function propertyRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { page, limit, city, minPrice, maxPrice, bbox, lat, lon, radius } = request.query;
+      const {
+        page,
+        limit,
+        city,
+        postalCode,
+        countryCode,
+        minPrice,
+        maxPrice,
+        bbox,
+        lat,
+        lon,
+        radius,
+      } = request.query;
       const offset = (page - 1) * limit;
 
       // Build WHERE conditions dynamically using raw SQL fragments
       const conditions: ReturnType<typeof sql>[] = [];
 
       if (city) {
-        conditions.push(sql`p.city = ${city}`);
+        conditions.push(sql`p.city = ${city.trim()}`);
+      }
+
+      if (postalCode) {
+        conditions.push(
+          countryCode && isValidCountryCode(countryCode)
+            ? sql`(p.country_code = ${countryCode} AND p.postal_code = ${
+                normalizePostalCodeForStorage(postalCode, countryCode as CountryCode) ?? '__NO_MATCH__'
+              })`
+            : buildPostalCodeFilter(postalCode),
+        );
+      }
+
+      if (countryCode) {
+        conditions.push(sql`p.country_code = ${countryCode}`);
       }
 
       if (minPrice !== undefined) {
@@ -641,6 +749,94 @@ export async function propertyRoutes(app: FastifyInstance) {
 
   // GET /properties/resolve - Resolve an address to a local property
   typedApp.get(
+    '/properties/area-resolve',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Resolve a city or postcode area to a property-backed map center',
+        description:
+          'Resolve canonical city/postcode map routes using stored property data instead of external geocoding.',
+        querystring: areaResolveQuerySchema,
+        response: {
+          200: areaResolveResponseSchema.nullable(),
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { city, postalCode, countryCode: rawCC } = request.query;
+
+      if (!isValidCountryCode(rawCC)) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: `Unsupported country code: ${rawCC}`,
+        });
+      }
+
+      const cc = rawCC as CountryCode;
+      const normalizedPostalCode = postalCode
+        ? normalizePostalCodeForStorage(postalCode, cc)
+        : null;
+
+      if (postalCode && !normalizedPostalCode) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: `Invalid postal code format for ${cc}: "${postalCode}"`,
+        });
+      }
+
+      const conditions: ReturnType<typeof sql>[] = [
+        sql`p.country_code = ${cc}`,
+        buildComparableAddressPredicate('p.city', city),
+        sql`p.geometry IS NOT NULL`,
+      ];
+
+      if (normalizedPostalCode) {
+        conditions.push(sql`p.postal_code = ${normalizedPostalCode}`);
+      }
+
+      const rows = await db.execute<{
+        city: string | null;
+        postal_code: string | null;
+        lon: number | null;
+        lat: number | null;
+        property_count: number;
+      }>(sql`
+        SELECT
+          MIN(p.city) AS city,
+          MIN(p.postal_code) AS postal_code,
+          AVG(ST_X(p.geometry))::float8 AS lon,
+          AVG(ST_Y(p.geometry))::float8 AS lat,
+          COUNT(*)::int AS property_count
+        FROM properties p
+        WHERE ${sql.join(conditions, sql` AND `)}
+      `);
+
+      const area = Array.from(rows)[0];
+      if (
+        !area ||
+        !area.city ||
+        area.lon == null ||
+        area.lat == null ||
+        area.property_count <= 0
+      ) {
+        return reply.send(null);
+      }
+
+      return reply.send({
+        city: area.city,
+        postalCode: normalizedPostalCode ? (area.postal_code ?? normalizedPostalCode) : null,
+        countryCode: cc,
+        center: {
+          lon: area.lon,
+          lat: area.lat,
+        },
+        propertyCount: area.property_count,
+      });
+    },
+  );
+
+  typedApp.get(
     '/properties/resolve',
     {
       schema: {
@@ -698,12 +894,12 @@ export async function propertyRoutes(app: FastifyInstance) {
       const normalizedPostalCode = stripped;
 
       // Normalize addition: trim, uppercase, treat empty as null
-      const normalizedAddition = houseNumberAddition?.trim().toUpperCase() || null;
+      const normalizedAddition = normalizeComparableHouseNumberAddition(houseNumberAddition);
       const normalizedStreet = normalizeComparableAddressPart(street);
       const normalizedCity = normalizeComparableAddressPart(city);
 
       const additionCondition = normalizedAddition
-        ? sql`p.house_number_addition = ${normalizedAddition}`
+        ? sql`${buildComparableHouseNumberAdditionExpression('p.house_number_addition')} = ${normalizedAddition}`
         : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
 
       const fetchCandidates = async () => {

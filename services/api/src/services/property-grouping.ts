@@ -99,6 +99,9 @@ export type CanonicalPropertyGroup = {
   commentCount: number;
   guessCount: number;
   hasListing: boolean;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;
@@ -114,6 +117,9 @@ export type CanonicalPropertyGroup = {
 };
 
 type SinglePropertyDetail = {
+  streetName: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
   address: string;
   city: string;
   postalCode: string | null;
@@ -161,6 +167,9 @@ export type TileTransportFeature = {
   commentCount: number;
   guessCount: number;
   hasListing: boolean;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;
@@ -545,6 +554,9 @@ function buildCanonicalGroup(
     commentCount: members.reduce((sum, member) => sum + member.commentCount, 0),
     guessCount: members.reduce((sum, member) => sum + member.guessCount, 0),
     hasListing: members.some((member) => member.hasListing),
+    streetName: null,
+    houseNumber: null,
+    houseNumberAddition: null,
     address: null,
     city: null,
     postalCode: null,
@@ -769,6 +781,9 @@ async function fetchSinglePropertyDetails(
       return [
         row.id,
         {
+          streetName: row.street,
+          houseNumber: row.house_number,
+          houseNumberAddition: row.house_number_addition,
           address: formatDisplayAddress(
             {
               street: row.street,
@@ -818,6 +833,9 @@ async function hydrateSinglePropertyDetails(
 
     return {
       ...group,
+      streetName: detail.streetName,
+      houseNumber: detail.houseNumber,
+      houseNumberAddition: detail.houseNumberAddition,
       address: detail.address,
       city: detail.city,
       postalCode: detail.postalCode,
@@ -952,6 +970,9 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     commentCount: group.commentCount,
     guessCount: group.guessCount,
     hasListing: group.hasListing,
+    streetName: group.groupKind === 'single' ? group.streetName : null,
+    houseNumber: group.groupKind === 'single' ? group.houseNumber : null,
+    houseNumberAddition: group.groupKind === 'single' ? group.houseNumberAddition : null,
     address: group.groupKind === 'single' ? group.address : null,
     city: group.groupKind === 'single' ? group.city : null,
     postalCode: group.groupKind === 'single' ? group.postalCode : null,

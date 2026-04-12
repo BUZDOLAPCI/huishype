@@ -14,17 +14,13 @@
  */
 
 import { test, expect } from '@playwright/test';
-import path from 'path';
-import fs from 'fs';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 import {
   waitForFeedLoaded,
   waitForMapReady,
   waitForPropertyDetailReady,
 } from './helpers';
 
-// Configuration
-const EXPECTATION_NAME = '0019-real-address-routing';
-const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
 // Bounding box for area with real addresses (seeded via geocoding backend)
@@ -34,10 +30,6 @@ const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 // Pattern that indicates placeholder addresses (BAD - should not appear)
 const BAG_PAND_PATTERN = /BAG\s*Pand\s*/i;
 const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
-
-// Pattern that indicates real addresses (GOOD - should appear)
-// Real Dutch addresses look like: "Straatnaam 123" or similar
-const REAL_ADDRESS_PATTERN = /^[A-Za-zÀ-ÿ\s'-]+\s+\d+[A-Za-z]?$/;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -55,14 +47,6 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
   test.setTimeout(60_000);
 
   let consoleErrors: string[] = [];
-
-  test.beforeAll(async () => {
-    // Ensure screenshot directory exists
-    const fullPath = path.resolve(process.cwd(), SCREENSHOT_DIR);
-    if (!fs.existsSync(fullPath)) {
-      fs.mkdirSync(fullPath, { recursive: true });
-    }
-  });
 
   test.beforeEach(async ({ page }) => {
     // Reset console collections
@@ -157,17 +141,10 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     await page.waitForLoadState('networkidle');
     await waitForMapReady(page);
 
-    // Take screenshot of initial map state
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-integration-map.png`,
-      fullPage: true,
-    });
-
     // Try to find and click on a property marker
     // Look for cluster preview cards or property markers
     const previewCard = page.locator('[data-testid="group-preview-card"]');
     const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
-    const addressText = page.locator('[data-testid="property-address"]');
 
     // Check if any preview cards are visible
     const previewVisible = await previewCard.first().isVisible().catch(() => false);
@@ -212,19 +189,20 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     expect(apiData.data?.length, 'Expected properties in database within bbox').toBeGreaterThan(0);
 
     const property = apiData.data[0];
-    const propertyId = property.id;
     const address = property.address;
+    const propertyPath = buildCanonicalPropertyPath({
+      city: property.city,
+      countryCode: property.countryCode,
+      postalCode: property.postalCode,
+      streetName: property.street,
+      houseNumber: property.houseNumber,
+      houseNumberAddition: property.houseNumberAddition,
+    });
 
     // Navigate to the property page
-    await page.goto(`/property/${propertyId}`);
+    await page.goto(propertyPath, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle');
     await waitForPropertyDetailReady(page, address);
-
-    // Take screenshot
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-integration-property-detail.png`,
-      fullPage: true,
-    });
 
     // The page should show the address
     const pageContent = await page.textContent('body');
@@ -250,26 +228,9 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // The "API returns properties with real addresses" test verifies address quality
     // when querying the correct geographic area.
 
-    // Navigate to feed tab if available
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Click feed tab - the app has a "Feed" tab in the bottom tab bar
-    const feedTab = page
-      .getByRole('tab', { name: /feed/i })
-      .or(page.locator('[data-testid="feed-tab"]'))
-      .or(page.locator('a[href*="feed"], [role="link"][href*="feed"]'))
-      .or(page.locator('text=Feed'));
-
-    await expect(feedTab.first()).toBeVisible({ timeout: 10000 });
-    await feedTab.first().click();
+    await page.goto('/feed', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle').catch(() => {});
     await waitForFeedLoaded(page);
-
-    // Take screenshot
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-integration-feed.png`,
-      fullPage: true,
-    });
 
     // Verify that the feed loads and shows property information
     // The feed should display either real addresses or BAG Pand identifiers
@@ -318,10 +279,5 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
       ).toBe(false);
     }
 
-    // Final screenshot
-    await page.screenshot({
-      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-integration-cluster.png`,
-      fullPage: true,
-    });
   });
 });

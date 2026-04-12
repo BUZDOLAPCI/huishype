@@ -14,6 +14,10 @@ export interface Property {
   nationalId: string | null;
   /** ISO 3166-1 alpha-2 country code */
   countryCode: string;
+  region?: string | null;
+  street?: string;
+  houseNumber?: number;
+  houseNumberAddition?: string | null;
   address: string;
   city: string;
   postalCode: string | null;
@@ -116,17 +120,31 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
 const fetchPropertyById = async (
   id: string,
   accessToken?: string | null,
+  signal?: AbortSignal,
 ): Promise<PropertyDetails | null> => {
   try {
-    const property = await api.get<PropertyDetails>(`/properties/${id}`, accessToken
+    const requestOptions = accessToken
       ? {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
+          ...(signal ? { signal } : {}),
         }
-      : undefined);
+      : signal
+        ? { signal }
+        : undefined;
+
+    const property = await api.get<PropertyDetails>(`/properties/${id}`, requestOptions);
     return withDerivedPropertyImages(property);
   } catch (error) {
+    if (signal?.aborted) {
+      return null;
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return null;
+    }
+
     console.error('Failed to fetch property:', error);
     return null;
   }
@@ -198,13 +216,13 @@ export function useProperty(id: string | null) {
 
   return useQuery({
     queryKey: id ? propertyKeys.detail(id) : propertyKeys.details(),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!id) {
         return null;
       }
 
       const accessToken = await getAccessToken();
-      return fetchPropertyById(id, accessToken);
+      return fetchPropertyById(id, accessToken, signal);
     },
     enabled: !!id,
   });

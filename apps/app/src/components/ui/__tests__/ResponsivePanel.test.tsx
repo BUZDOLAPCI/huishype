@@ -12,9 +12,6 @@ import { act } from 'react';
 
 import { ResponsivePanel } from '../ResponsivePanel.web';
 
-// expo-router is already mocked by __mocks__/expo-router.js (moduleNameMapper)
-const { router } = require('expo-router');
-
 // Mock Icon component
 jest.mock('../Icon', () => ({
   Icon: () => null,
@@ -98,7 +95,7 @@ describe('ResponsivePanel.web', () => {
     expect(container.textContent).toContain('Panel content');
   });
 
-  it('calls router.back() when close button is clicked in landscape', () => {
+  it('does nothing when close button is clicked without an explicit onClose', () => {
     setWindowSize(1280, 720);
 
     renderToDOM(
@@ -112,8 +109,6 @@ describe('ResponsivePanel.web', () => {
     act(() => {
       closeBtn!.click();
     });
-
-    expect(router.back).toHaveBeenCalledTimes(1);
   });
 
   it('calls custom onClose when provided', () => {
@@ -133,10 +128,9 @@ describe('ResponsivePanel.web', () => {
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(router.back).not.toHaveBeenCalled();
   });
 
-  it('calls router.back() when backdrop is clicked in landscape', () => {
+  it('does nothing when backdrop is clicked without an explicit onClose', () => {
     setWindowSize(1280, 720);
 
     renderToDOM(
@@ -150,8 +144,6 @@ describe('ResponsivePanel.web', () => {
     act(() => {
       backdrop!.click();
     });
-
-    expect(router.back).toHaveBeenCalledTimes(1);
   });
 
   it('renders empty title when none provided', () => {

@@ -8,7 +8,7 @@
  * Platform renderers remain separate — this hook owns only the interaction model.
  */
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
@@ -21,6 +21,7 @@ import {
 } from '@/src/lib/authModalCopy';
 import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
+import { extractCanonicalRouteInput } from '@/src/lib/mapRoute';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import {
@@ -33,12 +34,24 @@ import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
 } from '@huishype/shared/config';
+import {
+  buildCanonicalCommentsPath,
+  buildCanonicalGuessesPath,
+} from '@huishype/shared';
 
 // ── Types ────────────────────────────────────────────────────────────
 
 /** State for the geo-anchored preview card (single or cluster). */
+export interface PreviewRouteMetadata {
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
+}
+
+export interface PreviewGroupProperty extends GroupPreviewProperty, PreviewRouteMetadata {}
+
 export interface PreviewGroup {
-  properties: GroupPreviewProperty[];
+  properties: PreviewGroupProperty[];
   coordinate: [number, number]; // [longitude, latitude]
 }
 
@@ -112,6 +125,7 @@ export interface UseMapInteractionReturn {
     property: PropertyResolveResult,
     camera: MapCameraCommands,
     resolvedAddress?: ResolvedAddress,
+    previewActivationDelayMs?: number,
   ) => void;
   handleLocationResolved: (coordinates: { lon: number; lat: number }, address: string, camera: MapCameraCommands) => void;
 
@@ -136,6 +150,9 @@ export interface ToGroupPropertyInput {
   city: string;
   postalCode?: string | null;
   countryCode?: string | null;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
   officialValuation?: number | null;
   askingPrice?: number | null;
   fmv?: number | PropertyFmvData | null;
@@ -211,9 +228,12 @@ function flyToPreviewAnchor(
 }
 
 function mergeHydratedPreviewProperty(
-  currentProperty: GroupPreviewProperty,
+  currentProperty: PreviewGroupProperty,
   selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
-): GroupPreviewProperty {
+): PreviewGroupProperty {
+  const typedSelectedProperty = selectedProperty as NonNullable<
+    ReturnType<typeof useProperty>['data']
+  > & PreviewRouteMetadata;
   const mergedActivityScore = currentProperty.activityScore ?? 0;
   const mergedActivityLevel = getActivityLevel(mergedActivityScore);
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
@@ -238,6 +258,8 @@ function mergeHydratedPreviewProperty(
     selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
   const mergedGuessCount =
     selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
+  const mergedViewCount =
+    selectedProperty.viewCount ?? currentProperty.viewCount ?? 0;
   const mergedLikeCount =
     selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
 
@@ -256,17 +278,40 @@ function mergeHydratedPreviewProperty(
     thumbnailUrl: mergedThumbnailUrl,
     yearBuilt: selectedProperty.yearBuilt,
     floorAreaM2: selectedProperty.floorAreaM2,
+    streetName: currentProperty.streetName ?? typedSelectedProperty.streetName ?? null,
+    houseNumber: currentProperty.houseNumber ?? typedSelectedProperty.houseNumber ?? null,
+    houseNumberAddition:
+      currentProperty.houseNumberAddition ??
+      typedSelectedProperty.houseNumberAddition ??
+      null,
     likeCount: mergedLikeCount,
     commentCount: mergedCommentCount,
     guessCount: mergedGuessCount,
+    viewCount: mergedViewCount,
   };
+}
+
+function previewPropertyHasDetailFields(
+  property: PreviewGroupProperty | null | undefined,
+): boolean {
+  return !!property
+    && typeof property.commentCount === 'number'
+    && typeof property.guessCount === 'number'
+    && typeof property.viewCount === 'number'
+    && typeof property.activityLevel === 'string'
+    // Preview layers often omit pricing metadata; keep hydrating until at
+    // least one price source is present so the card can render the expected
+    // valuation row.
+    && (property.officialValuation != null
+      || property.askingPrice != null
+      || property.fmv != null);
 }
 
 /** Convert a property-like object to GroupPreviewProperty. */
 function convertToGroupProperty(
   p: ToGroupPropertyInput,
   activityScore?: number,
-): GroupPreviewProperty {
+): PreviewGroupProperty {
   const derivedScore =
     (p.commentCount ?? 0) +
     (p.guessCount ?? 0);
@@ -285,6 +330,9 @@ function convertToGroupProperty(
     city: p.city,
     postalCode: p.postalCode,
     countryCode,
+    streetName: p.streetName ?? null,
+    houseNumber: p.houseNumber ?? null,
+    houseNumberAddition: p.houseNumberAddition ?? null,
     officialValuation: p.officialValuation,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
@@ -297,6 +345,7 @@ function convertToGroupProperty(
     likeCount: p.likeCount ?? 0,
     commentCount: p.commentCount ?? 0,
     guessCount: p.guessCount ?? 0,
+    viewCount: 0,
   };
 }
 
@@ -309,21 +358,41 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // ── Selection state ─────────────────────────────────────────
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [highlightedCoordinate, setHighlightedCoordinate] = useState<[number, number] | null>(null);
-  const { data: selectedProperty, isLoading: selectedPropertyLoading } = useProperty(selectedPropertyId);
 
   // ── Preview group state ─────────────────────────────────────
   const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const currentPreviewProperty = previewGroup?.properties[currentPreviewIndex] ?? null;
   const previewActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewHydrationPendingRef = useRef(false);
+  const previewPropertyReady = previewPropertyHasDetailFields(currentPreviewProperty);
+  const selectedPropertyQueryId =
+    selectedPropertyId && !previewHydrationPendingRef.current && !previewPropertyReady
+      ? selectedPropertyId
+      : null;
+  const { data: selectedProperty, isLoading: selectedPropertyLoading } = useProperty(selectedPropertyQueryId);
 
   const selectedPropertyForSheet = useMemo(() => {
-    if (!selectedPropertyId || !selectedProperty) {
+    if (!selectedPropertyId) {
       return null;
     }
 
     const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
     const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
+
+    if (!selectedProperty) {
+      if (!currentPreviewProperty) {
+        return null;
+      }
+
+      return {
+        ...currentPreviewProperty,
+        aerialImageUrl: previewAerialImageUrl ?? null,
+        thumbnailUrl: previewThumbnailUrl ?? null,
+        viewCount: currentPreviewProperty.viewCount ?? 0,
+      } as ReturnType<typeof useProperty>['data'];
+    }
+
     const derivedAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
     const aerialImageUrl = selectedProperty.aerialImageUrl ?? previewAerialImageUrl ?? derivedAerialImageUrl ?? null;
     const thumbnailUrl = selectedProperty.thumbnailUrl ?? previewThumbnailUrl ?? null;
@@ -443,6 +512,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       clearTimeout(previewActivationTimeoutRef.current);
       previewActivationTimeoutRef.current = null;
     }
+    previewHydrationPendingRef.current = false;
     setHighlightedCoordinate(null);
     setPreviewGroup(null);
     setSelectedPropertyId(null);
@@ -463,7 +533,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     }
 
     if (duration <= 0) {
-      startTransition(action);
+      action();
       return;
     }
 
@@ -507,13 +577,33 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleGuessPress = useCallback((propertyId: string) => {
-    router.push(`/guesses/${propertyId}`);
-  }, []);
+  const getCurrentCanonicalRouteInput = useCallback(() => {
+    const selectedPropertyRouteInput = extractCanonicalRouteInput(
+      (selectedPropertyForSheet as (typeof selectedPropertyForSheet & PreviewRouteMetadata) | null) ??
+        null,
+    );
+    if (selectedPropertyRouteInput) {
+      return selectedPropertyRouteInput;
+    }
 
-  const handleCommentPress = useCallback((propertyId: string) => {
-    router.push(`/comments/${propertyId}`);
-  }, []);
+    return extractCanonicalRouteInput(currentPreviewProperty);
+  }, [currentPreviewProperty, selectedPropertyForSheet]);
+
+  const handleGuessPress = useCallback((_propertyId: string) => {
+    const canonicalRouteInput = getCurrentCanonicalRouteInput();
+    if (canonicalRouteInput) {
+      router.push(buildCanonicalGuessesPath(canonicalRouteInput) as Href);
+      return;
+    }
+  }, [getCurrentCanonicalRouteInput]);
+
+  const handleCommentPress = useCallback((_propertyId: string) => {
+    const canonicalRouteInput = getCurrentCanonicalRouteInput();
+    if (canonicalRouteInput) {
+      router.push(buildCanonicalCommentsPath(canonicalRouteInput) as Href);
+      return;
+    }
+  }, [getCurrentCanonicalRouteInput]);
 
   // ── Preview card interaction handlers ───────────────────────
   const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {
@@ -585,6 +675,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           currentZoom,
         )) {
           const coord = group.coordinate;
+          previewHydrationPendingRef.current = true;
           setHighlightedCoordinate(coord);
           flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
@@ -606,6 +697,22 @@ export function useMapInteraction(): UseMapInteractionReturn {
         return true;
       } else {
         const coord = group.coordinate;
+        const routeMetadata = extractCanonicalRouteInput({
+          streetName: group.streetName ?? null,
+          houseNumber: group.houseNumber ?? null,
+          houseNumberAddition: group.houseNumberAddition ?? null,
+          address: group.address ?? null,
+          city: group.city ?? null,
+          postalCode: group.postalCode ?? null,
+          countryCode: group.countryCode ?? null,
+        });
+        const previewStreetName = group.streetName ?? routeMetadata?.streetName ?? null;
+        const previewHouseNumber = group.houseNumber ?? routeMetadata?.houseNumber ?? null;
+        const previewHouseNumberAddition =
+          group.houseNumberAddition ?? routeMetadata?.houseNumberAddition ?? null;
+        const previewCountryCode: string | undefined =
+          routeMetadata?.countryCode ?? group.countryCode ?? undefined;
+        previewHydrationPendingRef.current = true;
         setHighlightedCoordinate(coord);
         flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
         schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
@@ -616,7 +723,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
               address: group.address ?? '',
               city: group.city ?? '',
               postalCode: group.postalCode ?? null,
-              countryCode: group.countryCode ?? undefined,
+              countryCode: previewCountryCode,
+              streetName: previewStreetName,
+              houseNumber: previewHouseNumber,
+              houseNumberAddition: previewHouseNumberAddition,
               officialValuation: group.officialValuation ?? null,
               askingPrice: group.askingPrice ?? null,
               activityLevel: getActivityLevel(group.activityScore),
@@ -631,10 +741,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
               likeCount: group.likeCount ?? 0,
               commentCount: group.commentCount ?? 0,
               guessCount: group.guessCount ?? 0,
+              viewCount: 0,
             }],
             coordinate: coord,
           });
           setCurrentPreviewIndex(0);
+          previewHydrationPendingRef.current = false;
         });
         return true;
       }
@@ -648,6 +760,22 @@ export function useMapInteraction(): UseMapInteractionReturn {
     (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => {
       if (result.groupKind === 'single') {
         const coord = result.coordinate;
+        const routeMetadata = extractCanonicalRouteInput({
+          streetName: result.streetName ?? null,
+          houseNumber: result.houseNumber ?? null,
+          houseNumberAddition: result.houseNumberAddition ?? null,
+          address: result.address ?? null,
+          city: result.city ?? null,
+          postalCode: result.postalCode ?? null,
+          countryCode: result.countryCode ?? null,
+        });
+        const previewStreetName = result.streetName ?? routeMetadata?.streetName ?? null;
+        const previewHouseNumber = result.houseNumber ?? routeMetadata?.houseNumber ?? null;
+        const previewHouseNumberAddition =
+          result.houseNumberAddition ?? routeMetadata?.houseNumberAddition ?? null;
+        const previewCountryCode: string | undefined =
+          routeMetadata?.countryCode ?? result.countryCode ?? undefined;
+        previewHydrationPendingRef.current = true;
         setHighlightedCoordinate(coord);
         flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
         schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
@@ -662,7 +790,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
               address: result.address ?? '',
               city: result.city ?? '',
               postalCode: result.postalCode,
-              countryCode: result.countryCode ?? undefined,
+              countryCode: previewCountryCode,
+              streetName: previewStreetName,
+              houseNumber: previewHouseNumber,
+              houseNumberAddition: previewHouseNumberAddition,
               officialValuation: result.officialValuation,
               askingPrice: result.askingPrice,
               thumbnailUrl: result.thumbnailUrl,
@@ -674,10 +805,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
               likeCount: result.likeCount ?? 0,
               commentCount: result.commentCount ?? 0,
               guessCount: result.guessCount ?? 0,
+              viewCount: 0,
             }],
             coordinate: coord,
           });
           setCurrentPreviewIndex(0);
+          previewHydrationPendingRef.current = false;
         });
       } else if (result.groupKind === 'cluster') {
         const previewIds = result.previewPropertyIds;
@@ -744,13 +877,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
       property: PropertyResolveResult,
       camera: MapCameraCommands,
       resolvedAddress?: ResolvedAddress,
+      previewActivationDelayMs = SEARCH_PREVIEW_FLY_DURATION_MS,
     ) => {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
       const countryCode = property.countryCode ?? resolvedAddress?.details.countryCode ?? undefined;
+      previewHydrationPendingRef.current = true;
       setHighlightedCoordinate(coord);
       flyToPreviewAnchor(camera, coord, SEARCH_TARGET_ZOOM, SEARCH_PREVIEW_FLY_DURATION_MS);
-      schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
+      schedulePreviewActivation(previewActivationDelayMs, () => {
         setSelectedPropertyId(property.id);
         setPreviewGroup({
           properties: [{
@@ -759,19 +894,31 @@ export function useMapInteraction(): UseMapInteractionReturn {
             city: property.city,
             postalCode: property.postalCode ?? null,
             countryCode,
+            streetName: resolvedAddress?.details.street ?? null,
+            houseNumber:
+              resolvedAddress?.details.houseNumber ??
+              null,
+            houseNumberAddition:
+              resolvedAddress?.details.houseNumberAddition ??
+              null,
             officialValuation: property.officialValuation ?? null,
             askingPrice: null,
             activityLevel: 'cold',
             activityScore: 0,
             thumbnailUrl: null,
+            likeCount: 0,
+            commentCount: 0,
+            guessCount: 0,
             aerialImageUrl: derivePropertyAerialImageUrl({
               geometry: { type: 'Point', coordinates: coord },
               countryCode,
             }),
+            viewCount: 0,
           }],
           coordinate: coord,
         });
         setCurrentPreviewIndex(0);
+        previewHydrationPendingRef.current = false;
       });
     },
     [schedulePreviewActivation],

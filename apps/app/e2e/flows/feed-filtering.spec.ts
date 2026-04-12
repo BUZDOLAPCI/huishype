@@ -222,7 +222,7 @@ test.describe('Feed Filtering', () => {
     }
   });
 
-  test('clicking property card navigates to detail page', async ({ page }) => {
+  test('clicking a feed card preserves returnTo and closes back to feed', async ({ page }) => {
     // First verify API has feed items
     const apiCheck = await page.request.get(`${API_BASE_URL}/feed?limit=1`);
     const apiData = await apiCheck.json();
@@ -245,33 +245,27 @@ test.describe('Feed Filtering', () => {
     const isCardVisible = await firstCard.isVisible({ timeout: 10000 }).catch(() => false);
 
     if (isCardVisible) {
-      // Record the current URL before clicking
-      const urlBefore = page.url();
-
       await firstCard.click();
-      await page.waitForTimeout(3000);
+      await expect(page.getByTestId('property-back-button').last()).toBeVisible({
+        timeout: 15000,
+      });
 
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-to-detail.png` });
 
-      // Should navigate away from feed - URL should change
-      const urlAfter = page.url();
-      const navigated = urlAfter !== urlBefore || urlAfter.includes('property');
+      await expect(page).toHaveURL(/returnTo=%2Ffeed/);
 
-      console.log(`URL before: ${urlBefore}, after: ${urlAfter}`);
-
-      if (navigated) {
-        // Should show property detail page content
-        const detailContent = page.locator('text=Property Details').or(
-          page.locator('text=WOZ Value')
-        ).or(
-          page.locator('text=Loading property')
-        ).or(
-          page.locator('text=Property not found')
-        );
-
-        const hasDetailContent = await detailContent.first().isVisible({ timeout: 5000 }).catch(() => false);
-        console.log(`Property detail content visible: ${hasDetailContent}`);
-      }
+      const visibleBackButton = page.locator('[data-testid="property-back-button"]:visible');
+      await expect(visibleBackButton, 'Visible back button should be present').toBeVisible({
+        timeout: 15000,
+      });
+      await visibleBackButton.click();
+      await expect(page).toHaveURL(/\/feed(?:[?#].*)?$/);
+      await expect(page.locator('[data-testid="feed-screen"]:visible')).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.locator('[data-testid="filter-chip-trending"]:visible')).toBeVisible({
+        timeout: 15000,
+      });
     } else {
       console.log('No property cards visible to click');
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-no-cards-to-click.png` });

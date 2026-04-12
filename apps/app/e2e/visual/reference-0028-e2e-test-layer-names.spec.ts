@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { waitForMapIdle, waitForMapStyleLoaded } from './helpers/visual-test-helpers';
 import {
   MAP_LAYER_NAMES,
   ALL_PROPERTY_LAYERS,
@@ -101,6 +102,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page);
 
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
@@ -115,7 +117,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
 
     // Configure map to low zoom (where clusters are visible)
-    const LOW_ZOOM = 13;
+    const LOW_ZOOM = GHOST_NODE_ZOOM_THRESHOLD - 4;
     await page.evaluate(
       ({ center, zoom }) => {
         const mapInstance = (window as any).__mapInstance;
@@ -128,15 +130,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
 
     // Wait for the map to settle at the new zoom/center
-    await page.waitForFunction(
-      (expectedZoom) => {
-        const mapInstance = (window as any).__mapInstance;
-        if (!mapInstance) return false;
-        return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
-      },
-      LOW_ZOOM,
-      { timeout: 15000, polling: 500 }
-    );
+    await waitForMapIdle(page);
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
@@ -186,6 +180,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page);
 
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
@@ -199,7 +194,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
 
     // Configure map to high zoom (where ghost/active nodes are visible)
-    const HIGH_ZOOM = 17;
+    const HIGH_ZOOM = GHOST_NODE_ZOOM_THRESHOLD;
     await page.evaluate(
       ({ center, zoom }) => {
         const mapInstance = (window as any).__mapInstance;
@@ -212,15 +207,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
 
     // Wait for the map to settle at the new zoom/center
-    await page.waitForFunction(
-      (expectedZoom) => {
-        const mapInstance = (window as any).__mapInstance;
-        if (!mapInstance) return false;
-        return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
-      },
-      HIGH_ZOOM,
-      { timeout: 15000, polling: 500 }
-    );
+    await waitForMapIdle(page);
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
@@ -269,6 +256,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page);
 
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
@@ -294,15 +282,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
 
     // Wait for the map to settle at zoom 17
-    await page.waitForFunction(
-      () => {
-        const mapInstance = (window as any).__mapInstance;
-        if (!mapInstance) return false;
-        return Math.abs(mapInstance.getZoom() - 17) < 0.5 && !mapInstance.isMoving();
-      },
-      undefined,
-      { timeout: 15000, polling: 500 }
-    );
+    await waitForMapIdle(page);
 
     // Query features from all property layers (should not produce errors)
     const queryResult = await page.evaluate((layerNames) => {
@@ -358,6 +338,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page);
 
     // Wait for the map instance and all property layers to be available (polling, no fixed timeout)
     await page.waitForFunction(

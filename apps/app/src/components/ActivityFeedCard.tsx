@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
 import { Icon, type IconName } from './ui/Icon';
 import { UserAvatar } from './ui/UserAvatar';
 import { Card } from './ui/Card';
@@ -108,76 +108,75 @@ export function ActivityFeedCard({
   const config = ACTION_CONFIGS[eventType];
 
   return (
-    <Pressable
+    <Card
+      shadow="card"
       onPress={onPress}
+      testID="activity-feed-card"
       style={styles.pressable}
-      accessibilityRole="button"
     >
-      <Card shadow="card" testID="activity-feed-card">
-        {/* Property image */}
-        <View style={styles.imageWrapper}>
-          <PropertyImageSurface
-            source={{ listingPhotoUrl: property.thumbnailUrl }}
-            style={styles.image}
-            imageTestID="activity-feed-image"
-            placeholder={(
-              <View style={styles.placeholder}>
-                <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-              </View>
-            )}
+      {/* Property image */}
+      <View style={styles.imageWrapper}>
+        <PropertyImageSurface
+          source={{ listingPhotoUrl: property.thumbnailUrl }}
+          style={styles.image}
+          imageTestID="activity-feed-image"
+          placeholder={(
+            <View style={styles.placeholder}>
+              <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+            </View>
+          )}
+        />
+      </View>
+
+      {/* Content */}
+      <View style={styles.body}>
+        {/* Address */}
+        <Text style={styles.address} numberOfLines={1}>
+          {property.address} · {property.city}
+        </Text>
+
+        {/* User row */}
+        <View style={styles.userRow}>
+          <UserAvatar
+            username={actor.handle}
+            displayName={actor.displayName}
+            profilePhotoUrl={actor.profilePhotoUrl}
+            size="sm"
           />
-        </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {actor.displayName}
+            </Text>
+            <Text style={styles.timestamp}>
+              {formatRelativeTime(createdAt)}
+            </Text>
+          </View>
 
-        {/* Content */}
-        <View style={styles.body}>
-          {/* Address */}
-          <Text style={styles.address} numberOfLines={1}>
-            {property.address} · {property.city}
-          </Text>
-
-          {/* User row */}
-          <View style={styles.userRow}>
-            <UserAvatar
-              username={actor.handle}
-              displayName={actor.displayName}
-              profilePhotoUrl={actor.profilePhotoUrl}
-              size="sm"
+          {/* Action badge */}
+          <View style={[styles.actionBadge, { backgroundColor: config.bg }]}>
+            <Icon
+              name={config.icon}
+              size={14}
+              weight="fill"
+              color={config.color}
             />
-            <View style={styles.userInfo}>
-              <Text style={styles.userName} numberOfLines={1}>
-                {actor.displayName}
-              </Text>
-              <Text style={styles.timestamp}>
-                {formatRelativeTime(createdAt)}
-              </Text>
-            </View>
-
-            {/* Action badge */}
-            <View style={[styles.actionBadge, { backgroundColor: config.bg }]}>
-              <Icon
-                name={config.icon}
-                size={14}
-                weight="fill"
-                color={config.color}
-              />
-              <Text style={[styles.actionBadgeText, { color: config.color }]}>
-                {config.label}
-              </Text>
-            </View>
-          </View>
-
-          {/* Simple stats row */}
-          <View style={styles.metricsRow}>
-            <View style={styles.metric}>
-              <Icon name="Heart" size={15} color="#C7BFB3" />
-            </View>
-            <View style={styles.metric}>
-              <Icon name="ChatCircle" size={15} color="#42A5F5" />
-            </View>
+            <Text style={[styles.actionBadgeText, { color: config.color }]}>
+              {config.label}
+            </Text>
           </View>
         </View>
-      </Card>
-    </Pressable>
+
+        {/* Simple stats row */}
+        <View style={styles.metricsRow}>
+          <View style={styles.metric}>
+            <Icon name="Heart" size={15} color="#C7BFB3" />
+          </View>
+          <View style={styles.metric}>
+            <Icon name="ChatCircle" size={15} color="#42A5F5" />
+          </View>
+        </View>
+      </View>
+    </Card>
   );
 }
 

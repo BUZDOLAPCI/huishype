@@ -26,7 +26,7 @@ export function splitHouseNumber(raw: string | null | undefined): HouseNumberPar
     };
   }
 
-  const match = trimmed.match(/^(\d+)(?:\s*[-/ ]?\s*(.+))?$/u);
+  const match = trimmed.match(/^(\d+)(?:\s*[-/ ]?\s*([^\s]+(?:[-/][^\s]+)*))?$/u);
   if (!match) {
     return {
       houseNumber: null,

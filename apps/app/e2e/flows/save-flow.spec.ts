@@ -10,6 +10,7 @@
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 import { createTestUser } from './helpers/test-user';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
@@ -42,7 +43,21 @@ async function getTestProperty(request: APIRequestContext) {
   expect(response.ok()).toBe(true);
   const data = await response.json();
   expect(data.data.length).toBeGreaterThan(0);
-  return { id: data.data[0].id as string };
+  const property = data.data[0];
+  expect(property.street).toBeTruthy();
+  expect(property.houseNumber).toBeTruthy();
+
+  return {
+    id: property.id as string,
+    path: buildCanonicalPropertyPath({
+      countryCode: property.countryCode,
+      city: property.city,
+      postalCode: property.postalCode,
+      streetName: property.street,
+      houseNumber: property.houseNumber,
+      houseNumberAddition: property.houseNumberAddition,
+    }),
+  };
 }
 
 test.describe('Save Flow', () => {
@@ -76,13 +91,14 @@ test.describe('Save Flow', () => {
   test('save button is visible in QuickActions on property page', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.path);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     // The property detail page should show the save button with bookmark icon
     // The QuickActions bar renders Save/Share/Like buttons
     const saveButton = page.locator('[data-testid="quick-action-save"]');
+    await saveButton.scrollIntoViewIfNeeded();
     await expect(saveButton).toBeVisible({ timeout: 10000 });
   });
 

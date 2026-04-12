@@ -2,6 +2,7 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -15,7 +16,6 @@ const repoRoot = process.cwd();
 const apiCwd = path.join(repoRoot, 'services', 'api');
 const appCwd = path.join(repoRoot, 'apps', 'app');
 const expoBin = './node_modules/.bin/expo';
-const webDistDir = path.join(appCwd, 'dist');
 const require = createRequire(path.join(apiCwd, 'package.json'));
 
 function resolveTsxRuntimePaths() {
@@ -154,6 +154,70 @@ function withNodeOption(env, option) {
   return { ...env, NODE_OPTIONS: `${current} ${option}` };
 }
 
+function withExpoExportTempDir(env, prefix) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return {
+    tempDir,
+    env: {
+      ...env,
+      TMPDIR: tempDir,
+      TMP: tempDir,
+      TEMP: tempDir,
+    },
+  };
+}
+
+function uniquePaths(paths) {
+  return [...new Set(paths)];
+}
+
+function getExpoWebExportRootCandidates() {
+  return uniquePaths([
+    path.join(appCwd, 'dist'),
+    path.join(repoRoot, 'dist'),
+  ]);
+}
+
+function clearExpoWebExportRoots() {
+  for (const candidate of getExpoWebExportRootCandidates()) {
+    fs.rmSync(candidate, { recursive: true, force: true });
+  }
+}
+
+async function resolveExpoWebExportRoot(timeoutMs = READY_TIMEOUT_MS) {
+  const startedAt = Date.now();
+
+  while (true) {
+    const matches = getExpoWebExportRootCandidates()
+      .map((rootDir) => {
+        const entrypoint = path.join(rootDir, 'index.html');
+        if (!fs.existsSync(entrypoint) || !fs.statSync(entrypoint).isFile()) {
+          return null;
+        }
+
+        return {
+          rootDir,
+          mtimeMs: fs.statSync(entrypoint).mtimeMs,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+    if (matches.length > 0) {
+      return matches[0].rootDir;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(
+        `Exported web entrypoint did not appear in any expected dist root within ${timeoutMs}ms: ` +
+          `${getExpoWebExportRootCandidates().join(', ')}`,
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 function waitForExit(child, name, stopping) {
   return new Promise((resolve, reject) => {
     child.once('exit', (code, signal) => {
@@ -282,25 +346,36 @@ async function main() {
   }
 
   console.log('Building Expo web bundle for Playwright runtime ...');
-  execFileSync(
-    expoBin,
-    ['export', '--platform', 'web'],
-    {
-      cwd: appCwd,
-      env: withNodeOption({
-        ...childEnv,
-        NODE_ENV: webExportNodeEnv,
-        EXPO_PUBLIC_API_URL: apiUrl,
-      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
-      stdio: 'inherit',
-    },
+  clearExpoWebExportRoots();
+  const expoExport = withExpoExportTempDir(
+    withNodeOption({
+      ...childEnv,
+      NODE_ENV: webExportNodeEnv,
+      EXPO_PUBLIC_API_URL: '/api',
+    }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
+    'huishype-integration-expo-',
   );
+  try {
+    execFileSync(
+      expoBin,
+      ['export', '--platform', 'web', '--clear'],
+      {
+        cwd: appCwd,
+        env: expoExport.env,
+        stdio: 'inherit',
+      },
+    );
+  } finally {
+    fs.rmSync(expoExport.tempDir, { recursive: true, force: true });
+  }
+  const webDistDir = await resolveExpoWebExportRoot();
 
-  console.log(`Waiting for static web server at ${webUrl} ...`);
+  console.log(`Waiting for static web server at ${webUrl} from ${webDistDir} ...`);
   await ensurePortAvailable(webPort, 'Static web server');
   webServerRuntime = startStaticWebServer({
     port: webPort,
     rootDir: webDistDir,
+    apiProxyTarget: apiUrl,
   });
   await webServerRuntime.ready;
   await waitForHttp(webUrl, 'Static web server');

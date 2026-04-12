@@ -22,6 +22,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import {
@@ -31,7 +32,10 @@ import {
   type NotificationItem,
 } from '@/src/hooks/useNotifications';
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
+import { api } from '@/src/utils/api';
+import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 // --- Time grouping ---
 
@@ -103,6 +107,7 @@ type ListItem =
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
+  const queryClient = useQueryClient();
   const {
     data,
     isLoading,
@@ -114,6 +119,15 @@ export default function NotificationsScreen() {
 
   const markAllRead = useMarkAllRead();
   const markOneRead = useMarkNotificationRead();
+  const openProperty = useCallback(async (propertyId: string) => {
+    try {
+      const property = await api.get<PropertyDetails>(`/properties/${propertyId}`);
+      primePropertyDetailCache(queryClient, property);
+      router.push(toInternalAppHref(buildPropertyRoute(property, '/notifications')));
+    } catch (error) {
+      console.error('Failed to resolve canonical property route from notifications:', error);
+    }
+  }, [queryClient]);
 
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
@@ -159,10 +173,10 @@ export default function NotificationsScreen() {
       }
       // Navigate to property if available
       if (notification.propertyId) {
-        router.push(buildPropertyRoute(notification.propertyId, '/notifications'));
+        void openProperty(notification.propertyId);
       }
     },
-    [markOneRead]
+    [markOneRead, openProperty]
   );
 
   const handleLoadMore = useCallback(() => {

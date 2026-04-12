@@ -297,6 +297,41 @@ describe('GET /properties/resolve', () => {
     expect(body.city).toBe(city);
   });
 
+  it('should resolve canonical additions when stored values carry leading separators', async () => {
+    const street = `Allée Resolve ${Date.now()}`;
+    const city = 'Anderlecht';
+
+    const [inserted] = await db
+      .insert(propertiesTable)
+      .values({
+        countryCode: 'BE',
+        postalCode: '1070',
+        houseNumber: 4,
+        houseNumberAddition: '-C046',
+        street,
+        city,
+        status: 'active',
+      })
+      .returning({ id: propertiesTable.id });
+
+    cleanupPropertyIds.push(inserted.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url:
+        `/properties/resolve?postalCode=1070&houseNumber=4&houseNumberAddition=C046` +
+        `&street=${encodeURIComponent(street)}&city=${encodeURIComponent(city)}&countryCode=BE`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(inserted.id);
+    expect(body.countryCode).toBe('BE');
+    expect(body.postalCode).toBe('1070');
+    expect(body.city).toBe(city);
+    expect(body.address).toContain(`${street} 4-C046`);
+  });
+
   it('should return 409 when multiple real matches remain after filtering', async () => {
     const fixture = getDisambiguationFixture();
     const response = await app.inject({

@@ -1,8 +1,12 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { Alert, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import * as maplibregl from 'maplibre-gl';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
+import maplibregl from 'maplibre-gl';
 
+import { CommentsRouteScreen } from '../comments/[propertyId]';
+import { GuessesRouteScreen } from '../guesses/[propertyId]';
+import { PropertyDetailRouteScreen } from '../property/[id]';
 import {
   AuthModal,
   SearchBar,
@@ -18,18 +22,29 @@ import {
   PREVIEW_CARD_VIEWPORT_ANCHOR,
   viewportAnchorToOffset,
 } from '@/src/lib/mapCameraAnchor';
+import { extractCanonicalRouteInput } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import {
+  buildPropertyMapRoute,
+  buildPropertyRoute,
+  isStaticAppRoutePath,
+} from '@/src/utils/property-route';
+import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
 } from '@huishype/shared/config';
+import {
+  buildCanonicalMapPreviewPath,
+  serializeCanonicalCameraPath,
+} from '@huishype/shared';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -45,6 +60,10 @@ const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+
+export interface MapScreenProps {
+  pathnameOverride?: string | null;
+}
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -352,14 +371,31 @@ function createSelectedMarkerElement(): HTMLDivElement {
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
-export default function MapScreen() {
+export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  const { returnTo } = useLocalSearchParams<{
+    returnTo?: string | string[];
+  }>();
+  const isFocused = useIsFocused();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
   const [searchResetToken, setSearchResetToken] = useState(0);
+  const routeState = useResolvedMapRoute(pathnameOverride);
+  const isStaticAppRoute = isStaticAppRoutePath(routeState.pathname);
+  const shouldManageMapRoute = !isStaticAppRoute;
+  const appliedRoutePathRef = useRef<string | null>(null);
+  const skipNextPassiveUrlSyncRef = useRef(true);
+  const lastCameraPathRef = useRef<string>('/');
+  const lastReplacedUrlRef = useRef<string | null>(null);
+  const previousPreviewPathRef = useRef<string | null>(null);
+  const lockedAreaPathRef = useRef<string | null>(null);
+  const canReplaceLockedAreaPathRef = useRef(true);
+  const pathnameRef = useRef(routeState.pathname);
+  pathnameRef.current = routeState.pathname;
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -377,6 +413,7 @@ export default function MapScreen() {
     handleAuthRequired,
     handleFeaturePress,
     handleEmptyMapTap,
+    handlePropertyResolved: handleMapPropertyResolved,
     resetTransientUI,
     highlightedCoordinate,
     setHighlightedCoordinate,
@@ -387,6 +424,10 @@ export default function MapScreen() {
     setCurrentPreviewIndex,
     handleLocationResolved: handleMapLocationResolved,
   } = interaction;
+  const previewGroup = interaction.previewGroup;
+  const currentPreviewIndex = interaction.currentPreviewIndex;
+  const selectedPropertyForSheet = interaction.selectedPropertyForSheet;
+  const handleClosePreview = interaction.handleClosePreview;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
 
@@ -409,8 +450,34 @@ export default function MapScreen() {
       return selectedGeometry.coordinates;
     }
 
-    return interaction.previewGroup?.coordinate ?? null;
-  }, [highlightedCoordinate, interaction.previewGroup, selectedProperty?.geometry]);
+    return previewGroup?.coordinate ?? null;
+  }, [highlightedCoordinate, previewGroup, selectedProperty?.geometry]);
+
+  const currentPreviewProperty = useMemo(() => {
+    if (!previewGroup) {
+      return null;
+    }
+
+    return previewGroup.properties[currentPreviewIndex] ?? null;
+  }, [currentPreviewIndex, previewGroup]);
+  const isPreviewSelectionActive = !!interaction.highlightedCoordinate;
+
+  const previewCanonicalPath = useMemo(() => {
+    const canonicalRouteInput =
+      extractCanonicalRouteInput(
+        (selectedPropertyForSheet as
+          | (typeof selectedPropertyForSheet & {
+              streetName?: string | null;
+              houseNumber?: string | number | null;
+              houseNumberAddition?: string | null;
+            })
+          | null) ?? null,
+      ) ?? extractCanonicalRouteInput(currentPreviewProperty);
+
+    return canonicalRouteInput ? buildCanonicalMapPreviewPath(canonicalRouteInput) : null;
+  }, [currentPreviewProperty, selectedPropertyForSheet]);
+  const previewOpenRef = useRef(false);
+  previewOpenRef.current = !!previewGroup || isPreviewSelectionActive;
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -493,6 +560,52 @@ export default function MapScreen() {
     },
   }), []);
 
+  const initialMapView = useMemo(() => {
+    if (!shouldManageMapRoute) {
+      return {
+        center: DEFAULT_CENTER as [number, number],
+        zoom: DEFAULT_ZOOM,
+      };
+    }
+
+    const resolvedRoute = routeState.resolvedRoute;
+    if (!resolvedRoute || resolvedRoute.kind === 'invalid' || resolvedRoute.kind === 'root') {
+      return {
+        center: DEFAULT_CENTER as [number, number],
+        zoom: DEFAULT_ZOOM,
+      };
+    }
+
+    if (resolvedRoute.kind === 'camera') {
+      return {
+        center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat] as [number, number],
+        zoom: resolvedRoute.camera.zoom,
+      };
+    }
+
+    if (resolvedRoute.kind === 'city' || resolvedRoute.kind === 'postcode') {
+      return {
+        center: resolvedRoute.center,
+        zoom: resolvedRoute.zoom,
+      };
+    }
+
+    if ('property' in resolvedRoute) {
+      return {
+        center: [
+          resolvedRoute.property.coordinates.lon,
+          resolvedRoute.property.coordinates.lat,
+        ] as [number, number],
+        zoom: SEARCH_TARGET_ZOOM,
+      };
+    }
+
+    return {
+      center: DEFAULT_CENTER as [number, number],
+      zoom: DEFAULT_ZOOM,
+    };
+  }, [shouldManageMapRoute, routeState.resolvedRoute]);
+
   const handleCurrentLocationPress = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
@@ -512,7 +625,7 @@ export default function MapScreen() {
 
   // Initialize map
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return;
+    if (routeState.isLoading || !mapContainerRef.current || mapRef.current) return;
 
     let cancelled = false;
     let loadTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -531,9 +644,9 @@ export default function MapScreen() {
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
         style,
-        center: DEFAULT_CENTER,
-        zoom: DEFAULT_ZOOM,
-        pitch: getPitchForZoom(DEFAULT_ZOOM),
+        center: initialMapView.center,
+        zoom: initialMapView.zoom,
+        pitch: getPitchForZoom(initialMapView.zoom),
         bearing: DEFAULT_BEARING,
         maxPitch: 70,
         touchPitch: false,
@@ -619,6 +732,7 @@ export default function MapScreen() {
       if (typeof window !== 'undefined') {
         (window as unknown as { __mapInstance: maplibregl.Map }).__mapInstance = map;
       }
+      setMapInstance(map);
 
       // Expose bottom sheet ref for testing
       if (typeof window !== 'undefined') {
@@ -705,19 +819,74 @@ export default function MapScreen() {
       // Track viewport center for dynamic city name (reverse geocoding)
       // Fire on 'moveend' — covers pan, zoom, fly, programmatic camera moves.
       map.on('moveend', () => {
+        if (!shouldManageMapRoute) {
+          return;
+        }
+
         const center = map.getCenter();
-        onViewportCenterChangedRef.current(center.lng, center.lat, map.getZoom());
+        const zoom = map.getZoom();
+        const nextCameraPath = serializeCanonicalCameraPath({
+          lat: center.lat,
+          lng: center.lng,
+          zoom,
+        });
+        lastCameraPathRef.current = nextCameraPath;
+        onViewportCenterChangedRef.current(center.lng, center.lat, zoom);
+
+        if (skipNextPassiveUrlSyncRef.current) {
+          skipNextPassiveUrlSyncRef.current = false;
+          return;
+        }
+
+        if (previewOpenRef.current) {
+          return;
+        }
+
+        if (
+          lockedAreaPathRef.current &&
+          pathnameRef.current === lockedAreaPathRef.current &&
+          !canReplaceLockedAreaPathRef.current
+        ) {
+          return;
+        }
+
+        if (
+          pathnameRef.current !== nextCameraPath &&
+          lastReplacedUrlRef.current !== nextCameraPath
+        ) {
+          lockedAreaPathRef.current = null;
+          lastReplacedUrlRef.current = nextCameraPath;
+          router.replace(nextCameraPath as Href);
+        }
       });
 
-      // Trigger initial reverse geocode for the default camera position
-      onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
+      // Trigger initial reverse geocode for the boot camera position
+      onViewportCenterChangedRef.current(
+        initialMapView.center[0],
+        initialMapView.center[1],
+        initialMapView.zoom,
+      );
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: initialMapView.center[1],
+        lng: initialMapView.center[0],
+        zoom: initialMapView.zoom,
+      });
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
-      map.on('dragstart', () => { isDragging.current = true; });
+      map.on('dragstart', () => {
+        isDragging.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
-      map.on('zoomstart', () => { isZooming.current = true; });
+      map.on('zoomstart', () => {
+        isZooming.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
-      map.on('rotatestart', () => { isRotating.current = true; });
+      map.on('rotatestart', () => {
+        isRotating.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 
       // Handle click on property points
@@ -789,6 +958,7 @@ export default function MapScreen() {
     return () => {
       cancelled = true;
       clearTimeout(loadTimeout);
+      setMapInstance(null);
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -799,7 +969,19 @@ export default function MapScreen() {
       }
       cancelPendingSinglePreviewSelection();
     };
-  }, [bottomSheetRef, cameraCommands, cancelPendingSinglePreviewSelection, handleAuthRequired, handleFeaturePress, scheduleSinglePreviewSelection, syncVisibleZoom]);
+  }, [
+    bottomSheetRef,
+    cameraCommands,
+    cancelPendingSinglePreviewSelection,
+    handleAuthRequired,
+    handleFeaturePress,
+    shouldManageMapRoute,
+    initialMapView.center,
+    initialMapView.zoom,
+    routeState.isLoading,
+    scheduleSinglePreviewSelection,
+    syncVisibleZoom,
+  ]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -817,20 +999,15 @@ export default function MapScreen() {
   // Search bar callbacks (adapting shared hook to local camera commands)
   const handlePropertyResolved = useCallback(
     (property: PropertyResolveResult, resolvedAddress?: ResolvedAddress) => {
-      // On web, single-property search also uses the deferred pattern
-      const { lon, lat } = property.coordinates;
-      const coord: [number, number] = [lon, lat];
-
-      cameraCommands.flyTo({ center: coord, zoom: SEARCH_TARGET_ZOOM, duration: 1000 });
-      scheduleSinglePreviewSelection(property.id, coord, 0, 1000);
+      handleMapPropertyResolved(property, cameraCommands, resolvedAddress);
 
       // Set the search city from the resolved property
       const city = property.city || resolvedAddress?.details.city;
       if (city) {
-        setSearchCity(city, coord);
+        setSearchCity(city, [property.coordinates.lon, property.coordinates.lat]);
       }
     },
-    [cameraCommands, scheduleSinglePreviewSelection, setSearchCity],
+    [cameraCommands, handleMapPropertyResolved, setSearchCity],
   );
 
   const handleLocationResolved = useCallback(
@@ -848,6 +1025,229 @@ export default function MapScreen() {
     },
     [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
+
+  useEffect(() => {
+    if (lastReplacedUrlRef.current === routeState.pathname) {
+      lastReplacedUrlRef.current = null;
+    }
+  }, [routeState.pathname]);
+
+  useEffect(() => {
+    if (!shouldManageMapRoute) {
+      return;
+    }
+
+    const resolvedRoute = routeState.resolvedRoute;
+    if (!resolvedRoute) {
+      return;
+    }
+
+    if (
+      resolvedRoute.kind === 'city' ||
+      resolvedRoute.kind === 'postcode' ||
+      resolvedRoute.kind === 'preview'
+    ) {
+      lockedAreaPathRef.current = resolvedRoute.canonicalPath;
+      canReplaceLockedAreaPathRef.current = false;
+      return;
+    }
+
+    lockedAreaPathRef.current = null;
+    canReplaceLockedAreaPathRef.current = true;
+  }, [shouldManageMapRoute, routeState.resolvedRoute]);
+
+  useEffect(() => {
+    if (!shouldManageMapRoute) {
+      return;
+    }
+
+    const resolvedRoute = routeState.resolvedRoute;
+    if (!resolvedRoute) {
+      return;
+    }
+
+    if (resolvedRoute.kind === 'invalid') {
+      handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      appliedRoutePathRef.current = routeState.pathname;
+      router.replace('/' as Href);
+      return;
+    }
+
+    if (
+      resolvedRoute.canonicalPath !== routeState.pathname &&
+      resolvedRoute.kind !== 'root' &&
+      resolvedRoute.kind !== 'camera'
+    ) {
+      lastReplacedUrlRef.current = resolvedRoute.canonicalPath;
+      router.replace(resolvedRoute.canonicalPath as Href);
+      return;
+    }
+
+    if (
+      isPreviewSelectionActive &&
+      (resolvedRoute.kind === 'root' ||
+        resolvedRoute.kind === 'camera' ||
+        resolvedRoute.kind === 'city' ||
+        resolvedRoute.kind === 'postcode')
+    ) {
+      if (resolvedRoute.kind === 'camera') {
+        lastCameraPathRef.current = resolvedRoute.canonicalPath;
+      }
+
+      return;
+    }
+
+    const map = mapRef.current;
+    if (
+      !map ||
+      !mapLoaded ||
+      routeState.isLoading ||
+      appliedRoutePathRef.current === routeState.pathname
+    ) {
+      return;
+    }
+
+    if (resolvedRoute.kind === 'root') {
+      handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: DEFAULT_CENTER[1],
+        lng: DEFAULT_CENTER[0],
+        zoom: DEFAULT_ZOOM,
+      });
+      onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'camera') {
+      handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      map.jumpTo({
+        center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat],
+        zoom: resolvedRoute.camera.zoom,
+      });
+      lastCameraPathRef.current = resolvedRoute.canonicalPath;
+      onViewportCenterChanged(
+        resolvedRoute.camera.lng,
+        resolvedRoute.camera.lat,
+        resolvedRoute.camera.zoom,
+      );
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'city' || resolvedRoute.kind === 'postcode') {
+      handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = resolvedRoute.canonicalPath;
+      canReplaceLockedAreaPathRef.current = false;
+      map.jumpTo({
+        center: resolvedRoute.center,
+        zoom: resolvedRoute.zoom,
+      });
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: resolvedRoute.center[1],
+        lng: resolvedRoute.center[0],
+        zoom: resolvedRoute.zoom,
+      });
+      setSearchCity(resolvedRoute.cityName, resolvedRoute.center);
+      onViewportCenterChanged(
+        resolvedRoute.center[0],
+        resolvedRoute.center[1],
+        resolvedRoute.zoom,
+      );
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'preview') {
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      if (previewCanonicalPath === resolvedRoute.canonicalPath && previewGroup) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      skipNextPassiveUrlSyncRef.current = true;
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: resolvedRoute.property.coordinates.lat,
+        lng: resolvedRoute.property.coordinates.lon,
+        zoom: SEARCH_TARGET_ZOOM,
+      });
+      handleMapPropertyResolved(
+        resolvedRoute.property,
+        cameraCommands,
+        resolvedRoute.resolvedAddress,
+        0,
+      );
+      setSearchCity(resolvedRoute.property.city, [
+        resolvedRoute.property.coordinates.lon,
+        resolvedRoute.property.coordinates.lat,
+      ]);
+      appliedRoutePathRef.current = routeState.pathname;
+    }
+  }, [
+    cameraCommands,
+    handleMapPropertyResolved,
+    handleClosePreview,
+    onViewportCenterChanged,
+    previewCanonicalPath,
+    previewGroup,
+    mapLoaded,
+    routeState.isLoading,
+    routeState.pathname,
+    routeState.resolvedRoute,
+    setSearchCity,
+    isPreviewSelectionActive,
+    shouldManageMapRoute,
+  ]);
+
+  useEffect(() => {
+    if (!shouldManageMapRoute) {
+      return;
+    }
+
+    if (routeState.isLoading || !mapRef.current) {
+      return;
+    }
+
+    if (previewGroup && previewCanonicalPath) {
+      previousPreviewPathRef.current = previewCanonicalPath;
+      if (routeState.pathname !== previewCanonicalPath) {
+        lastReplacedUrlRef.current = previewCanonicalPath;
+        router.replace(previewCanonicalPath as Href);
+      }
+      return;
+    }
+
+    if (!previousPreviewPathRef.current) {
+      return;
+    }
+
+    previousPreviewPathRef.current = null;
+
+    if (
+      lastCameraPathRef.current &&
+      routeState.pathname !== lastCameraPathRef.current
+    ) {
+      lastReplacedUrlRef.current = lastCameraPathRef.current;
+      router.replace(lastCameraPathRef.current as Href);
+    }
+  }, [
+    previewGroup,
+    previewCanonicalPath,
+    routeState.isLoading,
+    routeState.pathname,
+    shouldManageMapRoute,
+  ]);
 
   // Manage selected marker with pulsing animation
   useEffect(() => {
@@ -878,6 +1278,43 @@ export default function MapScreen() {
       }
     };
   }, [selectedMarkerCoordinate]);
+
+  if (!isFocused || !shouldManageMapRoute) {
+    return null;
+  }
+
+  if (routeState.resolvedRoute?.kind === 'property') {
+    return (
+      <PropertyDetailRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyMapRoute(routeState.resolvedRoute.routeInput)}
+      />
+    );
+  }
+
+  if (routeState.resolvedRoute?.kind === 'comments') {
+    return (
+      <CommentsRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyRoute(
+          routeState.resolvedRoute.routeInput,
+          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
+        )}
+      />
+    );
+  }
+
+  if (routeState.resolvedRoute?.kind === 'guesses') {
+    return (
+      <GuessesRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyRoute(
+          routeState.resolvedRoute.routeInput,
+          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
+        )}
+      />
+    );
+  }
 
   return (
     <View className="flex-1 bg-warm-100">
@@ -910,7 +1347,7 @@ export default function MapScreen() {
         />
 
         {/* Map Loading Indicator */}
-        {!mapLoaded && (
+        {(routeState.isLoading || !mapLoaded) && (
           <View
             className="absolute inset-0 items-center justify-center bg-warm-100"
             style={{
@@ -931,7 +1368,9 @@ export default function MapScreen() {
                   animation: 'spin 1s linear infinite',
                 } as any}
               />
-              <Text className="text-warm-600 mt-3 text-base">Loading map...</Text>
+              <Text className="text-warm-600 mt-3 text-base">
+                {routeState.isLoading ? 'Resolving map route...' : 'Loading map...'}
+              </Text>
             </View>
           </View>
         )}
@@ -975,7 +1414,7 @@ export default function MapScreen() {
         </View>
 
         <WebPreviewMarkerPortal
-          map={mapRef.current}
+          map={mapInstance}
           previewGroup={interaction.previewGroup}
           currentIndex={interaction.currentPreviewIndex}
           markerOffsetPx={PREVIEW_CARD_MARKER_OFFSET_PX}
@@ -994,7 +1433,7 @@ export default function MapScreen() {
       <PropertyBottomSheet
         ref={interaction.bottomSheetRef}
         property={interaction.selectedPropertyForSheet ?? null}
-        isLoading={interaction.selectedPropertyLoading}
+        isLoading={interaction.selectedPropertyLoading && !interaction.selectedPropertyForSheet}
         isLiked={interaction.isLiked}
         isSaved={interaction.isSaved}
         isPreviewCardVisible={!!interaction.previewGroup}

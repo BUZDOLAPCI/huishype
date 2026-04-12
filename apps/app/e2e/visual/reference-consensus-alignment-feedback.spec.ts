@@ -100,30 +100,31 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('capture consensus alignment feedback visualization', async ({ page }) => {
     // Navigate to the showcase page
-    await page.goto('/showcase/consensus-alignment');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/showcase/consensus-alignment', { waitUntil: 'domcontentloaded' });
 
     // Wait for the showcase page to load
-    await page.waitForSelector('[data-testid="consensus-alignment-showcase"]', { timeout: 30000 });
+    const showcase = page.locator('[data-testid="consensus-alignment-showcase"]');
+    await expect(showcase).toBeVisible({ timeout: 30000 });
     await page.waitForTimeout(2000); // Wait for animations to complete
 
-    // Verify all three states are visible
-    const alignedState = page.locator('[data-testid="consensus-alignment-aligned"]');
-    const closeState = page.locator('[data-testid="consensus-alignment-close"]');
-    const differentState = page.locator('[data-testid="consensus-alignment-different"]');
-    const differentBelowState = page.locator('[data-testid="consensus-alignment-different-below"]');
+    // Verify all showcase sections are rendered.
+    const alignedState = page.locator('[data-testid="consensus-aligned-state"]');
+    const closeState = page.locator('[data-testid="consensus-close-state"]');
+    const differentState = page.locator('[data-testid="consensus-different-state"]');
+    const differentBelowState = page.locator('[data-testid="consensus-different-below-state"]');
 
-    // Check visibility of all states
-    const isAlignedVisible = await alignedState.isVisible().catch(() => false);
-    const isCloseVisible = await closeState.isVisible().catch(() => false);
-    const isDifferentVisible = await differentState.isVisible().catch(() => false);
-    const isDifferentBelowVisible = await differentBelowState.isVisible().catch(() => false);
+    // Check that all showcase sections are rendered into the ScrollView.
+    // They are not all simultaneously in the viewport, so visibility is the wrong contract here.
+    const isAlignedRendered = (await alignedState.count()) > 0;
+    const isCloseRendered = (await closeState.count()) > 0;
+    const isDifferentRendered = (await differentState.count()) > 0;
+    const isDifferentBelowRendered = (await differentBelowState.count()) > 0;
 
-    console.log('Component states visibility:');
-    console.log(`  - Aligned (green): ${isAlignedVisible}`);
-    console.log(`  - Close (blue): ${isCloseVisible}`);
-    console.log(`  - Different above (amber): ${isDifferentVisible}`);
-    console.log(`  - Different below (amber): ${isDifferentBelowVisible}`);
+    console.log('Component states rendered:');
+    console.log(`  - Aligned (green): ${isAlignedRendered}`);
+    console.log(`  - Close (blue): ${isCloseRendered}`);
+    console.log(`  - Different above (amber): ${isDifferentRendered}`);
+    console.log(`  - Different below (amber): ${isDifferentBelowRendered}`);
 
     // Take screenshot of initial view
     await page.screenshot({
@@ -149,31 +150,32 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Screenshot saved to: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
 
     // Verify expected text content
-    const pageContent = await page.textContent('body');
+    const showcaseContent = await showcase.textContent();
 
-    // Check for aligned state message
-    expect(pageContent).toContain('You agree with');
-    expect(pageContent).toContain('of top predictors');
+    // Check for showcase copy and alignment message variants
+    expect(showcaseContent).toContain('Consensus Alignment Feedback');
+    expect(showcaseContent).toContain('You agree with');
+    expect(showcaseContent).toContain('of top predictors');
 
     // Check for close state message
-    expect(pageContent).toContain('close to the crowd consensus');
+    expect(showcaseContent).toContain('close to the crowd consensus');
 
     // Check for different state - should show percentage above/below
-    expect(pageContent).toContain('above the crowd estimate');
-    expect(pageContent).toContain('below the crowd estimate');
+    expect(showcaseContent).toContain('above the crowd estimate');
+    expect(showcaseContent).toContain('below the crowd estimate');
 
     // Check for guess count display
-    expect(pageContent).toContain('guesses');
+    expect(showcaseContent).toContain('guesses');
 
     // Check for percentile rank display
-    expect(pageContent).toContain('higher than');
-    expect(pageContent).toContain('of predictions');
+    expect(showcaseContent).toContain('higher than');
+    expect(showcaseContent).toContain('of predictions');
 
     // Assertions for component visibility
-    expect(isAlignedVisible, 'Aligned state should be visible').toBe(true);
-    expect(isCloseVisible, 'Close state should be visible').toBe(true);
-    expect(isDifferentVisible, 'Different above state should be visible').toBe(true);
-    expect(isDifferentBelowVisible, 'Different below state should be visible').toBe(true);
+    expect(isAlignedRendered, 'Aligned state should be rendered').toBe(true);
+    expect(isCloseRendered, 'Close state should be rendered').toBe(true);
+    expect(isDifferentRendered, 'Different above state should be rendered').toBe(true);
+    expect(isDifferentBelowRendered, 'Different below state should be rendered').toBe(true);
 
     // Verify no critical console errors
     expect(
@@ -183,9 +185,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify individual component states', async ({ page }) => {
-    await page.goto('/showcase/consensus-alignment');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="consensus-alignment-showcase"]', { timeout: 30000 });
+    await page.goto('/showcase/consensus-alignment', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-testid="consensus-alignment-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
     await page.waitForTimeout(1500);
 
     // Capture each state individually for detailed comparison

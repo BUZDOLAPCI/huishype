@@ -43,8 +43,15 @@ function createWrapper() {
 }
 
 describe('useProperty', () => {
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
   beforeEach(() => {
     jest.clearAllMocks();
+    consoleErrorSpy.mockClear();
+  });
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('fetches property details with an auth header when a token is available', async () => {
@@ -53,6 +60,10 @@ describe('useProperty', () => {
       id: 'property-123',
       nationalId: null,
       countryCode: 'NL',
+      region: 'Noord-Brabant',
+      street: 'Beeldbuisring',
+      houseNumber: 41,
+      houseNumberAddition: null,
       address: 'Beeldbuisring 41',
       city: 'Eindhoven',
       postalCode: '5651HA',
@@ -86,6 +97,7 @@ describe('useProperty', () => {
       headers: {
         Authorization: 'Bearer viewer-token',
       },
+      signal: expect.anything(),
     });
     expect(result.current.data?.isLiked).toBe(true);
   });
@@ -96,6 +108,10 @@ describe('useProperty', () => {
       id: 'property-123',
       nationalId: null,
       countryCode: 'NL',
+      region: 'Noord-Brabant',
+      street: 'Beeldbuisring',
+      houseNumber: 41,
+      houseNumberAddition: null,
       address: 'Beeldbuisring 41',
       city: 'Eindhoven',
       postalCode: '5651HA',
@@ -125,7 +141,63 @@ describe('useProperty', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockApi.get).toHaveBeenCalledWith('/properties/property-123', undefined);
+    expect(mockApi.get).toHaveBeenCalledWith(
+      '/properties/property-123',
+      expect.objectContaining({
+        signal: expect.anything(),
+      }),
+    );
     expect(result.current.data?.isLiked).toBe(false);
+  });
+
+  it('treats an aborted property fetch as a silent cancellation', async () => {
+    mockGetAccessToken.mockResolvedValueOnce('viewer-token');
+
+    let capturedSignal: AbortSignal | undefined;
+    const abortError = Object.assign(new Error('The operation was aborted.'), {
+      name: 'AbortError',
+    });
+
+    mockApi.get.mockImplementationOnce((_endpoint, options) => {
+      capturedSignal = options?.signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            reject(abortError);
+          },
+          { once: true },
+        );
+
+        if (options?.signal?.aborted) {
+          reject(abortError);
+        }
+      });
+    });
+
+    const { unmount } = renderHook(() => useProperty('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith(
+        '/properties/property-123',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer viewer-token',
+          },
+          signal: expect.any(Object),
+        }),
+      );
+    });
+
+    consoleErrorSpy.mockClear();
+    unmount();
+
+    await waitFor(() => {
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

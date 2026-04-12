@@ -8,6 +8,13 @@ appId: nl.huishype.app
 - tapOn:
     id: 'tab-feed'
 
+# Wait until the tab navigator actually marks Feed as selected.
+- extendedWaitUntil:
+    visible:
+      id: 'tab-feed'
+      selected: true
+    timeout: 10000
+
 # Wait for the feed screen to become active.
 # The feed header title is a stronger activation signal than tab internals.
 - extendedWaitUntil:
@@ -34,10 +41,16 @@ appId: nl.huishype.app
     id: 'property-feed-card'
 - waitForAnimationToEnd
 
+# Wait for the property detail route to mount before asserting the hero UI.
+- extendedWaitUntil:
+    visible:
+      id: 'property-back-button'
+    timeout: 15000
+
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'
-    timeout: 10000
+    timeout: 15000
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-card-tap.png
 

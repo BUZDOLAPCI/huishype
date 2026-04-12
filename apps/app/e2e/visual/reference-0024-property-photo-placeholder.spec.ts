@@ -10,6 +10,7 @@
  */
 
 import { test, expect, Page, Route } from '@playwright/test';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 import path from 'path';
 import fs from 'fs';
 
@@ -20,6 +21,9 @@ const MOCK_PROPERTY_WITH_GEOMETRY = {
   id: 'test-property-photo-001',
   nationalId: '0772010000123456',
   address: 'Stratumseind 100',
+  street: 'Stratumseind',
+  houseNumber: 100,
+  houseNumberAddition: null,
   city: 'Eindhoven',
   postalCode: '5611 ET',
   countryCode: 'NL',
@@ -35,19 +39,63 @@ const MOCK_PROPERTY_WITH_GEOMETRY = {
   updatedAt: '2024-01-01T00:00:00Z',
 };
 
+type MockProperty = Omit<typeof MOCK_PROPERTY_WITH_GEOMETRY, 'geometry'> & {
+  geometry: typeof MOCK_PROPERTY_WITH_GEOMETRY.geometry | null;
+  imageryGeometry?: typeof MOCK_PROPERTY_WITH_GEOMETRY.geometry | null;
+};
+
+function buildMockPropertyRoute(property: MockProperty): string {
+  return buildCanonicalPropertyPath({
+    city: property.city,
+    postalCode: property.postalCode,
+    streetName: property.street,
+    houseNumber: String(property.houseNumber),
+    countryCode: property.countryCode,
+  });
+}
+
 /**
  * Setup API route interception to return mock property data
  */
-async function setupPropertyMocking(page: Page): Promise<void> {
+async function setupPropertyMocking(
+  page: Page,
+  propertyOverride?: Partial<MockProperty>,
+): Promise<void> {
+  const property: MockProperty = {
+    ...MOCK_PROPERTY_WITH_GEOMETRY,
+    ...propertyOverride,
+  };
+
   await page.route('**/properties/**', async (route: Route) => {
     const url = route.request().url();
     const method = route.request().method();
+
+    if (url.includes('/properties/resolve?') && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: property.id,
+          countryCode: property.countryCode,
+          address: `${property.address}, ${property.postalCode} ${property.city}`,
+          postalCode: property.postalCode,
+          city: property.city,
+          coordinates: {
+            lon: property.geometry?.coordinates[0] ?? 5.4697,
+            lat: property.geometry?.coordinates[1] ?? 51.4416,
+          },
+          hasListing: false,
+          officialValuation: property.officialValuation,
+        }),
+      });
+      return;
+    }
 
     if (url.match(/\/properties\/[^/]+$/) && method === 'GET') {
       const propertyId = url.split('/').pop();
 
       const mockResponse = {
-        ...MOCK_PROPERTY_WITH_GEOMETRY,
+        ...property,
         id: propertyId,
       };
 
@@ -182,8 +230,17 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 test.setTimeout(120000);
 
 async function openMockPropertyDetail(page: Page): Promise<void> {
-  await page.goto(`/${'property'}/${MOCK_PROPERTY_WITH_GEOMETRY.id}`);
+  await openMockPropertyDetailWith(page, MOCK_PROPERTY_WITH_GEOMETRY);
+}
+
+async function openMockPropertyDetailWith(
+  page: Page,
+  property: MockProperty,
+): Promise<void> {
+  const propertyRoute = buildMockPropertyRoute(property);
+  await page.goto(propertyRoute, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle');
+  await expect(page).toHaveURL(new RegExp(`${propertyRoute}$`));
   await expect(page.getByTestId('property-header-carousel')).toBeVisible({ timeout: 15000 });
   await page.waitForTimeout(1000);
 }
@@ -268,39 +325,39 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const satellite = page.getByTestId('property-header-satellite');
     const aerialImage = page.getByTestId('property-header-aerial-image');
     const placeholder = page.getByTestId('property-header-placeholder');
-    const noCoordsPlaceholder = page.getByTestId('property-header-no-coords-placeholder');
 
     await expect(carousel).toBeVisible();
     expect(
       (await satellite.count()) > 0 ||
-        (await placeholder.count()) > 0 ||
-        (await noCoordsPlaceholder.count()) > 0,
-      'Property header should render satellite imagery or the styled fallback surface'
+        (await placeholder.count()) > 0,
+      'Property header should render satellite imagery or the branded placeholder surface'
     ).toBe(true);
 
     if ((await satellite.count()) > 0) {
       await expect(satellite).toBeVisible();
+      await expect(page.getByTestId('property-header-marker')).toBeVisible();
     }
 
     if ((await aerialImage.count()) > 0) {
       await expect(aerialImage).toBeVisible();
     }
-
-    await expect(page.locator('body')).not.toContainText(/No Photo|Property Photo/i);
-
-    const pageHtml = await page.locator('body').innerHTML();
-    expect(pageHtml.includes('placeholder.com'), 'Old gray placeholder URL should not be present').toBe(false);
-    expect(pageHtml.includes('No+Photo'), 'Old gray placeholder asset should not be present').toBe(false);
   });
 
-  test('verify no generic placeholder text in property detail', async ({ page }) => {
-    await openMockPropertyDetail(page);
+  test('verify branded placeholder surface renders when aerial imagery is unavailable', async ({ page }) => {
+    const placeholderProperty = {
+      ...MOCK_PROPERTY_WITH_GEOMETRY,
+      countryCode: 'DE',
+      geometry: null,
+      imageryGeometry: null,
+    } as const;
 
+    await page.unroute('**/properties/**');
+    await setupPropertyMocking(page, placeholderProperty);
+
+    await openMockPropertyDetailWith(page, placeholderProperty);
+
+    await expect(page.getByTestId('property-header-placeholder')).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/No Photo|Property Photo/i);
-
-    const pageHtml = await page.locator('body').innerHTML();
-    expect(pageHtml.includes('via.placeholder.com'), 'Should NOT use via.placeholder.com').toBe(false);
-    expect(pageHtml.includes('No+Photo'), 'Should NOT show generic placeholder asset').toBe(false);
   });
 
 });

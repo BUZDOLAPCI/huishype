@@ -4,6 +4,9 @@ export interface GroupPreviewProperty {
   city: string;
   postalCode?: string | null;
   countryCode?: string;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
   officialValuation?: number | null;
   askingPrice?: number | null;
   fmv?: number | null;
@@ -19,6 +22,8 @@ export interface GroupPreviewProperty {
   commentCount?: number;
   /** Guess count for stat pills. */
   guessCount?: number;
+  /** View count when preview data is already hydrated enough to render detail sections. */
+  viewCount?: number;
 }
 
 export interface GroupPreviewCardProps {

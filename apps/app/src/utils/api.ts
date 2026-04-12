@@ -54,13 +54,20 @@ const getApiUrl = (): string => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL || '';
   const configUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
   const url = envUrl || configUrl || '';
+  const isRelativeWebUrl = url.startsWith('/');
 
   // Determine which port to use: prefer the port from the configured URL,
   // fall back to the default only when no URL is configured.
   const port = (url && extractPort(url)) || DEFAULT_API_PORT;
 
+  if (isRelativeWebUrl) {
+    if (Platform.OS === 'web') {
+      return url;
+    }
+  }
+
   // If explicitly configured to a non-loopback address, use it directly
-  if (url && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+  if (url && !isRelativeWebUrl && !url.includes('localhost') && !url.includes('127.0.0.1')) {
     return url;
   }
 
@@ -146,6 +153,17 @@ export async function apiFetch<T>(
 export type PropertyResolveResult = PropertyResolveResponse & {
   countryCode?: string | null;
 };
+
+export interface PropertyAreaResolveResult {
+  city: string;
+  postalCode: string | null;
+  countryCode: string;
+  center: {
+    lon: number;
+    lat: number;
+  };
+  propertyCount: number;
+}
 
 export interface PropertyResolveRequest {
   postalCode: string;
@@ -285,6 +303,37 @@ export async function resolveProperty(
   }
 }
 
+export interface PropertyAreaResolveRequest {
+  city: string;
+  postalCode?: string | null;
+  countryCode?: string | null;
+}
+
+export async function resolvePropertyArea(
+  request: PropertyAreaResolveRequest,
+): Promise<PropertyAreaResolveResult | null> {
+  try {
+    const params = new URLSearchParams({
+      city: request.city,
+      countryCode: request.countryCode ?? 'NL',
+    });
+
+    if (request.postalCode) {
+      params.set('postalCode', request.postalCode);
+    }
+
+    return await apiFetch<PropertyAreaResolveResult | null>(
+      `/properties/area-resolve?${params.toString()}`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return null;
+    }
+    console.warn('[HuisHype] resolvePropertyArea failed:', err);
+    return null;
+  }
+}
+
 // --- Cluster-aware nearby lookup (imperative, not a hook) ---
 
 /** Density-aware grouped result from GET /properties/nearby */
@@ -304,6 +353,9 @@ export interface NearbyGroupedResult {
   commentCount: number;
   guessCount: number;
   hasListing: boolean;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;
@@ -382,6 +434,9 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     likeCount: result.likeCount,
     commentCount: result.commentCount,
     guessCount: result.guessCount,
+    streetName: result.streetName,
+    houseNumber: result.houseNumber,
+    houseNumberAddition: result.houseNumberAddition,
     address: result.address,
     city: result.city,
     postalCode: result.postalCode,
@@ -453,6 +508,9 @@ export function normalizeRenderedPropertyGroup(
     likeCount: toNumber(properties.likeCount),
     commentCount: toNumber(properties.commentCount),
     guessCount: toNumber(properties.guessCount),
+    streetName: toNullableString(properties.streetName),
+    houseNumber: toNullableNumber(properties.houseNumber),
+    houseNumberAddition: toNullableString(properties.houseNumberAddition),
     address: toNullableString(properties.address),
     city: toNullableString(properties.city),
     postalCode: toNullableString(properties.postalCode),

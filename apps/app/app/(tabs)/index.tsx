@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import {
   Map,
   Camera,
@@ -12,6 +13,9 @@ import {
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { CommentsRouteScreen } from '../comments/[propertyId]';
+import { GuessesRouteScreen } from '../guesses/[propertyId]';
+import { PropertyDetailRouteScreen } from '../property/[id]';
 
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
@@ -29,12 +33,21 @@ import { API_URL } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
+import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
-import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+import {
+  buildPropertyMapRoute,
+  buildPropertyRoute,
+  isStaticAppRoutePath,
+} from '@/src/utils/property-route';
+import {
+  PROPERTY_GHOST_REVEAL_ZOOM,
+  QUERYABLE_PROPERTY_LAYER_IDS,
+} from '@huishype/shared/config';
 
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
@@ -118,8 +131,16 @@ function useMergedMapStyle(): Record<string, unknown> | null {
 
 // Property layer IDs to query for features (matching server's /tiles/style.json)
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
+const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 
-export default function MapScreen() {
+export interface MapScreenProps {
+  pathnameOverride?: string | null;
+}
+
+export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  const { returnTo } = useLocalSearchParams<{
+    returnTo?: string | string[];
+  }>();
   const [hasLayout, setHasLayout] = useState(false);
   // Merged style as JS object (base map + property vector tiles)
   const mergedStyle = useMergedMapStyle();
@@ -140,6 +161,10 @@ export default function MapScreen() {
     resetTransientUI,
   } = interaction;
   const [searchResetToken, setSearchResetToken] = useState(0);
+  const routeState = useResolvedMapRoute(pathnameOverride);
+  const isStaticAppRoute = isStaticAppRoutePath(routeState.pathname);
+  const shouldManageMapRoute = !isStaticAppRoute;
+  const appliedRoutePathRef = useRef<string | null>(null);
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -153,21 +178,15 @@ export default function MapScreen() {
     }, [resetTransientUI])
   );
 
-  // Trigger initial reverse geocode for the default center
-  useEffect(() => {
-    onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Timeout fallback: dismiss loading overlay after 10s even if onDidFinishLoadingMap doesn't fire
   useEffect(() => {
-    if (mapLoaded) return;
+    if (routeState.isLoading || mapLoaded) return;
     const timeout = setTimeout(() => {
       console.warn('Map loading timeout - dismissing overlay');
       setMapLoaded(true);
     }, 10000);
     return () => clearTimeout(timeout);
-  }, [mapLoaded]);
+  }, [mapLoaded, routeState.isLoading]);
 
   // Touch guard: when preview card is touched, suppress handleMapPress so the
   // tap doesn't fall through to the map's onPress handler.
@@ -313,6 +332,131 @@ export default function MapScreen() {
     [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
 
+  const initialViewState = useMemo(() => {
+    const resolvedRoute = routeState.resolvedRoute;
+    if (!resolvedRoute || resolvedRoute.kind === 'invalid' || resolvedRoute.kind === 'root') {
+      return {
+        center: DEFAULT_CENTER,
+        zoom: DEFAULT_ZOOM,
+        pitch: getPitchForZoom(DEFAULT_ZOOM),
+      };
+    }
+
+    if (resolvedRoute.kind === 'camera') {
+      return {
+        center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat] as [number, number],
+        zoom: resolvedRoute.camera.zoom,
+        pitch: getPitchForZoom(resolvedRoute.camera.zoom),
+      };
+    }
+
+    if (resolvedRoute.kind === 'city' || resolvedRoute.kind === 'postcode') {
+      return {
+        center: resolvedRoute.center,
+        zoom: resolvedRoute.zoom,
+        pitch: getPitchForZoom(resolvedRoute.zoom),
+      };
+    }
+
+    if ('property' in resolvedRoute) {
+      return {
+        center: [
+          resolvedRoute.property.coordinates.lon,
+          resolvedRoute.property.coordinates.lat,
+        ] as [number, number],
+        zoom: SEARCH_TARGET_ZOOM,
+        pitch: getPitchForZoom(SEARCH_TARGET_ZOOM),
+      };
+    }
+
+    return {
+      center: DEFAULT_CENTER,
+      zoom: DEFAULT_ZOOM,
+      pitch: getPitchForZoom(DEFAULT_ZOOM),
+    };
+  }, [routeState.resolvedRoute]);
+
+  useEffect(() => {
+    if (!shouldManageMapRoute) {
+      return;
+    }
+
+    if (!routeState.resolvedRoute) {
+      return;
+    }
+
+    if (routeState.resolvedRoute.kind === 'invalid') {
+      router.replace('/' as Href);
+      return;
+    }
+
+    if (
+      routeState.resolvedRoute.canonicalPath !== routeState.pathname &&
+      routeState.resolvedRoute.kind !== 'root' &&
+      routeState.resolvedRoute.kind !== 'camera'
+    ) {
+      router.replace(routeState.resolvedRoute.canonicalPath as Href);
+      return;
+    }
+
+    if (!mapRef.current || !mapLoaded || routeState.isLoading) {
+      return;
+    }
+
+    if (appliedRoutePathRef.current === routeState.pathname) {
+      return;
+    }
+
+    if (routeState.resolvedRoute.kind === 'root') {
+      onViewportCenterChanged(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
+    } else if (routeState.resolvedRoute.kind === 'camera') {
+      const { camera } = routeState.resolvedRoute;
+      cameraCommands.flyTo({
+        center: [camera.lng, camera.lat],
+        zoom: camera.zoom,
+        duration: 0,
+      });
+      onViewportCenterChanged(camera.lng, camera.lat, camera.zoom);
+    } else if (
+      routeState.resolvedRoute.kind === 'city' ||
+      routeState.resolvedRoute.kind === 'postcode'
+    ) {
+      cameraCommands.flyTo({
+        center: routeState.resolvedRoute.center,
+        zoom: routeState.resolvedRoute.zoom,
+        duration: 0,
+      });
+      setSearchCity(routeState.resolvedRoute.cityName, routeState.resolvedRoute.center);
+      onViewportCenterChanged(
+        routeState.resolvedRoute.center[0],
+        routeState.resolvedRoute.center[1],
+        routeState.resolvedRoute.zoom,
+      );
+    } else if (routeState.resolvedRoute.kind === 'preview') {
+      handleMapPropertyResolved(
+        routeState.resolvedRoute.property,
+        cameraCommands,
+        routeState.resolvedRoute.resolvedAddress,
+      );
+      setSearchCity(routeState.resolvedRoute.property.city, [
+        routeState.resolvedRoute.property.coordinates.lon,
+        routeState.resolvedRoute.property.coordinates.lat,
+      ]);
+    }
+
+    appliedRoutePathRef.current = routeState.pathname;
+  }, [
+    shouldManageMapRoute,
+    cameraCommands,
+    handleMapPropertyResolved,
+    mapLoaded,
+    onViewportCenterChanged,
+    routeState.isLoading,
+    routeState.pathname,
+    routeState.resolvedRoute,
+    setSearchCity,
+  ]);
+
   // Zoom control handlers
   const handleZoomIn = useCallback(async () => {
     const newZoom = Math.min(currentZoom + 1, 20);
@@ -369,6 +513,39 @@ export default function MapScreen() {
     setTimeout(() => setCopiedFlash(false), 1500);
   }, [currentZoom]);
 
+  if (shouldManageMapRoute && routeState.resolvedRoute?.kind === 'property') {
+    return (
+      <PropertyDetailRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyMapRoute(routeState.resolvedRoute.routeInput)}
+      />
+    );
+  }
+
+  if (shouldManageMapRoute && routeState.resolvedRoute?.kind === 'comments') {
+    return (
+      <CommentsRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyRoute(
+          routeState.resolvedRoute.routeInput,
+          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
+        )}
+      />
+    );
+  }
+
+  if (shouldManageMapRoute && routeState.resolvedRoute?.kind === 'guesses') {
+    return (
+      <GuessesRouteScreen
+        propertyId={routeState.resolvedRoute.property.id}
+        returnTo={returnTo ?? buildPropertyRoute(
+          routeState.resolvedRoute.routeInput,
+          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
+        )}
+      />
+    );
+  }
+
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
       {/* Map View */}
@@ -377,7 +554,7 @@ export default function MapScreen() {
         mapViewportSizeRef.current = { width, height };
         if (!hasLayout) setHasLayout(true);
       }}>
-        {hasLayout && mergedStyle && (
+        {hasLayout && mergedStyle && (!shouldManageMapRoute || !routeState.isLoading) && (
         <Map
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
@@ -398,11 +575,7 @@ export default function MapScreen() {
         >
           <Camera
             ref={cameraRef}
-            initialViewState={{
-              center: DEFAULT_CENTER,
-              zoom: DEFAULT_ZOOM,
-              pitch: getPitchForZoom(DEFAULT_ZOOM),
-            }}
+            initialViewState={initialViewState}
           />
 
           {showUserLocation && <UserLocation heading />}
@@ -480,13 +653,15 @@ export default function MapScreen() {
         </View>
 
         {/* Map Loading Indicator */}
-        {!mapLoaded && (
+        {((shouldManageMapRoute && routeState.isLoading) || !mapLoaded) && (
           <View
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gray100 }}
             testID="map-loading-indicator"
           >
             <ActivityIndicator size="large" color={COLORS.blue500} />
-            <Text style={{ color: COLORS.gray600, marginTop: 12, fontSize: 16 }}>Loading map...</Text>
+            <Text style={{ color: COLORS.gray600, marginTop: 12, fontSize: 16 }}>
+              {shouldManageMapRoute && routeState.isLoading ? 'Resolving map route...' : 'Loading map...'}
+            </Text>
           </View>
         )}
 

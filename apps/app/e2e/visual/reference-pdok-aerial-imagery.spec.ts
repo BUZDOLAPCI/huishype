@@ -10,7 +10,7 @@
  * Screenshot saved to: test-results/reference-expectations/pdok-aerial-imagery/
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
@@ -21,18 +21,41 @@ test.use({ trace: 'off', video: 'off' });
 const EXPECTATION_NAME = 'pdok-aerial-imagery';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Test coordinates - Tegenbosch 16, Eindhoven from BAG / Woningstats
-const TEGENBOSCH_COORDS = {
-  lat: 51.4613225767584,
-  lon: 5.41869962895219,
-  // Expected RD coordinates: X: 157189.018, Y: 385806.139
-};
+async function getAerialImageSrc(page: Page, testId: string) {
+  const image = page.locator(`[data-testid="${testId}-image"]`);
+  const directSrc = await image.getAttribute('src').catch(() => null);
+  if (directSrc) {
+    return directSrc;
+  }
 
-// Secondary test coordinates - Dom Tower, Utrecht (well-known landmark)
-const DOM_TOWER_COORDS = {
-  lat: 52.0907,
-  lon: 5.1214,
-};
+  const card = page.locator(`[data-testid="${testId}"]`);
+  const fallbackSrc = await card.locator('img').first().getAttribute('src').catch(() => null);
+  if (fallbackSrc) {
+    return fallbackSrc;
+  }
+
+  return await page.evaluate((cardTestId) => {
+    const card = document.querySelector(`[data-testid="${cardTestId}"]`);
+    if (!card) return null;
+
+    const img = card.querySelector('img');
+    if (img?.src) {
+      return img.src;
+    }
+
+    const allElements = Array.from(card.querySelectorAll('*'));
+    for (const el of allElements) {
+      const style = window.getComputedStyle(el);
+      const bgImg = style.backgroundImage;
+      if (bgImg && bgImg.includes('pdok')) {
+        const match = bgImg.match(/url\(["']?([^"')]+)["']?\)/);
+        return match ? match[1] : null;
+      }
+    }
+
+    return null;
+  }, testId);
+}
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -110,9 +133,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Manually construct the URL using the same logic as the utility
     // This is to test the URL format independently of the React app
     // Using Tegenbosch 16, Eindhoven - BAG / Woningstats reference location
-    const lat = TEGENBOSCH_COORDS.lat;
-    const lon = TEGENBOSCH_COORDS.lon;
-
     // RD New coordinates from BAG / Woningstats
     const rdX = 157189.018;
     const rdY = 385806.139;
@@ -159,25 +179,19 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('capture aerial imagery showcase for visual comparison', async ({ page }) => {
     // Navigate to the showcase page
-    await page.goto('/showcase/pdok-aerial-imagery');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/showcase/pdok-aerial-imagery', { waitUntil: 'domcontentloaded' });
 
     // Wait for the showcase page to render
-    await page.waitForSelector('[data-testid="pdok-aerial-imagery-showcase"]', { timeout: 30000 });
-
-    // Wait for aerial images to load
-    await page.waitForFunction(
-      () => {
-        const images = document.querySelectorAll('img');
-        if (images.length === 0) return false;
-        return Array.from(images).some(img => img.complete && img.naturalHeight > 0);
-      },
-      { timeout: 30000, polling: 500 }
-    ).catch(() => {});
+    await expect(page.locator('[data-testid="pdok-aerial-imagery-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
 
     // Verify aerial image components are present - focus on Tegenbosch (reference expectation)
     const tegenboschCard = page.locator('[data-testid="aerial-tegenbosch"]');
     await expect(tegenboschCard).toBeVisible();
+    await expect
+      .poll(() => getAerialImageSrc(page, 'aerial-tegenbosch'), { timeout: 30000 })
+      .toContain('service.pdok.nl');
 
     // Verify marker is visible on the Tegenbosch card
     const marker = page.locator('[data-testid="aerial-tegenbosch-marker"]');
@@ -187,66 +201,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const addressBar = page.locator('[data-testid="aerial-tegenbosch-address"]');
     await expect(addressBar).toBeVisible();
 
-    // Wait for all images to finish loading
-    await page.waitForFunction(() => {
-      const images = document.querySelectorAll('img');
-      return Array.from(images).every((img) => img.complete && img.naturalHeight > 0);
-    }, { timeout: 15000 }).catch(() => {
-      console.log('Some images may not have fully loaded');
+    await tegenboschCard.scrollIntoViewIfNeeded();
+    await tegenboschCard.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
     });
-
-    // Additional wait for smooth rendering
-    await page.waitForTimeout(2000);
-
-    // Get bounding boxes to calculate proper screenshot region
-    const cardBoundingBox = await tegenboschCard.boundingBox();
-    const addressBoundingBox = await addressBar.boundingBox();
-
-    // Take screenshot of the full Tegenbosch card (includes image + address bar)
-    // Resize viewport to fit the entire card, then take screenshot
-    if (cardBoundingBox && addressBoundingBox) {
-      const bottom = addressBoundingBox.y + addressBoundingBox.height;
-      const requiredHeight = bottom + 50; // Add some padding
-
-      // Temporarily increase viewport height to capture the full card
-      await page.setViewportSize({ width: 1280, height: requiredHeight });
-      await page.waitForTimeout(500);
-
-      // Re-scroll to ensure card is properly positioned
-      await page.evaluate(() => {
-        const card = document.querySelector('[data-testid="aerial-tegenbosch"]');
-        if (card) {
-          card.scrollIntoView({ block: 'start', behavior: 'instant' });
-        }
-      });
-      await page.waitForTimeout(300);
-
-      // Get updated bounding boxes after viewport resize
-      const updatedCardBox = await tegenboschCard.boundingBox();
-      const updatedAddrBox = await addressBar.boundingBox();
-
-      if (updatedCardBox && updatedAddrBox) {
-        const top = updatedCardBox.y;
-        const actualBottom = updatedAddrBox.y + updatedAddrBox.height;
-
-        await page.screenshot({
-          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-          clip: {
-            x: updatedCardBox.x,
-            y: top,
-            width: updatedCardBox.width,
-            height: actualBottom - top,
-          },
-        });
-      }
-
-      // Reset viewport to original size
-      await page.setViewportSize({ width: 1280, height: 720 });
-    } else {
-      await tegenboschCard.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-      });
-    }
 
     console.log(`Screenshot saved to: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
 
@@ -257,9 +215,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('verify aerial image cards render correctly', async ({ page }) => {
     // Navigate to the showcase page
-    await page.goto('/showcase/pdok-aerial-imagery');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
+    await page.goto('/showcase/pdok-aerial-imagery', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-testid="pdok-aerial-imagery-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
 
     // Check that all three test location cards are rendered
     const locations = ['aerial-tegenbosch', 'aerial-dom-tower', 'aerial-deflectiespoelstraat'];
@@ -269,38 +228,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const isVisible = await card.isVisible().catch(() => false);
       console.log(`${location} visible: ${isVisible}`);
       expect(isVisible, `Card ${location} should be visible`).toBe(true);
+
+      const image = page.locator(`[data-testid="${location}-image"]`);
+      await expect(image, `${location} should render its aerial image`).toBeVisible();
     }
 
-    // Verify the images have loaded - find img elements within the card
-    // React Native Web renders Image as nested divs with backgroundImage or img
-    // Focus on Tegenbosch as it's the primary reference expectation
-    const tegenboschCard = page.locator('[data-testid="aerial-tegenbosch"]');
-
-    // Try to find image via img tag inside the card
-    let src = await tegenboschCard.locator('img').first().getAttribute('src').catch(() => null);
-
-    // If no src attribute, try to get background-image from style
-    if (!src) {
-      const bgImage = await page.evaluate(() => {
-        const card = document.querySelector('[data-testid="aerial-tegenbosch"]');
-        if (!card) return null;
-        // Find any element with background-image containing pdok
-        const allElements = Array.from(card.querySelectorAll('*'));
-        for (const el of allElements) {
-          const style = window.getComputedStyle(el);
-          const bgImg = style.backgroundImage;
-          if (bgImg && bgImg.includes('pdok')) {
-            // Extract URL from background-image: url("...")
-            const match = bgImg.match(/url\(["']?([^"')]+)["']?\)/);
-            return match ? match[1] : null;
-          }
-        }
-        // Also check for img src
-        const img = card.querySelector('img');
-        return img?.src || null;
-      });
-      src = bgImage;
-    }
+    const src = await getAerialImageSrc(page, 'aerial-tegenbosch');
 
     console.log(`Image source: ${src?.substring(0, 100)}...`);
 
@@ -318,36 +251,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test('verify URL utility generates correct format', async ({ page }) => {
     // Navigate to the showcase page which imports and uses the utility
-    await page.goto('/showcase/pdok-aerial-imagery');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
-
-    // Extract the generated URL from an image element
-    // React Native Web might render Image differently
-    // Focus on Tegenbosch as it's the primary reference expectation
-    const tegenboschCard = page.locator('[data-testid="aerial-tegenbosch"]');
-
-    // Try to find image URL via img tag or background-image
-    let src = await tegenboschCard.locator('img').first().getAttribute('src').catch(() => null);
-
-    if (!src) {
-      src = await page.evaluate(() => {
-        const card = document.querySelector('[data-testid="aerial-tegenbosch"]');
-        if (!card) return null;
-        // Find any element with background-image containing pdok
-        const allElements = Array.from(card.querySelectorAll('*'));
-        for (const el of allElements) {
-          const style = window.getComputedStyle(el);
-          const bgImg = style.backgroundImage;
-          if (bgImg && bgImg.includes('pdok')) {
-            const match = bgImg.match(/url\(["']?([^"')]+)["']?\)/);
-            return match ? match[1] : null;
-          }
-        }
-        const img = card.querySelector('img');
-        return img?.src || null;
-      });
-    }
+    await page.goto('/showcase/pdok-aerial-imagery', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-testid="pdok-aerial-imagery-showcase"]')).toBeVisible({
+      timeout: 30000,
+    });
+    const src = await getAerialImageSrc(page, 'aerial-tegenbosch');
 
     console.log(`Found image src: ${src?.substring(0, 100)}...`);
 
@@ -375,7 +283,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(bboxParts.length).toBe(4);
 
     // All BBOX coordinates should be valid numbers (in RD New format ~100000-300000 range)
-    bboxParts.forEach((coord, index) => {
+    bboxParts.forEach((coord, _index) => {
       const num = parseFloat(coord);
       expect(isNaN(num)).toBe(false);
       // RD coordinates for Netherlands are typically in range 0-300000

@@ -7,8 +7,9 @@
  * - Unauthenticated users get 401 on protected routes
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
+import { waitForMapReady } from '../integration/helpers';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 const SCREENSHOT_DIR = 'test-results/flows';
@@ -176,24 +177,13 @@ test.describe('Auth Flow', () => {
     await page.goto('/auth/callback?emailToken=deadbeef00000000000000000000000000000000000000000000000000000000');
     await page.waitForLoadState('domcontentloaded');
 
-    // The callback component should initially show a loading/verifying state,
-    // then transition to an error state once the API rejects the token.
-    // Wait for the error message or "Go to home screen" link to appear.
-    const errorOrHome = page.locator('text=/Invalid or expired|Go to home screen/');
-    await expect(errorOrHome.first()).toBeVisible({ timeout: 30000 });
-    allowedUnauthorizedConsoleErrors = 0;
-
-    // Verify the "Go to home screen" navigation link is present
-    const homeLink = page.locator('text=Go to home screen');
-    await expect(homeLink).toBeVisible({ timeout: 10000 });
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-magic-link-invalid-token.png` });
-
-    // Click "Go to home screen" and verify navigation away from callback
-    await homeLink.click();
     await page.waitForURL((url) => !url.pathname.includes('/auth/callback'), {
       timeout: 30000,
     });
+    await waitForMapReady(page);
+    allowedUnauthorizedConsoleErrors = 0;
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-magic-link-invalid-token.png` });
   });
 
   test('Auth API: logout returns 204', async ({ request }) => {

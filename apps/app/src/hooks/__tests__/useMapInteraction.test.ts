@@ -492,6 +492,30 @@ describe('useMapInteraction', () => {
       // After changing index, selected should sync to prop-2
       expect(result.current.selectedPropertyId).toBe('prop-2');
     });
+
+    it('hydrates the selected preview when price metadata is missing', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: 'A',
+            city: 'A',
+            commentCount: 1,
+            guessCount: 2,
+            viewCount: 0,
+            activityLevel: 'warm',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      expect(result.current.selectedPropertyId).toBe('prop-1');
+      expect(mockUseProperty).toHaveBeenLastCalledWith('prop-1');
+    });
   });
 
   describe('empty map tap (dismissal rules)', () => {
@@ -565,6 +589,9 @@ describe('useMapInteraction', () => {
           point_count: 1,
           property_ids: 'prop-1',
           preview_property_ids: 'prop-1',
+          streetName: 'Main St',
+          houseNumber: 123,
+          houseNumberAddition: null,
           address: '123 Main St',
           city: 'Amsterdam',
           activityScore: 25,
@@ -592,6 +619,11 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
+      expect(result.current.previewGroup!.properties[0]).toMatchObject({
+        streetName: 'Main St',
+        houseNumber: 123,
+        houseNumberAddition: null,
+      });
     });
 
     it('returns false for empty features array', async () => {
@@ -699,6 +731,9 @@ describe('useMapInteraction', () => {
         previewPropertyIds: ['prop-1'],
         coordinate: [4.9, 52.37],
         bbox: null,
+        streetName: 'Main St',
+        houseNumber: 123,
+        houseNumberAddition: null,
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
@@ -785,6 +820,9 @@ describe('useMapInteraction', () => {
         likeCount: 0,
         commentCount: 0,
         guessCount: 0,
+        streetName: null,
+        houseNumber: null,
+        houseNumberAddition: null,
         address: null,
         city: null,
         postalCode: null,
@@ -930,6 +968,57 @@ describe('useMapInteraction', () => {
       );
     });
 
+    it('handlePropertyResolved can activate preview immediately when delay is zero', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+      const property = {
+        id: 'prop-1',
+        address: '123 Main St',
+        city: 'Amsterdam',
+        postalCode: '1012AB',
+        countryCode: 'NL',
+        officialValuation: 250000,
+        hasListing: true,
+        coordinates: { lon: 4.9, lat: 52.37 },
+      };
+      const resolvedAddress = {
+        bagId: 'addr-1',
+        formattedAddress: '123 Main St, 1012AB Amsterdam',
+        lat: 52.37,
+        lon: 4.9,
+        details: {
+          city: 'Amsterdam',
+          zip: '1012AB',
+          street: 'Main St',
+          number: '123',
+          houseNumber: '123',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      };
+
+      act(() => {
+        result.current.handlePropertyResolved(property, camera, resolvedAddress, 0);
+      });
+
+      expect(result.current.selectedPropertyId).toBe('prop-1');
+      expect(result.current.previewGroup).not.toBeNull();
+      expect(result.current.selectedPropertyForSheet).toMatchObject({
+        id: 'prop-1',
+        address: '123 Main St',
+        city: 'Amsterdam',
+        postalCode: '1012AB',
+      });
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'prop-1',
+        city: 'Amsterdam',
+        postalCode: '1012AB',
+      });
+    });
+
     it('handleLocationResolved flies to coordinate without setting preview', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
@@ -956,30 +1045,73 @@ describe('useMapInteraction', () => {
   });
 
   describe('quick-action navigation handlers', () => {
-    it('handleGuessPress navigates to /guesses/:propertyId', () => {
+    it('handleGuessPress navigates to the canonical guesses route when route data is available', () => {
       const { router } = require('expo-router');
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-123',
+            address: 'Deflectiespoelstraat 16 A',
+            city: 'Eindhoven',
+            postalCode: '5651HP',
+            countryCode: 'NL',
+          }],
+          coordinate: [5.45, 51.43],
+        });
       });
 
       act(() => {
         result.current.handleGuessPress('prop-123');
       });
 
-      expect(router.push).toHaveBeenCalledWith('/guesses/prop-123');
+      expect(router.push).toHaveBeenCalledWith(
+        '/eindhoven/5651hp/deflectiespoelstraat/16-a/guesses',
+      );
     });
 
-    it('handleCommentPress navigates to /comments/:propertyId', () => {
+    it('handleCommentPress navigates to the canonical comments route when route data is available', () => {
       const { router } = require('expo-router');
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
 
       act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-456',
+            address: 'Deflectiespoelstraat 16 A',
+            city: 'Eindhoven',
+            postalCode: '5651HP',
+            countryCode: 'NL',
+          }],
+          coordinate: [5.45, 51.43],
+        });
+      });
+
+      act(() => {
         result.current.handleCommentPress('prop-456');
       });
 
-      expect(router.push).toHaveBeenCalledWith('/comments/prop-456');
+      expect(router.push).toHaveBeenCalledWith(
+        '/eindhoven/5651hp/deflectiespoelstraat/16-a/comments',
+      );
+    });
+
+    it('does not navigate when canonical route data is unavailable', () => {
+      const { router } = require('expo-router');
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleCommentPress('prop-789');
+      });
+
+      expect(router.push).not.toHaveBeenCalled();
     });
   });
 

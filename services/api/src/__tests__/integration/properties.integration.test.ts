@@ -81,6 +81,78 @@ describe('Property routes', () => {
       }
     });
 
+    it('should filter by postalCode together with city', async () => {
+      const seedResponse = await app.inject({
+        method: 'GET',
+        url: '/properties?city=Eindhoven&limit=1',
+      });
+
+      expect(seedResponse.statusCode).toBe(200);
+      const seedBody = JSON.parse(seedResponse.body);
+      expect(seedBody.data.length).toBeGreaterThan(0);
+
+      const seededProperty = seedBody.data[0];
+      expect(seededProperty.postalCode).toBeTruthy();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties?city=${encodeURIComponent(seededProperty.city)}&postalCode=${encodeURIComponent(seededProperty.postalCode)}&limit=20`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.data.length).toBeGreaterThan(0);
+
+      for (const prop of body.data) {
+        expect(prop.city).toBe(seededProperty.city);
+        expect(prop.postalCode).toBe(seededProperty.postalCode);
+      }
+    });
+
+    it('should normalize postalCode according to the property country', async () => {
+      const propertyId = crypto.randomUUID();
+      const uniqueCity = `Postal Filter City ${Date.now()}`;
+      const uniqueStreet = `Postal Filter Street ${Date.now()}`;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status
+        )
+        VALUES (
+          ${propertyId},
+          'GB',
+          ${uniqueStreet},
+          10,
+          ${uniqueCity},
+          'SW1A1AA',
+          'active'
+        )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties?city=${encodeURIComponent(uniqueCity)}&postalCode=sw1a%201aa&limit=20`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data).toHaveLength(1);
+        expect(body.data[0].id).toBe(propertyId);
+        expect(body.data[0].city).toBe(uniqueCity);
+        expect(body.data[0].postalCode).toBe('SW1A1AA');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+
     it('should respect limit parameter', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -348,6 +420,9 @@ describe('Property routes', () => {
       expect(body).toHaveProperty('distanceMeters');
       expect(body).toHaveProperty('hasListing');
       expect(body).toHaveProperty('activityScore');
+      expect(body).toHaveProperty('streetName');
+      expect(body).toHaveProperty('houseNumber');
+      expect(body).toHaveProperty('houseNumberAddition');
     });
 
     it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
@@ -430,6 +505,18 @@ describe('Property routes', () => {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
+    });
+  });
+
+  describe('GET /properties/area-resolve', () => {
+    it('returns null for unresolved city/postcode lookups instead of a 404', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/area-resolve?city=Definitely%20Not%20A%20Real%20Place&postalCode=0000ZZ&countryCode=NL',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('null');
     });
   });
 

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
-import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useState, useCallback, useRef } from 'react';
+import { ScrollView, View, TouchableOpacity, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
+import { Redirect, Stack, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEffect } from 'react';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -13,7 +14,14 @@ import {
   resolveAuthModalCopy,
   type AuthModalCopyInput,
 } from '@/src/lib/authModalCopy';
-import { normalizePropertyReturnTarget } from '@/src/utils/property-route';
+import {
+  buildPropertyMapRoute,
+  buildPropertyCommentsRoute,
+  buildPropertyGuessesRoute,
+  buildPropertyRoute,
+  normalizePropertyReturnTarget,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 
 function PropertyDetailSkeleton() {
   return (
@@ -32,21 +40,31 @@ function PropertyNotFound({ onGoBack }: { onGoBack: () => void }) {
       <Text style={styles.notFoundMessage}>
         The property you're looking for doesn't exist or has been removed.
       </Text>
-      <Pressable
+      <TouchableOpacity
         onPress={onGoBack}
         style={styles.goBackButton}
       >
         <Text style={styles.goBackText}>Go Back</Text>
-      </Pressable>
+      </TouchableOpacity>
     </View>
   );
 }
 
-export default function PropertyDetailScreen() {
-  const { id, returnTo } = useLocalSearchParams<{ id: string; returnTo?: string | string[] }>();
+export interface PropertyDetailRouteScreenProps {
+  propertyId?: string | null;
+  returnTo?: string | string[] | null;
+  onNavigate?: (path: string) => void;
+}
+
+export function PropertyDetailRouteScreen({
+  propertyId,
+  returnTo,
+  onNavigate,
+}: PropertyDetailRouteScreenProps) {
   const insets = useSafeAreaInsets();
-  const { data: property, isLoading, error } = useProperty(id ?? null);
+  const { data: property, isLoading, error } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const lastBackAtRef = useRef(0);
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -58,21 +76,87 @@ export default function PropertyDetailScreen() {
 
   // Navigation handlers for sub-routes
   const handleViewAllComments = useCallback((propertyId: string) => {
-    router.push(`/comments/${propertyId}`);
-  }, []);
-
-  const handleViewAllGuesses = useCallback((propertyId: string) => {
-    router.push(`/guesses/${propertyId}`);
-  }, []);
-
-  const handleBack = useCallback(() => {
-    if (normalizedReturnTarget) {
-      router.replace(normalizedReturnTarget);
+    if (!property || property.id !== propertyId) {
       return;
     }
 
-    router.back();
-  }, [normalizedReturnTarget]);
+    router.push(
+      toInternalAppHref(buildPropertyCommentsRoute(
+        property,
+        buildPropertyRoute(property, normalizedReturnTarget),
+      )),
+    );
+  }, [normalizedReturnTarget, property]);
+
+  const handleViewAllGuesses = useCallback((propertyId: string) => {
+    if (!property || property.id !== propertyId) {
+      return;
+    }
+
+    router.push(
+      toInternalAppHref(buildPropertyGuessesRoute(
+        property,
+        buildPropertyRoute(property, normalizedReturnTarget),
+      )),
+    );
+  }, [normalizedReturnTarget, property]);
+
+  const handleBack = useCallback(() => {
+    if (normalizedReturnTarget) {
+      if (onNavigate) {
+        onNavigate(normalizedReturnTarget);
+        return;
+      }
+
+      const href = toInternalAppHref(normalizedReturnTarget);
+      if (Platform.OS === 'web') {
+        router.navigate(href);
+        return;
+      }
+
+      router.dismissTo(href);
+      return;
+    }
+
+    if (property) {
+      const previewRoute = buildPropertyMapRoute(property);
+      if (onNavigate) {
+        onNavigate(previewRoute);
+        return;
+      }
+
+      const href = toInternalAppHref(previewRoute);
+      if (Platform.OS === 'web') {
+        router.navigate(href);
+        return;
+      }
+
+      router.dismissTo(href);
+      return;
+    }
+
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.navigate('/');
+  }, [normalizedReturnTarget, onNavigate, property]);
+
+  const triggerBack = useCallback(() => {
+    const now = Date.now();
+    if (now - lastBackAtRef.current < 250) {
+      return;
+    }
+
+    lastBackAtRef.current = now;
+    handleBack();
+  }, [handleBack]);
 
   useFocusEffect(
     useCallback(() => {
@@ -99,9 +183,13 @@ export default function PropertyDetailScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         {/* Floating back button */}
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={handleBack} style={styles.floatingButton}>
+          <TouchableOpacity
+            onPress={triggerBack}
+            style={styles.floatingButton}
+            activeOpacity={0.8}
+          >
             <Icon name="ArrowLeft" size={20} color="#FFFFFF" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
         <PropertyDetailSkeleton />
       </>
@@ -113,11 +201,15 @@ export default function PropertyDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={handleBack} style={styles.floatingButton}>
+          <TouchableOpacity
+            onPress={triggerBack}
+            style={styles.floatingButton}
+            activeOpacity={0.8}
+          >
             <Icon name="ArrowLeft" size={20} color="#3D3832" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
-        <PropertyNotFound onGoBack={handleBack} />
+        <PropertyNotFound onGoBack={triggerBack} />
       </>
     );
   }
@@ -146,15 +238,16 @@ export default function PropertyDetailScreen() {
           style={[styles.floatingBackRow, { top: topInset + 8 }]}
           pointerEvents="box-none"
         >
-          <Pressable
-            onPress={handleBack}
+          <TouchableOpacity
+            onPress={triggerBack}
             style={styles.floatingButton}
             testID="property-back-button"
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            activeOpacity={0.8}
           >
             <Icon name="CaretLeft" size={20} color="#FFFFFF" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -166,6 +259,10 @@ export default function PropertyDetailScreen() {
       />
     </>
   );
+}
+
+export default function PropertyDetailScreen() {
+  return <Redirect href="/" />;
 }
 
 const styles = StyleSheet.create({
@@ -226,6 +323,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     zIndex: 10,
+    elevation: 10,
   },
   floatingButton: {
     width: 36,
@@ -234,5 +332,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 12,
   },
 });

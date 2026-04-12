@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import * as maplibregl from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
 
 import { GroupPreviewCard } from './GroupPreviewCard';
 import type { GroupPreviewCardProps } from './GroupPreviewCard';
@@ -59,7 +59,7 @@ export function WebPreviewMarkerPortal({
 
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
-    container.style.zIndex = '1000';
+    container.style.zIndex = '2002';
     container.style.position = 'relative';
     container.style.display = 'inline-flex';
     container.style.justifyContent = 'center';
@@ -94,6 +94,15 @@ export function WebPreviewMarkerPortal({
       .setLngLat(previewCoordinate)
       .addTo(map);
 
+    const markerElement = container;
+    markerElement.style.position = 'relative';
+    markerElement.style.zIndex = '2002';
+    const markerWrapper = markerElement.parentElement;
+    if (markerWrapper instanceof HTMLElement) {
+      markerWrapper.style.position = 'relative';
+      markerWrapper.style.zIndex = '2002';
+    }
+
     previewMarkerRef.current = marker;
     setPortalTarget(container);
 
@@ -115,6 +124,8 @@ export function WebPreviewMarkerPortal({
         animation: 'popIn 0.3s ease-out forwards',
         display: 'inline-flex',
         justifyContent: 'center',
+        position: 'relative',
+        zIndex: 2002,
         pointerEvents: 'auto',
       }}
     >

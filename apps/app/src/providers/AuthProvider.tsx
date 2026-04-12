@@ -121,6 +121,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshAuthRef = useRef<() => Promise<boolean>>(null!);
   const authSignatureRef = useRef<string | null>(null);
+  const emailVerificationRef = useRef<{
+    token: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const verifiedEmailTokenRef = useRef<string | null>(null);
 
   /**
    * Schedule token refresh before expiry.
@@ -450,6 +455,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
    */
   const verifyEmailToken = useCallback(
     async (token: string) => {
+      if (verifiedEmailTokenRef.current === token) {
+        return;
+      }
+
+      const inFlightVerification = emailVerificationRef.current;
+      if (inFlightVerification?.token === token) {
+        return inFlightVerification.promise;
+      }
+
+      let resolveVerification: () => void = () => {};
+      let rejectVerification: (error: unknown) => void = () => {};
+      const verificationPromise = new Promise<void>((resolve, reject) => {
+        resolveVerification = resolve;
+        rejectVerification = reject;
+      });
+
+      emailVerificationRef.current = {
+        token,
+        promise: verificationPromise,
+      };
+
       try {
         setState((prev) => ({ ...prev, isLoading: true, authError: null }));
 
@@ -484,6 +510,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           data.session.user,
           data.session.expiresAt
         );
+        verifiedEmailTokenRef.current = token;
+        resolveVerification();
       } catch (error) {
         if (!(error instanceof ExpectedEmailAuthError)) {
           console.error('Email token verification failed:', error);
@@ -493,7 +521,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           isLoading: false,
           authError: error instanceof Error ? error.message : 'Invalid or expired link',
         }));
+        verifiedEmailTokenRef.current = token;
+        rejectVerification(error);
         throw error;
+      } finally {
+        if (emailVerificationRef.current?.token === token) {
+          emailVerificationRef.current = null;
+        }
       }
     },
     [storeAuthData]

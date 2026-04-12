@@ -45,10 +45,15 @@ const MOCK_PROPERTY_WITH_PRICE = {
  */
 async function setupPropertyMocking(page: Page): Promise<void> {
   await page.route('**/properties/*', async (route: Route) => {
-    const url = route.request().url();
+    const url = new URL(route.request().url());
+    const pathname = url.pathname;
 
-    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
-      const propertyId = url.split('/').pop();
+    if (
+      route.request().method() === 'GET' &&
+      pathname.match(/^\/properties\/[^/]+$/) &&
+      pathname !== '/properties/resolve'
+    ) {
+      const propertyId = pathname.split('/').pop();
 
       const mockResponse = {
         ...MOCK_PROPERTY_WITH_PRICE,
@@ -620,43 +625,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
 
     // On web, clicking a marker auto-opens the WebPropertyPanel (sheetIndex > 0).
-    // The map click handler only closes the preview when sheetIndex <= 0.
-    // Close the panel programmatically via __bottomSheetRef to avoid DOM click
-    // interference (backdrop click re-triggers property click, close button blocked
-    // by panel content).
-    await page.evaluate(() => {
-      const ref = (window as any).__bottomSheetRef;
-      if (ref?.current?.close) {
-        ref.current.close();
-      }
-    });
+    // Dismiss the sheet through the visible close control so the background tap
+    // exercises the real user-facing "empty map background" path.
+    const closeButton = page.locator('[data-testid="web-panel-close"]');
+    await expect(closeButton).toBeVisible({ timeout: 10000 });
+    await closeButton.click();
     await page.waitForTimeout(1000);
 
     // Verify the panel is closed
     const sheetIndexAfterClose = await page.evaluate(() => (window as any).__sheetIndex);
     console.log(`Sheet index after panel close: ${sheetIndexAfterClose}`);
-
-    // Instrument the map click handler to confirm whether the background tap
-    // reaches MapLibre and what features are found at the chosen point.
-    await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) return;
-      (window as any).__mapClickFired = false;
-      (window as any).__mapClickDebug = {};
-      const debugHandler = (e: any) => {
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
-        const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
-        const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
-        (window as any).__mapClickFired = true;
-        (window as any).__mapClickDebug = {
-          point: e.point,
-          featuresFound: features.length,
-          sheetIndex: (window as any).__sheetIndex,
-        };
-      };
-      mapInstance.on('click', debugHandler);
-      (window as any).__debugHandler = debugHandler;
-    });
 
     // Now simulate empty-background tap. We need to click the actual canvas at a point
     // that: (a) has no property features, (b) is not covered by the popup DOM element,
@@ -745,29 +723,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log(`Empty spot result: ${JSON.stringify(emptySpotResult)}`);
 
-    // Instrument the map's general click handler to track if it fires
-    await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (!mapInstance) return;
-      (window as any).__mapClickFired = false;
-      (window as any).__mapClickDebug = {};
-      const debugHandler = (e: any) => {
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
-        const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
-        const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
-        (window as any).__mapClickFired = true;
-        (window as any).__mapClickDebug = {
-          point: e.point,
-          featuresFound: features.length,
-          sheetIndex: (window as any).__sheetIndex,
-        };
-      };
-      // Register as first listener so it runs before others
-      mapInstance.on('click', debugHandler);
-      // Store for cleanup
-      (window as any).__debugHandler = debugHandler;
-    });
-
     // Click the empty spot on the canvas
     if (emptySpotResult.success && emptySpotResult.screenX && emptySpotResult.screenY) {
       await page.mouse.click(emptySpotResult.screenX, emptySpotResult.screenY);
@@ -776,32 +731,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for MapLibre click handler + React state update
     await page.waitForTimeout(1500);
 
-    // Cleanup debug handler
-    await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (mapInstance && (window as any).__debugHandler) {
-        mapInstance.off('click', (window as any).__debugHandler);
-      }
-    });
-
-    // The first canvas click triggers the MapLibre general click handler which calls
-    // setShowPreview(false). However, React's state update + useEffect may need a
-    // second event loop tick or a second click to fully process. If the preview card
-    // is still present, click the same empty spot once more.
-    let previewGone = (await previewCard.count()) === 0;
-    if (!previewGone) {
-      console.log('Preview still present after first click, retrying...');
-      if (emptySpotResult.success && emptySpotResult.screenX && emptySpotResult.screenY) {
-        await page.mouse.click(emptySpotResult.screenX, emptySpotResult.screenY);
-        await page.waitForTimeout(1500);
-      }
-    }
-
     // Verify preview card is NOW closed
-    const mapClickFired = await page.evaluate(() => (window as any).__mapClickFired);
-    const mapClickDebug = await page.evaluate(() => (window as any).__mapClickDebug);
-    console.log(`Map click fired: ${mapClickFired}`);
-    console.log(`Map click debug: ${JSON.stringify(mapClickDebug)}`);
     const previewVisibleAfterBackgroundTap = await previewCard.isVisible().catch(() => false);
     console.log(`Preview visible after background tap: ${previewVisibleAfterBackgroundTap}`);
 
@@ -880,13 +810,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-before-card-body-click.png`);
 
     // Click on the preview card body (not on action buttons)
-    // This should expand the WebPropertyPanel but NOT close the preview card
-    // On web, clicking a marker auto-opens the WebPropertyPanel whose backdrop
-    // covers the preview card. Close the panel first so we can click the card body.
-    const backdropEl = page.locator('[data-testid="web-panel-backdrop"]');
-    const backdropIsOpen = await backdropEl.evaluate((el) => el.classList.contains('open')).catch(() => false);
-    if (backdropIsOpen) {
-      await backdropEl.click();
+    // This should expand the WebPropertyPanel but NOT close the preview card.
+    // The backdrop intentionally stays pointer-transparent while preview is visible,
+    // so close the panel via its explicit control before interacting with the card.
+    const closeButton = page.locator('[data-testid="web-panel-close"]');
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click();
       await page.waitForTimeout(500);
     }
 
@@ -895,7 +824,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (cardBodyVisible) {
       // Click on the card body (property card pressable area)
-      const propertyCard = page.locator('[data-testid="group-preview-property-card"]').first();
+      const propertyCard = page.locator('[data-testid="property-preview-card"]').first();
       const propertyCardVisible = await propertyCard.isVisible().catch(() => false);
 
       if (propertyCardVisible) {
@@ -923,7 +852,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(previewCountAfterCardClick, 'CRITICAL: Preview card should STAY in DOM when card body is clicked').toBeGreaterThan(0);
   });
 
-  test('CRITICAL: verify preview card persists when map tapped to dismiss expanded sheet', async ({ page }) => {
+  test('CRITICAL: verify preview card persists when expanded sheet is dismissed', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -998,7 +927,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const cardBody = page.locator('[data-testid="group-preview-card"]');
       const cardBodyVisible = await cardBody.isVisible().catch(() => false);
       if (cardBodyVisible) {
-        const propertyCard = page.locator('[data-testid="group-preview-property-card"]').first();
+        const propertyCard = page.locator('[data-testid="property-preview-card"]').first();
         const propertyCardVisible = await propertyCard.isVisible().catch(() => false);
         if (propertyCardVisible) {
           await propertyCard.click();
@@ -1016,14 +945,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     });
     console.log(`Screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-sheet-expanded.png`);
 
-    // Now dismiss the WebPropertyPanel by clicking its backdrop.
-    // The preview card should STAY OPEN after the panel is dismissed.
-    const backdropEl = page.locator('[data-testid="web-panel-backdrop"]');
-    const backdropIsOpen = await backdropEl.evaluate((el) => el.classList.contains('open')).catch(() => false);
-    if (backdropIsOpen) {
-      await backdropEl.click();
-      await page.waitForTimeout(1000);
-    }
+    // Dismiss the WebPropertyPanel using the visible close control.
+    // The web backdrop is intentionally non-interactive while preview-open.
+    const closeButton = page.locator('[data-testid="web-panel-close"]');
+    await expect(closeButton).toBeVisible({ timeout: 10000 });
+    await closeButton.click();
+    await page.waitForTimeout(1000);
+
+    const sheetIndexAfterDismiss = await page.evaluate(() => (window as any).__sheetIndex ?? -999);
+    const isLandscape = await page.evaluate(() => window.innerWidth >= window.innerHeight);
+    const expectedSheetIndex = isLandscape ? -1 : 0;
+    console.log(`WebPropertyPanel index after dismiss: ${sheetIndexAfterDismiss} (expected ${expectedSheetIndex})`);
+    expect(sheetIndexAfterDismiss).toBe(expectedSheetIndex);
 
     // Verify preview card is STILL visible after dismissing the panel
     const previewVisibleAfterSheetDismiss = await previewCard.isVisible().catch(() => false);

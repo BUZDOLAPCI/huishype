@@ -21,6 +21,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
@@ -36,9 +37,12 @@ import { formatPropertyPrice } from '@huishype/shared';
 import type { CountryCode } from '@huishype/shared/config';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { shadows } from '@/src/lib/shadows';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { toPropertyImageSource } from '@/src/utils/property-image';
+import { api } from '@/src/utils/api';
+import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 // --- Period config ---
 
@@ -204,9 +208,11 @@ function RankingRow({
 function FeaturedPropertyCard({
   property,
   period,
+  onPress,
 }: {
   property: FeaturedProperty;
   period: LeaderboardPeriod;
+  onPress: () => void;
 }) {
   const imageSource = toPropertyImageSource(property);
   const periodLabel =
@@ -219,7 +225,7 @@ function FeaturedPropertyCard({
   return (
     <Pressable
       style={[styles.featuredCard, shadows.card]}
-      onPress={() => router.push(buildPropertyRoute(property.id, '/leaderboard'))}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
     >
@@ -302,8 +308,18 @@ export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [period, setPeriod] = useState<LeaderboardPeriod>('week');
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useLeaderboard(period);
+  const handlePropertyPress = useCallback(async (propertyId: string) => {
+    try {
+      const property = await api.get<PropertyDetails>(`/properties/${propertyId}`);
+      primePropertyDetailCache(queryClient, property);
+      router.push(toInternalAppHref(buildPropertyRoute(property, '/leaderboard')));
+    } catch (error) {
+      console.error('Failed to resolve canonical property route from leaderboard:', error);
+    }
+  }, [queryClient]);
 
   const currentUserId = user?.id ?? null;
 
@@ -408,7 +424,13 @@ export default function LeaderboardScreen() {
           <Text style={styles.sectionLabel}>
             {`MOST DISCUSSED${period === 'week' ? ' THIS WEEK' : period === 'month' ? ' THIS MONTH' : ''}`}
           </Text>
-          <FeaturedPropertyCard property={data.featuredProperty} period={period} />
+          <FeaturedPropertyCard
+            property={data.featuredProperty}
+            period={period}
+            onPress={() => {
+              void handlePropertyPress(data.featuredProperty!.id);
+            }}
+          />
         </View>
       )}
 

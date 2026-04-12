@@ -28,7 +28,9 @@ const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
 // Zoom levels for testing
 const ZOOMED_OUT_LEVEL = 10; // City view - active clusters dominate
-const ZOOMED_IN_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM; // Reveal threshold for ghost-specific layers
+// Use one zoom step above the reveal threshold so the viewport reliably shows
+// individual ghost nodes rather than just enabling the layer contract.
+const ZOOMED_IN_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 
 // API base URL (assume running locally for tests)
 const API_URL = 'http://localhost:3100';
@@ -272,9 +274,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       () => {
         const mapInstance = (window as any).__mapInstance;
         if (!mapInstance) return false;
-        const source = mapInstance.getSource('properties-source');
+        const style = typeof mapInstance.getStyle === 'function' ? mapInstance.getStyle() : null;
+        const source = style?.sources?.['properties-source'];
         if (!source) return false;
-        // Check type via serialize() for reliability, fall back to direct property
         const serialized = typeof source.serialize === 'function' ? source.serialize() : null;
         const sourceType = serialized?.type ?? source.type;
         return sourceType === 'vector';
@@ -299,8 +301,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           'ghost-nodes',
         ];
 
-        const allLayers = mapInstance.getStyle()?.layers?.map((l: any) => l.id) || [];
-        const missingLayers = expectedLayers.filter((layerId: string) => !mapInstance.getLayer(layerId));
+        const style = typeof mapInstance.getStyle === 'function' ? mapInstance.getStyle() : null;
+        const allLayers = style?.layers?.map((l: any) => l.id) || [];
+        const missingLayers = expectedLayers.filter((layerId: string) =>
+          !style?.layers?.some((layer: { id?: string }) => layer.id === layerId)
+        );
 
         if (missingLayers.length > 0) return null; // Keep polling
         return {
@@ -349,13 +354,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         mapInstance.setZoom(zoom);
         mapInstance.setCenter(center);
 
-        // Ghost layer should be hidden below the shared reveal threshold.
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
+        const style = typeof mapInstance.getStyle === 'function' ? mapInstance.getStyle() : null;
+        const ghostLayer = style?.layers?.find((layer: { id: string }) => layer.id === 'ghost-nodes');
         if (!ghostLayer) return null;
 
         return {
           minzoom: ghostLayer.minzoom,
-          visibility: mapInstance.getLayoutProperty('ghost-nodes', 'visibility'),
+          visibleAtCurrentZoom: mapInstance.getZoom() >= ghostLayer.minzoom,
         };
       },
       { center: EINDHOVEN_CENTER, zoom: ZOOMED_OUT_LEVEL }
@@ -364,9 +369,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     if (ghostLayerLowZoom) {
       console.log(`Ghost layer minzoom: ${ghostLayerLowZoom.minzoom}`);
       expect(ghostLayerLowZoom.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(ghostLayerLowZoom.visibleAtCurrentZoom).toBe(false);
     }
 
-    // Check ghost layer visibility at the reveal threshold.
+    // Check ghost layer visibility above the reveal threshold.
     const ghostLayerHighZoom = await page.evaluate(
       ({ center, zoom }) => {
         const mapInstance = (window as any).__mapInstance;
@@ -375,10 +381,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         mapInstance.setZoom(zoom);
         mapInstance.setCenter(center);
 
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
+        const style = typeof mapInstance.getStyle === 'function' ? mapInstance.getStyle() : null;
+        const ghostLayer = style?.layers?.find((layer: { id: string }) => layer.id === 'ghost-nodes');
         if (!ghostLayer) return null;
 
-        // At the reveal threshold, the ghost layer should be potentially visible.
+        // Above the reveal threshold, the ghost layer should be visible.
         return {
           currentZoom: mapInstance.getZoom(),
           layerMinZoom: ghostLayer.minzoom,

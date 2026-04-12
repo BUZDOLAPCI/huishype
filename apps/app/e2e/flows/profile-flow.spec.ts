@@ -8,7 +8,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { waitForMapStyleLoaded } from '../visual/helpers/visual-test-helpers';
+import { clickTabBarItem, navigateClientSide, waitForMapReady } from '../integration/helpers';
 
 const SCREENSHOT_DIR = 'test-results/flows';
 
@@ -74,16 +74,8 @@ test.describe('Profile Tab Flow', () => {
 
   test('Profile tab shows auth-required state when not logged in', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-
-    // Navigate to Profile tab
-    const profileTab = page.getByRole('tab', { name: /profile/i }).or(
-      page.locator('a[href*="profile"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Profile')
-    );
-
-    await profileTab.first().click();
+    await waitForMapReady(page);
+    await navigateClientSide(page, '/profile');
 
     // Wait for profile screen to render
     await Promise.race([
@@ -108,39 +100,12 @@ test.describe('Profile Tab Flow', () => {
 
   test('Profile tab auth overlay does NOT block tab bar navigation', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-
-    // Navigate to Profile tab
-    const profileTab = page.getByRole('tab', { name: /profile/i }).or(
-      page.locator('a[href*="profile"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Profile')
-    );
-    await profileTab.first().click();
+    await waitForMapReady(page);
+    await navigateClientSide(page, '/profile');
     await page.waitForTimeout(1500);
 
-    // Now try to navigate AWAY from Profile tab by clicking Map tab
-    // This is the regression test for Task #9 — pointer-events should not be blocked
-    const mapTab = page.getByRole('tab', { name: /map/i }).or(
-      page.locator('a[href="/"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Map')
-    );
-
-    await mapTab.first().click();
-    await page.waitForTimeout(2000);
-
-    // Should have navigated back to the map
-    const mapView = page.locator('[data-testid="map-view"]');
-    await expect(mapView.first()).toBeVisible({ timeout: 15000 });
-
-    // Now navigate to Feed tab to verify multi-tab navigation works
-    const feedTab = page.getByRole('tab', { name: /feed/i }).or(
-      page.locator('a[href*="feed"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Feed')
-    );
-    await feedTab.first().click();
+    // First verify the tab bar can navigate to another tab while auth-required
+    await clickTabBarItem(page, 'feed');
     await page.waitForTimeout(2000);
 
     // Should show feed content (any feed-related element visible means navigation succeeded)
@@ -153,6 +118,13 @@ test.describe('Profile Tab Flow', () => {
     ]);
     const feedVisible = feedChecks.some(Boolean);
     expect(feedVisible, 'Should navigate from Profile to Feed tab').toBe(true);
+
+    // Then verify we can navigate back to the map tab from Feed.
+    await clickTabBarItem(page, 'index');
+    await page.waitForTimeout(2000);
+
+    const mapView = page.locator('[data-testid="map-view"]');
+    await expect(mapView.first()).toBeVisible({ timeout: 15000 });
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-tab-navigation.png` });
   });

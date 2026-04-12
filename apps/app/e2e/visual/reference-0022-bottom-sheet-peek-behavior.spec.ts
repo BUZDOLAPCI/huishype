@@ -149,7 +149,6 @@ async function isBackdropVisible(page: Page): Promise<boolean> {
     const opacity = parseFloat(style.opacity || '0');
     const hasVisibleBackdrop =
       element.classList.contains('open') &&
-      style.pointerEvents !== 'none' &&
       opacity > 0.1;
 
     return {

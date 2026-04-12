@@ -3,6 +3,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -142,6 +143,10 @@ async function resolveRuntimePort(port, { strict = false, host = '127.0.0.1' } =
   }
 }
 
+function isPortAlreadyInUse(error) {
+  return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE';
+}
+
 async function waitForHttp(url, label) {
   const startedAt = Date.now();
 
@@ -277,6 +282,82 @@ function withNodeOption(env, option) {
   return { ...env, NODE_OPTIONS: `${current} ${option}` };
 }
 
+function withExpoExportTempDir(env, prefix) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return {
+    tempDir,
+    env: {
+      ...env,
+      TMPDIR: tempDir,
+      TMP: tempDir,
+      TEMP: tempDir,
+    },
+  };
+}
+
+function uniquePaths(paths) {
+  return [...new Set(paths)];
+}
+
+function getExpoWebExportRootCandidates({
+  repoRootDir = repoRoot,
+  appDir = appCwd,
+} = {}) {
+  return uniquePaths([
+    path.join(appDir, 'dist'),
+    path.join(repoRootDir, 'dist'),
+  ]);
+}
+
+function clearExpoWebExportRoots(options) {
+  const candidates = getExpoWebExportRootCandidates(options);
+  for (const candidate of candidates) {
+    fs.rmSync(candidate, { recursive: true, force: true });
+  }
+}
+
+function getExistingExpoWebExportEntrypoints(options) {
+  return getExpoWebExportRootCandidates(options)
+    .map((rootDir) => {
+      const entrypoint = path.join(rootDir, 'index.html');
+      if (!fs.existsSync(entrypoint) || !fs.statSync(entrypoint).isFile()) {
+        return null;
+      }
+
+      return {
+        rootDir,
+        entrypoint,
+        mtimeMs: fs.statSync(entrypoint).mtimeMs,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+async function resolveExpoWebExportRoot({
+  repoRootDir = repoRoot,
+  appDir = appCwd,
+  timeoutMs = READY_TIMEOUT_MS,
+} = {}) {
+  const startedAt = Date.now();
+
+  while (true) {
+    const matches = getExistingExpoWebExportEntrypoints({ repoRootDir, appDir });
+    if (matches.length > 0) {
+      return matches[0];
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      const candidateList = getExpoWebExportRootCandidates({ repoRootDir, appDir }).join(', ');
+      throw new Error(
+        `Exported web entrypoint did not appear in any expected dist root within ${timeoutMs}ms: ${candidateList}`,
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function startServiceWithRetry({
   label,
   command,
@@ -325,6 +406,53 @@ async function startServiceWithRetry({
   throw lastError ?? new Error(`${label} failed to start`);
 }
 
+async function startStaticWebServerWithRetry({
+  port,
+  rootDir,
+  apiProxyTarget,
+  logger,
+  attempts = 3,
+  resolveRuntimePortImpl = resolveRuntimePort,
+  startStaticWebServerImpl = startStaticWebServer,
+}) {
+  let selectedPort = port;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) {
+      selectedPort = await resolveRuntimePortImpl(0);
+    }
+
+    let runtime;
+
+    try {
+      runtime = startStaticWebServerImpl({
+        port: selectedPort,
+        rootDir,
+        apiProxyTarget,
+        logger,
+      });
+      await runtime.ready;
+      return { runtime, port: selectedPort };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      await Promise.resolve(runtime.stop?.()).catch(() => {});
+
+      if (!isPortAlreadyInUse(lastError) || attempt === attempts) {
+        break;
+      }
+
+      console.warn(
+        `Static web server failed to bind port ${selectedPort} on attempt ${attempt}/${attempts}: ` +
+          `${lastError.message}. Retrying on a fresh port...`,
+      );
+    }
+  }
+
+  throw lastError ?? new Error('Static web server failed to start');
+}
+
 async function waitForChildExit(child, name, timeoutMs = 5_000) {
   if (!child) {
     return;
@@ -369,7 +497,7 @@ async function main() {
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
     API_URL: apiUrl,
-    EXPO_PUBLIC_API_URL: apiUrl,
+    EXPO_PUBLIC_API_URL: '/api',
     PLAYWRIGHT_API_PORT: String(apiPort),
     PLAYWRIGHT_WEB_PORT: String(webPort),
     PLAYWRIGHT_WEB_URL: webUrl,
@@ -379,6 +507,7 @@ async function main() {
   let apiChild = null;
   let apiExitPromise = Promise.resolve();
   let webRuntime = null;
+  let webExportDir = null;
   let playwrightChild = null;
   let playwrightExitPromise = Promise.resolve(0);
   const stopping = { current: false };
@@ -398,6 +527,10 @@ async function main() {
         .then(() => webRuntime?.stop?.())
         .catch(() => {}),
     ]);
+    if (webExportDir) {
+      fs.rmSync(webExportDir, { recursive: true, force: true });
+      webExportDir = null;
+    }
   };
 
   const onSignal = (signal) => {
@@ -412,8 +545,6 @@ async function main() {
 
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
-
-  await ensurePortAvailable(webPort, 'Static web server');
 
   console.log(`Starting API server on ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
@@ -435,30 +566,44 @@ async function main() {
   apiExitPromise = apiRuntime.exitPromise;
 
   console.log('Building Expo web bundle for Playwright runtime ...');
-  execFileSync(
-    expoBin,
-    ['export', '--platform', 'web'],
-    {
-      cwd: appCwd,
-      env: withNodeOption({
-        ...childEnv,
-        NODE_ENV: webExportNodeEnv,
-      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
-      stdio: 'inherit',
-    },
+  webExportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'huishype-playwright-web-dist-'));
+  const expoExport = withExpoExportTempDir(
+    withNodeOption({
+      ...childEnv,
+      NODE_ENV: webExportNodeEnv,
+      EXPO_PUBLIC_API_URL: '/api',
+    }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
+    'huishype-playwright-expo-',
   );
-  await waitForFile(path.join(appCwd, 'dist', 'index.html'), 'Exported web entrypoint');
+  try {
+    execFileSync(
+      expoBin,
+      ['export', '--platform', 'web', '--clear', '--output-dir', webExportDir],
+      {
+        cwd: appCwd,
+        env: expoExport.env,
+        stdio: 'inherit',
+      },
+    );
+  } finally {
+    fs.rmSync(expoExport.tempDir, { recursive: true, force: true });
+  }
+  await waitForFile(path.join(webExportDir, 'index.html'), 'Exported web entrypoint');
 
-  console.log(`Starting static web server on ${webUrl} ...`);
-  webRuntime = startStaticWebServer({
+  console.log(`Starting static web server on ${webUrl} from ${webExportDir} ...`);
+  const webRuntimeResult = await startStaticWebServerWithRetry({
     port: webPort,
-    rootDir: path.join(appCwd, 'dist'),
+    rootDir: webExportDir,
+    apiProxyTarget: apiUrl,
     logger: {
       log: () => {},
       error: console.error,
     },
   });
-  await webRuntime.ready;
+  webRuntime = webRuntimeResult.runtime;
+  updateRuntimePorts(apiPort, webRuntimeResult.port);
+  childEnv.PLAYWRIGHT_WEB_PORT = String(webPort);
+  childEnv.PLAYWRIGHT_WEB_URL = webUrl;
   await waitForHttp(webUrl, 'Static web server');
 
   console.log(`Runtime ready: ${apiUrl} and ${webUrl}`);
@@ -496,11 +641,17 @@ async function main() {
   ]);
 
   await stop('SIGTERM');
-  process.exit(Number(exitCode));
+  const normalizedExitCode = Number.isFinite(exitCode) ? exitCode : 1;
+  process.exit(normalizedExitCode);
 }
 
 export {
+  clearExpoWebExportRoots,
+  getExistingExpoWebExportEntrypoints,
+  getExpoWebExportRootCandidates,
   resolveRuntimePort,
+  resolveExpoWebExportRoot,
+  startStaticWebServerWithRetry,
   startServiceWithRetry,
   waitForChildExit,
   waitForExit,

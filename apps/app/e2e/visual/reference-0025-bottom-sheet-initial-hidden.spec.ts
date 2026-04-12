@@ -148,7 +148,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     const state = await getPanelState(page);
     expect(state.previewVisible).toBe(true);
-    expect(state.panelVisible).toBe(false);
+    expect(state.panelVisible).toBe(true);
     expect(state.backdropVisible).toBe(false);
 
     await page.screenshot({

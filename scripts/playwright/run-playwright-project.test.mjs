@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs/promises';
 import { createServer } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import {
+  clearExpoWebExportRoots,
+  resolveExpoWebExportRoot,
   resolveRuntimePort,
+  startStaticWebServerWithRetry,
   startServiceWithRetry,
   waitForChildExit,
   watchRuntimeDeaths,
@@ -175,4 +181,100 @@ test('resolveRuntimePort honors explicitly requested busy ports', async () => {
   await new Promise((resolve, reject) => {
     occupied.close((error) => (error ? reject(error) : resolve()));
   });
+});
+
+test('startStaticWebServerWithRetry retries on EADDRINUSE with a fresh port', async () => {
+  const selectedPorts = [];
+  const stoppedPorts = [];
+  const busyError = Object.assign(
+    new Error('listen EADDRINUSE: address already in use 127.0.0.1:8082'),
+    { code: 'EADDRINUSE' },
+  );
+
+  const firstReady = Promise.reject(busyError);
+  firstReady.catch(() => {});
+
+  const startStaticWebServerImpl = ({ port }) => {
+    selectedPorts.push(port);
+
+    if (selectedPorts.length === 1) {
+      return {
+        ready: firstReady,
+        stop: async () => {
+          stoppedPorts.push(port);
+        },
+      };
+    }
+
+    return {
+      ready: Promise.resolve(),
+      stop: async () => {
+        stoppedPorts.push(port);
+      },
+    };
+  };
+
+  const resolveRuntimePortImpl = async (port) => {
+    if (selectedPorts.length === 0) {
+      return port;
+    }
+
+    return 41_001;
+  };
+
+  const runtime = await startStaticWebServerWithRetry({
+    port: 8082,
+    rootDir: '/tmp/does-not-matter',
+    logger: { log() {}, error() {} },
+    attempts: 2,
+    resolveRuntimePortImpl,
+    startStaticWebServerImpl,
+  });
+
+  assert.equal(runtime.port, 41_001);
+  assert.deepEqual(selectedPorts, [8082, 41_001]);
+  assert.deepEqual(stoppedPorts, [8082]);
+
+  await runtime.runtime.stop();
+});
+
+test('resolveExpoWebExportRoot prefers the dist root that actually contains the fresh export', async () => {
+  const repoRootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'huishype-playwright-root-'));
+  const appDir = path.join(repoRootDir, 'apps', 'app');
+  const appDistDir = path.join(appDir, 'dist');
+  const workspaceDistDir = path.join(repoRootDir, 'dist');
+  const staleEntrypoint = path.join(appDistDir, 'index.html');
+  const freshEntrypoint = path.join(workspaceDistDir, 'index.html');
+
+  await fs.mkdir(appDistDir, { recursive: true });
+  await fs.mkdir(workspaceDistDir, { recursive: true });
+  await fs.writeFile(staleEntrypoint, 'stale app export');
+  await fs.writeFile(freshEntrypoint, 'fresh workspace export');
+
+  const staleTime = new Date('2026-04-12T08:00:00.000Z');
+  const freshTime = new Date('2026-04-12T08:00:10.000Z');
+  await fs.utimes(staleEntrypoint, staleTime, staleTime);
+  await fs.utimes(freshEntrypoint, freshTime, freshTime);
+
+  try {
+    const resolved = await resolveExpoWebExportRoot({
+      repoRootDir,
+      appDir,
+      timeoutMs: 50,
+    });
+
+    assert.equal(resolved.rootDir, workspaceDistDir);
+
+    clearExpoWebExportRoots({ repoRootDir, appDir });
+    await assert.rejects(
+      resolveExpoWebExportRoot({
+        repoRootDir,
+        appDir,
+        timeoutMs: 10,
+      }),
+      /Exported web entrypoint did not appear in any expected dist root/,
+    );
+  } finally {
+    await fs.rm(repoRootDir, { recursive: true, force: true });
+  }
 });

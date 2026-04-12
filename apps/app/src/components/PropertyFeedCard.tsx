@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import { MetricPills } from './MetricPills';
 import { Card } from './ui/Card';
@@ -78,120 +78,116 @@ export function PropertyFeedCard({
   const primaryPrice = fmvValue ?? officialValuation;
 
   return (
-    <Pressable
+    <Card
+      shadow="card"
       onPress={onPress}
-      style={styles.pressable}
-      accessibilityRole="button"
-      accessibilityLabel={`${address}, ${city}${askingPrice ? `, asking ${formatPrice(askingPrice, countryCode)}` : ''}`}
-      accessibilityHint="Opens property details"
       testID="property-feed-card"
+      style={styles.pressable}
     >
-      <Card shadow="card">
-        {/* Image section */}
-        <View style={styles.imageWrapper}>
-          <PropertyImageSurface
-            source={imageSource}
-            style={styles.image}
-            markerSize={28}
-            imageTestID="property-image"
-            markerTestID="property-image-marker"
-            placeholder={
-              <View style={styles.placeholder}>
-                <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-                <Text style={styles.placeholderText}>No image available</Text>
-              </View>
-            }
-          />
-        </View>
+      {/* Image section */}
+      <View style={styles.imageWrapper}>
+        <PropertyImageSurface
+          source={imageSource}
+          style={styles.image}
+          markerSize={28}
+          imageTestID="property-image"
+          markerTestID="property-image-marker"
+          placeholder={
+            <View style={styles.placeholder}>
+              <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+              <Text style={styles.placeholderText}>No image available</Text>
+            </View>
+          }
+        />
+      </View>
 
-        {/* Content section */}
-        <View style={styles.body}>
-          {/* Address row with activity badge */}
-          <View style={styles.addressRow}>
-            <View style={styles.addressContent}>
-              <Text
-                style={styles.street}
-                numberOfLines={1}
-                testID="property-address"
-              >
-                {address}
-              </Text>
-              <Text style={styles.city} numberOfLines={1}>
-                {city}
+      {/* Content section */}
+      <View style={styles.body}>
+        {/* Address row with activity badge */}
+        <View style={styles.addressRow}>
+          <View style={styles.addressContent}>
+            <Text
+              style={styles.street}
+              numberOfLines={1}
+              testID="property-address"
+            >
+              {address}
+            </Text>
+            <Text style={styles.city} numberOfLines={1}>
+              {city}
+            </Text>
+          </View>
+
+          {/* Activity badge */}
+          {activityLevel !== 'cold' && (
+            <View
+              style={[styles.activityBadge, { backgroundColor: activityConfig.bg }]}
+              testID="activity-badge"
+            >
+              {activityConfig.iconName && (
+                <Icon
+                  name={activityConfig.iconName}
+                  size={12}
+                  color="#FFFFFF"
+                />
+              )}
+              <Text style={styles.activityBadgeText}>
+                {activityConfig.label}
               </Text>
             </View>
+          )}
+        </View>
 
-            {/* Activity badge */}
-            {activityLevel !== 'cold' && (
-              <View
-                style={[styles.activityBadge, { backgroundColor: activityConfig.bg }]}
-                testID="activity-badge"
-              >
-                {activityConfig.iconName && (
-                  <Icon
-                    name={activityConfig.iconName}
-                    size={12}
-                    color="#FFFFFF"
-                  />
-                )}
-                <Text style={styles.activityBadgeText}>
-                  {activityConfig.label}
+        {/* Price row */}
+        <View style={styles.priceRow}>
+          <View>
+            {askingPrice != null && askingPrice > 0 && (
+              <>
+                <Text style={styles.priceLabel}>Asking Price</Text>
+                <Text style={styles.askingPrice}>
+                  {formatPrice(askingPrice, countryCode)}
+                </Text>
+              </>
+            )}
+            {!askingPrice && officialValuation != null && officialValuation > 0 && (
+              <>
+                <Text style={styles.priceLabel}>
+                  {getValuationLabel(countryCode)}
+                </Text>
+                <Text style={styles.askingPrice}>
+                  {formatPrice(officialValuation, countryCode)}
+                </Text>
+              </>
+            )}
+          </View>
+
+          {primaryPrice != null && primaryPrice > 0 && (
+            <View style={styles.primaryPriceContainer}>
+              <View style={styles.primaryPriceRow}>
+                <Icon name="HouseLine" size={14} color="#F5A623" />
+                <Text style={styles.primaryPrice}>
+                  {formatPrice(primaryPrice, countryCode)}
                 </Text>
               </View>
-            )}
-          </View>
-
-          {/* Price row */}
-          <View style={styles.priceRow}>
-            <View>
-              {askingPrice != null && askingPrice > 0 && (
-                <>
-                  <Text style={styles.priceLabel}>Asking Price</Text>
-                  <Text style={styles.askingPrice}>
-                    {formatPrice(askingPrice, countryCode)}
-                  </Text>
-                </>
-              )}
-              {!askingPrice && officialValuation != null && officialValuation > 0 && (
-                <>
-                  <Text style={styles.priceLabel}>
-                    {getValuationLabel(countryCode)}
-                  </Text>
-                  <Text style={styles.askingPrice}>
-                    {formatPrice(officialValuation, countryCode)}
-                  </Text>
-                </>
-              )}
             </View>
-
-            {primaryPrice != null && primaryPrice > 0 && (
-              <View style={styles.primaryPriceContainer}>
-                <View style={styles.primaryPriceRow}>
-                  <Icon name="HouseLine" size={14} color="#F5A623" />
-                  <Text style={styles.primaryPrice}>
-                    {formatPrice(primaryPrice, countryCode)}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* Stat pills */}
-          <View style={styles.statDivider} />
-          <MetricPills
-            stats={{
-              likeCount,
-              commentCount,
-              guessCount,
-              viewCount,
-            }}
-            variant="stats"
-            showAllStats
-            testID="feed-card-stats"
-          />
+          )}
         </View>
-      </Card>
-    </Pressable>
+
+        {/* Stat pills */}
+        <View style={styles.statDivider} />
+        <MetricPills
+          stats={{
+            likeCount,
+            commentCount,
+            guessCount,
+            viewCount,
+          }}
+          variant="stats"
+          showAllStats
+          testID="feed-card-stats"
+        />
+      </View>
+    </Card>
   );
 }
 

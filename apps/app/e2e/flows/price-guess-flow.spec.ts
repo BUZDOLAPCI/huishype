@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 import { createTestUser } from './helpers/test-user';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
@@ -46,9 +47,19 @@ async function getTestProperty(request: APIRequestContext) {
   // Prefer a property with a WOZ value for better slider display
   const withWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
   const property = withWoz || data.data[0];
+  expect(property.street).toBeTruthy();
+  expect(property.houseNumber).toBeTruthy();
   return {
     id: property.id as string,
     address: property.address as string,
+    path: buildCanonicalPropertyPath({
+      countryCode: property.countryCode,
+      city: property.city,
+      postalCode: property.postalCode,
+      streetName: property.street,
+      houseNumber: property.houseNumber,
+      houseNumberAddition: property.houseNumberAddition,
+    }),
     officialValuation: property.officialValuation as number | null,
   };
 }
@@ -96,7 +107,7 @@ test.describe('Price Guess Flow', () => {
   test('price guess section renders on property detail page', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.path, { waitUntil: 'domcontentloaded' });
 
     // Wait for the loading state to disappear
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
@@ -122,7 +133,7 @@ test.describe('Price Guess Flow', () => {
   test('slider UI elements are present', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.path, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     await waitForPriceGuessUi(page);
@@ -158,7 +169,7 @@ test.describe('Price Guess Flow', () => {
   test('quick adjustment buttons change price', async ({ page, request }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.path, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     await waitForPriceGuessUi(page);
@@ -198,7 +209,7 @@ test.describe('Price Guess Flow', () => {
   }) => {
     const property = await getTestProperty(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.path, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     await waitForPriceGuessUi(page);
 

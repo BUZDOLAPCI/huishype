@@ -12,66 +12,156 @@
  * Screenshot saved to: test-results/reference-expectations/0021-map-property-preview/
  */
 
-import { test, expect, Page, Route, Locator } from '@playwright/test';
+import { test, expect, Page, Locator } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from './helpers/screenshot-harness';
 import fs from 'fs';
+import { buildCanonicalMapPreviewPath } from '@huishype/shared';
 
-/**
- * Mock property data with price information for testing
- * This ensures the preview card displays a price even when the database lacks WOZ data
- */
-const MOCK_PROPERTY_WITH_PRICE = {
-  id: 'test-property-001',
+const MOCK_PREVIEW_PROPERTY = {
+  id: '11111111-1111-1111-1111-111111111111',
   nationalId: '0772010000123456',
   address: 'Stratumseind 100',
   city: 'Eindhoven',
   postalCode: '5611 ET',
   countryCode: 'NL',
+  street: 'Stratumseind',
+  streetName: 'Stratumseind',
+  houseNumber: 100,
+  houseNumberAddition: null,
+  coordinates: {
+    lon: 5.4697,
+    lat: 51.4416,
+  },
   geometry: {
     type: 'Point',
-    coordinates: [5.4697, 51.4416],
+    coordinates: [5.4697, 51.4416] as [number, number],
   },
   yearBuilt: 1985,
   floorAreaM2: 120,
   status: 'active',
-  officialValuation: 425000, // Mock official valuation for price display
+  officialValuation: 425000,
+  hasListing: true,
+  askingPrice: null,
+  thumbnailUrl: null,
+  likeCount: 12,
+  commentCount: 4,
+  guessCount: 9,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
 
 /**
- * Setup API route interception to return mock property data with prices
+ * Setup API route interception for the canonical preview route.
  */
 async function setupPropertyMocking(page: Page): Promise<void> {
-  // Intercept property detail API calls and inject mock price data
-  await page.route('**/properties/*', async (route: Route) => {
+  const handlePropertyRoute = async (route: any) => {
     const url = route.request().url();
+    const pathname = new URL(url).pathname;
+    const method = route.request().method();
 
-    // Only intercept single property GET requests (not /properties/map or similar)
-    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
-      // Extract the property ID from the URL
-      const propertyId = url.split('/').pop();
-
-      // Return mock data with the actual requested ID but with WOZ value
-      const mockResponse = {
-        ...MOCK_PROPERTY_WITH_PRICE,
-        id: propertyId,
-      };
-
-      console.log(`Mocking property API response for ID: ${propertyId} with valuation: ${mockResponse.officialValuation}`);
-
+    if (/\/properties\/resolve$/i.test(pathname)) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(mockResponse),
+        body: JSON.stringify({
+          id: MOCK_PREVIEW_PROPERTY.id,
+          countryCode: MOCK_PREVIEW_PROPERTY.countryCode,
+          address: MOCK_PREVIEW_PROPERTY.address,
+          postalCode: MOCK_PREVIEW_PROPERTY.postalCode,
+          city: MOCK_PREVIEW_PROPERTY.city,
+          coordinates: MOCK_PREVIEW_PROPERTY.coordinates,
+          hasListing: MOCK_PREVIEW_PROPERTY.hasListing,
+          officialValuation: MOCK_PREVIEW_PROPERTY.officialValuation,
+        }),
       });
-    } else {
-      // Let other requests pass through
-      await route.continue();
+      return;
     }
-  });
+
+    if (/\/properties\/[0-9a-f-]{36}\/view$/i.test(pathname) && method === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          viewCount: 1,
+          uniqueViewers: 1,
+        }),
+      });
+      return;
+    }
+
+    if (method !== 'GET') {
+      await route.continue();
+      return;
+    }
+
+    if (/\/properties\/[0-9a-f-]{36}$/i.test(pathname) && !/\/properties\/[0-9a-f-]{36}\/(listings|view|guesses|comments)$/i.test(pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_PREVIEW_PROPERTY),
+      });
+      return;
+    }
+
+    if (/\/properties\/[0-9a-f-]{36}\/listings$/i.test(pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [] }),
+      });
+      return;
+    }
+
+    if (/\/properties\/[0-9a-f-]{36}\/guesses$/i.test(pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          meta: {
+            page: 1,
+            limit: 100,
+            total: 0,
+            totalPages: 1,
+          },
+          fmv: {
+            fmv: null,
+            confidence: 'none',
+            guessCount: 0,
+            distribution: null,
+            officialValuation: MOCK_PREVIEW_PROPERTY.officialValuation,
+            askingPrice: null,
+            divergence: null,
+          },
+        }),
+      });
+      return;
+    }
+
+    if (/\/properties\/[0-9a-f-]{36}\/comments$/i.test(pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          meta: {
+            page: 1,
+            limit: 20,
+            total: 0,
+            totalPages: 1,
+          },
+        }),
+      });
+      return;
+    }
+
+    await route.continue();
+  };
+
+  await page.route('**/api/properties/**', handlePropertyRoute);
+  await page.route('**/properties/**', handlePropertyRoute);
 }
 
 // Disable tracing for this test to avoid trace file issues
@@ -179,6 +269,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   // Console error collection
   let consoleErrors: string[] = [];
   let consoleWarnings: string[] = [];
+  let errorResponses: string[] = [];
+  let requestFailures: string[] = [];
 
   test.beforeAll(async () => {
     // Ensure screenshot directory exists
@@ -192,6 +284,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];
+    errorResponses = [];
+    requestFailures = [];
 
     // Setup API mocking to return property data with prices
     await setupPropertyMocking(page);
@@ -215,9 +309,30 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('pageerror', (error) => {
       consoleErrors.push(`Page Error: ${error.message}`);
     });
+
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        errorResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+      }
+    });
+
+    page.on('requestfailed', (request) => {
+      const failure = request.failure()?.errorText ?? 'unknown failure';
+      requestFailures.push(`${request.method()} ${request.url()} :: ${failure}`);
+    });
   });
 
   test.afterEach(async () => {
+    if (errorResponses.length > 0) {
+      console.log(`Error responses (${errorResponses.length}):`);
+      errorResponses.forEach((url) => console.log(`  - ${url}`));
+    }
+
+    if (requestFailures.length > 0) {
+      console.log(`Request failures (${requestFailures.length}):`);
+      requestFailures.forEach((entry) => console.log(`  - ${entry}`));
+    }
+
     // Log warnings for visibility (but don't fail)
     if (consoleWarnings.length > 0) {
       console.log(`Console warnings (${consoleWarnings.length}):`);
@@ -404,250 +519,125 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify preview card contains all required elements', async ({ page }) => {
-    // Navigate to the app
-    await page.goto('/');
+    // Navigate to the canonical preview route for a known priced property.
+    await page.goto(buildCanonicalMapPreviewPath(MOCK_PREVIEW_PROPERTY), {
+      waitUntil: 'domcontentloaded',
+    });
     await page.waitForLoadState('networkidle');
 
     // Wait for map to be fully ready
     await waitForMapReady(page);
 
-    // Zoom to appropriate level
-    await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
-
-    // Find and click on a property marker
     const previewCard = page.locator('[data-testid="group-preview-card"]');
-    let previewVisible = false;
+    await expect(previewCard, 'Preview card should appear for the canonical map preview route').toBeVisible({
+      timeout: 20000,
+    });
 
-    const clickResult = await clickOnPropertyMarker(page);
-    console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
+    await page.waitForTimeout(1500);
 
-    previewVisible = await waitForPreviewCardVisible(previewCard);
+    const thumbnailContainer = previewCard.locator('[data-testid="property-preview-card"]');
+    const thumbnailImage = previewCard.locator('[data-testid="property-thumbnail-image"]');
+    const thumbnailPlaceholder = previewCard.locator('[data-testid="property-thumbnail-placeholder"]');
 
-    // Fallback click attempts
-    if (!previewVisible && clickResult.featureCount > 0) {
-      const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
-        if (!mapInstance) return [];
-        const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
-        try {
-          allFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers }
-          ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
-          if (f.geometry?.type === 'Point') {
-            const point = mapInstance.project(f.geometry.coordinates);
-            const rect = canvas.getBoundingClientRect();
-            return { x: rect.left + point.x, y: rect.top + point.y };
-          }
-          return null;
-        }).filter(Boolean);
-      });
+    const hasContainer = await thumbnailContainer.isVisible().catch(() => false);
+    const hasImage = await thumbnailImage.isVisible().catch(() => false);
+    const hasPlaceholder = await thumbnailPlaceholder.isVisible().catch(() => false);
 
-      for (const pos of markerPositions) {
-        if (!pos) continue;
-        await page.mouse.click(pos.x, pos.y);
-        previewVisible = await waitForPreviewCardVisible(previewCard);
-        if (previewVisible) break;
+    console.log(`Thumbnail container visible: ${hasContainer}`);
+    console.log(`Thumbnail image visible: ${hasImage}`);
+    console.log(`Thumbnail placeholder visible: ${hasPlaceholder}`);
+
+    const priceGroup = previewCard.locator('text=WOZ Value');
+    const hasWozLabel = await priceGroup.first().isVisible().catch(() => false);
+    console.log(`WOZ label visible: ${hasWozLabel}`);
+
+    const priceText = previewCard.locator('text=/€\\s?\\d/');
+    const hasPrice = await priceText.first().isVisible().catch(() => false);
+    console.log(`Price visible: ${hasPrice}`);
+
+    const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
+    const hasLike = await likeButton.isVisible().catch(() => false);
+    console.log(`Like button visible: ${hasLike}`);
+
+    const commentButton = page.locator('[data-testid="group-preview-comment-button"]').first();
+    const hasComment = await commentButton.isVisible().catch(() => false);
+    console.log(`Comment button visible: ${hasComment}`);
+
+    const guessButton = page.locator('[data-testid="group-preview-guess-button"]').first();
+    const hasGuess = await guessButton.isVisible().catch(() => false);
+    console.log(`Guess button visible: ${hasGuess}`);
+
+    const arrowDown = page.locator('[data-testid="group-preview-arrow-down"]');
+    const arrowUp = page.locator('[data-testid="group-preview-arrow-up"]');
+    const hasArrowDown = await arrowDown.isVisible().catch(() => false);
+    const hasArrowUp = await arrowUp.isVisible().catch(() => false);
+    const hasArrow = hasArrowDown || hasArrowUp;
+    console.log(`Arrow visible: ${hasArrow} (down: ${hasArrowDown}, up: ${hasArrowUp})`);
+
+    const selectedMarker = page.locator('[data-testid="selected-marker"]');
+    const hasSelectedMarker = await selectedMarker.isVisible().catch(() => false);
+    console.log(`Selected marker visible: ${hasSelectedMarker}`);
+
+    expect(hasContainer || hasImage || hasPlaceholder, 'Preview card should render a thumbnail area').toBe(true);
+    expect(hasWozLabel, 'WOZ label should be visible on the preview card').toBe(true);
+    expect(hasPrice, 'Formatted price should be visible on the preview card').toBe(true);
+    expect(hasLike, 'Like button should be visible').toBe(true);
+    expect(hasComment, 'Comment button should be visible').toBe(true);
+    expect(hasGuess, 'Guess button should be visible').toBe(true);
+    expect(hasArrow, 'Preview card should have a visible arrow pointing to the marker').toBe(true);
+    expect(hasSelectedMarker, 'Selected marker should be visible with pulsing animation').toBe(true);
+
+    const markerAlignment = await selectedMarker.evaluate((element) => {
+      const pulse = element.querySelector('.selected-marker-pulse');
+      const dot = element.querySelector('.selected-marker-dot');
+
+      if (!(pulse instanceof HTMLElement) || !(dot instanceof HTMLElement)) {
+        return null;
       }
+
+      const pulseRect = pulse.getBoundingClientRect();
+      const dotRect = dot.getBoundingClientRect();
+
+      return {
+        deltaX: Math.abs(
+          pulseRect.left + pulseRect.width / 2 - (dotRect.left + dotRect.width / 2)
+        ),
+        deltaY: Math.abs(
+          pulseRect.top + pulseRect.height / 2 - (dotRect.top + dotRect.height / 2)
+        ),
+      };
+    });
+
+    expect(
+      markerAlignment,
+      'Selected marker should render both pulse and dot elements'
+    ).not.toBeNull();
+    expect(
+      markerAlignment!.deltaX,
+      'Selected marker pulse should stay horizontally centered on the selected node'
+    ).toBeLessThan(1);
+    expect(
+      markerAlignment!.deltaY,
+      'Selected marker pulse should stay vertically centered on the selected node'
+    ).toBeLessThan(1);
+
+    const cardContent = await previewCard.textContent();
+    console.log(`Full card content: ${cardContent}`);
+
+    const cardBox = await previewCard.boundingBox();
+    if (cardBox) {
+      const padding = 10;
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-elements.png`,
+        clip: {
+          x: Math.max(0, cardBox.x - padding),
+          y: Math.max(0, cardBox.y - padding),
+          width: cardBox.width + padding * 2,
+          height: cardBox.height + padding * 2,
+        },
+      });
+      console.log(`Card dimensions: ${cardBox.width}x${cardBox.height} at (${cardBox.x}, ${cardBox.y})`);
     }
-
-    if (previewVisible) {
-      // Wait for thumbnail to potentially load (give time for aerial image)
-      await page.waitForTimeout(2000);
-
-      // Verify thumbnail area exists (either image or placeholder)
-      const thumbnailContainer = page.locator('[data-testid="property-thumbnail-container"]');
-      const thumbnailImage = page.locator('[data-testid="property-thumbnail-image"]');
-      const thumbnailPlaceholder = page.locator('[data-testid="property-thumbnail-placeholder"]');
-
-      const hasContainer = await thumbnailContainer.isVisible().catch(() => false);
-      const hasImage = await thumbnailImage.isVisible().catch(() => false);
-      const hasPlaceholder = await thumbnailPlaceholder.isVisible().catch(() => false);
-
-      console.log(`Thumbnail container visible: ${hasContainer}`);
-      console.log(`Thumbnail image visible: ${hasImage}`);
-      console.log(`Thumbnail placeholder visible: ${hasPlaceholder}`);
-
-      // Verify price display - the mock property has officialValuation of 425000
-      // Price should be formatted as euro amount (e.g., "425.000" or "425,000")
-      const priceText = page.locator('[data-testid="group-preview-card"]').locator('text=/\\d{3}[.,]\\d{3}/');
-      const hasPrice = await priceText.first().isVisible().catch(() => false);
-      console.log(`Price visible: ${hasPrice}`);
-
-      // Check for WOZ label which indicates price source
-      const wozLabel = page.locator('text=WOZ');
-      const hasWozLabel = await wozLabel.first().isVisible().catch(() => false);
-      console.log(`WOZ label visible: ${hasWozLabel}`);
-
-      // Also check for euro symbol
-      const euroSymbol = page.locator('[data-testid="group-preview-card"]').locator('text=/\u20AC/');
-      const hasEuro = await euroSymbol.first().isVisible().catch(() => false);
-      console.log(`Euro symbol visible: ${hasEuro}`);
-
-      // Verify price is displayed (either via euro symbol or formatted number)
-      expect(hasPrice || hasEuro, 'Price should be visible on preview card (mock property has WOZ value)').toBe(true);
-
-      // Verify Like button exists
-      const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
-      const hasLike = await likeButton.first().isVisible().catch(() => false);
-      console.log(`Like button visible: ${hasLike}`);
-      expect(hasLike, 'Like button should be visible').toBe(true);
-
-      // Verify Comment button exists
-      const commentButton = page.locator('[data-testid="group-preview-comment-button"]').first();
-      const hasComment = await commentButton.first().isVisible().catch(() => false);
-      console.log(`Comment button visible: ${hasComment}`);
-      expect(hasComment, 'Comment button should be visible').toBe(true);
-
-      // Verify Guess button exists
-      const guessButton = page.locator('[data-testid="group-preview-guess-button"]').first();
-      const hasGuess = await guessButton.first().isVisible().catch(() => false);
-      console.log(`Guess button visible: ${hasGuess}`);
-      expect(hasGuess, 'Guess button should be visible').toBe(true);
-
-      // Verify arrow element exists (either pointing up or down depending on card position)
-      const arrowDown = page.locator('[data-testid="group-preview-arrow-down"]');
-      const arrowUp = page.locator('[data-testid="group-preview-arrow-up"]');
-      const hasArrowDown = await arrowDown.isVisible().catch(() => false);
-      const hasArrowUp = await arrowUp.isVisible().catch(() => false);
-      const hasArrow = hasArrowDown || hasArrowUp;
-      console.log(`Arrow visible: ${hasArrow} (down: ${hasArrowDown}, up: ${hasArrowUp})`);
-      expect(hasArrow, 'Preview card should have a visible arrow pointing to the marker').toBe(true);
-
-      // Verify selected marker with pulsing animation exists
-      const selectedMarker = page.locator('[data-testid="selected-marker"]');
-      const hasSelectedMarker = await selectedMarker.isVisible().catch(() => false);
-      console.log(`Selected marker with pulsing animation visible: ${hasSelectedMarker}`);
-      expect(hasSelectedMarker, 'Selected marker should be visible with pulsing animation').toBe(true);
-
-      const markerAlignment = await selectedMarker.evaluate((element) => {
-        const pulse = element.querySelector('.selected-marker-pulse');
-        const dot = element.querySelector('.selected-marker-dot');
-
-        if (!(pulse instanceof HTMLElement) || !(dot instanceof HTMLElement)) {
-          return null;
-        }
-
-        const pulseRect = pulse.getBoundingClientRect();
-        const dotRect = dot.getBoundingClientRect();
-
-        return {
-          deltaX: Math.abs(
-            pulseRect.left + pulseRect.width / 2 - (dotRect.left + dotRect.width / 2)
-          ),
-          deltaY: Math.abs(
-            pulseRect.top + pulseRect.height / 2 - (dotRect.top + dotRect.height / 2)
-          ),
-        };
-      });
-
-      expect(
-        markerAlignment,
-        'Selected marker should render both pulse and dot elements'
-      ).not.toBeNull();
-      expect(
-        markerAlignment!.deltaX,
-        'Selected marker pulse should stay horizontally centered on the selected node'
-      ).toBeLessThan(1);
-      expect(
-        markerAlignment!.deltaY,
-        'Selected marker pulse should stay vertically centered on the selected node'
-      ).toBeLessThan(1);
-
-      // Log the full card content for debugging
-      const cardContent = await previewCard.textContent();
-      console.log(`Full card content: ${cardContent}`);
-
-      // Debug: Log the inner HTML to see what's actually rendered
-      const innerHTML = await previewCard.evaluate(el => el.innerHTML);
-      console.log(`Card innerHTML length: ${innerHTML.length}`);
-
-      // Debug: Check for overflow clipping
-      const styles = await previewCard.evaluate(el => {
-        const computed = window.getComputedStyle(el);
-        return {
-          overflow: computed.overflow,
-          overflowY: computed.overflowY,
-          height: computed.height,
-          maxHeight: computed.maxHeight,
-          display: computed.display,
-          flexDirection: computed.flexDirection,
-        };
-      });
-      console.log(`Card computed styles: ${JSON.stringify(styles)}`);
-
-      // Debug: Get the thumbnail container and image styles
-      const thumbnailDebug = await page.evaluate(() => {
-        const thumb = document.querySelector('[data-testid="property-thumbnail-container"]');
-        if (!thumb) return { found: false };
-        const rect = thumb.getBoundingClientRect();
-        const computed = window.getComputedStyle(thumb);
-
-        // Also check the image inside
-        const img = document.querySelector('[data-testid="property-thumbnail-image"]');
-        let imgInfo = null;
-        if (img) {
-          const imgRect = img.getBoundingClientRect();
-          const imgComputed = window.getComputedStyle(img);
-          imgInfo = {
-            rect: { x: Math.round(imgRect.x), y: Math.round(imgRect.y), w: Math.round(imgRect.width), h: Math.round(imgRect.height) },
-            width: imgComputed.width,
-            height: imgComputed.height,
-          };
-        }
-
-        return {
-          found: true,
-          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-          flexShrink: computed.flexShrink,
-          flexGrow: computed.flexGrow,
-          width: computed.width,
-          height: computed.height,
-          display: computed.display,
-          overflow: computed.overflow,
-          image: imgInfo,
-        };
-      });
-      console.log(`Thumbnail debug: ${JSON.stringify(thumbnailDebug)}`);
-
-      // Debug: Get the parent row container styles
-      const rowDebug = await page.evaluate(() => {
-        const thumb = document.querySelector('[data-testid="property-thumbnail-container"]');
-        if (!thumb || !thumb.parentElement) return { found: false };
-        const parent = thumb.parentElement;
-        const rect = parent.getBoundingClientRect();
-        const computed = window.getComputedStyle(parent);
-        return {
-          found: true,
-          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-          flexDirection: computed.flexDirection,
-          display: computed.display,
-        };
-      });
-      console.log(`Row container debug: ${JSON.stringify(rowDebug)}`);
-
-      // Take a clip-based screenshot of just the card (element screenshot has issues)
-      const cardBox = await previewCard.boundingBox();
-      if (cardBox) {
-        const padding = 10;
-        await page.screenshot({
-          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-elements.png`,
-          clip: {
-            x: Math.max(0, cardBox.x - padding),
-            y: Math.max(0, cardBox.y - padding),
-            width: cardBox.width + padding * 2,
-            height: cardBox.height + padding * 2,
-          },
-        });
-        console.log(`Card dimensions: ${cardBox.width}x${cardBox.height} at (${cardBox.x}, ${cardBox.y})`);
-      }
-    }
-
-    expect(previewVisible, 'Preview card should appear when clicking a property marker').toBe(true);
   });
 
   test('verify card tap opens bottom sheet', async ({ page }) => {

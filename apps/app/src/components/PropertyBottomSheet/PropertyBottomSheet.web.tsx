@@ -217,6 +217,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const showBackdrop = !isLandscape
       ? (sheetState === 'partial' || sheetState === 'full')
       : isOpen;
+    const backdropBlocksInteraction = showBackdrop && !isPreviewCardVisible;
 
     // Helper to update state and notify parent
     const updateState = useCallback((newState: SheetState) => {
@@ -233,14 +234,15 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onClose?.();
     }, [updateState, minState, onClose]);
 
-    // When preview card appears/disappears, auto-transition to appropriate state
+    // When preview card appears/disappears, auto-transition to appropriate state.
+    // In landscape the map preview route still needs the full panel to open,
+    // so we mirror the preview-visible behavior there instead of staying closed.
     useEffect(() => {
-      if (isLandscape) return;
-      if (isPreviewCardVisible && sheetState === 'closed') {
-        // Preview card just appeared — show the handle peek (matches native index={0})
-        updateState('peek');
-      } else if (!isPreviewCardVisible && sheetState !== 'closed') {
-        // Preview card disappeared — fully close the sheet
+      if (isPreviewCardVisible) {
+        if (sheetState === 'closed' || (isLandscape && sheetState !== 'full')) {
+          updateState(isLandscape ? 'full' : 'peek');
+        }
+      } else if (sheetState !== 'closed') {
         updateState('closed');
       }
     }, [isPreviewCardVisible, isLandscape]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -507,8 +509,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       <>
         {/* Backdrop */}
         <div
-          className={`web-property-panel-backdrop ${showBackdrop ? 'open' : ''}`}
+          className={`web-property-panel-backdrop ${showBackdrop ? 'open' : ''} ${backdropBlocksInteraction ? '' : 'preview-open'}`}
           onClick={handleBackdropClick}
+          style={{ pointerEvents: backdropBlocksInteraction ? 'auto' : 'none' }}
           data-testid="web-panel-backdrop"
         />
 

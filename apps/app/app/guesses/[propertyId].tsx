@@ -7,18 +7,19 @@
  * recent guesses list, and a sticky "Make Your Guess" CTA at the bottom.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   Pressable,
+  TouchableOpacity,
   ScrollView,
   Platform,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
 import { useIsLandscape } from '@/src/hooks/useIsLandscape';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { Redirect, Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
@@ -39,6 +40,12 @@ import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
+import {
+  buildPropertyMapRoute,
+  buildPropertyRoute,
+  normalizePropertyReturnTarget,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -232,11 +239,22 @@ function GuessEntry({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────
 
-export default function GuessesPage() {
-  const { propertyId } = useLocalSearchParams<{ propertyId: string }>();
+export interface GuessesRouteScreenProps {
+  propertyId?: string | null;
+  returnTo?: string | string[] | null;
+  onNavigate?: (path: string) => void;
+}
+
+export function GuessesRouteScreen({
+  propertyId,
+  returnTo,
+  onNavigate,
+}: GuessesRouteScreenProps) {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const isLandscape = useIsLandscape();
+  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const lastCloseAtRef = useRef(0);
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSlider, setShowSlider] = useState(false);
@@ -325,25 +343,84 @@ export default function GuessesPage() {
   const divergence = guessData?.fmv?.divergence ?? null;
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const navigateToTarget = useCallback((targetHref: string) => {
+    if (onNavigate) {
+      onNavigate(targetHref);
+      return;
+    }
+
+    const href = toInternalAppHref(targetHref);
+    if (Platform.OS === 'web') {
+      router.navigate(href);
+      return;
+    }
+
+    router.replace(href);
+  }, [onNavigate]);
+
+  const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.dismissTo(fallbackHref);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    if (normalizedReturnTarget) {
+      navigateToTarget(normalizedReturnTarget);
+      return;
+    }
+
+    if (property) {
+      const propertyRoute = buildPropertyRoute(property, buildPropertyMapRoute(property));
+      navigateToTarget(propertyRoute);
+      return;
+    }
+
+    if (Platform.OS !== 'web' && router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    navigateBackOrFallback('/');
+  }, [navigateBackOrFallback, navigateToTarget, normalizedReturnTarget, property]);
+
+  const triggerClose = useCallback(() => {
+    const now = Date.now();
+    if (now - lastCloseAtRef.current < 250) {
+      return;
+    }
+
+    lastCloseAtRef.current = now;
+    handleClose();
+  }, [handleClose]);
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title="Price Guesses">
+      <ResponsivePanel title="Price Guesses" onClose={triggerClose}>
         <View style={styles.container}>
           {/* Header — hidden in landscape since ResponsivePanel already shows the title */}
           {!isLandscape && (
-            <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-              <Pressable
-                onPress={() => router.back()}
-                style={styles.headerBackButton}
-                testID="guesses-back-button"
-                accessibilityRole="button"
+          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
+            <TouchableOpacity
+              onPress={triggerClose}
+              style={styles.headerBackButton}
+              testID="guesses-back-button"
+              accessibilityRole="button"
                 accessibilityLabel="Go back"
+                activeOpacity={0.8}
               >
                 <Icon name="ArrowLeft" size={20} color="#504A42" />
-              </Pressable>
+              </TouchableOpacity>
               <Text style={styles.headerTitle}>Price Guesses</Text>
             </View>
           )}
@@ -491,6 +568,10 @@ export default function GuessesPage() {
   );
 }
 
+export default function GuessesPage() {
+  return <Redirect href="/" />;
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -513,6 +594,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF8F0',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 4,
   },
   headerTitle: {
     fontSize: 18,

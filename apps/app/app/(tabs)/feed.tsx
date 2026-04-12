@@ -8,6 +8,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   ActivityFeedCard,
@@ -30,7 +31,11 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { extractCanonicalRouteInput } from '@/src/lib/mapRoute';
+import { api } from '@/src/utils/api';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
+import type { ActivityProperty, PropertyDetails } from '@/src/hooks';
 
 // --- Header title per filter ---
 
@@ -44,6 +49,7 @@ export default function FeedScreen() {
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
+  const queryClient = useQueryClient();
 
   const headerRightAction = useMemo(
     () => (
@@ -108,9 +114,31 @@ export default function FeedScreen() {
     setActiveFilter(filter);
   }, []);
 
-  const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(buildPropertyRoute(propertyId, '/feed'));
+  const handleFeedPropertyPress = useCallback((property: FeedProperty) => {
+    const routeInput = extractCanonicalRouteInput({
+      address: property.address,
+      city: property.city,
+      postalCode: property.postalCode,
+      countryCode: property.countryCode,
+    });
+
+    if (!routeInput) {
+      console.error('Failed to build canonical property route from feed item:', property.id);
+      return;
+    }
+
+    router.push(toInternalAppHref(buildPropertyRoute(routeInput, '/feed')));
   }, []);
+
+  const handleActivityPropertyPress = useCallback(async (property: ActivityProperty) => {
+    try {
+      const resolvedProperty = await api.get<PropertyDetails>(`/properties/${property.id}`);
+      primePropertyDetailCache(queryClient, resolvedProperty);
+      router.push(toInternalAppHref(buildPropertyRoute(resolvedProperty, '/feed')));
+    } catch (error) {
+      console.error('Failed to resolve canonical property route from feed:', error);
+    }
+  }, [queryClient]);
 
   const handleLoadMore = useCallback(() => {
     if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
@@ -140,10 +168,10 @@ export default function FeedScreen() {
         viewCount={item.viewCount}
         yearBuilt={item.yearBuilt}
         floorAreaM2={item.floorAreaM2}
-        onPress={() => handlePropertyPress(item.id)}
+        onPress={() => handleFeedPropertyPress(item)}
       />
     ),
-    [handlePropertyPress]
+    [handleFeedPropertyPress]
   );
 
   // --- Activity feed render ---
@@ -156,10 +184,12 @@ export default function FeedScreen() {
         actor={item.actor}
         property={item.property}
         createdAt={item.createdAt}
-        onPress={() => handlePropertyPress(item.property.id)}
+        onPress={() => {
+          void handleActivityPropertyPress(item.property);
+        }}
       />
     ),
-    [handlePropertyPress]
+    [handleActivityPropertyPress]
   );
 
   const propertyKeyExtractor = useCallback(

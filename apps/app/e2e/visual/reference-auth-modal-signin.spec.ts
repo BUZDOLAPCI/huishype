@@ -152,7 +152,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2000);
 
     // Check if property preview card appeared
-    let previewVisible = await page.locator('[class*="PropertyPreviewCard"], [class*="preview"]').first().isVisible().catch(() => false);
+    const previewCard = page.getByTestId('group-preview-card');
+    let previewVisible = await previewCard.isVisible().catch(() => false);
     console.log(`Property preview visible: ${previewVisible}`);
 
     // If no preview, try clicking at different positions
@@ -167,17 +168,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of positions) {
         await page.mouse.click(pos.x, pos.y);
         await page.waitForTimeout(1500);
-        previewVisible = await page.locator('[class*="PropertyPreviewCard"], [class*="preview"]').first().isVisible().catch(() => false);
+        previewVisible = await previewCard.isVisible().catch(() => false);
         if (previewVisible) break;
       }
     }
 
-    // If we have a preview, click it to expand bottom sheet
+    // If we have a preview, use the preview card's comment action to open the comments section.
     if (previewVisible) {
-      console.log('Preview visible, clicking to expand bottom sheet');
-      // Click on the preview card to open bottom sheet
-      const previewCard = page.locator('[class*="PropertyPreviewCard"], [class*="preview"]').first();
-      await previewCard.click();
+      console.log('Preview visible, opening comments from the preview card');
+      const commentButton = page.getByTestId('group-preview-comment-button');
+      await expect(commentButton).toBeVisible({ timeout: 10000 });
+      await commentButton.click();
       await page.waitForTimeout(2000);
     }
 

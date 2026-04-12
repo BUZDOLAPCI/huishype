@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 /**
@@ -12,8 +12,26 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
  * state and redirects to home once auth completes (or shows an error).
  */
 export default function AuthCallbackScreen() {
-  const { isAuthenticated, isLoading, authError } = useAuthContext();
+  const { emailToken } = useLocalSearchParams<{ emailToken?: string | string[] }>();
+  const { isAuthenticated, isLoading, authError, verifyEmailToken } = useAuthContext();
   const [timedOut, setTimedOut] = useState(false);
+  const verifiedTokenRef = useRef<string | null>(null);
+
+  const resolvedEmailToken = Array.isArray(emailToken) ? emailToken[0] : emailToken;
+
+  useEffect(() => {
+    if (
+      !resolvedEmailToken ||
+      isAuthenticated ||
+      isLoading ||
+      verifiedTokenRef.current === resolvedEmailToken
+    ) {
+      return;
+    }
+
+    verifiedTokenRef.current = resolvedEmailToken;
+    void verifyEmailToken(resolvedEmailToken).catch(() => {});
+  }, [isAuthenticated, isLoading, resolvedEmailToken, verifyEmailToken]);
 
   // Redirect to home once authenticated
   useEffect(() => {
@@ -33,13 +51,14 @@ export default function AuthCallbackScreen() {
   // Show error immediately when verification fails
   if ((authError || timedOut) && !isAuthenticated) {
     return (
-      <View className="flex-1 items-center justify-center bg-surface-card p-8">
+      <View className="flex-1 items-center justify-center bg-surface-card p-8" testID="auth-callback-error">
         <Text className="text-lg font-semibold text-warm-900 mb-2">
-          {authError || 'Link expired or invalid'}
+          {authError || 'Invalid or expired link'}
         </Text>
         <Text
           className="text-sm text-primary-600 mt-4"
           onPress={() => router.replace('/')}
+          testID="auth-callback-home-link"
         >
           Go to home screen
         </Text>
@@ -48,7 +67,7 @@ export default function AuthCallbackScreen() {
   }
 
   return (
-    <View className="flex-1 items-center justify-center bg-surface-card">
+    <View className="flex-1 items-center justify-center bg-surface-card" testID="auth-callback-loading">
       <ActivityIndicator size="large" />
       <Text className="mt-4 text-warm-600">
         {isLoading ? 'Signing you in...' : 'Verifying your link...'}

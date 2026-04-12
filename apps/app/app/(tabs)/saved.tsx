@@ -10,6 +10,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { PropertyFeedCard, FeedLoadingMore, AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
@@ -18,12 +19,16 @@ import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { FeedProperty } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
+import { api } from '@/src/utils/api';
+import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 export default function SavedScreen() {
   const { user } = useAuthContext();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const queryClient = useQueryClient();
 
   const {
     data,
@@ -49,9 +54,15 @@ export default function SavedScreen() {
     setIsRefreshing(false);
   }, [refetch]);
 
-  const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(buildPropertyRoute(propertyId, '/saved'));
-  }, []);
+  const handlePropertyPress = useCallback(async (propertyId: string) => {
+    try {
+      const property = await api.get<PropertyDetails>(`/properties/${propertyId}`);
+      primePropertyDetailCache(queryClient, property);
+      router.push(toInternalAppHref(buildPropertyRoute(property, '/saved')));
+    } catch (error) {
+      console.error('Failed to resolve canonical property route from saved:', error);
+    }
+  }, [queryClient]);
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -78,7 +89,9 @@ export default function SavedScreen() {
         viewCount={item.viewCount}
         yearBuilt={item.yearBuilt}
         floorAreaM2={item.floorAreaM2}
-        onPress={() => handlePropertyPress(item.id)}
+        onPress={() => {
+          void handlePropertyPress(item.id);
+        }}
       />
     ),
     [handlePropertyPress]

@@ -26,8 +26,6 @@ appId: nl.huishype.app
     text: 'Continue'
     optional: true
 - waitForAnimationToEnd
-- pressKey: back
-- waitForAnimationToEnd
 
 # Wait for the map to fully load (JS bundle cold start after clearState can take 2+ min)
 - extendedWaitUntil:

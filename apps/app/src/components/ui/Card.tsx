@@ -35,7 +35,6 @@ export function Card({
   const content = (
     <View
       style={[styles.card, shadowStyle, style]}
-      testID={testID}
       className="shadow-card"
     >
       {children}
@@ -44,9 +43,25 @@ export function Card({
 
   if (onPress) {
     return (
-      <Pressable onPress={onPress} accessibilityRole="button">
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        testID={testID}
+      >
         {content}
       </Pressable>
+    );
+  }
+
+  if (testID) {
+    return (
+      <View
+        style={[styles.card, shadowStyle, style]}
+        testID={testID}
+        className="shadow-card"
+      >
+        {children}
+      </View>
     );
   }
 

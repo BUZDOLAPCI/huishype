@@ -15,13 +15,11 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
 
 // Configuration
 const EXPECTATION_NAME = 'price-guess-slider-ui';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-
-// Center on Eindhoven (properties with data)
-const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -98,28 +96,36 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test('capture price guess slider UI for visual comparison', async ({ page }) => {
     test.setTimeout(90000);
 
-    // Fetch a property ID directly from the API
+    // Fetch a property with a canonical route directly from the API
     const apiBaseUrl = 'http://localhost:3100';
-    let propertyId: string | null = null;
+    let propertyPath: string | null = null;
 
     try {
       const response = await page.request.get(`${apiBaseUrl}/properties?limit=1&city=Eindhoven`);
       const data = await response.json();
       if (data.data && data.data.length > 0) {
-        propertyId = data.data[0].id;
-        console.log('Found property from API:', propertyId, data.data[0].address);
+        const property = data.data[0];
+        propertyPath = buildCanonicalPropertyPath({
+          countryCode: property.countryCode,
+          city: property.city,
+          postalCode: property.postalCode,
+          streetName: property.street,
+          houseNumber: property.houseNumber,
+          houseNumberAddition: property.houseNumberAddition,
+        });
+        console.log('Found property from API:', property.id, property.address);
       }
-    } catch (e) {
+    } catch {
       console.log('Could not fetch property from API');
     }
 
-    if (!propertyId) {
+    if (!propertyPath) {
       console.log('No property found, skipping test');
       return;
     }
 
     // Navigate to the property detail page
-    await page.goto(`/property/${propertyId}`);
+    await page.goto(propertyPath);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
@@ -193,7 +199,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test('verify price guess slider UI elements', async ({ page }) => {
     // Fetch a property with WOZ value from the API
     const apiBaseUrl = 'http://localhost:3100';
-    let propertyId: string | null = null;
+    let propertyPath: string | null = null;
     let propertyWozValue: number | null = null;
 
     try {
@@ -203,21 +209,28 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         // Find a property with a WOZ value if possible
         const propertyWithWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
         const selectedProperty = propertyWithWoz || data.data[0];
-        propertyId = selectedProperty.id;
+        propertyPath = buildCanonicalPropertyPath({
+          countryCode: selectedProperty.countryCode,
+          city: selectedProperty.city,
+          postalCode: selectedProperty.postalCode,
+          streetName: selectedProperty.street,
+          houseNumber: selectedProperty.houseNumber,
+          houseNumberAddition: selectedProperty.houseNumberAddition,
+        });
         propertyWozValue = selectedProperty.officialValuation;
-        console.log('Selected property:', propertyId, 'WOZ value:', propertyWozValue);
+        console.log('Selected property:', selectedProperty.id, 'WOZ value:', propertyWozValue);
       }
-    } catch (e) {
+    } catch {
       console.log('Could not fetch property from API');
     }
 
-    if (!propertyId) {
+    if (!propertyPath) {
       console.log('No property found, skipping element verification');
       return;
     }
 
     // Navigate to the property detail page
-    await page.goto(`/property/${propertyId}`);
+    await page.goto(propertyPath);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 

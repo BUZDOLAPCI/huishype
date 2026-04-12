@@ -7,8 +7,9 @@
  * - Saved tab displays saved properties list via API
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
+import { clickTabBarItem, navigateClientSide, waitForMapReady } from '../integration/helpers';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 const SCREENSHOT_DIR = 'test-results/flows';
@@ -75,16 +76,8 @@ test.describe('Saved Screen Flow', () => {
 
   test('Saved tab shows auth-required state when not logged in', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-
-    // Navigate to Saved tab
-    const savedTab = page.getByRole('tab', { name: /saved/i }).or(
-      page.locator('a[href*="saved"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Saved')
-    );
-
-    await savedTab.first().click();
+    await waitForMapReady(page);
+    await navigateClientSide(page, '/saved');
 
     // Wait for saved screen to render
     await Promise.race([
@@ -111,24 +104,12 @@ test.describe('Saved Screen Flow', () => {
 
   test('Saved tab auth overlay does NOT block tab bar navigation', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-
-    // Navigate to Saved tab
-    const savedTab = page.getByRole('tab', { name: /saved/i }).or(
-      page.locator('a[href*="saved"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Saved')
-    );
-    await savedTab.first().click();
+    await waitForMapReady(page);
+    await navigateClientSide(page, '/saved');
     await page.waitForTimeout(1500);
 
     // Try to navigate away from Saved by clicking Map tab
-    const mapTab = page.getByRole('tab', { name: /map/i }).or(
-      page.locator('a[href="/"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Map')
-    );
-    await mapTab.first().click();
+    await clickTabBarItem(page, 'index');
     await page.waitForTimeout(2000);
 
     // Should navigate back to map

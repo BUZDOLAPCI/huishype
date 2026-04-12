@@ -9,7 +9,6 @@
  * without any panel chrome since the route already handles safe areas.
  */
 import { useCallback, useEffect, type ReactNode } from 'react';
-import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { Icon } from './Icon';
@@ -18,7 +17,7 @@ export interface ResponsivePanelProps {
   children: ReactNode;
   /** Title shown in the panel header (landscape mode). */
   title?: string;
-  /** Called when the panel is dismissed. Defaults to `router.back()`. */
+  /** Called when the panel is dismissed. Defaults to a no-op. */
   onClose?: () => void;
 }
 
@@ -116,11 +115,7 @@ export function ResponsivePanel({ children, title, onClose }: ResponsivePanelPro
   const isLandscape = useIsLandscape();
 
   const handleClose = useCallback(() => {
-    if (onClose) {
-      onClose();
-    } else {
-      router.back();
-    }
+    onClose?.();
   }, [onClose]);
 
   // Dismiss on Escape key (landscape panel only)

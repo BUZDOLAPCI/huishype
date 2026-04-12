@@ -1,0 +1,28 @@
+appId: nl.huishype.app
+---
+# Clear Expo dev-client prompts and wait for the live map root before the
+# canonical deep link is dispatched by the runner.
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: 'Close'
+    optional: true
+- tapOn:
+    text: 'Continue'
+    optional: true
+- tapOn:
+    text: 'Go home'
+    optional: true
+- tapOn:
+    text: 'http://localhost:8081'
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-focus-target'
+    timeout: 120000
+
+- assertVisible:
+    id: 'search-bar-focus-target'
+
+- assertVisible: 'Map'

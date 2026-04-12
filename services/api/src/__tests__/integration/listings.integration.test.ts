@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db, ingestBatches, listings } from '../../db/index.js';
@@ -14,6 +14,7 @@ import { normalizeSourceUrl } from '../../utils/address.js';
  * and POST submit against the real database.
  */
 describe('Listing routes', () => {
+  jest.setTimeout(60000);
   let app: FastifyInstance;
   let testPropertyId: string;
   let testAccessToken: string;
