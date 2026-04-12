@@ -1101,6 +1101,37 @@ describe('useMapInteraction', () => {
       );
     });
 
+    it('prefers structured preview fields over a conflicting address when building route links', () => {
+      const { router } = require('expo-router');
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-789',
+            address: 'Pisanostraat 230',
+            city: 'Eindhoven',
+            postalCode: '5623 CH',
+            countryCode: 'NL',
+            street: 'Deflectiespoelstraat',
+            houseNumber: '16',
+            houseNumberAddition: 'A',
+          }],
+          coordinate: [5.45, 51.43],
+        });
+      });
+
+      act(() => {
+        result.current.handleCommentPress('prop-789');
+      });
+
+      expect(router.push).toHaveBeenCalledWith(
+        '/eindhoven/5623ch/deflectiespoelstraat/16-a/comments',
+      );
+    });
+
     it('does not navigate when canonical route data is unavailable', () => {
       const { router } = require('expo-router');
       const { result } = renderHook(() => useMapInteraction(), {
@@ -1288,6 +1319,61 @@ describe('useMapInteraction', () => {
         expect(result.current.previewGroup?.properties[0]?.aerialImageUrl).toBe(
           'https://preview-cache.test/pdok.png',
         );
+      });
+    });
+
+    it('keeps preview route metadata on the hydrated selectedPropertyForSheet', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St, 1012AB Amsterdam',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: null,
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 250000,
+          thumbnailUrl: null,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St, 1012AB Amsterdam',
+            city: 'Amsterdam',
+            postalCode: '1012AB',
+            streetName: 'Main St',
+            street: 'Main St',
+            houseNumber: '123',
+            houseNumberAddition: null,
+            thumbnailUrl: null,
+            aerialImageUrl: null,
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.selectedPropertyForSheet).toMatchObject({
+          id: 'prop-1',
+          streetName: 'Main St',
+          street: 'Main St',
+          houseNumber: '123',
+          houseNumberAddition: null,
+        });
       });
     });
 

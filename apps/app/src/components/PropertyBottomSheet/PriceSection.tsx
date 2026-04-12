@@ -205,10 +205,10 @@ export function PriceSection({ property }: SectionProps) {
       </View>
 
       <PriceComparisonBar
-        officialValuation={officialValuation}
-        askingPrice={askingPrice}
-        fmv={fmv}
-        countryCode={countryCode}
+        officialValuation={officialValuation ?? null}
+        askingPrice={askingPrice ?? undefined}
+        fmv={fmv ?? undefined}
+        countryCode={countryCode ?? undefined}
       />
     </SectionCard>
   );

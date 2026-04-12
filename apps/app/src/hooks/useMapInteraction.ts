@@ -11,6 +11,7 @@ import { useRef, useCallback, useState, useEffect, useMemo, startTransition } fr
 import { router, type Href } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
+import { normalizePropertyFmv, toPropertyDetails, type PropertyDetailsData } from '@/src/components/PropertyBottomSheet/types';
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
@@ -44,6 +45,7 @@ import {
 /** State for the geo-anchored preview card (single or cluster). */
 export interface PreviewRouteMetadata {
   streetName?: string | null;
+  street?: string | null;
   houseNumber?: string | number | null;
   houseNumberAddition?: string | null;
 }
@@ -75,7 +77,7 @@ export interface UseMapInteractionReturn {
   highlightedCoordinate: [number, number] | null;
   setHighlightedCoordinate: (coordinate: [number, number] | null) => void;
   selectedProperty: ReturnType<typeof useProperty>['data'];
-  selectedPropertyForSheet: ReturnType<typeof useProperty>['data'];
+  selectedPropertyForSheet: PropertyDetailsData | null;
   selectedPropertyLoading: boolean;
 
   // ── Preview group state ─────────────────────────────────────
@@ -150,6 +152,7 @@ export interface ToGroupPropertyInput {
   city: string;
   postalCode?: string | null;
   countryCode?: string | null;
+  street?: string | null;
   streetName?: string | null;
   houseNumber?: string | number | null;
   houseNumberAddition?: string | null;
@@ -278,7 +281,13 @@ function mergeHydratedPreviewProperty(
     thumbnailUrl: mergedThumbnailUrl,
     yearBuilt: selectedProperty.yearBuilt,
     floorAreaM2: selectedProperty.floorAreaM2,
-    streetName: currentProperty.streetName ?? typedSelectedProperty.streetName ?? null,
+    streetName:
+      currentProperty.streetName ??
+      typedSelectedProperty.streetName ??
+      typedSelectedProperty.street ??
+      currentProperty.street ??
+      null,
+    street: currentProperty.street ?? typedSelectedProperty.street ?? null,
     houseNumber: currentProperty.houseNumber ?? typedSelectedProperty.houseNumber ?? null,
     houseNumberAddition:
       currentProperty.houseNumberAddition ??
@@ -330,7 +339,8 @@ function convertToGroupProperty(
     city: p.city,
     postalCode: p.postalCode,
     countryCode,
-    streetName: p.streetName ?? null,
+    streetName: p.streetName ?? p.street ?? null,
+    street: p.street ?? null,
     houseNumber: p.houseNumber ?? null,
     houseNumberAddition: p.houseNumberAddition ?? null,
     officialValuation: p.officialValuation,
@@ -372,13 +382,20 @@ export function useMapInteraction(): UseMapInteractionReturn {
       : null;
   const { data: selectedProperty, isLoading: selectedPropertyLoading } = useProperty(selectedPropertyQueryId);
 
-  const selectedPropertyForSheet = useMemo(() => {
+  const selectedPropertyForSheet = useMemo<PropertyDetailsData | null>(() => {
     if (!selectedPropertyId) {
       return null;
     }
 
+    const selectedPropertyRoute = selectedProperty as
+      | (NonNullable<ReturnType<typeof useProperty>['data']> & PreviewRouteMetadata)
+      | null;
     const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
     const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
+    const previewStreetName = currentPreviewProperty?.streetName ?? currentPreviewProperty?.street ?? null;
+    const previewStreet = currentPreviewProperty?.street ?? currentPreviewProperty?.streetName ?? null;
+    const previewHouseNumber = currentPreviewProperty?.houseNumber ?? null;
+    const previewHouseNumberAddition = currentPreviewProperty?.houseNumberAddition ?? null;
 
     if (!selectedProperty) {
       if (!currentPreviewProperty) {
@@ -387,24 +404,56 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
       return {
         ...currentPreviewProperty,
+        countryCode: currentPreviewProperty.countryCode ?? undefined,
+        streetName: previewStreetName,
+        street: previewStreet,
+        houseNumber: previewHouseNumber,
+        houseNumberAddition: previewHouseNumberAddition,
         aerialImageUrl: previewAerialImageUrl ?? null,
         thumbnailUrl: previewThumbnailUrl ?? null,
+        officialValuation: currentPreviewProperty.officialValuation ?? undefined,
+        askingPrice: currentPreviewProperty.askingPrice ?? undefined,
+        fmv: normalizePropertyFmv(
+          currentPreviewProperty.fmv,
+          currentPreviewProperty.officialValuation ?? null,
+          currentPreviewProperty.askingPrice ?? null,
+        ),
+        activityLevel: currentPreviewProperty.activityLevel ?? 'cold',
+        commentCount: currentPreviewProperty.commentCount ?? 0,
+        guessCount: currentPreviewProperty.guessCount ?? 0,
         viewCount: currentPreviewProperty.viewCount ?? 0,
-      } as ReturnType<typeof useProperty>['data'];
+        likeCount: currentPreviewProperty.likeCount ?? 0,
+      };
     }
 
     const derivedAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
     const aerialImageUrl = selectedProperty.aerialImageUrl ?? previewAerialImageUrl ?? derivedAerialImageUrl ?? null;
     const thumbnailUrl = selectedProperty.thumbnailUrl ?? previewThumbnailUrl ?? null;
+    const streetName = selectedPropertyRoute?.streetName ?? previewStreetName ?? null;
+    const street = selectedPropertyRoute?.street ?? previewStreet ?? null;
+    const houseNumber = selectedPropertyRoute?.houseNumber ?? previewHouseNumber ?? null;
+    const houseNumberAddition =
+      selectedPropertyRoute?.houseNumberAddition ?? previewHouseNumberAddition ?? null;
     if (
       selectedProperty.aerialImageUrl === aerialImageUrl &&
       selectedProperty.thumbnailUrl === thumbnailUrl
+      && selectedPropertyRoute?.streetName === streetName
+      && selectedPropertyRoute?.street === street
+      && selectedPropertyRoute?.houseNumber === houseNumber
+      && selectedPropertyRoute?.houseNumberAddition === houseNumberAddition
     ) {
-      return selectedProperty;
+      return toPropertyDetails(selectedProperty);
     }
 
     return {
       ...selectedProperty,
+      countryCode: selectedProperty.countryCode ?? undefined,
+      streetName,
+      street,
+      houseNumber,
+      houseNumberAddition,
+      officialValuation: selectedProperty.officialValuation ?? undefined,
+      askingPrice: selectedProperty.askingPrice ?? undefined,
       aerialImageUrl,
       thumbnailUrl,
     };
@@ -578,10 +627,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   const getCurrentCanonicalRouteInput = useCallback(() => {
-    const selectedPropertyRouteInput = extractCanonicalRouteInput(
-      (selectedPropertyForSheet as (typeof selectedPropertyForSheet & PreviewRouteMetadata) | null) ??
-        null,
-    );
+    const selectedPropertyRouteInput = extractCanonicalRouteInput(selectedPropertyForSheet);
     if (selectedPropertyRouteInput) {
       return selectedPropertyRouteInput;
     }
@@ -707,6 +753,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           countryCode: group.countryCode ?? null,
         });
         const previewStreetName = group.streetName ?? routeMetadata?.streetName ?? null;
+        const previewStreet = group.streetName ?? routeMetadata?.streetName ?? null;
         const previewHouseNumber = group.houseNumber ?? routeMetadata?.houseNumber ?? null;
         const previewHouseNumberAddition =
           group.houseNumberAddition ?? routeMetadata?.houseNumberAddition ?? null;
@@ -725,6 +772,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
               postalCode: group.postalCode ?? null,
               countryCode: previewCountryCode,
               streetName: previewStreetName,
+              street: previewStreet,
               houseNumber: previewHouseNumber,
               houseNumberAddition: previewHouseNumberAddition,
               officialValuation: group.officialValuation ?? null,
@@ -770,6 +818,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           countryCode: result.countryCode ?? null,
         });
         const previewStreetName = result.streetName ?? routeMetadata?.streetName ?? null;
+        const previewStreet = result.streetName ?? routeMetadata?.streetName ?? null;
         const previewHouseNumber = result.houseNumber ?? routeMetadata?.houseNumber ?? null;
         const previewHouseNumberAddition =
           result.houseNumberAddition ?? routeMetadata?.houseNumberAddition ?? null;
@@ -792,6 +841,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
               postalCode: result.postalCode,
               countryCode: previewCountryCode,
               streetName: previewStreetName,
+              street: previewStreet,
               houseNumber: previewHouseNumber,
               houseNumberAddition: previewHouseNumberAddition,
               officialValuation: result.officialValuation,
@@ -895,6 +945,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
             postalCode: property.postalCode ?? null,
             countryCode,
             streetName: resolvedAddress?.details.street ?? null,
+            street: resolvedAddress?.details.street ?? null,
             houseNumber:
               resolvedAddress?.details.houseNumber ??
               null,
