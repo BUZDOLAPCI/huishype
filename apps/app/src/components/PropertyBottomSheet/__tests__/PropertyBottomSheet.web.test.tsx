@@ -1,7 +1,11 @@
 import React from 'react';
 import { act, render, waitFor } from '@testing-library/react-native';
 
-import { PropertyBottomSheet } from '../PropertyBottomSheet.web';
+import {
+  PropertyBottomSheet,
+  getDirectionalSnapState,
+  getNearestSnapState,
+} from '../PropertyBottomSheet.web';
 import type { PropertyDetails } from '../../../hooks/useProperties';
 
 const mockPropertyContent = jest.fn<void, [any]>();
@@ -76,7 +80,7 @@ describe('PropertyBottomSheet.web', () => {
     }));
   });
 
-  it('keeps PropertyContent hidden when preview becomes visible until explicitly opened', async () => {
+  it('enters peek state in portrait when preview becomes visible', async () => {
     setWindowSize(390, 844);
     const ref = React.createRef<any>();
 
@@ -94,11 +98,11 @@ describe('PropertyBottomSheet.web', () => {
       expect(lastProps).toEqual(expect.objectContaining({
         property,
         isLoading: false,
-        isVisible: false,
+        isVisible: true,
       }));
     });
 
-    expect(ref.current?.getCurrentIndex()).toBe(-1);
+    expect(ref.current?.getCurrentIndex()).toBe(0);
   });
 
   it('does not auto-open details in landscape when preview is visible', async () => {
@@ -171,5 +175,39 @@ describe('PropertyBottomSheet.web', () => {
         isVisible: true,
       }));
     });
+  });
+});
+
+describe('getNearestSnapState', () => {
+  it('allows skipping from peek straight to full when released near full', () => {
+    expect(getNearestSnapState(12, 'peek')).toBe('full');
+  });
+
+  it('allows skipping from full straight back to peek when released near peek', () => {
+    expect(getNearestSnapState(90, 'peek')).toBe('peek');
+  });
+
+  it('snaps to the closest allowed state', () => {
+    expect(getNearestSnapState(60, 'peek')).toBe('partial');
+    expect(getNearestSnapState(80, 'closed')).toBe('closed');
+  });
+});
+
+describe('getDirectionalSnapState', () => {
+  it('does not revert an upward drag once movement passes the threshold', () => {
+    expect(getDirectionalSnapState('peek', 86, 'peek')).toBe('partial');
+  });
+
+  it('does not revert a downward drag once movement passes the threshold', () => {
+    expect(getDirectionalSnapState('full', 12, 'peek')).toBe('partial');
+  });
+
+  it('still allows skipping states when the release point is near a farther snap', () => {
+    expect(getDirectionalSnapState('peek', 8, 'peek')).toBe('full');
+    expect(getDirectionalSnapState('full', 94, 'peek')).toBe('peek');
+  });
+
+  it('uses nearest snap behavior for very small movements', () => {
+    expect(getDirectionalSnapState('partial', 56, 'peek')).toBe('partial');
   });
 });

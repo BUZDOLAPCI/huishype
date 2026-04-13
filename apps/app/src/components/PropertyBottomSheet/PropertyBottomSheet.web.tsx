@@ -40,6 +40,91 @@ const SNAP_POINTS: Record<Exclude<SheetState, 'closed'>, number> = {
   full: 0,       // 100% visible
 };
 
+function getSnapPercent(state: SheetState): number {
+  return state === 'closed' ? 100 : SNAP_POINTS[state];
+}
+
+function getAllowedSnapStates(minState: SheetState): SheetState[] {
+  return minState === 'peek'
+    ? ['peek', 'partial', 'full']
+    : ['closed', 'partial', 'full'];
+}
+
+function getAdjacentSnapState(
+  state: SheetState,
+  direction: 'up' | 'down',
+  minState: SheetState,
+): SheetState {
+  const allowedStates = getAllowedSnapStates(minState);
+  const currentIndex = allowedStates.indexOf(state);
+
+  if (currentIndex === -1) {
+    return state;
+  }
+
+  if (direction === 'up') {
+    return allowedStates[Math.min(currentIndex + 1, allowedStates.length - 1)];
+  }
+
+  return allowedStates[Math.max(currentIndex - 1, 0)];
+}
+
+function clampDraggedPercent(percent: number, minState: SheetState): number {
+  return Math.max(
+    getSnapPercent('full'),
+    Math.min(getSnapPercent(minState), percent),
+  );
+}
+
+const DIRECTIONAL_SNAP_THRESHOLD_PERCENT = 10;
+
+export function getNearestSnapState(
+  percent: number,
+  minState: SheetState,
+): SheetState {
+  const clampedPercent = clampDraggedPercent(percent, minState);
+  const allowedStates = getAllowedSnapStates(minState);
+
+  return allowedStates.reduce((closestState, candidateState) => {
+    const closestDistance = Math.abs(
+      clampedPercent - getSnapPercent(closestState),
+    );
+    const candidateDistance = Math.abs(
+      clampedPercent - getSnapPercent(candidateState),
+    );
+
+    return candidateDistance < closestDistance ? candidateState : closestState;
+  });
+}
+
+export function getDirectionalSnapState(
+  fromState: SheetState,
+  draggedPercent: number,
+  minState: SheetState,
+  directionalThresholdPercent = DIRECTIONAL_SNAP_THRESHOLD_PERCENT,
+): SheetState {
+  const nearestState = getNearestSnapState(draggedPercent, minState);
+  const fromPercent = getSnapPercent(fromState);
+  const movementDelta = draggedPercent - fromPercent;
+
+  if (Math.abs(movementDelta) < directionalThresholdPercent) {
+    return nearestState;
+  }
+
+  const direction: 'up' | 'down' = movementDelta < 0 ? 'up' : 'down';
+  const adjacentState = getAdjacentSnapState(fromState, direction, minState);
+
+  if (direction === 'up') {
+    const nearestPercent = getSnapPercent(nearestState);
+    const adjacentPercent = getSnapPercent(adjacentState);
+    return nearestPercent <= adjacentPercent ? nearestState : adjacentState;
+  }
+
+  const nearestPercent = getSnapPercent(nearestState);
+  const adjacentPercent = getSnapPercent(adjacentState);
+  return nearestPercent >= adjacentPercent ? nearestState : adjacentState;
+}
+
 /** Map SheetState to index matching native @gorhom/bottom-sheet */
 function stateToIndex(state: SheetState): number {
   switch (state) {
@@ -178,8 +263,6 @@ if (typeof document !== 'undefined') {
   `;
 }
 
-/** Velocity threshold (px/ms) for flick gestures */
-const FLICK_VELOCITY = 0.3;
 /** Minimum distance (px) to register as a drag rather than a tap */
 const TAP_THRESHOLD = 10;
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
@@ -225,9 +308,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onSheetChange?.(stateToIndex(newState));
     }, [onSheetChange]);
 
-    // Web preview routes should keep the preview card visible without opening
-    // the details panel until the card is explicitly tapped.
-    const minState: SheetState = 'closed';
+    // Portrait keeps the native-like peek handle visible while a preview card
+    // is active. Landscape should keep the side panel fully closed until the
+    // preview card is explicitly tapped.
+    const minState: SheetState =
+      !isLandscape && isPreviewCardVisible ? 'peek' : 'closed';
 
     // Dismiss = go to minimum resting state (peek if preview card open, closed if not)
     const handleDismiss = useCallback(() => {
@@ -235,13 +320,18 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onClose?.();
     }, [updateState, minState, onClose]);
 
-    // Keep preview-only state closed on web; only explicit preview-card taps
-    // should open details. Losing preview visibility still closes the panel.
+    // Portrait should keep the native-like peek state available while preview
+    // is active. Landscape should stay closed until explicitly opened from the
+    // preview card. Losing preview visibility still closes the panel.
     useEffect(() => {
-      if (!isPreviewCardVisible && sheetState !== 'closed') {
+      if (isPreviewCardVisible) {
+        if (!isLandscape && sheetState === 'closed') {
+          updateState('peek');
+        }
+      } else if (sheetState !== 'closed') {
         updateState('closed');
       }
-    }, [isPreviewCardVisible, sheetState, updateState]);
+    }, [isLandscape, isPreviewCardVisible, sheetState, updateState]);
 
     useEffect(() => {
       const panel = panelRef.current;
@@ -363,14 +453,15 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       const panelHeight = panel.offsetHeight;
       if (panelHeight === 0) return;
 
-      const startPercent = dragStartState.current === 'closed'
-        ? 100
-        : SNAP_POINTS[dragStartState.current as Exclude<SheetState, 'closed'>];
+      const startPercent = getSnapPercent(dragStartState.current);
       const deltaPercent = (deltaY / panelHeight) * 100;
-      const newPercent = Math.max(SNAP_POINTS.full, Math.min(SNAP_POINTS.peek, startPercent + deltaPercent));
+      const newPercent = clampDraggedPercent(
+        startPercent + deltaPercent,
+        minState,
+      );
 
       panel.style.transform = `translateY(${newPercent}%)`;
-    }, []);
+    }, [minState]);
 
     /** Shared snap logic for both handle and content drags */
     const snapFromDrag = useCallback((deltaY: number, elapsed: number, fromState: SheetState, isTap: boolean) => {
@@ -387,20 +478,26 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         return;
       }
 
-      const velocity = elapsed > 0 ? deltaY / elapsed : 0;
-      const isDraggingDown = deltaY > 0;
-      const isFlick = Math.abs(velocity) > FLICK_VELOCITY;
-      const significantDrag = Math.abs(deltaY) > 50;
-
-      if (isDraggingDown && (isFlick || significantDrag)) {
-        if (fromState === 'full') updateState('partial');
-        else if (fromState === 'partial') updateState('peek');
-        // peek stays at peek
-      } else if (!isDraggingDown && (isFlick || significantDrag)) {
-        if (fromState === 'peek') updateState('partial');
-        else if (fromState === 'partial') updateState('full');
+      if (!panel || elapsed <= 0) {
+        return;
       }
-    }, [updateState]);
+
+      const panelHeight = panel.offsetHeight;
+      if (panelHeight === 0) {
+        return;
+      }
+
+      const startPercent = getSnapPercent(fromState);
+      const deltaPercent = (deltaY / panelHeight) * 100;
+      const draggedPercent = clampDraggedPercent(
+        startPercent + deltaPercent,
+        minState,
+      );
+
+      updateState(
+        getDirectionalSnapState(fromState, draggedPercent, minState),
+      );
+    }, [minState, updateState]);
 
     const onHandlePointerUp = useCallback((e: React.PointerEvent) => {
       if (dragStartY.current === null) return;
@@ -461,11 +558,12 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
         const panelHeight = panel.offsetHeight;
         if (panelHeight === 0) return;
-        const startPercent = dragStartState.current === 'closed'
-          ? 100
-          : SNAP_POINTS[dragStartState.current as Exclude<SheetState, 'closed'>];
+        const startPercent = getSnapPercent(dragStartState.current);
         const deltaPercent = (deltaY / panelHeight) * 100;
-        const newPercent = Math.max(SNAP_POINTS.full, Math.min(SNAP_POINTS.peek, startPercent + deltaPercent));
+        const newPercent = clampDraggedPercent(
+          startPercent + deltaPercent,
+          minState,
+        );
         panel.style.transform = `translateY(${newPercent}%)`;
       };
 
@@ -494,7 +592,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         panel.removeEventListener('touchmove', onTouchMove);
         panel.removeEventListener('touchend', onTouchEnd);
       };
-    }, [isLandscape, snapFromDrag]);
+    }, [isLandscape, minState, snapFromDrag]);
 
     // Determine panel class based on orientation and state
     const panelClassName = isLandscape
