@@ -63,6 +63,36 @@ describe('resolveProperty', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('countryCode=DE');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('postalCode=1234AB');
   });
+
+  it('keeps canonical transliterations from the backend result', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '11111111-1111-4111-8111-111111111111',
+        countryCode: 'DE',
+        address: 'Bürgerstraße 15, 80331 München',
+        postalCode: '80331',
+        city: 'München',
+        coordinates: {
+          lon: 11.576124,
+          lat: 48.137154,
+        },
+        hasListing: true,
+        officialValuation: null,
+      }),
+    });
+
+    const result = await resolveProperty({
+      postalCode: '80331',
+      houseNumber: '15',
+      countryCode: 'DE',
+      street: 'burgerstrasse',
+      city: 'munchen',
+    });
+
+    expect(result?.address).toContain('Bürgerstraße');
+    expect(result?.city).toBe('München');
+  });
 });
 
 describe('api auth attachment', () => {

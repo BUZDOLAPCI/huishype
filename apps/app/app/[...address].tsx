@@ -1,13 +1,14 @@
 import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
-import { type Href, Stack, router, useLocalSearchParams } from 'expo-router';
+import { type Href, Stack, router, useLocalSearchParams, usePathname } from 'expo-router';
 
 import { CommentsRouteScreen } from './comments/[propertyId]';
 import { GuessesRouteScreen } from './guesses/[propertyId]';
 import { PropertyDetailRouteScreen } from './property/[id]';
-import MapScreen from './(tabs)/index';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
+import { MapPreviewRouteShell } from '@/src/screens/MapPreviewRouteShell';
 import {
+  buildCanonicalRouteHref,
   buildPropertyMapRoute,
   buildPropertyRoute,
   toInternalAppHref,
@@ -28,8 +29,10 @@ export default function CanonicalAddressRouteScreen() {
   const { returnTo } = useLocalSearchParams<{
     returnTo?: string | string[];
   }>();
-  const routeState = useResolvedMapRoute();
-  const { pathname, resolvedRoute } = routeState;
+  const pathname = usePathname();
+  const pathnameOverride = Platform.OS === 'web' ? pathname : undefined;
+  const routeState = useResolvedMapRoute(pathnameOverride);
+  const { pathname: resolvedPathname, resolvedRoute } = routeState;
 
   const handleNavigate = useCallback((target: string) => {
     const href = toInternalAppHref(target);
@@ -47,13 +50,15 @@ export default function CanonicalAddressRouteScreen() {
     }
 
     if (
-      resolvedRoute.canonicalPath !== pathname &&
+      resolvedRoute.canonicalPath !== resolvedPathname &&
       resolvedRoute.kind !== 'root' &&
       resolvedRoute.kind !== 'camera'
     ) {
-      router.replace(resolvedRoute.canonicalPath as Href);
+      router.replace(
+        buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo) as Href,
+      );
     }
-  }, [pathname, resolvedRoute]);
+  }, [resolvedPathname, resolvedRoute, returnTo]);
 
   if (!resolvedRoute || routeState.isLoading) {
     return <RedirectingScreen />;
@@ -102,6 +107,11 @@ export default function CanonicalAddressRouteScreen() {
     resolvedRoute.kind === 'postcode' ||
     resolvedRoute.kind === 'preview'
   ) {
+    if (Platform.OS === 'web') {
+      return <MapPreviewRouteShell pathnameOverride={resolvedPathname} />;
+    }
+
+    const MapScreen = require('./(tabs)/index').default as typeof import('./(tabs)/index').default;
     return <MapScreen />;
   }
 

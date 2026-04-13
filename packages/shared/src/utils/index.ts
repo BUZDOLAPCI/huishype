@@ -83,6 +83,7 @@ export {
 
 // Canonical property/map URL helpers
 export {
+  CANONICAL_LATIN_REPLACEMENTS,
   getCanonicalCountryPrefixSegment,
   getCanonicalCountryPrefix,
   resolveCanonicalCountryPrefix,
@@ -90,6 +91,7 @@ export {
   buildCanonicalStreetSlug,
   buildCanonicalPostcodeSlug,
   buildCanonicalHouseSegment,
+  normalizeComparableText,
   serializeCanonicalCameraPath,
   parseCanonicalCameraPath,
   buildCanonicalCityMapPath,

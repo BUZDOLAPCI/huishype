@@ -122,6 +122,13 @@ export function buildPropertyGuessesRoute(
   );
 }
 
+export function buildCanonicalRouteHref(
+  canonicalPath: string,
+  returnTo?: string | string[] | null,
+): string {
+  return appendInternalReturnTo(canonicalPath, returnTo);
+}
+
 export function normalizePropertyReturnTarget(
   value: string | string[] | null | undefined,
 ): string | null {

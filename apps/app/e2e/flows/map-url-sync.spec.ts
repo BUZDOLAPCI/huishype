@@ -130,6 +130,10 @@ test.describe('Map URL sync', () => {
     });
   }
 
+  async function readNavigationEntryCount(page: Page) {
+    return await page.evaluate(() => window.performance.getEntriesByType('navigation').length);
+  }
+
   async function closePreviewCard(page: Page) {
     const closeButton = page
       .getByTestId('property-preview-close-button')
@@ -142,9 +146,53 @@ test.describe('Map URL sync', () => {
     });
   }
 
+  async function tagCurrentMapInstance(page: Page) {
+    return await page.evaluate(() => {
+      const map = (window as unknown as {
+        __mapInstance?: {
+          __testPassiveSyncId?: string;
+          getCanvas?: () => HTMLCanvasElement | null;
+        };
+      }).__mapInstance;
+      if (!map) {
+        throw new Error('Map instance not ready');
+      }
+
+      map.__testPassiveSyncId ??= Math.random().toString(36).slice(2);
+
+      return {
+        mapId: map.__testPassiveSyncId,
+        canvasId:
+          map.getCanvas?.()?.getAttribute('data-passive-sync-canvas-id') ??
+          (() => {
+            const canvas = map.getCanvas?.();
+            if (!canvas) {
+              return null;
+            }
+
+            const nextId = Math.random().toString(36).slice(2);
+            canvas.setAttribute('data-passive-sync-canvas-id', nextId);
+            return nextId;
+          })(),
+      };
+    });
+  }
+
+  async function waitForPassivePathname(page: Page, pathnamePattern: RegExp) {
+    await page.waitForFunction(
+      (patternSource) => {
+        const pattern = new RegExp(patternSource);
+        return pattern.test(window.location.pathname);
+      },
+      pathnamePattern.source,
+      { timeout: 15000 },
+    );
+  }
+
   test('replaces passive camera browsing with /@... URLs', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
+    const initialIdentity = await tagCurrentMapInstance(page);
     const baselineHistoryLength = await resetHistoryOps(page);
 
     await page.evaluate(() => {
@@ -161,12 +209,16 @@ test.describe('Map URL sync', () => {
       });
     });
 
-    await page.waitForURL(/\/@51\.4516\d*,5\.4897\d*,15\.25z$/, { timeout: 15000 });
+    await waitForPassivePathname(page, /\/@51\.4516\d*,5\.4897\d*,15\.25z$/);
+    await page.waitForTimeout(500);
+
+    const finalIdentity = await tagCurrentMapInstance(page);
 
     const historyOps = await readHistoryOps(page);
     expect(historyOps.replaceCount).toBeGreaterThan(0);
     expect(historyOps.pushCount).toBe(0);
     expect(historyOps.historyLength).toBe(baselineHistoryLength);
+    expect(finalIdentity).toEqual(initialIdentity);
   });
 
   test('swaps preview URLs with replace semantics and restores the latest camera URL on close', async ({
@@ -174,6 +226,7 @@ test.describe('Map URL sync', () => {
   }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
+    const initialIdentity = await tagCurrentMapInstance(page);
 
     await page.evaluate(() => {
       const map = (window as unknown as {
@@ -191,6 +244,7 @@ test.describe('Map URL sync', () => {
 
     await page.waitForURL(/\/@51\.4466\d*,5\.4797\d*,14\.5z$/, { timeout: 15000 });
     const baselineHistoryLength = await resetHistoryOps(page);
+    const baselineNavigationEntryCount = await readNavigationEntryCount(page);
 
     const searchInput = page.getByTestId('search-bar-input');
     await searchInput.click();
@@ -205,15 +259,22 @@ test.describe('Map URL sync', () => {
 
     await expect(page.getByTestId('group-preview-card')).toBeVisible({ timeout: 20000 });
     await page.waitForURL(new RegExp(`${FIXTURE.previewPath}$`), { timeout: 15000 });
+    const previewIdentity = await tagCurrentMapInstance(page);
+    expect(previewIdentity).toEqual(initialIdentity);
 
     await closePreviewCard(page);
 
     await expect(page.getByTestId('group-preview-card')).toHaveCount(0);
     await page.waitForURL(/\/@51\.\d+,5\.\d+,1[4-9](?:\.\d+)?z$/, { timeout: 15000 });
+    await page.waitForTimeout(500);
+    const finalIdentity = await tagCurrentMapInstance(page);
 
     const historyOps = await readHistoryOps(page);
+    const finalNavigationEntryCount = await readNavigationEntryCount(page);
     expect(historyOps.replaceCount).toBeGreaterThanOrEqual(2);
     expect(historyOps.pushCount).toBe(0);
     expect(historyOps.historyLength).toBe(baselineHistoryLength);
+    expect(finalNavigationEntryCount).toBe(baselineNavigationEntryCount);
+    expect(finalIdentity).toEqual(initialIdentity);
   });
 });

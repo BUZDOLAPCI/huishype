@@ -9,7 +9,7 @@ const INTERNAL_BASE_URL = 'https://huishype.invalid';
 const MAX_RETURN_TO_DEPTH = 4;
 const CAMERA_PATH_REGEX =
   /^\/?@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)z$/;
-const SPECIAL_LATIN_REPLACEMENTS: Record<string, string> = {
+export const CANONICAL_LATIN_REPLACEMENTS: Record<string, string> = {
   ß: 'ss',
   Æ: 'AE',
   æ: 'ae',
@@ -69,17 +69,22 @@ function normalizeCanonicalCountryCode(
 }
 
 function transliterate(value: string): string {
-  return Array.from(value, (char) => SPECIAL_LATIN_REPLACEMENTS[char] ?? char).join('');
+  return Array.from(value, (char) => CANONICAL_LATIN_REPLACEMENTS[char] ?? char).join('');
+}
+
+export function normalizeComparableText(value: string | null | undefined): string {
+  return transliterate(value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .replace(/['’`]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function slugifySegment(value: string, label: string): string {
-  const slug = transliterate(value)
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/['’`]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const slug = normalizeComparableText(value)
+    .replace(/\s+/g, '-')
     .replace(/-{2,}/g, '-');
 
   if (!slug) {

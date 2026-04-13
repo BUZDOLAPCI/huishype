@@ -11,6 +11,7 @@ import {
   buildCanonicalPostcodeSlug,
   buildCanonicalPropertyPath,
   buildCanonicalStreetSlug,
+  normalizeComparableText,
   getCanonicalCountryPrefix,
   getCanonicalCountryPrefixSegment,
   normalizeInternalReturnTo,
@@ -26,9 +27,12 @@ describe('canonical slug builders', () => {
     );
   });
 
-  it('normalizes transliterated street slugs', () => {
-    expect(buildCanonicalStreetSlug('Björkgårdstraße & Co.')).toBe(
-      'bjorkgardstrasse-co',
+  it('normalizes transliterated street slugs and comparable text', () => {
+    expect(buildCanonicalStreetSlug('Bürgerstraße & Co.')).toBe(
+      'burgerstrasse-co',
+    );
+    expect(normalizeComparableText('Bürgerstraße & Co.')).toBe(
+      'burgerstrasse co',
     );
   });
 

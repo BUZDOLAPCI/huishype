@@ -1,39 +1,16 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Platform } from 'react-native';
 
 import MapScreen from '@/app/(tabs)/index';
+import { WebMapStackRouteShell } from '@/src/screens/WebMapRouteShell';
 
 export function MapPreviewRouteShell({
   pathnameOverride,
 }: {
   pathnameOverride: string;
 }) {
-  const [hasMounted, setHasMounted] = useState(false);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  if (!hasMounted) {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.container} testID="map-preview-route-loading">
-          <ActivityIndicator size="large" color="#F5A623" />
-        </View>
-      </>
-    );
+  if (Platform.OS !== 'web') {
+    return <MapScreen pathnameOverride={pathnameOverride} />;
   }
 
-  return <MapScreen pathnameOverride={pathnameOverride} />;
+  return <WebMapStackRouteShell />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFBF5',
-  },
-});

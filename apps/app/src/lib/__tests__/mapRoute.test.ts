@@ -61,7 +61,7 @@ describe('mapRoute', () => {
     });
   });
 
-  it('extracts canonical route input from structured fields or address fallback', () => {
+  it('prefers structured route fields and only falls back to parsing address when needed', () => {
     expect(
       extractCanonicalRouteInput({
         city: 'Eindhoven',
@@ -86,17 +86,36 @@ describe('mapRoute', () => {
         city: 'Eindhoven',
         postalCode: '5623 CH',
         countryCode: 'NL',
-        streetName: 'Pisanostraat 230',
-        houseNumber: '5623',
-        houseNumberAddition: 'CH Eindhoven',
+        streetName: 'Deflectiespoelstraat',
+        houseNumber: '16',
+        houseNumberAddition: 'A',
       }),
     ).toEqual({
       city: 'Eindhoven',
       postalCode: '5623 CH',
       countryCode: 'NL',
-      streetName: 'Pisanostraat',
-      houseNumber: '230',
-      houseNumberAddition: null,
+      streetName: 'Deflectiespoelstraat',
+      houseNumber: '16',
+      houseNumberAddition: 'A',
+    });
+
+    expect(
+      extractCanonicalRouteInput({
+        address: 'Pisanostraat 230',
+        city: 'Eindhoven',
+        postalCode: '5623 CH',
+        countryCode: 'NL',
+        street: 'Deflectiespoelstraat',
+        houseNumber: '16',
+        houseNumberAddition: 'A',
+      }),
+    ).toEqual({
+      city: 'Eindhoven',
+      postalCode: '5623 CH',
+      countryCode: 'NL',
+      streetName: 'Deflectiespoelstraat',
+      houseNumber: '16',
+      houseNumberAddition: 'A',
     });
 
     expect(
@@ -128,6 +147,24 @@ describe('mapRoute', () => {
       countryCode: 'NL',
       streetName: 'Beeldbuisring',
       houseNumber: '41',
+      houseNumberAddition: null,
+    });
+  });
+
+  it('falls back to parsing address when structured fields are absent', () => {
+    expect(
+      extractCanonicalRouteInput({
+        address: 'Pisanostraat 230',
+        city: 'Eindhoven',
+        postalCode: '5623 CH',
+        countryCode: 'NL',
+      }),
+    ).toEqual({
+      city: 'Eindhoven',
+      postalCode: '5623 CH',
+      countryCode: 'NL',
+      streetName: 'Pisanostraat',
+      houseNumber: '230',
       houseNumberAddition: null,
     });
   });

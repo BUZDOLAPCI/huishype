@@ -8,11 +8,16 @@ import {
   isValidCountryCode,
   getCountryConfig,
   getAllCountryCodes,
+  CANONICAL_LATIN_REPLACEMENTS,
+  normalizeComparableText,
   type CountryCode,
 } from '@huishype/shared';
 import { calculateActivityLevel } from './views.js';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import { resolveNearbyGroupedFeature } from '../services/property-grouping.js';
+
+const CANONICAL_LATIN_REPLACEMENT_ENTRIES = Object.entries(CANONICAL_LATIN_REPLACEMENTS);
+const CANONICAL_TEXT_STRIP_CHARACTERS = ["'", '’', '`'] as const;
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -230,19 +235,20 @@ const areaResolveResponseSchema = z.object({
   propertyCount: z.number().int().positive(),
 });
 
-function normalizeComparableAddressPart(value: string | null | undefined): string {
-  return (value ?? '')
-    .normalize('NFKD')
-    .replace(/\p{Mark}/gu, '')
-    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
-    .trim()
-    .toUpperCase();
-}
-
 function buildComparableAddressExpression(column: string) {
-  return sql`trim(upper(
+  let expression = sql.raw(column);
+
+  for (const [search, replacement] of CANONICAL_LATIN_REPLACEMENT_ENTRIES) {
+    expression = sql`replace(${expression}, ${search}, ${replacement})`;
+  }
+
+  for (const character of CANONICAL_TEXT_STRIP_CHARACTERS) {
+    expression = sql`replace(${expression}, ${character}, '')`;
+  }
+
+  return sql`trim(lower(
     regexp_replace(
-      regexp_replace(normalize(${sql.raw(column)}, NFKD), '[\\u0300-\\u036f]', '', 'g'),
+      regexp_replace(normalize(${expression}, NFKD), '[\\u0300-\\u036f]', '', 'g'),
       '[^[:alnum:]]+',
       ' ',
       'g'
@@ -251,7 +257,7 @@ function buildComparableAddressExpression(column: string) {
 }
 
 function buildComparableAddressPredicate(column: string, value: string) {
-  const normalizedValue = normalizeComparableAddressPart(value);
+  const normalizedValue = normalizeComparableText(value);
   return sql`${buildComparableAddressExpression(column)} = ${normalizedValue}`;
 }
 
@@ -895,8 +901,8 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       // Normalize addition: trim, uppercase, treat empty as null
       const normalizedAddition = normalizeComparableHouseNumberAddition(houseNumberAddition);
-      const normalizedStreet = normalizeComparableAddressPart(street);
-      const normalizedCity = normalizeComparableAddressPart(city);
+      const normalizedStreet = normalizeComparableText(street);
+      const normalizedCity = normalizeComparableText(city);
 
       const additionCondition = normalizedAddition
         ? sql`${buildComparableHouseNumberAdditionExpression('p.house_number_addition')} = ${normalizedAddition}`
@@ -908,6 +914,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           sql`p.postal_code = ${normalizedPostalCode}`,
           sql`p.house_number = ${houseNumber}`,
           additionCondition,
+          sql`p.geometry IS NOT NULL`,
         ];
 
         if (street) {
@@ -958,9 +965,9 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const rows = (await fetchCandidates()).filter((row) => {
         const streetMatches = !normalizedStreet
-          || normalizeComparableAddressPart(row.street) === normalizedStreet;
+          || normalizeComparableText(row.street) === normalizedStreet;
         const cityMatches = !normalizedCity
-          || normalizeComparableAddressPart(row.city) === normalizedCity;
+          || normalizeComparableText(row.city) === normalizedCity;
         return streetMatches && cityMatches;
       });
 
@@ -979,6 +986,13 @@ export async function propertyRoutes(app: FastifyInstance) {
       }
 
       const r = rows[0];
+      if (r.lon == null || r.lat == null) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Matched property does not have geometry available for resolution.',
+        });
+      }
+
       return reply.send({
         id: r.id,
         countryCode: r.country_code,
@@ -995,8 +1009,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         postalCode: r.postal_code,
         city: r.city,
         coordinates: {
-          lon: r.lon ?? 0,
-          lat: r.lat ?? 0,
+          lon: r.lon,
+          lat: r.lat,
         },
         hasListing: r.has_listing,
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,

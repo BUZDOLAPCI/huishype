@@ -80,6 +80,7 @@ describe('GET /properties/resolve', () => {
       postalCode: key.postalCode,
       houseNumber: key.houseNumber,
       houseNumberAddition: null,
+      geometry: sql`ST_SetSRID(ST_MakePoint(5.0, 52.0), 4326)`,
       street:
         index === 10
           ? 'Resolve Matchstraat'
@@ -277,6 +278,7 @@ describe('GET /properties/resolve', () => {
         postalCode: key.postalCode,
         houseNumber: key.houseNumber,
         houseNumberAddition: null,
+        geometry: sql`ST_SetSRID(ST_MakePoint(5.1, 52.1), 4326)`,
         street,
         city,
         status: 'active',
@@ -297,6 +299,102 @@ describe('GET /properties/resolve', () => {
     expect(body.city).toBe(city);
   });
 
+  it('should match canonical transliterations such as Bürgerstraße', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const street = 'Bürgerstraße';
+    const city = 'München';
+
+    const [inserted] = await db
+      .insert(propertiesTable)
+      .values({
+        countryCode: 'NL',
+        postalCode: key.postalCode,
+        houseNumber: key.houseNumber,
+        houseNumberAddition: null,
+        geometry: sql`ST_SetSRID(ST_MakePoint(5.2, 52.2), 4326)`,
+        street,
+        city,
+        status: 'active',
+      })
+      .returning({ id: propertiesTable.id });
+
+    cleanupPropertyIds.push(inserted.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&street=burgerstrasse&city=munchen&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(inserted.id);
+    expect(body.address).toContain(street);
+    expect(body.city).toBe(city);
+  });
+
+  it('should strip apostrophes instead of splitting tokens in address matching', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const street = "O'Connellstraat";
+    const city = 'Dublin';
+
+    const [inserted] = await db
+      .insert(propertiesTable)
+      .values({
+        countryCode: 'NL',
+        postalCode: key.postalCode,
+        houseNumber: key.houseNumber,
+        houseNumberAddition: null,
+        geometry: sql`ST_SetSRID(ST_MakePoint(5.25, 52.25), 4326)`,
+        street,
+        city,
+        status: 'active',
+      })
+      .returning({ id: propertiesTable.id });
+
+    cleanupPropertyIds.push(inserted.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&street=oconnellstraat&city=${encodeURIComponent(city)}&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(inserted.id);
+    expect(body.address).toContain(street);
+  });
+
+  it('should return 404 when the matched property has no geometry', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const street = `No Geometry Street ${Date.now()}`;
+    const city = 'Leipzig';
+
+    const [inserted] = await db
+      .insert(propertiesTable)
+      .values({
+        countryCode: 'NL',
+        postalCode: key.postalCode,
+        houseNumber: key.houseNumber,
+        houseNumberAddition: null,
+        street,
+        city,
+        geometry: null,
+        status: 'active',
+      })
+      .returning({ id: propertiesTable.id });
+
+    cleanupPropertyIds.push(inserted.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&street=${encodeURIComponent(street)}&city=${encodeURIComponent(city)}&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    const body = JSON.parse(response.body);
+    expect(body.error).toBe('NOT_FOUND');
+  });
+
   it('should resolve canonical additions when stored values carry leading separators', async () => {
     const street = `Allée Resolve ${Date.now()}`;
     const city = 'Anderlecht';
@@ -308,6 +406,7 @@ describe('GET /properties/resolve', () => {
         postalCode: '1070',
         houseNumber: 4,
         houseNumberAddition: '-C046',
+        geometry: sql`ST_SetSRID(ST_MakePoint(4.3, 50.8), 4326)`,
         street,
         city,
         status: 'active',

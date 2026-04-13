@@ -80,6 +80,7 @@ export interface RoutePropertyLike {
   city?: string | null;
   postalCode?: string | null;
   countryCode?: string | null;
+  street?: string | null;
   streetName?: string | null;
   houseNumber?: string | number | null;
   houseNumberAddition?: string | null;
@@ -489,6 +490,22 @@ export function extractCanonicalRouteInput(
     return null;
   }
 
+  const streetName = value.streetName?.trim() || value.street?.trim() || '';
+  const houseNumber =
+    value.houseNumber != null ? String(value.houseNumber).trim() : '';
+  const houseNumberAddition = value.houseNumberAddition?.trim() || null;
+
+  if (streetName && houseNumber) {
+    return {
+      city: value.city,
+      postalCode: value.postalCode,
+      streetName,
+      houseNumber,
+      houseNumberAddition,
+      countryCode: value.countryCode ?? 'NL',
+    };
+  }
+
   if (value.address) {
     const addressLine = value.address.trim().split(',', 1)[0]?.trim() ?? '';
     const addressMatch = addressLine.match(ADDRESS_TRAILING_HOUSE_PATTERN);
@@ -507,22 +524,7 @@ export function extractCanonicalRouteInput(
     }
   }
 
-  let streetName = value.streetName?.trim() || '';
-  let houseNumber = value.houseNumber != null ? String(value.houseNumber).trim() : '';
-  let houseNumberAddition = value.houseNumberAddition?.trim() || null;
-
-  if (!streetName || !houseNumber) {
-    return null;
-  }
-
-  return {
-    city: value.city,
-    postalCode: value.postalCode,
-    streetName,
-    houseNumber,
-    houseNumberAddition,
-    countryCode: value.countryCode ?? 'NL',
-  };
+  return null;
 }
 
 export function buildMapPreviewPathname(

@@ -40,6 +40,7 @@ import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import {
+  buildCanonicalRouteHref,
   buildPropertyMapRoute,
   buildPropertyRoute,
   isStaticAppRoutePath,
@@ -395,7 +396,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       routeState.resolvedRoute.kind !== 'root' &&
       routeState.resolvedRoute.kind !== 'camera'
     ) {
-      router.replace(routeState.resolvedRoute.canonicalPath as Href);
+      router.replace(
+        buildCanonicalRouteHref(routeState.resolvedRoute.canonicalPath, returnTo) as Href,
+      );
       return;
     }
 
@@ -454,6 +457,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     routeState.isLoading,
     routeState.pathname,
     routeState.resolvedRoute,
+    returnTo,
     setSearchCity,
   ]);
 

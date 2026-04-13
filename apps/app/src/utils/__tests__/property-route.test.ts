@@ -1,4 +1,5 @@
 import {
+  buildCanonicalRouteHref,
   buildPropertyCommentsRoute,
   buildPropertyGuessesRoute,
   buildPropertyMapRoute,
@@ -49,6 +50,23 @@ describe('property-route', () => {
     expect(buildPropertyRoute(canonicalProperty, '/saved')).toBe(
       '/eindhoven/5600aa/nieuwe-emmasingel/12-b?returnTo=%2Fsaved',
     );
+  });
+
+  it('appends validated returnTo targets to canonical route hrefs', () => {
+    expect(
+      buildCanonicalRouteHref('/eindhoven/5600aa/nieuwe-emmasingel/12-b', '/feed'),
+    ).toBe('/eindhoven/5600aa/nieuwe-emmasingel/12-b?returnTo=%2Ffeed');
+    expect(
+      buildCanonicalRouteHref('/eindhoven/5600aa/nieuwe-emmasingel/12-b', [
+        '/feed',
+      ]),
+    ).toBe('/eindhoven/5600aa/nieuwe-emmasingel/12-b');
+    expect(
+      buildCanonicalRouteHref(
+        '/eindhoven/5600aa/nieuwe-emmasingel/12-b',
+        'https://evil.example/x',
+      ),
+    ).toBe('/eindhoven/5600aa/nieuwe-emmasingel/12-b');
   });
 
   it('normalizes only safe internal return targets', () => {

@@ -5,6 +5,7 @@ import type {
   PropertyNodeGroup,
   PropertyResolveResponse,
 } from '@huishype/shared';
+import { normalizeComparableText } from '@huishype/shared';
 import { withDerivedPropertyImageData } from './property-image';
 
 const DEFAULT_API_PORT = '3100';
@@ -176,15 +177,6 @@ export interface PropertyResolveRequest {
 
 function normalizePostalCodeForCompare(value: string): string {
   return value.replace(/\s/g, '').toUpperCase();
-}
-
-function normalizeComparableText(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/\p{Mark}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
 }
 
 function containsComparableText(haystack: string, needle: string): boolean {

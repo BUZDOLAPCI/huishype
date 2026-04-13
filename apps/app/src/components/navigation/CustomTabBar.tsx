@@ -222,6 +222,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 20,
     paddingHorizontal: 16,
     paddingTop: 12,
     // No background — the gradient underneath will handle the fade.
