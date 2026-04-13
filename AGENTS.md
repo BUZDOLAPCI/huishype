@@ -134,6 +134,15 @@ All design decisions and specifications are in `agent-rules/`. **Consult these b
 
 These documents are the source of truth for product design. Pass these information down to all subagents so they have a vision of the big picture.
 
+## Deferred Gaps
+
+`DEFERRED-GAPS.md` is the canonical register for explicitly accepted deferred
+gaps.
+
+If work is intentionally deferred, record it there instead of scattering TODOs
+through active product surfaces. Keep entries aligned with the current repo
+state and remove them once the underlying work is implemented.
+
 ## Native Workflow
 
 `apps/app/app.json` is the Expo config source of truth. The generated `apps/app/android/` and `apps/app/ios/` trees are intentionally ignored by git, so treat them as regenerated output plus a small set of documented override points.

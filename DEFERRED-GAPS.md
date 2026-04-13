@@ -1,140 +1,115 @@
-# Deferred Gaps — Post-Review Sprint
+# Deferred Gaps
 
-Identified during the 2026-02-10 review sprint. These are intentionally deferred items that are not MVP-blocking but should be addressed before production launch or in subsequent sprints.
+Canonical register of explicitly accepted deferred gaps.
+
+This file is for gaps that are intentionally out of scope for the current
+tranche but still expected later. Keep it aligned with shipped code:
+
+- update statuses when implementation lands partially
+- remove entries once they are fully implemented
+- do not keep completed items here as historical context
+- do not use this file as a dumping ground for speculative ideas
 
 ---
 
 ## Infrastructure
 
-### Redis Integration
-- **Status**: Docker container running on port 6390, but API has zero Redis imports
-- **Spec**: Locked decision #10 — session caching, rate limiting, leaderboards/trending, real-time aggregations
-- **Impact**: Rate limiting is in-memory only (resets on restart), view/like counts hit Postgres directly, no leaderboard caching
-- **Work**: Install ioredis, create Redis client singleton, wire into rate limiter, cache hot data (view counts, trending scores)
-
-### Background Job Worker
-- **Status**: Implemented on 2026-04-06. `services/worker/` now runs the real BullMQ worker runtime for listing ingest, maintenance refreshes, and recovery sweeps.
-- **Spec**: Locked decision #6 — queue-based worker for ingestion, scoring, notifications, moderation
-- **Work**: Keep this section as historical context only. Remaining deferred work is follow-on expansion of the worker into scoring, notification dispatch, and moderation jobs.
+### Redis-backed App Caching And Rate Limiting
+- **Status**: Partial. Redis is already wired in `services/api/src/lib/redis.ts` and used by ingest/BullMQ queue plumbing, but application rate limiting and hot-data caching are still not Redis-backed.
+- **Current repo state**: `services/api/src/routes/listings.ts` uses `@fastify/rate-limit` with local plugin config, and leaderboard/trending/view counters are still served from primary data paths rather than a Redis cache layer.
+- **Deferred work**: Wire Redis into app-level rate limiting and add targeted caching for hot counters / leaderboard / trending reads where it is actually justified.
 
 ### Push Notifications (APNs + FCM)
-- **Status**: Not implemented. No expo-notifications, no FCM/APNs config
-- **Spec**: Unified provider layer targeting APNs + FCM
-- **Work**: Add expo-notifications, configure FCM/APNs credentials, implement notification preferences, trigger notifications on comments/likes/price updates
+- **Status**: Not implemented. The repo has in-app notifications, but no APNs/FCM delivery layer and no push token registration flow.
+- **Deferred work**: Add provider integration, device token storage, preferences, and push delivery for comments / likes / guess results / listing updates.
 
-### Analytics & Crash Monitoring
-- **Status**: Not implemented. No Sentry, Crashlytics, or analytics SDK
-- **Spec**: One canonical event schema + shared crash/perf monitoring
-- **Work**: Add Sentry (or equivalent), define event taxonomy, instrument key user actions, add error boundary reporting
+### Analytics And Crash Monitoring
+- **Status**: Not implemented. No Sentry / Crashlytics / canonical analytics instrumentation is wired into the product.
+- **Deferred work**: Add crash reporting, define the event schema, and instrument key product flows.
 
-### CI/CD Pipeline
-- **Status**: Partially implemented. `.github/workflows/ci.yml` runs the current canonical gate (`pnpm test`) coverage: lint, typecheck, unit, API integration, and Playwright integration.
-- **Spec**: Lint + typecheck → unit → integration → E2E web → E2E mobile pipeline
-- **Work**: Remaining deferred work is the mobile Maestro lane and broader artifact hardening called for in `agent-rules/test-requirements.md`, plus any expansion beyond the current canonical gate.
+### CI/CD Hardening Beyond The Canonical Gate
+- **Status**: Partial. `.github/workflows/ci.yml` already runs `pnpm test`, installs Playwright browsers, and uploads artifacts.
+- **Deferred work**: Add the dedicated mobile `pnpm test:e2e:mobile` lane and any broader artifact/report hardening still required by `agent-rules/test-requirements.md`.
 
 ---
 
 ## Authentication
 
-### Apple Sign-In Production Verification
-- **Status**: Backend Apple JWT verification is implemented, but the Apple button is still hidden in the client until Apple Developer Program / provisioning work is completed.
-- **Spec**: Apple + Google as first-class login methods
-- **Impact**: Native/web production rollout still cannot expose Apple Sign-In end to end.
-- **Work**: Complete Apple Developer Program enrollment, provisioning, and client rollout so the existing backend path can be enabled safely.
-
-### Refresh Token Revocation
-- **Status**: Implemented on 2026-04-06. Refresh tokens are now revocable server-side and `POST /auth/refresh` rejects revoked tokens.
-- **Impact**: Keep this section as historical context only. Remaining auth release work is Apple sign-in rollout, not refresh token revocation.
-- **Work**: None in this tranche.
+### Apple Sign-In Production Rollout
+- **Status**: Partial. Backend Apple token verification exists at `services/api/src/routes/auth.ts`, but the client still ships Google + email only and the Apple path remains intentionally hidden pending Apple Developer / provisioning work.
+- **Deferred work**: Complete Apple Developer setup, production credentials, and the client rollout so Apple sign-in can be exposed end to end.
 
 ---
 
 ## Features
 
 ### HuisHype Plus / Premium Subscription
-- **Status**: Product area still unimplemented. The placeholder backend-exposed `isPlus` flag has been removed from auth/session contracts until real entitlement wiring exists.
-- **Spec**: Virtual House cosmetic marker, subscription tiers, RevenueCat integration
-- **Work**: RevenueCat SDK setup, subscription tables in schema, entitlement checks, Virtual House 3D models (React Three Fiber), premium profile badges
+- **Status**: Not implemented. The old placeholder `isPlus` field has already been removed from live auth/session contracts.
+- **Deferred work**: Entitlements, billing/subscription integration, subscription tables, and premium-only product surfaces.
 
-### Interest/Attention Heatmaps
-- **Status**: Not implemented
-- **Spec**: Heatmaps by area showing interest concentration, velocity indicators (rising/fading)
-- **Work**: Aggregate view/interaction data by geographic grid cells, create heatmap tile layer, add velocity calculation (compare recent vs historical interest)
+### Interest / Attention Heatmaps
+- **Status**: Not implemented.
+- **Deferred work**: Aggregate interaction signals spatially and render an interest-density layer with rising/falling velocity.
 
-### Map Filter UI
-- **Status**: Backend supports minPrice, maxPrice, city, bbox filters but NO frontend filter panel
-- **Spec**: Filters by price range, size, interest, sentiment
-- **Work**: Design filter drawer/panel component, wire to existing backend query params, add size/interest/sentiment filter params to API
+### Map Filter Panel
+- **Status**: Partial. Backend/property hooks already support `city`, `minPrice`, `maxPrice`, and `bbox`, but the active client surface still only exposes feed-sort chips rather than a real property filter UI.
+- **Current repo state**: Query params exist in `services/api/src/routes/properties.ts` and `apps/app/src/hooks/useProperties.ts`; active filter UI is limited to `apps/app/src/components/FeedFilterChips.tsx`.
+- **Deferred work**: Build the actual filter drawer/panel and extend backend params only where the UI truly needs more dimensions.
 
-### Badges & Achievements
-- **Status**: Not implemented. Only karma ranks exist
-- **Spec**: Badges or achievements in user profiles
-- **Work**: Define badge criteria (first guess, 10 accurate guesses, early adopter, etc.), create badges table, award logic, display in profile
-
-### Photo Fallback Hierarchy
-- **Status**: Partial — PDOK aerial imagery only (AerialImageCard.tsx)
-- **Spec**: 3-tier fallback: Listing photo → User-submitted photo → Google Street View
-- **Work**: Implement Google Street View API integration, add user photo upload capability (requires R2 storage), photo priority logic
+### Photo Fallback Expansion (User Uploads + Street View)
+- **Status**: Partial. Shared property-image fallback already prefers listing imagery first and then aerial imagery / placeholder UI.
+- **Current repo state**: `apps/app/src/utils/property-image.ts` implements listing-photo then aerial fallback; there is no user-upload path and no Street View integration.
+- **Deferred work**: Add user-submitted property photos, storage-backed uploads, moderation rules, and Street View fallback where legally/technically acceptable.
 
 ### Automated Sale Resolution
-- **Status**: Manual only — scoreGuessAccuracy() and karma updates exist but no auto-trigger
-- **Spec**: When a property sells, automatically resolve guesses and update karma
-- **Work**: Implement sold-property detection (scraper webhook or periodic check), trigger karma recalculation batch job
+- **Status**: Not implemented. Karma / accuracy logic exists, and sold price data is consumed in calculations, but there is no automatic sold-event pipeline that resolves guesses when a listing flips.
+- **Deferred work**: Detect sold listings automatically and trigger the resolution/update pipeline without manual intervention.
 
-### Marker Activity Pulsing
-- **Status**: Pulse animation exists in components but not on map markers
-- **Spec**: Map markers pulse indicating recent activity (comments, guesses, upvotes)
-- **Work**: Add recency data to tile properties, implement CSS/MapLibre animation for recently-active markers
+### Activity-Based Marker Pulsing
+- **Status**: Partial. There is pulse treatment for selected web markers, but no recency-driven pulse behavior for markers based on recent comments / likes / guesses.
+- **Deferred work**: Define the activity signal, expose it in map data, and animate recently active markers without turning the map into noise.
 
 ### Realtime Updates
-- **Status**: Not implemented
-- **Spec**: Event-driven updates (optional, don't hardwire early)
-- **Work**: WebSocket or SSE for live comment/guess/like updates on viewed properties
+- **Status**: Not implemented. The product currently relies on normal fetch/poll flows rather than SSE/WebSocket live updates.
+- **Deferred work**: Add event-driven updates for high-value surfaces only if/when the product actually benefits from them.
 
 ---
 
 ## Architecture Improvements
 
-### Generated OpenAPI Client
-- **Status**: packages/api-client/ has hand-written fetch wrappers, not generated from OpenAPI spec
-- **Spec**: Contract-first, generate typed clients from OpenAPI
-- **Work**: Use openapi-typescript-codegen or similar to auto-generate client from Fastify's /documentation endpoint, replace manual client
+### Generated OpenAPI Runtime Client Adoption
+- **Status**: Partial. The OpenAPI pipeline exists and `packages/api-client/generated/api.ts` is generated from `services/api/openapi.json`, but the runtime client wrapper remains hand-authored.
+- **Deferred work**: Replace or reduce the manual request wrapper with a generated/runtime-assisted client if that starts paying for itself.
 
-### Shared Types Consumed by API
-- **Status**: API service has zero imports from @huishype/shared — defines Zod schemas inline
-- **Spec**: Shared TS types in packages/shared/ used by app + backend
-- **Impact**: Type drift risk between frontend types and backend schemas
-- **Work**: Extract common Zod schemas to shared package, import in both API routes and API client
+### Shared Schema Extraction Between API And Shared Package
+- **Status**: Partial. The API already imports shared business rules and types from `@huishype/shared`, but many request/response Zod schemas still live inside API route files.
+- **Deferred work**: Extract only the genuinely portable schemas/contracts into `packages/shared`; do not force-route every API-local schema into shared prematurely.
 
 ### Cloudflare R2 Storage
-- **Status**: Not implemented. Images reference external URLs from scraper mirrors
-- **Spec**: Locked decision #11 — object storage for images, tiles, 3D assets
-- **Work**: Set up R2 bucket, implement upload API, migrate image references, serve via Cloudflare CDN
+- **Status**: Not implemented. Property/listing imagery is still external or derived rather than stored in a HuisHype-managed object bucket.
+- **Deferred work**: Add managed object storage for user uploads and any product-owned media that should not depend on third-party source URLs.
 
 ### PMTiles
-- **Status**: Not implemented. Tiles dynamically generated from PostGIS
-- **Spec**: PMTiles on R2 as pre-built tile archives alongside PDOK
-- **Work**: Generate PMTiles from PostGIS data, upload to R2, configure MapLibre to use PMTiles source
+- **Status**: Not implemented. Tiles are still served dynamically from PostGIS-backed endpoints rather than prebuilt PMTiles archives.
+- **Deferred work**: Introduce PMTiles only if tile generation, deploy ergonomics, or cost profiles justify it.
 
 ---
 
 ## Polish
 
-### Skeleton Loading States
-- **Status**: Spinner-only loading states
-- **Competitor standard**: Funda/Pararius use skeleton screens
-- **Work**: Replace spinners with content-shaped skeleton placeholders for feed cards, property panel, profile
+### Skeleton Loading Coverage
+- **Status**: Partial. Skeleton loaders already exist for several property-detail/FMV flows, but other surfaces still use spinners or simple loading text.
+- **Deferred work**: Extend skeleton coverage selectively to the screens where it improves perceived performance the most.
 
 ### Mobile Responsive Refinement
-- **Status**: Functional but cramped on mobile widths
-- **Issues**: Cluster overlap at small screens, MapLibre attribution overlaps tab bar, 4th tab may clip
-- **Work**: Responsive breakpoint adjustments, condensed mobile layout, attribution repositioning
+- **Status**: Partial. Responsive infrastructure exists, but narrow-width map/layout polish is still not treated as complete.
+- **Current repo state**: The repo already contains responsive helpers such as `apps/app/src/components/ui/ResponsivePanel.web.tsx` and `apps/app/src/hooks/useIsLandscape.ts`.
+- **Deferred work**: Continue polishing cramped narrow-width states, overlap cases, and mobile-specific spacing/placement issues.
 
-### Feed Card Image Quality
-- **Status**: Some cards show irrelevant placeholder images (forest/wildfire)
-- **Work**: Implement image validation/fallback, show property-relevant thumbnails or clean placeholder
+### Feed Card Image Relevance Hardening
+- **Status**: Partial. The app filters obviously bad placeholder hosts and falls back to aerial/placeholder imagery, but it does not validate whether third-party thumbnails are semantically good property images.
+- **Deferred work**: Add stronger image validation / curation only if bad thumbnails remain a product problem in practice.
 
 ---
 
-*Last updated: 2026-02-10, post-review sprint*
-*Review sprint commit: 5b4e3f7*
+*Last verified against the codebase: 2026-04-13*
