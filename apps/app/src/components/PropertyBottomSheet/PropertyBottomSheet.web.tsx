@@ -225,8 +225,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onSheetChange?.(stateToIndex(newState));
     }, [onSheetChange]);
 
-    // The minimum resting state: peek when preview card is open, closed when not
-    const minState = (!isLandscape && isPreviewCardVisible) ? 'peek' : 'closed';
+    // Web preview routes should keep the preview card visible without opening
+    // the details panel until the card is explicitly tapped.
+    const minState: SheetState = 'closed';
 
     // Dismiss = go to minimum resting state (peek if preview card open, closed if not)
     const handleDismiss = useCallback(() => {
@@ -234,18 +235,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onClose?.();
     }, [updateState, minState, onClose]);
 
-    // When preview card appears/disappears, auto-transition to appropriate state.
-    // In landscape the map preview route still needs the full panel to open,
-    // so we mirror the preview-visible behavior there instead of staying closed.
+    // Keep preview-only state closed on web; only explicit preview-card taps
+    // should open details. Losing preview visibility still closes the panel.
     useEffect(() => {
-      if (isPreviewCardVisible) {
-        if (sheetState === 'closed' || (isLandscape && sheetState !== 'full')) {
-          updateState(isLandscape ? 'full' : 'peek');
-        }
-      } else if (sheetState !== 'closed') {
+      if (!isPreviewCardVisible && sheetState !== 'closed') {
         updateState('closed');
       }
-    }, [isPreviewCardVisible, isLandscape]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isPreviewCardVisible, sheetState, updateState]);
 
     useEffect(() => {
       const panel = panelRef.current;

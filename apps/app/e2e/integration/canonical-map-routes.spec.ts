@@ -210,15 +210,22 @@ test.describe('Canonical map routes', () => {
     await page.goto(FIXTURE.previewPath, { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
     const propertyPanel = page.getByTestId('web-property-panel').last();
-    await expect(propertyPanel).toBeVisible({ timeout: 20000 });
-    await expect(propertyPanel.getByText('Property Details').first()).toBeVisible({
+    const previewCard = page.getByTestId('group-preview-card').last();
+    await expect(previewCard).toBeVisible({ timeout: 20000 });
+    await expect(previewCard.getByText(FIXTURE.address)).toBeVisible({
       timeout: 20000,
     });
-    await expect(page.getByTestId('web-panel-close').last()).toBeVisible({ timeout: 20000 });
+    await expect(propertyPanel).toBeAttached({ timeout: 20000 });
+    const panelIsClosed = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="web-property-panel"]') as HTMLElement | null;
+      if (!panel) {
+        return false;
+      }
+
+      return panel.getBoundingClientRect().left >= window.innerWidth - 1;
+    });
+    expect(panelIsClosed).toBe(true);
     await expect(page).toHaveURL(new RegExp(`${FIXTURE.previewPath}$`));
-    await expect(
-      propertyPanel.getByText('Deflectiespoelstraat 16, 5651HP Eindhoven'),
-    ).toBeVisible({ timeout: 20000 });
 
     await page.goto('/map', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/$/);
@@ -254,13 +261,21 @@ test.describe('Canonical map routes', () => {
     await page.goto(NON_NL_FIXTURE.previewPath, { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
     const propertyPanel = page.getByTestId('web-property-panel').last();
-    await expect(propertyPanel).toBeVisible({ timeout: 20000 });
-    await expect(propertyPanel.getByText('Property Details').first()).toBeVisible({
+    const previewCard = page.getByTestId('group-preview-card').last();
+    await expect(previewCard).toBeVisible({ timeout: 20000 });
+    await expect(previewCard.getByText(NON_NL_FIXTURE.address)).toBeVisible({
       timeout: 20000,
     });
-    await expect(propertyPanel.getByText(NON_NL_FIXTURE.address)).toBeVisible({
-      timeout: 20000,
+    await expect(propertyPanel).toBeAttached({ timeout: 20000 });
+    const panelIsClosed = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="web-property-panel"]') as HTMLElement | null;
+      if (!panel) {
+        return false;
+      }
+
+      return panel.getBoundingClientRect().left >= window.innerWidth - 1;
     });
+    expect(panelIsClosed).toBe(true);
     await expect(page).toHaveURL(new RegExp(`${NON_NL_FIXTURE.previewPath}$`));
   });
 

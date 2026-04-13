@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
 
 import { PropertyBottomSheet } from '../PropertyBottomSheet.web';
 import type { PropertyDetails } from '../../../hooks/useProperties';
@@ -76,11 +76,13 @@ describe('PropertyBottomSheet.web', () => {
     }));
   });
 
-  it('marks PropertyContent visible when the portrait sheet opens from preview', async () => {
+  it('keeps PropertyContent hidden when preview becomes visible until explicitly opened', async () => {
     setWindowSize(390, 844);
+    const ref = React.createRef<any>();
 
     render(
       <PropertyBottomSheet
+        ref={ref}
         property={property}
         isPreviewCardVisible
       />
@@ -92,9 +94,35 @@ describe('PropertyBottomSheet.web', () => {
       expect(lastProps).toEqual(expect.objectContaining({
         property,
         isLoading: false,
-        isVisible: true,
+        isVisible: false,
       }));
     });
+
+    expect(ref.current?.getCurrentIndex()).toBe(-1);
+  });
+
+  it('does not auto-open details in landscape when preview is visible', async () => {
+    setWindowSize(1280, 720);
+    const ref = React.createRef<any>();
+
+    render(
+      <PropertyBottomSheet
+        ref={ref}
+        property={property}
+        isPreviewCardVisible
+      />
+    );
+
+    await waitFor(() => {
+      const lastProps =
+        mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+      expect(lastProps).toEqual(expect.objectContaining({
+        property,
+        isVisible: false,
+      }));
+    });
+
+    expect(ref.current?.getCurrentIndex()).toBe(-1);
   });
 
   it('passes section scroll callbacks into PropertyContent', () => {
@@ -116,7 +144,7 @@ describe('PropertyBottomSheet.web', () => {
     }));
   });
 
-  it('exposes the preview-open imperative handle', () => {
+  it('exposes the preview-open imperative handle and opens details on demand', async () => {
     setWindowSize(390, 844);
     const ref = React.createRef<any>();
 
@@ -129,5 +157,19 @@ describe('PropertyBottomSheet.web', () => {
     );
 
     expect(ref.current?.openFromPreview).toEqual(expect.any(Function));
+
+    act(() => {
+      ref.current?.openFromPreview();
+    });
+
+    await waitFor(() => {
+      expect(ref.current?.getCurrentIndex()).toBe(1);
+      const lastProps =
+        mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+      expect(lastProps).toEqual(expect.objectContaining({
+        property,
+        isVisible: true,
+      }));
+    });
   });
 });
