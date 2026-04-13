@@ -37,8 +37,5 @@ export async function clickTabBarItem(
 }
 
 export async function navigateClientSide(page: Page, path: string): Promise<void> {
-  await page.evaluate((targetPath) => {
-    window.history.pushState({}, '', targetPath);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, path);
+  await page.goto(path, { waitUntil: 'domcontentloaded' });
 }

@@ -509,10 +509,30 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
 }
 
 async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
+  const viewport = page.viewportSize();
+
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
     if (await locator.isVisible().catch(() => false)) {
-      await locator.click({ force: true });
+      await locator.scrollIntoViewIfNeeded().catch(() => {});
+
+      const box = await locator.boundingBox().catch(() => null);
+      if (box && viewport) {
+        const left = Math.max(box.x, 0);
+        const top = Math.max(box.y, 0);
+        const right = Math.min(box.x + box.width, viewport.width);
+        const bottom = Math.min(box.y + box.height, viewport.height);
+
+        if (right > left && bottom > top) {
+          await page.mouse.click((left + right) / 2, (top + bottom) / 2);
+          await page.waitForTimeout(250);
+          return true;
+        }
+      }
+
+      await locator.evaluate((element) => {
+        (element as HTMLElement).click();
+      });
       await page.waitForTimeout(250);
       return true;
     }

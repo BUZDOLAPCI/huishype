@@ -11,6 +11,8 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { buildCanonicalPropertyPath } from '@huishype/shared';
+import { waitForFeedLoaded } from '../integration/helpers';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -35,6 +37,36 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Expected value to be of type/,
   /Failed to load resource.*\/sprites\//,
 ];
+
+const FEED_ADDRESS_PATTERN = /^(?<street>.+?)\s+(?<house>\d[\dA-Za-z\s/-]*)$/u;
+const HOUSE_NUMBER_PATTERN = /^(\d+)(?:\s*[-/ ]?\s*([^\s]+(?:[-/][^\s]+)*))?$/u;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseFeedAddress(address: string): {
+  streetName: string;
+  houseNumber: string;
+  houseNumberAddition: string | null;
+} {
+  const addressLine = address.split(',', 1)[0]?.trim() ?? '';
+  const addressMatch = addressLine.match(FEED_ADDRESS_PATTERN);
+  if (!addressMatch?.groups?.street || !addressMatch.groups.house) {
+    throw new Error(`Unable to parse feed address: ${address}`);
+  }
+
+  const houseMatch = addressMatch.groups.house.trim().match(HOUSE_NUMBER_PATTERN);
+  if (!houseMatch) {
+    throw new Error(`Unable to parse feed house number: ${address}`);
+  }
+
+  return {
+    streetName: addressMatch.groups.street.trim(),
+    houseNumber: houseMatch[1],
+    houseNumberAddition: houseMatch[2]?.trim() || null,
+  };
+}
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -228,48 +260,56 @@ test.describe('Feed Filtering', () => {
     const apiData = await apiCheck.json();
 
     if (!apiData.items || apiData.items.length === 0) {
-      console.log('No items in feed API, skipping card click test');
-      return;
+      throw new Error('Feed API returned no items, cannot verify card navigation');
     }
 
     // Navigate to feed
     await page.goto('/feed');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
-
-    // Wait for feed screen with cards
-    const feedScreen = page.locator('[data-testid="feed-screen"]');
-    await feedScreen.waitFor({ timeout: 15000 }).catch(() => null);
+    await waitForFeedLoaded(page);
 
     const firstCard = page.locator('[data-testid="property-feed-card"]').first();
-    const isCardVisible = await firstCard.isVisible({ timeout: 10000 }).catch(() => false);
+    await expect(firstCard).toBeVisible({ timeout: 15000 });
 
-    if (isCardVisible) {
-      await firstCard.click();
-      await expect(page.getByTestId('property-back-button').last()).toBeVisible({
-        timeout: 15000,
-      });
+    const cardAddress = (await firstCard.getByTestId('property-address').textContent())?.trim();
+    expect(cardAddress, 'Feed card should expose a visible address').toBeTruthy();
 
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-to-detail.png` });
+    const parsedAddress = parseFeedAddress(cardAddress!);
+    const feedItem = apiData.items[0];
+    const expectedRoute = buildCanonicalPropertyPath({
+      countryCode: feedItem.countryCode,
+      city: feedItem.city,
+      postalCode: feedItem.zipCode,
+      streetName: parsedAddress.streetName,
+      houseNumber: parsedAddress.houseNumber,
+      houseNumberAddition: parsedAddress.houseNumberAddition,
+    });
 
-      await expect(page).toHaveURL(/returnTo=%2Ffeed/);
+    await firstCard.click();
+    await expect(page.getByTestId('property-back-button').last()).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
+      timeout: 15000,
+    });
 
-      const visibleBackButton = page.locator('[data-testid="property-back-button"]:visible');
-      await expect(visibleBackButton, 'Visible back button should be present').toBeVisible({
-        timeout: 15000,
-      });
-      await visibleBackButton.click();
-      await expect(page).toHaveURL(/\/feed(?:[?#].*)?$/);
-      await expect(page.locator('[data-testid="feed-screen"]:visible')).toBeVisible({
-        timeout: 15000,
-      });
-      await expect(page.locator('[data-testid="filter-chip-trending"]:visible')).toBeVisible({
-        timeout: 15000,
-      });
-    } else {
-      console.log('No property cards visible to click');
-      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-no-cards-to-click.png` });
-    }
+    await expect(page).toHaveURL(
+      new RegExp(`${escapeRegExp(`${expectedRoute}?returnTo=%2Ffeed`)}$`),
+    );
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-to-detail.png` });
+
+    const visibleBackButton = page.locator('[data-testid="property-back-button"]:visible');
+    await expect(visibleBackButton, 'Visible back button should be present').toBeVisible({
+      timeout: 15000,
+    });
+    await visibleBackButton.click();
+    await expect(page).toHaveURL(/\/feed(?:[?#].*)?$/);
+    await expect(page.locator('[data-testid="feed-screen"]:visible')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-testid="filter-chip-trending"]:visible')).toBeVisible({
+      timeout: 15000,
+    });
   });
 
   test('feed API endpoint returns valid data', async ({ request }) => {

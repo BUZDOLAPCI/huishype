@@ -9,7 +9,6 @@
 
 import { test, expect } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
-import { waitForMapReady } from '../integration/helpers';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 const SCREENSHOT_DIR = 'test-results/flows';
@@ -177,10 +176,15 @@ test.describe('Auth Flow', () => {
     await page.goto('/auth/callback?emailToken=deadbeef00000000000000000000000000000000000000000000000000000000');
     await page.waitForLoadState('domcontentloaded');
 
-    await page.waitForURL((url) => !url.pathname.includes('/auth/callback'), {
+    await expect(page).toHaveURL(/\/auth\/callback\?emailToken=/, {
       timeout: 30000,
     });
-    await waitForMapReady(page);
+    await expect(page.getByTestId('auth-callback-error')).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.getByTestId('auth-callback-home-link')).toBeVisible({
+      timeout: 30000,
+    });
     allowedUnauthorizedConsoleErrors = 0;
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/auth-magic-link-invalid-token.png` });

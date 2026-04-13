@@ -273,6 +273,24 @@ test.describe('HuisHype Visual E2E Tests', () => {
       // Wait for map and API data to load
       await waitForMapStyleLoaded(page, 30000);
 
+      await page.waitForFunction(
+        () => {
+          const mapInstance = (window as any).__mapInstance;
+          if (!mapInstance) return false;
+
+          const style = typeof mapInstance.getStyle === 'function' ? mapInstance.getStyle() : null;
+          const source = style?.sources?.['properties-source'];
+          if (!source) return false;
+
+          const serialized = typeof source.serialize === 'function' ? source.serialize() : null;
+          const sourceType = serialized?.type ?? source.type;
+          const tileCount = Array.isArray(source?.tiles) ? source.tiles.length : 0;
+
+          return sourceType === 'vector' && tileCount > 0;
+        },
+        { timeout: 15000 },
+      );
+
       await ctx.screenshots.capture('properties-loaded');
 
       console.log('Style API calls:', JSON.stringify(styleCalls, null, 2));

@@ -326,35 +326,41 @@ try {
     flowPathArg === DEFAULT_FLOW_PATH &&
     fs.existsSync(path.join(REPO_ROOT, CANONICAL_DEEPLINK_FLOW_PATH));
 
+  let succeeded = false;
+
   if (shouldRunCanonicalSmoke) {
-    if (
+    succeeded =
       bootstrapApp() &&
       runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH) &&
       openCanonicalDeepLink() &&
       runFlowWithRetries(CANONICAL_DEEPLINK_FLOW_PATH, {
         requiresCanonicalDeepLink: true,
-      })
-    ) {
-      if (bootstrapApp()) {
-        runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH);
+      });
+
+    if (succeeded) {
+      succeeded =
+        bootstrapApp() &&
+        runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH) &&
         runFlowWithRetries(flowPathArg, {
           bootstrapFlowPath: CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH,
         });
-      }
     }
   } else if (flowPathArg === CANONICAL_DEEPLINK_FLOW_PATH) {
-    if (
+    succeeded =
       bootstrapApp() &&
       runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH) &&
-      openCanonicalDeepLink()
-    ) {
+      openCanonicalDeepLink() &&
       runFlowWithRetries(flowPathArg, { requiresCanonicalDeepLink: true });
-    }
   } else if (bootstrapApp()) {
-    runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH);
-    runFlowWithRetries(flowPathArg, {
-      bootstrapFlowPath: CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH,
-    });
+    succeeded =
+      runFlowWithRetries(CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH) &&
+      runFlowWithRetries(flowPathArg, {
+        bootstrapFlowPath: CANONICAL_DEEPLINK_PREFLIGHT_FLOW_PATH,
+      });
+  }
+
+  if (!succeeded && process.exitCode === 0) {
+    process.exitCode = 1;
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

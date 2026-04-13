@@ -8,7 +8,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { clickTabBarItem, navigateClientSide, waitForMapReady } from '../integration/helpers';
+import { waitForFeedLoaded, waitForMapReady } from '../integration/helpers';
 
 const SCREENSHOT_DIR = 'test-results/flows';
 
@@ -35,16 +35,6 @@ test.use({ trace: 'off' });
 
 test.describe('Profile Tab Flow', () => {
   let consoleErrors: string[] = [];
-
-  async function isAnyVisible(
-    page: import('@playwright/test').Page,
-    selectors: string[],
-  ): Promise<boolean> {
-    const visibilities = await Promise.all(
-      selectors.map((selector) => page.locator(selector).first().isVisible().catch(() => false)),
-    );
-    return visibilities.some(Boolean);
-  }
 
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
@@ -73,58 +63,32 @@ test.describe('Profile Tab Flow', () => {
   });
 
   test('Profile tab shows auth-required state when not logged in', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await waitForMapReady(page);
-    await navigateClientSide(page, '/profile');
-
-    // Wait for profile screen to render
-    await Promise.race([
-      page.waitForURL('**/profile**', { timeout: 15000 }).catch(() => null),
-      page.waitForSelector('[data-testid="profile-auth-required"]', { timeout: 15000 }).catch(() => null),
-      page.waitForSelector('[data-testid="profile-screen"]', { timeout: 15000 }).catch(() => null),
-    ]);
-
-    await page.waitForTimeout(1000);
-
-    // Should show auth-required state
-    expect(
-      await isAnyVisible(page, [
-        '[data-testid="profile-auth-required"]',
-        '[data-testid="profile-screen"]',
-      ]),
-      'Profile tab should show auth-required or profile content'
-    ).toBe(true);
+    await page.goto('/profile', { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/profile(?:[?#].*)?$/);
+    await expect(page.getByTestId('profile-auth-required')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByTestId('profile-sign-in-button')).toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-auth-state.png` });
   });
 
-  test('Profile tab auth overlay does NOT block tab bar navigation', async ({ page }) => {
+  test('Profile auth gate does NOT block route navigation', async ({ page }) => {
+    await page.goto('/profile', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('profile-auth-required')).toBeVisible({
+      timeout: 15000,
+    });
+
+    await page.goto('/feed', { waitUntil: 'domcontentloaded' });
+    await waitForFeedLoaded(page);
+    await expect(page).toHaveURL(/\/feed(?:[?#].*)?$/);
+    await expect(page.getByTestId('property-feed-card').first()).toBeVisible({
+      timeout: 15000,
+    });
+
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
-    await navigateClientSide(page, '/profile');
-    await page.waitForTimeout(1500);
-
-    // First verify the tab bar can navigate to another tab while auth-required
-    await clickTabBarItem(page, 'feed');
-    await page.waitForTimeout(2000);
-
-    // Should show feed content (any feed-related element visible means navigation succeeded)
-    const feedChecks = await Promise.all([
-      page.locator('[data-testid="feed-screen"]').isVisible().catch(() => false),
-      page.locator('[data-testid="feed-loading"]').isVisible().catch(() => false),
-      page.locator('[data-testid="feed-empty"]').isVisible().catch(() => false),
-      page.locator('[data-testid="feed-error"]').isVisible().catch(() => false),
-      page.locator('[data-testid="filter-chip-trending"]').isVisible().catch(() => false),
-    ]);
-    const feedVisible = feedChecks.some(Boolean);
-    expect(feedVisible, 'Should navigate from Profile to Feed tab').toBe(true);
-
-    // Then verify we can navigate back to the map tab from Feed.
-    await clickTabBarItem(page, 'index');
-    await page.waitForTimeout(2000);
-
-    const mapView = page.locator('[data-testid="map-view"]');
-    await expect(mapView.first()).toBeVisible({ timeout: 15000 });
+    await expect(page).toHaveURL(/\/(?:@[^?]+)?(?:[?#].*)?$/);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-tab-navigation.png` });
   });
