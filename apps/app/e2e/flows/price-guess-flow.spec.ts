@@ -10,8 +10,9 @@
  * - Test authenticated guess submission via API
  */
 
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
+import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -36,22 +37,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
-
-/** Fetch a real property ID from the API */
-async function getTestProperty(request: APIRequestContext) {
-  const response = await request.get(`${API_BASE_URL}/properties?limit=10&city=Eindhoven`);
-  expect(response.ok()).toBe(true);
-  const data = await response.json();
-  expect(data.data.length).toBeGreaterThan(0);
-  // Prefer a property with a WOZ value for better slider display
-  const withWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
-  const property = withWoz || data.data[0];
-  return {
-    id: property.id as string,
-    address: property.address as string,
-    officialValuation: property.officialValuation as number | null,
-  };
-}
 
 async function waitForPriceGuessUi(page: Page) {
   const section = page.locator('[data-testid="price-guess-section"]');
@@ -94,9 +79,9 @@ test.describe('Price Guess Flow', () => {
   });
 
   test('price guess section renders on property detail page', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.route, { waitUntil: 'domcontentloaded' });
 
     // Wait for the loading state to disappear
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
@@ -120,9 +105,9 @@ test.describe('Price Guess Flow', () => {
   });
 
   test('slider UI elements are present', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.route, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     await waitForPriceGuessUi(page);
@@ -156,9 +141,9 @@ test.describe('Price Guess Flow', () => {
   });
 
   test('quick adjustment buttons change price', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.route, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
     await waitForPriceGuessUi(page);
@@ -196,9 +181,9 @@ test.describe('Price Guess Flow', () => {
     page,
     request,
   }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(property.route, { waitUntil: 'domcontentloaded' });
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     await waitForPriceGuessUi(page);
 
@@ -220,7 +205,7 @@ test.describe('Price Guess Flow', () => {
   });
 
   test('authenticated guess submission persists via API', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'guess');
 
     // Submit a guess via API
@@ -260,7 +245,7 @@ test.describe('Price Guess Flow', () => {
   });
 
   test('guess cooldown prevents immediate re-submission', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'cooldown');
 
     // Submit initial guess

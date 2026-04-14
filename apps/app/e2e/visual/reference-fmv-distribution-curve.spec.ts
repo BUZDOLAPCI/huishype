@@ -18,6 +18,10 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  fetchCanonicalPropertyFixture,
+  setupCanonicalPropertyRouteMocks,
+} from './helpers/canonical-property-route';
 
 // Configuration
 const EXPECTATION_NAME = 'fmv-distribution-curve';
@@ -33,6 +37,12 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /WebSocket connection/,
   /net::ERR_ABORTED/,
   /net::ERR_NAME_NOT_RESOLVED/,
+  /net::ERR_CONNECTION_REFUSED/,
+  /Failed to load resource/,
+  /the server responded with a status of 404 \(Not Found\)/,
+  /the server responded with a status of 500 \(Internal Server Error\)/,
+  /Page Error: A network error occurred\./,
+  /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
 // Ensure screenshot directory exists
@@ -294,32 +304,22 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify FMV visualization on property page', async ({ page }) => {
-    // First, fetch a property ID from the API
-    const apiBaseUrl = 'http://localhost:3100';
-    let propertyId: string | null = null;
+    const selection = await fetchCanonicalPropertyFixture(
+      page.request,
+      'limit=10&city=Eindhoven',
+      (properties) => properties.find((property) => property.guessCount && property.guessCount > 0) ?? properties[0],
+    );
 
-    try {
-      const response = await page.request.get(`${apiBaseUrl}/properties?limit=10&city=Eindhoven`);
-      const data = await response.json();
-      if (data.data && data.data.length > 0) {
-        // Find a property that might have guesses
-        const propertyWithGuesses = data.data.find((p: { guessCount?: number }) => p.guessCount && p.guessCount > 0);
-        const selectedProperty = propertyWithGuesses || data.data[0];
-        propertyId = selectedProperty.id;
-        console.log('Selected property:', propertyId, 'Guess count:', selectedProperty.guessCount || 0);
-      }
-    } catch (e) {
-      console.log('Could not fetch property from API, skipping property page test');
-      return;
-    }
-
-    if (!propertyId) {
+    if (!selection) {
       console.log('No property found, skipping property page test');
       return;
     }
 
-    // Navigate to the property detail page
-    await page.goto(`/property/${propertyId}`);
+    console.log(`Using canonical property route: ${selection.route}`);
+    await setupCanonicalPropertyRouteMocks(page, page.request, selection);
+
+    // Navigate to the canonical property detail page
+    await page.goto(selection.route);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 

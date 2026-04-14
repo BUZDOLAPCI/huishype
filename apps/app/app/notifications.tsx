@@ -30,8 +30,9 @@ import {
   useMarkNotificationRead,
   type NotificationItem,
 } from '@/src/hooks/useNotifications';
+import { fetchPropertyById } from '@/src/hooks/useProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 // --- Time grouping ---
 
@@ -152,14 +153,19 @@ export default function NotificationsScreen() {
   }, [refetch]);
 
   const handleNotificationPress = useCallback(
-    (notification: NotificationItem) => {
+    async (notification: NotificationItem) => {
       // Mark as read
       if (!notification.readAt) {
         markOneRead.mutate(notification.id);
       }
       // Navigate to property if available
       if (notification.propertyId) {
-        router.push(buildPropertyRoute(notification.propertyId, '/notifications'));
+        const property = await fetchPropertyById(notification.propertyId);
+        if (property) {
+          router.push(
+            toInternalAppHref(buildPropertyRoute(property, '/notifications')),
+          );
+        }
       }
     },
     [markOneRead]

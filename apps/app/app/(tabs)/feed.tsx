@@ -30,7 +30,11 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import {
+  buildPropertyRoute,
+  toInternalAppHref,
+  type PropertyRouteAddressLike,
+} from '@/src/utils/property-route';
 
 // --- Header title per filter ---
 
@@ -108,8 +112,8 @@ export default function FeedScreen() {
     setActiveFilter(filter);
   }, []);
 
-  const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(buildPropertyRoute(propertyId, '/feed'));
+  const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
+    router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
   }, []);
 
   const handleLoadMore = useCallback(() => {
@@ -140,7 +144,7 @@ export default function FeedScreen() {
         viewCount={item.viewCount}
         yearBuilt={item.yearBuilt}
         floorAreaM2={item.floorAreaM2}
-        onPress={() => handlePropertyPress(item.id)}
+        onPress={() => handlePropertyPress(item)}
       />
     ),
     [handlePropertyPress]
@@ -156,7 +160,7 @@ export default function FeedScreen() {
         actor={item.actor}
         property={item.property}
         createdAt={item.createdAt}
-        onPress={() => handlePropertyPress(item.property.id)}
+        onPress={() => handlePropertyPress(item.property)}
       />
     ),
     [handlePropertyPress]

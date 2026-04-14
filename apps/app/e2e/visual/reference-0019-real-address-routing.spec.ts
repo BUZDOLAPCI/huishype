@@ -1,24 +1,26 @@
 /**
  * Reference Expectation: 0019-real-address-routing
  *
- * Tests the real address routing feature:
- * - URL structure: huishype.nl/{city}/{zipcode}/{street}/{house_number}
- * - Photon geocoder address resolution (via backend /geocode/search proxy)
- * - Hierarchical routing (city, postcode, property views)
- * - Address styling matching the reference
- *
- * Test address: Deflectiespoelstraat 16, 5651HP Eindhoven
+ * V2 contract:
+ * - canonical property URLs load directly into the property detail surface
+ * - partial city/postcode URLs hydrate the map session, not placeholder pages
+ * - invalid address-style entries collapse back to `/`
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import {
+  buildCanonicalCityMapPath,
+  buildCanonicalPostcodeMapPath,
+} from '@huishype/shared';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
-// Configuration
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 
-// Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /ResizeObserver loop/,
   /sourceMappingURL/,
@@ -28,14 +30,50 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /WebSocket connection/,
   /net::ERR_ABORTED/,
   /net::ERR_NAME_NOT_RESOLVED/,
+  /Failed to load resource/,
+  /the server responded with a status of 404 \(Not Found\)/,
 ];
+
+function getVisibleMapView(page: Page) {
+  return page.getByRole('region', { name: 'Map' }).first();
+}
+
+interface TestProperty {
+  id: string;
+  address: string;
+  city: string;
+  postalCode: string;
+  countryCode?: string | null;
+  street?: string | null;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
+}
+
+async function getCanonicalTestProperty(
+  request: APIRequestContext,
+): Promise<TestProperty> {
+  const response = await request.get(
+    `${API_BASE_URL}/properties?limit=1&bbox=${REAL_ADDRESS_BBOX}`,
+  );
+  expect(response.ok()).toBe(true);
+
+  const payload = await response.json();
+  expect(payload.data?.length).toBeGreaterThan(0);
+
+  const property = payload.data[0] as TestProperty;
+  expect(property.address).toBeTruthy();
+  expect(property.city).toBeTruthy();
+  expect(property.postalCode).toBeTruthy();
+
+  return property;
+}
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   let consoleErrors: string[] = [];
   let consoleWarnings: string[] = [];
 
   test.beforeAll(async () => {
-    // Ensure screenshot directory exists
     const fullPath = path.resolve(process.cwd(), SCREENSHOT_DIR);
     if (!fs.existsSync(fullPath)) {
       fs.mkdirSync(fullPath, { recursive: true });
@@ -43,11 +81,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];
 
-    // Collect console messages
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
@@ -60,7 +96,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     });
 
-    // Collect page errors (uncaught exceptions)
     page.on('pageerror', (error) => {
       const text = error.message;
       const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
@@ -68,228 +103,149 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         consoleErrors.push(`Page Error: ${text}`);
       }
     });
-
-    // Mock the backend geocode proxy (Photon-backed)
-    await page.route('**/geocode/search**', async (route) => {
-      const url = new URL(route.request().url());
-      const query = url.searchParams.get('q') || '';
-
-      // Check for the test address (Deflectiespoelstraat 16, 5651HP)
-      const normalizedQuery = query.toLowerCase().replace(/\s+/g, '');
-      const isDeflectiespoelstraat16 =
-        (normalizedQuery.includes('5651hp') && normalizedQuery.includes('16')) ||
-        normalizedQuery.includes('deflectiespoelstraat16');
-
-      if (isDeflectiespoelstraat16) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 'W_123456',
-              displayName: 'Deflectiespoelstraat 16, 5651HP Eindhoven',
-              street: 'Deflectiespoelstraat',
-              houseNumber: '16',
-              postalCode: '5651HP',
-              city: 'Eindhoven',
-              region: 'Noord-Brabant',
-              countryCode: 'nl',
-              coordinates: [5.4557789, 51.4300456],
-            },
-          ]),
-        });
-      } else {
-        // Return empty for non-existent addresses
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([]),
-        });
-      }
-    });
   });
 
   test.afterEach(async () => {
-    // Log warnings for visibility (but don't fail)
     if (consoleWarnings.length > 0) {
       console.log(`Console warnings (${consoleWarnings.length}):`);
-      consoleWarnings.slice(0, 10).forEach((w) => console.log(`  - ${w.slice(0, 200)}`));
+      consoleWarnings.slice(0, 10).forEach((warning) =>
+        console.log(`  - ${warning.slice(0, 200)}`),
+      );
     }
 
-    // FAIL if any console errors detected
     if (consoleErrors.length > 0) {
       console.error(`Console errors detected (${consoleErrors.length}):`);
-      consoleErrors.forEach((e) => console.error(`  - ${e}`));
+      consoleErrors.forEach((error) => console.error(`  - ${error}`));
     }
+
     expect(
       consoleErrors,
-      `Expected zero console errors but found ${consoleErrors.length}`
+      `Expected zero console errors but found ${consoleErrors.length}`,
     ).toHaveLength(0);
   });
 
-  test('navigate to full address URL and display property details', async ({ page }) => {
-    // Navigate directly to the address URL
-    // URL format: /city/zipcode/street/housenumber
-    await page.goto('/eindhoven/5651hp/deflectiespoelstraat/16');
+  test('navigate to full canonical address URL and display property details', async ({
+    page,
+    request,
+  }) => {
+    const property = await getCanonicalTestProperty(request);
+    const propertyRoute = buildPropertyRoute(property);
 
-    // Wait for the page to load and resolve the address
+    await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
 
-    // Wait for address resolution (loading state should disappear)
-    await page.waitForTimeout(2000);
+    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page).toHaveURL(new RegExp(`${propertyRoute.replace(/\//g, '\\/')}(?:\\?.*)?$`));
 
-    // Take screenshot of the property detail view
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
       fullPage: true,
     });
-
-    await expect(page).toHaveURL(/\/property\//, { timeout: 10000 });
-
-    // Verify the canonical property page is displayed correctly.
-    const addressTitle = page.getByText('Deflectiespoelstraat 16').first();
-    await expect(addressTitle).toBeVisible({ timeout: 10000 });
-
-    const addressSubtitle = page.getByText(/5651\s*HP Eindhoven/i).first();
-    await expect(addressSubtitle).toBeVisible({ timeout: 5000 });
-
-    const propertyHeader = page.getByTestId('property-header-carousel');
-    await expect(propertyHeader).toBeVisible({ timeout: 5000 });
-
-    // Verify no "loading" or error states
-    const loadingState = page.getByText('Resolving address');
-    await expect(loadingState).not.toBeVisible({ timeout: 3000 });
-
-    const errorState = page.getByText('Address not found');
-    await expect(errorState).not.toBeVisible();
   });
 
-  test('display city view for partial URL (city only)', async ({ page }) => {
-    // Navigate to city-only URL
-    await page.goto('/eindhoven');
+  test('display map state for partial URL (city only)', async ({ page, request }) => {
+    const property = await getCanonicalTestProperty(request);
+    const cityRoute = buildCanonicalCityMapPath({
+      city: property.city,
+      countryCode: property.countryCode ?? 'NL',
+    });
 
+    await page.goto(cityRoute);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
 
-    // Take screenshot
+    const cityMapView = getVisibleMapView(page);
+    await cityMapView.waitFor({ state: 'visible', timeout: 10000 });
+    await expect(page.getByTestId('property-header-carousel')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/$/);
+
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-city-view.png`,
       fullPage: true,
     });
-
-    // Verify city view is shown (not property detail)
-    const cityHeader = page.getByTestId('address-city-title');
-    await expect(cityHeader).toBeVisible({ timeout: 5000 });
-    await expect(cityHeader).toHaveText('Eindhoven');
-
-    await expect(page.getByTestId('address-city-message')).toHaveText(
-      /Browse homes and local activity across Eindhoven/i
-    );
-    await expect(page.getByTestId('address-city-detail')).toHaveText(
-      /Open the map to explore listings and property activity across this city/i
-    );
-    await expect(page.getByTestId('address-city-go-to-map')).toHaveText(/Browse City Map/i);
   });
 
-  test('display postcode view for partial URL (city + zipcode)', async ({ page }) => {
-    // Navigate to city + zipcode URL
-    await page.goto('/eindhoven/5651hp');
+  test('display map state for partial URL (city + postcode)', async ({ page, request }) => {
+    const property = await getCanonicalTestProperty(request);
+    const postcodeRoute = buildCanonicalPostcodeMapPath({
+      city: property.city,
+      postalCode: property.postalCode,
+      countryCode: property.countryCode ?? 'NL',
+    });
 
+    await page.goto(postcodeRoute);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
 
-    // Take screenshot
+    const postcodeMapView = getVisibleMapView(page);
+    await postcodeMapView.waitFor({ state: 'visible', timeout: 10000 });
+    await expect(page.getByTestId('property-header-carousel')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/$/);
+
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-postcode-view.png`,
       fullPage: true,
     });
-
-    // Verify postcode view is shown
-    const postcodeHeader = page.getByTestId('address-postcode-title');
-    await expect(postcodeHeader).toBeVisible({ timeout: 5000 });
-    await expect(postcodeHeader).toHaveText('5651HP');
-
-    await expect(page.getByTestId('address-postcode-message')).toHaveText(
-      /Browse homes around 5651HP Eindhoven/i
-    );
-    await expect(page.getByTestId('address-postcode-detail')).toHaveText(
-      /Open the map to explore listings and property activity in this postcode/i
-    );
-    await expect(page.getByTestId('address-postcode-go-to-map')).toHaveText(
-      /Browse Postcode Map/i
-    );
   });
 
-  test('show 404 for non-existent address', async ({ page }) => {
-    // Navigate to a non-existent address
+  test('collapse non-existent address entries back to root', async ({ page }) => {
     await page.goto('/eindhoven/9999xx/fakestraat/999');
-
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
 
-    // Take screenshot
+    const rootMapView = getVisibleMapView(page);
+    await rootMapView.waitFor({ state: 'visible', timeout: 10000 });
+    await expect(page).toHaveURL(/\/$/);
+
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-404.png`,
       fullPage: true,
     });
-
-    // Verify 404/not found state is shown
-    const notFoundState = page.locator('text=/not found|couldn\'t find/i').first();
-    await expect(notFoundState).toBeVisible({ timeout: 5000 });
-
-    // Should have a "Go to Map" or similar button
-    const goBackButton = page.locator('text=/Go to Map|Go Back|Search/i').first();
-    await expect(goBackButton).toBeVisible({ timeout: 5000 });
   });
 
-  test('verify address styling matches reference', async ({ page }) => {
-    await page.goto('/eindhoven/5651hp/deflectiespoelstraat/16');
+  test('verify address styling uses the real property address', async ({
+    page,
+    request,
+  }) => {
+    const property = await getCanonicalTestProperty(request);
+    const propertyRoute = buildPropertyRoute(property);
 
+    await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
 
-    // Verify address is displayed in the correct format:
-    // Main title: "Deflectiespoelstraat 16" (street + number)
-    // Subtitle: "5651HP Eindhoven" (zip + city)
-    // This matches the reference styling from address-styling.png
+    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
 
-    // Check for the two-line address display
-    const streetNumber = page.locator('text=Deflectiespoelstraat 16').first();
-    await expect(streetNumber).toBeVisible();
-
-    // The subtitle should contain zip and city
-    const zipCity = page.locator('text=/5651.*HP.*Eindhoven/i').first();
-    await expect(zipCity).toBeVisible();
-
-    // Take a focused screenshot of just the header area
-    const header = page.locator('.p-4, [class*="header"], section').first();
-    if (await header.isVisible()) {
-      await header.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-address-header.png`,
-      });
-    }
+    const header = page.getByTestId('property-header-carousel');
+    await header.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-address-header.png`,
+    });
   });
 
-  test('deep linking works - URL directly navigates to property', async ({ page }) => {
-    // This test verifies that navigating directly to the URL works
-    // (simulating a deep link or shared URL)
+  test('deep linking works - direct canonical property URLs open the detail page', async ({
+    page,
+    request,
+  }) => {
+    const property = await getCanonicalTestProperty(request);
+    const propertyRoute = buildPropertyRoute(property);
 
-    // Start fresh - navigate to the property URL directly
-    await page.goto('/eindhoven/5651hp/deflectiespoelstraat/16');
-
-    // Should show the property, not the map or home screen
+    await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
 
-    // Verify we're on the property page with real address data
-    const addressTitle = page.locator('text=Deflectiespoelstraat 16').first();
-    await expect(addressTitle).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator('[data-testid="map-view"]')).toHaveCount(1);
 
-    // Verify the resolved property page is visible.
-    await expect(page.getByTestId('property-header-carousel')).toBeVisible({ timeout: 5000 });
-    await expect(page).toHaveURL(/\/property\//, { timeout: 10000 });
-
-    // Take final screenshot
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-deep-link.png`,
       fullPage: true,

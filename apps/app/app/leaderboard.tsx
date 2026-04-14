@@ -36,7 +36,7 @@ import { formatPropertyPrice } from '@huishype/shared';
 import type { CountryCode } from '@huishype/shared/config';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { shadows } from '@/src/lib/shadows';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { toPropertyImageSource } from '@/src/utils/property-image';
 
@@ -219,7 +219,9 @@ function FeaturedPropertyCard({
   return (
     <Pressable
       style={[styles.featuredCard, shadows.card]}
-      onPress={() => router.push(buildPropertyRoute(property.id, '/leaderboard'))}
+      onPress={() =>
+        router.push(toInternalAppHref(buildPropertyRoute(property, '/leaderboard')))
+      }
       accessibilityRole="button"
       accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
     >

@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -52,18 +53,6 @@ async function createTestUser(request: APIRequestContext, suffix: string = 'comm
   };
 }
 
-/** Fetch a real property ID from the API */
-async function getTestProperty(request: APIRequestContext) {
-  const response = await request.get(`${API_BASE_URL}/properties?limit=1&city=Eindhoven`);
-  expect(response.ok()).toBe(true);
-  const data = await response.json();
-  expect(data.data.length).toBeGreaterThan(0);
-  return {
-    id: data.data[0].id as string,
-    address: data.data[0].address as string,
-  };
-}
-
 test.describe('Comment Flow', () => {
   let consoleErrors: string[] = [];
 
@@ -93,24 +82,29 @@ test.describe('Comment Flow', () => {
   });
 
   test('comments section renders on property detail page', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.route);
     await page.waitForLoadState('networkidle');
-    await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await expect(page.locator('[data-testid="property-header-carousel"]')).toBeVisible({
+      timeout: 30000,
+    });
+    if (property.address) {
+      await expect(page.getByText(property.address, { exact: true })).toBeVisible({
+        timeout: 30000,
+      });
+    }
 
-    // The property detail page uses mock comments from MOCK_COMMENTS
-    // and also has a live CommentsSection in the bottom sheet version
-    // Check for the "Comments" header
-    const commentsHeader = page.locator('text=Comments');
-    const hasComments = await commentsHeader.first().isVisible().catch(() => false);
-    expect(hasComments).toBe(true);
+    const commentsSection = page.locator('[data-testid="property-content-comments-section"]');
+    await commentsSection.scrollIntoViewIfNeeded();
+    await expect(commentsSection).toBeVisible();
+    await expect(page.locator('text=Comments').first()).toBeVisible();
   });
 
   test('comment input is visible with appropriate placeholder', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.route);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
@@ -137,7 +131,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('post comment via API and verify it appears in list', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'commentpost');
 
     const commentContent = `E2E test comment ${Date.now()}`;
@@ -179,7 +173,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('comments API supports pagination', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
     // Fetch first page with small limit
     const page1 = await request.get(
@@ -208,7 +202,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('comments sort by recent and popular', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'commentsort');
 
     // Post two comments
@@ -260,7 +254,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('reply to a comment via API creates threaded reply', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'reply');
 
     // Post a top-level comment first
@@ -313,7 +307,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('cannot reply to a reply (1-level deep only)', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'nestedreply');
 
     // Post a top-level comment
@@ -358,7 +352,7 @@ test.describe('Comment Flow', () => {
   });
 
   test('unauthenticated comment post returns 401', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
     const response = await request.post(
       `${API_BASE_URL}/properties/${property.id}/comments`,

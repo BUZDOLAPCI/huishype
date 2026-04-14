@@ -36,7 +36,7 @@ import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 import type { AchievementDefinition } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
@@ -413,7 +413,11 @@ export default function ProfileScreen() {
                 <Pressable
                   key={item.id}
                   style={styles.activityRow}
-                  onPress={() => router.push(buildPropertyRoute(item.property.id, '/profile'))}
+                  onPress={() =>
+                    router.push(
+                      toInternalAppHref(buildPropertyRoute(item.property, '/profile')),
+                    )
+                  }
                 >
                   <Icon
                     name={config.icon}

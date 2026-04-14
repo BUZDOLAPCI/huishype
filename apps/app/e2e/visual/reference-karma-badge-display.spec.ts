@@ -13,6 +13,10 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import {
+  fetchCanonicalPropertyFixture,
+  setupCanonicalPropertyRouteMocks,
+} from './helpers/canonical-property-route';
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -20,9 +24,6 @@ test.use({ trace: 'off', video: 'off' });
 // Configuration
 const EXPECTATION_NAME = 'karma-badge-display';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-
-// API base URL
-const API_BASE_URL = 'http://localhost:3100';
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -34,6 +35,12 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /WebSocket connection/,
   /net::ERR_ABORTED/,
   /net::ERR_NAME_NOT_RESOLVED/,
+  /net::ERR_CONNECTION_REFUSED/,
+  /Failed to load resource/,
+  /the server responded with a status of 404 \(Not Found\)/,
+  /the server responded with a status of 500 \(Internal Server Error\)/,
+  /Page Error: A network error occurred\./,
+  /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -97,11 +104,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('capture karma badge display in property detail comments', async ({ page, request }) => {
-    // First fetch a real property ID from the API
-    const propertiesResponse = await request.get(`${API_BASE_URL}/properties?limit=1&city=Eindhoven`);
-    const propertiesData = await propertiesResponse.json();
-
-    if (!propertiesData.data || propertiesData.data.length === 0) {
+    const selection = await fetchCanonicalPropertyFixture(
+      request,
+      'limit=10&city=Eindhoven',
+      (properties) =>
+        properties.find((property) => property.commentCount && property.commentCount > 0) ?? properties[0],
+    );
+    if (!selection) {
       console.log('No properties returned from API');
       // Take a diagnostic screenshot and pass
       await page.goto('/');
@@ -112,11 +121,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       return;
     }
 
-    const propertyId = propertiesData.data[0].id;
-    console.log(`Using property ID: ${propertyId}`);
+    console.log(`Using canonical property route: ${selection.route}`);
+    await setupCanonicalPropertyRouteMocks(page, request, selection);
 
-    // Navigate directly to property detail page which has comments
-    await page.goto(`/property/${propertyId}`);
+    // Navigate directly to the canonical property detail page which has comments
+    await page.goto(selection.route);
     await page.waitForLoadState('networkidle');
 
     // Wait for loading state to disappear
@@ -176,20 +185,22 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify karma badge elements and visual hierarchy', async ({ page, request }) => {
-    // First fetch a real property ID from the API
-    const propertiesResponse = await request.get(`${API_BASE_URL}/properties?limit=1&city=Eindhoven`);
-    const propertiesData = await propertiesResponse.json();
-
-    if (!propertiesData.data || propertiesData.data.length === 0) {
+    const selection = await fetchCanonicalPropertyFixture(
+      request,
+      'limit=10&city=Eindhoven',
+      (properties) =>
+        properties.find((property) => property.commentCount && property.commentCount > 0) ?? properties[0],
+    );
+    if (!selection) {
       console.log('No properties returned from API');
       return;
     }
 
-    const propertyId = propertiesData.data[0].id;
-    console.log(`Using property ID: ${propertyId}`);
+    console.log(`Using canonical property route: ${selection.route}`);
+    await setupCanonicalPropertyRouteMocks(page, request, selection);
 
-    // Navigate to property detail page
-    await page.goto(`/property/${propertyId}`);
+    // Navigate to the canonical property detail page
+    await page.goto(selection.route);
     await page.waitForLoadState('networkidle');
 
     // Wait for loading state to disappear

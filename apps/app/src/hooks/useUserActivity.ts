@@ -21,7 +21,12 @@ export interface ActivityActor {
 export interface ActivityProperty {
   id: string;
   address: string;
+  streetName: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
   city: string;
+  postalCode: string;
+  countryCode: string;
   thumbnailUrl: string | null;
 }
 

@@ -16,6 +16,14 @@ import {
 } from '../../lib/propertyThumbnail';
 import { useProperty } from '../useProperties';
 
+const mockRouterPush = jest.fn();
+
+jest.mock('expo-router', () => ({
+  router: {
+    push: (...args: unknown[]) => mockRouterPush(...args),
+  },
+}));
+
 jest.mock('../useProperties', () => {
   const actual = jest.requireActual('../useProperties');
   return {
@@ -146,6 +154,7 @@ describe('useMapInteraction', () => {
     });
     mockAuthUser = mockUser;
     jest.clearAllMocks();
+    mockRouterPush.mockReset();
     mockUseProperty.mockReturnValue({
       data: null,
       isLoading: false,
@@ -709,6 +718,9 @@ describe('useMapInteraction', () => {
         likeCount: 3,
         commentCount: 5,
         guessCount: 2,
+        streetName: 'Main St',
+        houseNumber: 123,
+        houseNumberAddition: null,
         officialValuation: 250000,
         askingPrice: 300000,
         thumbnailUrl: null,
@@ -785,6 +797,9 @@ describe('useMapInteraction', () => {
         likeCount: 0,
         commentCount: 0,
         guessCount: 0,
+        streetName: null,
+        houseNumber: null,
+        houseNumberAddition: null,
         address: null,
         city: null,
         postalCode: null,
@@ -956,30 +971,58 @@ describe('useMapInteraction', () => {
   });
 
   describe('quick-action navigation handlers', () => {
-    it('handleGuessPress navigates to /guesses/:propertyId', () => {
-      const { router } = require('expo-router');
+    it('handleGuessPress navigates to the canonical guesses route', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-123',
+            address: 'Routelaan 12',
+            city: 'Eindhoven',
+            postalCode: '5600 AA',
+            countryCode: 'NL',
+          }],
+          coordinate: [5.4697, 51.4416],
+        });
       });
 
       act(() => {
         result.current.handleGuessPress('prop-123');
       });
 
-      expect(router.push).toHaveBeenCalledWith('/guesses/prop-123');
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+      );
     });
 
-    it('handleCommentPress navigates to /comments/:propertyId', () => {
-      const { router } = require('expo-router');
+    it('handleCommentPress navigates to the canonical comments route', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-456',
+            address: 'Routelaan 12',
+            city: 'Eindhoven',
+            postalCode: '5600 AA',
+            countryCode: 'NL',
+          }],
+          coordinate: [5.4697, 51.4416],
+        });
       });
 
       act(() => {
         result.current.handleCommentPress('prop-456');
       });
 
-      expect(router.push).toHaveBeenCalledWith('/comments/prop-456');
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+      );
     });
   });
 

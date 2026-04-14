@@ -437,7 +437,7 @@ async function main() {
   console.log('Building Expo web bundle for Playwright runtime ...');
   execFileSync(
     expoBin,
-    ['export', '--platform', 'web'],
+    ['export', '--platform', 'web', '--clear'],
     {
       cwd: appCwd,
       env: withNodeOption({

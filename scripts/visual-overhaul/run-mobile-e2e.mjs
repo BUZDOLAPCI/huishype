@@ -145,6 +145,7 @@ function dismissKeyboardIfVisible() {
 
 function bootstrapApp() {
   const steps = [
+    ['adb', ['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']],
     ['adb', ['reverse', 'tcp:8081', 'tcp:8081']],
     ['adb', ['reverse', 'tcp:3100', 'tcp:3100']],
     ['adb', ['shell', 'am', 'force-stop', 'nl.huishype.app']],

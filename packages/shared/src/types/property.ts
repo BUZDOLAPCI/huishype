@@ -261,6 +261,9 @@ export interface PropertyNodeGroup {
   likeCount: number;
   commentCount: number;
   guessCount: number;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;

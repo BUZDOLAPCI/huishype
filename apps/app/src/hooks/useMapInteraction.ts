@@ -33,6 +33,12 @@ import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
 } from '@huishype/shared/config';
+import {
+  buildPropertyCommentsRoute,
+  buildPropertyGuessesRoute,
+  buildPropertyRoute,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -507,13 +513,39 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleGuessPress = useCallback((propertyId: string) => {
-    router.push(`/guesses/${propertyId}`);
-  }, []);
+  const handleGuessPress = useCallback((_propertyId: string) => {
+    const routeProperty =
+      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+    if (!routeProperty) {
+      return;
+    }
 
-  const handleCommentPress = useCallback((propertyId: string) => {
-    router.push(`/comments/${propertyId}`);
-  }, []);
+    router.push(
+      toInternalAppHref(
+        buildPropertyGuessesRoute(
+          routeProperty,
+          buildPropertyRoute(routeProperty),
+        ),
+      ),
+    );
+  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
+
+  const handleCommentPress = useCallback((_propertyId: string) => {
+    const routeProperty =
+      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+    if (!routeProperty) {
+      return;
+    }
+
+    router.push(
+      toInternalAppHref(
+        buildPropertyCommentsRoute(
+          routeProperty,
+          buildPropertyRoute(routeProperty),
+        ),
+      ),
+    );
+  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
 
   // ── Preview card interaction handlers ───────────────────────
   const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {

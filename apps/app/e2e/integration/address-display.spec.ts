@@ -21,6 +21,7 @@ import {
   waitForMapReady,
   waitForPropertyDetailReady,
 } from './helpers';
+import { buildPropertyRoute } from '@/src/utils/property-route';
 
 // Configuration
 const EXPECTATION_NAME = '0019-real-address-routing';
@@ -212,11 +213,11 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     expect(apiData.data?.length, 'Expected properties in database within bbox').toBeGreaterThan(0);
 
     const property = apiData.data[0];
-    const propertyId = property.id;
     const address = property.address;
+    const propertyRoute = buildPropertyRoute(property);
 
-    // Navigate to the property page
-    await page.goto(`/property/${propertyId}`);
+    // Navigate to the canonical property page
+    await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
     await waitForPropertyDetailReady(page, address);
 

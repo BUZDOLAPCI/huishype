@@ -1,9 +1,19 @@
-import { useState, useCallback } from 'react';
-import { ScrollView, View, Pressable, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useState, useCallback, useRef } from 'react';
+import {
+  ScrollView,
+  View,
+  TouchableOpacity,
+  Text,
+  Platform,
+  StyleSheet,
+  BackHandler,
+} from 'react-native';
+import { Stack, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEffect } from 'react';
 
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
 import { AuthModal } from '@/src/components';
@@ -13,14 +23,21 @@ import {
   resolveAuthModalCopy,
   type AuthModalCopyInput,
 } from '@/src/lib/authModalCopy';
-import { normalizePropertyReturnTarget } from '@/src/utils/property-route';
+import {
+  buildPropertyMapRoute,
+  buildPropertyCommentsRoute,
+  buildPropertyGuessesRoute,
+  buildPropertyRoute,
+  normalizePropertyReturnTarget,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 
 function PropertyDetailSkeleton() {
   return (
-    <View style={styles.skeletonContainer}>
-      <ActivityIndicator size="large" color="#F5A623" />
-      <Text style={styles.skeletonText}>Loading property...</Text>
-    </View>
+    <RouteLoadingShell
+      title="Loading property"
+      subtitle="Preparing the property detail surface..."
+    />
   );
 }
 
@@ -32,23 +49,30 @@ function PropertyNotFound({ onGoBack }: { onGoBack: () => void }) {
       <Text style={styles.notFoundMessage}>
         The property you're looking for doesn't exist or has been removed.
       </Text>
-      <Pressable
-        onPress={onGoBack}
-        style={styles.goBackButton}
-      >
+      <TouchableOpacity onPress={onGoBack} style={styles.goBackButton}>
         <Text style={styles.goBackText}>Go Back</Text>
-      </Pressable>
+      </TouchableOpacity>
     </View>
   );
 }
 
-export default function PropertyDetailScreen() {
-  const { id, returnTo } = useLocalSearchParams<{ id: string; returnTo?: string | string[] }>();
-  const insets = useSafeAreaInsets();
-  const { data: property, isLoading, error } = useProperty(id ?? null);
-  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+export interface PropertyDetailRouteScreenProps {
+  propertyId?: string | null;
+  returnTo?: string | string[] | null;
+  onNavigate?: (path: string) => void;
+}
 
-  // Auth modal state
+export function PropertyDetailRouteScreen({
+  propertyId,
+  returnTo,
+  onNavigate,
+}: PropertyDetailRouteScreenProps) {
+  const insets = useSafeAreaInsets();
+  const { data: property, isLoading, error } = useProperty(propertyId ?? null);
+  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const lastBackAtRef = useRef(0);
+  const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
+
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authCopy, setAuthCopy] = useState(DEFAULT_AUTH_MODAL_COPY);
   const handleAuthRequired = useCallback((copy?: AuthModalCopyInput) => {
@@ -56,23 +80,98 @@ export default function PropertyDetailScreen() {
     setShowAuthModal(true);
   }, []);
 
-  // Navigation handlers for sub-routes
-  const handleViewAllComments = useCallback((propertyId: string) => {
-    router.push(`/comments/${propertyId}`);
-  }, []);
+  const handleViewAllComments = useCallback(
+    (nextPropertyId: string) => {
+      if (!property || property.id !== nextPropertyId) {
+        return;
+      }
 
-  const handleViewAllGuesses = useCallback((propertyId: string) => {
-    router.push(`/guesses/${propertyId}`);
-  }, []);
+      router.push(
+        toInternalAppHref(
+          buildPropertyCommentsRoute(
+            property,
+            buildPropertyRoute(property, normalizedReturnTarget),
+          ),
+        ),
+      );
+    },
+    [normalizedReturnTarget, property],
+  );
+
+  const handleViewAllGuesses = useCallback(
+    (nextPropertyId: string) => {
+      if (!property || property.id !== nextPropertyId) {
+        return;
+      }
+
+      router.push(
+        toInternalAppHref(
+          buildPropertyGuessesRoute(
+            property,
+            buildPropertyRoute(property, normalizedReturnTarget),
+          ),
+        ),
+      );
+    },
+    [normalizedReturnTarget, property],
+  );
 
   const handleBack = useCallback(() => {
     if (normalizedReturnTarget) {
-      router.replace(normalizedReturnTarget);
+      if (onNavigate) {
+        onNavigate(normalizedReturnTarget);
+        return;
+      }
+
+      const href = toInternalAppHref(normalizedReturnTarget);
+      if (Platform.OS === 'web') {
+        router.navigate(href);
+        return;
+      }
+
+      router.dismissTo(href);
       return;
     }
 
-    router.back();
-  }, [normalizedReturnTarget]);
+    if (property) {
+      const previewRoute = buildPropertyMapRoute(property);
+      if (onNavigate) {
+        onNavigate(previewRoute);
+        return;
+      }
+
+      const href = toInternalAppHref(previewRoute);
+      if (Platform.OS === 'web') {
+        router.navigate(href);
+        return;
+      }
+
+      router.dismissTo(href);
+      return;
+    }
+
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.navigate('/');
+  }, [normalizedReturnTarget, onNavigate, property]);
+
+  const triggerBack = useCallback(() => {
+    const now = Date.now();
+    if (now - lastBackAtRef.current < 250) {
+      return;
+    }
+
+    lastBackAtRef.current = now;
+    handleBack();
+  }, [handleBack]);
 
   useFocusEffect(
     useCallback(() => {
@@ -80,10 +179,13 @@ export default function PropertyDetailScreen() {
         return undefined;
       }
 
-      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-        handleBack();
-        return true;
-      });
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        () => {
+          handleBack();
+          return true;
+        },
+      );
 
       return () => {
         subscription.remove();
@@ -92,16 +194,26 @@ export default function PropertyDetailScreen() {
   );
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const shouldRenderHydrationShell = Platform.OS === 'web' && !isHydrated;
 
-  if (isLoading) {
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsHydrated(true);
+    }
+  }, []);
+
+  if (shouldRenderHydrationShell || isLoading) {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
-        {/* Floating back button */}
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={handleBack} style={styles.floatingButton}>
+          <TouchableOpacity
+            onPress={triggerBack}
+            style={styles.floatingButton}
+            activeOpacity={0.8}
+          >
             <Icon name="ArrowLeft" size={20} color="#FFFFFF" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
         <PropertyDetailSkeleton />
       </>
@@ -113,11 +225,15 @@ export default function PropertyDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={[styles.floatingBackRow, { top: topInset + 8 }]}>
-          <Pressable onPress={handleBack} style={styles.floatingButton}>
+          <TouchableOpacity
+            onPress={triggerBack}
+            style={styles.floatingButton}
+            activeOpacity={0.8}
+          >
             <Icon name="ArrowLeft" size={20} color="#3D3832" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
-        <PropertyNotFound onGoBack={handleBack} />
+        <PropertyNotFound onGoBack={triggerBack} />
       </>
     );
   }
@@ -141,24 +257,23 @@ export default function PropertyDetailScreen() {
           />
         </ScrollView>
 
-        {/* Floating overlay buttons on top of hero image */}
         <View
           style={[styles.floatingBackRow, { top: topInset + 8 }]}
           pointerEvents="box-none"
         >
-          <Pressable
-            onPress={handleBack}
+          <TouchableOpacity
+            onPress={triggerBack}
             style={styles.floatingButton}
             testID="property-back-button"
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            activeOpacity={0.8}
           >
             <Icon name="CaretLeft" size={20} color="#FFFFFF" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Auth Modal */}
       <AuthModal
         visible={showAuthModal}
         onClose={() => setShowAuthModal(false)}
@@ -168,6 +283,8 @@ export default function PropertyDetailScreen() {
   );
 }
 
+export default PropertyDetailRouteScreen;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -175,17 +292,6 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-  },
-  skeletonContainer: {
-    flex: 1,
-    backgroundColor: '#FFFBF5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  skeletonText: {
-    color: '#9C958A',
-    marginTop: 16,
-    fontSize: 15,
   },
   notFoundContainer: {
     flex: 1,

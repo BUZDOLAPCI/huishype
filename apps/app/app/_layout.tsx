@@ -20,12 +20,13 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { Platform, useColorScheme } from 'react-native';
+import { useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { QueryProvider } from '@/src/providers/QueryProvider';
 import { AuthProvider } from '@/src/providers/AuthProvider';
+import { DeepLinkRouteSync } from '@/src/providers/DeepLinkRouteSync';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -79,13 +80,22 @@ function RootLayoutNav() {
       <QueryProvider>
         <AuthProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <DeepLinkRouteSync />
             <Stack>
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="property/[id]" options={{ presentation: 'modal', headerShown: false }} />
-              <Stack.Screen name="comments/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
-              <Stack.Screen name="guesses/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
+              <Stack.Screen name="@[camera]" options={{ headerShown: false }} />
+              <Stack.Screen name="map/index" options={{ headerShown: false }} />
+              <Stack.Screen name="map/[...address]" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="map/[city]/[postcode]/[street]/[house]"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="map/[country]/[city]/[postcode]/[street]/[house]"
+                options={{ headerShown: false }}
+              />
               <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-              <Stack.Screen name="[...address]" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="[...address]" options={{ headerShown: false }} />
               <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
               <Stack.Screen name="notifications" options={{ headerShown: false }} />
             </Stack>

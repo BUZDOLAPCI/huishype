@@ -113,7 +113,7 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   };
 };
 
-const fetchPropertyById = async (
+export const fetchPropertyById = async (
   id: string,
   accessToken?: string | null,
 ): Promise<PropertyDetails | null> => {

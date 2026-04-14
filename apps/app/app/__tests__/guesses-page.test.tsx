@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import GuessesPage from '../guesses/[propertyId]';
+import GuessesRouteScreen from '@/src/screens/GuessesRouteScreen';
 
 const mockUseProperty = jest.fn();
 const mockUseFetchPriceGuess = jest.fn();
@@ -8,12 +8,17 @@ const mockMutateAsync = jest.fn();
 const mockUseAuth = jest.fn();
 
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ propertyId: 'property-123' }),
   Stack: {
     Screen: () => null,
   },
   router: {
     back: jest.fn(),
+    replace: jest.fn(),
+    navigate: jest.fn(),
+    dismiss: jest.fn(),
+    dismissTo: jest.fn(),
+    canDismiss: () => false,
+    canGoBack: () => false,
   },
 }));
 
@@ -170,7 +175,7 @@ describe('GuessesPage', () => {
   });
 
   it('lets logged-out users open the slider and gates on submit', async () => {
-    const screen = render(<GuessesPage />);
+    const screen = render(<GuessesRouteScreen propertyId="property-123" />);
 
     fireEvent.press(screen.getByTestId('make-guess-button'));
 

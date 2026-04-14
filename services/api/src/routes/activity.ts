@@ -86,6 +86,9 @@ function mapRow(r: ActivityRow) {
     },
     property: {
       id: r.property_id,
+      streetName: r.street,
+      houseNumber: r.house_number,
+      houseNumberAddition: r.house_number_addition,
       address: formatDisplayAddress(
         {
           street: r.street,
@@ -97,6 +100,8 @@ function mapRow(r: ActivityRow) {
         isValidCountryCode(r.country_code) ? r.country_code : undefined,
       ),
       city: r.city,
+      postalCode: r.postal_code,
+      countryCode: r.country_code,
       thumbnailUrl: r.thumbnail_url,
     },
     createdAt: new Date(r.created_at).toISOString(),

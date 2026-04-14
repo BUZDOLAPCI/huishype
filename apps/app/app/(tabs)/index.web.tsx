@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { Alert, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { router, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
 
 import {
@@ -18,18 +19,39 @@ import {
   PREVIEW_CARD_VIEWPORT_ANCHOR,
   viewportAnchorToOffset,
 } from '@/src/lib/mapCameraAnchor';
+import {
+  clearLocalPreviewRouteCache,
+  extractCanonicalRouteInput,
+  registerLocalPreviewRoute,
+  type ResolvedMapRoute,
+} from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
+import {
+  getCurrentBrowserPathname,
+  replacePassiveBrowserPath,
+} from '@/src/lib/webMapUrlSync';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import {
+  buildCanonicalRouteHref,
+  buildPropertyMapRoute,
+  buildPropertyRoute,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
+import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
 } from '@huishype/shared/config';
+import {
+  buildCanonicalMapPreviewPath,
+  serializeCanonicalCameraPath,
+} from '@huishype/shared';
 
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
@@ -45,6 +67,105 @@ const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+
+export interface MapScreenProps {
+  pathnameOverride?: string | null;
+}
+
+interface PassiveCameraPathSyncArgs {
+  browserPathname: string;
+  nextCameraPath: string;
+  previousCameraPath: string;
+  lockedAreaPath: string | null;
+  canReplaceLockedAreaPath: boolean;
+  previewOpen: boolean;
+  skipNextPassiveUrlSync: boolean;
+  replaceBrowserPath: (pathname: string) => boolean;
+}
+
+interface PassiveCameraPathSyncResult {
+  browserPathname: string;
+  lockedAreaPath: string | null;
+  skipNextPassiveUrlSync: boolean;
+}
+
+export function syncPassiveCameraPathOnMoveEnd({
+  browserPathname,
+  nextCameraPath,
+  previousCameraPath,
+  lockedAreaPath,
+  canReplaceLockedAreaPath,
+  previewOpen,
+  skipNextPassiveUrlSync,
+  replaceBrowserPath,
+}: PassiveCameraPathSyncArgs): PassiveCameraPathSyncResult {
+  if (skipNextPassiveUrlSync && nextCameraPath === previousCameraPath) {
+    return {
+      browserPathname,
+      lockedAreaPath,
+      skipNextPassiveUrlSync: false,
+    };
+  }
+
+  if (previewOpen) {
+    return {
+      browserPathname,
+      lockedAreaPath,
+      skipNextPassiveUrlSync: false,
+    };
+  }
+
+  if (
+    lockedAreaPath &&
+    browserPathname === lockedAreaPath &&
+    !canReplaceLockedAreaPath
+  ) {
+    return {
+      browserPathname,
+      lockedAreaPath,
+      skipNextPassiveUrlSync: false,
+    };
+  }
+
+  if (browserPathname === nextCameraPath) {
+    return {
+      browserPathname,
+      lockedAreaPath,
+      skipNextPassiveUrlSync: false,
+    };
+  }
+
+  const nextLockedAreaPath = null;
+  if (!replaceBrowserPath(nextCameraPath)) {
+    return {
+      browserPathname,
+      lockedAreaPath: nextLockedAreaPath,
+      skipNextPassiveUrlSync: false,
+    };
+  }
+
+  return {
+    browserPathname: nextCameraPath,
+    lockedAreaPath: nextLockedAreaPath,
+    skipNextPassiveUrlSync: false,
+  };
+}
+
+function getExplicitCanonicalReplaceHref(
+  pathname: string,
+  resolvedRoute: ResolvedMapRoute,
+  returnTo?: string | string[] | null,
+): string | null {
+  if (
+    resolvedRoute.canonicalPath === pathname ||
+    resolvedRoute.kind === 'root' ||
+    resolvedRoute.kind === 'camera'
+  ) {
+    return null;
+  }
+
+  return buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo);
+}
 
 // Vegetation configuration
 const VEGETATION_CONFIG = {
@@ -352,7 +473,7 @@ function createSelectedMarkerElement(): HTMLDivElement {
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
-export default function MapScreen() {
+export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -360,6 +481,16 @@ export default function MapScreen() {
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
   const [searchResetToken, setSearchResetToken] = useState(0);
+  const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
+  const [routePathname, setRoutePathname] = useState(initialRoutePathname);
+  const routeState = useResolvedMapRoute(routePathname);
+  const appliedRoutePathRef = useRef<string | null>(null);
+  const skipNextPassiveUrlSyncRef = useRef(true);
+  const lastCameraPathRef = useRef<string>('/');
+  const previousPreviewPathRef = useRef<string | null>(null);
+  const lockedAreaPathRef = useRef<string | null>(null);
+  const canReplaceLockedAreaPathRef = useRef(true);
+  const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -382,6 +513,7 @@ export default function MapScreen() {
     setHighlightedCoordinate,
     setSelectedPropertyId,
     selectedProperty,
+    selectedPropertyForSheet,
     toGroupProperty,
     setPreviewGroup,
     setCurrentPreviewIndex,
@@ -393,6 +525,7 @@ export default function MapScreen() {
   useFocusEffect(
     useCallback(() => {
       return () => {
+        clearLocalPreviewRouteCache();
         resetTransientUI();
         setSearchResetToken((value) => value + 1);
       };
@@ -411,6 +544,32 @@ export default function MapScreen() {
 
     return interaction.previewGroup?.coordinate ?? null;
   }, [highlightedCoordinate, interaction.previewGroup, selectedProperty?.geometry]);
+  const currentPreviewProperty = useMemo(() => {
+    if (!interaction.previewGroup) {
+      return null;
+    }
+
+    return interaction.previewGroup.properties[interaction.currentPreviewIndex] ?? null;
+  }, [interaction.currentPreviewIndex, interaction.previewGroup]);
+  const previewRouteInput = useMemo(
+    () =>
+      extractCanonicalRouteInput(
+        (selectedPropertyForSheet as
+          | (typeof selectedPropertyForSheet & {
+              streetName?: string | null;
+              houseNumber?: string | number | null;
+              houseNumberAddition?: string | null;
+            })
+          | null) ?? null,
+      ) ?? extractCanonicalRouteInput(currentPreviewProperty),
+    [currentPreviewProperty, selectedPropertyForSheet],
+  );
+  const previewCanonicalPath = useMemo(
+    () => (previewRouteInput ? buildCanonicalMapPreviewPath(previewRouteInput) : null),
+    [previewRouteInput],
+  );
+  const previewOpenRef = useRef(false);
+  previewOpenRef.current = !!interaction.previewGroup || !!interaction.highlightedCoordinate;
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -706,18 +865,54 @@ export default function MapScreen() {
       // Fire on 'moveend' — covers pan, zoom, fly, programmatic camera moves.
       map.on('moveend', () => {
         const center = map.getCenter();
-        onViewportCenterChangedRef.current(center.lng, center.lat, map.getZoom());
+        const zoom = map.getZoom();
+        const previousCameraPath = lastCameraPathRef.current;
+        const nextCameraPath = serializeCanonicalCameraPath({
+          lat: center.lat,
+          lng: center.lng,
+          zoom,
+        });
+        lastCameraPathRef.current = nextCameraPath;
+        onViewportCenterChangedRef.current(center.lng, center.lat, zoom);
+        const passiveSyncResult = syncPassiveCameraPathOnMoveEnd({
+          browserPathname: browserPathRef.current,
+          nextCameraPath,
+          previousCameraPath,
+          lockedAreaPath: lockedAreaPathRef.current,
+          canReplaceLockedAreaPath: canReplaceLockedAreaPathRef.current,
+          previewOpen: previewOpenRef.current,
+          skipNextPassiveUrlSync: skipNextPassiveUrlSyncRef.current,
+          replaceBrowserPath: replacePassiveBrowserPath,
+        });
+        browserPathRef.current = passiveSyncResult.browserPathname;
+        lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
+        skipNextPassiveUrlSyncRef.current =
+          passiveSyncResult.skipNextPassiveUrlSync;
       });
 
       // Trigger initial reverse geocode for the default camera position
       onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: DEFAULT_CENTER[1],
+        lng: DEFAULT_CENTER[0],
+        zoom: DEFAULT_ZOOM,
+      });
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
-      map.on('dragstart', () => { isDragging.current = true; });
+      map.on('dragstart', () => {
+        isDragging.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
-      map.on('zoomstart', () => { isZooming.current = true; });
+      map.on('zoomstart', () => {
+        isZooming.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
-      map.on('rotatestart', () => { isRotating.current = true; });
+      map.on('rotatestart', () => {
+        isRotating.current = true;
+        canReplaceLockedAreaPathRef.current = true;
+      });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 
       // Handle click on property points
@@ -848,6 +1043,230 @@ export default function MapScreen() {
     },
     [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
+
+  useEffect(() => {
+    const nextRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
+    setRoutePathname((currentPathname) =>
+      currentPathname === nextRoutePathname ? currentPathname : nextRoutePathname,
+    );
+    browserPathRef.current = nextRoutePathname;
+  }, [pathnameOverride]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handlePopState = () => {
+      const nextPathname = getCurrentBrowserPathname('/');
+      browserPathRef.current = nextPathname;
+      setRoutePathname(nextPathname);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!interaction.previewGroup || !previewCanonicalPath || !previewRouteInput) {
+      return;
+    }
+
+    const previewSource = interaction.selectedPropertyForSheet ?? currentPreviewProperty;
+    if (!previewSource?.id || !previewSource.address || !previewSource.city) {
+      return;
+    }
+
+    registerLocalPreviewRoute(
+      previewCanonicalPath,
+      {
+        id: previewSource.id,
+        address: previewSource.address,
+        city: previewSource.city,
+        postalCode: previewSource.postalCode ?? null,
+        countryCode: previewSource.countryCode ?? undefined,
+        coordinates: {
+          lon: interaction.previewGroup.coordinate[0],
+          lat: interaction.previewGroup.coordinate[1],
+        },
+        hasListing: false,
+        officialValuation: previewSource.officialValuation ?? null,
+        askingPrice: previewSource.askingPrice ?? null,
+        thumbnailUrl: previewSource.thumbnailUrl ?? null,
+        aerialImageUrl: previewSource.aerialImageUrl ?? null,
+      } as PropertyResolveResult,
+      previewRouteInput,
+    );
+  }, [
+    currentPreviewProperty,
+    interaction.previewGroup,
+    interaction.selectedPropertyForSheet,
+    previewCanonicalPath,
+    previewRouteInput,
+  ]);
+
+  useEffect(() => {
+    const resolvedRoute = routeState.resolvedRoute;
+    const map = mapRef.current;
+    if (!resolvedRoute || !map || !mapLoaded || routeState.isLoading) {
+      return;
+    }
+
+    if (resolvedRoute.kind === 'invalid') {
+      interaction.handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      appliedRoutePathRef.current = routeState.pathname;
+      replacePassiveBrowserPath('/');
+      browserPathRef.current = '/';
+      setRoutePathname('/');
+      return;
+    }
+
+    const explicitCanonicalHref = getExplicitCanonicalReplaceHref(
+      routeState.pathname,
+      resolvedRoute,
+    );
+    if (explicitCanonicalHref) {
+      if (
+        resolvedRoute.kind === 'property' ||
+        resolvedRoute.kind === 'comments' ||
+        resolvedRoute.kind === 'guesses'
+      ) {
+        router.navigate(toInternalAppHref(explicitCanonicalHref));
+        return;
+      }
+
+      if (replacePassiveBrowserPath(explicitCanonicalHref)) {
+        browserPathRef.current = explicitCanonicalHref;
+        setRoutePathname((currentPathname) =>
+          currentPathname === explicitCanonicalHref ? currentPathname : explicitCanonicalHref,
+        );
+      }
+      return;
+    }
+
+    if (
+      resolvedRoute.kind === 'property' ||
+      resolvedRoute.kind === 'comments' ||
+      resolvedRoute.kind === 'guesses'
+    ) {
+      router.navigate(routeState.pathname as Href);
+      return;
+    }
+
+    if (appliedRoutePathRef.current === routeState.pathname) {
+      return;
+    }
+
+    if (resolvedRoute.kind === 'root') {
+      interaction.handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'camera') {
+      interaction.handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      map.jumpTo({
+        center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat],
+        zoom: resolvedRoute.camera.zoom,
+      });
+      lastCameraPathRef.current = resolvedRoute.canonicalPath;
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'city' || resolvedRoute.kind === 'postcode') {
+      interaction.handleClosePreview();
+      skipNextPassiveUrlSyncRef.current = true;
+      lockedAreaPathRef.current = resolvedRoute.canonicalPath;
+      canReplaceLockedAreaPathRef.current = false;
+      map.jumpTo({
+        center: resolvedRoute.center,
+        zoom: resolvedRoute.zoom,
+      });
+      lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: resolvedRoute.center[1],
+        lng: resolvedRoute.center[0],
+        zoom: resolvedRoute.zoom,
+      });
+      setSearchCity(resolvedRoute.cityName, resolvedRoute.center);
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
+    if (resolvedRoute.kind === 'preview') {
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+      if (previewCanonicalPath === resolvedRoute.canonicalPath && interaction.previewGroup) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      skipNextPassiveUrlSyncRef.current = true;
+      if (lastCameraPathRef.current === '/') {
+        lastCameraPathRef.current = serializeCanonicalCameraPath({
+          lat: resolvedRoute.property.coordinates.lat,
+          lng: resolvedRoute.property.coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
+      handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
+      setSearchCity(resolvedRoute.property.city, [
+        resolvedRoute.property.coordinates.lon,
+        resolvedRoute.property.coordinates.lat,
+      ]);
+      appliedRoutePathRef.current = routeState.pathname;
+    }
+  }, [
+    currentPreviewProperty,
+    handlePropertyResolved,
+    interaction,
+    mapLoaded,
+    previewCanonicalPath,
+    routeState.isLoading,
+    routeState.pathname,
+    routeState.resolvedRoute,
+    setSearchCity,
+  ]);
+
+  useEffect(() => {
+    if (routeState.isLoading || !mapRef.current) {
+      return;
+    }
+
+    if (interaction.previewGroup && previewCanonicalPath) {
+      previousPreviewPathRef.current = previewCanonicalPath;
+      if (browserPathRef.current !== previewCanonicalPath) {
+        replacePassiveBrowserPath(previewCanonicalPath);
+        browserPathRef.current = previewCanonicalPath;
+      }
+      return;
+    }
+
+    if (!previousPreviewPathRef.current) {
+      return;
+    }
+
+    previousPreviewPathRef.current = null;
+
+    if (
+      lastCameraPathRef.current &&
+      browserPathRef.current !== lastCameraPathRef.current
+    ) {
+      replacePassiveBrowserPath(lastCameraPathRef.current);
+      browserPathRef.current = lastCameraPathRef.current;
+    }
+  }, [interaction.previewGroup, previewCanonicalPath, routeState.isLoading]);
 
   // Manage selected marker with pulsing animation
   useEffect(() => {

@@ -4,7 +4,7 @@
  * Used by three containers:
  *   1. Native bottom sheet (PropertyBottomSheet.native.tsx)
  *   2. Web panel / bottom sheet (PropertyBottomSheet.web.tsx)
- *   3. Detail page route (app/property/[id].tsx)
+ *   3. Canonical property detail route screen
  *
  * The parent owns the detail query for map-sheet surfaces and may also own
  * like/save state there. The detail page passes the fetched property details

@@ -18,7 +18,7 @@ import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { FeedProperty } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
-import { buildPropertyRoute } from '@/src/utils/property-route';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 export default function SavedScreen() {
   const { user } = useAuthContext();
@@ -49,8 +49,8 @@ export default function SavedScreen() {
     setIsRefreshing(false);
   }, [refetch]);
 
-  const handlePropertyPress = useCallback((propertyId: string) => {
-    router.push(buildPropertyRoute(propertyId, '/saved'));
+  const handlePropertyPress = useCallback((property: FeedProperty) => {
+    router.push(toInternalAppHref(buildPropertyRoute(property, '/saved')));
   }, []);
 
   const handleLoadMore = useCallback(() => {
@@ -78,7 +78,7 @@ export default function SavedScreen() {
         viewCount={item.viewCount}
         yearBuilt={item.yearBuilt}
         floorAreaM2={item.floorAreaM2}
-        onPress={() => handlePropertyPress(item.id)}
+        onPress={() => handlePropertyPress(item)}
       />
     ),
     [handlePropertyPress]

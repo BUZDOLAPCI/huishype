@@ -80,3 +80,31 @@ export {
   getAchievementsByCategory,
   ACHIEVEMENT_CATEGORY_LABELS,
 } from './achievement-registry.js';
+
+// Canonical property/map URL helpers
+export {
+  CANONICAL_LATIN_REPLACEMENTS,
+  getCanonicalCountryPrefixSegment,
+  getCanonicalCountryPrefix,
+  resolveCanonicalCountryPrefix,
+  buildCanonicalCitySlug,
+  buildCanonicalStreetSlug,
+  buildCanonicalPostcodeSlug,
+  buildCanonicalHouseSegment,
+  normalizeComparableText,
+  serializeCanonicalCameraPath,
+  parseCanonicalCameraPath,
+  buildCanonicalCityMapPath,
+  buildCanonicalPostcodeMapPath,
+  buildCanonicalPropertyPath,
+  buildCanonicalMapPreviewPath,
+  buildCanonicalCommentsPath,
+  buildCanonicalGuessesPath,
+  normalizeInternalReturnTo,
+  appendInternalReturnTo,
+  type CanonicalMapCamera,
+  type CanonicalCountryPrefixResolution,
+  type CanonicalMapAreaInput,
+  type CanonicalPostcodeMapInput,
+  type CanonicalPropertyRouteInput,
+} from './property-url.js';

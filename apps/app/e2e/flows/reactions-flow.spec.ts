@@ -11,6 +11,7 @@
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
+import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -35,15 +36,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
-
-/** Fetch a real property ID from the API */
-async function getTestProperty(request: APIRequestContext) {
-  const response = await request.get(`${API_BASE_URL}/properties?limit=1&city=Eindhoven`);
-  expect(response.ok()).toBe(true);
-  const data = await response.json();
-  expect(data.data.length).toBeGreaterThan(0);
-  return { id: data.data[0].id as string };
-}
 
 /** Create a test comment to use as reaction target */
 async function createTestComment(
@@ -92,7 +84,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('like a comment via API and verify count increases', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'likeauthor');
     const liker = await createTestUser(request, 'liker');
     const comment = await createTestComment(request, property.id, author.accessToken);
@@ -136,7 +128,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('unlike a comment via API and verify count decreases', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'unlikeauthor');
     const liker = await createTestUser(request, 'unliker');
     const comment = await createTestComment(request, property.id, author.accessToken);
@@ -178,7 +170,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('unauthenticated like returns 401', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'unauthlikeauthor');
     const comment = await createTestComment(request, property.id, author.accessToken);
 
@@ -194,7 +186,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('double-like returns 409 ALREADY_LIKED', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'doublelikeauthor');
     const liker = await createTestUser(request, 'doubleliker');
     const comment = await createTestComment(request, property.id, author.accessToken);
@@ -221,7 +213,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('unlike without prior like returns 404', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'nolikeauthor');
     const user = await createTestUser(request, 'nolikeuser');
     const comment = await createTestComment(request, property.id, author.accessToken);
@@ -239,7 +231,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('multiple users can like the same comment', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'multiauthor');
     const comment = await createTestComment(request, property.id, author.accessToken);
 
@@ -267,9 +259,9 @@ test.describe('Reactions Flow', () => {
   });
 
   test('like buttons are visible on comments in property page', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.route);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
@@ -296,7 +288,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('like a property via API and verify count increases', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const liker = await createTestUser(request, 'propliker');
 
     // Like the property
@@ -313,7 +305,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('unlike a property via API after liking', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const liker = await createTestUser(request, 'propunliker');
 
     // Like first
@@ -338,7 +330,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('unauthenticated property like returns 401', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
     const response = await request.post(
       `${API_BASE_URL}/properties/${property.id}/like`
@@ -349,7 +341,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('GET /properties/:id includes isLiked and likeCount', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const liker = await createTestUser(request, 'propdetailliker');
 
     // Fetch property without auth - should have isLiked: false
@@ -379,7 +371,7 @@ test.describe('Reactions Flow', () => {
   });
 
   test('like count reflects in comments list API response', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const author = await createTestUser(request, 'countauthor');
     const liker = await createTestUser(request, 'countliker');
 

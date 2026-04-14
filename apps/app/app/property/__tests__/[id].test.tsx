@@ -2,26 +2,30 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { BackHandler, Platform } from 'react-native';
 
-import PropertyDetailScreen from '../[id]';
+import PropertyDetailRouteScreen from '@/src/screens/PropertyDetailRouteScreen';
 import type { PropertyDetails } from '@/src/hooks/useProperties';
 
 const mockUseProperty = jest.fn();
 const mockPropertyContent = jest.fn();
 const mockBack = jest.fn();
 const mockPush = jest.fn();
-const mockReplace = jest.fn();
+const mockNavigate = jest.fn();
+const mockDismiss = jest.fn();
+const mockDismissTo = jest.fn();
 let capturedFocusEffect: (() => void | (() => void)) | null = null;
-let mockSearchParams: { id: string; returnTo?: string | string[] } = { id: 'route-property-1' };
 
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => mockSearchParams,
   Stack: {
     Screen: () => null,
   },
   router: {
     back: (...args: unknown[]) => mockBack(...args),
     push: (...args: unknown[]) => mockPush(...args),
-    replace: (...args: unknown[]) => mockReplace(...args),
+    navigate: (...args: unknown[]) => mockNavigate(...args),
+    dismiss: (...args: unknown[]) => mockDismiss(...args),
+    dismissTo: (...args: unknown[]) => mockDismissTo(...args),
+    canDismiss: () => false,
+    canGoBack: () => false,
   },
 }));
 
@@ -99,10 +103,9 @@ const property: PropertyDetails = {
   uniqueViewers: 2,
 };
 
-describe('app/property/[id]', () => {
+describe('PropertyDetailRouteScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSearchParams = { id: 'route-property-1' };
     capturedFocusEffect = null;
     Platform.OS = 'android';
     mockUseProperty.mockReturnValue({
@@ -113,7 +116,7 @@ describe('app/property/[id]', () => {
   });
 
   it('renders PropertyContent on success and wires the shared contract props', () => {
-    render(<PropertyDetailScreen />);
+    render(<PropertyDetailRouteScreen propertyId="route-property-1" />);
 
     expect(screen.getByText(property.address)).toBeTruthy();
 
@@ -139,38 +142,39 @@ describe('app/property/[id]', () => {
   });
 
   it('returns to the explicit origin when provided', () => {
-    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
-
-    render(<PropertyDetailScreen />);
+    render(
+      <PropertyDetailRouteScreen propertyId="route-property-1" returnTo="/feed" />,
+    );
 
     fireEvent.press(screen.getByTestId('property-back-button'));
 
-    expect(mockReplace).toHaveBeenCalledWith('/feed');
+    expect(mockDismissTo).toHaveBeenCalledWith('/feed');
     expect(mockBack).not.toHaveBeenCalled();
   });
 
-  it('falls back to router.back when no explicit origin exists', () => {
-    render(<PropertyDetailScreen />);
+  it('falls back to the canonical map preview when no explicit origin exists', () => {
+    render(<PropertyDetailRouteScreen propertyId="route-property-1" />);
 
     fireEvent.press(screen.getByTestId('property-back-button'));
 
-    expect(mockBack).toHaveBeenCalledTimes(1);
-    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockDismissTo).toHaveBeenCalledWith('/map/eindhoven/5600aa/routelaan/12');
+    expect(mockBack).not.toHaveBeenCalled();
   });
 
   it('uses returnTo when the not-found CTA is pressed', () => {
-    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
     mockUseProperty.mockReturnValue({
       data: null,
       isLoading: false,
       error: new Error('missing'),
     });
 
-    render(<PropertyDetailScreen />);
+    render(
+      <PropertyDetailRouteScreen propertyId="route-property-1" returnTo="/feed" />,
+    );
 
     fireEvent.press(screen.getByText('Go Back'));
 
-    expect(mockReplace).toHaveBeenCalledWith('/feed');
+    expect(mockDismissTo).toHaveBeenCalledWith('/feed');
     expect(mockBack).not.toHaveBeenCalled();
   });
 
@@ -178,9 +182,10 @@ describe('app/property/[id]', () => {
     const addEventListenerSpy = jest.spyOn(BackHandler, 'addEventListener');
     const removeListener = jest.fn();
     addEventListenerSpy.mockReturnValue({ remove: removeListener } as any);
-    mockSearchParams = { id: 'route-property-1', returnTo: '/feed' };
 
-    render(<PropertyDetailScreen />);
+    render(
+      <PropertyDetailRouteScreen propertyId="route-property-1" returnTo="/feed" />,
+    );
 
     expect(addEventListenerSpy).not.toHaveBeenCalled();
     expect(capturedFocusEffect).toBeDefined();
@@ -190,7 +195,7 @@ describe('app/property/[id]', () => {
     const handler = addEventListenerSpy.mock.calls.at(-1)?.[1];
     expect(handler).toBeDefined();
     expect(handler?.()).toBe(true);
-    expect(mockReplace).toHaveBeenCalledWith('/feed');
+    expect(mockDismissTo).toHaveBeenCalledWith('/feed');
 
     cleanup?.();
     expect(removeListener).toHaveBeenCalledTimes(1);

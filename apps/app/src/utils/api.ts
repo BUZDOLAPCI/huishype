@@ -304,6 +304,9 @@ export interface NearbyGroupedResult {
   commentCount: number;
   guessCount: number;
   hasListing: boolean;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;
@@ -382,6 +385,9 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     likeCount: result.likeCount,
     commentCount: result.commentCount,
     guessCount: result.guessCount,
+    streetName: result.streetName,
+    houseNumber: result.houseNumber,
+    houseNumberAddition: result.houseNumberAddition,
     address: result.address,
     city: result.city,
     postalCode: result.postalCode,
@@ -453,6 +459,9 @@ export function normalizeRenderedPropertyGroup(
     likeCount: toNumber(properties.likeCount),
     commentCount: toNumber(properties.commentCount),
     guessCount: toNumber(properties.guessCount),
+    streetName: toNullableString(properties.streetName),
+    houseNumber: toNullableNumber(properties.houseNumber),
+    houseNumberAddition: toNullableString(properties.houseNumberAddition),
     address: toNullableString(properties.address),
     city: toNullableString(properties.city),
     postalCode: toNullableString(properties.postalCode),

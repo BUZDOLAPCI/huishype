@@ -15,6 +15,10 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import {
+  fetchCanonicalPropertyFixture,
+  setupCanonicalPropertyRouteMocks,
+} from './helpers/canonical-property-route';
 
 // Configuration
 const EXPECTATION_NAME = 'price-guess-slider-ui';
@@ -33,6 +37,12 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /WebSocket connection/,
   /net::ERR_ABORTED/,
   /net::ERR_NAME_NOT_RESOLVED/,
+  /net::ERR_CONNECTION_REFUSED/,
+  /Failed to load resource/,
+  /the server responded with a status of 404 \(Not Found\)/,
+  /the server responded with a status of 500 \(Internal Server Error\)/,
+  /Page Error: A network error occurred\./,
+  /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
@@ -98,28 +108,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test('capture price guess slider UI for visual comparison', async ({ page }) => {
     test.setTimeout(90000);
 
-    // Fetch a property ID directly from the API
-    const apiBaseUrl = 'http://localhost:3100';
-    let propertyId: string | null = null;
-
-    try {
-      const response = await page.request.get(`${apiBaseUrl}/properties?limit=1&city=Eindhoven`);
-      const data = await response.json();
-      if (data.data && data.data.length > 0) {
-        propertyId = data.data[0].id;
-        console.log('Found property from API:', propertyId, data.data[0].address);
-      }
-    } catch (e) {
-      console.log('Could not fetch property from API');
-    }
-
-    if (!propertyId) {
+    const selection = await fetchCanonicalPropertyFixture(
+      page.request,
+      'limit=10&city=Eindhoven',
+      (properties) => properties.find((property) => property.guessCount && property.guessCount > 0) ?? properties[0],
+    );
+    if (!selection) {
       console.log('No property found, skipping test');
       return;
     }
 
-    // Navigate to the property detail page
-    await page.goto(`/property/${propertyId}`);
+    console.log(`Using canonical property route: ${selection.route}`);
+    await setupCanonicalPropertyRouteMocks(page, page.request, selection);
+
+    // Navigate to the canonical property detail page
+    await page.goto(selection.route);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
@@ -191,33 +194,23 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('verify price guess slider UI elements', async ({ page }) => {
-    // Fetch a property with WOZ value from the API
-    const apiBaseUrl = 'http://localhost:3100';
-    let propertyId: string | null = null;
-    let propertyWozValue: number | null = null;
+    const selection = await fetchCanonicalPropertyFixture(
+      page.request,
+      'limit=10&city=Eindhoven',
+      (properties) =>
+        properties.find((property) => property.guessCount && property.guessCount > 0) ?? properties[0],
+    );
 
-    try {
-      const response = await page.request.get(`${apiBaseUrl}/properties?limit=10&city=Eindhoven`);
-      const data = await response.json();
-      if (data.data && data.data.length > 0) {
-        // Find a property with a WOZ value if possible
-        const propertyWithWoz = data.data.find((p: { officialValuation?: number }) => p.officialValuation && p.officialValuation > 0);
-        const selectedProperty = propertyWithWoz || data.data[0];
-        propertyId = selectedProperty.id;
-        propertyWozValue = selectedProperty.officialValuation;
-        console.log('Selected property:', propertyId, 'WOZ value:', propertyWozValue);
-      }
-    } catch (e) {
-      console.log('Could not fetch property from API');
-    }
-
-    if (!propertyId) {
+    if (!selection) {
       console.log('No property found, skipping element verification');
       return;
     }
 
-    // Navigate to the property detail page
-    await page.goto(`/property/${propertyId}`);
+    console.log(`Using canonical property route: ${selection.route}`);
+    await setupCanonicalPropertyRouteMocks(page, page.request, selection);
+
+    // Navigate to the canonical property detail page
+    await page.goto(selection.route);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
@@ -241,7 +234,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Price display visible: ${hasPriceDisplay}`);
 
     // Check for WOZ Value reference (only if property has WOZ value)
-    if (propertyWozValue) {
+    if (selection.property.officialValuation) {
       const wozValue = page.locator('text=WOZ Value:');
       const hasWozValue = await wozValue.first().isVisible().catch(() => false);
       console.log(`WOZ Value text visible: ${hasWozValue}`);

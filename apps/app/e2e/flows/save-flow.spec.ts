@@ -9,8 +9,9 @@
  * - Save status persists via GET /saved-properties list
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
+import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
 
@@ -35,15 +36,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
-
-/** Fetch a real property ID from the API */
-async function getTestProperty(request: APIRequestContext) {
-  const response = await request.get(`${API_BASE_URL}/properties?limit=1&city=Eindhoven`);
-  expect(response.ok()).toBe(true);
-  const data = await response.json();
-  expect(data.data.length).toBeGreaterThan(0);
-  return { id: data.data[0].id as string };
-}
 
 test.describe('Save Flow', () => {
   let consoleErrors: string[] = [];
@@ -74,9 +66,9 @@ test.describe('Save Flow', () => {
   });
 
   test('save button is visible in QuickActions on property page', async ({ page, request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
-    await page.goto(`/property/${property.id}`);
+    await page.goto(property.route);
     await page.waitForLoadState('networkidle');
     await page.locator('text=Loading property...').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
 
@@ -87,7 +79,7 @@ test.describe('Save Flow', () => {
   });
 
   test('unauthenticated save returns 401', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
 
     // Try to save without authentication
     const response = await request.post(
@@ -101,7 +93,7 @@ test.describe('Save Flow', () => {
   });
 
   test('authenticated save via API returns 201 and isSaved=true', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'saver');
 
     // Save the property
@@ -128,7 +120,7 @@ test.describe('Save Flow', () => {
   });
 
   test('authenticated unsave via API returns 200 and isSaved=false', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'unsaver');
 
     // Save it first
@@ -164,7 +156,7 @@ test.describe('Save Flow', () => {
   });
 
   test('save status persists via GET /saved-properties list', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'persistsaver');
 
     // Save the property
@@ -193,7 +185,7 @@ test.describe('Save Flow', () => {
   });
 
   test('unsaved property does not appear in saved-properties list', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'removesaver');
 
     // Save then unsave
@@ -225,7 +217,7 @@ test.describe('Save Flow', () => {
   });
 
   test('double save returns 409 ALREADY_SAVED', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'doublesaver');
 
     // Save once
@@ -250,7 +242,7 @@ test.describe('Save Flow', () => {
   });
 
   test('unsave without prior save returns 404', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const user = await createTestUser(request, 'nosaveuser');
 
     // Try to unsave without having saved
@@ -266,7 +258,7 @@ test.describe('Save Flow', () => {
   });
 
   test('GET /properties/:id includes isSaved field', async ({ request }) => {
-    const property = await getTestProperty(request);
+    const property = await getCanonicalTestPropertyRoute(request);
     const saver = await createTestUser(request, 'issavedcheck');
 
     // Fetch property without auth - should have isSaved: false
