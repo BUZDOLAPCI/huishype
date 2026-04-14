@@ -1,9 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import { users, emailAuthTokens } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+
+function expectBrowserSession(session: Record<string, unknown>) {
+  expect(session).toHaveProperty('user');
+  expect(session).toHaveProperty('expiresAt');
+  expect(session).not.toHaveProperty('accessToken');
+  expect(session).not.toHaveProperty('refreshToken');
+}
+
+function expectTokenSession(session: Record<string, unknown>) {
+  expect(session).toHaveProperty('user');
+  expect(session).toHaveProperty('expiresAt');
+  expect(session).toHaveProperty('accessToken');
+  expect(session).toHaveProperty('refreshToken');
+}
 
 describe('Email auth routes', () => {
   let app: FastifyInstance;
@@ -15,24 +29,25 @@ describe('Email auth routes', () => {
   });
 
   afterAll(async () => {
-    // Clean up
     try {
       await db.delete(emailAuthTokens).where(eq(emailAuthTokens.email, testEmail));
     } catch {
-      // Ignore
+      // Ignore.
     }
+
     for (const uid of createdUserIds) {
       try {
         await db.delete(users).where(eq(users.id, uid));
       } catch {
-        // Ignore
+        // Ignore.
       }
     }
+
     await app.close();
   });
 
   describe('POST /auth/email/request', () => {
-    it('should return a token in dev mode', async () => {
+    it('returns a token in dev mode', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/request',
@@ -42,12 +57,11 @@ describe('Email auth routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.message).toBeTruthy();
-      // In dev mode, token is returned
       expect(body.token).toBeTruthy();
       expect(body.token.length).toBe(64);
     });
 
-    it('should validate email format', async () => {
+    it('validates email format', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/request',
@@ -57,10 +71,9 @@ describe('Email auth routes', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('should rate limit after 3 requests', async () => {
+    it('rate limits after 3 requests', async () => {
       const rateEmail = `ratelimit${Date.now()}@test.com`;
 
-      // Make 3 requests
       for (let i = 0; i < 3; i++) {
         await app.inject({
           method: 'POST',
@@ -69,7 +82,6 @@ describe('Email auth routes', () => {
         });
       }
 
-      // 4th should be rate limited
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/request',
@@ -77,19 +89,16 @@ describe('Email auth routes', () => {
       });
 
       expect(response.statusCode).toBe(429);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('RATE_LIMITED');
+      expect(JSON.parse(response.body).error).toBe('RATE_LIMITED');
 
-      // Clean up
       await db.delete(emailAuthTokens).where(eq(emailAuthTokens.email, rateEmail));
     });
   });
 
-  describe('POST /auth/email/verify', () => {
+  describe('browser email verification', () => {
     let validToken: string;
 
-    it('should request and verify a token', async () => {
-      // Request a token
+    it('verifies a token into a cookie-backed browser session', async () => {
       const reqResp = await app.inject({
         method: 'POST',
         url: '/auth/email/request',
@@ -98,7 +107,6 @@ describe('Email auth routes', () => {
       const reqBody = JSON.parse(reqResp.body);
       validToken = reqBody.token;
 
-      // Verify the token
       const verifyResp = await app.inject({
         method: 'POST',
         url: '/auth/email/verify',
@@ -107,16 +115,14 @@ describe('Email auth routes', () => {
 
       expect(verifyResp.statusCode).toBe(200);
       const verifyBody = JSON.parse(verifyResp.body);
-      expect(verifyBody.session).toBeDefined();
-      expect(verifyBody.session.user).toBeDefined();
-      expect(verifyBody.session.accessToken).toBeTruthy();
-      expect(verifyBody.session.refreshToken).toBeTruthy();
+      expectBrowserSession(verifyBody.session);
       expect(verifyBody.isNewUser).toBe(true);
+      expect(verifyResp.cookies).toHaveLength(2);
 
       createdUserIds.push(verifyBody.session.user.id);
     });
 
-    it('should reject an already-used token', async () => {
+    it('rejects an already-used token', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/verify',
@@ -124,43 +130,38 @@ describe('Email auth routes', () => {
       });
 
       expect(response.statusCode).toBe(401);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('INVALID_TOKEN');
+      expect(JSON.parse(response.body).error).toBe('INVALID_TOKEN');
     });
 
-    it('should reject an invalid token', async () => {
-      const fakeToken = 'a'.repeat(64);
+    it('rejects an invalid token', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/verify',
-        payload: { token: fakeToken },
+        payload: { token: 'a'.repeat(64) },
       });
 
       expect(response.statusCode).toBe(401);
     });
 
-    it('should return isNewUser=false for existing email', async () => {
-      // Request another token for the same email
+    it('returns isNewUser=false for an existing email', async () => {
       const reqResp = await app.inject({
         method: 'POST',
         url: '/auth/email/request',
         payload: { email: testEmail },
       });
       const reqBody = JSON.parse(reqResp.body);
-      const token = reqBody.token;
 
       const verifyResp = await app.inject({
         method: 'POST',
         url: '/auth/email/verify',
-        payload: { token },
+        payload: { token: reqBody.token },
       });
 
       expect(verifyResp.statusCode).toBe(200);
-      const verifyBody = JSON.parse(verifyResp.body);
-      expect(verifyBody.isNewUser).toBe(false);
+      expect(JSON.parse(verifyResp.body).isNewUser).toBe(false);
     });
 
-    it('should reject token with wrong length', async () => {
+    it('rejects tokens with the wrong length', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/email/verify',
@@ -168,6 +169,32 @@ describe('Email auth routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe('explicit token email verification', () => {
+    it('returns bearer tokens from /auth/token/email/verify', async () => {
+      const email = `emailtoken${Date.now()}@test.com`;
+      const requestResp = await app.inject({
+        method: 'POST',
+        url: '/auth/email/request',
+        payload: { email },
+      });
+      const requestBody = JSON.parse(requestResp.body);
+
+      const verifyResp = await app.inject({
+        method: 'POST',
+        url: '/auth/token/email/verify',
+        payload: { token: requestBody.token },
+      });
+
+      expect(verifyResp.statusCode).toBe(200);
+      const verifyBody = JSON.parse(verifyResp.body);
+      expectTokenSession(verifyBody.session);
+      expect(verifyResp.cookies).toHaveLength(0);
+
+      createdUserIds.push(verifyBody.session.user.id);
+      await db.delete(emailAuthTokens).where(eq(emailAuthTokens.email, email));
     });
   });
 });

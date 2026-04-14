@@ -25,7 +25,7 @@ describe('User profile routes', () => {
     const unique = `${label}${Date.now()}`;
     const resp = await app.inject({
       method: 'POST',
-      url: '/auth/google',
+      url: '/auth/token/google',
       payload: { idToken: `mock-google-${unique}-gid${unique}` },
     });
     expect(resp.statusCode).toBe(200);

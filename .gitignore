@@ -84,10 +84,6 @@ fixtures/eindhoven-addresses.json
 .env
 fixtures/eindhoven-sandbox.geojson
 
-# Maestro test artifacts
-maestro-screenshots/
-maestro-results.xml
-
 # Claude agent working directory
 .claudegram/
 
@@ -99,7 +95,7 @@ reviews/
 
 # Playwright test output artifacts
 output/
-apps/app/output/
+apps/web/output/
 
 # One-off debug screenshots
 shader-fix-verification.png

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import {
+  normalizeExitCode,
   resolveRuntimePort,
   startServiceWithRetry,
   waitForChildExit,
@@ -99,7 +100,7 @@ test('reports mid-run API death with a useful error', async () => {
   );
 });
 
-test('reports unexpected static web server shutdown during a run', async () => {
+test('reports unexpected web server shutdown during a run', async () => {
   const stopping = { current: false };
   const webServer = new FakeServer();
   const runtimeDeath = watchRuntimeDeaths({
@@ -114,7 +115,27 @@ test('reports unexpected static web server shutdown during a run', async () => {
 
   await assert.rejects(
     runtimeDeath,
-    /Static web server closed unexpectedly while Playwright was running/,
+    /Web server closed unexpectedly while Playwright was running/,
+  );
+});
+
+test('reports unexpected Vite preview shutdown during a run', async () => {
+  const stopping = { current: false };
+  const webChild = new FakeChild();
+  const runtimeDeath = watchRuntimeDeaths({
+    apiChild: new FakeChild(),
+    webRuntime: { child: webChild },
+    stopping,
+  });
+
+  queueMicrotask(() => {
+    webChild.exitCode = 1;
+    webChild.emit('exit', 1, null);
+  });
+
+  await assert.rejects(
+    runtimeDeath,
+    /Vite preview exited unexpectedly with code 1 and signal null while Playwright was running/,
   );
 });
 
@@ -175,4 +196,11 @@ test('resolveRuntimePort honors explicitly requested busy ports', async () => {
   await new Promise((resolve, reject) => {
     occupied.close((error) => (error ? reject(error) : resolve()));
   });
+});
+
+test('normalizeExitCode falls back to zero for signal-driven shutdowns', () => {
+  assert.equal(normalizeExitCode(undefined), 0);
+  assert.equal(normalizeExitCode(null), 0);
+  assert.equal(normalizeExitCode(Number.NaN), 0);
+  assert.equal(normalizeExitCode(7), 7);
 });

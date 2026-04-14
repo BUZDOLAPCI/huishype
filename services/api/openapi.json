@@ -11,10 +11,17 @@
   },
   "components": {
     "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "huishype_access",
+        "description": "HTTP-only browser session cookie set by the /auth/* browser endpoints."
+      },
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "Explicit non-browser bearer-token contract under /auth/token/*."
       }
     },
     "schemas": {}
@@ -72,11 +79,11 @@
     },
     "/auth/google": {
       "post": {
-        "summary": "Login with Google",
+        "summary": "Login with Google for the browser session flow",
         "tags": [
           "Auth"
         ],
-        "description": "Validate Google ID token, create or find user, return JWT tokens",
+        "description": "Validates a Google ID token, establishes an HTTP-only browser session, and returns the authenticated user.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -150,21 +157,196 @@
                           ],
                           "additionalProperties": false
                         },
-                        "accessToken": {
-                          "type": "string"
-                        },
-                        "refreshToken": {
-                          "type": "string"
-                        },
                         "expiresAt": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "user",
-                        "accessToken",
-                        "refreshToken",
                         "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isNewUser": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "session",
+                    "isNewUser"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token/google": {
+      "post": {
+        "summary": "Login with Google for explicit token clients",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Validates a Google ID token and returns bearer tokens for non-browser clients.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "idToken": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "idToken"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "accessToken": {
+                          "type": "string"
+                        },
+                        "refreshToken": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "expiresAt",
+                        "accessToken",
+                        "refreshToken"
                       ],
                       "additionalProperties": false
                     },
@@ -232,11 +414,11 @@
     },
     "/auth/apple": {
       "post": {
-        "summary": "Login with Apple",
+        "summary": "Login with Apple for the browser session flow",
         "tags": [
           "Auth"
         ],
-        "description": "Validate Apple ID token, create or find user, return JWT tokens",
+        "description": "Validates an Apple ID token, establishes an HTTP-only browser session, and returns the authenticated user.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -310,21 +492,196 @@
                           ],
                           "additionalProperties": false
                         },
-                        "accessToken": {
-                          "type": "string"
-                        },
-                        "refreshToken": {
-                          "type": "string"
-                        },
                         "expiresAt": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "user",
-                        "accessToken",
-                        "refreshToken",
                         "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isNewUser": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "session",
+                    "isNewUser"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token/apple": {
+      "post": {
+        "summary": "Login with Apple for explicit token clients",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Validates an Apple ID token and returns bearer tokens for non-browser clients.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "idToken": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "idToken"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "accessToken": {
+                          "type": "string"
+                        },
+                        "refreshToken": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "expiresAt",
+                        "accessToken",
+                        "refreshToken"
                       ],
                       "additionalProperties": false
                     },
@@ -392,11 +749,145 @@
     },
     "/auth/refresh": {
       "post": {
-        "summary": "Refresh access token",
+        "summary": "Refresh the browser session from the refresh cookie",
         "tags": [
           "Auth"
         ],
-        "description": "Exchange a refresh token for a new access token",
+        "description": "Rotates the browser session cookies using the refresh-token cookie and returns the refreshed session envelope.",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token/refresh": {
+      "post": {
+        "summary": "Refresh a token session explicitly",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Rotates the supplied refresh token and returns a new access/refresh token pair for non-browser clients.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -424,16 +915,73 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "accessToken": {
-                      "type": "string"
-                    },
-                    "expiresAt": {
-                      "type": "string"
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "accessToken": {
+                          "type": "string"
+                        },
+                        "refreshToken": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "expiresAt",
+                        "accessToken",
+                        "refreshToken"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
-                    "accessToken",
-                    "expiresAt"
+                    "session"
                   ],
                   "additionalProperties": false
                 }
@@ -468,11 +1016,53 @@
     },
     "/auth/logout": {
       "post": {
-        "summary": "Logout",
+        "summary": "Logout the browser session",
         "tags": [
           "Auth"
         ],
-        "description": "Invalidate refresh token (client should also clear tokens)",
+        "description": "Revokes the refresh-token cookie when present and clears both browser session cookies.",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response"
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token/logout": {
+      "post": {
+        "summary": "Logout an explicit token session",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Revokes the supplied refresh token for non-browser token clients.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -495,13 +1085,110 @@
         }
       }
     },
-    "/auth/me": {
+    "/auth/session": {
       "get": {
-        "summary": "Get current user profile",
+        "summary": "Get the current browser or token session state",
         "tags": [
           "Auth"
         ],
-        "description": "Returns the profile of the currently authenticated user",
+        "description": "Returns the active user when a browser cookie session or bearer token is present, otherwise returns user=null without raising an auth error.",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt",
+                            "email"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "user"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Get the current authenticated user",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Returns the active user for the browser cookie session or an explicit bearer token.",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -532,9 +1219,6 @@
                             }
                           ]
                         },
-                        "email": {
-                          "type": "string"
-                        },
                         "karma": {
                           "type": "number"
                         },
@@ -543,6 +1227,9 @@
                         },
                         "createdAt": {
                           "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -550,10 +1237,10 @@
                         "username",
                         "displayName",
                         "profilePhotoUrl",
-                        "email",
                         "karma",
                         "karmaRank",
-                        "createdAt"
+                        "createdAt",
+                        "email"
                       ],
                       "additionalProperties": false
                     }
@@ -3418,6 +4105,9 @@
                           "likeCount": {
                             "type": "number"
                           },
+                          "isLiked": {
+                            "type": "boolean"
+                          },
                           "replies": {
                             "type": "array",
                             "items": {
@@ -3509,6 +4199,9 @@
                                 },
                                 "likeCount": {
                                   "type": "number"
+                                },
+                                "isLiked": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -3520,7 +4213,8 @@
                                 "createdAt",
                                 "updatedAt",
                                 "user",
-                                "likeCount"
+                                "likeCount",
+                                "isLiked"
                               ],
                               "additionalProperties": false
                             }
@@ -3536,6 +4230,7 @@
                           "updatedAt",
                           "user",
                           "likeCount",
+                          "isLiked",
                           "replies"
                         ],
                         "additionalProperties": false
@@ -3740,6 +4435,9 @@
                     "likeCount": {
                       "type": "number"
                     },
+                    "isLiked": {
+                      "type": "boolean"
+                    },
                     "message": {
                       "type": "string"
                     }
@@ -3754,6 +4452,7 @@
                     "updatedAt",
                     "user",
                     "likeCount",
+                    "isLiked",
                     "message"
                   ],
                   "additionalProperties": false
@@ -8259,7 +8958,7 @@
         "tags": [
           "Auth"
         ],
-        "description": "Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token in the response.",
+        "description": "Generates a magic link token for the given email. In development the token is also returned in the response.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -8354,11 +9053,11 @@
     },
     "/auth/email/verify": {
       "post": {
-        "summary": "Verify email magic link",
+        "summary": "Verify email magic link for the browser session flow",
         "tags": [
           "Auth"
         ],
-        "description": "Validates the token, creates or finds the user, returns a session.",
+        "description": "Validates the token, establishes the browser cookie session, and returns the authenticated user.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -8433,21 +9132,197 @@
                           ],
                           "additionalProperties": false
                         },
-                        "accessToken": {
-                          "type": "string"
-                        },
-                        "refreshToken": {
-                          "type": "string"
-                        },
                         "expiresAt": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "user",
-                        "accessToken",
-                        "refreshToken",
                         "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isNewUser": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "session",
+                    "isNewUser"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token/email/verify": {
+      "post": {
+        "summary": "Verify email magic link for explicit token clients",
+        "tags": [
+          "Auth"
+        ],
+        "description": "Validates the token and returns bearer tokens for non-browser clients.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "properties": {
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "username": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "profilePhotoUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "karma": {
+                              "type": "number"
+                            },
+                            "karmaRank": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "username",
+                            "displayName",
+                            "profilePhotoUrl",
+                            "karma",
+                            "karmaRank",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "accessToken": {
+                          "type": "string"
+                        },
+                        "refreshToken": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "expiresAt",
+                        "accessToken",
+                        "refreshToken"
                       ],
                       "additionalProperties": false
                     },

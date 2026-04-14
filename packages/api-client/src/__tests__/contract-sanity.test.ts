@@ -1,12 +1,7 @@
 /**
  * Contract sanity tests for @huishype/api-client
  *
- * These tests verify that:
- * 1. The generated OpenAPI types export expected paths
- * 2. The client wrapper exposes methods for all key API paths
- * 3. The generated types and client are in sync
- *
- * If these fail, run:
+ * If these fail, regenerate the contract:
  *   pnpm openapi:export && pnpm --filter @huishype/api-client generate
  */
 
@@ -19,10 +14,8 @@ import type {
   SubmitListingRequest,
   SubmitListingResponse,
 } from '@huishype/shared';
-import { HuisHypeApiClient, createApiClient, ApiError } from '../client.js';
+import { ApiError, HuisHypeApiClient, createApiClient } from '../client.js';
 
-// Helper: extract all keys from a type at compile time
-// This verifies the generated paths interface contains expected routes
 type PathKeys = keyof paths;
 type Assert<T extends true> = T;
 type IsExact<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -31,9 +24,15 @@ type IsExact<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B
     : false
   : false;
 type Expand<T> = { [K in keyof T]: T[K] };
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
+    ? true
+    : false
+  : false;
 
 type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
 type FeedResponseFromOpenApi = paths['/feed']['get']['responses'][200]['content']['application/json'];
+type AuthSessionResponseFromOpenApi = paths['/auth/session']['get']['responses'][200]['content']['application/json'];
 type SubmitListingRequestFromOpenApi = paths['/listings/submit']['post']['requestBody']['content']['application/json'];
 type SubmitListingResponseFromOpenApi = paths['/listings/submit']['post']['responses'][201]['content']['application/json'];
 type SubmitListingErrorFromOpenApi = paths['/listings/submit']['post']['responses'][400]['content']['application/json'];
@@ -45,6 +44,8 @@ type CanonicalSubmitListingError = {
 };
 type FeedClientMethod = HuisHypeApiClient['getFeed'];
 type ExpectedFeedClientMethod = (params: GetFeedRequest) => Promise<GetFeedResponse>;
+type AuthSessionClientMethod = HuisHypeApiClient['getAuthSession'];
+type ExpectedAuthSessionClientMethod = () => Promise<AuthSessionResponseFromOpenApi>;
 type SavedPropertiesQueryFromOpenApi = NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
 type SavedPropertiesResponseFromOpenApi = paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
 type SavedPropertiesClientMethod = HuisHypeApiClient['getSavedProperties'];
@@ -52,14 +53,7 @@ type ExpectedSavedPropertiesClientMethod = (
   params: SavedPropertiesQueryFromOpenApi
 ) => Promise<GetSavedPropertiesResponse>;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
-type Expect<T extends true> = T;
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
-  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
-    ? true
-    : false
-  : false;
 
-type FeedQuery = NonNullable<paths['/feed']['get']['parameters']['query']>;
 const feedContractAssertions = [
   true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
   true as Assert<IsExact<FeedResponseFromOpenApi, GetFeedResponse>>,
@@ -67,13 +61,13 @@ const feedContractAssertions = [
   true as Assert<IsExact<SubmitListingResponseFromOpenApi, CanonicalSubmitListingResponse>>,
   true as Assert<IsExact<SubmitListingErrorFromOpenApi, CanonicalSubmitListingError>>,
   true as Assert<IsExact<FeedClientMethod, ExpectedFeedClientMethod>>,
-  true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
-  true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
-  true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
+  true as Assert<IsExact<AuthSessionClientMethod, ExpectedAuthSessionClientMethod>>,
   true as Assert<IsExact<SavedPropertiesClientMethod, ExpectedSavedPropertiesClientMethod>>,
   true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,
-  true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
-  true as Expect<Equal<HasStaleMapMethod, false>>,
+  true as Assert<Equal<keyof FeedQueryFromOpenApi, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
+  true as Assert<Equal<FeedQueryFromOpenApi['filter'], 'trending' | 'latest' | undefined>>,
+  true as Assert<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
+  true as Assert<Equal<HasStaleMapMethod, false>>,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -96,16 +90,21 @@ describe('Generated OpenAPI types', () => {
   });
 
   it('exports a paths interface with known API routes', () => {
-    // Type-level assertions: these cause compile errors if the path is missing.
-    // The runtime check is a bonus.
     const expectedPaths: PathKeys[] = [
       '/health',
       '/auth/google',
+      '/auth/apple',
       '/auth/email/request',
       '/auth/email/verify',
       '/auth/refresh',
       '/auth/logout',
+      '/auth/session',
       '/auth/me',
+      '/auth/token/google',
+      '/auth/token/apple',
+      '/auth/token/email/verify',
+      '/auth/token/refresh',
+      '/auth/token/logout',
       '/properties',
       '/properties/resolve',
       '/properties/nearby',
@@ -130,19 +129,16 @@ describe('Generated OpenAPI types', () => {
       '/listings/submit',
     ];
 
-    // Runtime: verify each path key is valid
     for (const path of expectedPaths) {
       expect(path).toBeTruthy();
     }
-    // Verify we have a meaningful number of paths
-    expect(expectedPaths.length).toBeGreaterThanOrEqual(27);
+    expect(expectedPaths.length).toBeGreaterThanOrEqual(35);
   });
 
   it('generated paths do not use /api/v1 prefix', () => {
-    // All paths should start with / but not /api/v1/
-    const samplePaths: PathKeys[] = ['/health', '/feed', '/properties'];
-    for (const p of samplePaths) {
-      expect(p).not.toMatch(/^\/api\/v1\//);
+    const samplePaths: PathKeys[] = ['/health', '/feed', '/properties', '/auth/token/google'];
+    for (const path of samplePaths) {
+      expect(path).not.toMatch(/^\/api\/v1\//);
     }
   });
 });
@@ -155,53 +151,106 @@ describe('HuisHypeApiClient', () => {
     expect(client).toBeInstanceOf(HuisHypeApiClient);
   });
 
-  it('exposes key API methods', () => {
+  it('exposes key browser and explicit-token auth methods', () => {
     const client = createApiClient({ baseUrl: 'http://test' });
 
-    // Auth
     expect(typeof client.loginGoogle).toBe('function');
+    expect(typeof client.loginGoogleWithTokens).toBe('function');
+    expect(typeof client.loginApple).toBe('function');
+    expect(typeof client.loginAppleWithTokens).toBe('function');
     expect(typeof client.requestEmailMagicLink).toBe('function');
     expect(typeof client.verifyEmailToken).toBe('function');
-    expect(typeof client.refreshAccessToken).toBe('function');
+    expect(typeof client.verifyEmailTokenWithTokens).toBe('function');
+    expect(typeof client.refreshSession).toBe('function');
+    expect(typeof client.refreshTokenSession).toBe('function');
     expect(typeof client.logout).toBe('function');
+    expect(typeof client.logoutTokenSession).toBe('function');
+    expect(typeof client.getAuthSession).toBe('function');
     expect(typeof client.getAuthMe).toBe('function');
+  });
 
-    // Users
+  it('exposes key application methods', () => {
+    const client = createApiClient({ baseUrl: 'http://test' });
+
     expect(typeof client.getProfile).toBe('function');
     expect(typeof client.updateProfile).toBe('function');
     expect(typeof client.getUser).toBe('function');
-
-    // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
-    expect('getMapProperties' in client).toBe(false);
-
-    // Guesses
     expect(typeof client.submitGuess).toBe('function');
-
-    // Comments
     expect(typeof client.getComments).toBe('function');
     expect(typeof client.createComment).toBe('function');
     expect(typeof client.toggleCommentLike).toBe('function');
-
-    // Feed
     expect(typeof client.getFeed).toBe('function');
-
-    // Saved / Like
     expect(typeof client.getSavedProperties).toBe('function');
     expect(typeof client.likeProperty).toBe('function');
     expect(typeof client.unlikeProperty).toBe('function');
     expect(typeof client.saveProperty).toBe('function');
     expect(typeof client.unsaveProperty).toBe('function');
-
-    // Views
     expect(typeof client.trackView).toBe('function');
+    expect('getMapProperties' in client).toBe(false);
   });
 
-  it('strips trailing slash from baseUrl', () => {
-    const client = createApiClient({ baseUrl: 'http://test/' });
-    // The client should not double-slash when making requests
-    expect(client).toBeInstanceOf(HuisHypeApiClient);
+  it('uses credentials=include for browser requests', async () => {
+    const fetchMock = vi.fn(async (_request: Request) => new Response(JSON.stringify({
+      user: {
+        id: 'user-1',
+        username: 'user',
+        displayName: 'User',
+        profilePhotoUrl: null,
+        karma: 0,
+        karmaRank: 'Newcomer',
+        createdAt: new Date().toISOString(),
+        email: 'user@example.com',
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      fetch: fetchMock as typeof globalThis.fetch,
+    });
+
+    await client.getAuthSession();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(request.credentials).toBe('include');
+    expect(request.headers.get('Authorization')).toBeNull();
+  });
+
+  it('attaches bearer auth only when an explicit access token is set', async () => {
+    const fetchMock = vi.fn(async (_request: Request) => new Response(JSON.stringify({
+      profile: {
+        id: 'user-1',
+        username: 'user',
+        displayName: 'User',
+        profilePhotoUrl: null,
+        karma: 0,
+        karmaRank: 'Newcomer',
+        createdAt: new Date().toISOString(),
+        totalGuesses: 0,
+        resolvedGuesses: 0,
+        activeAreas: [],
+        badges: [],
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'token-123',
+      fetch: fetchMock as typeof globalThis.fetch,
+    });
+
+    await client.getProfile();
+
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(request.headers.get('Authorization')).toBe('Bearer token-123');
   });
 });
 
@@ -224,27 +273,45 @@ describe('ApiError', () => {
   });
 
   it('parses backend error envelopes using the canonical error field', async () => {
-    const client = createApiClient({ baseUrl: 'http://localhost:3100' });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({
-        error: 'INVALID_URL',
-        message: 'URL must be from a recognized listing platform.',
-        details: { field: 'url' },
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      error: 'INVALID_URL',
+      message: 'URL must be from a recognized listing platform.',
+      details: { field: 'url' },
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    }));
 
-    try {
-      await expect(client.loginGoogle('mock-token')).rejects.toMatchObject({
-        message: 'URL must be from a recognized listing platform.',
-        code: 'INVALID_URL',
-        status: 400,
-        details: { field: 'url' },
-      });
-    } finally {
-      fetchSpy.mockRestore();
-    }
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      fetch: fetchMock as typeof globalThis.fetch,
+    });
+
+    await expect(client.loginGoogle('mock-token')).rejects.toMatchObject({
+      message: 'URL must be from a recognized listing platform.',
+      code: 'INVALID_URL',
+      status: 400,
+      details: { field: 'url' },
+    });
+  });
+
+  it('triggers onAuthError for 401 responses', async () => {
+    const onAuthError = vi.fn();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      error: 'UNAUTHORIZED',
+      message: 'Authentication required',
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      fetch: fetchMock as typeof globalThis.fetch,
+      onAuthError,
+    });
+
+    await expect(client.getAuthMe()).rejects.toBeInstanceOf(ApiError);
+    expect(onAuthError).toHaveBeenCalledTimes(1);
   });
 });

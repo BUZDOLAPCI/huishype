@@ -9,8 +9,8 @@
 # Build artifacts (rebuilt in Docker)
 **/dist
 **/.expo
-apps/app/android
-apps/app/ios
+apps/web/android
+apps/web/ios
 
 # Large data files
 photon_data
@@ -20,14 +20,13 @@ backups
 # Test artifacts
 test-results
 **/e2e
-**/maestro
 **/__tests__
 **/__mocks__
 **/*.test.ts
 **/*.spec.ts
 **/*.test.tsx
 **/*.spec.tsx
-apps/app/jest.config.*
+apps/web/jest.config.*
 services/api/jest.config.*
 playwright.config.ts
 

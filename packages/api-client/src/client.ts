@@ -1,54 +1,34 @@
 /**
  * HuisHype API Client
  *
- * A typed wrapper for the HuisHype API.
- * Paths are derived from the OpenAPI spec exported from the live Fastify server.
- * The generated types in ../generated/api.ts are the contract reference.
- *
- * The app can use this client directly or its own fetch utilities —
- * the generated types are the source of truth, not this wrapper.
+ * Thin typed request helpers built on the generated OpenAPI paths.
+ * Browser callers rely on HTTP-only cookies (`credentials: 'include'`).
+ * Explicit bearer-token flows are opt-in through `/auth/token/*`.
  */
 
+import createClient from 'openapi-fetch';
 import type {
-  AuthMeResponse,
-  AuthLoginResponse,
-  AuthRefreshResponse,
-  EmailAuthRequestResponse,
-  PropertyResolveRequest,
-  PropertyResolveResponse,
-  GetPropertyResponse,
-  SubmitGuessResponse,
-  UpdateGuessRequest,
-  GetCommentsRequest,
-  GetCommentsResponse,
   CreateCommentRequest,
-  CreateCommentResponse,
-  GetUserProfileResponse,
+  EmailAuthRequestResponse,
+  GetCommentsRequest,
   GetFeedRequest,
   GetSavedPropertiesRequest,
-  GetSavedPropertiesResponse,
+  UpdateGuessRequest,
   UpdateUserProfileRequest,
-  UpdateUserProfileResponse,
-  GetFeedResponse,
 } from '@huishype/shared';
+import type { paths } from '../generated/api.js';
 
-/**
- * API client configuration options
- */
 export interface ApiClientOptions {
-  /** Base URL for the API (e.g. http://localhost:3100) */
+  /** Base URL for the API (for example http://localhost:3100). */
   baseUrl: string;
-  /** Access token for authenticated requests */
+  /** Optional bearer token for explicit non-browser token flows. */
   accessToken?: string;
-  /** Callback to refresh the access token */
-  onTokenRefresh?: (newToken: string) => void;
-  /** Callback when authentication fails */
+  /** Custom fetch implementation, primarily for tests. */
+  fetch?: typeof globalThis.fetch;
+  /** Callback when the API returns 401. */
   onAuthError?: () => void;
 }
 
-/**
- * API Error class for handling API errors
- */
 export class ApiError extends Error {
   public code: string;
   public status: number;
@@ -58,7 +38,7 @@ export class ApiError extends Error {
     message: string,
     code: string = 'UNKNOWN_ERROR',
     status: number = 500,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -68,23 +48,43 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Type-safe API client for HuisHype.
- *
- * All paths below match the live Fastify routes (no /api/v1 prefix).
- * See services/api/openapi.json for the canonical path list.
- */
+type ApiErrorEnvelope = {
+  error?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
+type OpenApiResult<T> = Promise<{
+  data?: T;
+  error?: ApiErrorEnvelope;
+  response: Response;
+}>;
+
+type BrowserLoginResponse =
+  paths['/auth/google']['post']['responses'][200]['content']['application/json'];
+type BrowserRefreshResponse =
+  paths['/auth/refresh']['post']['responses'][200]['content']['application/json'];
+type TokenLoginResponse =
+  paths['/auth/token/google']['post']['responses'][200]['content']['application/json'];
+type TokenRefreshResponse =
+  paths['/auth/token/refresh']['post']['responses'][200]['content']['application/json'];
+type AuthSessionResponse =
+  paths['/auth/session']['get']['responses'][200]['content']['application/json'];
+type AuthMeResponse =
+  paths['/auth/me']['get']['responses'][200]['content']['application/json'];
+
 export class HuisHypeApiClient {
-  private baseUrl: string;
+  private readonly client: ReturnType<typeof createClient<paths>>;
   private accessToken?: string;
-  private refreshToken?: string;
-  private onTokenRefresh?: (newToken: string) => void;
-  private onAuthError?: () => void;
+  private readonly onAuthError?: () => void;
 
   constructor(options: ApiClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.client = createClient<paths>({
+      baseUrl: options.baseUrl.replace(/\/$/, ''),
+      credentials: 'include',
+      fetch: options.fetch,
+    });
     this.accessToken = options.accessToken;
-    this.onTokenRefresh = options.onTokenRefresh;
     this.onAuthError = options.onAuthError;
   }
 
@@ -92,74 +92,37 @@ export class HuisHypeApiClient {
     this.accessToken = token;
   }
 
-  setRefreshToken(token: string): void {
-    this.refreshToken = token;
+  clearAccessToken(): void {
+    this.accessToken = undefined;
   }
 
   clearTokens(): void {
-    this.accessToken = undefined;
-    this.refreshToken = undefined;
+    this.clearAccessToken();
   }
 
-  private async request<T>(
-    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
-    path: string,
-    options?: {
-      body?: unknown;
-      query?: Record<string, string | number | boolean | undefined>;
-      requiresAuth?: boolean;
-    }
-  ): Promise<T> {
-    const { body, query, requiresAuth = false } = options || {};
-
-    let url = `${this.baseUrl}${path}`;
-    if (query) {
-      const params = new URLSearchParams();
-      Object.entries(query).forEach(([key, value]) => {
-        if (value !== undefined) {
-          params.append(key, String(value));
-        }
-      });
-      const queryString = params.toString();
-      if (queryString) {
-        url += `?${queryString}`;
-      }
-    }
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+  private authHeaders(headers?: HeadersInit): HeadersInit | undefined {
+    const merged = new Headers(headers);
 
     if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    } else if (requiresAuth) {
-      throw new ApiError('Authentication required', 'UNAUTHORIZED', 401);
+      merged.set('Authorization', `Bearer ${this.accessToken}`);
     }
 
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    return Array.from(merged.keys()).length > 0 ? merged : undefined;
+  }
 
-    if (!response.ok) {
-      let errorData: { error?: string; message?: string; details?: Record<string, unknown> } = {};
-      try {
-        const jsonError = await response.json() as { error?: string; message?: string; details?: Record<string, unknown> };
-        errorData = jsonError;
-      } catch {
-        // Ignore JSON parse errors
-      }
+  private async unwrap<T>(request: OpenApiResult<T>): Promise<T> {
+    const { data, error, response } = await request;
 
+    if (error) {
       if (response.status === 401) {
         this.onAuthError?.();
       }
 
       throw new ApiError(
-        errorData.message || `Request failed with status ${response.status}`,
-        errorData.error || 'REQUEST_FAILED',
+        error.message || `Request failed with status ${response.status}`,
+        error.error || 'REQUEST_FAILED',
         response.status,
-        errorData.details
+        error.details,
       );
     }
 
@@ -167,92 +130,137 @@ export class HuisHypeApiClient {
       return undefined as T;
     }
 
-    return response.json() as Promise<T>;
+    return data as T;
   }
 
-  // ============================================
-  // Auth Endpoints  (paths: /auth/google, /auth/email/request, /auth/email/verify, /auth/refresh, /auth/logout, /auth/me)
-  // ============================================
+  async loginGoogle(idToken: string): Promise<BrowserLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/google', {
+        body: { idToken },
+      }),
+    );
+  }
 
-  async loginGoogle(idToken: string): Promise<AuthLoginResponse> {
-    const data = await this.request<AuthLoginResponse>('POST', '/auth/google', {
-      body: { idToken },
-    });
-    if (data?.session) {
-      this.setAccessToken(data.session.accessToken);
-      this.setRefreshToken(data.session.refreshToken);
-    }
-    return data;
+  async loginGoogleWithTokens(idToken: string): Promise<TokenLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/token/google', {
+        body: { idToken },
+      }),
+    );
+  }
+
+  async loginApple(idToken: string): Promise<BrowserLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/apple', {
+        body: { idToken },
+      }),
+    );
+  }
+
+  async loginAppleWithTokens(idToken: string): Promise<TokenLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/token/apple', {
+        body: { idToken },
+      }),
+    );
   }
 
   async requestEmailMagicLink(email: string): Promise<EmailAuthRequestResponse> {
-    return this.request<EmailAuthRequestResponse>('POST', '/auth/email/request', {
-      body: { email },
-    });
+    return this.unwrap(
+      this.client.POST('/auth/email/request', {
+        body: { email },
+      }),
+    );
   }
 
-  async verifyEmailToken(token: string): Promise<AuthLoginResponse> {
-    const data = await this.request<AuthLoginResponse>('POST', '/auth/email/verify', {
-      body: { token },
-    });
-    if (data?.session) {
-      this.setAccessToken(data.session.accessToken);
-      this.setRefreshToken(data.session.refreshToken);
-    }
-    return data;
+  async verifyEmailToken(token: string): Promise<BrowserLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/email/verify', {
+        body: { token },
+      }),
+    );
   }
 
-  async refreshAccessToken(): Promise<AuthRefreshResponse> {
-    if (!this.refreshToken) {
-      throw new ApiError('No refresh token available', 'NO_REFRESH_TOKEN', 401);
-    }
-    const data = await this.request<AuthRefreshResponse>('POST', '/auth/refresh', {
-      body: { refreshToken: this.refreshToken },
-    });
-    if (data?.accessToken) {
-      this.setAccessToken(data.accessToken);
-      this.onTokenRefresh?.(data.accessToken);
-    }
-    return data;
+  async verifyEmailTokenWithTokens(token: string): Promise<TokenLoginResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/token/email/verify', {
+        body: { token },
+      }),
+    );
+  }
+
+  async refreshSession(): Promise<BrowserRefreshResponse> {
+    return this.unwrap(this.client.POST('/auth/refresh'));
+  }
+
+  async refreshAccessToken(): Promise<BrowserRefreshResponse> {
+    return this.refreshSession();
+  }
+
+  async refreshTokenSession(refreshToken: string): Promise<TokenRefreshResponse> {
+    return this.unwrap(
+      this.client.POST('/auth/token/refresh', {
+        body: { refreshToken },
+      }),
+    );
   }
 
   async logout(): Promise<void> {
-    await this.request<void>('POST', '/auth/logout', {
-      body: { refreshToken: this.refreshToken },
-    });
-    this.clearTokens();
+    await this.unwrap(this.client.POST('/auth/logout'));
+    this.clearAccessToken();
+  }
+
+  async logoutTokenSession(refreshToken?: string): Promise<void> {
+    await this.unwrap(
+      this.client.POST('/auth/token/logout', {
+        body: refreshToken ? { refreshToken } : {},
+      }),
+    );
+    this.clearAccessToken();
+  }
+
+  async getAuthSession(): Promise<AuthSessionResponse> {
+    return this.unwrap(
+      this.client.GET('/auth/session', {
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
   async getAuthMe(): Promise<AuthMeResponse> {
-    return this.request<AuthMeResponse>('GET', '/auth/me', {
-      requiresAuth: true,
-    });
+    return this.unwrap(
+      this.client.GET('/auth/me', {
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
-  // ============================================
-  // User Endpoints  (paths: /users/me, /users/me/profile, /users/:id/profile, /users/me/guesses)
-  // ============================================
-
-  async getProfile(): Promise<GetUserProfileResponse> {
-    return this.request<GetUserProfileResponse>('GET', '/users/me', {
-      requiresAuth: true,
-    });
+  async getProfile() {
+    return this.unwrap(
+      this.client.GET('/users/me', {
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
-  async updateProfile(request: UpdateUserProfileRequest): Promise<UpdateUserProfileResponse> {
-    return this.request<UpdateUserProfileResponse>('PUT', '/users/me/profile', {
-      body: request,
-      requiresAuth: true,
-    });
+  async updateProfile(request: UpdateUserProfileRequest) {
+    return this.unwrap(
+      this.client.PUT('/users/me/profile', {
+        body: request,
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
-  async getUser(userId: string): Promise<GetUserProfileResponse> {
-    return this.request<GetUserProfileResponse>('GET', `/users/${userId}/profile`);
+  async getUser(userId: string) {
+    return this.unwrap(
+      this.client.GET('/users/{id}/profile', {
+        params: {
+          path: { id: userId },
+        },
+      }),
+    );
   }
-
-  // ============================================
-  // Property Endpoints  (paths: /properties, /properties/resolve, /properties/nearby, /properties/batch, /properties/:id)
-  // ============================================
 
   async resolveProperty(
     postalCode: string,
@@ -261,153 +269,188 @@ export class HuisHypeApiClient {
     countryCode?: string,
     street?: string,
     city?: string,
-  ): Promise<PropertyResolveResponse> {
+  ) {
     const query = {
       postalCode,
-      houseNumber,
+      houseNumber: Number.parseInt(houseNumber, 10),
       ...(houseNumberAddition ? { houseNumberAddition } : {}),
       ...(countryCode ? { countryCode } : {}),
       ...(street ? { street } : {}),
       ...(city ? { city } : {}),
-    } satisfies PropertyResolveRequest;
-
-    const serializedQuery: Record<string, string | number | boolean | undefined> = {
-      postalCode: query.postalCode,
-      houseNumber: String(query.houseNumber),
-      houseNumberAddition: query.houseNumberAddition,
-      countryCode: query.countryCode,
-      street: query.street,
-      city: query.city,
     };
 
-    return this.request<PropertyResolveResponse>('GET', '/properties/resolve', {
-      query: serializedQuery,
-    });
-  }
-
-  async getProperty(propertyId: string): Promise<GetPropertyResponse> {
-    return this.request<GetPropertyResponse>('GET', `/properties/${propertyId}`);
-  }
-
-  // ============================================
-  // Guess Endpoints  (paths: /properties/:id/guesses)
-  // ============================================
-
-  async submitGuess(request: { propertyId: string; guessedPrice: number }): Promise<SubmitGuessResponse> {
-    return this.request<SubmitGuessResponse>('POST', `/properties/${request.propertyId}/guesses`, {
-      body: { guessedPrice: request.guessedPrice },
-      requiresAuth: true,
-    });
-  }
-
-  async updateGuess(propertyId: string, _guessId: string, request: UpdateGuessRequest): Promise<SubmitGuessResponse> {
-    // The API uses POST /properties/:id/guesses for both create and update
-    return this.request<SubmitGuessResponse>('POST', `/properties/${propertyId}/guesses`, {
-      body: request,
-      requiresAuth: true,
-    });
-  }
-
-  // ============================================
-  // Comment Endpoints  (paths: /properties/:id/comments, /comments/:id/like)
-  // ============================================
-
-  async getComments(request: GetCommentsRequest): Promise<GetCommentsResponse> {
-    const { propertyId, sort, cursor, limit } = request;
-    return this.request<GetCommentsResponse>(
-      'GET',
-      `/properties/${propertyId}/comments`,
-      { query: { sort, cursor, limit } }
+    return this.unwrap(
+      this.client.GET('/properties/resolve', {
+        params: {
+          query,
+        },
+      }),
     );
   }
 
-  async createComment(request: CreateCommentRequest): Promise<CreateCommentResponse> {
+  async getProperty(propertyId: string) {
+    return this.unwrap(
+      this.client.GET('/properties/{id}', {
+        params: {
+          path: { id: propertyId },
+        },
+      }),
+    );
+  }
+
+  async submitGuess(request: { propertyId: string; guessedPrice: number }) {
+    return this.unwrap(
+      this.client.POST('/properties/{id}/guesses', {
+        params: {
+          path: { id: request.propertyId },
+        },
+        body: { guessedPrice: request.guessedPrice },
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  async updateGuess(propertyId: string, _guessId: string, request: UpdateGuessRequest) {
+    return this.unwrap(
+      this.client.POST('/properties/{id}/guesses', {
+        params: {
+          path: { id: propertyId },
+        },
+        body: request,
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  async getComments(request: GetCommentsRequest) {
+    const { propertyId, sort, cursor, limit } = request;
+
+    return this.unwrap(
+      this.client.GET('/properties/{id}/comments', {
+        params: {
+          path: { id: propertyId },
+          query: { sort: sort as 'popular' | 'recent' | undefined, cursor, limit },
+        },
+      }),
+    );
+  }
+
+  async createComment(request: CreateCommentRequest) {
     const { propertyId, ...body } = request;
-    return this.request<CreateCommentResponse>(
-      'POST',
-      `/properties/${propertyId}/comments`,
-      { body, requiresAuth: true }
+
+    return this.unwrap(
+      this.client.POST('/properties/{id}/comments', {
+        params: {
+          path: { id: propertyId },
+        },
+        body,
+        headers: this.authHeaders(),
+      }),
     );
   }
 
   async toggleCommentLike(commentId: string): Promise<{ isLiked: boolean; likeCount: number }> {
-    return this.request<{ isLiked: boolean; likeCount: number }>(
-      'POST',
-      `/comments/${commentId}/like`,
-      { requiresAuth: true }
+    const response = await this.unwrap(
+      this.client.POST('/comments/{id}/like', {
+        params: {
+          path: { id: commentId },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
+
+    return {
+      isLiked: response.liked,
+      likeCount: response.likeCount,
+    };
+  }
+
+  async getFeed(params: GetFeedRequest) {
+    return this.unwrap(
+      this.client.GET('/feed', {
+        params: {
+          query: {
+            filter: params.filter,
+            page: params.page,
+            limit: params.limit,
+            lat: params.lat,
+            lon: params.lon,
+            country: params.country,
+          },
+        },
+      }),
     );
   }
 
-  // ============================================
-  // Feed Endpoint  (path: /feed)
-  // ============================================
-
-  async getFeed(params: GetFeedRequest): Promise<GetFeedResponse> {
-    return this.request<GetFeedResponse>('GET', '/feed', {
-      query: {
-        filter: params.filter,
-        page: params.page,
-        limit: params.limit,
-        lat: params.lat,
-        lon: params.lon,
-        country: params.country,
-      },
-    });
+  async getSavedProperties(request: GetSavedPropertiesRequest) {
+    return this.unwrap(
+      this.client.GET('/saved-properties', {
+        params: {
+          query: {
+            limit: request.limit,
+            offset: request.offset,
+          },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
   }
-
-  // ============================================
-  // Saved Properties Endpoints  (paths: /properties/:id/save, /saved-properties)
-  // ============================================
-
-  async getSavedProperties(request: GetSavedPropertiesRequest): Promise<GetSavedPropertiesResponse> {
-    return this.request<GetSavedPropertiesResponse>('GET', '/saved-properties', {
-      query: { limit: request.limit, offset: request.offset },
-      requiresAuth: true,
-    });
-  }
-
-  // ============================================
-  // Like / Save Endpoints  (paths: /properties/:id/like, /properties/:id/save)
-  // ============================================
 
   async likeProperty(propertyId: string): Promise<void> {
-    return this.request<void>('POST', `/properties/${propertyId}/like`, {
-      requiresAuth: true,
-    });
+    await this.unwrap(
+      this.client.POST('/properties/{id}/like', {
+        params: {
+          path: { id: propertyId },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
   async unlikeProperty(propertyId: string): Promise<void> {
-    return this.request<void>('DELETE', `/properties/${propertyId}/like`, {
-      requiresAuth: true,
-    });
+    await this.unwrap(
+      this.client.DELETE('/properties/{id}/like', {
+        params: {
+          path: { id: propertyId },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
   async saveProperty(propertyId: string): Promise<void> {
-    return this.request<void>('POST', `/properties/${propertyId}/save`, {
-      requiresAuth: true,
-    });
+    await this.unwrap(
+      this.client.POST('/properties/{id}/save', {
+        params: {
+          path: { id: propertyId },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
   async unsaveProperty(propertyId: string): Promise<void> {
-    return this.request<void>('DELETE', `/properties/${propertyId}/save`, {
-      requiresAuth: true,
-    });
+    await this.unwrap(
+      this.client.DELETE('/properties/{id}/save', {
+        params: {
+          path: { id: propertyId },
+        },
+        headers: this.authHeaders(),
+      }),
+    );
   }
 
-  // ============================================
-  // View Endpoint  (path: /properties/:id/view)
-  // ============================================
-
   async trackView(propertyId: string): Promise<void> {
-    return this.request<void>('POST', `/properties/${propertyId}/view`, {
-      body: {},
-    });
+    await this.unwrap(
+      this.client.POST('/properties/{id}/view', {
+        params: {
+          path: { id: propertyId },
+        },
+      }),
+    );
   }
 }
 
-/**
- * Create a new API client instance
- */
 export function createApiClient(options: ApiClientOptions): HuisHypeApiClient {
   return new HuisHypeApiClient(options);
 }

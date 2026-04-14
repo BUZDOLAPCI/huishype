@@ -65,6 +65,7 @@ export const mockUsers: User[] = [
     id: 'user-005',
     username: 'newuser',
     displayName: 'New User',
+    profilePhotoUrl: null,
     karma: 0,
     karmaRank: 'Newcomer',
     createdAt: '2024-12-01T12:00:00Z',

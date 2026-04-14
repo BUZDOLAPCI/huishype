@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { jsonSchemaTransform } from 'fastify-type-provider-zod';
+import { config } from '../config.js';
 
 export async function registerSwagger(app: FastifyInstance) {
   await app.register(fastifySwagger, {
@@ -30,10 +31,17 @@ export async function registerSwagger(app: FastifyInstance) {
       ],
       components: {
         securitySchemes: {
+          cookieAuth: {
+            type: 'apiKey',
+            in: 'cookie',
+            name: config.auth.cookie.accessTokenName,
+            description: 'HTTP-only browser session cookie set by the /auth/* browser endpoints.',
+          },
           bearerAuth: {
             type: 'http',
             scheme: 'bearer',
             bearerFormat: 'JWT',
+            description: 'Explicit non-browser bearer-token contract under /auth/token/*.',
           },
         },
       },

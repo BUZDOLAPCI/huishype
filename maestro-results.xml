@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="Pixel_6_API_34" tests="6" failures="0" time="554.0">
+    <testcase id="feed" name="feed" classname="feed" time="155.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+    <testcase id="smoke" name="smoke" classname="smoke" time="22.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+    <testcase id="ghost-nodes-zoom" name="ghost-nodes-zoom" classname="ghost-nodes-zoom" time="65.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+    <testcase id="3d-buildings" name="3d-buildings" classname="3d-buildings" time="67.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+    <testcase id="property-bottom-sheet" name="property-bottom-sheet" classname="property-bottom-sheet" time="130.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+    <testcase id="comments-section" name="comments-section" classname="comments-section" time="115.0" status="SUCCESS">
+      <properties/>
+    </testcase>
+  </testsuite>
+</testsuites>

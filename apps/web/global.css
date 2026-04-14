@@ -1,0 +1,135 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 223, 162, 0.45), transparent 30%),
+    linear-gradient(180deg, #fffefb 0%, #fff7ef 46%, #fffbf5 100%);
+  color: #2d2926;
+  --hh-bg: #fffbf5;
+  --hh-surface: rgba(255, 255, 255, 0.92);
+  --hh-surface-solid: #ffffff;
+  --hh-surface-muted: #fff8f0;
+  --hh-border: rgba(199, 191, 179, 0.42);
+  --hh-border-strong: rgba(199, 191, 179, 0.72);
+  --hh-shadow-soft: 0 18px 42px rgba(112, 93, 72, 0.14);
+  --hh-shadow-card: 0 18px 48px rgba(112, 93, 72, 0.12), 0 4px 12px rgba(0, 0, 0, 0.05);
+  --hh-shadow-float: 0 26px 70px rgba(112, 93, 72, 0.16), 0 8px 18px rgba(0, 0, 0, 0.08);
+  --hh-gold-500: #f5a623;
+  --hh-gold-600: #de911d;
+  --hh-warm-50: #fffbf5;
+  --hh-warm-100: #fff8f0;
+  --hh-warm-200: #f5f0e8;
+  --hh-warm-300: #e8e0d4;
+  --hh-warm-400: #c7bfb3;
+  --hh-warm-500: #9c958a;
+  --hh-warm-600: #736c62;
+  --hh-warm-700: #504a42;
+  --hh-warm-800: #3d3832;
+  --hh-warm-900: #2d2926;
+  --hh-hot: #ff6b35;
+  --hh-warm: #de911d;
+  --hh-active: #4caf50;
+  --hh-error: #e53935;
+  --hh-info: #42a5f5;
+  --hh-radius-lg: 20px;
+  --hh-radius-md: 16px;
+  --hh-radius-sm: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(255, 223, 162, 0.45), transparent 30%),
+    linear-gradient(180deg, #fffefb 0%, #fff7ef 46%, #fffbf5 100%);
+  color: var(--hh-warm-900);
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.app-root {
+  min-height: 100vh;
+}
+
+.hh-card {
+  background: var(--hh-surface);
+  border: 1px solid var(--hh-border);
+  border-radius: var(--hh-radius-lg);
+  box-shadow: var(--hh-shadow-card);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.hh-panel {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(232, 224, 212, 0.7);
+  border-radius: 24px;
+  box-shadow: var(--hh-shadow-float);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.hh-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(199, 191, 179, 0.8) transparent;
+}
+
+.hh-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.hh-scroll::-webkit-scrollbar-thumb {
+  background: rgba(199, 191, 179, 0.85);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.hh-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.maplibregl-popup {
+  z-index: 50;
+}

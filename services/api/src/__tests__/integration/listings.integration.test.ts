@@ -35,7 +35,7 @@ describe('Listing routes', () => {
     const uniqueId = `listtest${Date.now()}`;
     const authResp = await app.inject({
       method: 'POST',
-      url: '/auth/google',
+      url: '/auth/token/google',
       payload: {
         idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
       },

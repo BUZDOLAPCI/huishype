@@ -1,33 +1,48 @@
-# software-stack.md — Single-path stack (one codebase → iOS + Android + Web)
+# software-stack.md — Web-first product stack with separate web, Android, and iOS apps
 
 ## Goal
-Ship the same product codebase to:
-- **iOS App Store app**
-- **Android Play Store app (AAB) + optional APK**
-- **Web app** (desktop + mobile web), **app-like with anonymous browsing and gated interactions**, no SEO
+Ship one product across three frontend clients with a shared backend and shared
+product contracts:
+
+- **Web app** as the first complete production client
+- **Android app** as a later Kotlin-native implementation
+- **iOS app** as a later Swift-native implementation
 
 ---
 
 ## Chosen stack
 
-### Client (iOS / Android / Web)
-- **Framework:** **React Native + Expo (managed workflow)**
-- **Routing/nav:** **Expo Router**
-- **Language:** **TypeScript**
-- **Styling:** **NativeWind (v4)** — Tailwind CSS for React Native
-  - Why: LLMs are trained on billions of lines of Tailwind; significantly better at `className="flex-row p-4 bg-white"` than React Native stylesheets
-  - Prevents "magic numbers" by constraining to Tailwind's design scale
-  - Consistent styling across iOS/Android/Web
-- **State/data fetching:** **TanStack Query (React Query)** + typed client SDK
-  - Why: Standard pattern for `isLoading`, `isError`, `data` — reduces boilerplate
-  - Declarative cache invalidation (`queryClient.invalidateQueries({ queryKey: ['listings'] })`)
-  - Prevents brittle `useEffect + useState` data fetching patterns
-- **Build & release:** **EAS Build + EAS Submit** (store packaging & signing)
+### Frontend architecture
+- **Web:** dedicated web app, optimized for web concerns first
+- **Android:** dedicated Kotlin-native app
+- **iOS:** dedicated Swift-native app
+- **Shared boundary:** backend contracts, product rules, design tokens, and
+  map data pipeline
+- **Immediate priority:** remove web-facing cross-platform overhead where it is
+  no longer earning its keep
+
+### Web client
+- **Framework:** React-based web app
+- **Language:** TypeScript
+- **State/data fetching:** TanStack Query + typed client SDK
+- **Styling:** web-native styling system chosen for web velocity and clarity,
+  not for React Native compatibility
+- **Routing:** web-native routing chosen for the web app itself
+
+### Native clients
+- **Android language/runtime:** Kotlin + Android-native UI stack
+- **iOS language/runtime:** Swift + iOS-native UI stack
+- **Principle:** native apps are ports of the product contract, not ports of
+  the web renderer
 
 ### Maps (core UX decision)
-- **Map client library:** **@maplibre/maplibre-react-native (v11 alpha)** — NOT react-native-maps (which wraps Apple Maps/Google Maps and limits styling)
-- **Map rendering engine:** **MapLibre GL** (open-source fork of Mapbox GL) — free, industry standard, compatible with vector tiles
-- **Preview UI:**  Use React Three Fiber (standard for React ecosystem) instead of raw Expo Three.
+- **Web map engine:** custom `maplibre-gl-js` fork
+- **Native map engine:** shared `maplibre-native` fork used directly from
+  Android and iOS
+- **Do not switch to generic platform map SDKs** if that would sacrifice custom
+  rendering differentiation
+- **Preview UI:** use web-native React tooling on web rather than preserving old
+  browser compatibility layers
 
 - **Tile sources (priority order):**
   1. **PDOK Dutch Government Vector Tiles** (free, official, incredibly detailed for Netherlands)
@@ -48,7 +63,8 @@ Ship the same product codebase to:
   - SQL-like syntax: Unlike Prisma's DSL, Drizzle looks like SQL which LLMs are highly proficient at
 - **API Framework:** **Fastify** (with fastify-swagger + fastify-type-provider-zod)
   - Why Fastify: Best plugin ecosystem for automatic OpenAPI spec generation from Zod validation schemas. Significantly faster than Express/NestJS.
-- **API contract:** **OpenAPI contract-first** (generate typed clients for app/web)
+- **API contract:** **OpenAPI contract-first** (generate typed clients for web
+  and native consumers where useful)
 - **Runtime:** **Node.js (TypeScript)** for API + services
 - **Background jobs:** queue-based worker service (ingestion, scoring, notifications, moderation actions)
 - **Caching & real-time aggregations:** **Redis**
@@ -85,10 +101,13 @@ Ship the same product codebase to:
 ### 3D Cosmetic Assets (Virtual House)
 - **Asset format:** **GLB/GLTF** (Must use Draco compression to minimize file size).
 - **Asset delivery:** Cloudflare R2 + CDN
-- **Client rendering (Map View):** 
-    Implementation: Pass GLB URL + Coordinates to @maplibre/maplibre-react-native ModelLayer (or SymbolLayer with icon-image for low-end devices).
-
-    Why: Ensures perfect synchronization with map movement and proper depth/occlusion with other 3D buildings.
+- **Client rendering (Map View):**
+  - Web: render through the web map stack in a way that keeps assets synced to
+    map movement and depth.
+  - Native: render through the native map stack directly from Android and iOS
+    against the shared `maplibre-native` fork.
+  - Why: Ensure synchronization with map movement and proper depth/occlusion
+    with other 3D buildings across platforms.
 - **Asset management:**
   - Store available designs in database with metadata (name, tier, availability)
   - Track which designs users own/have access to
@@ -109,21 +128,24 @@ Ship the same product codebase to:
 - **Package manager:** **pnpm** (with workspaces)
 - **Build orchestration:** **Turborepo**
   - Handles "build the shared library before building the app" dependency graph automatically
-  - Standard for modern React Native monorepos
+  - Standard for modern TypeScript monorepos
   - Enables parallel builds and caching
 
 ---
 
 ## "Hard to change later" decisions (locked)
-1. **Expo/RN** as the cross-platform UI foundation
-2. **MapLibre GL + @maplibre/maplibre-react-native** as the map engine (with self-hosted tiles)
-3. **Postgres + PostGIS** as the system of record for all geospatial + social data (including server-side clustering)
-4. **Fastify + OpenAPI contract-first** as the interface boundary between client and backend
-5. **Apple/Google-first auth** and the long-lived user/handle model
-6. **Background jobs** as a first-class backend capability (not "cron scripts")
-7. **Drizzle ORM** as the DB access layer (schema-as-code, auto-generated migrations)
-8. **NativeWind** as the styling system (Tailwind for RN)
-9. **TanStack Query** as the data fetching/caching layer
+1. **Separate web, Android, and iOS frontend applications** as the target
+   architecture
+2. **Web-first delivery order**: finish web before building native ports
+3. **MapLibre fork ownership** as the map engine strategy
+   - `maplibre-gl-js` fork for web
+   - shared `maplibre-native` fork for Android and iOS
+4. **Postgres + PostGIS** as the system of record for all geospatial + social data (including server-side clustering)
+5. **Fastify + OpenAPI contract-first** as the interface boundary between clients and backend
+6. **Apple/Google-first auth** and the long-lived user/handle model
+7. **Background jobs** as a first-class backend capability (not "cron scripts")
+8. **Drizzle ORM** as the DB access layer (schema-as-code, auto-generated migrations)
+9. **TanStack Query** as the data fetching/caching layer where appropriate
 10. **Redis** for caching, rate limiting, and real-time aggregations
 11. **Cloudflare R2** for object storage and map tile hosting
 12. **Turborepo + pnpm workspaces** for monorepo management
@@ -132,8 +154,14 @@ Ship the same product codebase to:
 ---
 
 ## Web strategy (explicit)
-- Web is the **same Expo app** (React Native Web), with anonymous browsing enabled and auth required only for gated interactions such as submit/save actions.
-- If SEO becomes important later: add a **separate Next.js "mirror"** that reads from the same backend APIs/DB.
+- Web is a first-class standalone app, not a compatibility target of a shared
+  mobile runtime.
+- Web should be optimized for desktop and mobile-web quality without preserving
+  abstractions whose main purpose is old cross-platform parity.
+- Anonymous browsing remains intentional product behavior; auth is required only
+  for gated interactions such as submit/save actions.
+- If SEO becomes important later, handle it as a web-app concern, not by
+  re-introducing cross-platform renderer constraints.
 
 ---
 
@@ -152,7 +180,10 @@ Ship the same product codebase to:
 
 ## Agent-friendly development rules (keeps parallel work sane)
 - Treat **OpenAPI + DB schema** as the source of truth; generate types/clients.
-- Keep shared TS types in a dedicated package (`packages/shared/`) used by app + backend.
+- Keep shared contracts in dedicated packages used by backend and frontend
+  clients where the sharing is genuinely portable.
 - Enforce consistent lint/format/typecheck in CI so agents don't drift the codebase.
 - Use Turborepo to ensure correct build order across packages.
 - Subscription state changes must go through RevenueCat webhooks to backend; never trust client-side claims directly.
+- Do not preserve framework-level UI sharing through indirection once web,
+  Android, and iOS are separate apps.

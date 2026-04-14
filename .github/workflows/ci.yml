@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['**']  # Run on every commit to any branch
+    branches: ['**'] # Run on every commit to any branch
   pull_request:
     branches: [main, develop]
 
@@ -66,6 +66,19 @@ jobs:
           JWT_SECRET: test-jwt-secret
           JWT_REFRESH_SECRET: test-jwt-refresh-secret
           GOOGLE_CLIENT_ID: test-google-client-id
+          VITE_GOOGLE_CLIENT_ID: test-google-client-id
+          APPLE_CLIENT_ID: test-apple-client-id
+          COOKIE_SECRET: test-cookie-secret
+          NODE_ENV: test
+
+      - name: Run full web Playwright bootstrap
+        run: pnpm test:e2e:web
+        env:
+          DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
+          JWT_SECRET: test-jwt-secret
+          JWT_REFRESH_SECRET: test-jwt-refresh-secret
+          GOOGLE_CLIENT_ID: test-google-client-id
+          VITE_GOOGLE_CLIENT_ID: test-google-client-id
           APPLE_CLIENT_ID: test-apple-client-id
           COOKIE_SECRET: test-cookie-secret
           NODE_ENV: test

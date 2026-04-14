@@ -58,7 +58,7 @@ export const guessHandlers = [
    * POST /properties/:id/guesses - Submit a new price guess
    */
   http.post('*/properties/:propertyId/guesses', async ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
 
     if (!authUser) {
       return HttpResponse.json(

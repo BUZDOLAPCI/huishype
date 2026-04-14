@@ -125,7 +125,7 @@ export const notificationHandlers = [
    * GET /notifications — paginated notification list
    */
   http.get('/notifications', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -159,7 +159,7 @@ export const notificationHandlers = [
    * GET /notifications/unread-count
    */
   http.get('/notifications/unread-count', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -175,7 +175,7 @@ export const notificationHandlers = [
    * PUT /notifications/read-all
    */
   http.put('/notifications/read-all', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -198,7 +198,7 @@ export const notificationHandlers = [
    * PUT /notifications/:id/read
    */
   http.put('/notifications/:id/read', ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -224,7 +224,7 @@ export const notificationHandlers = [
    * POST /push-tokens — register a device push token
    */
   http.post('/push-tokens', async ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

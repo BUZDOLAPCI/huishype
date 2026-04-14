@@ -6,17 +6,15 @@ import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { startStaticWebServer } from './static-web-server.mjs';
 
 const DEFAULT_API_PORT = 3101;
 const DEFAULT_WEB_PORT = 8082;
 const READY_TIMEOUT_MS = 120_000;
-const EXPO_WEB_NODE_HEAP_MB = 8192;
+const WEB_BUILD_NODE_HEAP_MB = 8192;
 
 const repoRoot = process.cwd();
 const apiCwd = path.join(repoRoot, 'services', 'api');
-const appCwd = path.join(repoRoot, 'apps', 'app');
-const expoBin = './node_modules/.bin/expo';
+const appCwd = path.join(repoRoot, 'apps', 'web');
 const playwrightBin = './node_modules/.bin/playwright';
 const require = createRequire(path.join(apiCwd, 'package.json'));
 
@@ -27,7 +25,7 @@ function resolveTsxRuntimePaths() {
     tsxEntryPoint = require.resolve('tsx');
   } catch {
     throw new Error(
-      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.',
+      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.'
     );
   }
 
@@ -64,22 +62,23 @@ function assertPositivePort(value, name) {
 
 function getListeningPids(port) {
   try {
-    const output = execFileSync(
-      'lsof',
-      [`-tiTCP:${port}`, '-sTCP:LISTEN'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
+    const output = execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
 
     if (!output) {
       return [];
     }
 
-    return [...new Set(
-      output
-        .split(/\s+/)
-        .map((value) => Number.parseInt(value, 10))
-        .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid),
-    )];
+    return [
+      ...new Set(
+        output
+          .split(/\s+/)
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid)
+      ),
+    ];
   } catch {
     return [];
   }
@@ -93,7 +92,7 @@ async function ensurePortAvailable(port, label) {
 
   throw new Error(
     `${label} port ${port} is already in use by PID(s) ${pids.join(', ')}. ` +
-    'Stop the existing process or choose a different port.',
+      'Stop the existing process or choose a different port.'
   );
 }
 
@@ -111,8 +110,7 @@ async function claimPort(port, host = '127.0.0.1') {
     server.once('error', reject);
     server.listen({ port, host }, () => {
       const address = server.address();
-      const selectedPort =
-        typeof address === 'object' && address ? address.port : port;
+      const selectedPort = typeof address === 'object' && address ? address.port : port;
       server.close((error) => {
         if (error) {
           reject(error);
@@ -129,12 +127,7 @@ async function resolveRuntimePort(port, { strict = false, host = '127.0.0.1' } =
   try {
     return await claimPort(port, host);
   } catch (error) {
-    if (
-      strict ||
-      !(error instanceof Error) ||
-      !('code' in error) ||
-      error.code !== 'EADDRINUSE'
-    ) {
+    if (strict || !(error instanceof Error) || !('code' in error) || error.code !== 'EADDRINUSE') {
       throw error;
     }
 
@@ -171,7 +164,11 @@ function waitForExit(child, name, stopping) {
         return;
       }
 
-      reject(new Error(`${name} exited unexpectedly with code ${child.exitCode} and signal ${child.signalCode}`));
+      reject(
+        new Error(
+          `${name} exited unexpectedly with code ${child.exitCode} and signal ${child.signalCode}`
+        )
+      );
       return;
     }
 
@@ -199,7 +196,9 @@ function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
 
     if (apiChild) {
       if (apiChild.exitCode !== null || apiChild.signalCode !== null) {
-        fail(`API server exited unexpectedly with code ${apiChild.exitCode} and signal ${apiChild.signalCode}`);
+        fail(
+          `API server exited unexpectedly with code ${apiChild.exitCode} and signal ${apiChild.signalCode}`
+        );
         return;
       }
 
@@ -208,15 +207,30 @@ function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
       });
     }
 
+    const webChild = webRuntime?.child;
+    if (webChild) {
+      if (webChild.exitCode !== null || webChild.signalCode !== null) {
+        fail(
+          `Vite preview exited unexpectedly with code ${webChild.exitCode} and signal ${webChild.signalCode}`
+        );
+        return;
+      }
+
+      webChild.once('exit', (code, signal) => {
+        fail(`Vite preview exited unexpectedly with code ${code} and signal ${signal}`);
+      });
+      return;
+    }
+
     const webServer = webRuntime?.server;
     if (webServer) {
       webServer.once('close', () => {
-        fail('Static web server closed unexpectedly');
+        fail('Web server closed unexpectedly');
       });
 
       webServer.once('error', (error) => {
         const message = error instanceof Error ? error.message : String(error);
-        fail(`Static web server failed unexpectedly: ${message}`);
+        fail(`Web server failed unexpectedly: ${message}`);
       });
     }
   });
@@ -238,7 +252,13 @@ async function waitForFile(filePath, label, timeoutMs = READY_TIMEOUT_MS) {
   }
 }
 
-function spawnService(command, args, env, cwd = repoRoot, stdio = ['ignore', 'inherit', 'inherit']) {
+function spawnService(
+  command,
+  args,
+  env,
+  cwd = repoRoot,
+  stdio = ['ignore', 'inherit', 'inherit']
+) {
   const child = spawn(command, args, {
     cwd,
     env,
@@ -264,6 +284,10 @@ function stopService(child, signal) {
   } catch {
     // Ignore shutdown races.
   }
+}
+
+function normalizeExitCode(exitCode) {
+  return Number.isInteger(exitCode) ? exitCode : 0;
 }
 
 function withNodeOption(env, option) {
@@ -317,7 +341,7 @@ async function startServiceWithRetry({
       }
 
       console.warn(
-        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`,
+        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`
       );
     }
   }
@@ -361,15 +385,15 @@ async function main() {
 
   updateRuntimePorts(
     await resolveRuntimePort(apiPort, { strict: apiPortRequested }),
-    await resolveRuntimePort(webPort, { strict: webPortRequested }),
+    await resolveRuntimePort(webPort, { strict: webPortRequested })
   );
 
   const childEnv = {
     ...process.env,
-    EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
     API_URL: apiUrl,
-    EXPO_PUBLIC_API_URL: apiUrl,
+    VITE_API_URL: apiUrl,
+    VITE_GOOGLE_CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
     PLAYWRIGHT_API_PORT: String(apiPort),
     PLAYWRIGHT_WEB_PORT: String(webPort),
     PLAYWRIGHT_WEB_URL: webUrl,
@@ -391,12 +415,14 @@ async function main() {
     stopping.current = true;
     stopService(playwrightChild, signal);
     stopService(apiChild, signal);
+    stopService(webRuntime?.child, signal);
+    const webExitWait = webRuntime?.child
+      ? waitForChildExit(webRuntime.child, 'Vite preview').catch(() => {})
+      : Promise.resolve();
     await Promise.all([
       waitForChildExit(playwrightChild, 'Playwright process').catch(() => {}),
       waitForChildExit(apiChild, 'API server').catch(() => {}),
-      Promise.resolve()
-        .then(() => webRuntime?.stop?.())
-        .catch(() => {}),
+      webExitWait,
     ]);
   };
 
@@ -413,7 +439,7 @@ async function main() {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  await ensurePortAvailable(webPort, 'Static web server');
+  await ensurePortAvailable(webPort, 'Vite preview server');
 
   console.log(`Starting API server on ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
@@ -434,32 +460,43 @@ async function main() {
   apiChild = apiRuntime.child;
   apiExitPromise = apiRuntime.exitPromise;
 
-  console.log('Building Expo web bundle for Playwright runtime ...');
-  execFileSync(
-    expoBin,
-    ['export', '--platform', 'web'],
-    {
-      cwd: appCwd,
-      env: withNodeOption({
+  console.log('Building Vite web bundle for Playwright runtime ...');
+  execFileSync('pnpm', ['--dir', appCwd, 'build'], {
+    env: withNodeOption(
+      {
         ...childEnv,
-        NODE_ENV: webExportNodeEnv,
-      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
-      stdio: 'inherit',
-    },
-  );
-  await waitForFile(path.join(appCwd, 'dist', 'index.html'), 'Exported web entrypoint');
-
-  console.log(`Starting static web server on ${webUrl} ...`);
-  webRuntime = startStaticWebServer({
-    port: webPort,
-    rootDir: path.join(appCwd, 'dist'),
-    logger: {
-      log: () => {},
-      error: console.error,
-    },
+        NODE_ENV: 'production',
+      },
+      `--max-old-space-size=${WEB_BUILD_NODE_HEAP_MB}`
+    ),
+    cwd: repoRoot,
+    stdio: 'inherit',
   });
-  await webRuntime.ready;
-  await waitForHttp(webUrl, 'Static web server');
+
+  await waitForFile(path.join(appCwd, 'dist', 'index.html'), 'Vite build entrypoint');
+
+  console.log(`Starting Vite preview server on ${webUrl} ...`);
+  webRuntime = {
+    child: spawnService(
+      'pnpm',
+      [
+        '--dir',
+        appCwd,
+        'exec',
+        'vite',
+        'preview',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(webPort),
+        '--strictPort',
+      ],
+      childEnv,
+      repoRoot
+    ),
+  };
+  webRuntime.exitPromise = waitForExit(webRuntime.child, 'Vite preview', stopping);
+  await waitForHttp(webUrl, 'Vite preview');
 
   console.log(`Runtime ready: ${apiUrl} and ${webUrl}`);
   const runtimeDeathPromise = watchRuntimeDeaths({
@@ -467,12 +504,7 @@ async function main() {
     webRuntime,
     stopping,
   });
-  playwrightChild = spawnService(
-    playwrightBin,
-    ['test', ...playwrightArgs],
-    childEnv,
-    repoRoot,
-  );
+  playwrightChild = spawnService(playwrightBin, ['test', ...playwrightArgs], childEnv, repoRoot);
 
   playwrightExitPromise = new Promise((resolve, reject) => {
     playwrightChild.once('exit', (code, signal) => {
@@ -490,17 +522,15 @@ async function main() {
     playwrightChild.once('error', reject);
   });
 
-  const exitCode = await Promise.race([
-    playwrightExitPromise,
-    runtimeDeathPromise,
-  ]);
+  const exitCode = await Promise.race([playwrightExitPromise, runtimeDeathPromise]);
 
   await stop('SIGTERM');
-  process.exit(Number(exitCode));
+  process.exit(normalizeExitCode(exitCode));
 }
 
 export {
   resolveRuntimePort,
+  normalizeExitCode,
   startServiceWithRetry,
   waitForChildExit,
   waitForExit,

@@ -148,7 +148,7 @@ export const listingHandlers = [
    * POST /listings/submit - Submit a listing URL
    */
   http.post('*/listings/submit', async ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

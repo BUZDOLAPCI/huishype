@@ -7,7 +7,7 @@
  *   1. Backend route schemas (services/api/src/routes/*) are the canonical source
  *   2. services/api/openapi.json is exported from the live Fastify OpenAPI document
  *   3. packages/api-client/generated/api.ts is derived from that spec
- *   4. This package re-exports the generated types and a thin client wrapper
+ *   4. This package re-exports the generated types and thin request helpers
  *
  * Regenerate after any route schema change:
  *   pnpm --filter @huishype/api openapi:export

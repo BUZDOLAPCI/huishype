@@ -25,6 +25,81 @@ export function resolveRuntimeEnv(nodeEnv: string | undefined): RuntimeEnv {
 const env = resolveRuntimeEnv(process.env.NODE_ENV);
 const isDev = env === 'development' || env === 'test';
 
+function splitCsv(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeOrigin(value: string): string {
+  const url = new URL(value);
+  return url.origin;
+}
+
+function resolveAppOrigin(rawEnv: Record<string, string | undefined>): string {
+  const direct = rawEnv.APP_URL?.trim();
+  if (direct) {
+    return normalizeOrigin(direct);
+  }
+
+  const firstCorsOrigin = splitCsv(rawEnv.CORS_ORIGINS)[0];
+  if (firstCorsOrigin) {
+    return normalizeOrigin(firstCorsOrigin);
+  }
+
+  return 'http://localhost:5173';
+}
+
+function resolveMagicLinkBaseUrl(rawEnv: Record<string, string | undefined>): string {
+  const configured = rawEnv.MAGIC_LINK_BASE_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  return new URL('/auth/callback', resolveAppOrigin(rawEnv)).toString();
+}
+
+function resolveAllowedOrigins(rawEnv: Record<string, string | undefined>): string[] {
+  const configured = splitCsv(rawEnv.CORS_ORIGINS).map(normalizeOrigin);
+  if (configured.length > 0) {
+    return configured;
+  }
+
+  return [
+    resolveAppOrigin(rawEnv),
+    'https://huishype.nl',
+    'https://www.huishype.nl',
+  ];
+}
+
+function resolveCookieDomain(rawEnv: Record<string, string | undefined>): string | undefined {
+  const configured = rawEnv.COOKIE_DOMAIN?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  try {
+    const hostname = new URL(resolveAppOrigin(rawEnv)).hostname;
+    if (hostname === 'localhost' || /^[\d.:]+$/.test(hostname)) {
+      return undefined;
+    }
+
+    return hostname.startsWith('www.') ? hostname.slice(4) : hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+const appOrigin = resolveAppOrigin(process.env as Record<string, string | undefined>);
+const allowedOrigins = resolveAllowedOrigins(process.env as Record<string, string | undefined>);
+const magicLinkBaseUrl = resolveMagicLinkBaseUrl(process.env as Record<string, string | undefined>);
+const cookieDomain = resolveCookieDomain(process.env as Record<string, string | undefined>);
+
 /**
  * Validate that required secrets are present. Called at import time and
  * exported so unit tests can exercise the logic without subprocess tricks.
@@ -65,14 +140,19 @@ export const config = {
     accessTokenExpiresIn: '15m', // 15 minutes
     refreshTokenExpiresIn: '7d', // 7 days
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-    appleClientId:
-      process.env.APPLE_CLIENT_ID ||
-      process.env.EXPO_PUBLIC_APPLE_CLIENT_ID ||
-      'nl.huishype.app',
-    magicLinkBaseUrl:
-      process.env.MAGIC_LINK_BASE_URL ||
-      process.env.APP_URL ||
-      'huishype://auth/callback',
+    appleClientId: process.env.APPLE_CLIENT_ID || 'nl.huishype.app',
+    magicLinkBaseUrl,
+    cookie: {
+      accessTokenName: 'huishype_access',
+      refreshTokenName: 'huishype_refresh',
+      domain: cookieDomain,
+      sameSite: 'lax' as const,
+      secure: env === 'production',
+    },
+  },
+  web: {
+    appOrigin,
+    allowedOrigins,
   },
   email: {
     resendApiKey: process.env.RESEND_API_KEY || '',

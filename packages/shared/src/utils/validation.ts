@@ -100,9 +100,18 @@ export const authLoginSchema = z.object({
   idToken: z.string().min(1, 'ID token is required'),
 });
 
-export const authRefreshSchema = z.object({
+export const browserAuthRefreshSchema = z.object({}).strict();
+
+export const tokenAuthRefreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
+
+export const tokenAuthLogoutSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token is required').optional(),
+});
+
+// Backwards-compatible alias for the active browser refresh contract.
+export const authRefreshSchema = browserAuthRefreshSchema;
 
 // ============================================
 // User Schemas

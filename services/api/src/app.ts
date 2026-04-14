@@ -85,9 +85,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(cors, {
     origin: config.isDev === true
       ? true
-      : process.env.CORS_ORIGINS
-        ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-        : ['https://huishype.nl', 'https://huishype.com'],
+      : config.web.allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });

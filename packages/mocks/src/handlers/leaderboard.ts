@@ -134,7 +134,7 @@ export const leaderboardHandlers = [
     const period = (url.searchParams.get('period') || 'all') as 'week' | 'month' | 'all';
     const limit = parseInt(url.searchParams.get('limit') || '50', 10);
 
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     const rankings = mockRankings.slice(0, limit);
 
     let currentUserRank: LeaderboardEntry | null = null;

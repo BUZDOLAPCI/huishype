@@ -20,7 +20,7 @@ describe('Leaderboard routes', () => {
     const uniqueId = `lbtest${Date.now()}`;
     const loginResp = await app.inject({
       method: 'POST',
-      url: '/auth/google',
+      url: '/auth/token/google',
       payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
     });
     const loginBody = JSON.parse(loginResp.body);

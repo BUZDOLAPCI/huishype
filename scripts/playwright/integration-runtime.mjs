@@ -5,17 +5,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { startStaticWebServer } from './static-web-server.mjs';
 
 const DEFAULT_API_PORT = 3101;
 const DEFAULT_WEB_PORT = 8082;
 const READY_TIMEOUT_MS = 120_000;
-const EXPO_WEB_NODE_HEAP_MB = 8192;
+const WEB_BUILD_NODE_HEAP_MB = 8192;
 const repoRoot = process.cwd();
 const apiCwd = path.join(repoRoot, 'services', 'api');
-const appCwd = path.join(repoRoot, 'apps', 'app');
-const expoBin = './node_modules/.bin/expo';
-const webDistDir = path.join(appCwd, 'dist');
+const appCwd = path.join(repoRoot, 'apps', 'web');
 const require = createRequire(path.join(apiCwd, 'package.json'));
 
 function resolveTsxRuntimePaths() {
@@ -25,7 +22,7 @@ function resolveTsxRuntimePaths() {
     tsxEntryPoint = require.resolve('tsx');
   } catch {
     throw new Error(
-      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.',
+      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.'
     );
   }
 
@@ -50,7 +47,6 @@ const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAUL
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
-const webExportNodeEnv = 'production';
 let cleanupOnFatal = async () => {};
 
 function assertPositivePort(value, name) {
@@ -61,22 +57,23 @@ function assertPositivePort(value, name) {
 
 function getListeningPids(port) {
   try {
-    const output = execFileSync(
-      'lsof',
-      [`-tiTCP:${port}`, '-sTCP:LISTEN'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
+    const output = execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
 
     if (!output) {
       return [];
     }
 
-    return [...new Set(
-      output
-        .split(/\s+/)
-        .map((value) => Number.parseInt(value, 10))
-        .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid),
-    )];
+    return [
+      ...new Set(
+        output
+          .split(/\s+/)
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid)
+      ),
+    ];
   } catch {
     return [];
   }
@@ -90,7 +87,7 @@ async function ensurePortAvailable(port, label) {
 
   throw new Error(
     `${label} port ${port} is already in use by PID(s) ${pids.join(', ')}. ` +
-    'Stop the existing process or choose a different port.',
+      'Stop the existing process or choose a different port.'
   );
 }
 
@@ -112,6 +109,22 @@ async function waitForHttp(url, label) {
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+async function waitForFile(filePath, label, timeoutMs = READY_TIMEOUT_MS) {
+  const startedAt = Date.now();
+
+  while (true) {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`${label} did not appear at ${filePath} within ${timeoutMs}ms`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 
@@ -202,7 +215,7 @@ async function startServiceWithRetry({
       }
 
       console.warn(
-        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`,
+        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`
       );
     }
   }
@@ -216,8 +229,9 @@ async function main() {
 
   const childEnv = {
     ...process.env,
-    EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
+    VITE_API_URL: apiUrl,
+    VITE_GOOGLE_CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
   };
   // Detached service children do not keep the supervisor event loop alive by
   // themselves. Hold a lightweight interval open so this process remains the
@@ -254,13 +268,10 @@ async function main() {
     stopping.current = true;
     stopService(apiChild, signal);
     if (webServerRuntime) {
-      await webServerRuntime.stop().catch(() => {});
+      stopService(webServerRuntime.child, signal);
     }
 
-    await Promise.race([
-      Promise.allSettled([apiExit]),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ]);
+    await Promise.allSettled([apiExit, webServerRuntime?.exitPromise]);
     clearInterval(supervisorKeepAlive);
   };
 
@@ -281,36 +292,51 @@ async function main() {
     return;
   }
 
-  console.log('Building Expo web bundle for Playwright runtime ...');
-  execFileSync(
-    expoBin,
-    ['export', '--platform', 'web'],
-    {
-      cwd: appCwd,
-      env: withNodeOption({
+  console.log('Building Vite web bundle for Playwright runtime ...');
+  execFileSync('pnpm', ['--dir', appCwd, 'build'], {
+    env: withNodeOption(
+      {
         ...childEnv,
-        NODE_ENV: webExportNodeEnv,
-        EXPO_PUBLIC_API_URL: apiUrl,
-      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
-      stdio: 'inherit',
-    },
-  );
-
-  console.log(`Waiting for static web server at ${webUrl} ...`);
-  await ensurePortAvailable(webPort, 'Static web server');
-  webServerRuntime = startStaticWebServer({
-    port: webPort,
-    rootDir: webDistDir,
+        NODE_ENV: 'production',
+      },
+      `--max-old-space-size=${WEB_BUILD_NODE_HEAP_MB}`
+    ),
+    cwd: repoRoot,
+    stdio: 'inherit',
   });
-  await webServerRuntime.ready;
-  await waitForHttp(webUrl, 'Static web server');
+
+  await waitForFile(path.join(appCwd, 'dist', 'index.html'), 'Vite build entrypoint');
+
+  console.log(`Starting Vite preview server on ${webUrl} ...`);
+  await ensurePortAvailable(webPort, 'Vite preview server');
+  webServerRuntime = {
+    child: spawnService(
+      'pnpm',
+      [
+        '--dir',
+        appCwd,
+        'exec',
+        'vite',
+        'preview',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(webPort),
+        '--strictPort',
+      ],
+      childEnv,
+      repoRoot
+    ),
+  };
+  webServerRuntime.exitPromise = waitForExit(webServerRuntime.child, 'Vite preview', stopping);
+  await waitForHttp(webUrl, 'Vite preview');
   if (stopping.current) {
     return;
   }
   console.log(`Integration runtime ready: ${apiUrl} and ${webUrl}`);
 
   try {
-    await apiExit;
+    await Promise.race([apiExit, webServerRuntime.exitPromise]);
   } finally {
     await stop('SIGTERM');
   }

@@ -24,6 +24,8 @@ import {
   achievementHandlers,
   emailAuthHandlers,
 } from '../handlers/index.js';
+import { resetMockSessions } from '../handlers/auth.js';
+import { resetMockEmailAuthState } from '../handlers/email-auth.js';
 import {
   mockUsers,
   mockUserProfiles,
@@ -45,29 +47,66 @@ import {
 describe('Mock handler runtime parity', () => {
   const listingPropertyId = '11111111-1111-4111-8111-111111111111';
 
+  function toCookieHeader(response: Response): string {
+    const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = typeof headers.getSetCookie === 'function'
+      ? headers.getSetCookie()
+      : (headers.get('set-cookie') ? [headers.get('set-cookie') as string] : []);
+
+    return setCookies.map((cookie) => cookie.split(';', 1)[0]).join('; ');
+  }
+
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
   });
 
   afterEach(() => {
     server.resetHandlers();
+    resetMockSessions();
+    resetMockEmailAuthState();
   });
 
   afterAll(() => {
     server.close();
   });
 
-  it('returns the live /auth/me response envelope', async () => {
+  it('returns the live /auth/session response envelope', async () => {
+    const anonymousSessionResponse = await fetch('http://localhost/auth/session');
+    expect(anonymousSessionResponse.status).toBe(200);
+    expect(await anonymousSessionResponse.json()).toEqual({
+      user: null,
+    });
+
     const loginResponse = await fetch('http://localhost/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'mock-google-token' }),
     });
-    const loginBody = await loginResponse.json();
+
+    const sessionResponse = await fetch('http://localhost/auth/session', {
+      headers: {
+        Cookie: toCookieHeader(loginResponse),
+      },
+    });
+    const sessionBody = await sessionResponse.json();
+
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionBody).toHaveProperty('user');
+    expect(sessionBody.user).toHaveProperty('id');
+    expect(sessionBody.user).toHaveProperty('username');
+    expect(sessionBody.user).toHaveProperty('email');
+  });
+
+  it('returns the live /auth/me response envelope for authenticated reads', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
 
     const meResponse = await fetch('http://localhost/auth/me', {
       headers: {
-        Authorization: `Bearer ${loginBody.session.accessToken as string}`,
+        Cookie: toCookieHeader(loginResponse),
       },
     });
     const meBody = await meResponse.json();
@@ -76,6 +115,7 @@ describe('Mock handler runtime parity', () => {
     expect(meBody).toHaveProperty('user');
     expect(meBody.user).toHaveProperty('id');
     expect(meBody.user).toHaveProperty('username');
+    expect(meBody.user).toHaveProperty('email');
   });
 
   it('uses canonical error envelopes across core mock handlers', async () => {
@@ -103,7 +143,7 @@ describe('Mock handler runtime parity', () => {
   });
 
   it('matches live /saved-properties query params and envelope', async () => {
-    const loginResponse = await fetch('http://localhost/auth/google', {
+    const loginResponse = await fetch('http://localhost/auth/token/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'mock-google-token' }),
@@ -181,7 +221,7 @@ describe('Mock handler runtime parity', () => {
     });
     expect(unauthSubmitBody).not.toHaveProperty('code');
 
-    const loginResponse = await fetch('http://localhost/auth/google', {
+    const loginResponse = await fetch('http://localhost/auth/token/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'mock-google-token' }),

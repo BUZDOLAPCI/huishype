@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "."
+  },
+  "include": [
+    "src/main.tsx",
+    "src/bootstrap/styles.ts",
+    "src/runtime/**/*",
+    "src/providers/QueryProvider.tsx",
+    "src/components/ui/Icon.tsx",
+    "src/utils/property-route.ts",
+    "src/types/**/*"
+  ]
+}

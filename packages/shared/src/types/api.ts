@@ -5,7 +5,7 @@
 
 import type { PropertyDetail, PropertySummary } from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
-import type { User, UserProfile, UserSession } from './user.js';
+import type { User, UserProfile, UserSession, TokenUserSession } from './user.js';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
 import type { CommentThread, Comment } from './comment.js';
 import type { ReactionCounts } from './reaction.js';
@@ -17,7 +17,7 @@ import type { LeaderboardResponse } from './leaderboard.js';
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary };
 export type { ListingSummary };
-export type { User, UserProfile, UserSession };
+export type { User, UserProfile, UserSession, TokenUserSession };
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
 export type { ReactionCounts };
@@ -80,16 +80,37 @@ export interface AuthLoginResponse {
   isNewUser: boolean;
 }
 
-export interface AuthRefreshRequest {
+/**
+ * Browser refresh response. The API rotates HTTP-only cookies and returns the
+ * refreshed session envelope; JavaScript never receives bearer tokens here.
+ */
+export interface AuthRefreshResponse {
+  session: UserSession;
+}
+
+/**
+ * Explicit token login response for non-browser clients.
+ */
+export interface TokenAuthLoginResponse {
+  session: TokenUserSession;
+  isNewUser: boolean;
+}
+
+/**
+ * Explicit refresh request for non-browser token clients.
+ */
+export interface TokenAuthRefreshRequest {
   refreshToken: string;
 }
 
-export interface AuthRefreshResponse {
-  accessToken: string;
-  expiresAt: string;
+/**
+ * Explicit token refresh response for non-browser clients.
+ */
+export interface TokenAuthRefreshResponse {
+  session: TokenUserSession;
 }
 
-export interface AuthLogoutRequest {
+export interface TokenAuthLogoutRequest {
   refreshToken?: string;
 }
 

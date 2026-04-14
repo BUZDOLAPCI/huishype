@@ -1,11 +1,9 @@
 /**
- * Email magic link auth routes
+ * Email magic link auth routes.
  *
- * POST /auth/email/request  — send a magic link token
- * POST /auth/email/verify   — verify token and return session
- *
- * Email delivery requires external provider configuration.
- * In dev mode, the token is returned in the response for testing.
+ * Browser verification establishes HTTP-only cookie sessions.
+ * Explicit `/auth/token/email/verify` remains available for non-browser token
+ * consumers that need bearer tokens.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -17,27 +15,56 @@ import { db } from '../db/index.js';
 import { emailAuthTokens, users } from '../db/schema.js';
 import { config } from '../config.js';
 import {
-  generateAccessToken,
-  generateRefreshToken,
-  getAccessTokenExpiry,
-} from '../plugins/auth.js';
-import { getKarmaRank } from '../services/karma.js';
+  assertAllowedBrowserOrigin,
+  issueBrowserSession,
+  issueTokenSession,
+} from './auth-session.js';
 import { buildResendMagicLinkPayload } from '../services/email-payload.js';
 import { withGeneratedUniqueUsername } from '../utils/username.js';
 
-// Token is valid for 15 minutes
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 const RESEND_API_URL = 'https://api.resend.com/emails';
+
+const sessionUserSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  displayName: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  karma: z.number(),
+  karmaRank: z.string(),
+  createdAt: z.string(),
+});
+
+const browserSessionSchema = z.object({
+  user: sessionUserSchema,
+  expiresAt: z.string(),
+});
+
+const tokenSessionSchema = browserSessionSchema.extend({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+});
+
+const authErrorSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+type ConsumedEmailTokenResult =
+  | {
+      error: 'INVALID_TOKEN' | 'TOKEN_EXPIRED';
+      message: string;
+    }
+  | {
+      user: typeof users.$inferSelect;
+      isNewUser: boolean;
+    };
 
 function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
 function buildMagicLink(token: string): string {
-  if (!config.auth.magicLinkBaseUrl) {
-    throw new Error('Magic link base URL is not configured');
-  }
-
   const url = new URL(config.auth.magicLinkBaseUrl);
   url.searchParams.set('emailToken', token);
   return url.toString();
@@ -64,12 +91,58 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
   }
 }
 
+async function consumeEmailToken(token: string): Promise<ConsumedEmailTokenResult> {
+  const tokenRows = await db
+    .select()
+    .from(emailAuthTokens)
+    .where(and(eq(emailAuthTokens.token, token), isNull(emailAuthTokens.usedAt)))
+    .limit(1);
+
+  const tokenRow = tokenRows[0];
+  if (!tokenRow) {
+    return {
+      error: 'INVALID_TOKEN' as const,
+      message: 'Invalid or expired token',
+    };
+  }
+
+  if (new Date() > tokenRow.expiresAt) {
+    return {
+      error: 'TOKEN_EXPIRED' as const,
+      message: 'Token has expired. Please request a new one.',
+    };
+  }
+
+  await db.update(emailAuthTokens).set({ usedAt: new Date() }).where(eq(emailAuthTokens.id, tokenRow.id));
+
+  let user = await db.query.users.findFirst({
+    where: eq(users.email, tokenRow.email),
+  });
+
+  let isNewUser = false;
+
+  if (!user) {
+    isNewUser = true;
+    user = await withGeneratedUniqueUsername(async (username) => {
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          email: tokenRow.email,
+          username,
+          displayName: tokenRow.email.split('@')[0],
+        })
+        .returning();
+
+      return newUser;
+    });
+  }
+
+  return { user, isNewUser };
+}
+
 export async function emailAuthRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  /**
-   * POST /auth/email/request — request a magic link
-   */
   app.post(
     '/auth/email/request',
     {
@@ -77,33 +150,23 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
         tags: ['Auth'],
         summary: 'Request email magic link',
         description:
-          'Generates a magic link token for the given email. ' +
-          'In production, delivers via email. In dev mode, returns the token in the response.',
+          'Generates a magic link token for the given email. In development the token is also returned in the response.',
         body: z.object({
           email: z.string().email(),
         }),
         response: {
           200: z.object({
             message: z.string(),
-            /** Only present in dev mode */
             token: z.string().optional(),
           }),
-          503: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          429: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          429: authErrorSchema,
+          503: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { email } = request.body;
-      const normalizedEmail = email.toLowerCase().trim();
+      const normalizedEmail = request.body.email.toLowerCase().trim();
 
-      // Rate limit: max 3 tokens per email per hour
       const recentTokens = await db.execute<{ cnt: number }>(sql`
         SELECT COUNT(*)::int AS cnt
         FROM email_auth_tokens
@@ -132,15 +195,13 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
         message: 'If an account with this email exists, a magic link has been sent.',
       };
 
-      // In dev mode, return the token directly for testing
-      if (config.isDev === true) {
+      if (config.isDev) {
         response.token = token;
         return response;
       }
 
       try {
-        const magicLink = buildMagicLink(token);
-        await sendMagicLinkEmail(normalizedEmail, magicLink);
+        await sendMagicLinkEmail(normalizedEmail, buildMagicLink(token));
       } catch (error) {
         app.log.error({ err: error, email: normalizedEmail }, 'Failed to deliver magic link email');
         return reply.status(503).send({
@@ -150,134 +211,85 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
       }
 
       return response;
-    }
+    },
   );
 
-  /**
-   * POST /auth/email/verify — verify magic link token
-   */
   app.post(
     '/auth/email/verify',
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Verify email magic link',
-        description: 'Validates the token, creates or finds the user, returns a session.',
+        summary: 'Verify email magic link for the browser session flow',
+        description:
+          'Validates the token, establishes the browser cookie session, and returns the authenticated user.',
         body: z.object({
           token: z.string().length(64),
         }),
         response: {
           200: z.object({
-            session: z.object({
-              user: z.object({
-                id: z.string(),
-                username: z.string(),
-                displayName: z.string(),
-                profilePhotoUrl: z.string().nullable(),
-                karma: z.number(),
-                karmaRank: z.string(),
-                createdAt: z.string(),
-              }),
-              accessToken: z.string(),
-              refreshToken: z.string(),
-              expiresAt: z.string(),
-            }),
+            session: browserSessionSchema,
             isNewUser: z.boolean(),
           }),
-          400: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          401: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          400: authErrorSchema,
+          401: authErrorSchema,
+          403: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { token } = request.body;
+      if (!assertAllowedBrowserOrigin(request, reply)) {
+        return reply;
+      }
 
-      // Find valid token
-      const tokenRows = await db
-        .select()
-        .from(emailAuthTokens)
-        .where(
-          and(
-            eq(emailAuthTokens.token, token),
-            isNull(emailAuthTokens.usedAt)
-          )
-        )
-        .limit(1);
-
-      const tokenRow = tokenRows[0];
-
-      if (!tokenRow) {
+      const result = await consumeEmailToken(request.body.token);
+      if ('error' in result) {
         return reply.status(401).send({
-          error: 'INVALID_TOKEN',
-          message: 'Invalid or expired token',
+          error: result.error,
+          message: result.message,
         });
       }
-
-      // Check expiry
-      if (new Date() > tokenRow.expiresAt) {
-        return reply.status(401).send({
-          error: 'TOKEN_EXPIRED',
-          message: 'Token has expired. Please request a new one.',
-        });
-      }
-
-      // Mark token as used
-      await db
-        .update(emailAuthTokens)
-        .set({ usedAt: new Date() })
-        .where(eq(emailAuthTokens.id, tokenRow.id));
-
-      // Find or create user
-      let user = await db.query.users.findFirst({
-        where: eq(users.email, tokenRow.email),
-      });
-
-      let isNewUser = false;
-
-      if (!user) {
-        isNewUser = true;
-        user = await withGeneratedUniqueUsername(async (username) => {
-          const [newUser] = await db
-            .insert(users)
-            .values({
-              email: tokenRow.email,
-              username,
-              displayName: tokenRow.email.split('@')[0],
-            })
-            .returning();
-
-          return newUser;
-        });
-      }
-
-      // Generate tokens
-      const accessToken = generateAccessToken(fastify, user.id);
-      const refreshToken = generateRefreshToken(user.id);
-      const expiresAt = getAccessTokenExpiry();
 
       return {
-        session: {
-          user: {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName || user.username,
-            profilePhotoUrl: user.profilePhotoUrl,
-            karma: user.karma,
-            karmaRank: getKarmaRank(user.karma).title,
-            createdAt: user.createdAt.toISOString(),
-          },
-          accessToken,
-          refreshToken,
-          expiresAt: expiresAt.toISOString(),
-        },
-        isNewUser,
+        session: issueBrowserSession(fastify, reply, result.user),
+        isNewUser: result.isNewUser,
       };
-    }
+    },
+  );
+
+  app.post(
+    '/auth/token/email/verify',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Verify email magic link for explicit token clients',
+        description:
+          'Validates the token and returns bearer tokens for non-browser clients.',
+        body: z.object({
+          token: z.string().length(64),
+        }),
+        response: {
+          200: z.object({
+            session: tokenSessionSchema,
+            isNewUser: z.boolean(),
+          }),
+          400: authErrorSchema,
+          401: authErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await consumeEmailToken(request.body.token);
+      if ('error' in result) {
+        return reply.status(401).send({
+          error: result.error,
+          message: result.message,
+        });
+      }
+
+      return {
+        session: issueTokenSession(fastify, result.user),
+        isNewUser: result.isNewUser,
+      };
+    },
   );
 }

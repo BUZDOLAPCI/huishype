@@ -3,7 +3,7 @@
 ##
 ## Required env vars (set in Coolify UI or .env file):
 ##   DB_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET,
-##   EXPO_PUBLIC_API_URL (build-time), GOOGLE_CLIENT_ID,
+##   VITE_API_URL (build-time), GOOGLE_CLIENT_ID,
 ##   MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO
 ##
 ## Optional env vars:
@@ -87,14 +87,14 @@ services:
     networks:
       - internal
 
-  # ---------- Web (Expo static export + nginx) ----------
+  # ---------- Web (Vite build + nginx) ----------
   web:
     build:
       context: .
-      dockerfile: apps/app/Dockerfile.web
+      dockerfile: apps/web/Dockerfile
       args:
-        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL}
-        EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     ports:
       - "3000:80"

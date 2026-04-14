@@ -18,7 +18,10 @@ export {
   // Auth
   authProviderSchema,
   authLoginSchema,
+  browserAuthRefreshSchema,
   authRefreshSchema,
+  tokenAuthRefreshSchema,
+  tokenAuthLogoutSchema,
   // User
   updateUserProfileSchema,
   // Property

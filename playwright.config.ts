@@ -4,10 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
  * Playwright E2E test configuration for HuisHype web app.
  * See https://playwright.dev/docs/test-configuration
  *
- * NOTE: The Expo dev server compiles the Metro bundle on first request,
- * which can take 30-60+ seconds. All web/integration projects use a
- * 60s timeout to accommodate this. A global setup project warms the
- * bundle before any browser tests run.
+ * The runtime bootstrap builds the active Vite app and serves it through
+ * `vite preview` on an isolated port for deterministic browser tests.
  */
 
 const PLAYWRIGHT_API_PORT = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || '3101', 10);
@@ -17,20 +15,22 @@ const PLAYWRIGHT_WEB_URL = `http://127.0.0.1:${PLAYWRIGHT_WEB_PORT}`;
 const DISABLE_WEBSERVER = process.env.PLAYWRIGHT_DISABLE_WEBSERVER === '1';
 
 process.env.API_URL = PLAYWRIGHT_API_URL;
-process.env.EXPO_PUBLIC_API_URL = PLAYWRIGHT_API_URL;
+process.env.VITE_API_URL = PLAYWRIGHT_API_URL;
+process.env.VITE_GOOGLE_CLIENT_ID =
+  process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
 process.env.PLAYWRIGHT_API_PORT = String(PLAYWRIGHT_API_PORT);
 process.env.PLAYWRIGHT_WEB_PORT = String(PLAYWRIGHT_WEB_PORT);
 process.env.PLAYWRIGHT_WEB_URL = PLAYWRIGHT_WEB_URL;
 
 export default defineConfig({
-  testDir: './apps/app/e2e',
+  testDir: './apps/web/e2e',
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Local runs share a single Expo/API runtime; saturating all CPU cores makes the
+  /* Local runs share a single API/Vite runtime; saturating all CPU cores makes the
    * browser tests flaky by overdriving that shared server pair.
    */
   workers: 1,
@@ -50,12 +50,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     /* Capture video on failure */
     video: 'on-first-retry',
-    /* Navigation timeout - Expo dev server can be slow on first load */
+    /* Navigation timeout - preview startup and initial map/data loading can be slow */
     navigationTimeout: 45_000,
     /* Action timeout */
     actionTimeout: 15_000,
   },
-  /* Global timeout for all tests - Metro bundler's first compile is slow */
+  /* Global timeout for all tests */
   timeout: 60_000,
   /* Configure projects for major browsers */
   projects: process.env.CI
@@ -63,7 +63,7 @@ export default defineConfig({
         // CI: Only run on Chromium to speed up tests
         {
           name: 'visual',
-          testDir: './apps/app/e2e/visual',
+          testDir: './apps/web/e2e/visual',
           use: {
             ...devices['Desktop Chrome'],
             viewport: { width: 1280, height: 720 },
@@ -74,12 +74,12 @@ export default defineConfig({
         },
         {
           name: 'integration',
-          testDir: './apps/app/e2e/integration',
+          testDir: './apps/web/e2e/integration',
           use: { ...devices['Desktop Chrome'] },
         },
         {
           name: 'flows',
-          testDir: './apps/app/e2e/flows',
+          testDir: './apps/web/e2e/flows',
           use: { ...devices['Desktop Chrome'] },
         },
       ]
@@ -87,7 +87,7 @@ export default defineConfig({
         // Local: Full browser matrix
         {
           name: 'visual',
-          testDir: './apps/app/e2e/visual',
+          testDir: './apps/web/e2e/visual',
           use: {
             ...devices['Desktop Chrome'],
             viewport: { width: 1280, height: 720 },
@@ -98,12 +98,12 @@ export default defineConfig({
         },
         {
           name: 'integration',
-          testDir: './apps/app/e2e/integration',
+          testDir: './apps/web/e2e/integration',
           use: { ...devices['Desktop Chrome'] },
         },
         {
           name: 'flows',
-          testDir: './apps/app/e2e/flows',
+          testDir: './apps/web/e2e/flows',
           use: { ...devices['Desktop Chrome'] },
         },
       ],
@@ -111,7 +111,7 @@ export default defineConfig({
   webServer: DISABLE_WEBSERVER
     ? undefined
     : {
-        // Start the dedicated test-only API and Expo web servers on isolated ports.
+        // Start the dedicated test-only API and Vite preview servers on isolated ports.
         command: 'node ./scripts/playwright/integration-runtime.mjs',
         url: PLAYWRIGHT_WEB_URL,
         // Always start a fresh runtime so Playwright never attaches to a stale

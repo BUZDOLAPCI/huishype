@@ -1,6 +1,9 @@
 /**
- * Authentication routes
- * Handles login with Google/Apple, token refresh, and logout
+ * Authentication routes.
+ *
+ * Browser endpoints establish and refresh HTTP-only cookie-backed sessions.
+ * Explicit `/auth/token/*` endpoints remain available for non-browser clients
+ * that still need bearer tokens.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -11,24 +14,69 @@ import { createPublicKey, createVerify, type JsonWebKey } from 'node:crypto';
 import { db } from '../db/index.js';
 import { refreshTokenRevocations, users } from '../db/schema.js';
 import { config } from '../config.js';
+import type { RefreshTokenPayload } from '../plugins/auth.js';
 import {
-  generateAccessToken,
-  type RefreshTokenPayload,
-  generateRefreshToken,
+  getRefreshTokenFromRequest,
   verifyRefreshToken,
-  getAccessTokenExpiry,
 } from '../plugins/auth.js';
-import { getKarmaRank } from '../services/karma.js';
+import {
+  assertAllowedBrowserOrigin,
+  clearBrowserSession,
+  issueBrowserSession,
+  issueTokenSession,
+  serializeSessionUser,
+} from './auth-session.js';
 import { withGeneratedUniqueUsername } from '../utils/username.js';
 
-// Validation schemas
-const refreshSchema = z.object({
+const loginBodySchema = z.object({
+  idToken: z.string().min(1),
+});
+
+const sessionUserSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  displayName: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  karma: z.number(),
+  karmaRank: z.string(),
+  createdAt: z.string(),
+});
+
+const browserSessionSchema = z.object({
+  user: sessionUserSchema,
+  expiresAt: z.string(),
+});
+
+const tokenSessionSchema = browserSessionSchema.extend({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+});
+
+const browserLoginResponseSchema = z.object({
+  session: browserSessionSchema,
+  isNewUser: z.boolean(),
+});
+
+const tokenLoginResponseSchema = z.object({
+  session: tokenSessionSchema,
+  isNewUser: z.boolean(),
+});
+
+const tokenRefreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
 const logoutSchema = z.object({
   refreshToken: z.string().min(1).optional(),
 });
+
+const authErrorSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+const browserCookieSecurity = [{ cookieAuth: [] }] as const;
+const browserOrBearerSecurity = [{ cookieAuth: [] }, { bearerAuth: [] }] as const;
 
 interface AppleTokenHeader {
   alg: string;
@@ -117,37 +165,26 @@ async function verifyAppleJwt(idToken: string): Promise<AppleTokenClaims | null>
   verifier.update(`${encodedHeader}.${encodedPayload}`);
   verifier.end();
 
-  const valid = verifier.verify(
-    signingKey,
-    Buffer.from(encodedSignature, 'base64url'),
-  );
+  const valid = verifier.verify(signingKey, Buffer.from(encodedSignature, 'base64url'));
 
   return valid ? claims : null;
 }
 
-/**
- * Validate Google ID token
- * In production, this would verify with Google's API
- * For development, we mock the validation
- */
 async function validateGoogleToken(
-  idToken: string
+  idToken: string,
 ): Promise<{ email: string; googleId: string; name?: string } | null> {
   if (config.isDev === true) {
-    // Mock validation for development
-    // Token format: mock-google-{email}-{googleId}
     if (idToken.startsWith('mock-google-')) {
       const parts = idToken.split('-');
       if (parts.length >= 4) {
         return {
-          email: parts[2] + '@gmail.com',
+          email: `${parts[2]}@gmail.com`,
           googleId: parts[3],
           name: parts[2],
         };
       }
     }
 
-    // For any token in dev mode, create a test user
     const timestamp = Date.now();
     return {
       email: `testuser${timestamp}@gmail.com`,
@@ -156,11 +193,8 @@ async function validateGoogleToken(
     };
   }
 
-  // Production: Verify with Google
   try {
-    const response = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
-    );
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
 
     if (!response.ok) {
       return null;
@@ -173,7 +207,6 @@ async function validateGoogleToken(
       aud: string;
     };
 
-    // Verify the audience matches our client ID
     if (data.aud !== config.auth.googleClientId) {
       return null;
     }
@@ -188,28 +221,21 @@ async function validateGoogleToken(
   }
 }
 
-/**
- * Validate Apple ID token
- * In production, this would verify with Apple's API
- * For development, we mock the validation
- */
 async function validateAppleToken(
-  idToken: string
+  idToken: string,
 ): Promise<{ email: string | null; appleId: string; name?: string } | null> {
   if (config.isDev === true) {
-    // Mock validation for development
     if (idToken.startsWith('mock-apple-')) {
       const parts = idToken.split('-');
       if (parts.length >= 4) {
         return {
-          email: parts[2] + '@privaterelay.appleid.com',
+          email: `${parts[2]}@privaterelay.appleid.com`,
           appleId: parts[3],
           name: parts[2],
         };
       }
     }
 
-    // For any token in dev mode, create a test user
     const timestamp = Date.now();
     return {
       email: `testuser${timestamp}@privaterelay.appleid.com`,
@@ -234,9 +260,7 @@ async function validateAppleToken(
   }
 }
 
-function getRefreshTokenMetadata(
-  token: string,
-): RefreshTokenPayload | null {
+function getRefreshTokenMetadata(token: string): RefreshTokenPayload | null {
   const payload = verifyRefreshToken(token);
   if (!payload?.jti || typeof payload.exp !== 'number') {
     return null;
@@ -269,319 +293,384 @@ async function revokeRefreshToken(payload: RefreshTokenPayload): Promise<void> {
     .onConflictDoNothing();
 }
 
+async function upsertGoogleUser(idToken: string) {
+  const googleUser = await validateGoogleToken(idToken);
+  if (!googleUser) {
+    return null;
+  }
+
+  let user = await db.query.users.findFirst({
+    where: or(eq(users.googleId, googleUser.googleId), eq(users.email, googleUser.email)),
+  });
+
+  let isNewUser = false;
+
+  if (!user) {
+    isNewUser = true;
+    user = await withGeneratedUniqueUsername(async (username) => {
+      const displayName = googleUser.name || username;
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          googleId: googleUser.googleId,
+          email: googleUser.email,
+          username,
+          displayName,
+        })
+        .returning();
+
+      return newUser;
+    });
+  } else if (!user.googleId) {
+    await db.update(users).set({ googleId: googleUser.googleId }).where(eq(users.id, user.id));
+  }
+
+  return { user, isNewUser };
+}
+
+async function upsertAppleUser(idToken: string) {
+  const appleUser = await validateAppleToken(idToken);
+  if (!appleUser) {
+    return null;
+  }
+
+  let user = await db.query.users.findFirst({
+    where: appleUser.email
+      ? or(eq(users.appleId, appleUser.appleId), eq(users.email, appleUser.email))
+      : eq(users.appleId, appleUser.appleId),
+  });
+
+  let isNewUser = false;
+
+  if (!user) {
+    if (!appleUser.email) {
+      return { error: 'EMAIL_REQUIRED' as const };
+    }
+
+    const email = appleUser.email;
+    isNewUser = true;
+    user = await withGeneratedUniqueUsername(async (username) => {
+      const displayName = appleUser.name || username;
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          appleId: appleUser.appleId,
+          email,
+          username,
+          displayName,
+        })
+        .returning();
+
+      return newUser;
+    });
+  } else if (!user.appleId) {
+    await db.update(users).set({ appleId: appleUser.appleId }).where(eq(users.id, user.id));
+  }
+
+  return { user, isNewUser };
+}
+
+async function refreshUserSession(
+  refreshToken: string,
+): Promise<{ user: typeof users.$inferSelect } | { error: string; message: string }> {
+  const payload = getRefreshTokenMetadata(refreshToken);
+  if (!payload) {
+    return {
+      error: 'INVALID_REFRESH_TOKEN',
+      message: 'Invalid or expired refresh token',
+    };
+  }
+
+  if (await isRefreshTokenRevoked(payload.jti)) {
+    return {
+      error: 'INVALID_REFRESH_TOKEN',
+      message: 'Invalid or expired refresh token',
+    };
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, payload.userId),
+  });
+
+  if (!user) {
+    return {
+      error: 'USER_NOT_FOUND',
+      message: 'User no longer exists',
+    };
+  }
+
+  await revokeRefreshToken(payload);
+  return { user };
+}
+
 export async function authRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  /**
-   * POST /auth/google - Login with Google
-   */
   app.post(
     '/auth/google',
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Login with Google',
-        description: 'Validate Google ID token, create or find user, return JWT tokens',
-        body: z.object({
-          idToken: z.string().min(1),
-        }),
+        summary: 'Login with Google for the browser session flow',
+        description:
+          'Validates a Google ID token, establishes an HTTP-only browser session, and returns the authenticated user.',
+        body: loginBodySchema,
         response: {
-          200: z.object({
-            session: z.object({
-              user: z.object({
-                id: z.string(),
-                username: z.string(),
-                displayName: z.string(),
-                profilePhotoUrl: z.string().nullable(),
-                karma: z.number(),
-                karmaRank: z.string(),
-                createdAt: z.string(),
-              }),
-              accessToken: z.string(),
-              refreshToken: z.string(),
-              expiresAt: z.string(),
-            }),
-            isNewUser: z.boolean(),
-          }),
-          400: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          401: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          200: browserLoginResponseSchema,
+          400: authErrorSchema,
+          401: authErrorSchema,
+          403: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { idToken } = request.body;
+      if (!assertAllowedBrowserOrigin(request, reply)) {
+        return reply;
+      }
 
-      // Validate Google token
-      const googleUser = await validateGoogleToken(idToken);
-      if (!googleUser) {
+      const login = await upsertGoogleUser(request.body.idToken);
+      if (!login) {
         return reply.status(401).send({
           error: 'INVALID_TOKEN',
           message: 'Invalid or expired Google ID token',
         });
       }
 
-      // Check if user exists by Google ID or email
-      let user = await db.query.users.findFirst({
-        where: or(
-          eq(users.googleId, googleUser.googleId),
-          eq(users.email, googleUser.email)
-        ),
-      });
-
-      let isNewUser = false;
-
-      if (!user) {
-        // Create new user
-        isNewUser = true;
-        user = await withGeneratedUniqueUsername(async (username) => {
-          const displayName = googleUser.name || username;
-          const [newUser] = await db
-            .insert(users)
-            .values({
-              googleId: googleUser.googleId,
-              email: googleUser.email,
-              username,
-              displayName,
-            })
-            .returning();
-
-          return newUser;
-        });
-      } else if (!user.googleId) {
-        // Link Google account to existing user
-        await db
-          .update(users)
-          .set({ googleId: googleUser.googleId })
-          .where(eq(users.id, user.id));
-      }
-
-      // Generate tokens
-      const accessToken = generateAccessToken(fastify, user.id);
-      const refreshToken = generateRefreshToken(user.id);
-      const expiresAt = getAccessTokenExpiry();
-
       return {
-        session: {
-          user: {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName || user.username,
-            profilePhotoUrl: user.profilePhotoUrl,
-            karma: user.karma,
-            karmaRank: getKarmaRank(user.karma).title,
-            createdAt: user.createdAt.toISOString(),
-          },
-          accessToken,
-          refreshToken,
-          expiresAt: expiresAt.toISOString(),
-        },
-        isNewUser,
+        session: issueBrowserSession(fastify, reply, login.user),
+        isNewUser: login.isNewUser,
       };
-    }
+    },
   );
 
-  /**
-   * POST /auth/apple - Login with Apple
-   */
+  app.post(
+    '/auth/token/google',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Login with Google for explicit token clients',
+        description:
+          'Validates a Google ID token and returns bearer tokens for non-browser clients.',
+        body: loginBodySchema,
+        response: {
+          200: tokenLoginResponseSchema,
+          400: authErrorSchema,
+          401: authErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const login = await upsertGoogleUser(request.body.idToken);
+      if (!login) {
+        return reply.status(401).send({
+          error: 'INVALID_TOKEN',
+          message: 'Invalid or expired Google ID token',
+        });
+      }
+
+      return {
+        session: issueTokenSession(fastify, login.user),
+        isNewUser: login.isNewUser,
+      };
+    },
+  );
+
   app.post(
     '/auth/apple',
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Login with Apple',
-        description: 'Validate Apple ID token, create or find user, return JWT tokens',
-        body: z.object({
-          idToken: z.string().min(1),
-        }),
+        summary: 'Login with Apple for the browser session flow',
+        description:
+          'Validates an Apple ID token, establishes an HTTP-only browser session, and returns the authenticated user.',
+        body: loginBodySchema,
         response: {
-          200: z.object({
-            session: z.object({
-              user: z.object({
-                id: z.string(),
-                username: z.string(),
-                displayName: z.string(),
-                profilePhotoUrl: z.string().nullable(),
-                karma: z.number(),
-                karmaRank: z.string(),
-                createdAt: z.string(),
-              }),
-              accessToken: z.string(),
-              refreshToken: z.string(),
-              expiresAt: z.string(),
-            }),
-            isNewUser: z.boolean(),
-          }),
-          400: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          401: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          200: browserLoginResponseSchema,
+          400: authErrorSchema,
+          401: authErrorSchema,
+          403: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { idToken } = request.body;
+      if (!assertAllowedBrowserOrigin(request, reply)) {
+        return reply;
+      }
 
-      // Validate Apple token
-      const appleUser = await validateAppleToken(idToken);
-      if (!appleUser) {
+      const login = await upsertAppleUser(request.body.idToken);
+      if (!login) {
         return reply.status(401).send({
           error: 'INVALID_TOKEN',
           message: 'Invalid or expired Apple ID token',
         });
       }
-
-      // Check if user exists by Apple ID or email when Apple returned one.
-      let user = await db.query.users.findFirst({
-        where: appleUser.email
-          ? or(eq(users.appleId, appleUser.appleId), eq(users.email, appleUser.email))
-          : eq(users.appleId, appleUser.appleId),
-      });
-
-      let isNewUser = false;
-
-      if (!user) {
-        if (!appleUser.email) {
-          return reply.status(400).send({
-            error: 'EMAIL_REQUIRED',
-            message:
-              'Apple did not provide an email for this sign-in. Sign in with Apple again and share your email address.',
-          });
-        }
-        const email = appleUser.email;
-
-        // Create new user
-        isNewUser = true;
-        user = await withGeneratedUniqueUsername(async (username) => {
-          const displayName = appleUser.name || username;
-          const [newUser] = await db
-            .insert(users)
-            .values({
-              appleId: appleUser.appleId,
-              email,
-              username,
-              displayName,
-            })
-            .returning();
-
-          return newUser;
+      if ('error' in login) {
+        return reply.status(400).send({
+          error: 'EMAIL_REQUIRED',
+          message:
+            'Apple did not provide an email for this sign-in. Sign in with Apple again and share your email address.',
         });
-      } else if (!user.appleId) {
-        // Link Apple account to existing user
-        await db
-          .update(users)
-          .set({ appleId: appleUser.appleId })
-          .where(eq(users.id, user.id));
       }
 
-      // Generate tokens
-      const accessToken = generateAccessToken(fastify, user.id);
-      const refreshToken = generateRefreshToken(user.id);
-      const expiresAt = getAccessTokenExpiry();
-
       return {
-        session: {
-          user: {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName || user.username,
-            profilePhotoUrl: user.profilePhotoUrl,
-            karma: user.karma,
-            karmaRank: getKarmaRank(user.karma).title,
-            createdAt: user.createdAt.toISOString(),
-          },
-          accessToken,
-          refreshToken,
-          expiresAt: expiresAt.toISOString(),
-        },
-        isNewUser,
+        session: issueBrowserSession(fastify, reply, login.user),
+        isNewUser: login.isNewUser,
       };
-    }
+    },
   );
 
-  /**
-   * POST /auth/refresh - Refresh access token
-   */
+  app.post(
+    '/auth/token/apple',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Login with Apple for explicit token clients',
+        description:
+          'Validates an Apple ID token and returns bearer tokens for non-browser clients.',
+        body: loginBodySchema,
+        response: {
+          200: tokenLoginResponseSchema,
+          400: authErrorSchema,
+          401: authErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const login = await upsertAppleUser(request.body.idToken);
+      if (!login) {
+        return reply.status(401).send({
+          error: 'INVALID_TOKEN',
+          message: 'Invalid or expired Apple ID token',
+        });
+      }
+      if ('error' in login) {
+        return reply.status(400).send({
+          error: 'EMAIL_REQUIRED',
+          message:
+            'Apple did not provide an email for this sign-in. Sign in with Apple again and share your email address.',
+        });
+      }
+
+      return {
+        session: issueTokenSession(fastify, login.user),
+        isNewUser: login.isNewUser,
+      };
+    },
+  );
+
   app.post(
     '/auth/refresh',
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Refresh access token',
-        description: 'Exchange a refresh token for a new access token',
-        body: refreshSchema,
+        summary: 'Refresh the browser session from the refresh cookie',
+        description:
+          'Rotates the browser session cookies using the refresh-token cookie and returns the refreshed session envelope.',
+        security: browserCookieSecurity,
         response: {
           200: z.object({
-            accessToken: z.string(),
-            expiresAt: z.string(),
+            session: browserSessionSchema,
           }),
-          401: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          401: authErrorSchema,
+          403: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { refreshToken } = request.body;
+      if (!assertAllowedBrowserOrigin(request, reply)) {
+        return reply;
+      }
 
-      const payload = getRefreshTokenMetadata(refreshToken);
-      if (!payload) {
+      const refreshToken = getRefreshTokenFromRequest(request);
+      if (!refreshToken) {
+        clearBrowserSession(reply);
         return reply.status(401).send({
           error: 'INVALID_REFRESH_TOKEN',
           message: 'Invalid or expired refresh token',
         });
       }
 
-      if (await isRefreshTokenRevoked(payload.jti)) {
-        return reply.status(401).send({
-          error: 'INVALID_REFRESH_TOKEN',
-          message: 'Invalid or expired refresh token',
-        });
+      const refreshed = await refreshUserSession(refreshToken);
+      if ('error' in refreshed) {
+        clearBrowserSession(reply);
+        return reply.status(401).send(refreshed);
       }
-
-      // Verify user still exists
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, payload.userId),
-      });
-
-      if (!user) {
-        return reply.status(401).send({
-          error: 'USER_NOT_FOUND',
-          message: 'User no longer exists',
-        });
-      }
-
-      // Generate new access token
-      const accessToken = generateAccessToken(fastify, user.id);
-      const expiresAt = getAccessTokenExpiry();
 
       return {
-        accessToken,
-        expiresAt: expiresAt.toISOString(),
+        session: issueBrowserSession(fastify, reply, refreshed.user),
       };
-    }
+    },
   );
 
-  /**
-   * POST /auth/logout - Logout and invalidate refresh token
-   */
+  app.post(
+    '/auth/token/refresh',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Refresh a token session explicitly',
+        description:
+          'Rotates the supplied refresh token and returns a new access/refresh token pair for non-browser clients.',
+        body: tokenRefreshSchema,
+        response: {
+          200: z.object({
+            session: tokenSessionSchema,
+          }),
+          401: authErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const refreshed = await refreshUserSession(request.body.refreshToken);
+      if ('error' in refreshed) {
+        return reply.status(401).send(refreshed);
+      }
+
+      return {
+        session: issueTokenSession(fastify, refreshed.user),
+      };
+    },
+  );
+
   app.post(
     '/auth/logout',
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Logout',
-        description: 'Invalidate refresh token (client should also clear tokens)',
+        summary: 'Logout the browser session',
+        description:
+          'Revokes the refresh-token cookie when present and clears both browser session cookies.',
+        security: browserCookieSecurity,
+        response: {
+          204: z.null(),
+          403: authErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!assertAllowedBrowserOrigin(request, reply)) {
+        return reply;
+      }
+
+      const refreshToken = getRefreshTokenFromRequest(request);
+      if (refreshToken) {
+        const payload = getRefreshTokenMetadata(refreshToken);
+        if (payload) {
+          await revokeRefreshToken(payload);
+        }
+      }
+
+      clearBrowserSession(reply);
+      return reply.status(204).send(null);
+    },
+  );
+
+  app.post(
+    '/auth/token/logout',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Logout an explicit token session',
+        description: 'Revokes the supplied refresh token for non-browser token clients.',
         body: logoutSchema,
         response: {
           204: z.null(),
@@ -590,7 +679,6 @@ export async function authRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const refreshToken = request.body.refreshToken;
-
       if (refreshToken) {
         const payload = getRefreshTokenMetadata(refreshToken);
         if (payload) {
@@ -599,43 +687,77 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
 
       return reply.status(204).send(null);
-    }
+    },
   );
 
-  /**
-   * GET /auth/me - Get current user profile
-   */
+  app.get(
+    '/auth/session',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['Auth'],
+        summary: 'Get the current browser or token session state',
+        description:
+          'Returns the active user when a browser cookie session or bearer token is present, otherwise returns user=null without raising an auth error.',
+        security: browserOrBearerSecurity,
+        response: {
+          200: z.object({
+            user: sessionUserSchema.extend({
+              email: z.string(),
+            }).nullable(),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const userId = request.userId;
+      if (!userId) {
+        return {
+          user: null,
+        };
+      }
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+      });
+
+      if (!user) {
+        return {
+          user: null,
+        };
+      }
+
+      return {
+        user: {
+          ...serializeSessionUser(user),
+          email: user.email,
+        },
+      };
+    },
+  );
+
   app.get(
     '/auth/me',
     {
       onRequest: [fastify.authenticate],
       schema: {
         tags: ['Auth'],
-        summary: 'Get current user profile',
-        description: 'Returns the profile of the currently authenticated user',
+        summary: 'Get the current authenticated user',
+        description:
+          'Returns the active user for the browser cookie session or an explicit bearer token.',
+        security: browserOrBearerSecurity,
         response: {
           200: z.object({
-            user: z.object({
-              id: z.string(),
-              username: z.string(),
-              displayName: z.string(),
-              profilePhotoUrl: z.string().nullable(),
+            user: sessionUserSchema.extend({
               email: z.string(),
-              karma: z.number(),
-              karmaRank: z.string(),
-              createdAt: z.string(),
             }),
           }),
-          401: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          401: authErrorSchema,
         },
       },
     },
     async (request, reply) => {
       const userId = request.userId;
-
       if (!userId) {
         return reply.status(401).send({
           error: 'UNAUTHORIZED',
@@ -656,16 +778,10 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       return {
         user: {
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName || user.username,
-          profilePhotoUrl: user.profilePhotoUrl,
+          ...serializeSessionUser(user),
           email: user.email,
-          karma: user.karma,
-          karmaRank: getKarmaRank(user.karma).title,
-          createdAt: user.createdAt.toISOString(),
         },
       };
-    }
+    },
   );
 }

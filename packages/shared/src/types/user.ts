@@ -25,8 +25,8 @@ export interface User {
   username: string;
   /** Display name (can be changed once per 30 days) */
   displayName: string;
-  /** Profile photo URL (optional) */
-  profilePhotoUrl?: string;
+  /** Profile photo URL, or null when unset */
+  profilePhotoUrl: string | null;
   /** Public karma/credibility score (starts at 0, never goes below 0) */
   karma: number;
   /** Karma rank title displayed next to username */
@@ -65,13 +65,21 @@ export interface UserBadge {
 }
 
 /**
- * User session information returned after authentication
+ * Browser session information returned after authentication.
+ * The active web contract is cookie-backed, so browser sessions do not expose
+ * bearer tokens to JavaScript.
  */
 export interface UserSession {
   user: User;
+  expiresAt: string;
+}
+
+/**
+ * Explicit token session for non-browser clients that still need bearer tokens.
+ */
+export interface TokenUserSession extends UserSession {
   accessToken: string;
   refreshToken: string;
-  expiresAt: string;
 }
 
 /**

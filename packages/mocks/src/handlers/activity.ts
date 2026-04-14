@@ -224,7 +224,7 @@ export const activityHandlers = [
    * GET /users/me/activity — personal activity history (includes saves)
    */
   http.get('/users/me/activity', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

@@ -5,12 +5,16 @@
 ## Other agent rules:
 
 This current document and these documents are the source of truth for design/implementation decisions:
+./agent-rules/platform-architecture.md
 ./agent-rules/software-stack.md
 ./agent-rules/test-requirements.md
 
 ## Overview
 
 This product is a **social-first real estate exploration and valuation platform**. It aggregates public housing listings and addresses into a map- and feed-based experience where users can **interact with properties socially**: guessing fair prices, commenting, reacting, and tracking interest over time.
+
+The active implementation surface is web-first. Android and iOS are future
+native ports that must preserve the same product contract rather than redefining it.
 
 The core premise is simple:
 
@@ -134,6 +138,8 @@ Login via google or apple account
 - **"Save property"** acts as the first conversion moment (requires login)
 
 This applies to web and native alike. The web app is not login-walled; the logged-out experience is intentional product behavior.
+This applies to the active web product. Future native ports should preserve the
+same login gate and logged-out browsing behavior.
 
 This approach captures user intent before requiring authentication.
 

@@ -269,7 +269,7 @@ export const propertyHandlers = [
    * POST /properties/:id/save - Save a property
    */
   http.post('/properties/:propertyId/save', ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -292,7 +292,7 @@ export const propertyHandlers = [
    * DELETE /properties/:id/save - Unsave a property
    */
   http.delete('/properties/:propertyId/save', ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -315,7 +315,7 @@ export const propertyHandlers = [
    * GET /saved-properties - Get saved properties
    */
   http.get('*/saved-properties', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -369,7 +369,7 @@ export const propertyHandlers = [
    * POST /properties/:id/like - Like a property
    */
   http.post('/properties/:propertyId/like', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -383,7 +383,7 @@ export const propertyHandlers = [
    * DELETE /properties/:id/like - Unlike a property
    */
   http.delete('/properties/:propertyId/like', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -405,7 +405,7 @@ export const propertyHandlers = [
    */
   http.get('/properties/:propertyId/my-guess', ({ params, request }) => {
     const { propertyId } = params;
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
 
     if (!authUser) {
       return HttpResponse.json(

@@ -16,7 +16,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/api-client/package.json packages/api-client/
 COPY packages/mocks/package.json packages/mocks/
 COPY services/api/package.json services/api/
-COPY apps/app/package.json apps/app/
+COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 # Rebuild only the native addons the API actually needs
 RUN pnpm rebuild sharp better-sqlite3 2>/dev/null || true

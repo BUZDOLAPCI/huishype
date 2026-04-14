@@ -1,0 +1,41 @@
+{
+  "name": "@huishype/web",
+  "main": "src/main.tsx",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 8081",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "web": "vite --host 0.0.0.0 --port 8081",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huishype/api-client": "workspace:*",
+    "@huishype/shared": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
+    "@tanstack/react-query": "^5.66.0",
+    "react-router-dom": "^7.0.2",
+    "maplibre-gl": "github:BUZDOLAPCI/maplibre-gl-js#b00e1e7faccace877df0777b93e0a1ebe19fdbd6",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.7.0",
+    "@testing-library/react": "^16.1.0",
+    "@vitejs/plugin-react": "^5.0.3",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "~19.1.0",
+    "@types/react-dom": "19.1.6",
+    "autoprefixer": "^10.4.21",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
+  }
+}

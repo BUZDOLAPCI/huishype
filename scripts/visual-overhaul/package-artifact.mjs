@@ -11,14 +11,10 @@ function usage() {
     [
       'Usage:',
       '  node scripts/visual-overhaul/package-artifact.mjs \\',
-      '    --surface <surface> --platform <web|android> [--source <file>] [--name <file>] [--note <text>]',
+      '    --surface <surface> [--source <file>] [--name <file>] [--note <text>]',
       '',
       'Examples:',
-      '  node scripts/visual-overhaul/package-artifact.mjs --surface auth-modal --platform android \\',
-      '    --source maestro-screenshots/auth-modal.png --name auth-modal.png \\',
-      '    --note "Pixel 5 portrait capture after Dev Login gate"',
-      '',
-      '  node scripts/visual-overhaul/package-artifact.mjs --surface map-screen --platform web \\',
+      '  node scripts/visual-overhaul/package-artifact.mjs --surface map-screen \\',
       '    --note "Wide web capture imported manually from a debugging session"',
     ].join('\n')
   );
@@ -63,7 +59,6 @@ function toRelative(filePath) {
 async function ensureSurface(surface) {
   await Promise.all([
     fs.mkdir(path.join(VISUAL_OVERHAUL_ROOT, surface, 'web'), { recursive: true }),
-    fs.mkdir(path.join(VISUAL_OVERHAUL_ROOT, surface, 'android'), { recursive: true }),
   ]);
 
   const notesPath = path.join(VISUAL_OVERHAUL_ROOT, surface, 'notes.md');
@@ -92,22 +87,23 @@ async function main() {
   }
 
   const surface = args.surface;
-  const platform = args.platform;
 
-  if (!surface || !platform) {
+  if (!surface) {
     usage();
-    console.error('\n--surface and --platform are required.');
+    console.error('\n--surface is required.');
     process.exitCode = 1;
     return;
   }
 
-  if (platform !== 'web' && platform !== 'android') {
-    console.error(`Unsupported platform: ${platform}`);
+  if (args.platform) {
+    usage();
+    console.error('\n--platform is no longer supported; web artifacts are the only active path.');
     process.exitCode = 1;
     return;
   }
 
   const notesPath = await ensureSurface(surface);
+  const platform = 'web';
   const platformDir = path.join(VISUAL_OVERHAUL_ROOT, surface, platform);
 
   let destinationPath = null;

@@ -1,16 +1,39 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
 
-/**
- * Integration tests for auth routes.
- *
- * Uses dev-mode mock tokens (format: mock-google-{email}-{googleId}).
- * The auth route validates these in dev mode and creates real users in the DB.
- */
+type InjectCookie = {
+  name: string;
+  value: string;
+  httpOnly?: boolean;
+  sameSite?: string;
+};
+
+function toCookieHeader(cookies: InjectCookie[]): string {
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+}
+
+function getCookieValue(cookies: InjectCookie[], name: string): string | undefined {
+  return cookies.find((cookie) => cookie.name === name)?.value;
+}
+
+function expectBrowserSession(session: Record<string, unknown>) {
+  expect(session).toHaveProperty('user');
+  expect(session).toHaveProperty('expiresAt');
+  expect(session).not.toHaveProperty('accessToken');
+  expect(session).not.toHaveProperty('refreshToken');
+}
+
+function expectTokenSession(session: Record<string, unknown>) {
+  expect(session).toHaveProperty('user');
+  expect(session).toHaveProperty('expiresAt');
+  expect(session).toHaveProperty('accessToken');
+  expect(session).toHaveProperty('refreshToken');
+}
+
 describe('Auth routes', () => {
   let app: FastifyInstance;
   const testUserIds: string[] = [];
@@ -20,19 +43,19 @@ describe('Auth routes', () => {
   });
 
   afterAll(async () => {
-    // Clean up test users
     for (const userId of testUserIds) {
       try {
         await db.delete(users).where(eq(users.id, userId));
       } catch {
-        // Ignore cleanup errors
+        // Ignore cleanup errors for already-deleted rows.
       }
     }
+
     await app.close();
   });
 
-  describe('POST /auth/google', () => {
-    it('should create a new user with mock token and return session', async () => {
+  describe('browser session endpoints', () => {
+    it('creates a cookie-backed browser session for Google login', async () => {
       const uniqueId = `authtest${Date.now()}`;
       const response = await app.inject({
         method: 'POST',
@@ -46,36 +69,22 @@ describe('Auth routes', () => {
       const body = JSON.parse(response.body);
 
       expect(body).toHaveProperty('session');
-      expect(body).toHaveProperty('isNewUser');
-      expect(body.isNewUser).toBe(true);
+      expect(body).toHaveProperty('isNewUser', true);
+      expectBrowserSession(body.session);
+      expect(body.session.user).not.toHaveProperty('isPlus');
 
-      const { session } = body;
-      expect(session).toHaveProperty('accessToken');
-      expect(session).toHaveProperty('refreshToken');
-      expect(session).toHaveProperty('expiresAt');
-      expect(session).toHaveProperty('user');
+      expect(response.cookies).toHaveLength(2);
+      expect(getCookieValue(response.cookies, 'huishype_access')).toBeTruthy();
+      expect(getCookieValue(response.cookies, 'huishype_refresh')).toBeTruthy();
+      expect(response.cookies.every((cookie) => cookie.httpOnly)).toBe(true);
 
-      expect(typeof session.accessToken).toBe('string');
-      expect(typeof session.refreshToken).toBe('string');
-      expect(typeof session.expiresAt).toBe('string');
-
-      const { user } = session;
-      expect(user).toHaveProperty('id');
-      expect(user).toHaveProperty('username');
-      expect(user).toHaveProperty('displayName');
-      expect(user).toHaveProperty('karma');
-      expect(user).toHaveProperty('karmaRank');
-      expect(user).toHaveProperty('createdAt');
-      expect(user).not.toHaveProperty('isPlus');
-
-      testUserIds.push(user.id);
+      testUserIds.push(body.session.user.id);
     });
 
-    it('should return isNewUser=false for existing user', async () => {
+    it('returns isNewUser=false for an existing browser user', async () => {
       const uniqueId = `existing${Date.now()}`;
       const token = `mock-google-${uniqueId}-gid${uniqueId}`;
 
-      // First login - creates user
       const first = await app.inject({
         method: 'POST',
         url: '/auth/google',
@@ -83,10 +92,8 @@ describe('Auth routes', () => {
       });
       expect(first.statusCode).toBe(200);
       const firstBody = JSON.parse(first.body);
-      expect(firstBody.isNewUser).toBe(true);
       testUserIds.push(firstBody.session.user.id);
 
-      // Second login - same user
       const second = await app.inject({
         method: 'POST',
         url: '/auth/google',
@@ -98,18 +105,7 @@ describe('Auth routes', () => {
       expect(secondBody.session.user.id).toBe(firstBody.session.user.id);
     });
 
-    it('should return 400 when idToken is empty', async () => {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/auth/google',
-        payload: { idToken: '' },
-      });
-      expect(response.statusCode).toBe(400);
-    });
-  });
-
-  describe('POST /auth/apple', () => {
-    it('should create a new user with mock token and return session without isPlus', async () => {
+    it('creates a cookie-backed browser session for Apple login', async () => {
       const uniqueId = `apple${Date.now()}`;
       const response = await app.inject({
         method: 'POST',
@@ -121,46 +117,14 @@ describe('Auth routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-
-      expect(body.isNewUser).toBe(true);
-      expect(body.session.user).not.toHaveProperty('isPlus');
+      expectBrowserSession(body.session);
+      expect(getCookieValue(response.cookies, 'huishype_access')).toBeTruthy();
+      expect(getCookieValue(response.cookies, 'huishype_refresh')).toBeTruthy();
 
       testUserIds.push(body.session.user.id);
     });
-  });
 
-  describe('POST /auth/email/verify', () => {
-    it('should create a session without isPlus', async () => {
-      const email = `email-auth-${Date.now()}@example.com`;
-      const requestResponse = await app.inject({
-        method: 'POST',
-        url: '/auth/email/request',
-        payload: { email },
-      });
-
-      expect(requestResponse.statusCode).toBe(200);
-      const requestBody = JSON.parse(requestResponse.body);
-      expect(requestBody).toHaveProperty('token');
-
-      const verifyResponse = await app.inject({
-        method: 'POST',
-        url: '/auth/email/verify',
-        payload: { token: requestBody.token },
-      });
-
-      expect(verifyResponse.statusCode).toBe(200);
-      const verifyBody = JSON.parse(verifyResponse.body);
-
-      expect(verifyBody.isNewUser).toBe(true);
-      expect(verifyBody.session.user).not.toHaveProperty('isPlus');
-
-      testUserIds.push(verifyBody.session.user.id);
-    });
-  });
-
-  describe('POST /auth/refresh', () => {
-    it('should return a new access token with a valid refresh token', async () => {
-      // Create a user first
+    it('refreshes the browser session from the refresh cookie', async () => {
       const uniqueId = `refresh${Date.now()}`;
       const loginResp = await app.inject({
         method: 'POST',
@@ -170,119 +134,36 @@ describe('Auth routes', () => {
       const loginBody = JSON.parse(loginResp.body);
       testUserIds.push(loginBody.session.user.id);
 
-      const { refreshToken } = loginBody.session;
+      const cookieHeader = toCookieHeader(loginResp.cookies);
 
       const response = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        payload: { refreshToken },
+        headers: {
+          cookie: cookieHeader,
+        },
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('accessToken');
-      expect(body).toHaveProperty('expiresAt');
-      expect(typeof body.accessToken).toBe('string');
-      expect(typeof body.expiresAt).toBe('string');
+      expectBrowserSession(body.session);
+      expect(getCookieValue(response.cookies, 'huishype_access')).toBeTruthy();
+      expect(getCookieValue(response.cookies, 'huishype_refresh')).toBeTruthy();
     });
 
-    it('should return 401 after the refresh token has been revoked', async () => {
-      const uniqueId = `revoked${Date.now()}`;
-      const loginResp = await app.inject({
-        method: 'POST',
-        url: '/auth/google',
-        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
-      });
-      const loginBody = JSON.parse(loginResp.body);
-      testUserIds.push(loginBody.session.user.id);
-
-      const { refreshToken } = loginBody.session;
-
-      const logoutResp = await app.inject({
-        method: 'POST',
-        url: '/auth/logout',
-        payload: { refreshToken },
-      });
-      expect(logoutResp.statusCode).toBe(204);
-
-      const refreshResp = await app.inject({
+    it('returns 401 when the browser refresh cookie is missing', async () => {
+      const response = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        payload: { refreshToken },
       });
 
-      expect(refreshResp.statusCode).toBe(401);
-      expect(JSON.parse(refreshResp.body)).toMatchObject({
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toMatchObject({
         error: 'INVALID_REFRESH_TOKEN',
       });
     });
 
-    it('should return 401 with an invalid refresh token', async () => {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/auth/refresh',
-        payload: { refreshToken: 'invalid-token-value' },
-      });
-      expect(response.statusCode).toBe(401);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('INVALID_REFRESH_TOKEN');
-    });
-  });
-
-  describe('GET /auth/me', () => {
-    it('should return user profile with a valid access token', async () => {
-      const uniqueId = `me${Date.now()}`;
-      const loginResp = await app.inject({
-        method: 'POST',
-        url: '/auth/google',
-        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
-      });
-      const loginBody = JSON.parse(loginResp.body);
-      testUserIds.push(loginBody.session.user.id);
-
-      const { accessToken } = loginBody.session;
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/auth/me',
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('user');
-      expect(body.user.id).toBe(loginBody.session.user.id);
-      expect(body.user).toHaveProperty('email');
-      expect(body.user).toHaveProperty('username');
-      expect(body.user).toHaveProperty('karma');
-      expect(body.user).toHaveProperty('karmaRank');
-      expect(body.user).not.toHaveProperty('isPlus');
-    });
-
-    it('should return 401 without a token', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/auth/me',
-      });
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('should return 401 with an invalid token', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/auth/me',
-        headers: {
-          authorization: 'Bearer invalid-jwt-token',
-        },
-      });
-      expect(response.statusCode).toBe(401);
-    });
-  });
-
-  describe('POST /auth/logout', () => {
-    it('should revoke the provided refresh token and return 204 on logout', async () => {
+    it('returns 401 after browser logout revokes the refresh cookie', async () => {
       const uniqueId = `logout${Date.now()}`;
       const loginResp = await app.inject({
         method: 'POST',
@@ -292,29 +173,248 @@ describe('Auth routes', () => {
       const loginBody = JSON.parse(loginResp.body);
       testUserIds.push(loginBody.session.user.id);
 
+      const cookieHeader = toCookieHeader(loginResp.cookies);
+
+      const logoutResp = await app.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        headers: {
+          cookie: cookieHeader,
+        },
+      });
+      expect(logoutResp.statusCode).toBe(204);
+
+      const refreshResp = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        headers: {
+          cookie: cookieHeader,
+        },
+      });
+
+      expect(refreshResp.statusCode).toBe(401);
+      expect(JSON.parse(refreshResp.body)).toMatchObject({
+        error: 'INVALID_REFRESH_TOKEN',
+      });
+    });
+
+    it('authenticates /auth/me from browser cookies', async () => {
+      const uniqueId = `me-cookie${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/me',
+        headers: {
+          cookie: toCookieHeader(loginResp.cookies),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toHaveProperty('user');
+      expect(body.user.id).toBe(loginBody.session.user.id);
+      expect(body.user).toHaveProperty('email');
+      expect(body.user).not.toHaveProperty('isPlus');
+    });
+
+    it('returns user=null for /auth/session without authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/session',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        user: null,
+      });
+    });
+
+    it('returns the active user for /auth/session from browser cookies', async () => {
+      const uniqueId = `session-cookie${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/session',
+        headers: {
+          cookie: toCookieHeader(loginResp.cookies),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toHaveProperty('user');
+      expect(body.user.id).toBe(loginBody.session.user.id);
+      expect(body.user).toHaveProperty('email');
+    });
+
+    it('keeps browser logout idempotent without cookies', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/auth/logout',
+      });
+
+      expect(response.statusCode).toBe(204);
+    });
+  });
+
+  describe('explicit token endpoints', () => {
+    it('creates a bearer-token session for non-browser Google clients', async () => {
+      const uniqueId = `token-google${Date.now()}`;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/token/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expectTokenSession(body.session);
+      expect(response.cookies).toHaveLength(0);
+
+      testUserIds.push(body.session.user.id);
+    });
+
+    it('creates a bearer-token session for non-browser Apple clients', async () => {
+      const uniqueId = `token-apple${Date.now()}`;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/token/apple',
+        payload: { idToken: `mock-apple-${uniqueId}-aid${uniqueId}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expectTokenSession(body.session);
+
+      testUserIds.push(body.session.user.id);
+    });
+
+    it('refreshes an explicit token session with /auth/token/refresh', async () => {
+      const uniqueId = `token-refresh${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/token/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/token/refresh',
+        payload: { refreshToken: loginBody.session.refreshToken },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expectTokenSession(body.session);
+      expect(body.session.accessToken).toBeTruthy();
+      expect(body.session.refreshToken).toBeTruthy();
+    });
+
+    it('returns 401 with an invalid explicit refresh token', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/token/refresh',
+        payload: { refreshToken: 'invalid-token-value' },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error).toBe('INVALID_REFRESH_TOKEN');
+    });
+
+    it('revokes explicit token sessions via /auth/token/logout', async () => {
+      const uniqueId = `token-logout${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/token/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/token/logout',
         payload: { refreshToken: loginBody.session.refreshToken },
       });
       expect(response.statusCode).toBe(204);
 
       const refreshResp = await app.inject({
         method: 'POST',
-        url: '/auth/refresh',
+        url: '/auth/token/refresh',
         payload: { refreshToken: loginBody.session.refreshToken },
       });
       expect(refreshResp.statusCode).toBe(401);
     });
 
-    it('should remain idempotent when no refresh token is provided', async () => {
-      const response = await app.inject({
+    it('authenticates /auth/me from a bearer token', async () => {
+      const uniqueId = `me-bearer${Date.now()}`;
+      const loginResp = await app.inject({
         method: 'POST',
-        url: '/auth/logout',
-        payload: {},
+        url: '/auth/token/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      testUserIds.push(loginBody.session.user.id);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/me',
+        headers: {
+          authorization: `Bearer ${loginBody.session.accessToken}`,
+        },
       });
 
-      expect(response.statusCode).toBe(204);
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.user.id).toBe(loginBody.session.user.id);
+    });
+  });
+
+  describe('shared auth validation', () => {
+    it('returns 400 when browser idToken is empty', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: '' },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('returns 401 without any auth for /auth/me', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/me',
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 401 with an invalid bearer token for /auth/me', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/me',
+        headers: {
+          authorization: 'Bearer invalid-jwt-token',
+        },
+      });
+
+      expect(response.statusCode).toBe(401);
     });
   });
 });

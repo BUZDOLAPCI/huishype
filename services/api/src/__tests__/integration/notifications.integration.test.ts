@@ -20,7 +20,7 @@ describe('Notification routes', () => {
     const uniqueId = `notiftest${Date.now()}`;
     const loginResp = await app.inject({
       method: 'POST',
-      url: '/auth/google',
+      url: '/auth/token/google',
       payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
     });
     const loginBody = JSON.parse(loginResp.body);
@@ -32,7 +32,7 @@ describe('Notification routes', () => {
     const actorUniqueId = `notifactor${Date.now()}`;
     const actorResp = await app.inject({
       method: 'POST',
-      url: '/auth/google',
+      url: '/auth/token/google',
       payload: { idToken: `mock-google-${actorUniqueId}-gid${actorUniqueId}` },
     });
     const actorBody = JSON.parse(actorResp.body);

@@ -96,7 +96,7 @@ export const commentHandlers = [
    * POST /properties/:id/comments - Create a comment
    */
   http.post('/properties/:propertyId/comments', async ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
 
     if (!authUser) {
       return HttpResponse.json(
@@ -191,7 +191,7 @@ export const commentHandlers = [
    * POST /comments/:id/like - Like a comment
    */
   http.post('/comments/:commentId/like', ({ params, request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -225,7 +225,7 @@ export const commentHandlers = [
    * DELETE /comments/:id/like - Unlike a comment
    */
   http.delete('/comments/:commentId/like', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

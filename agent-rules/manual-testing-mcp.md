@@ -1,31 +1,29 @@
 # Agentic Manual Testing Bridge (MCP)
 
-This project uses MCP servers to add exploratory/manual-like verification on top of scripted tests.
+This project uses MCP servers to add exploratory verification on top of the
+scripted web test suite.
 
-## Configured MCP servers
+## Configured MCP Servers
 
 Defined in `.mcp.json`:
 
 - `playwright-manual`
   - `@playwright/mcp`
   - Chrome + vision/devtools caps
-  - For interactive web exploration, UI checks, screenshot-based validation
+  - For interactive web exploration, UI checks, and screenshot-based
+    validation
 
-- `android-manual`
-  - `mcp-android-emulator`
-  - Uses `ADB_PATH=/home/caslan/Android/sdk/platform-tools/adb`
-  - For emulator-driven interactive checks (tap/swipe/text/ui tree/screenshots)
+## How To Use
 
-## How to use in sprints
-
-1. Claude worker completes implementation + normal test suite.
-2. Run MCP exploratory pass:
-   - web flow walkthroughs via `playwright-manual`
-   - native flow walkthroughs via `android-manual`
-3. If MCP exploratory checks find issues, open corrective sub-task and rerun verification.
-4. Task is done only when scripted tests + MCP exploratory checks pass.
+1. Complete the implementation and normal scripted tests.
+2. Run an MCP exploratory pass on the browser client.
+3. Inspect screenshots and logs if the pass finds issues.
+4. Open corrective work if the manual pass exposes regressions.
 
 ## Notes
 
-- Keep Maestro/Playwright scripted suites as deterministic regression backbone.
-- Use MCP layer for realistic interaction checks and polish validation.
+- Keep Playwright scripted suites as the deterministic regression backbone.
+- Use MCP only for realistic interaction checks and polish validation on the
+  web surface.
+- Any future native exploratory workflow belongs in the native handoff docs,
+  not in this active policy file.

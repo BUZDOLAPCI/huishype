@@ -61,8 +61,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Login with Google
-         * @description Validate Google ID token, create or find user, return JWT tokens
+         * Login with Google for the browser session flow
+         * @description Validates a Google ID token, establishes an HTTP-only browser session, and returns the authenticated user.
          */
         post: {
             parameters: {
@@ -96,9 +96,104 @@ export interface paths {
                                     karmaRank: string;
                                     createdAt: string;
                                 };
+                                expiresAt: string;
+                            };
+                            isNewUser: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/token/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login with Google for explicit token clients
+         * @description Validates a Google ID token and returns bearer tokens for non-browser clients.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        idToken: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                };
+                                expiresAt: string;
                                 accessToken: string;
                                 refreshToken: string;
-                                expiresAt: string;
                             };
                             isNewUser: boolean;
                         };
@@ -146,8 +241,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Login with Apple
-         * @description Validate Apple ID token, create or find user, return JWT tokens
+         * Login with Apple for the browser session flow
+         * @description Validates an Apple ID token, establishes an HTTP-only browser session, and returns the authenticated user.
          */
         post: {
             parameters: {
@@ -181,9 +276,104 @@ export interface paths {
                                     karmaRank: string;
                                     createdAt: string;
                                 };
+                                expiresAt: string;
+                            };
+                            isNewUser: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/token/apple": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login with Apple for explicit token clients
+         * @description Validates an Apple ID token and returns bearer tokens for non-browser clients.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        idToken: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                };
+                                expiresAt: string;
                                 accessToken: string;
                                 refreshToken: string;
-                                expiresAt: string;
                             };
                             isNewUser: boolean;
                         };
@@ -231,8 +421,84 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh access token
-         * @description Exchange a refresh token for a new access token
+         * Refresh the browser session from the refresh cookie
+         * @description Rotates the browser session cookies using the refresh-token cookie and returns the refreshed session envelope.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                };
+                                expiresAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/token/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh a token session explicitly
+         * @description Rotates the supplied refresh token and returns a new access/refresh token pair for non-browser clients.
          */
         post: {
             parameters: {
@@ -256,8 +522,20 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            accessToken: string;
-                            expiresAt: string;
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                };
+                                expiresAt: string;
+                                accessToken: string;
+                                refreshToken: string;
+                            };
                         };
                     };
                 };
@@ -291,8 +569,57 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout
-         * @description Invalidate refresh token (client should also clear tokens)
+         * Logout the browser session
+         * @description Revokes the refresh-token cookie when present and clears both browser session cookies.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/token/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout an explicit token session
+         * @description Revokes the supplied refresh token for non-browser token clients.
          */
         post: {
             parameters: {
@@ -324,7 +651,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/me": {
+    "/auth/session": {
         parameters: {
             query?: never;
             header?: never;
@@ -332,8 +659,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get current user profile
-         * @description Returns the profile of the currently authenticated user
+         * Get the current browser or token session state
+         * @description Returns the active user when a browser cookie session or bearer token is present, otherwise returns user=null without raising an auth error.
          */
         get: {
             parameters: {
@@ -356,10 +683,60 @@ export interface paths {
                                 username: string;
                                 displayName: string;
                                 profilePhotoUrl: string | null;
-                                email: string;
                                 karma: number;
                                 karmaRank: string;
                                 createdAt: string;
+                                email: string;
+                            } | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current authenticated user
+         * @description Returns the active user for the browser cookie session or an explicit bearer token.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            user: {
+                                id: string;
+                                username: string;
+                                displayName: string;
+                                profilePhotoUrl: string | null;
+                                karma: number;
+                                karmaRank: string;
+                                createdAt: string;
+                                email: string;
                             };
                         };
                     };
@@ -1405,6 +1782,7 @@ export interface paths {
                                     karma: number;
                                 };
                                 likeCount: number;
+                                isLiked: boolean;
                                 replies: {
                                     /** Format: uuid */
                                     id: string;
@@ -1427,6 +1805,7 @@ export interface paths {
                                         karma: number;
                                     };
                                     likeCount: number;
+                                    isLiked: boolean;
                                 }[];
                             }[];
                             meta: {
@@ -1508,6 +1887,7 @@ export interface paths {
                                 karma: number;
                             };
                             likeCount: number;
+                            isLiked: boolean;
                             message: string;
                         };
                     };
@@ -3861,7 +4241,7 @@ export interface paths {
         put?: never;
         /**
          * Request email magic link
-         * @description Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token in the response.
+         * @description Generates a magic link token for the given email. In development the token is also returned in the response.
          */
         post: {
             parameters: {
@@ -3933,8 +4313,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Verify email magic link
-         * @description Validates the token, creates or finds the user, returns a session.
+         * Verify email magic link for the browser session flow
+         * @description Validates the token, establishes the browser cookie session, and returns the authenticated user.
          */
         post: {
             parameters: {
@@ -3968,9 +4348,104 @@ export interface paths {
                                     karmaRank: string;
                                     createdAt: string;
                                 };
+                                expiresAt: string;
+                            };
+                            isNewUser: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/token/email/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify email magic link for explicit token clients
+         * @description Validates the token and returns bearer tokens for non-browser clients.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    username: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                };
+                                expiresAt: string;
                                 accessToken: string;
                                 refreshToken: string;
-                                expiresAt: string;
                             };
                             isNewUser: boolean;
                         };

@@ -14,7 +14,7 @@ export const userHandlers = [
    * GET /users/me - Get current user
    */
   http.get('/users/me', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -28,7 +28,7 @@ export const userHandlers = [
    * PUT /users/me/profile - Update current user profile
    */
   http.put('/users/me/profile', async ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
@@ -65,7 +65,7 @@ export const userHandlers = [
    * GET /users/me/guesses - Get current user's guess history
    */
   http.get('/users/me/guesses', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

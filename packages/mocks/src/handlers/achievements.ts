@@ -107,7 +107,7 @@ export const achievementHandlers = [
    * GET /achievements — list all achievements with user unlock state
    */
   http.get('/achievements', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const authUser = getMockAuthUser(request.headers.get('Authorization'), request.headers.get('Cookie'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },

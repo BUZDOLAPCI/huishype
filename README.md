@@ -1,10 +1,16 @@
 # HuisHype
 
-Social real estate platform. Browse properties on a map, guess prices, and discuss with the community.
+Social real estate platform. The active product surface is web-first, and the
+browser client is the primary place where product behavior is defined during
+this migration. Future native notes live only in:
+
+- [apps/android/README.md](apps/android/README.md)
+- [apps/ios/README.md](apps/ios/README.md)
 
 ## Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - pnpm (`npm install -g pnpm`)
 - Docker
@@ -12,112 +18,74 @@ Social real estate platform. Browse properties on a map, guess prices, and discu
 ### Setup
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Start database (Postgres + Redis)
 docker compose up -d
-
-# Start the background worker explicitly if you need ingest, maintenance
-# refreshes, or any queue-backed processing locally
-# docker compose --profile worker up -d worker
-
-# Set up the database (migrate schema + seed properties and listings)
-pnpm --filter @huishype/api db:migrate
-pnpm --filter @huishype/api db:seed
-pnpm --filter @huishype/api db:seed-listings
-
-# Or do a full reset (drop DB, migrate, seed everything):
-# pnpm --filter @huishype/api db:reset
-
-# Start the API server (runs on port 3100)
 pnpm --filter @huishype/api dev
-
-# In another terminal, start the app web dev server on port 8081
-pnpm --filter @huishype/app web
+pnpm -C apps/web dev
 ```
 
-Open [http://localhost:8081](http://localhost:8081) for web.
+Open `http://localhost:8081` for the browser client.
 
-### Web Workflow
+## Web Workflow
 
-Run the app's Expo web server directly from the app package:
+The browser client lives in `apps/web`. Use the browser dev server, web E2E,
+and root verification commands to validate changes.
 
 ```bash
-pnpm -C apps/app web
+pnpm -C apps/web dev
+pnpm test:e2e:web
+pnpm test:e2e:flows
+pnpm test:e2e:visual
 ```
-
-This serves the web app through Expo/Metro on port `8081`.
-
-### Native Workflow
-
-Native runs through the generated Android/iOS projects plus a few required local override points. `apps/app/app.json` is the Expo config source of truth; `apps/app/android/` and `apps/app/ios/` are generated, gitignored output.
-
-If the native folders are missing, stale, or you changed Expo config/plugin wiring, regenerate them and then re-apply the documented override points from `apps/app/README.md`:
-
-```bash
-pnpm -C apps/app exec expo prebuild --clean
-pnpm -C apps/app android
-pnpm -C apps/app ios
-```
-
-`apps/app/README.md` is the canonical workflow doc for native regeneration, local MapLibre AAR wiring, iOS URL-scheme wiring, and gitignored credential placement.
-
-> **Note:** The API runs on port **3100** (non-default) and the Expo web dev server on port **8081**. See `services/api/.env.example` for configuration.
 
 ## Project Structure
 
 ```text
-apps/app/           # Expo React Native app (iOS/Android/Web)
-services/api/       # Fastify API server
-services/worker/    # Background worker runtime for BullMQ ingest and maintenance jobs
-packages/shared/    # Shared TypeScript types
-packages/api-client/ # Generated API client
-packages/mocks/     # MSW mock handlers
+apps/web/            # browser client
+services/api/        # Fastify API server
+services/worker/     # background worker runtime
+packages/shared/     # shared TypeScript types and utilities
+packages/api-client/ # generated API client
+packages/mocks/      # MSW mock handlers
 ```
 
 ## Commands
 
-Unit-test runners are mixed by workspace: `apps/app` and `services/api` use Jest, `services/worker` uses `node --test`, and `packages/shared`, `packages/api-client`, and `packages/mocks` use Vitest.
+Unit-test runners are mixed by workspace: `services/api` uses Jest,
+`services/worker` uses `node --test`, and `packages/shared`, `packages/api-client`,
+and `packages/mocks` use Vitest.
 
 | Command | Description |
 |---------|-------------|
 | `pnpm dev` | Run workspace `dev` scripts via Turborepo |
 | `pnpm build` | Build all packages |
-| `pnpm test` | Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration |
-| `pnpm test:all` | Broader superset: `pnpm test` plus Playwright flows, Playwright visual, and mobile E2E |
-| `pnpm test:unit` | Run unit tests for app, API, worker, shared, api-client, and mocks |
+| `pnpm test` | Canonical merge gate: lint + typecheck + unit + API integration + Playwright integration |
+| `pnpm test:all` | Superset: `pnpm test` plus Playwright flows and visual |
+| `pnpm test:unit` | Run unit tests for API, worker, shared, api-client, and mocks |
 | `pnpm test:integration` | Run API integration tests |
-| `pnpm test:e2e:web` | Run the full root Playwright suite via `scripts/playwright/run-playwright-project.mjs` |
+| `pnpm test:e2e:web` | Run the root Playwright suite |
 | `pnpm test:e2e:integration` | Run the Playwright integration project |
 | `pnpm test:e2e:flows` | Run the Playwright flows project |
 | `pnpm test:e2e:visual` | Run the Playwright visual project |
-| `pnpm test:e2e:mobile` | Run the mobile wrapper at `scripts/visual-overhaul/run-mobile-e2e.mjs` |
-| `pnpm typecheck` | TypeScript type checking |
-| `pnpm -C apps/app web` | Start the Expo web dev server |
-| `pnpm -C apps/app android` | Build and run the native Android app |
-| `pnpm -C apps/app ios` | Build and run the native iOS app |
-| `pnpm --filter @huishype/worker dev` | Run the worker directly in watch mode from the monorepo root |
+| `pnpm -C apps/web dev` | Start the browser client dev server |
+| `pnpm --filter @huishype/worker dev` | Run the worker directly in watch mode |
 | `docker compose up -d` | Start Postgres + Redis |
 | `docker compose --profile worker up -d worker` | Start the optional local worker container |
 | `docker compose down` | Stop containers |
 
-## Native Source Of Truth
+## Web-First Source Of Truth
 
-Keep Expo config in `apps/app/app.json`. Treat `apps/app/android/` and `apps/app/ios/` as regenerated output, not as the canonical configuration source.
+The active browser workflow is web-first. Native build/regeneration guidance is
+kept out of the active docs surface and isolated to the native handoff readmes.
 
-The generated native folders still contain required override points today:
-
-- `apps/app/android/build.gradle` adds `mavenLocal()` and pins the local MapLibre native AAR version.
-- `apps/app/ios/HuisHype/Info.plist` carries the URL-scheme entries used by the app, Expo dev client, and Google OAuth callback.
-- `apps/app/ios/HuisHype/GoogleService-Info.plist` is a gitignored local credential file that must be present in the generated iOS target directory.
-
-When native config changes, regenerate first and then re-apply or verify those override points using `apps/app/README.md`.
+The browser client, shared packages, and backend services are the active
+development surface. Do not use archived legacy workflow notes as current
+instructions.
 
 ## Tech Stack
 
-- **App**: React Native + Expo + NativeWind + TanStack Query
-- **Maps**: MapLibre GL via @maplibre/maplibre-react-native
+- **Browser app**: React + TypeScript + TanStack Query
+- **Maps**: MapLibre GL JS fork
 - **API**: Fastify + Drizzle ORM + OpenAPI
 - **Database**: PostgreSQL + PostGIS
 - **Cache**: Redis
@@ -126,7 +94,7 @@ When native config changes, regenerate first and then re-apply or verify those o
 
 Copy `.env.example` to `.env` in `services/api/`:
 
-```
+```env
 DATABASE_URL=postgresql://huishype:huishype_dev@localhost:5440/huishype
 PORT=3100
 ```

@@ -7,7 +7,7 @@
 #   3. Rebuilds shaders and dist: npm run generate-shaders && npm run build-dist
 #   4. Commits the updated dist/
 #   5. Pushes to origin
-#   6. Updates the commit hash in apps/app/package.json
+#   6. Updates the commit hash in apps/web/package.json
 #   7. Runs pnpm install to update the lockfile
 #
 # Usage:
@@ -97,9 +97,9 @@ fi
 NEW_SHA=$(git rev-parse HEAD)
 cd "$REPO_ROOT"
 
-log "Updating apps/app/package.json to commit ${BOLD}${NEW_SHA:0:7}${NC}..."
+log "Updating apps/web/package.json to commit ${BOLD}${NEW_SHA:0:7}${NC}..."
 # Use sed for the in-place replacement of the commit hash
-sed -i "s|github:BUZDOLAPCI/maplibre-gl-js#[a-f0-9]*|github:BUZDOLAPCI/maplibre-gl-js#$NEW_SHA|" apps/app/package.json
+sed -i "s|github:BUZDOLAPCI/maplibre-gl-js#[a-f0-9]*|github:BUZDOLAPCI/maplibre-gl-js#$NEW_SHA|" apps/web/package.json
 
 log "Running pnpm install..."
 pnpm install
@@ -107,7 +107,7 @@ pnpm install
 log "Done! MapLibre GL JS fork synced to $UPSTREAM_DESC ($NEW_SHA)"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Run: pnpm -C apps/app typecheck"
-echo "  2. Run: pnpm -C apps/app test"
+echo "  1. Run: pnpm -C apps/web typecheck"
+echo "  2. Run: pnpm -C apps/web test"
 echo "  3. Test on web: open browser, hard-refresh (Ctrl+Shift+R)"
 echo "  4. Commit the package.json + pnpm-lock.yaml changes"

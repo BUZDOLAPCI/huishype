@@ -505,7 +505,7 @@ describe('Property routes', () => {
       const uniqueId = `propthumb${Date.now()}`;
       const authResp = await app.inject({
         method: 'POST',
-        url: '/auth/google',
+        url: '/auth/token/google',
         payload: {
           idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
         },
@@ -605,7 +605,7 @@ describe('Property routes', () => {
       const uniqueId = `enrichtest${Date.now()}`;
       const loginResp = await app.inject({
         method: 'POST',
-        url: '/auth/google',
+        url: '/auth/token/google',
         payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
       });
       const loginBody = JSON.parse(loginResp.body);
@@ -617,7 +617,7 @@ describe('Property routes', () => {
         const uid = `enrichextra${Date.now()}${i}`;
         const resp = await app.inject({
           method: 'POST',
-          url: '/auth/google',
+          url: '/auth/token/google',
           payload: { idToken: `mock-google-${uid}-gid${uid}` },
         });
         const body = JSON.parse(resp.body);
