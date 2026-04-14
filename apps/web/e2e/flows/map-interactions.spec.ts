@@ -151,7 +151,7 @@ async function waitForPointFeatures(page: import('@playwright/test').Page, timeo
 }
 
 test.describe('Map Interactions', () => {
-  // Map tests need extra time: Metro bundle compile + MapLibre tile loading
+  // Map tests need extra time: web bundle warmup + MapLibre tile loading
   test.setTimeout(120000);
 
   let consoleErrors: string[] = [];

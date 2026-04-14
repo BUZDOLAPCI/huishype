@@ -21,7 +21,7 @@ export const VISUAL_SCREENSHOT_DIR = 'test-results/visual';
 export const KNOWN_ACCEPTABLE_ERRORS = [
   // Browser quirk - not a real error
   'ResizeObserver loop',
-  // Dev server artifacts (Metro bundler)
+  // Dev server artifacts
   'sourceMappingURL',
   'Failed to parse source map',
   'Fast Refresh',

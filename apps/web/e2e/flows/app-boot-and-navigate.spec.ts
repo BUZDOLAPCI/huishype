@@ -142,8 +142,7 @@ test.describe('App Boot & Navigation', () => {
     // Wait for initial map render
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
 
-    // Find and click Feed tab - Expo Router renders tabs with title text
-    // Tab layout uses title: 'Feed' so look for that text in tab bar
+    // Find and click the Feed tab via its visible label or href.
     const feedTab = page.getByRole('tab', { name: /feed/i }).or(
       page.locator('a[href*="feed"]')
     ).or(

@@ -8,10 +8,9 @@ active app workflow.
 - Target runtime: Swift-native iOS app
 - Bundle ID: `nl.huishype.app`
 - Google OAuth client ID: `91432986388-20pkftruoukoepl6mhsgr5egeeraivh9.apps.googleusercontent.com`
-- URL schemes that must be preserved:
+- Native URL schemes that must be preserved:
   - `huishype`
   - `nl.huishype.app`
-  - `exp+huishype`
   - `com.googleusercontent.apps.91432986388-20pkftruoukoepl6mhsgr5egeeraivh9`
 
 ## Credential Contract
@@ -19,7 +18,8 @@ active app workflow.
 - `ios/HuisHype/GoogleService-Info.plist` is the gitignored local credential
   file for the iOS target.
 - The future iOS app must preserve the current Google callback contract and
-  the shared auth/session model used by the web product.
+  the shared auth/session model used by the web product. Do not carry over any
+  Expo callback scheme.
 
 ## Current Handoff Notes
 
