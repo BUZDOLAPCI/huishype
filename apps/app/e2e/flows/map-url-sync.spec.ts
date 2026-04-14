@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
-import { buildCanonicalMapPreviewPath } from '@huishype/shared';
+import {
+  buildCanonicalMapPreviewPath,
+  serializeCanonicalCameraPath,
+} from '@huishype/shared';
 
 import { waitForMapReady } from '../integration/helpers';
 
@@ -87,6 +90,12 @@ test.describe('Map URL sync', () => {
 
   test.afterEach(async () => {
     expect(consoleErrors).toHaveLength(0);
+  });
+
+  test('redirects /map to /', async ({ page }) => {
+    await page.goto('/map', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(/\/$/, { timeout: 15000 });
+    expect(new URL(page.url()).pathname).toBe('/');
   });
 
   async function resetHistoryOps(page: Page) {
@@ -194,6 +203,11 @@ test.describe('Map URL sync', () => {
     await waitForMapReady(page);
     const initialIdentity = await tagCurrentMapInstance(page);
     const baselineHistoryLength = await resetHistoryOps(page);
+    const expectedCameraPath = serializeCanonicalCameraPath({
+      lat: 51.4516,
+      lng: 5.4897,
+      zoom: 15.25,
+    });
 
     await page.evaluate(() => {
       const map = (window as unknown as {
@@ -209,7 +223,7 @@ test.describe('Map URL sync', () => {
       });
     });
 
-    await waitForPassivePathname(page, /\/@51\.4516\d*,5\.4897\d*,15\.25z$/);
+    await waitForPassivePathname(page, new RegExp(`${expectedCameraPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
     await page.waitForTimeout(500);
 
     const finalIdentity = await tagCurrentMapInstance(page);
@@ -218,6 +232,7 @@ test.describe('Map URL sync', () => {
     expect(historyOps.replaceCount).toBeGreaterThan(0);
     expect(historyOps.pushCount).toBe(0);
     expect(historyOps.historyLength).toBe(baselineHistoryLength);
+    expect(new URL(page.url()).pathname).toBe(expectedCameraPath);
     expect(finalIdentity).toEqual(initialIdentity);
   });
 
@@ -242,7 +257,12 @@ test.describe('Map URL sync', () => {
       });
     });
 
-    await page.waitForURL(/\/@51\.4466\d*,5\.4797\d*,14\.5z$/, { timeout: 15000 });
+    const expectedCameraPath = serializeCanonicalCameraPath({
+      lat: 51.4466,
+      lng: 5.4797,
+      zoom: 14.5,
+    });
+    await page.waitForURL(new RegExp(`${expectedCameraPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), { timeout: 15000 });
     const baselineHistoryLength = await resetHistoryOps(page);
     const baselineNavigationEntryCount = await readNavigationEntryCount(page);
 
@@ -262,6 +282,29 @@ test.describe('Map URL sync', () => {
     const previewIdentity = await tagCurrentMapInstance(page);
     expect(previewIdentity).toEqual(initialIdentity);
 
+    const updatedCameraPath = serializeCanonicalCameraPath({
+      lat: 51.4521,
+      lng: 5.4812,
+      zoom: 15.1,
+    });
+
+    await page.evaluate(() => {
+      const map = (window as unknown as {
+        __mapInstance?: { jumpTo(opts: { center: [number, number]; zoom: number }): void };
+      }).__mapInstance;
+      if (!map) {
+        throw new Error('Map instance not ready');
+      }
+
+      map.jumpTo({
+        center: [5.4812, 51.4521],
+        zoom: 15.1,
+      });
+    });
+
+    await page.waitForTimeout(500);
+    expect(new URL(page.url()).pathname).toBe(FIXTURE.previewPath);
+
     await closePreviewCard(page);
 
     await expect(page.getByTestId('group-preview-card')).toHaveCount(0);
@@ -275,6 +318,7 @@ test.describe('Map URL sync', () => {
     expect(historyOps.pushCount).toBe(0);
     expect(historyOps.historyLength).toBe(baselineHistoryLength);
     expect(finalNavigationEntryCount).toBe(baselineNavigationEntryCount);
+    expect(new URL(page.url()).pathname).toBe(updatedCameraPath);
     expect(finalIdentity).toEqual(initialIdentity);
   });
 });

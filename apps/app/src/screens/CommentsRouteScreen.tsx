@@ -19,7 +19,7 @@ import {
   KeyboardAvoidingView,
   StyleSheet,
 } from 'react-native';
-import { Redirect, Stack, router, type Href } from 'expo-router';
+import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
@@ -37,11 +37,12 @@ import {
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import {
-  buildPropertyMapRoute,
   buildPropertyRoute,
   normalizePropertyReturnTarget,
   toInternalAppHref,
@@ -50,7 +51,7 @@ import {
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 /** Map API Comment to CommentCell's CommentData shape */
-function toCommentCellData(comment: Comment): CommentCellData {
+function toCommentCellData(comment: Comment, hydratedNow: number | null): CommentCellData {
   return {
     id: comment.id,
     author: comment.user.username,
@@ -58,9 +59,9 @@ function toCommentCellData(comment: Comment): CommentCellData {
     authorKarma: comment.user.karma,
     content: comment.content,
     likeCount: comment.likeCount,
-    createdAt: formatRelativeTime(comment.createdAt),
+    createdAt: hydratedNow === null ? '\u00A0' : formatRelativeTime(comment.createdAt, hydratedNow),
     replyCount: comment.replies?.length ?? 0,
-    replies: comment.replies?.map(toCommentCellData),
+    replies: comment.replies?.map((reply) => toCommentCellData(reply, hydratedNow)),
   };
 }
 
@@ -110,6 +111,7 @@ export function CommentsRouteScreen({
 }: CommentsRouteScreenProps) {
   const insets = useSafeAreaInsets();
   const { isAuthenticated, user } = useAuthContext();
+  const hydratedNow = useHydratedNow();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastCloseAtRef = useRef(0);
 
@@ -141,8 +143,8 @@ export function CommentsRouteScreen({
 
   // Convert to CommentCell format
   const cellComments: CommentCellData[] = useMemo(
-    () => allComments.map(toCommentCellData),
-    [allComments]
+    () => allComments.map((comment) => toCommentCellData(comment, hydratedNow)),
+    [allComments, hydratedNow]
   );
 
   // Handlers
@@ -244,7 +246,7 @@ export function CommentsRouteScreen({
     }
 
     if (property) {
-      const propertyRoute = buildPropertyRoute(property, buildPropertyMapRoute(property));
+      const propertyRoute = buildPropertyRoute(property);
       navigateToTarget(propertyRoute);
       return;
     }
@@ -328,9 +330,10 @@ export function CommentsRouteScreen({
 
         {/* Comment list */}
         {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#F5A623" />
-          </View>
+          <RouteLoadingShell
+            title="Loading comments"
+            subtitle="Fetching the latest conversation..."
+          />
         ) : (
           <FlatList
             data={cellComments}
@@ -392,9 +395,7 @@ export function CommentsRouteScreen({
   );
 }
 
-export default function CommentsPage() {
-  return <Redirect href="/" />;
-}
+export default CommentsRouteScreen;
 
 // ─── Styles ──────────────────────────────────────────────────────────────
 

@@ -75,6 +75,16 @@ export type ResolvedMapRoute =
     }
   | { kind: 'invalid'; canonicalPath: '/'; reason: string };
 
+type LocalPreviewResolvedMapRoute = {
+  kind: 'preview';
+  canonicalPath: string;
+  property: PropertyResolveResult;
+  resolvedAddress: ResolvedAddress;
+  routeInput: CanonicalPropertyRouteInput;
+};
+
+const localPreviewRouteCache = new Map<string, LocalPreviewResolvedMapRoute>();
+
 export interface RoutePropertyLike {
   address?: string | null;
   city?: string | null;
@@ -280,6 +290,25 @@ function buildSyntheticResolvedAddress(
   };
 }
 
+export function registerLocalPreviewRoute(
+  pathname: string,
+  property: PropertyResolveResult,
+  routeInput: CanonicalPropertyRouteInput,
+): void {
+  const canonicalPath = normalizePathname(pathname);
+  localPreviewRouteCache.set(canonicalPath, {
+    kind: 'preview',
+    canonicalPath,
+    property,
+    resolvedAddress: buildSyntheticResolvedAddress(property, routeInput),
+    routeInput,
+  });
+}
+
+export function clearLocalPreviewRouteCache(): void {
+  localPreviewRouteCache.clear();
+}
+
 export function parseMapRoutePath(pathname: string): ParsedMapRoute {
   const normalizedPath = normalizePathname(pathname);
   if (normalizedPath === '/') {
@@ -451,6 +480,13 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
   const parsedHouse = parseHouseSegment(parsed.houseSegment);
   if (!parsedHouse) {
     return { kind: 'invalid', canonicalPath: '/', reason: 'invalid-house-segment' };
+  }
+
+  if (parsed.kind === 'preview') {
+    const cachedPreviewRoute = localPreviewRouteCache.get(normalizePathname(pathname));
+    if (cachedPreviewRoute) {
+      return cachedPreviewRoute;
+    }
   }
 
   const routeInput = buildCanonicalInputFromLeafRoute(parsed, parsedHouse);

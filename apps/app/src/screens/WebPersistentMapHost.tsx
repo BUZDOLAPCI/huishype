@@ -1,10 +1,16 @@
+import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { usePathname } from 'expo-router';
 
 import PersistentWebMapScreen from '@/src/screens/PersistentWebMapScreen';
 import { parseMapRoutePath } from '@/src/lib/mapRoute';
+import { isStaticAppRoutePath } from '@/src/utils/property-route';
 
 function isPersistentMapRoute(pathname: string): boolean {
+  if (isStaticAppRoutePath(pathname)) {
+    return false;
+  }
+
   const route = parseMapRoutePath(pathname);
 
   return (
@@ -18,8 +24,13 @@ function isPersistentMapRoute(pathname: string): boolean {
 
 export function WebPersistentMapHost() {
   const pathname = usePathname();
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  if (Platform.OS !== 'web') {
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  if (Platform.OS !== 'web' || !isHydrated) {
     return null;
   }
 
@@ -35,5 +46,6 @@ export function WebPersistentMapHost() {
 const styles = StyleSheet.create({
   host: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
   },
 });

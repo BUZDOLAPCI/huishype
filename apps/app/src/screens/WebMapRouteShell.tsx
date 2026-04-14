@@ -1,4 +1,4 @@
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 
 export function WebMapRouteShell() {
@@ -6,7 +6,7 @@ export function WebMapRouteShell() {
     return null;
   }
 
-  return <View pointerEvents="none" style={styles.routeLayer} testID="web-map-route-shell" />;
+  return null;
 }
 
 export function WebMapStackRouteShell() {
@@ -26,10 +26,3 @@ export function WebMapStackRouteShell() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  routeLayer: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-});

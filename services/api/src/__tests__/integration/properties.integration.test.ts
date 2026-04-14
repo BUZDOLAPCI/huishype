@@ -138,7 +138,7 @@ describe('Property routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: `/properties?city=${encodeURIComponent(uniqueCity)}&postalCode=sw1a%201aa&limit=20`,
+          url: `/properties?city=${encodeURIComponent(uniqueCity)}&postalCode=sw1a%201aa&countryCode=GB&limit=20`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -148,6 +148,62 @@ describe('Property routes', () => {
         expect(body.data[0].id).toBe(propertyId);
         expect(body.data[0].city).toBe(uniqueCity);
         expect(body.data[0].postalCode).toBe('SW1A1AA');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+
+    it('defaults missing countryCode to the request domain country when available', async () => {
+      const propertyId = crypto.randomUUID();
+      const uniqueCity = `Domain Country City ${Date.now()}`;
+      const uniqueStreet = `Domain Country Street ${Date.now()}`;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status
+        )
+        VALUES (
+          ${propertyId},
+          'GB',
+          ${uniqueStreet},
+          10,
+          ${uniqueCity},
+          'SW1A1AA',
+          'active'
+        )
+      `);
+
+      try {
+        const inferredResponse = await app.inject({
+          method: 'GET',
+          headers: {
+            host: 'huishype.nl',
+          },
+          url: `/properties?city=${encodeURIComponent(uniqueCity)}&postalCode=sw1a%201aa&limit=20`,
+        });
+
+        expect(inferredResponse.statusCode).toBe(200);
+        expect(JSON.parse(inferredResponse.body).data).toHaveLength(0);
+
+        const explicitResponse = await app.inject({
+          method: 'GET',
+          headers: {
+            host: 'huishype.nl',
+          },
+          url: `/properties?city=${encodeURIComponent(uniqueCity)}&postalCode=sw1a%201aa&countryCode=GB&limit=20`,
+        });
+
+        expect(explicitResponse.statusCode).toBe(200);
+        const explicitBody = JSON.parse(explicitResponse.body);
+        expect(explicitBody.data).toHaveLength(1);
+        expect(explicitBody.data[0].id).toBe(propertyId);
+        expect(explicitBody.data[0].postalCode).toBe('SW1A1AA');
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }

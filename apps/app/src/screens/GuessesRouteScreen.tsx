@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useIsLandscape } from '@/src/hooks/useIsLandscape';
-import { Redirect, Stack, router, type Href } from 'expo-router';
+import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
@@ -34,6 +34,7 @@ import {
 } from '@/src/hooks/usePriceGuess';
 import { useAuth } from '@/src/hooks/useAuth';
 import { AuthModal } from '@/src/components';
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
@@ -41,7 +42,6 @@ import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import {
-  buildPropertyMapRoute,
   buildPropertyRoute,
   normalizePropertyReturnTarget,
   toInternalAppHref,
@@ -379,7 +379,7 @@ export function GuessesRouteScreen({
     }
 
     if (property) {
-      const propertyRoute = buildPropertyRoute(property, buildPropertyMapRoute(property));
+      const propertyRoute = buildPropertyRoute(property);
       navigateToTarget(propertyRoute);
       return;
     }
@@ -426,9 +426,10 @@ export function GuessesRouteScreen({
           )}
 
         {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#F5A623" />
-          </View>
+          <RouteLoadingShell
+            title="Loading guesses"
+            subtitle="Gathering the latest crowd estimates..."
+          />
         ) : (
           <ScrollView
             style={styles.scrollView}
@@ -568,9 +569,7 @@ export function GuessesRouteScreen({
   );
 }
 
-export default function GuessesPage() {
-  return <Redirect href="/" />;
-}
+export default GuessesRouteScreen;
 
 // ─── Styles ──────────────────────────────────────────────────────────────
 

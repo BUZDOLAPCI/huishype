@@ -1,12 +1,13 @@
-import { useCallback, useEffect } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { type Href, Stack, router, useLocalSearchParams, usePathname } from 'expo-router';
 
-import { CommentsRouteScreen } from './comments/[propertyId]';
-import { GuessesRouteScreen } from './guesses/[propertyId]';
-import { PropertyDetailRouteScreen } from './property/[id]';
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { MapPreviewRouteShell } from '@/src/screens/MapPreviewRouteShell';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
+import { PropertyDetailRouteScreen } from '@/src/screens/PropertyDetailRouteScreen';
 import {
   buildCanonicalRouteHref,
   buildPropertyMapRoute,
@@ -18,14 +19,15 @@ function RedirectingScreen() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.container} testID="address-route-redirecting">
-        <ActivityIndicator size="large" color="#F5A623" />
-      </View>
+      <RouteLoadingShell
+        title="Loading route"
+        subtitle="Resolving address details..."
+      />
     </>
   );
 }
 
-export default function CanonicalAddressRouteScreen() {
+function CanonicalAddressRouteContent() {
   const { returnTo } = useLocalSearchParams<{
     returnTo?: string | string[];
   }>();
@@ -78,10 +80,7 @@ export default function CanonicalAddressRouteScreen() {
     return (
       <CommentsRouteScreen
         propertyId={resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          resolvedRoute.routeInput,
-          buildPropertyMapRoute(resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(resolvedRoute.routeInput)}
         {...(Platform.OS === 'web' ? { onNavigate: handleNavigate } : {})}
       />
     );
@@ -91,10 +90,7 @@ export default function CanonicalAddressRouteScreen() {
     return (
       <GuessesRouteScreen
         propertyId={resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          resolvedRoute.routeInput,
-          buildPropertyMapRoute(resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(resolvedRoute.routeInput)}
         {...(Platform.OS === 'web' ? { onNavigate: handleNavigate } : {})}
       />
     );
@@ -118,11 +114,18 @@ export default function CanonicalAddressRouteScreen() {
   return <RedirectingScreen />;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFBF5',
-  },
-});
+export default function CanonicalAddressRouteScreen() {
+  const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsHydrated(true);
+    }
+  }, []);
+
+  if (Platform.OS === 'web' && !isHydrated) {
+    return <RedirectingScreen />;
+  }
+
+  return <CanonicalAddressRouteContent />;
+}

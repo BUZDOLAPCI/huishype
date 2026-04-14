@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { CustomTabBar } from '@/src/components/navigation/CustomTabBar';
@@ -10,6 +11,11 @@ export default function TabLayout() {
       screenOptions={{
         // All system headers are disabled — each screen manages its own.
         headerShown: false,
+        ...(Platform.OS === 'web'
+          ? {
+              sceneStyle: { backgroundColor: 'transparent' },
+            }
+          : {}),
       }}
     >
       <Tabs.Screen

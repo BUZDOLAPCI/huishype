@@ -250,4 +250,20 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
     expect(screen.queryByTestId('property-thumbnail-marker')).toBeNull();
   });
+
+  it('prefers listing thumbnails over aerial imagery when both are available', () => {
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+          aerialImageUrl: 'https://example.com/aerial.jpg',
+          countryCode: 'NL',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
+    expect(screen.queryByTestId('property-thumbnail-marker')).toBeNull();
+  });
 });

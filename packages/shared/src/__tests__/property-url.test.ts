@@ -168,6 +168,16 @@ describe('internal returnTo normalization', () => {
         '/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a?returnTo=%2Fsaved',
       ),
     ).toBe('/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a?returnTo=%2Fsaved');
+    expect(
+      normalizeInternalReturnTo(
+        '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
+      ),
+    ).toBe('/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a');
+    expect(
+      normalizeInternalReturnTo(
+        '/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
+      ),
+    ).toBe('/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments');
   });
 
   it('rejects external or ambiguous targets', () => {
@@ -177,6 +187,11 @@ describe('internal returnTo normalization', () => {
     expect(normalizeInternalReturnTo('/feed#modal')).toBeNull();
     expect(normalizeInternalReturnTo('/feed?tab=saved')).toBeNull();
     expect(normalizeInternalReturnTo('/../../feed')).toBeNull();
+    expect(normalizeInternalReturnTo('/map')).toBeNull();
+    expect(normalizeInternalReturnTo('/property/123')).toBeNull();
+    expect(normalizeInternalReturnTo('/comments/123')).toBeNull();
+    expect(normalizeInternalReturnTo('/guesses/123')).toBeNull();
+    expect(normalizeInternalReturnTo('/comments?returnTo=%2Ffeed')).toBeNull();
   });
 
   it('appends a normalized internal returnTo query only when valid', () => {

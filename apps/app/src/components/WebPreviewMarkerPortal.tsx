@@ -83,7 +83,12 @@ export function WebPreviewMarkerPortal({
       'wheel',
       'dblclick',
     ].forEach((eventName) => {
-      container.addEventListener(eventName, (event) => event.stopPropagation());
+      container.addEventListener(eventName, (event) => {
+        event.stopPropagation();
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+      });
     });
 
     const marker = new maplibregl.Marker({

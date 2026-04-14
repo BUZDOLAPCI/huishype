@@ -1,12 +1,8 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
-import GuessesPage, { GuessesRouteScreen } from '../guesses/[propertyId]';
-import {
-  buildPropertyMapRoute,
-  buildPropertyRoute,
-  toInternalAppHref,
-} from '@/src/utils/property-route';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 const mockUseProperty = jest.fn();
 const mockUseFetchPriceGuess = jest.fn();
@@ -168,7 +164,7 @@ jest.mock('@/src/components/Comments/KarmaBadge', () => ({
   },
 }));
 
-describe('GuessesPage', () => {
+describe('GuessesRouteScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSearchParams = { propertyId: 'property-123' };
@@ -226,9 +222,7 @@ describe('GuessesPage', () => {
 
     fireEvent.press(screen.getByTestId('guesses-back-button'));
 
-    expect(mockReplace).toHaveBeenCalledWith(
-      toInternalAppHref(buildPropertyRoute(property, buildPropertyMapRoute(property))),
-    );
+    expect(mockReplace).toHaveBeenCalledWith(toInternalAppHref(buildPropertyRoute(property)));
     expect(mockBack).not.toHaveBeenCalled();
   });
 
@@ -260,10 +254,4 @@ describe('GuessesPage', () => {
     expect(mockDismiss).not.toHaveBeenCalled();
   });
 
-  it('redirects legacy id routes to the map root', () => {
-    render(<GuessesPage />);
-
-    expect(screen.getByText('redirect:/')).toBeTruthy();
-    expect(mockUseProperty).not.toHaveBeenCalled();
-  });
 });

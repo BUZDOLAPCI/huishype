@@ -20,7 +20,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { Platform, useColorScheme } from 'react-native';
+import { Platform, useColorScheme, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
@@ -82,90 +82,102 @@ function RootLayoutNav() {
         <AuthProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <DeepLinkRouteSync />
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="@[camera]"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen
-                name="map/index"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen
-                name="map/[...address]"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen
-                name="map/[city]/[postcode]/[street]/[house]"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen
-                name="map/[country]/[city]/[postcode]/[street]/[house]"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen
-                name="[...address]"
-                options={{
-                  headerShown: false,
-                  ...(Platform.OS === 'web'
-                    ? {
-                        presentation: 'transparentModal',
-                        contentStyle: { backgroundColor: 'transparent' },
-                      }
-                    : {}),
-                }}
-              />
-              <Stack.Screen name="property/[id]" options={{ presentation: 'modal', headerShown: false }} />
-              <Stack.Screen name="comments/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
-              <Stack.Screen name="guesses/[propertyId]" options={{ presentation: Platform.OS === 'web' ? 'transparentModal' : 'card', headerShown: false }} />
-              <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-              <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
-              <Stack.Screen name="notifications" options={{ headerShown: false }} />
-              <Stack.Screen name="showcase/consensus-alignment" options={{ headerShown: false }} />
-              <Stack.Screen name="showcase/fmv-visualization" options={{ headerShown: false }} />
-              <Stack.Screen name="showcase/pdok-aerial-imagery" options={{ headerShown: false }} />
-            </Stack>
+            <View
+              pointerEvents="box-none"
+              style={{ flex: 1, position: 'relative' }}
+            >
+              <Stack>
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="@[camera]"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="map/index"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="map/[...address]"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="map/[city]/[postcode]/[street]/[house]"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="map/[country]/[city]/[postcode]/[street]/[house]"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen
+                  name="[...address]"
+                  options={{
+                    headerShown: false,
+                    ...(Platform.OS === 'web'
+                      ? {
+                          presentation: 'transparentModal',
+                          contentStyle: { backgroundColor: 'transparent' },
+                        }
+                      : {}),
+                  }}
+                />
+                <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+                <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
+                <Stack.Screen name="notifications" options={{ headerShown: false }} />
+                <Stack.Screen name="showcase/consensus-alignment" options={{ headerShown: false }} />
+                <Stack.Screen name="showcase/fmv-visualization" options={{ headerShown: false }} />
+                <Stack.Screen name="showcase/pdok-aerial-imagery" options={{ headerShown: false }} />
+              </Stack>
+            </View>
             <WebPersistentMapHost />
           </ThemeProvider>
         </AuthProvider>

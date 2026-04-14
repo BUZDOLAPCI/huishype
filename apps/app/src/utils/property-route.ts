@@ -20,9 +20,6 @@ const STATIC_ROUTE_PREFIXES = new Set([
   'showcase',
   '_sitemap',
   '+not-found',
-  'property',
-  'comments',
-  'guesses',
 ]);
 
 export function isStaticAppRoutePath(pathname: string): boolean {

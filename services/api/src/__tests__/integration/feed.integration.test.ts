@@ -61,8 +61,12 @@ describe('Feed routes', () => {
         expect(item).toHaveProperty('id');
         expect(item).toHaveProperty('address');
         expect(item).toHaveProperty('city');
+        expect(item).toHaveProperty('postalCode');
         expect(item).toHaveProperty('zipCode');
         expect(item).toHaveProperty('countryCode');
+        expect(item).toHaveProperty('streetName');
+        expect(item).toHaveProperty('houseNumber');
+        expect(item).toHaveProperty('houseNumberAddition');
         expect(item).toHaveProperty('geometry');
         expect(item).toHaveProperty('askingPrice');
         expect(item).toHaveProperty('fmv');
@@ -80,8 +84,12 @@ describe('Feed routes', () => {
         expect(typeof item.id).toBe('string');
         expect(typeof item.address).toBe('string');
         expect(typeof item.city).toBe('string');
+        expect(typeof item.postalCode).toBe('string');
         expect(typeof item.zipCode).toBe('string');
         expect(typeof item.countryCode).toBe('string');
+        expect(typeof item.streetName).toBe('string');
+        expect(typeof item.houseNumber).toBe('number');
+        expect(item.houseNumberAddition === null || typeof item.houseNumberAddition === 'string').toBe(true);
         expect(typeof item.likeCount).toBe('number');
         expect(typeof item.commentCount).toBe('number');
         expect(typeof item.guessCount).toBe('number');

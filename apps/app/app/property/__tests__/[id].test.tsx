@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { BackHandler, Platform } from 'react-native';
 
-import PropertyDetailScreen, { PropertyDetailRouteScreen } from '../[id]';
+import { PropertyDetailRouteScreen } from '@/src/screens/PropertyDetailRouteScreen';
 import type { PropertyDetails } from '@/src/hooks/useProperties';
 import { buildPropertyMapRoute, toInternalAppHref } from '@/src/utils/property-route';
 
@@ -119,7 +119,7 @@ const property: PropertyDetails = {
   uniqueViewers: 2,
 };
 
-describe('app/property/[id]', () => {
+describe('PropertyDetailRouteScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSearchParams = { id: 'route-property-1' };
@@ -256,10 +256,4 @@ describe('app/property/[id]', () => {
     expect(removeListener).toHaveBeenCalledTimes(1);
   });
 
-  it('redirects legacy id routes to the map root', () => {
-    render(<PropertyDetailScreen />);
-
-    expect(screen.getByText('redirect:/')).toBeTruthy();
-    expect(mockUseProperty).not.toHaveBeenCalled();
-  });
 });

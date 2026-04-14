@@ -71,8 +71,15 @@ describe('property-route', () => {
 
   it('normalizes only safe internal return targets', () => {
     expect(normalizePropertyReturnTarget('/feed')).toBe('/feed');
-    expect(normalizePropertyReturnTarget('/comments?returnTo=%2Ffeed')).toBe(
-      '/comments?returnTo=%2Ffeed',
+    expect(
+      normalizePropertyReturnTarget('/eindhoven/5600aa/nieuwe-emmasingel/12-b/comments?returnTo=%2Ffeed'),
+    ).toBe('/eindhoven/5600aa/nieuwe-emmasingel/12-b/comments?returnTo=%2Ffeed');
+    expect(normalizePropertyReturnTarget('/comments?returnTo=%2Ffeed')).toBeNull();
+    expect(normalizePropertyReturnTarget('/property/123')).toBeNull();
+    expect(normalizePropertyReturnTarget('/guesses/123')).toBeNull();
+    expect(normalizePropertyReturnTarget('/comments/123')).toBeNull();
+    expect(normalizePropertyReturnTarget('/map/eindhoven/5600aa/nieuwe-emmasingel/12-b')).toBe(
+      '/map/eindhoven/5600aa/nieuwe-emmasingel/12-b',
     );
     expect(normalizePropertyReturnTarget('https://example.com')).toBeNull();
   });

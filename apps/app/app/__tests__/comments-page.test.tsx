@@ -1,12 +1,8 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Platform } from 'react-native';
-import CommentsPage, { CommentsRouteScreen } from '../comments/[propertyId]';
-import {
-  buildPropertyMapRoute,
-  buildPropertyRoute,
-  toInternalAppHref,
-} from '@/src/utils/property-route';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 const mockUseProperty = jest.fn();
 const mockNavigate = jest.fn();
@@ -146,7 +142,7 @@ jest.mock('@/src/components/Comments/Comment', () => ({
   formatRelativeTime: () => 'just now',
 }));
 
-describe('CommentsPage', () => {
+describe('CommentsRouteScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSearchParams = { propertyId: 'property-123' };
@@ -164,9 +160,7 @@ describe('CommentsPage', () => {
 
     fireEvent.press(screen.getByTestId('comments-back-button'));
 
-    expect(mockReplace).toHaveBeenCalledWith(
-      toInternalAppHref(buildPropertyRoute(property, buildPropertyMapRoute(property))),
-    );
+    expect(mockReplace).toHaveBeenCalledWith(toInternalAppHref(buildPropertyRoute(property)));
     expect(mockBack).not.toHaveBeenCalled();
   });
 
@@ -198,10 +192,4 @@ describe('CommentsPage', () => {
     expect(mockDismiss).not.toHaveBeenCalled();
   });
 
-  it('redirects legacy id routes to the map root', () => {
-    render(<CommentsPage />);
-
-    expect(screen.getByText('redirect:/')).toBeTruthy();
-    expect(mockUseProperty).not.toHaveBeenCalled();
-  });
 });

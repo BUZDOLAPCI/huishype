@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from 'react';
-import { ScrollView, View, TouchableOpacity, ActivityIndicator, Text, Platform, StyleSheet, BackHandler } from 'react-native';
-import { Redirect, Stack, router } from 'expo-router';
+import { ScrollView, View, TouchableOpacity, Text, Platform, StyleSheet, BackHandler } from 'react-native';
+import { Stack, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect } from 'react';
 
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { Icon } from '@/src/components/ui/Icon';
 import { useProperty } from '@/src/hooks/useProperties';
 import { AuthModal } from '@/src/components';
@@ -25,10 +26,10 @@ import {
 
 function PropertyDetailSkeleton() {
   return (
-    <View style={styles.skeletonContainer}>
-      <ActivityIndicator size="large" color="#F5A623" />
-      <Text style={styles.skeletonText}>Loading property...</Text>
-    </View>
+    <RouteLoadingShell
+      title="Loading property"
+      subtitle="Preparing the property detail surface..."
+    />
   );
 }
 
@@ -65,6 +66,7 @@ export function PropertyDetailRouteScreen({
   const { data: property, isLoading, error } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastBackAtRef = useRef(0);
+  const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
 
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -176,8 +178,15 @@ export function PropertyDetailRouteScreen({
   );
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const shouldRenderHydrationShell = Platform.OS === 'web' && !isHydrated;
 
-  if (isLoading) {
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsHydrated(true);
+    }
+  }, []);
+
+  if (shouldRenderHydrationShell || isLoading) {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
@@ -261,9 +270,7 @@ export function PropertyDetailRouteScreen({
   );
 }
 
-export default function PropertyDetailScreen() {
-  return <Redirect href="/" />;
-}
+export default PropertyDetailRouteScreen;
 
 const styles = StyleSheet.create({
   container: {
@@ -272,17 +279,6 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-  },
-  skeletonContainer: {
-    flex: 1,
-    backgroundColor: '#FFFBF5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  skeletonText: {
-    color: '#9C958A',
-    marginTop: 16,
-    fontSize: 15,
   },
   notFoundContainer: {
     flex: 1,

@@ -1,12 +1,5 @@
-import { Platform } from 'react-native';
-
-import MapScreen from './(tabs)/index';
-import { WebMapStackRouteShell } from '@/src/screens/WebMapRouteShell';
+import CanonicalAddressRouteScreen from './[...address]';
 
 export default function CameraRouteScreen() {
-  if (Platform.OS !== 'web') {
-    return <MapScreen />;
-  }
-
-  return <WebMapStackRouteShell />;
+  return <CanonicalAddressRouteScreen />;
 }

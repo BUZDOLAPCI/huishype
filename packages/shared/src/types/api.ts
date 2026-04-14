@@ -266,8 +266,12 @@ export interface FeedItem {
   id: string;
   address: string;
   city: string;
+  postalCode: string;
   zipCode: string;
   countryCode: string;
+  streetName: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
   askingPrice: number | null;
   fmv: number | null;

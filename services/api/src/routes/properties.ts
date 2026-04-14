@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
@@ -7,7 +7,6 @@ import { formatDisplayAddress } from '../utils/address.js';
 import {
   isValidCountryCode,
   getCountryConfig,
-  getAllCountryCodes,
   CANONICAL_LATIN_REPLACEMENTS,
   normalizeComparableText,
   type CountryCode,
@@ -297,21 +296,42 @@ function normalizePostalCodeForStorage(raw: string, countryCode: CountryCode): s
   return cfg.postalCodeNormalize(trimmed).replace(/\s/g, '');
 }
 
-function buildPostalCodeFilter(postalCode: string) {
-  const conditions = getAllCountryCodes()
-    .map((countryCode) => {
-      const normalized = normalizePostalCodeForStorage(postalCode, countryCode);
-      if (!normalized) {
-        return null;
-      }
+function inferCountryCodeFromHostname(hostname: string): CountryCode | null {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  if (!normalizedHostname) {
+    return null;
+  }
 
-      return sql`(p.country_code = ${countryCode} AND p.postal_code = ${normalized})`;
-    })
-    .filter((condition): condition is ReturnType<typeof sql> => condition !== null);
+  const hostnameParts = normalizedHostname.split('.').filter(Boolean);
+  if (hostnameParts.length < 2) {
+    return null;
+  }
 
-  return conditions.length > 0
-    ? sql`(${sql.join(conditions, sql` OR `)})`
-    : sql`FALSE`;
+  const lastLabel = hostnameParts[hostnameParts.length - 1];
+  if (lastLabel.length === 2) {
+    const candidate = lastLabel.toUpperCase();
+    if (isValidCountryCode(candidate)) {
+      return candidate as CountryCode;
+    }
+  }
+
+  const secondLastLabel = hostnameParts[hostnameParts.length - 2];
+  if (lastLabel === 'uk' && secondLastLabel === 'co') {
+    return 'GB';
+  }
+
+  return null;
+}
+
+function resolveListCountryCode(
+  request: FastifyRequest,
+  explicitCountryCode?: string | null,
+): CountryCode {
+  if (explicitCountryCode && isValidCountryCode(explicitCountryCode)) {
+    return explicitCountryCode as CountryCode;
+  }
+
+  return inferCountryCodeFromHostname(request.hostname) ?? 'NL';
 }
 
 // Schema for /properties/nearby endpoint
@@ -586,6 +606,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         radius,
       } = request.query;
       const offset = (page - 1) * limit;
+      const effectiveCountryCode = resolveListCountryCode(request, countryCode);
 
       // Build WHERE conditions dynamically using raw SQL fragments
       const conditions: ReturnType<typeof sql>[] = [];
@@ -596,17 +617,13 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       if (postalCode) {
         conditions.push(
-          countryCode && isValidCountryCode(countryCode)
-            ? sql`(p.country_code = ${countryCode} AND p.postal_code = ${
-                normalizePostalCodeForStorage(postalCode, countryCode as CountryCode) ?? '__NO_MATCH__'
-              })`
-            : buildPostalCodeFilter(postalCode),
+          sql`(p.country_code = ${effectiveCountryCode} AND p.postal_code = ${
+            normalizePostalCodeForStorage(postalCode, effectiveCountryCode) ?? '__NO_MATCH__'
+          })`,
         );
       }
 
-      if (countryCode) {
-        conditions.push(sql`p.country_code = ${countryCode}`);
-      }
+      conditions.push(sql`p.country_code = ${effectiveCountryCode}`);
 
       if (minPrice !== undefined) {
         conditions.push(sql`p.official_valuation >= ${minPrice}`);

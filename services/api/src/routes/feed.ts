@@ -18,8 +18,12 @@ const feedItemSchema = z.object({
   id: z.string().uuid(),
   address: z.string(),
   city: z.string(),
+  postalCode: z.string(),
   zipCode: z.string(),
   countryCode: z.string(),
+  streetName: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
   askingPrice: z.number().nullable(),
   fmv: z.number().nullable(),
@@ -225,8 +229,12 @@ export async function feedRoutes(app: FastifyInstance) {
           isValidCountryCode(r.country_code) ? r.country_code : undefined,
         ),
         city: r.city,
+        postalCode: r.zip_code,
         zipCode: r.zip_code,
         countryCode: r.country_code,
+        streetName: r.street,
+        houseNumber: r.house_number,
+        houseNumberAddition: r.house_number_addition,
         geometry:
           r.lon != null && r.lat != null
             ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }

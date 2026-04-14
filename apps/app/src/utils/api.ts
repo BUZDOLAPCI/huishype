@@ -543,6 +543,9 @@ export interface BatchProperty {
   id: string;
   nationalId: string | null;
   countryCode: string;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
   address: string;
   city: string;
   postalCode: string | null;

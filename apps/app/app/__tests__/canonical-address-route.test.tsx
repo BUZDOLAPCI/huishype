@@ -45,16 +45,16 @@ jest.mock('@/src/lib/useResolvedMapRoute', () => ({
   useResolvedMapRoute: () => mockResolvedMapRoute(),
 }));
 
-jest.mock('../property/[id]', () => ({
+jest.mock('@/src/screens/PropertyDetailRouteScreen', () => ({
   PropertyDetailRouteScreen: (props: { returnTo?: string | string[] | null }) =>
     mockPropertyDetailRouteScreen(props),
 }));
 
-jest.mock('../comments/[propertyId]', () => ({
+jest.mock('@/src/screens/CommentsRouteScreen', () => ({
   CommentsRouteScreen: () => mockCommentsRouteScreen(),
 }));
 
-jest.mock('../guesses/[propertyId]', () => ({
+jest.mock('@/src/screens/GuessesRouteScreen', () => ({
   GuessesRouteScreen: () => mockGuessesRouteScreen(),
 }));
 

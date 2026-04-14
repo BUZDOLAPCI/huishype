@@ -285,6 +285,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     ref
   ) {
     const [sheetState, setSheetState] = useState<SheetState>('closed');
+    const [hasMounted, setHasMounted] = useState(false);
     const scrollRef = useRef<ScrollView>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [panelWidth, setPanelWidth] = useState<number | null>(null);
@@ -313,6 +314,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // preview card is explicitly tapped.
     const minState: SheetState =
       !isLandscape && isPreviewCardVisible ? 'peek' : 'closed';
+    const shouldRenderPanelContent = !isLandscape || sheetState !== 'closed';
 
     // Dismiss = go to minimum resting state (peek if preview card open, closed if not)
     const handleDismiss = useCallback(() => {
@@ -324,6 +326,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // is active. Landscape should stay closed until explicitly opened from the
     // preview card. Losing preview visibility still closes the panel.
     useEffect(() => {
+      if (!hasMounted) {
+        return;
+      }
+
       if (isPreviewCardVisible) {
         if (!isLandscape && sheetState === 'closed') {
           updateState('peek');
@@ -331,7 +337,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       } else if (sheetState !== 'closed') {
         updateState('closed');
       }
-    }, [isLandscape, isPreviewCardVisible, sheetState, updateState]);
+    }, [hasMounted, isLandscape, isPreviewCardVisible, sheetState, updateState]);
+
+    useEffect(() => {
+      setHasMounted(true);
+    }, []);
 
     useEffect(() => {
       const panel = panelRef.current;
@@ -613,6 +623,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         <div
           ref={panelRef}
           className={panelClassName}
+          style={{ pointerEvents: isOpen ? 'auto' : 'none' }}
           data-testid="web-property-panel"
         >
           {/* Drag handle (portrait bottom sheet only) */}
@@ -644,33 +655,35 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           </div>
 
           {/* Scrollable content */}
-          <ScrollView
-            ref={scrollRef}
-            style={{ flex: 1, width: '100%' }}
-            showsVerticalScrollIndicator
-            contentContainerStyle={{ paddingBottom: 40, width: '100%' }}
-            onScroll={(e) => { scrollTopRef.current = e.nativeEvent.contentOffset.y; }}
-            scrollEventThrottle={16}
-          >
-            <PropertyContent
-              property={property}
-              isLoading={isLoading}
-              contentWidth={panelWidth ?? undefined}
-              isLiked={isLikedProp}
-              isSaved={isSavedProp}
-              onSave={onSave}
-              onShare={onShare}
-              onLike={onLike}
-              onScrollToComments={() => scrollToSection(commentsSectionY.current)}
-              onScrollToGuess={() => scrollToSection(guessSectionY.current)}
-              onGuessPress={onGuessPress}
-              onCommentPress={onCommentPress}
-              onAuthRequired={onAuthRequired}
-              onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
-              onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
-              isVisible={sheetState !== 'closed'}
-            />
-          </ScrollView>
+          {shouldRenderPanelContent ? (
+            <ScrollView
+              ref={scrollRef}
+              style={{ flex: 1, width: '100%' }}
+              showsVerticalScrollIndicator
+              contentContainerStyle={{ paddingBottom: 40, width: '100%' }}
+              onScroll={(e) => { scrollTopRef.current = e.nativeEvent.contentOffset.y; }}
+              scrollEventThrottle={16}
+            >
+              <PropertyContent
+                property={property}
+                isLoading={isLoading}
+                contentWidth={panelWidth ?? undefined}
+                isLiked={isLikedProp}
+                isSaved={isSavedProp}
+                onSave={onSave}
+                onShare={onShare}
+                onLike={onLike}
+                onScrollToComments={() => scrollToSection(commentsSectionY.current)}
+                onScrollToGuess={() => scrollToSection(guessSectionY.current)}
+                onGuessPress={onGuessPress}
+                onCommentPress={onCommentPress}
+                onAuthRequired={onAuthRequired}
+                onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
+                onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+                isVisible={sheetState !== 'closed'}
+              />
+            </ScrollView>
+          ) : null}
         </div>
       </>
     );

@@ -38,34 +38,8 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*\/sprites\//,
 ];
 
-const FEED_ADDRESS_PATTERN = /^(?<street>.+?)\s+(?<house>\d[\dA-Za-z\s/-]*)$/u;
-const HOUSE_NUMBER_PATTERN = /^(\d+)(?:\s*[-/ ]?\s*([^\s]+(?:[-/][^\s]+)*))?$/u;
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function parseFeedAddress(address: string): {
-  streetName: string;
-  houseNumber: string;
-  houseNumberAddition: string | null;
-} {
-  const addressLine = address.split(',', 1)[0]?.trim() ?? '';
-  const addressMatch = addressLine.match(FEED_ADDRESS_PATTERN);
-  if (!addressMatch?.groups?.street || !addressMatch.groups.house) {
-    throw new Error(`Unable to parse feed address: ${address}`);
-  }
-
-  const houseMatch = addressMatch.groups.house.trim().match(HOUSE_NUMBER_PATTERN);
-  if (!houseMatch) {
-    throw new Error(`Unable to parse feed house number: ${address}`);
-  }
-
-  return {
-    streetName: addressMatch.groups.street.trim(),
-    houseNumber: houseMatch[1],
-    houseNumberAddition: houseMatch[2]?.trim() || null,
-  };
 }
 
 // Disable tracing to avoid artifact issues
@@ -273,15 +247,14 @@ test.describe('Feed Filtering', () => {
     const cardAddress = (await firstCard.getByTestId('property-address').textContent())?.trim();
     expect(cardAddress, 'Feed card should expose a visible address').toBeTruthy();
 
-    const parsedAddress = parseFeedAddress(cardAddress!);
     const feedItem = apiData.items[0];
     const expectedRoute = buildCanonicalPropertyPath({
       countryCode: feedItem.countryCode,
       city: feedItem.city,
-      postalCode: feedItem.zipCode,
-      streetName: parsedAddress.streetName,
-      houseNumber: parsedAddress.houseNumber,
-      houseNumberAddition: parsedAddress.houseNumberAddition,
+      postalCode: feedItem.postalCode ?? feedItem.zipCode,
+      streetName: feedItem.streetName,
+      houseNumber: feedItem.houseNumber,
+      houseNumberAddition: feedItem.houseNumberAddition,
     });
 
     await firstCard.click();

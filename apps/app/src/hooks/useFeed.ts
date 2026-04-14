@@ -6,66 +6,25 @@
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
-import type { PropertyFeedFilter } from '@huishype/shared';
+import type { FeedItem, GetFeedResponse, PropertyFeedFilter } from '@huishype/shared';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
 
-// Item returned by GET /feed
-export interface FeedProperty {
-  id: string;
-  address: string;
-  city: string;
-  zipCode: string;
-  countryCode: string;
-  geometry: { type: 'Point'; coordinates: [number, number] } | null;
-  askingPrice: number | null;
-  fmv: number | null;
-  officialValuation: number | null;
-  thumbnailUrl: string | null;
-  aerialImageUrl?: string | null;
-  likeCount: number;
-  commentCount: number;
-  guessCount: number;
-  viewCount: number;
-  activityLevel: 'hot' | 'warm' | 'cold';
-  lastActivityAt: string;
-  hasListing: boolean;
-  // Computed on the client from address parts (kept for component compat)
+// App-facing feed item. Saved properties can feed into this shape as well, so
+// postalCode stays nullable even though the raw feed payload always includes it.
+export type FeedProperty = Omit<FeedItem, 'postalCode'> & {
   postalCode: string | null;
+  aerialImageUrl?: string | null;
+  // Computed on the client from address parts (kept for component compat)
   coordinates: { lat: number; lon: number } | null;
   fmvValue?: number;
   yearBuilt: number | null;
   floorAreaM2: number | null;
-}
+};
 
 // Raw response from GET /feed
-interface FeedApiResponse {
-  items: Array<{
-    id: string;
-    address: string;
-    city: string;
-    zipCode: string;
-    countryCode: string;
-    geometry: { type: 'Point'; coordinates: [number, number] } | null;
-    askingPrice: number | null;
-    fmv: number | null;
-    officialValuation: number | null;
-    thumbnailUrl: string | null;
-    likeCount: number;
-    commentCount: number;
-    guessCount: number;
-    viewCount: number;
-    activityLevel: 'hot' | 'warm' | 'cold';
-    lastActivityAt: string;
-    hasListing: boolean;
-  }>;
-  pagination: {
-    page: number;
-    limit: number;
-    hasMore: boolean;
-  };
-}
+type FeedApiResponse = GetFeedResponse;
 
 // Query keys
 export const feedKeys = {
@@ -78,11 +37,9 @@ export const feedKeys = {
 };
 
 // Transform API item to FeedProperty (adds compat fields used by PropertyFeedCard)
-function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
+export function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
   const property = withDerivedPropertyImageData({
     ...item,
-    // PropertyFeedCard compat fields
-    postalCode: item.zipCode,
     coordinates: item.geometry
       ? { lon: item.geometry.coordinates[0], lat: item.geometry.coordinates[1] }
       : null,

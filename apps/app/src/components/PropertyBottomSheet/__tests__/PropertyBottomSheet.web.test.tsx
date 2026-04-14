@@ -60,8 +60,8 @@ describe('PropertyBottomSheet.web', () => {
     jest.clearAllMocks();
   });
 
-  it('forwards isLoading and closed visibility state to PropertyContent', () => {
-    setWindowSize(1280, 720);
+  it('forwards isLoading and closed visibility state to PropertyContent in portrait', () => {
+    setWindowSize(390, 844);
 
     render(
       <PropertyBottomSheet
@@ -105,7 +105,7 @@ describe('PropertyBottomSheet.web', () => {
     expect(ref.current?.getCurrentIndex()).toBe(0);
   });
 
-  it('does not auto-open details in landscape when preview is visible', async () => {
+  it('keeps landscape preview cards closed without rendering PropertyContent', async () => {
     setWindowSize(1280, 720);
     const ref = React.createRef<any>();
 
@@ -117,25 +117,17 @@ describe('PropertyBottomSheet.web', () => {
       />
     );
 
-    await waitFor(() => {
-      const lastProps =
-        mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
-      expect(lastProps).toEqual(expect.objectContaining({
-        property,
-        isVisible: false,
-      }));
-    });
+    expect(mockPropertyContent).not.toHaveBeenCalled();
 
     expect(ref.current?.getCurrentIndex()).toBe(-1);
   });
 
   it('passes section scroll callbacks into PropertyContent', () => {
-    setWindowSize(1280, 720);
+    setWindowSize(390, 844);
 
     render(
       <PropertyBottomSheet
         property={property}
-        isPreviewCardVisible
       />
     );
 

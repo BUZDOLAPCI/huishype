@@ -81,6 +81,8 @@ export interface PropertyQueryParams {
   page?: number;
   limit?: number;
   city?: string;
+  postalCode?: string;
+  countryCode?: string;
   minPrice?: number;
   maxPrice?: number;
   bbox?: string; // "minLon,minLat,maxLon,maxLat"
@@ -100,6 +102,8 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   if (params.page) queryParams.append('page', String(params.page));
   if (params.limit) queryParams.append('limit', String(params.limit));
   if (params.city) queryParams.append('city', params.city);
+  if (params.postalCode) queryParams.append('postalCode', params.postalCode);
+  if (params.countryCode) queryParams.append('countryCode', params.countryCode);
   if (params.minPrice) queryParams.append('minPrice', String(params.minPrice));
   if (params.maxPrice) queryParams.append('maxPrice', String(params.maxPrice));
   if (params.bbox) queryParams.append('bbox', params.bbox);

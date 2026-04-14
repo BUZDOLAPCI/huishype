@@ -31,7 +31,6 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
-import { extractCanonicalRouteInput } from '@/src/lib/mapRoute';
 import { api } from '@/src/utils/api';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 import { primePropertyDetailCache } from '@/src/utils/property-detail-cache';
@@ -115,19 +114,11 @@ export default function FeedScreen() {
   }, []);
 
   const handleFeedPropertyPress = useCallback((property: FeedProperty) => {
-    const routeInput = extractCanonicalRouteInput({
-      address: property.address,
-      city: property.city,
-      postalCode: property.postalCode,
-      countryCode: property.countryCode,
-    });
-
-    if (!routeInput) {
-      console.error('Failed to build canonical property route from feed item:', property.id);
-      return;
+    try {
+      router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
+    } catch (error) {
+      console.error('Failed to build canonical property route from feed item:', property.id, error);
     }
-
-    router.push(toInternalAppHref(buildPropertyRoute(routeInput, '/feed')));
   }, []);
 
   const handleActivityPropertyPress = useCallback(async (property: ActivityProperty) => {

@@ -218,11 +218,11 @@ export function CustomTabBar({ state, descriptors, navigation }: TabBarProps) {
 
 const styles = StyleSheet.create({
   outerWrapper: {
-    position: 'absolute',
+    position: Platform.OS === 'web' ? 'fixed' : 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    zIndex: 20,
+    zIndex: 100,
     paddingHorizontal: 16,
     paddingTop: 12,
     // No background — the gradient underneath will handle the fade.

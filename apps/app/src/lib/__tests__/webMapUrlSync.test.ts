@@ -24,15 +24,15 @@ jest.mock('maplibre-gl', () => ({
   default: {},
 }));
 
-jest.mock('../../../app/comments/[propertyId]', () => ({
+jest.mock('@/src/screens/CommentsRouteScreen', () => ({
   CommentsRouteScreen: () => null,
 }));
 
-jest.mock('../../../app/guesses/[propertyId]', () => ({
+jest.mock('@/src/screens/GuessesRouteScreen', () => ({
   GuessesRouteScreen: () => null,
 }));
 
-jest.mock('../../../app/property/[id]', () => ({
+jest.mock('@/src/screens/PropertyDetailRouteScreen', () => ({
   PropertyDetailRouteScreen: () => null,
 }));
 

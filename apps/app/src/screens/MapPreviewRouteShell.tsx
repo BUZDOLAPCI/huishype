@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
 
 import MapScreen from '@/app/(tabs)/index';
-import { WebMapStackRouteShell } from '@/src/screens/WebMapRouteShell';
 
 export function MapPreviewRouteShell({
   pathnameOverride,
@@ -12,5 +11,5 @@ export function MapPreviewRouteShell({
     return <MapScreen pathnameOverride={pathnameOverride} />;
   }
 
-  return <WebMapStackRouteShell />;
+  return null;
 }

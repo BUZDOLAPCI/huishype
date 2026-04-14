@@ -37,6 +37,8 @@ export interface Property {
   nationalId: string;
   /** Full formatted address */
   address: string;
+  /** Back-compat alias used by route builders and app-local property shapes */
+  street?: string;
   /** Street name */
   streetName: string;
   /** House number */
@@ -110,6 +112,11 @@ export interface PropertySummary {
   address: string;
   city: string;
   postalCode: string;
+  street?: string;
+  streetName?: string;
+  houseNumber?: string | number;
+  houseNumberAddition?: string;
+  countryCode?: string;
   coordinates: Coordinates;
   photoUrl?: string;
   askingPrice?: number;

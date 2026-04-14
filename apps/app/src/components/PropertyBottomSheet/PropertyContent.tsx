@@ -4,7 +4,7 @@
  * Used by three containers:
  *   1. Native bottom sheet (PropertyBottomSheet.native.tsx)
  *   2. Web panel / bottom sheet (PropertyBottomSheet.web.tsx)
- *   3. Detail page route (app/property/[id].tsx)
+ *   3. Detail page route (app/[...address].tsx)
  *
  * The parent owns the detail query for map-sheet surfaces and may also own
  * like/save state there. The detail page passes the fetched property details
@@ -206,16 +206,18 @@ function PropertyContentSections({
         </View>
       </View>
 
-      <ListingSubmissionSheet
-        propertyId={property.id}
-        visible={showSubmission}
-        onClose={() => setShowSubmission(false)}
-        onSubmitted={() => {
-          setShowSubmission(false);
-          queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
-        }}
-        onAuthRequired={onAuthRequired}
-      />
+      {showSubmission ? (
+        <ListingSubmissionSheet
+          propertyId={property.id}
+          visible={showSubmission}
+          onClose={() => setShowSubmission(false)}
+          onSubmitted={() => {
+            setShowSubmission(false);
+            queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
+          }}
+          onAuthRequired={onAuthRequired}
+        />
+      ) : null}
     </>
   );
 }

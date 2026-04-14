@@ -152,6 +152,7 @@ export function PriceGuessSlider({
 }: PriceGuessSliderProps) {
   // Initial price - prefer user's existing guess, then WOZ, then middle of range
   const initialPrice = userGuess ?? officialValuation ?? 350000;
+  const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
   const [guessedPrice, setGuessedPrice] = useState(initialPrice);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
 
@@ -256,6 +257,12 @@ export function PriceGuessSlider({
     sliderWidthShared.value = newWidth;
   };
 
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsHydrated(true);
+    }
+  }, []);
+
   // Pan gesture for dragging the thumb
   const panGesture = Gesture.Pan()
     .enabled(!disabled)
@@ -356,6 +363,169 @@ export function PriceGuessSlider({
   const wozPosition = officialValuation ? priceToPosition(officialValuation) : null;
   const askingPosition = askingPrice ? priceToPosition(askingPrice) : null;
   const fmvPosition = currentFMV ? priceToPosition(currentFMV) : null;
+
+  if (Platform.OS === 'web' && !isHydrated) {
+    return (
+      <View className="p-4 bg-surface-card rounded-xl" testID={testID}>
+        {/* Header */}
+        <Text
+          className="text-lg font-semibold text-warm-900 mb-1"
+          testID="price-guess-header"
+        >
+          What do you think this property is worth?
+        </Text>
+
+        {/* Reference values */}
+        {officialValuation && (
+          <Text className="text-sm text-warm-500 mb-4">
+            {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
+          </Text>
+        )}
+
+        {/* Price Display */}
+        <View className="items-center mb-6">
+          <Text
+            className={`text-4xl font-bold ${disabled ? 'text-warm-400' : 'text-primary-600'}`}
+            testID="price-display"
+          >
+            {formatPrice(guessedPrice, countryCode)}
+          </Text>
+        </View>
+
+        {/* Slider */}
+        <View className="mb-8 pt-8 relative" onLayout={handleSliderLayout}>
+          {wozPosition !== null && (
+            <StaticReferenceMarker
+              position={wozPosition}
+              label={countryCode === 'NL' ? 'WOZ' : 'Val.'}
+              color="text-purple-600"
+            />
+          )}
+          {askingPosition !== null && (
+            <StaticReferenceMarker
+              position={askingPosition}
+              label="Ask"
+              color="text-orange-500"
+            />
+          )}
+          {fmvPosition !== null && (
+            <StaticReferenceMarker
+              position={fmvPosition}
+              label="FMV"
+              color="text-primary-500"
+            />
+          )}
+
+          <View
+            className="rounded-full bg-warm-200"
+            style={{
+              overflow: 'visible',
+              position: 'relative',
+              height: 12,
+            }}
+          >
+            <View
+              className="rounded-full"
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                height: 12,
+                width: `${thumbPosition.value * 100}%`,
+                backgroundColor: disabled ? '#E8E0D4' : '#F5A623',
+              }}
+            />
+
+            <View
+              className="rounded-full shadow-lg"
+              style={{
+                position: 'absolute',
+                top: -10,
+                left: `${thumbPosition.value * 100}%`,
+                width: 32,
+                height: 32,
+                zIndex: 10,
+                transform: [{ translateX: -16 }],
+                backgroundColor: disabled
+                  ? '#C7BFB3'
+                  : isNearWOZ
+                    ? '#8B5CF6'
+                    : '#DE911D',
+              }}
+              testID="slider-thumb"
+            >
+              <View className="flex-1 items-center justify-center">
+                <View className="w-1 h-3 bg-surface-card/50 rounded-full" />
+              </View>
+            </View>
+          </View>
+
+          {/* Min/Max labels */}
+          <View className="flex-row justify-between mt-2">
+            <Text className="text-xs text-warm-400" testID="price-range-min">
+              {formatLabelPrice(MIN_PRICE, countryCode)}
+            </Text>
+            <Text className="text-xs text-warm-400" testID="price-range-max">
+              {formatLabelPrice(MAX_PRICE, countryCode)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Quick adjustment buttons */}
+        <View className="flex-row justify-center gap-2 mb-4">
+          {[-50000, -10000, 10000, 50000].map((delta) => (
+            <Pressable
+              key={delta}
+              onPress={() => handleQuickAdjust(delta)}
+              disabled={disabled}
+              className={`px-3 py-2 rounded-lg ${
+                disabled ? 'bg-warm-100' : 'bg-warm-100 active:bg-warm-200'
+              }`}
+              testID={`adjust-${delta > 0 ? 'plus' : 'minus'}-${Math.abs(delta / 1000)}k`}
+            >
+              <Text
+                className={`text-sm font-medium ${disabled ? 'text-warm-300' : 'text-warm-700'}`}
+              >
+                {delta > 0 ? '+' : ''}
+                {(delta / 1000).toFixed(0)}k
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Submit button */}
+        <Pressable
+          onPress={handleSubmit}
+          disabled={disabled || isSubmitting}
+          testID="submit-guess-button"
+          className={`w-full rounded-xl overflow-hidden flex-row items-center justify-center py-3.5 ${
+            disabled || isSubmitting
+              ? 'bg-warm-200'
+              : 'bg-primary-500 active:bg-primary-600'
+          }`}
+        >
+          <View>
+            {isSubmitting ? (
+              <View className="flex-row items-center">
+                <Icon name="Calendar" size={20} color="#C7BFB3" />
+                <Text className="text-warm-500 font-semibold text-base ml-2">
+                  Submitting...
+                </Text>
+              </View>
+            ) : (
+              <Text
+                className={`font-semibold text-base ${
+                  disabled ? 'text-warm-400' : 'text-white'
+                }`}
+              >
+                Submit Guess
+              </Text>
+            )}
+          </View>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <GestureHandlerRootView>
@@ -529,5 +699,25 @@ export function PriceGuessSlider({
         </Pressable>
       </View>
     </GestureHandlerRootView>
+  );
+}
+
+function StaticReferenceMarker({
+  position,
+  label,
+  color,
+}: {
+  position: number;
+  label: string;
+  color: string;
+}) {
+  return (
+    <View
+      className="absolute -top-8 items-center"
+      style={{ left: `${position * 100}%`, transform: [{ translateX: -20 }] }}
+    >
+      <Text className={`text-xs font-medium ${color}`}>{label}</Text>
+      <View className={`w-0.5 h-3 ${color.replace('text-', 'bg-')}`} />
+    </View>
   );
 }

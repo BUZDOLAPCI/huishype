@@ -7,6 +7,18 @@ import { normalizePostalCode } from './validation.js';
 const DEFAULT_COUNTRY_CODE: CountryCode = 'NL';
 const INTERNAL_BASE_URL = 'https://huishype.invalid';
 const MAX_RETURN_TO_DEPTH = 4;
+const LEGACY_RETURN_TO_PATH_PREFIXES = ['/property', '/comments', '/guesses'];
+const SAFE_RETURN_TO_STATIC_PREFIXES = new Set([
+  'feed',
+  'saved',
+  'profile',
+  'notifications',
+  'leaderboard',
+  'auth',
+  'user',
+  'showcase',
+]);
+const LEGACY_RETURN_TO_PREFIXES = new Set(['property', 'comments', 'guesses']);
 const CAMERA_PATH_REGEX =
   /^\/?@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)z$/;
 export const CANONICAL_LATIN_REPLACEMENTS: Record<string, string> = {
@@ -120,6 +132,58 @@ function decodePathname(pathname: string): string | null {
   }
 }
 
+function isAllowedInternalReturnToPath(pathname: string): boolean {
+  if (pathname === '/') {
+    return true;
+  }
+
+  if (parseCanonicalCameraPath(pathname) !== null) {
+    return true;
+  }
+
+  const decodedPathname = decodePathname(pathname);
+  if (!decodedPathname) {
+    return false;
+  }
+
+  const segments = decodedPathname.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return true;
+  }
+
+  const firstSegment = segments[0]!.toLowerCase();
+  if (LEGACY_RETURN_TO_PREFIXES.has(firstSegment)) {
+    return false;
+  }
+
+  if (SAFE_RETURN_TO_STATIC_PREFIXES.has(firstSegment)) {
+    return true;
+  }
+
+  if (firstSegment === 'map') {
+    const resolution = resolveCanonicalCountryPrefix(segments.slice(1));
+    return resolution.isCanonical && resolution.remainingSegments.length === 4;
+  }
+
+  const resolution = resolveCanonicalCountryPrefix(segments);
+  if (!resolution.isCanonical) {
+    return false;
+  }
+
+  switch (resolution.remainingSegments.length) {
+    case 1:
+    case 2:
+    case 4:
+      return true;
+    case 5: {
+      const leaf = resolution.remainingSegments[4]?.toLowerCase();
+      return leaf === 'comments' || leaf === 'guesses';
+    }
+    default:
+      return false;
+  }
+}
+
 function normalizeInternalReturnToAtDepth(
   value: string | string[] | null | undefined,
   depth: number,
@@ -158,6 +222,10 @@ function normalizeInternalReturnToAtDepth(
     return null;
   }
 
+  if (LEGACY_RETURN_TO_PATH_PREFIXES.some((prefix) => decodedPathname === prefix || decodedPathname.startsWith(`${prefix}/`))) {
+    return null;
+  }
+
   if (
     !url.pathname.startsWith('/') ||
     decodedPathname.includes('\\') ||
@@ -170,7 +238,7 @@ function normalizeInternalReturnToAtDepth(
     return null;
   }
 
-  if (url.pathname.startsWith('/@') && parseCanonicalCameraPath(url.pathname) === null) {
+  if (!isAllowedInternalReturnToPath(url.pathname)) {
     return null;
   }
 

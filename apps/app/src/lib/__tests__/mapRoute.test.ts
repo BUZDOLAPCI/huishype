@@ -1,7 +1,9 @@
 import {
   buildMapPreviewPathname,
+  clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
   parseMapRoutePath,
+  registerLocalPreviewRoute,
   resolveMapRoute,
 } from '../mapRoute';
 import { resolveProperty, resolvePropertyArea } from '@/src/utils/api';
@@ -18,6 +20,7 @@ const mockResolvePropertyArea = resolvePropertyArea as jest.Mock;
 describe('mapRoute', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearLocalPreviewRouteCache();
   });
 
   it('parses camera, city, postcode, preview, property, comments, and guesses routes', () => {
@@ -223,6 +226,48 @@ describe('mapRoute', () => {
       },
     });
     expect(mockResolvePropertyArea).not.toHaveBeenCalled();
+  });
+
+  it('reuses registered local preview routes without re-resolving through the API', async () => {
+    registerLocalPreviewRoute(
+      '/map/eindhoven/5651hp/tile-group-street/2',
+      {
+        id: 'prop-local',
+        address: 'Tile Group Street 2',
+        city: 'Eindhoven',
+        postalCode: '5651HP',
+        countryCode: 'NL',
+        coordinates: { lon: 5.4557789, lat: 51.4300456 },
+        hasListing: false,
+        officialValuation: 250000,
+      },
+      {
+        city: 'Eindhoven',
+        postalCode: '5651HP',
+        streetName: 'Tile Group Street',
+        houseNumber: '2',
+        houseNumberAddition: null,
+        countryCode: 'NL',
+      },
+    );
+
+    await expect(
+      resolveMapRoute('/map/eindhoven/5651hp/tile-group-street/2'),
+    ).resolves.toMatchObject({
+      kind: 'preview',
+      canonicalPath: '/map/eindhoven/5651hp/tile-group-street/2',
+      property: { id: 'prop-local' },
+      routeInput: {
+        city: 'Eindhoven',
+        postalCode: '5651HP',
+        streetName: 'Tile Group Street',
+        houseNumber: '2',
+        houseNumberAddition: null,
+        countryCode: 'NL',
+      },
+    });
+
+    expect(mockResolveProperty).not.toHaveBeenCalled();
   });
 
   it('resolves canonical property, comments, and guesses routes without switching to id paths', async () => {

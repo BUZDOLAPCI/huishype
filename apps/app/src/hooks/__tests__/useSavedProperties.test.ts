@@ -42,6 +42,9 @@ describe('transformSavedProperty', () => {
     const transformed = transformSavedProperty(property);
 
     expect(transformed.thumbnailUrl).toBe(property.thumbnailUrl);
+    expect(transformed.streetName).toBe(property.street);
+    expect(transformed.houseNumber).toBe(property.houseNumber);
+    expect(transformed.houseNumberAddition).toBe(property.houseNumberAddition);
     expect(transformed.aerialImageUrl).toBe(
       getPropertyAerialImageFromGeometry(property.geometry, property.countryCode)
     );
@@ -83,6 +86,9 @@ describe('transformSavedProperty', () => {
     const transformed = transformSavedProperty(property);
 
     expect(transformed.thumbnailUrl).toBeNull();
+    expect(transformed.streetName).toBe(property.street);
+    expect(transformed.houseNumber).toBe(property.houseNumber);
+    expect(transformed.houseNumberAddition).toBe(property.houseNumberAddition);
     expect(transformed.aerialImageUrl).toBe(
       getPropertyAerialImageFromGeometry(property.imageryGeometry, property.countryCode)
     );

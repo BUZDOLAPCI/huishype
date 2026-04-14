@@ -2,7 +2,7 @@ import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
-import { useProperty } from '../useProperties';
+import { useProperties, useProperty } from '../useProperties';
 import { api } from '../../utils/api';
 
 const mockGetAccessToken = jest.fn();
@@ -199,5 +199,36 @@ describe('useProperty', () => {
     });
 
     expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('useProperties', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('forwards postalCode and countryCode filters to the list endpoint', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      data: [],
+      meta: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    const { result } = renderHook(
+      () => useProperties({ city: 'London', postalCode: 'SW1A 1AA', countryCode: 'GB' }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockApi.get).toHaveBeenCalledWith(
+      '/properties?city=London&postalCode=SW1A+1AA&countryCode=GB',
+    );
   });
 });

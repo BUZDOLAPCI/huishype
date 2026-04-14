@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent, Platform } from 'react-native';
 import { router, type Href, useLocalSearchParams } from 'expo-router';
 import {
   Map,
@@ -13,10 +13,6 @@ import {
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { CommentsRouteScreen } from '../comments/[propertyId]';
-import { GuessesRouteScreen } from '../guesses/[propertyId]';
-import { PropertyDetailRouteScreen } from '../property/[id]';
-
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
 import {
@@ -38,6 +34,9 @@ import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
+import { PropertyDetailRouteScreen } from '@/src/screens/PropertyDetailRouteScreen';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import {
   buildCanonicalRouteHref,
@@ -45,6 +44,7 @@ import {
   buildPropertyRoute,
   isStaticAppRoutePath,
 } from '@/src/utils/property-route';
+import { WebMapStackRouteShell } from '@/src/screens/WebMapRouteShell';
 import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
@@ -138,7 +138,7 @@ export interface MapScreenProps {
   pathnameOverride?: string | null;
 }
 
-export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+function NativeMapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const { returnTo } = useLocalSearchParams<{
     returnTo?: string | string[];
   }>();
@@ -530,10 +530,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return (
       <CommentsRouteScreen
         propertyId={routeState.resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          routeState.resolvedRoute.routeInput,
-          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(routeState.resolvedRoute.routeInput)}
       />
     );
   }
@@ -542,10 +539,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return (
       <GuessesRouteScreen
         propertyId={routeState.resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          routeState.resolvedRoute.routeInput,
-          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(routeState.resolvedRoute.routeInput)}
       />
     );
   }
@@ -763,6 +757,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       />
     </View>
   );
+}
+
+export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  if (Platform.OS === 'web') {
+    return <WebMapStackRouteShell />;
+  }
+
+  return <NativeMapScreen pathnameOverride={pathnameOverride} />;
 }
 
 const styles = StyleSheet.create({

@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { Text, View } from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
+import { Platform, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
@@ -109,6 +109,7 @@ export function PriceGuessSection({
   onLoginRequired,
 }: PriceGuessSectionProps) {
   const { user, isAuthenticated } = useAuth();
+  const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number | null>(null);
 
@@ -121,6 +122,12 @@ export function PriceGuessSection({
 
   // Submit mutation
   const submitGuess = useSubmitGuess();
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsHydrated(true);
+    }
+  }, []);
 
   // Handle guess submission
   const handleGuessSubmit = useCallback(
@@ -172,7 +179,7 @@ export function PriceGuessSection({
   const hasExistingGuess = !!guessData?.userGuess;
   const isInCooldown = !guessData?.canEdit && hasExistingGuess;
 
-  if (isLoading) {
+  if (isLoading || (Platform.OS === 'web' && !isHydrated)) {
     return <LoadingSkeleton />;
   }
 

@@ -1,11 +1,8 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
 import { router, type Href, usePathname } from 'expo-router';
 import maplibregl from 'maplibre-gl';
 
-import { CommentsRouteScreen } from '@/app/comments/[propertyId]';
-import { GuessesRouteScreen } from '@/app/guesses/[propertyId]';
-import { PropertyDetailRouteScreen } from '@/app/property/[id]';
 import {
   AuthModal,
   SearchBar,
@@ -22,7 +19,9 @@ import {
   viewportAnchorToOffset,
 } from '@/src/lib/mapCameraAnchor';
 import {
+  clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
+  registerLocalPreviewRoute,
   type ResolvedMapRoute,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
@@ -38,6 +37,9 @@ import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
+import { PropertyDetailRouteScreen } from '@/src/screens/PropertyDetailRouteScreen';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import {
   buildCanonicalRouteHref,
@@ -57,8 +59,9 @@ import {
 // Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
 const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 18;
-const FLOATING_ZOOM_CONTROL_TOP = 118;
+const FLOATING_ZOOM_CONTROL_TOP = 116;
 const FLOATING_ZOOM_CONTROL_SIZE = 40;
+const WEB_TAB_BAR_POINTER_CLEARANCE = 96;
 const PREVIEW_FLY_DURATION_MS = 500;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
@@ -492,6 +495,10 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
   const routeState = useResolvedMapRoute(routePathname);
   const isStaticAppRoute = isStaticAppRoutePath(routeState.pathname);
   const shouldManageMapRoute = !isStaticAppRoute;
+  const webMapSurfaceInsetStyle = useMemo(
+    () => (Platform.OS === 'web' ? { bottom: WEB_TAB_BAR_POINTER_CLEARANCE } : null),
+    [],
+  );
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
@@ -547,6 +554,7 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
 
   useEffect(() => {
     return () => {
+      clearLocalPreviewRouteCache();
       resetTransientUI();
       setSearchResetToken((value) => value + 1);
     };
@@ -574,8 +582,8 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
   }, [currentPreviewIndex, previewGroup]);
   const isPreviewSelectionActive = !!interaction.highlightedCoordinate;
 
-  const previewCanonicalPath = useMemo(() => {
-    const canonicalRouteInput =
+  const previewRouteInput = useMemo(
+    () =>
       extractCanonicalRouteInput(
         (selectedPropertyForSheet as
           | (typeof selectedPropertyForSheet & {
@@ -584,12 +592,61 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
               houseNumberAddition?: string | null;
             })
           | null) ?? null,
-      ) ?? extractCanonicalRouteInput(currentPreviewProperty);
-
-    return canonicalRouteInput ? buildCanonicalMapPreviewPath(canonicalRouteInput) : null;
-  }, [currentPreviewProperty, selectedPropertyForSheet]);
+      ) ?? extractCanonicalRouteInput(currentPreviewProperty),
+    [currentPreviewProperty, selectedPropertyForSheet],
+  );
+  const previewCanonicalPath = useMemo(
+    () => (previewRouteInput ? buildCanonicalMapPreviewPath(previewRouteInput) : null),
+    [previewRouteInput],
+  );
   const previewOpenRef = useRef(false);
   previewOpenRef.current = !!previewGroup || isPreviewSelectionActive;
+
+  useEffect(() => {
+    if (!previewGroup || !previewCanonicalPath || !previewRouteInput) {
+      return;
+    }
+
+    const previewSource = selectedPropertyForSheet ?? currentPreviewProperty;
+    if (!previewSource?.id || !previewSource.address || !previewSource.city) {
+      return;
+    }
+
+    const selectedGeometry = selectedProperty?.geometry;
+    const previewGeometry =
+      selectedPropertyForSheet?.geometry?.type === 'Point'
+        ? selectedPropertyForSheet.geometry
+        : null;
+    const coordinates =
+      selectedGeometry?.type === 'Point'
+        ? selectedGeometry.coordinates
+        : previewGeometry?.coordinates ?? previewGroup.coordinate;
+
+    registerLocalPreviewRoute(
+      previewCanonicalPath,
+      {
+        id: previewSource.id,
+        address: previewSource.address,
+        city: previewSource.city,
+        postalCode: previewSource.postalCode ?? previewRouteInput.postalCode,
+        countryCode: previewSource.countryCode ?? previewRouteInput.countryCode ?? 'NL',
+        coordinates: {
+          lon: coordinates[0],
+          lat: coordinates[1],
+        },
+        hasListing: 'hasListing' in previewSource ? Boolean(previewSource.hasListing) : false,
+        officialValuation: previewSource.officialValuation ?? null,
+      },
+      previewRouteInput,
+    );
+  }, [
+    currentPreviewProperty,
+    previewCanonicalPath,
+    previewGroup,
+    previewRouteInput,
+    selectedProperty?.geometry,
+    selectedPropertyForSheet,
+  ]);
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -1242,11 +1299,13 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
       }
 
       skipNextPassiveUrlSyncRef.current = true;
-      lastCameraPathRef.current = serializeCanonicalCameraPath({
-        lat: resolvedRoute.property.coordinates.lat,
-        lng: resolvedRoute.property.coordinates.lon,
-        zoom: SEARCH_TARGET_ZOOM,
-      });
+      if (lastCameraPathRef.current === '/') {
+        lastCameraPathRef.current = serializeCanonicalCameraPath({
+          lat: resolvedRoute.property.coordinates.lat,
+          lng: resolvedRoute.property.coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
       handleMapPropertyResolved(
         resolvedRoute.property,
         cameraCommands,
@@ -1364,10 +1423,7 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
     return (
       <CommentsRouteScreen
         propertyId={routeState.resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          routeState.resolvedRoute.routeInput,
-          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(routeState.resolvedRoute.routeInput)}
       />
     );
   }
@@ -1376,10 +1432,7 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
     return (
       <GuessesRouteScreen
         propertyId={routeState.resolvedRoute.property.id}
-        returnTo={returnTo ?? buildPropertyRoute(
-          routeState.resolvedRoute.routeInput,
-          buildPropertyMapRoute(routeState.resolvedRoute.routeInput),
-        )}
+        returnTo={returnTo ?? buildPropertyRoute(routeState.resolvedRoute.routeInput)}
       />
     );
   }
@@ -1397,7 +1450,7 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
       >
         <View
           pointerEvents="auto"
-          style={styles.mapSurface}
+          style={[styles.mapSurface, webMapSurfaceInsetStyle]}
         >
         <div
           ref={mapContainerRef}
@@ -1494,23 +1547,25 @@ export default function PersistentWebMapScreen({ pathnameOverride }: MapScreenPr
         </View>
       </View>
 
-      {/* Property details side panel (unified PropertyBottomSheet resolves to .web.tsx) */}
-      <PropertyBottomSheet
-        ref={interaction.bottomSheetRef}
-        property={interaction.selectedPropertyForSheet ?? null}
-        isLoading={interaction.selectedPropertyLoading && !interaction.selectedPropertyForSheet}
-        isLiked={interaction.isLiked}
-        isSaved={interaction.isSaved}
-        isPreviewCardVisible={!!interaction.previewGroup}
-        onClose={interaction.handleSheetClose}
-        onSheetChange={interaction.handleSheetIndexChange}
-        onSave={interaction.handleSave}
-        onShare={interaction.handleShare}
-        onLike={interaction.handleLike}
-        onGuessPress={interaction.handleGuessPress}
-        onCommentPress={interaction.handleCommentPress}
-        onAuthRequired={interaction.handleAuthRequired}
-      />
+      {/* Property details side panel only exists while a preview is active. */}
+      {interaction.previewGroup ? (
+        <PropertyBottomSheet
+          ref={interaction.bottomSheetRef}
+          property={interaction.selectedPropertyForSheet ?? null}
+          isLoading={interaction.selectedPropertyLoading && !interaction.selectedPropertyForSheet}
+          isLiked={interaction.isLiked}
+          isSaved={interaction.isSaved}
+          isPreviewCardVisible={true}
+          onClose={interaction.handleSheetClose}
+          onSheetChange={interaction.handleSheetIndexChange}
+          onSave={interaction.handleSave}
+          onShare={interaction.handleShare}
+          onLike={interaction.handleLike}
+          onGuessPress={interaction.handleGuessPress}
+          onCommentPress={interaction.handleCommentPress}
+          onAuthRequired={interaction.handleAuthRequired}
+        />
+      ) : null}
 
       {/* Auth Modal */}
       <AuthModal

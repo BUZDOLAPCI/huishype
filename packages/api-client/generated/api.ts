@@ -395,7 +395,7 @@ export interface paths {
         };
         /**
          * List properties
-         * @description Get a paginated list of properties with optional filtering by city, price range, or geographic bounds
+         * @description Get a paginated list of properties with optional filtering by city, postal code, price range, or geographic bounds
          */
         get: {
             parameters: {
@@ -403,6 +403,8 @@ export interface paths {
                     page?: number;
                     limit?: number;
                     city?: string;
+                    postalCode?: string;
+                    countryCode?: string;
                     minPrice?: number;
                     maxPrice?: number;
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
@@ -482,6 +484,70 @@ export interface paths {
                                 total: number;
                                 totalPages: number;
                             };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/area-resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve a city or postcode area to a property-backed map center
+         * @description Resolve canonical city/postcode map routes using stored property data instead of external geocoding.
+         */
+        get: {
+            parameters: {
+                query: {
+                    city: string;
+                    postalCode?: string;
+                    countryCode?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            city: string;
+                            postalCode: string | null;
+                            countryCode: string;
+                            center: {
+                                lon: number;
+                                lat: number;
+                            };
+                            propertyCount: number;
+                        } | null;
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
                         };
                     };
                 };
@@ -649,6 +715,9 @@ export interface paths {
                             commentCount: number;
                             guessCount: number;
                             hasListing: boolean;
+                            streetName: string | null;
+                            houseNumber: number | null;
+                            houseNumberAddition: string | null;
                             address: string | null;
                             city: string | null;
                             postalCode: string | null;
@@ -1405,6 +1474,7 @@ export interface paths {
                                     karma: number;
                                 };
                                 likeCount: number;
+                                isLiked: boolean;
                                 replies: {
                                     /** Format: uuid */
                                     id: string;
@@ -1427,6 +1497,7 @@ export interface paths {
                                         karma: number;
                                     };
                                     likeCount: number;
+                                    isLiked: boolean;
                                 }[];
                             }[];
                             meta: {
@@ -1508,6 +1579,7 @@ export interface paths {
                                 karma: number;
                             };
                             likeCount: number;
+                            isLiked: boolean;
                             message: string;
                         };
                     };
@@ -3003,8 +3075,12 @@ export interface paths {
                                 id: string;
                                 address: string;
                                 city: string;
+                                postalCode: string;
                                 zipCode: string;
                                 countryCode: string;
+                                streetName: string;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
                                 geometry: {
                                     /** @enum {string} */
                                     type: "Point";
