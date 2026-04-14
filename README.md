@@ -26,6 +26,14 @@ pnpm -C apps/web dev
 
 Open `http://localhost:8081` for the browser client.
 
+For the always-on local setup on this machine, the browser dev server also runs
+as `huishype-web.service`:
+
+```bash
+systemctl --user restart huishype-web
+journalctl --user -u huishype-web -f
+```
+
 ## Web Workflow
 
 The browser client lives in `apps/web`. Use the browser dev server, web E2E,

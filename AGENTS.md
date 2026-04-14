@@ -226,13 +226,16 @@ pnpm run db:seed-listings
 
 | Service | Unit | Port | Logs |
 |---------|------|------|------|
+| Browser dev server | `huishype-web.service` | 8081 | `journalctl --user -u huishype-web -f` |
 | API | `huishype-api.service` | 3100 | `journalctl --user -u huishype-api -f` |
 | Photon geocoder | Docker (`huishype-photon`) | 2322 | `docker logs huishype-photon -f` |
 
-The browser client is started from the repo scripts, not from a systemd
-service.
+The browser client can be started directly from the repo scripts or kept alive
+via the local `huishype-web.service` user unit.
 
 ```bash
+systemctl --user restart huishype-web
+systemctl --user stop huishype-web
 systemctl --user restart huishype-api
 systemctl --user stop huishype-api
 ```

@@ -13,6 +13,8 @@ docker compose up -d
 ## API / Worker
 
 ```bash
+systemctl --user restart huishype-web
+journalctl --user -u huishype-web -f
 pnpm --filter @huishype/api dev
 pnpm --filter @huishype/worker dev
 

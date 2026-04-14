@@ -16,6 +16,8 @@ pnpm test:e2e:visual
 ```
 
 - `pnpm -C apps/web dev` starts the browser dev server on port `8081`.
+- `systemctl --user restart huishype-web` restores the always-on local browser
+  dev server on port `8081` for this machine.
 - Use the root Playwright wrappers for flows, integration, and visual checks.
 
 ## Browser Workflow Notes
