@@ -1,5 +1,5 @@
 {
-  "version": "2.9",
+  "version": "2.10",
   "children": [
     {
       "type": "frame",
@@ -14796,7 +14796,7 @@
                           "id": "hx8Ol",
                           "name": "stxt",
                           "fill": "#3D8A5A",
-                          "content": "Your guess is close",
+                          "content": "Your guess is 44% above the crowd estimate",
                           "fontFamily": "Outfit",
                           "fontSize": 14,
                           "fontWeight": "500"
@@ -14840,50 +14840,28 @@
                       "id": "bwC8m",
                       "name": "alignSec",
                       "width": "fill_container",
-                      "layout": "vertical",
                       "gap": 8,
+                      "alignItems": "center",
                       "children": [
+                        {
+                          "type": "icon_font",
+                          "id": "lDJj9",
+                          "name": "trendIcon",
+                          "width": 16,
+                          "height": 16,
+                          "iconFontName": "trend-up",
+                          "iconFontFamily": "phosphor",
+                          "fill": "#F59E0B"
+                        },
                         {
                           "type": "text",
                           "id": "OsP5e",
                           "name": "atxt",
                           "fill": "#6D6C6A",
-                          "content": "72% of guessers within ±10%",
+                          "content": "Crowd thinks it’s worth 43.29% more than asking",
                           "fontFamily": "Outfit",
-                          "fontSize": 13,
+                          "fontSize": 14,
                           "fontWeight": "500"
-                        },
-                        {
-                          "type": "frame",
-                          "id": "GvBXs",
-                          "name": "barFrame",
-                          "width": "fill_container",
-                          "height": 6,
-                          "layout": "none",
-                          "children": [
-                            {
-                              "type": "rectangle",
-                              "cornerRadius": 3,
-                              "id": "SPcOR",
-                              "x": 0,
-                              "y": 0,
-                              "name": "bgBar",
-                              "fill": "#E5E4E1",
-                              "width": 334,
-                              "height": 6
-                            },
-                            {
-                              "type": "rectangle",
-                              "cornerRadius": 3,
-                              "id": "iDFm6",
-                              "x": 0,
-                              "y": 0,
-                              "name": "fillBar",
-                              "fill": "#3D8A5A",
-                              "width": 240,
-                              "height": 6
-                            }
-                          ]
                         }
                       ]
                     },

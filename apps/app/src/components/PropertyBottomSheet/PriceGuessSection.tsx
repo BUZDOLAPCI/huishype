@@ -41,7 +41,7 @@ function LoadingSkeleton() {
     <SectionCard
       title="Guess the Price"
       icon="pricetag"
-      description="Submit your own estimate and compare it with the community."
+      description="What do you think this property is worth?"
     >
       <View className="flex-row items-center mb-3">
         <View className="w-5 h-5 bg-warm-200 rounded animate-pulse" />
@@ -180,7 +180,7 @@ export function PriceGuessSection({
     <SectionCard
       title="Guess the Price"
       icon="pricetag"
-      description="What do you think this property is worth? Submit your own estimate and compare it with the crowd."
+      description="What do you think this property is worth?"
       trailing={
         hasExistingGuess ? (
           <View className="bg-green-100 px-2 py-0.5 rounded-full">

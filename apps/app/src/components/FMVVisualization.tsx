@@ -340,30 +340,6 @@ export function FMVVisualization({
         </Text>
       </Animated.View>
 
-      {/* WOZ + Asking Price side by side (full variant only) */}
-      {variant === 'full' && (officialValuation || askingPrice) && (
-        <View className="flex-row gap-3 mb-4">
-          {officialValuation && (
-            <View className="flex-1 bg-warm-50 rounded-xl p-3">
-              <Text className="text-xs text-warm-500 mb-1">
-                {getValuationLabel(countryCode)}
-              </Text>
-              <Text className="text-base font-semibold text-warm-800">
-                {formatPrice(officialValuation, countryCode)}
-              </Text>
-            </View>
-          )}
-          {askingPrice && (
-            <View className="flex-1 bg-warm-50 rounded-xl p-3">
-              <Text className="text-xs text-warm-500 mb-1">Asking Price</Text>
-              <Text className="text-base font-semibold text-warm-800">
-                {formatPrice(askingPrice, countryCode)}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
       {/* Comparison bar (full variant only, when multiple price references exist) */}
       {variant === 'full' && (officialValuation || askingPrice || userGuess) && (
         <ComparisonBar
