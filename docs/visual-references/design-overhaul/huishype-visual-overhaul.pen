@@ -14328,15 +14328,34 @@
                   "alignItems": "center",
                   "children": [
                     {
-                      "type": "text",
-                      "id": "NT0CT",
-                      "name": "titleText",
-                      "fill": "#1A1918",
-                      "content": "Guess the Price",
-                      "fontFamily": "Outfit",
-                      "fontSize": 18,
-                      "fontWeight": "600",
-                      "letterSpacing": -0.2
+                      "type": "frame",
+                      "id": "rhf4u",
+                      "name": "titleGroup",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon_font",
+                          "id": "jW4ZL",
+                          "name": "titleIcon",
+                          "width": 18,
+                          "height": 18,
+                          "iconFontName": "tag-fill",
+                          "iconFontFamily": "phosphor",
+                          "fill": "#F5A623"
+                        },
+                        {
+                          "type": "text",
+                          "id": "NT0CT",
+                          "name": "titleText",
+                          "fill": "#1A1918",
+                          "content": "Guess the Price",
+                          "fontFamily": "Outfit",
+                          "fontSize": 18,
+                          "fontWeight": "600",
+                          "letterSpacing": -0.2
+                        }
+                      ]
                     },
                     {
                       "type": "frame",
