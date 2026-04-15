@@ -1,29 +1,17 @@
 # Track liked state for comment replies
 
-## Location
+## Status
 
-`apps/app/src/components/Comments/Comment.tsx:235`
+Fixed in the V2 canonical route overhaul. The old comments host route no longer exists, so this note is historical rather than an active implementation task.
 
-```tsx
-isLiked={false} // TODO: Track liked state for replies
-```
+## Route ownership
 
-## Problem
+Comment flows now enter through `apps/app/app/[...address].tsx` and render in `apps/app/src/screens/CommentsRouteScreen.tsx`. The deleted `apps/app/app/comments/[propertyId].tsx` host route should not be referenced anymore.
 
-Parent comments track liked state via `likedComments` Set in the page component, but reply comments always pass `isLiked={false}`. The like button on replies fires the API call (via `onLike`) but the UI never reflects the toggled state.
+## Original issue
 
-## Fix
+Parent comments tracked liked state via a `likedComments` set, but reply comments were hardcoded to `isLiked={false}`. The like button still fired the API call, but the UI did not reflect the toggled state for replies.
 
-The `likedComments` Set in `apps/app/app/comments/[propertyId].tsx` already stores comment IDs for parent-level likes. Replies use the same `handleLike` callback and the same Set — the issue is that `Comment.tsx` doesn't receive the liked state for replies.
+## Note
 
-1. **`apps/app/src/components/Comments/Comment.tsx`** — The parent `Comment` component renders replies in a `.map()` loop but hardcodes `isLiked={false}`. Instead, accept a `likedCommentIds: Set<string>` prop (or a `isCommentLiked: (id: string) => boolean` callback) and pass `isLiked={likedCommentIds.has(reply.id)}` for each reply.
-
-2. **`apps/app/app/comments/[propertyId].tsx`** — Pass `likedCommentIds={likedComments}` down through `CommentCell` → `Comment`.
-
-3. **`apps/app/src/components/CommentCell.tsx`** — Thread the new prop through to `Comment`.
-
-## Scope
-
-- Small (~15 lines changed across 3 files)
-- No new API calls needed — the Set and mutation already work for replies
-- Add a unit test to `Comment.test.tsx` verifying replies render liked state
+This was resolved during the route migration. Keep any future reply-like-state work on the canonical comments route stack instead of the removed host-page implementation.

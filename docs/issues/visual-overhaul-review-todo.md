@@ -77,11 +77,11 @@ Current problem:
 
 Impact:
 - non-NL search results and deep links can resolve against the wrong country
-- canonical `/property/[id]` routing can fail outside NL
+- canonical address routing (`/{address}`, `/{address}/comments`, `/{address}/guesses`) can fail outside NL
 
 TODO:
 - thread `countryCode` through geocoder result shaping, search selection, and catch-all route resolution
-- keep canonical property routing country-aware
+- keep canonical address routing country-aware
 
 ### 5. Leaderboard featured property card is not implemented
 
@@ -145,11 +145,11 @@ TODO:
 
 Current state:
 - `ResponsivePanel` provides landscape panel chrome
-- comments route also renders its own header inside the panel
-- guesses route already handles this better
+- comments screen also renders its own header inside the panel
+- guesses screen already handles this better
 
 TODO:
-- make comments/guesses route behavior consistent in wide/landscape panel mode
+- make comments/guesses screen behavior consistent in wide/landscape panel mode
 
 ## Auth Operational Follow-Up
 
