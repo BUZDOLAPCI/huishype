@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
+import { shadows } from '../../lib/shadows';
 import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
 
@@ -9,58 +10,76 @@ function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
-interface PriceTileProps {
-  icon: keyof typeof Ionicons.glyphMap;
+interface ConfidenceBadgeInfo {
+  bg: string;
+  text: string;
   label: string;
-  value: string;
-  tone?: 'default' | 'warm' | 'accent';
-  hint?: string;
+  icon: keyof typeof Ionicons.glyphMap;
 }
 
-function PriceTile({
+interface MiniPriceCardProps {
+  testID: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconBg: string;
+  iconColor: string;
+  label: string;
+  value: string;
+  valueColor?: string;
+}
+
+function getConfidenceBadgeInfo(
+  confidence: 'none' | 'low' | 'medium' | 'high' | undefined,
+  guessCount: number
+): ConfidenceBadgeInfo | null {
+  if (!confidence || confidence === 'none' || guessCount <= 0) {
+    return null;
+  }
+
+  const guessLabel = `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'}`;
+
+  switch (confidence) {
+    case 'high':
+      return {
+        bg: '#C8F0D8',
+        text: '#3D8A5A',
+        label: `High confidence (${guessLabel})`,
+        icon: 'checkmark-circle',
+      };
+    case 'medium':
+      return {
+        bg: '#FFF3D6',
+        text: '#C48B1B',
+        label: `Medium confidence (${guessLabel})`,
+        icon: 'remove-circle',
+      };
+    case 'low':
+      return {
+        bg: '#FFE7D6',
+        text: '#D86D2C',
+        label: `Low confidence (${guessLabel})`,
+        icon: 'alert-circle',
+      };
+  }
+}
+
+function MiniPriceCard({
+  testID,
   icon,
+  iconBg,
+  iconColor,
   label,
   value,
-  tone = 'default',
-  hint,
-}: PriceTileProps) {
-  const tones = {
-    default: {
-      bg: '#FFF9F1',
-      border: '#F2E4D1',
-      icon: '#BFA585',
-      label: '#8C8479',
-      value: '#2D2926',
-      hint: '#8C8479',
-    },
-    warm: {
-      bg: '#FFF5EC',
-      border: '#F6D7BD',
-      icon: '#F97316',
-      label: '#C26A1B',
-      value: '#E66F1C',
-      hint: '#C26A1B',
-    },
-    accent: {
-      bg: '#FFF6DE',
-      border: '#F5D48A',
-      icon: '#D99200',
-      label: '#BE8500',
-      value: '#D99200',
-      hint: '#BE8500',
-    },
-  } as const;
-
-  const palette = tones[tone];
-
+  valueColor = '#1A1918',
+}: MiniPriceCardProps) {
   return (
-    <View style={[styles.tile, { backgroundColor: palette.bg, borderColor: palette.border }]}>
-      <View style={styles.tileLabelRow}>
-        <Ionicons name={icon} size={14} color={palette.icon} />
-        <Text style={[styles.tileLabel, { color: palette.label }]}>{label}</Text>
+    <View testID={testID} style={[styles.miniCard, shadows['card-alt']]}>
+      <View style={styles.miniHeaderRow}>
+        <View style={[styles.miniIconBg, { backgroundColor: iconBg }]}>
+          <Ionicons name={icon} size={13} color={iconColor} />
+        </View>
+        <Text style={styles.miniLabel}>{label}</Text>
       </View>
-      <Text style={[styles.tileValue, { color: palette.value }]}>{value}</Text>
-      {hint ? <Text style={[styles.tileHint, { color: palette.hint }]}>{hint}</Text> : null}
+      <Text style={[styles.miniValue, { color: valueColor }]}>{value}</Text>
     </View>
   );
 }
@@ -68,126 +87,197 @@ function PriceTile({
 export function PriceSection({ property }: SectionProps) {
   const { officialValuation, askingPrice, fmv: fmvData, guessCount, countryCode } = property;
   const fmv = fmvData?.fmv ?? undefined;
-  const confidence = fmvData?.confidence;
-
-  const confidenceLabel =
-    confidence === 'high'
-      ? 'High confidence'
-      : confidence === 'medium'
-        ? 'Medium confidence'
-        : confidence === 'low'
-          ? 'Low confidence'
-          : null;
-
-  const confidenceColor =
-    confidence === 'high'
-      ? '#3E8B51'
-      : confidence === 'medium'
-        ? '#C18A10'
-        : '#C26A1B';
+  const crowdGuessCount = fmvData?.guessCount ?? guessCount;
+  const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount);
+  const hasSecondaryRow = officialValuation || askingPrice;
 
   return (
     <SectionCard
       title="Price Snapshot"
       icon="stats-chart"
       description="Ground the listing with the official valuation, live asking price, and the crowd signal."
-      trailing={
-        confidenceLabel ? (
-          <View style={[styles.confidenceBadge, { backgroundColor: `${confidenceColor}14` }]}>
-            <Text style={[styles.confidenceText, { color: confidenceColor }]}>
-              {confidenceLabel}
-            </Text>
-          </View>
-        ) : null
-      }
     >
       <View style={styles.grid}>
-        {officialValuation ? (
-          <View style={styles.halfTile}>
-            <PriceTile
-              icon="home-outline"
-              label={getValuationLabel(countryCode)}
-              value={formatPrice(officialValuation, countryCode)}
-            />
+        <View testID="price-snapshot-crowd-card" style={[styles.crowdCard, shadows['card-alt']]}>
+          <View style={styles.crowdHeaderRow}>
+            <View style={styles.crowdIconBg}>
+              <Ionicons name="people-outline" size={16} color="#3D8A5A" />
+            </View>
+            <Text style={styles.crowdLabel}>Crowd Estimate</Text>
+          </View>
+
+          {fmv ? (
+            <Text style={styles.crowdValue}>{formatPrice(fmv, countryCode)}</Text>
+          ) : (
+            <>
+              <Text style={styles.crowdEmptyValue}>Not enough signal yet</Text>
+              <Text style={styles.crowdHint}>
+                {crowdGuessCount > 0
+                  ? `${crowdGuessCount} ${crowdGuessCount === 1 ? 'guess' : 'guesses'} so far`
+                  : 'More guesses will tighten the estimate.'}
+              </Text>
+            </>
+          )}
+
+          {confidenceBadge ? (
+            <View
+              testID="price-snapshot-confidence-badge"
+              style={[styles.confidenceBadge, { backgroundColor: confidenceBadge.bg }]}
+            >
+              <Ionicons name={confidenceBadge.icon} size={14} color={confidenceBadge.text} />
+              <Text style={[styles.confidenceText, { color: confidenceBadge.text }]}>
+                {confidenceBadge.label}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {hasSecondaryRow ? (
+          <View style={styles.secondaryRow}>
+            {officialValuation ? (
+              <View style={styles.secondaryCardSlot}>
+                <MiniPriceCard
+                  testID="price-snapshot-valuation-card"
+                  icon="home-outline"
+                  iconBg="#E3F2FD"
+                  iconColor="#42A5F5"
+                  label={getValuationLabel(countryCode)}
+                  value={formatPrice(officialValuation, countryCode)}
+                />
+              </View>
+            ) : null}
+
+            {askingPrice ? (
+              <View style={styles.secondaryCardSlot}>
+                <MiniPriceCard
+                  testID="price-snapshot-asking-card"
+                  icon="pricetag-outline"
+                  iconBg="#FFF3E0"
+                  iconColor="#F5A623"
+                  label="Asking Price"
+                  value={formatPrice(askingPrice, countryCode)}
+                  valueColor="#F5A623"
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
-
-        {askingPrice ? (
-          <View style={styles.halfTile}>
-            <PriceTile
-              icon="pricetag-outline"
-              label="Asking Price"
-              value={formatPrice(askingPrice, countryCode)}
-              tone="warm"
-            />
-          </View>
-        ) : null}
-
-        {fmv ? (
-          <PriceTile
-            icon="people-outline"
-            label="Crowd FMV"
-            value={formatPrice(fmv, countryCode)}
-            tone="accent"
-            hint={`${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'} contributing`}
-          />
-        ) : (
-          <PriceTile
-            icon="git-compare-outline"
-            label="Crowd FMV"
-            value={guessCount > 0 ? `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'} so far` : 'Not enough signal yet'}
-            hint="More guesses will tighten the community estimate."
-          />
-        )}
       </View>
     </SectionCard>
   );
 }
 
 const styles = StyleSheet.create({
-  confidenceBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  grid: {
+    gap: 12,
+  },
+  crowdCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1ECE4',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  crowdHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  crowdIconBg: {
+    width: 28,
+    height: 28,
     borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C8F0D8',
+  },
+  crowdLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+    fontFamily: 'Outfit_500Medium',
+    color: '#6D6C6A',
+  },
+  crowdValue: {
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '700',
+    fontFamily: 'Outfit_700Bold',
+    color: '#3D8A5A',
+    letterSpacing: -1,
+  },
+  crowdEmptyValue: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '700',
+    fontFamily: 'Outfit_700Bold',
+    color: '#2D2926',
+    letterSpacing: -0.6,
+  },
+  crowdHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    fontFamily: 'Outfit_500Medium',
+    color: '#8C8479',
+  },
+  confidenceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    gap: 6,
   },
   confidenceText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    fontFamily: 'Outfit_500Medium',
   },
-  grid: {
+  secondaryRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
   },
-  halfTile: {
-    width: '48.5%',
+  secondaryCardSlot: {
+    flex: 1,
   },
-  tile: {
-    width: '100%',
-    borderRadius: 18,
+  miniCard: {
+    minHeight: 88,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 108,
+    borderColor: '#F1ECE4',
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 8,
   },
-  tileLabelRow: {
+  miniHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 10,
   },
-  tileLabel: {
+  miniIconBg: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniLabel: {
     fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
+    fontFamily: 'Outfit_600SemiBold',
+    color: '#9C9B99',
   },
-  tileValue: {
-    fontSize: 29,
-    lineHeight: 32,
+  miniValue: {
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '700',
-  },
-  tileHint: {
-    marginTop: 8,
-    fontSize: 12,
-    lineHeight: 17,
+    fontFamily: 'Outfit_700Bold',
+    letterSpacing: -0.3,
   },
 });

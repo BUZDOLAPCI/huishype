@@ -47,6 +47,15 @@ const MOCK_PROPERTY_DETAILS = {
   status: 'active',
   officialValuation: 425000,
   askingPrice: 439000,
+  fmv: {
+    fmv: 431000,
+    confidence: 'high',
+    guessCount: 7,
+    distribution: null,
+    officialValuation: 425000,
+    askingPrice: 439000,
+    divergence: null,
+  },
   activityLevel: 'hot',
   commentCount: 4,
   guessCount: 7,
@@ -265,6 +274,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(panel.getByText('Save').first()).toBeVisible();
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
+    await panel.getByText('Price Snapshot', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(panel.getByText('Crowd Estimate', { exact: true })).toBeVisible();
+    await expect(panel.getByText('High confidence (7 guesses)', { exact: true })).toBeVisible();
+    await expect(panel.getByText('WOZ Value', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Asking Price', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Crowd FMV', { exact: true })).toHaveCount(0);
     await panel.getByText('Year Built', { exact: true }).scrollIntoViewIfNeeded();
     await expect(panel.getByText('Year Built', { exact: true })).toBeVisible();
     await expect(panel.getByText('Surface Area', { exact: true })).toBeVisible();
