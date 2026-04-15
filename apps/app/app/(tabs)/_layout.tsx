@@ -36,6 +36,42 @@ export default function TabLayout() {
           title: 'Profile',
         }}
       />
+      <Tabs.Screen
+        name="@[camera]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="[...address]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="map/index"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="map/[...address]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="map/[city]/[postcode]/[street]/[house]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="map/[country]/[city]/[postcode]/[street]/[house]"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

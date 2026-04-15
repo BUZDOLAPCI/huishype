@@ -2,7 +2,7 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 
-import CanonicalAddressRouteScreen from '../[...address]';
+import CanonicalAddressRouteScreen from '@/src/screens/CanonicalAddressRouteScreen';
 
 const mockReplace = jest.fn();
 const mockReplacePassiveBrowserPath = jest.fn();

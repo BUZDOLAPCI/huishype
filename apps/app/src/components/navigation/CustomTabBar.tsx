@@ -65,6 +65,18 @@ const TAB_LABELS: Record<string, string> = {
   profile: 'Profile',
 };
 
+const VISIBLE_TAB_NAMES = new Set(Object.keys(TAB_LABELS));
+
+const MAP_ROUTE_NAMES = new Set([
+  'index',
+  '@[camera]',
+  '[...address]',
+  'map/index',
+  'map/[...address]',
+  'map/[city]/[postcode]/[street]/[house]',
+  'map/[country]/[city]/[postcode]/[street]/[house]',
+]);
+
 /** Palette constants from design spec. */
 const COLORS = {
   gold500: '#F5A623',
@@ -75,27 +87,27 @@ const COLORS = {
   whiteTranslucent: 'rgba(255, 255, 255, 0.80)',
 } as const;
 
-export function CustomTabBar({ state, descriptors, navigation }: TabBarProps) {
+export function CustomTabBar({ state, descriptors: _descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
 
   // Determine if the currently active tab is the map screen.
   const activeRoute = state.routes[state.index];
-  const isMapTab = activeRoute?.name === 'index';
+  const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);
+  const isMapTab = isMapRouteActive;
 
-  // Filter out hidden tabs (like "two" which has `href: null`).
-  const visibleRoutes = state.routes.filter((_route: TabRoute, i: number) => {
-    const descriptor = descriptors[state.routes[i].key];
-    if (!descriptor) return true;
-    // expo-router uses `href` option; null/false means hidden.
-    const hrefValue = descriptor.options.href;
-    return hrefValue !== null;
-  });
+  // Only render the four user-facing tabs. Deep-link helper routes live in the
+  // same navigator so the tab shell stays mounted, but they must never appear
+  // as separate tab items.
+  const visibleRoutes = state.routes.filter((route: TabRoute) =>
+    VISIBLE_TAB_NAMES.has(route.name)
+  );
 
   // Build the inner tab items.
   const tabItems = visibleRoutes.map((route: TabRoute) => {
     const routeIndex = state.routes.indexOf(route);
-    const isFocused = state.index === routeIndex;
+    const isFocused =
+      state.index === routeIndex || (route.name === 'index' && isMapRouteActive);
     const iconName = TAB_ICONS[route.name] ?? 'HouseLine';
     const label = TAB_LABELS[route.name] ?? route.name;
 

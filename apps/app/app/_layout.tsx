@@ -83,19 +83,7 @@ function RootLayoutNav() {
             <DeepLinkRouteSync />
             <Stack>
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="@[camera]" options={{ headerShown: false }} />
-              <Stack.Screen name="map/index" options={{ headerShown: false }} />
-              <Stack.Screen name="map/[...address]" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="map/[city]/[postcode]/[street]/[house]"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="map/[country]/[city]/[postcode]/[street]/[house]"
-                options={{ headerShown: false }}
-              />
               <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-              <Stack.Screen name="[...address]" options={{ headerShown: false }} />
               <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
               <Stack.Screen name="notifications" options={{ headerShown: false }} />
             </Stack>

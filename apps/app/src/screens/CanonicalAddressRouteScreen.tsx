@@ -134,11 +134,11 @@ function CanonicalAddressRouteContent() {
     resolvedRoute.kind === 'preview'
   ) {
     if (Platform.OS === 'web') {
-      const MapScreen = require('./(tabs)/index.web').default as typeof import('./(tabs)/index.web').default;
+      const MapScreen = require('@/app/(tabs)/index.web').default as typeof import('@/app/(tabs)/index.web').default;
       return <MapScreen pathnameOverride={resolvedPathname} />;
     }
 
-    const MapScreen = require('./(tabs)/index').default as typeof import('./(tabs)/index').default;
+    const MapScreen = require('@/app/(tabs)/index').default as typeof import('@/app/(tabs)/index').default;
     return <MapScreen />;
   }
 
