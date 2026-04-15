@@ -5,10 +5,16 @@
  * Replaces the old Ionicons-based implementation with Phosphor icons
  * from the shared QuickActions component.
  */
+import { useState } from 'react';
 import { QuickActions as SharedQuickActions } from '../QuickActions';
 import type { SectionProps } from './types';
 import { Share } from 'react-native';
 import { SectionCard } from './SectionCard';
+import { SharePropertyModal } from './SharePropertyModal';
+import {
+  buildPropertySharePayload,
+  isUnsupportedWebShareError,
+} from '../../utils/property-share';
 
 interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
@@ -26,36 +32,50 @@ export function QuickActions({
   onComment,
   onGuess,
 }: QuickActionsProps) {
+  const [isShareModalVisible, setIsShareModalVisible] = useState(false);
+  const sharePayload = buildPropertySharePayload(property);
+
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `Check out this property: ${property.address}, ${property.city}`,
-        title: `${property.address} - HuisHype`,
-      });
+      await Share.share(sharePayload);
       onShare?.();
     } catch (error) {
+      if (isUnsupportedWebShareError(error)) {
+        setIsShareModalVisible(true);
+        return;
+      }
+
       console.error('Error sharing:', error);
     }
   };
 
   return (
-    <SectionCard
-      title="Take Action"
-      icon="flash-outline"
-    >
-      <SharedQuickActions
-        isLiked={property.isLiked}
-        isSaved={property.isSaved}
-        likeCount={property.likeCount}
-        commentCount={property.commentCount}
-        guessCount={property.guessCount}
-        onLike={onLike}
-        onComment={onComment}
-        onGuess={onGuess}
-        onSave={onSave}
-        onShare={handleShare}
-        variant="full"
+    <>
+      <SectionCard
+        title="Take Action"
+        icon="flash-outline"
+      >
+        <SharedQuickActions
+          isLiked={property.isLiked}
+          isSaved={property.isSaved}
+          likeCount={property.likeCount}
+          commentCount={property.commentCount}
+          guessCount={property.guessCount}
+          onLike={onLike}
+          onComment={onComment}
+          onGuess={onGuess}
+          onSave={onSave}
+          onShare={handleShare}
+          variant="full"
+        />
+      </SectionCard>
+
+      <SharePropertyModal
+        property={property}
+        visible={isShareModalVisible}
+        payload={sharePayload}
+        onClose={() => setIsShareModalVisible(false)}
       />
-    </SectionCard>
+    </>
   );
 }

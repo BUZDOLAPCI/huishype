@@ -27,6 +27,7 @@ import 'react-native-reanimated';
 import { QueryProvider } from '@/src/providers/QueryProvider';
 import { AuthProvider } from '@/src/providers/AuthProvider';
 import { DeepLinkRouteSync } from '@/src/providers/DeepLinkRouteSync';
+import { redirectAndroidDevBrowserToLocalhost } from '@/src/lib/devBrowserShareOrigin';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -58,6 +59,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  useEffect(() => {
+    redirectAndroidDevBrowserToLocalhost();
+  }, []);
 
   useEffect(() => {
     if (loaded) {
