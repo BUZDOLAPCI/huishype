@@ -56,6 +56,8 @@ export function CommentsSection({
   const displayedComments = showAllComments ? allComments : allComments.slice(0, 3);
   const totalComments = data?.pages[0]?.meta.total ?? property.commentCount;
   const hasMoreComments = allComments.length > 3 && !showAllComments;
+  const shouldRouteToCanonicalComments = !!onViewAll && totalComments > 0;
+  const shouldShowCommentsFooter = shouldRouteToCanonicalComments || hasMoreComments || hasNextPage;
 
   // Handle like
   const handleLike = useCallback(
@@ -119,16 +121,11 @@ export function CommentsSection({
 
   // Handle view all
   const handleViewAll = useCallback(() => {
-    if (onViewAll) {
-      onViewAll();
-    } else {
-      setShowAllComments(true);
-      // Load more if needed
-      if (hasNextPage) {
-        fetchNextPage();
-      }
+    setShowAllComments(true);
+    if (hasNextPage) {
+      fetchNextPage();
     }
-  }, [onViewAll, hasNextPage, fetchNextPage]);
+  }, [hasNextPage, fetchNextPage]);
 
   return (
     <SectionCard
@@ -211,16 +208,18 @@ export function CommentsSection({
           ))}
 
           {/* View all / Load more */}
-          {(hasMoreComments || hasNextPage) && (
+          {shouldShowCommentsFooter && (
             <Pressable
-              onPress={handleViewAll}
+              onPress={shouldRouteToCanonicalComments ? onViewAll : handleViewAll}
               className="py-3 items-center border-t border-warm-100 mt-2"
             >
               {isFetchingNextPage ? (
                 <ActivityIndicator size="small" color="#F5A623" />
               ) : (
                 <Text className="text-primary-600 text-sm font-medium">
-                  {hasMoreComments
+                  {shouldRouteToCanonicalComments
+                    ? `View all ${totalComments} comments`
+                    : hasMoreComments
                     ? `View all ${totalComments} comments`
                     : 'Load more comments'}
                 </Text>

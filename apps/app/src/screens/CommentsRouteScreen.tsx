@@ -1,44 +1,29 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   Pressable,
-  TouchableOpacity,
   FlatList,
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
   StyleSheet,
 } from 'react-native';
-import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
 import {
   CommentCell,
   type CommentData as CommentCellData,
 } from '@/src/components/CommentCell';
 import { CommentInput } from '@/src/components/CommentInput';
-import { useProperty } from '@/src/hooks/useProperties';
-import {
-  useComments,
-  useSubmitComment,
-  useLikeComment,
-  type CommentSortBy,
-  type Comment,
-} from '@/src/hooks/useComments';
-import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
-import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
+import { useComments, useLikeComment, useSubmitComment, type Comment, type CommentSortBy } from '@/src/hooks/useComments';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
-import {
-  buildPropertyRoute,
-  normalizePropertyReturnTarget,
-  toInternalAppHref,
-} from '@/src/utils/property-route';
+import { useProperty } from '@/src/hooks/useProperties';
+import { useAuthContext } from '@/src/providers/AuthProvider';
+import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 
 function toCommentCellData(
   comment: Comment,
@@ -93,20 +78,14 @@ function SortToggle({
 
 export interface CommentsRouteScreenProps {
   propertyId?: string | null;
-  returnTo?: string | string[] | null;
-  onNavigate?: (path: string) => void;
 }
 
 export function CommentsRouteScreen({
   propertyId,
-  returnTo,
-  onNavigate,
 }: CommentsRouteScreenProps) {
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuthContext();
   const hydratedNow = useHydratedNow();
-  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
-  const lastCloseAtRef = useRef(0);
 
   const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(
@@ -168,7 +147,7 @@ export function CommentsRouteScreen({
         setReplyTo({ id: commentId, username: comment.user.username });
       }
     },
-    [isAuthenticated, allComments],
+    [allComments, isAuthenticated],
   );
 
   const handleSubmit = useCallback(
@@ -199,166 +178,86 @@ export function CommentsRouteScreen({
       })
     : { url: null, type: 'placeholder' as const };
 
-  const topInset = Platform.OS === 'web' ? 16 : insets.top;
-  const navigateToTarget = useCallback(
-    (targetHref: string) => {
-      if (onNavigate) {
-        onNavigate(targetHref);
-        return;
-      }
-
-      const href = toInternalAppHref(targetHref);
-      if (Platform.OS === 'web') {
-        router.navigate(href);
-        return;
-      }
-
-      router.replace(href);
-    },
-    [onNavigate],
-  );
-
-  const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
-    if (router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
-    router.dismissTo(fallbackHref);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    if (normalizedReturnTarget) {
-      navigateToTarget(normalizedReturnTarget);
-      return;
-    }
-
-    if (property) {
-      navigateToTarget(buildPropertyRoute(property));
-      return;
-    }
-
-    if (Platform.OS !== 'web' && router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    navigateBackOrFallback('/');
-  }, [navigateBackOrFallback, navigateToTarget, normalizedReturnTarget, property]);
-
-  const triggerClose = useCallback(() => {
-    const now = Date.now();
-    if (now - lastCloseAtRef.current < 250) {
-      return;
-    }
-
-    lastCloseAtRef.current = now;
-    handleClose();
-  }, [handleClose]);
-
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <ResponsivePanel title="Comments" onClose={triggerClose}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
-          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-            <TouchableOpacity
-              onPress={triggerClose}
-              style={styles.headerBackButton}
-              testID="comments-back-button"
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              activeOpacity={0.8}
-            >
-              <Icon name="ArrowLeft" size={20} color="#3D3832" />
-            </TouchableOpacity>
-
-            {property && (
-              <View style={styles.headerPropertyInfo}>
-                {propertyImage.url && (
-                  <PropertyImageSurface
-                    source={{
-                      listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
-                      aerialImageUrl: (property as any).aerialImageUrl ?? null,
-                      countryCode: property.countryCode,
-                    }}
-                    style={styles.headerThumbnail}
-                    markerSize={16}
-                    imageTestID="comments-property-image"
-                    markerTestID="comments-property-marker"
-                  />
-                )}
-                <View style={styles.headerTextColumn}>
-                  <Text style={styles.headerAddress} numberOfLines={1}>
-                    {property.address}
-                  </Text>
-                  <Text style={styles.headerCity} numberOfLines={1}>
-                    {property.city}
-                    {property.postalCode ? `, ${property.postalCode}` : ''}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.subHeader}>
-            <Text style={styles.commentCount}>
-              {totalComments} {totalComments === 1 ? 'comment' : 'comments'}
-            </Text>
-            <SortToggle value={sortBy} onChange={setSortBy} />
-          </View>
-
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#F5A623" />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
+        {property ? (
+          <View style={styles.headerPropertyInfo}>
+            {propertyImage.url ? (
+              <PropertyImageSurface
+                source={{
+                  listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
+                  aerialImageUrl: (property as any).aerialImageUrl ?? null,
+                  countryCode: property.countryCode,
+                }}
+                style={styles.headerThumbnail}
+                markerSize={16}
+                imageTestID="comments-property-image"
+                markerTestID="comments-property-marker"
+              />
+            ) : null}
+            <View style={styles.headerTextColumn}>
+              <Text style={styles.headerAddress} numberOfLines={1}>
+                {property.address}
+              </Text>
+              <Text style={styles.headerCity} numberOfLines={1}>
+                {property.city}
+                {property.postalCode ? `, ${property.postalCode}` : ''}
+              </Text>
             </View>
-          ) : (
-            <FlatList
-              data={cellComments}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <CommentCell
-                  comment={item}
-                  onLike={handleLike}
-                  onReply={handleReply}
-                />
-              )}
-              contentContainerStyle={[
-                styles.listContent,
-                { paddingBottom: insets.bottom + 100 },
-              ]}
-              onEndReached={handleLoadMore}
-              onEndReachedThreshold={0.4}
-              ListFooterComponent={
-                isFetchingNextPage ? (
-                  <ActivityIndicator size="small" color="#F5A623" />
-                ) : null
-              }
-            />
-          )}
+          </View>
+        ) : null}
 
+        <View style={styles.subHeader}>
+          <Text style={styles.commentCount}>
+            {totalComments} {totalComments === 1 ? 'comment' : 'comments'}
+          </Text>
+          <SortToggle value={sortBy} onChange={setSortBy} />
+        </View>
+
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#F5A623" />
+          </View>
+        ) : (
+          <FlatList
+            data={cellComments}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <CommentCell
+                comment={item}
+                onLike={handleLike}
+                onReply={handleReply}
+              />
+            )}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.bottom + 100 },
+            ]}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <ActivityIndicator color="#F5A623" style={styles.loadingMore} />
+              ) : null
+            }
+          />
+        )}
+
+        <View style={[styles.inputContainer, { paddingBottom: insets.bottom + 12 }]}>
           <CommentInput
             onSubmit={handleSubmit}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
           />
-        </KeyboardAvoidingView>
-      </ResponsivePanel>
+        </View>
+      </KeyboardAvoidingView>
 
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
+      <AuthModal visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </>
   );
 }
@@ -366,45 +265,87 @@ export function CommentsRouteScreen({
 export default CommentsRouteScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF5' },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E8E0D4',
-    gap: 14,
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
   },
-  headerBackButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F5EFE6',
+  headerPropertyInfo: {
     alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
-  headerPropertyInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerThumbnail: { width: 52, height: 52, borderRadius: 14, overflow: 'hidden' },
-  headerTextColumn: { flex: 1, minWidth: 0 },
-  headerAddress: { fontSize: 16, fontWeight: '600', color: '#2D2926' },
-  headerCity: { fontSize: 13, color: '#8C8479', marginTop: 2 },
+  headerThumbnail: {
+    borderRadius: 14,
+    height: 56,
+    overflow: 'hidden',
+    width: 72,
+  },
+  headerTextColumn: {
+    flex: 1,
+    gap: 4,
+  },
+  headerAddress: {
+    color: '#2D2926',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  headerCity: {
+    color: '#8A8276',
+    fontSize: 13,
+  },
   subHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
   },
-  commentCount: { fontSize: 14, fontWeight: '600', color: '#3D3832' },
-  sortContainer: { flexDirection: 'row', gap: 8 },
+  commentCount: {
+    color: '#3D3832',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  sortContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   sortPill: {
+    backgroundColor: '#FFF8F0',
+    borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: '#F5EFE6',
   },
-  sortPillActive: { backgroundColor: '#F5A623' },
-  sortText: { fontSize: 12, fontWeight: '600', color: '#6E675F' },
-  sortTextActive: { color: '#FFFFFF' },
-  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { paddingHorizontal: 20, gap: 12 },
+  sortPillActive: {
+    backgroundColor: '#F5A623',
+  },
+  sortText: {
+    color: '#736C62',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sortTextActive: {
+    color: '#FFFFFF',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  loadingMore: {
+    marginVertical: 12,
+  },
+  inputContainer: {
+    borderTopColor: '#F0E7DB',
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: '#FFFBF5',
+  },
 });

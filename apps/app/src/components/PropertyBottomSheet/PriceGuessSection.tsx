@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
@@ -26,7 +26,7 @@ import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 
 interface PriceGuessSectionProps extends SectionProps {
-  onGuessPress?: () => void;
+  onViewAllGuesses?: () => void;
   onLoginRequired?: (copy?: AuthModalCopyInput) => void;
 }
 
@@ -106,6 +106,7 @@ function SuccessMessage({ price }: { price: number }) {
 
 export function PriceGuessSection({
   property,
+  onViewAllGuesses,
   onLoginRequired,
 }: PriceGuessSectionProps) {
   const { user, isAuthenticated } = useAuth();
@@ -256,9 +257,22 @@ export function PriceGuessSection({
 
         {/* Guess count */}
         {property.guessCount > 0 && (
-          <Text className="text-xs text-warm-400 text-center mt-2">
-            {property.guessCount} {property.guessCount === 1 ? 'person has' : 'people have'} guessed
-          </Text>
+          <View style={styles.guessSummaryRow}>
+            <Text className="text-xs text-warm-400">
+              {property.guessCount} {property.guessCount === 1 ? 'person has' : 'people have'} guessed
+            </Text>
+            {onViewAllGuesses ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={onViewAllGuesses}
+                style={styles.viewGuessesButton}
+                testID="view-all-guesses-button"
+              >
+                <Text style={styles.viewGuessesText}>View guesses</Text>
+                <Ionicons name="arrow-forward" size={14} color="#DE911D" />
+              </Pressable>
+            ) : null}
+          </View>
         )}
 
         {/* Error display */}
@@ -276,3 +290,23 @@ export function PriceGuessSection({
     </SectionCard>
   );
 }
+
+const styles = StyleSheet.create({
+  guessSummaryRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  viewGuessesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewGuessesText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DE911D',
+  },
+});

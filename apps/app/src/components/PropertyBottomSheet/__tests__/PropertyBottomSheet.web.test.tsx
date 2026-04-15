@@ -76,6 +76,21 @@ describe('PropertyBottomSheet.web', () => {
     }));
   });
 
+  it('does not mount the panel chrome when there is no property payload', () => {
+    setWindowSize(1280, 720);
+
+    const { queryByTestId } = render(
+      <PropertyBottomSheet
+        property={null}
+        isPreviewCardVisible={false}
+      />
+    );
+
+    expect(queryByTestId('web-property-panel')).toBeNull();
+    expect(queryByTestId('web-panel-backdrop')).toBeNull();
+    expect(mockPropertyContent).not.toHaveBeenCalled();
+  });
+
   it('marks PropertyContent visible when the portrait sheet opens from preview', async () => {
     setWindowSize(390, 844);
 
@@ -113,6 +128,29 @@ describe('PropertyBottomSheet.web', () => {
     expect(lastProps).toEqual(expect.objectContaining({
       onScrollToComments: expect.any(Function),
       onScrollToGuess: expect.any(Function),
+    }));
+  });
+
+  it('forwards canonical section CTA handlers into PropertyContent', () => {
+    setWindowSize(1280, 720);
+    const onViewAllComments = jest.fn();
+    const onViewAllGuesses = jest.fn();
+
+    render(
+      <PropertyBottomSheet
+        property={property}
+        isPreviewCardVisible
+        onViewAllComments={onViewAllComments}
+        onViewAllGuesses={onViewAllGuesses}
+      />
+    );
+
+    const lastProps =
+      mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+
+    expect(lastProps).toEqual(expect.objectContaining({
+      onViewAllComments,
+      onViewAllGuesses,
     }));
   });
 

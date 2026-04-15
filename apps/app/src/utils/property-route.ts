@@ -28,6 +28,7 @@ export function isStaticAppRoutePath(pathname: string): boolean {
 }
 
 export interface PropertyRouteAddressLike {
+  id?: string | null;
   address?: string | null;
   countryCode?: string | null;
   city?: string | null;

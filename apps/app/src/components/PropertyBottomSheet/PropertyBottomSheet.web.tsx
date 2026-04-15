@@ -197,6 +197,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onLike,
       onGuessPress,
       onCommentPress,
+      onViewAllComments,
+      onViewAllGuesses,
       onAuthRequired,
     },
     ref
@@ -498,10 +500,16 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       };
     }, [isLandscape, snapFromDrag]);
 
+    const shouldRenderPanel = isLoading || !!property;
+
     // Determine panel class based on orientation and state
     const panelClassName = isLandscape
       ? `web-property-panel--landscape ${isOpen ? 'open' : ''}`
       : `web-property-panel--portrait ${sheetState !== 'closed' ? sheetState : ''}`;
+
+    if (!shouldRenderPanel) {
+      return null;
+    }
 
     return (
       <>
@@ -568,6 +576,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onScrollToGuess={() => scrollToSection(guessSectionY.current)}
               onGuessPress={onGuessPress}
               onCommentPress={onCommentPress}
+              onViewAllComments={onViewAllComments}
+              onViewAllGuesses={onViewAllGuesses}
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
               onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}

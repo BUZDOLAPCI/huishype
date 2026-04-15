@@ -10,6 +10,8 @@ const mockUseListings = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockUsePropertyLike = jest.fn();
 const mockUsePropertySave = jest.fn();
+const mockPriceGuessSection = jest.fn();
+const mockCommentsSection = jest.fn();
 
 jest.mock('../../../hooks/useProperties', () => {
   return {
@@ -80,7 +82,8 @@ jest.mock('../QuickActions', () => ({
 }));
 
 jest.mock('../PriceGuessSection', () => ({
-  PriceGuessSection: () => {
+  PriceGuessSection: (props: any) => {
+    mockPriceGuessSection(props);
     const React = require('react');
     const { Text } = require('react-native');
     return <Text>Price guess section</Text>;
@@ -88,7 +91,8 @@ jest.mock('../PriceGuessSection', () => ({
 }));
 
 jest.mock('../CommentsSection', () => ({
-  CommentsSection: () => {
+  CommentsSection: (props: any) => {
+    mockCommentsSection(props);
     const React = require('react');
     const { Text } = require('react-native');
     return <Text>Comments section</Text>;
@@ -240,6 +244,39 @@ describe('PropertyContent', () => {
 
     expect(onScrollToComments).toHaveBeenCalledTimes(1);
     expect(onScrollToGuess).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards canonical comments and guesses callbacks to the shared preview sections', () => {
+    const onViewAllComments = jest.fn();
+    const onViewAllGuesses = jest.fn();
+
+    renderWithProviders(
+      <PropertyContent
+        property={detailedProperty}
+        onViewAllComments={onViewAllComments}
+        onViewAllGuesses={onViewAllGuesses}
+      />
+    );
+
+    const priceGuessProps =
+      mockPriceGuessSection.mock.calls[mockPriceGuessSection.mock.calls.length - 1]?.[0];
+    const commentsProps =
+      mockCommentsSection.mock.calls[mockCommentsSection.mock.calls.length - 1]?.[0];
+
+    expect(priceGuessProps).toEqual(expect.objectContaining({
+      property: expect.objectContaining({ id: detailedProperty.id }),
+      onViewAllGuesses: expect.any(Function),
+    }));
+    expect(commentsProps).toEqual(expect.objectContaining({
+      property: expect.objectContaining({ id: detailedProperty.id }),
+      onViewAll: expect.any(Function),
+    }));
+
+    priceGuessProps.onViewAllGuesses();
+    commentsProps.onViewAll();
+
+    expect(onViewAllGuesses).toHaveBeenCalledWith(detailedProperty.id);
+    expect(onViewAllComments).toHaveBeenCalledWith(detailedProperty.id);
   });
 
   it('reports section anchors relative to the full scroll content, not just the inner stack', async () => {

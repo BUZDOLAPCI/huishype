@@ -17,6 +17,7 @@
 
 import React from 'react';
 import { View, Pressable, Text, Platform, StyleSheet } from 'react-native';
+import { Link, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
@@ -77,6 +78,20 @@ const MAP_ROUTE_NAMES = new Set([
   'map/[country]/[city]/[postcode]/[street]/[house]',
 ]);
 
+function getVisibleTabHref(routeName: string): Href {
+  switch (routeName) {
+    case 'feed':
+      return '/feed';
+    case 'saved':
+      return '/saved';
+    case 'profile':
+      return '/profile';
+    case 'index':
+    default:
+      return '/';
+  }
+}
+
 /** Palette constants from design spec. */
 const COLORS = {
   gold500: '#F5A623',
@@ -117,14 +132,19 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
     const iconColor = isFocused ? COLORS.white : COLORS.warm400;
     const labelColor = isFocused ? COLORS.white : COLORS.warm400;
 
-    const onPress = () => {
-      const event = navigation.emit({
+    const onPress = (pressEvent?: { preventDefault?: () => void }) => {
+      const navigationEvent = navigation.emit({
         type: 'tabPress',
         target: route.key,
         canPreventDefault: true,
       });
 
-      if (!isFocused && !event.defaultPrevented) {
+      if (navigationEvent.defaultPrevented) {
+        pressEvent?.preventDefault?.();
+        return;
+      }
+
+      if (Platform.OS !== 'web' && !isFocused) {
         navigation.navigate(route.name, route.params);
       }
     };
@@ -135,6 +155,43 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         target: route.key,
       });
     };
+
+    if (Platform.OS === 'web') {
+      return (
+        <Link
+          key={route.key}
+          href={getVisibleTabHref(route.name)}
+          onPress={onPress}
+          accessibilityRole="tab"
+          accessibilityState={isFocused ? { selected: true } : {}}
+          accessibilityLabel={label}
+          accessibilityHint={`Switch to ${label} tab`}
+          testID={`tab-${route.name}`}
+          style={[
+            styles.tabItem,
+            isFocused && styles.tabItemActive,
+            reducedMotion && isFocused && { opacity: 1 },
+          ]}
+        >
+          <Icon
+            name={iconName}
+            size={18}
+            weight={iconWeight}
+            color={iconColor}
+          />
+          <Text
+            style={[
+              styles.tabLabel,
+              { color: labelColor },
+            ]}
+            numberOfLines={1}
+            allowFontScaling={false}
+          >
+            {label.toUpperCase()}
+          </Text>
+        </Link>
+      );
+    }
 
     return (
       <Pressable
@@ -149,7 +206,6 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         style={[
           styles.tabItem,
           isFocused && styles.tabItemActive,
-          // Skip capsule animation when reduced motion is preferred
           reducedMotion && isFocused && { opacity: 1 },
         ]}
       >
@@ -231,6 +287,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 100,
+    elevation: 100,
     paddingHorizontal: 16,
     paddingTop: 12,
     // No background — the gradient underneath will handle the fade.
@@ -238,6 +296,8 @@ const styles = StyleSheet.create({
   },
   pillShadowWrapper: {
     borderRadius: 36,
+    zIndex: 101,
+    elevation: 101,
     // Constrain max width for wide screens / tablets / landscape.
     maxWidth: 420,
     alignSelf: 'center',
@@ -245,6 +305,7 @@ const styles = StyleSheet.create({
   },
   pill: {
     height: 62,
+    zIndex: 102,
     borderRadius: 36,
     borderWidth: 1,
     borderColor: COLORS.warm200,
@@ -254,6 +315,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   blurPill: {
+    zIndex: 102,
     borderRadius: 36,
     overflow: 'hidden',
   },

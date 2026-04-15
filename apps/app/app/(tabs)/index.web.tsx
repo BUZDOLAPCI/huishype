@@ -1,7 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { Alert, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { router, type Href } from 'expo-router';
+import { router, usePathname, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
 
 import {
@@ -23,6 +22,7 @@ import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
   registerLocalPreviewRoute,
+  shouldResetMapTransientUiForPath,
   type ResolvedMapRoute,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
@@ -412,15 +412,13 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
       z-index: 3;
       opacity: 1;
       visibility: visible;
-      transform: translateY(0);
-      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 0s;
+      transition: opacity 180ms ease, visibility 0s linear 0s;
     }
     .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom.maplibregl-ctrl-floating-zoom--hidden {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
-      transform: translateY(4px);
-      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+      transition: opacity 180ms ease, visibility 0s linear 180ms;
     }
     .maplibregl-ctrl-group.maplibregl-ctrl-floating-zoom button {
       width: ${FLOATING_ZOOM_CONTROL_SIZE}px;
@@ -442,8 +440,7 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
-        transform: translateY(4px);
-        transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+        transition: opacity 180ms ease, visibility 0s linear 180ms;
       }
     }
   `;
@@ -474,6 +471,7 @@ function createSelectedMarkerElement(): HTMLDivElement {
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  const pathname = usePathname();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -491,7 +489,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
   const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
-
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
   const isZooming = useRef(false);
@@ -522,15 +519,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        clearLocalPreviewRouteCache();
-        resetTransientUI();
-        setSearchResetToken((value) => value + 1);
-      };
-    }, [resetTransientUI]),
-  );
+  useEffect(() => {
+    if (!shouldResetMapTransientUiForPath(pathname)) {
+      return;
+    }
+
+    clearLocalPreviewRouteCache();
+    resetTransientUI();
+    setSearchResetToken((value) => value + 1);
+  }, [pathname, resetTransientUI]);
 
   const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
     if (highlightedCoordinate) {
@@ -1268,6 +1265,75 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
   }, [interaction.previewGroup, previewCanonicalPath, routeState.isLoading]);
 
+  useEffect(() => {
+    if (routeState.resolvedRoute?.kind !== 'camera') {
+      return;
+    }
+
+    const feedTab =
+      typeof document !== 'undefined'
+        ? document.querySelector('[data-testid="tab-feed"]')
+        : null;
+    if (!(feedTab instanceof HTMLElement)) {
+      return;
+    }
+
+    const patchedAncestors: Array<{
+      element: HTMLElement;
+      pointerEvents: string;
+    }> = [];
+
+    const patchInterceptors = () => {
+      const rect = feedTab.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const elements = document.elementsFromPoint(x, y);
+      const interceptor = elements.find((element) => {
+        if (!(element instanceof HTMLElement)) {
+          return false;
+        }
+
+        if (
+          element === feedTab ||
+          element.closest('[data-testid="custom-tab-bar"]')
+        ) {
+          return false;
+        }
+
+        const computedStyle = window.getComputedStyle(element);
+        return (
+          computedStyle.position === 'absolute' &&
+          computedStyle.pointerEvents !== 'none'
+        );
+      });
+
+      if (!(interceptor instanceof HTMLElement)) {
+        return;
+      }
+
+      for (const element of [interceptor, interceptor.parentElement]) {
+        if (!(element instanceof HTMLElement)) {
+          continue;
+        }
+
+        patchedAncestors.push({
+          element,
+          pointerEvents: element.style.pointerEvents,
+        });
+        element.style.pointerEvents = 'none';
+      }
+    };
+
+    const frame = window.requestAnimationFrame(patchInterceptors);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      for (const patchedAncestor of patchedAncestors) {
+        patchedAncestor.element.style.pointerEvents = patchedAncestor.pointerEvents;
+      }
+    };
+  }, [routeState.resolvedRoute?.kind]);
+
   // Manage selected marker with pulsing animation
   useEffect(() => {
     const map = mapRef.current;
@@ -1299,9 +1365,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [selectedMarkerCoordinate]);
 
   return (
-    <View className="flex-1 bg-warm-100">
+    <View className="flex-1 bg-warm-100" pointerEvents="box-none">
       {/* Map View */}
-      <View className="flex-1" style={{ position: 'relative' }}>
+      <View className="flex-1" style={{ position: 'relative' }} pointerEvents="box-none">
         <div
           ref={mapContainerRef}
           style={{
@@ -1332,12 +1398,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         {!mapLoaded && (
           <View
             className="absolute inset-0 items-center justify-center bg-warm-100"
+            pointerEvents="none"
+            accessible={false}
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
               right: 0,
               bottom: 0,
+              pointerEvents: 'none',
               zIndex: 10,
               transition: 'opacity 0.3s ease-out',
             } as any}
@@ -1424,6 +1493,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onLike={interaction.handleLike}
         onGuessPress={interaction.handleGuessPress}
         onCommentPress={interaction.handleCommentPress}
+        onViewAllComments={interaction.handleCommentPress}
+        onViewAllGuesses={interaction.handleGuessPress}
         onAuthRequired={interaction.handleAuthRequired}
       />
 

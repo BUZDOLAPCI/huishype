@@ -35,10 +35,15 @@ jest.mock('../../PriceGuessSlider', () => ({
 }));
 
 jest.mock('../SectionCard', () => ({
-  SectionCard: ({ children }: { children: React.ReactNode }) => {
+  SectionCard: ({ children, trailing }: { children: React.ReactNode; trailing?: React.ReactNode }) => {
     const React = require('react');
     const { View } = require('react-native');
-    return <View>{children}</View>;
+    return (
+      <View>
+        {trailing}
+        {children}
+      </View>
+    );
   },
 }));
 
@@ -167,5 +172,25 @@ describe('PriceGuessSection', () => {
 
     expect(screen.getByTestId('price-guess-slider-disabled').props.children).toBe('true');
     expect(screen.getByText('Cooldown Active')).toBeTruthy();
+  });
+
+  it('shows a canonical view-guesses CTA beside the guess count when provided', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'user-1' },
+      isAuthenticated: true,
+    });
+
+    const onViewAllGuesses = jest.fn();
+    const screen = render(
+      <PriceGuessSection
+        property={property}
+        onViewAllGuesses={onViewAllGuesses}
+      />
+    );
+
+    expect(screen.getByText('2 people have guessed')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('view-all-guesses-button'));
+
+    expect(onViewAllGuesses).toHaveBeenCalledTimes(1);
   });
 });

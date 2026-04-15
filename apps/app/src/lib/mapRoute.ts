@@ -77,8 +77,8 @@ export type ResolvedMapRoute =
     }
   | { kind: 'invalid'; canonicalPath: '/'; reason: string };
 
-type LocalPreviewResolvedMapRoute = {
-  kind: 'preview';
+type LocalResolvedMapRoute = {
+  kind: 'preview' | 'property' | 'comments' | 'guesses';
   canonicalPath: string;
   property: PropertyResolveResult;
   resolvedAddress: ResolvedAddress;
@@ -96,7 +96,7 @@ export interface RoutePropertyLike {
   houseNumberAddition?: string | null;
 }
 
-const localPreviewRouteCache = new Map<string, LocalPreviewResolvedMapRoute>();
+const localResolvedRouteCache = new Map<string, LocalResolvedMapRoute>();
 
 function normalizePathname(pathname: string): string {
   const trimmed = pathname.trim();
@@ -284,14 +284,15 @@ async function resolveAreaSuggestion(
   return suggestions.find(matcher) ?? null;
 }
 
-export function registerLocalPreviewRoute(
+export function registerLocalResolvedRoute(
+  kind: 'preview' | 'property' | 'comments' | 'guesses',
   pathname: string,
   property: PropertyResolveResult,
   routeInput: CanonicalPropertyRouteInput,
 ): void {
   const canonicalPath = normalizePathname(pathname);
-  localPreviewRouteCache.set(canonicalPath, {
-    kind: 'preview',
+  localResolvedRouteCache.set(canonicalPath, {
+    kind,
     canonicalPath,
     property,
     resolvedAddress: buildSyntheticResolvedAddress(property, routeInput),
@@ -299,8 +300,16 @@ export function registerLocalPreviewRoute(
   });
 }
 
+export function registerLocalPreviewRoute(
+  pathname: string,
+  property: PropertyResolveResult,
+  routeInput: CanonicalPropertyRouteInput,
+): void {
+  registerLocalResolvedRoute('preview', pathname, property, routeInput);
+}
+
 export function clearLocalPreviewRouteCache(): void {
-  localPreviewRouteCache.clear();
+  localResolvedRouteCache.clear();
 }
 
 export function parseMapRoutePath(pathname: string): ParsedMapRoute {
@@ -401,6 +410,23 @@ export function parseMapRoutePath(pathname: string): ParsedMapRoute {
   return { kind: 'invalid', pathname: normalizedPath, reason: 'unsupported-route-shape' };
 }
 
+export function isCanonicalDetailSurfacePath(pathname: string): boolean {
+  const parsed = parseMapRoutePath(pathname);
+  return (
+    parsed.kind === 'property' ||
+    parsed.kind === 'comments' ||
+    parsed.kind === 'guesses'
+  );
+}
+
+export function shouldResetMapTransientUiForPath(pathname: string): boolean {
+  if (isCanonicalDetailSurfacePath(pathname)) {
+    return false;
+  }
+
+  return parseMapRoutePath(pathname).kind === 'invalid';
+}
+
 export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRoute> {
   const parsed = parseMapRoutePath(pathname);
 
@@ -482,11 +508,12 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
     return { kind: 'invalid', canonicalPath: '/', reason: 'invalid-house-segment' };
   }
 
-  if (parsed.kind === 'preview') {
-    const cachedPreviewRoute = localPreviewRouteCache.get(normalizePathname(pathname));
-    if (cachedPreviewRoute) {
-      return cachedPreviewRoute;
-    }
+  const cachedResolvedRoute = localResolvedRouteCache.get(normalizePathname(pathname));
+  if (
+    cachedResolvedRoute &&
+    cachedResolvedRoute.kind === parsed.kind
+  ) {
+    return cachedResolvedRoute;
   }
 
   const routeInput = buildCanonicalInputFromLeafRoute(parsed, parsedHouse);

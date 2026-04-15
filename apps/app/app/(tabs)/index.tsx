@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { usePathname } from 'expo-router';
 import {
   Map,
   Camera,
@@ -11,7 +12,6 @@ import {
   type ViewStateChangeEvent,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
-import { useFocusEffect } from '@react-navigation/native';
 
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
@@ -24,6 +24,7 @@ import {
 } from '@/src/components';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
+import { shouldResetMapTransientUiForPath } from '@/src/lib/mapRoute';
 import { fetchNearbyGroup } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
@@ -120,6 +121,7 @@ function useMergedMapStyle(): Record<string, unknown> | null {
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
+  const pathname = usePathname();
   const [hasLayout, setHasLayout] = useState(false);
   // Merged style as JS object (base map + property vector tiles)
   const mergedStyle = useMergedMapStyle();
@@ -129,7 +131,6 @@ export default function MapScreen() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showUserLocation, setShowUserLocation] = useState(false);
   const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
-
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
   const {
@@ -144,14 +145,14 @@ export default function MapScreen() {
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        resetTransientUI();
-        setSearchResetToken((value) => value + 1);
-      };
-    }, [resetTransientUI])
-  );
+  useEffect(() => {
+    if (!shouldResetMapTransientUiForPath(pathname)) {
+      return;
+    }
+
+    resetTransientUI();
+    setSearchResetToken((value) => value + 1);
+  }, [pathname, resetTransientUI]);
 
   // Trigger initial reverse geocode for the default center
   useEffect(() => {
@@ -570,6 +571,8 @@ export default function MapScreen() {
           onLike={interaction.handleLike}
           onGuessPress={interaction.handleGuessPress}
           onCommentPress={interaction.handleCommentPress}
+          onViewAllComments={interaction.handleCommentPress}
+          onViewAllGuesses={interaction.handleGuessPress}
           onAuthRequired={interaction.handleAuthRequired}
         />
       </BottomSheetErrorBoundary>

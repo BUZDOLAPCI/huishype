@@ -1,38 +1,31 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
-  Platform,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
-import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
+
+import { AuthModal } from '@/src/components';
 import { FMVVisualization, type FMVData } from '@/src/components/FMVVisualization';
 import { PriceGuessSlider } from '@/src/components/PriceGuessSlider';
+import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
+import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
+import { Icon } from '@/src/components/ui/Icon';
+import { formatRelativeTime } from '@/src/components/Comments/Comment';
+import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { useProperty } from '@/src/hooks/useProperties';
+import { useAuth } from '@/src/hooks/useAuth';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
   type PriceGuess,
 } from '@/src/hooks/usePriceGuess';
-import { useAuth } from '@/src/hooks/useAuth';
-import { AuthModal } from '@/src/components';
-import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { resolvePropertyImageWithType } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
-import { useHydratedNow } from '@/src/hooks/useHydratedNow';
-import { formatRelativeTime } from '@/src/components/Comments/Comment';
-import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
-import {
-  buildPropertyRoute,
-  normalizePropertyReturnTarget,
-  toInternalAppHref,
-} from '@/src/utils/property-route';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
@@ -207,20 +200,11 @@ function GuessEntry({
 
 export interface GuessesRouteScreenProps {
   propertyId?: string | null;
-  returnTo?: string | string[] | null;
-  onNavigate?: (path: string) => void;
 }
 
-export function GuessesRouteScreen({
-  propertyId,
-  returnTo,
-  onNavigate,
-}: GuessesRouteScreenProps) {
+export function GuessesRouteScreen({ propertyId }: GuessesRouteScreenProps) {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
-  const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
-  const lastCloseAtRef = useRef(0);
-
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSlider, setShowSlider] = useState(false);
 
@@ -257,7 +241,10 @@ export function GuessesRouteScreen({
   const recentGuesses = useMemo(() => {
     if (!guessData?.guesses) return [];
     return [...guessData.guesses]
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+      )
       .slice(0, 20);
   }, [guessData?.guesses]);
 
@@ -275,173 +262,119 @@ export function GuessesRouteScreen({
         setShowAuthModal(true);
         return;
       }
-      if (!propertyId) return;
+      if (!propertyId) {
+        return;
+      }
 
       try {
         await submitGuess.mutateAsync({ propertyId, guessedPrice: price });
         setShowSlider(false);
         refetch();
       } catch {
-        // mutation state handles error UI
+        // Mutation state handles error UI.
       }
     },
     [isAuthenticated, propertyId, refetch, submitGuess],
   );
 
-  const topInset = Platform.OS === 'web' ? 16 : insets.top;
-  const navigateToTarget = useCallback(
-    (targetHref: string) => {
-      if (onNavigate) {
-        onNavigate(targetHref);
-        return;
-      }
+  if (isLoading) {
+    return (
+      <RouteLoadingShell
+        title="Loading guesses"
+        subtitle="Preparing the guess surface..."
+      />
+    );
+  }
 
-      const href = toInternalAppHref(targetHref);
-      if (Platform.OS === 'web') {
-        router.navigate(href);
-        return;
-      }
-
-      router.replace(href);
-    },
-    [onNavigate],
-  );
-
-  const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
-    if (router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
-    router.dismissTo(fallbackHref);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    if (normalizedReturnTarget) {
-      navigateToTarget(normalizedReturnTarget);
-      return;
-    }
-
-    if (property) {
-      navigateToTarget(buildPropertyRoute(property));
-      return;
-    }
-
-    if (Platform.OS !== 'web' && router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    navigateBackOrFallback('/');
-  }, [navigateBackOrFallback, navigateToTarget, normalizedReturnTarget, property]);
-
-  const triggerClose = useCallback(() => {
-    const now = Date.now();
-    if (now - lastCloseAtRef.current < 250) {
-      return;
-    }
-
-    lastCloseAtRef.current = now;
-    handleClose();
-  }, [handleClose]);
+  if (!property) {
+    return null;
+  }
 
   const divergence = guessData?.fmv?.divergence ?? null;
+  const sliderDisabled = !guessData?.canEdit;
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <ResponsivePanel title="Guesses" onClose={triggerClose}>
+      <View style={styles.container}>
         <ScrollView
-          style={styles.container}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 24 + (showSlider ? 180 : 0) },
+          ]}
         >
-          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-            <TouchableOpacity
-              onPress={triggerClose}
-              style={styles.headerBackButton}
-              testID="guesses-back-button"
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              activeOpacity={0.8}
-            >
-              <Icon name="ArrowLeft" size={20} color="#3D3832" />
-            </TouchableOpacity>
-          </View>
+          <View style={styles.content}>
+            <PropertyImageCard property={property} imageUrl={propertyImage.url} />
 
-          {isLoading || !property ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#F5A623" />
+            {fmvData ? (
+              <FMVVisualization
+                fmv={fmvData}
+                askingPrice={property.askingPrice ?? undefined}
+                officialValuation={property.officialValuation ?? undefined}
+                countryCode={property.countryCode ?? undefined}
+              />
+            ) : null}
+
+            {distributionBins.length > 0 ? (
+              <DistributionChart bins={distributionBins} />
+            ) : null}
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recent guesses</Text>
+              <Pressable
+                onPress={() => setShowSlider(true)}
+                testID="make-guess-button"
+                accessibilityRole="button"
+              >
+                <Text style={styles.makeGuessText}>Make your guess</Text>
+              </Pressable>
             </View>
-          ) : (
-            <View style={styles.content}>
-              <PropertyImageCard property={property} imageUrl={propertyImage.url} />
-              {fmvData ? (
-                <FMVVisualization
-                  fmv={fmvData}
-                  askingPrice={property.askingPrice ?? undefined}
-                  officialValuation={property.officialValuation ?? undefined}
-                  countryCode={property.countryCode ?? undefined}
-                />
-              ) : null}
-              {distributionBins.length > 0 ? (
-                <DistributionChart bins={distributionBins} />
-              ) : null}
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent guesses</Text>
-                <TouchableOpacity
-                  onPress={() => setShowSlider(true)}
-                  testID="make-guess-button"
-                >
-                  <Text style={styles.makeGuessText}>Make your guess</Text>
-                </TouchableOpacity>
-              </View>
-              {recentGuesses.map((guess) => (
-                <GuessEntry
-                  key={guess.id}
-                  guess={guess}
-                  fmvValue={fmvData?.value ?? null}
-                  countryCode={property.countryCode ?? undefined}
-                />
-              ))}
-              {divergence !== null ? (
-                <Text style={styles.divergenceText}>
-                  Crowd estimate is {Math.abs(divergence)}%{' '}
-                  {divergence >= 0 ? 'above' : 'below'} asking price.
-                </Text>
-              ) : null}
-            </View>
-          )}
+
+            {recentGuesses.map((guess) => (
+              <GuessEntry
+                key={guess.id}
+                guess={guess}
+                fmvValue={fmvData?.value ?? null}
+                countryCode={property.countryCode ?? undefined}
+              />
+            ))}
+
+            {divergence !== null ? (
+              <Text style={styles.divergenceText}>
+                Crowd estimate is {Math.abs(divergence)}%{' '}
+                {divergence >= 0 ? 'above' : 'below'} asking price.
+              </Text>
+            ) : null}
+          </View>
         </ScrollView>
 
-      {showSlider ? (
-        <View style={styles.sliderContainer}>
-          <PriceGuessSlider
-            propertyId={propertyId ?? ''}
-            countryCode={property?.countryCode ?? undefined}
-            officialValuation={property?.officialValuation ?? undefined}
-            askingPrice={property?.askingPrice ?? undefined}
-            currentFMV={guessData?.fmv?.fmv ?? undefined}
-            onGuessSubmit={handleGuessSubmit}
-            disabled={false}
-            testID="guesses-slider"
-          />
-          <TouchableOpacity onPress={() => setShowSlider(false)} style={styles.sliderDismiss}>
-            <Text style={styles.sliderDismissText}>Close slider</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-      </ResponsivePanel>
+        {showSlider ? (
+          <View style={[styles.sliderContainer, { bottom: insets.bottom + 16 }]}>
+            <PriceGuessSlider
+              propertyId={propertyId ?? ''}
+              countryCode={property?.countryCode ?? undefined}
+              officialValuation={property?.officialValuation ?? undefined}
+              askingPrice={property?.askingPrice ?? undefined}
+              currentFMV={guessData?.fmv?.fmv ?? undefined}
+              userGuess={guessData?.userGuess?.guessedPrice}
+              onGuessSubmit={handleGuessSubmit}
+              disabled={sliderDisabled}
+              isSubmitting={submitGuess.isPending}
+              testID="guesses-slider"
+            />
+            <Pressable
+              onPress={() => setShowSlider(false)}
+              style={styles.sliderDismiss}
+              accessibilityRole="button"
+            >
+              <Text style={styles.sliderDismissText}>Close slider</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
 
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
+      <AuthModal visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </>
   );
 }
@@ -449,26 +382,34 @@ export function GuessesRouteScreen({
 export default GuessesRouteScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBF5' },
-  header: { paddingHorizontal: 20, paddingBottom: 8 },
-  headerBackButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F5EFE6',
-    alignItems: 'center',
-    justifyContent: 'center',
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
   },
-  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { paddingHorizontal: 20, gap: 18 },
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFFBF5',
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  content: {
+    paddingHorizontal: 20,
+    gap: 18,
+  },
   imageCard: {
     height: 220,
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#EDE6DB',
   },
-  imageCardImage: { flex: 1 },
-  imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  imageCardImage: {
+    flex: 1,
+  },
+  imagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   imageGradient: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.18)',
@@ -479,8 +420,16 @@ const styles = StyleSheet.create({
     right: 18,
     bottom: 18,
   },
-  imageAddress: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
-  imageCity: { fontSize: 14, color: 'rgba(255,255,255,0.92)', marginTop: 2 },
+  imageAddress: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  imageCity: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.92)',
+    marginTop: 2,
+  },
   distCard: {
     borderRadius: 20,
     padding: 16,
@@ -488,10 +437,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F0E3D2',
   },
-  distTitle: { fontSize: 16, fontWeight: '700', color: '#2D2926', marginBottom: 12 },
-  distBars: { gap: 10 },
-  distRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  distLabel: { width: 92, fontSize: 12, color: '#6E675F' },
+  distTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2D2926',
+    marginBottom: 12,
+  },
+  distBars: {
+    gap: 10,
+  },
+  distRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  distLabel: {
+    width: 92,
+    fontSize: 12,
+    color: '#6E675F',
+  },
   distBarTrack: {
     flex: 1,
     height: 10,
@@ -499,14 +463,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0E5D7',
     overflow: 'hidden',
   },
-  distBarFill: { height: '100%', borderRadius: 999, backgroundColor: '#F5A623' },
+  distBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#F5A623',
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#2D2926' },
-  makeGuessText: { fontSize: 14, fontWeight: '700', color: '#C77700' },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2D2926',
+  },
+  makeGuessText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#C77700',
+  },
   guessEntry: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -515,22 +491,43 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E7DDCF',
     gap: 12,
   },
-  guessEntryContent: { flex: 1 },
-  guessEntryNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  guessEntryName: { fontSize: 14, fontWeight: '600', color: '#2D2926' },
-  guessEntryTime: { marginTop: 2, fontSize: 12, color: '#8C8479' },
+  guessEntryContent: {
+    flex: 1,
+  },
+  guessEntryNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  guessEntryName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D2926',
+  },
+  guessEntryTime: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#8C8479',
+  },
   guessEntryPriceCol: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  guessEntryPrice: { fontSize: 14, fontWeight: '700', color: '#2D2926' },
-  divergenceText: { fontSize: 13, lineHeight: 18, color: '#8C8479' },
+  guessEntryPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2D2926',
+  },
+  divergenceText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#8C8479',
+  },
   sliderContainer: {
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 16,
     padding: 16,
     borderRadius: 20,
     backgroundColor: '#FFFDF9',

@@ -8,7 +8,7 @@
  * Platform renderers remain separate — this hook owns only the interaction model.
  */
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
@@ -37,8 +37,11 @@ import {
   buildPropertyCommentsRoute,
   buildPropertyGuessesRoute,
   buildPropertyRoute,
+  toCanonicalPropertyRouteInput,
+  type PropertyRouteAddressLike,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { registerLocalResolvedRoute } from '@/src/lib/mapRoute';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -102,8 +105,8 @@ export interface UseMapInteractionReturn {
 
   // ── Quick-action handlers ───────────────────────────────────
   handleLike: (property?: any) => void;
-  handleComment: (property?: any) => void;
-  handleGuess: (property?: any) => void;
+  handleComment: (property?: PropertyRouteAddressLike | null) => void;
+  handleGuess: (property?: PropertyRouteAddressLike | null) => void;
   handleSave: (propertyId?: string) => void;
   handleShare: (propertyId: string) => void;
   handleGuessPress: (propertyId: string) => void;
@@ -312,6 +315,8 @@ export { LARGE_CLUSTER_THRESHOLD };
 // ── Hook ─────────────────────────────────────────────────────────────
 
 export function useMapInteraction(): UseMapInteractionReturn {
+  const pathname = usePathname();
+
   // ── Selection state ─────────────────────────────────────────
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [highlightedCoordinate, setHighlightedCoordinate] = useState<[number, number] | null>(null);
@@ -497,14 +502,6 @@ export function useMapInteraction(): UseMapInteractionReturn {
     toggleLike();
   }, [toggleLike]);
 
-  const handleComment = useCallback((_property?: any) => {
-    bottomSheetRef.current?.scrollToComments();
-  }, []);
-
-  const handleGuess = useCallback((_property?: any) => {
-    bottomSheetRef.current?.scrollToGuess();
-  }, []);
-
   const handleSave = useCallback((_propertyId?: string) => {
     void toggleSave();
   }, [toggleSave]);
@@ -512,46 +509,153 @@ export function useMapInteraction(): UseMapInteractionReturn {
   const handleShare = useCallback((_propertyId: string) => {
     // Sharing is handled within QuickActions component
   }, []);
+  const resolveRouteProperty = useCallback(
+    (
+      propertyId?: string,
+      fallbackProperty?: PropertyRouteAddressLike | null,
+    ): PropertyRouteAddressLike | null => {
+      if (fallbackProperty) {
+        return fallbackProperty;
+      }
 
-  const handleGuessPress = useCallback((_propertyId: string) => {
-    const routeProperty =
-      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
-    if (!routeProperty) {
-      return;
-    }
+      if (propertyId) {
+        const previewMatch = previewGroup?.properties.find(
+          (previewProperty) => previewProperty.id === propertyId,
+        );
+        if (previewMatch) {
+          return previewMatch;
+        }
+      }
 
-    router.push(
-      toInternalAppHref(
-        buildPropertyGuessesRoute(
-          routeProperty,
-          buildPropertyRoute(routeProperty),
-        ),
-      ),
-    );
-  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
+      if (selectedPropertyForSheet && (!propertyId || selectedPropertyForSheet.id === propertyId)) {
+        return selectedPropertyForSheet;
+      }
 
-  const handleCommentPress = useCallback((_propertyId: string) => {
-    const routeProperty =
-      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
-    if (!routeProperty) {
-      return;
-    }
+      if (currentPreviewProperty && (!propertyId || currentPreviewProperty.id === propertyId)) {
+        return currentPreviewProperty;
+      }
 
-    router.push(
-      toInternalAppHref(
-        buildPropertyCommentsRoute(
-          routeProperty,
-          buildPropertyRoute(routeProperty),
-        ),
-      ),
-    );
-  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
+      if (selectedProperty && (!propertyId || selectedProperty.id === propertyId)) {
+        return selectedProperty;
+      }
+
+      return null;
+    },
+    [currentPreviewProperty, previewGroup?.properties, selectedProperty, selectedPropertyForSheet],
+  );
+
+  const pushCanonicalPropertySurface = useCallback(
+    (
+      kind: 'property' | 'comments' | 'guesses',
+      routeProperty: PropertyRouteAddressLike | null,
+    ) => {
+      if (!routeProperty) {
+        return;
+      }
+
+      const previewReturnTo = previewGroup ? pathname : null;
+      const propertyHref = buildPropertyRoute(routeProperty, previewReturnTo);
+      const targetPath = kind === 'property'
+        ? propertyHref
+        : kind === 'comments'
+          ? buildPropertyCommentsRoute(routeProperty, propertyHref)
+          : buildPropertyGuessesRoute(routeProperty, propertyHref);
+
+      if (previewGroup) {
+        const matchedSelectedProperty =
+          selectedPropertyForSheet?.id === routeProperty.id
+            ? selectedPropertyForSheet
+            : selectedProperty?.id === routeProperty.id
+              ? selectedProperty
+              : null;
+        const fallbackCoordinate =
+          matchedSelectedProperty?.geometry?.type === 'Point'
+            ? matchedSelectedProperty.geometry.coordinates
+            : highlightedCoordinate ?? previewGroup.coordinate;
+
+        if (routeProperty.id && fallbackCoordinate) {
+          const routeInput = toCanonicalPropertyRouteInput(routeProperty);
+          const localResolvedProperty: PropertyResolveResult = {
+            id: routeProperty.id,
+            address:
+              routeProperty.address ??
+              matchedSelectedProperty?.address ??
+              currentPreviewProperty?.address ??
+              '',
+            city:
+              routeProperty.city ??
+              matchedSelectedProperty?.city ??
+              currentPreviewProperty?.city ??
+              '',
+            postalCode: routeInput.postalCode,
+            countryCode:
+              routeInput.countryCode ??
+              routeProperty.countryCode ??
+              matchedSelectedProperty?.countryCode ??
+              currentPreviewProperty?.countryCode ??
+              'NL',
+            coordinates: {
+              lon: fallbackCoordinate[0],
+              lat: fallbackCoordinate[1],
+            },
+            hasListing: false,
+            officialValuation:
+              matchedSelectedProperty?.officialValuation ??
+              currentPreviewProperty?.officialValuation ??
+              null,
+          };
+          const propertyPathname = propertyHref.split('?')[0] ?? propertyHref;
+          registerLocalResolvedRoute(
+            'property',
+            propertyPathname,
+            localResolvedProperty,
+            routeInput,
+          );
+
+          if (kind !== 'property') {
+            const targetPathname = targetPath.split('?')[0] ?? targetPath;
+            registerLocalResolvedRoute(
+              kind,
+              targetPathname,
+              localResolvedProperty,
+              routeInput,
+            );
+          }
+        }
+      }
+
+      router.push(toInternalAppHref(targetPath));
+    },
+    [
+      currentPreviewProperty,
+      highlightedCoordinate,
+      previewGroup,
+      pathname,
+      selectedProperty,
+      selectedPropertyForSheet,
+    ],
+  );
+
+  const handleComment = useCallback((property?: PropertyRouteAddressLike | null) => {
+    pushCanonicalPropertySurface('comments', resolveRouteProperty(undefined, property));
+  }, [pushCanonicalPropertySurface, resolveRouteProperty]);
+
+  const handleGuess = useCallback((property?: PropertyRouteAddressLike | null) => {
+    pushCanonicalPropertySurface('guesses', resolveRouteProperty(undefined, property));
+  }, [pushCanonicalPropertySurface, resolveRouteProperty]);
+
+  const handleGuessPress = useCallback((propertyId: string) => {
+    pushCanonicalPropertySurface('guesses', resolveRouteProperty(propertyId));
+  }, [pushCanonicalPropertySurface, resolveRouteProperty]);
+
+  const handleCommentPress = useCallback((propertyId: string) => {
+    pushCanonicalPropertySurface('comments', resolveRouteProperty(propertyId));
+  }, [pushCanonicalPropertySurface, resolveRouteProperty]);
 
   // ── Preview card interaction handlers ───────────────────────
   const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {
-    setSelectedPropertyId(property.id);
-    bottomSheetRef.current?.openFromPreview();
-  }, []);
+    pushCanonicalPropertySurface('property', property);
+  }, [pushCanonicalPropertySurface]);
 
   const handleClosePreview = useCallback(() => {
     clearPreviewSelection();

@@ -1,5 +1,5 @@
 import MapBaseRouteScreen from '@/src/screens/MapBaseRouteScreen';
 
-export default function MapCatchAllRouteScreen() {
+export default function CameraRouteScreen() {
   return <MapBaseRouteScreen />;
 }

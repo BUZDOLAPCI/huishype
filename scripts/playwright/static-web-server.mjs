@@ -76,13 +76,18 @@ function matchTemplate(templateSegments, requestSegments) {
 
   for (let templateIndex = 0; templateIndex < templateSegments.length; templateIndex += 1) {
     const templateSegment = templateSegments[templateIndex];
+    const isAtDynamic =
+      templateSegment.startsWith('@[') &&
+      templateSegment.endsWith(']');
     const isCatchAll =
       templateSegment.startsWith('[...') &&
       templateSegment.endsWith(']');
     const isDynamic =
       !isCatchAll &&
-      templateSegment.startsWith('[') &&
-      templateSegment.endsWith(']');
+      (
+        (templateSegment.startsWith('[') && templateSegment.endsWith(']')) ||
+        isAtDynamic
+      );
 
     if (isCatchAll) {
       if (requestIndex >= requestSegments.length) {
@@ -96,6 +101,10 @@ function matchTemplate(templateSegments, requestSegments) {
 
     const requestSegment = requestSegments[requestIndex];
     if (!requestSegment) {
+      return null;
+    }
+
+    if (isAtDynamic && !requestSegment.startsWith('@')) {
       return null;
     }
 
@@ -169,10 +178,6 @@ export function startStaticWebServer({
       return { statusCode: 200, filePath: htmlCandidatePath };
     }
 
-    if (isAssetLikePath(pathname)) {
-      return { statusCode: 404, filePath: null };
-    }
-
     const requestSegments = pathname.split('/').filter(Boolean);
     const templateMatch = htmlTemplates
       .map((template) => {
@@ -194,6 +199,10 @@ export function startStaticWebServer({
 
     if (templateMatch) {
       return { statusCode: 200, filePath: templateMatch.absolutePath };
+    }
+
+    if (isAssetLikePath(pathname)) {
+      return { statusCode: 404, filePath: null };
     }
 
     return { statusCode: 200, filePath: fallbackDocument };

@@ -17,8 +17,10 @@ import {
 import { useProperty } from '../useProperties';
 
 const mockRouterPush = jest.fn();
+let mockPathname = '/';
 
 jest.mock('expo-router', () => ({
+  usePathname: () => mockPathname,
   router: {
     push: (...args: unknown[]) => mockRouterPush(...args),
   },
@@ -155,6 +157,7 @@ describe('useMapInteraction', () => {
     mockAuthUser = mockUser;
     jest.clearAllMocks();
     mockRouterPush.mockReset();
+    mockPathname = '/';
     mockUseProperty.mockReturnValue({
       data: null,
       isLoading: false,
@@ -443,37 +446,49 @@ describe('useMapInteraction', () => {
       expect(result.current.currentPreviewIndex).toBe(0);
     });
 
-    it('handlePreviewPropertyTap updates selected property and opens sheet from the top', () => {
+    it('handlePreviewPropertyTap promotes the preview into the canonical property route without mutating the underlying preview selection', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
-      const openFromPreview = jest.fn();
-      const snapToIndex = jest.fn();
 
       act(() => {
-        (result.current.bottomSheetRef as React.MutableRefObject<any>).current = {
-          expand: jest.fn(),
-          collapse: jest.fn(),
-          close: jest.fn(),
-          snapToIndex,
-          openFromPreview,
-          scrollToComments: jest.fn(),
-          scrollToGuess: jest.fn(),
-          getCurrentIndex: jest.fn().mockReturnValue(0),
-        };
+        result.current.setPreviewGroup({
+          properties: [
+            {
+              id: 'prop-1',
+              address: 'Maple Ave 123',
+              postalCode: '3011 AA',
+              countryCode: 'NL',
+              city: 'Rotterdam',
+            },
+            {
+              id: 'prop-2',
+              address: 'Oak Ave 456',
+              postalCode: '3011 AA',
+              countryCode: 'NL',
+              city: 'Rotterdam',
+            },
+          ],
+          coordinate: [4.47917, 51.9225],
+        });
       });
+
+      expect(result.current.selectedPropertyId).toBe('prop-1');
 
       act(() => {
         result.current.handlePreviewPropertyTap({
           id: 'prop-2',
-          address: '456 Oak Ave',
+          address: 'Oak Ave 456',
+          postalCode: '3011 AA',
+          countryCode: 'NL',
           city: 'Rotterdam',
         });
       });
 
-      expect(result.current.selectedPropertyId).toBe('prop-2');
-      expect(openFromPreview).toHaveBeenCalledTimes(1);
-      expect(snapToIndex).not.toHaveBeenCalled();
+      expect(result.current.selectedPropertyId).toBe('prop-1');
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        '/rotterdam/3011aa/oak-ave/456?returnTo=%2F',
+      );
     });
 
     it('syncs selectedPropertyId with currentPreviewIndex', () => {
@@ -971,6 +986,46 @@ describe('useMapInteraction', () => {
   });
 
   describe('quick-action navigation handlers', () => {
+    it('handleGuess promotes preview quick actions into the canonical guesses route', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleGuess({
+          id: 'prop-123',
+          address: 'Routelaan 12',
+          city: 'Eindhoven',
+          postalCode: '5600 AA',
+          countryCode: 'NL',
+        });
+      });
+
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+      );
+    });
+
+    it('handleComment promotes preview quick actions into the canonical comments route', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.handleComment({
+          id: 'prop-456',
+          address: 'Routelaan 12',
+          city: 'Eindhoven',
+          postalCode: '5600 AA',
+          countryCode: 'NL',
+        });
+      });
+
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+      );
+    });
+
     it('handleGuessPress navigates to the canonical guesses route', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
@@ -994,7 +1049,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(mockRouterPush).toHaveBeenCalledWith(
-        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12%3FreturnTo%3D%252F',
       );
     });
 
@@ -1021,7 +1076,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(mockRouterPush).toHaveBeenCalledWith(
-        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12%3FreturnTo%3D%252F',
       );
     });
   });

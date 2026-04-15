@@ -48,13 +48,21 @@ This creates inconsistent behavior:
 ## Source Files Involved
 
 - `apps/app/app/(tabs)/_layout.tsx`
-- `apps/app/app/(tabs)/[...address].tsx`
+- `apps/app/app/[...address].tsx`
+- `apps/app/app/(tabs)/@[camera].tsx`
+- `apps/app/app/(tabs)/map/[...address].tsx`
 - `apps/app/app/(tabs)/feed.tsx`
 - `apps/app/app/(tabs)/saved.tsx`
 - `apps/app/app/(tabs)/index.tsx`
 - `apps/app/app/(tabs)/index.web.tsx`
 - `apps/app/app/_layout.tsx`
+- `apps/app/app/leaderboard.tsx`
+- `apps/app/app/notifications.tsx`
 - `apps/app/src/screens/CanonicalAddressRouteScreen.tsx`
+- `apps/app/src/detail-surfaces/DetailSurfaceHost.tsx`
+- `apps/app/src/detail-surfaces/DetailSurfaceHostContext.tsx`
+- `apps/app/src/detail-surfaces/DetailSurfaceBaseRenderer.tsx`
+- `apps/app/src/detail-surfaces/detailSurfaceBase.ts`
 - `apps/app/src/hooks/useMapInteraction.ts`
 - `apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.web.tsx`
 - `apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.native.tsx`
@@ -77,7 +85,7 @@ These decisions are locked for implementation:
 - `CanonicalAddressRouteScreen` stays the route-level orchestrator
 - A new `DetailSurfaceHost` owns presentation and layering
 - `DetailSurfaceHost` renders `base`, `base + property`, or `base + property + comments|guesses`
-- The host must render the actual underlying `map`, `feed`, or `saved` tab instance beneath overlays, not an overlay-only replica
+- The host must render the actual underlying invoking screen beneath overlays when it already exists in navigation state, including `map`, `feed`, `saved`, `profile`, `leaderboard`, and `notifications`
 - `returnTo=/feed` and `returnTo=/saved` must preserve the exact existing tab instance, including scroll position, filters, loaded pages, and other mounted UI state
 - Map preview card remains the first interaction step; promotion into canonical property details happens only when the user opens full property details
 - Property surface parity means the same content and dismissal model everywhere; matching snap points and partial-expansion behavior is explicitly not required
@@ -193,12 +201,13 @@ The implementation must provide one shared overlay host for canonical property d
 
 The architecture is fixed as follows:
 
-- `DetailSurfaceHost` lives in `apps/app/app/(tabs)/_layout.tsx`
-- The host sits above the real tab content so the actual mounted `map`, `feed`, or `saved` screen instance remains visible and stateful beneath overlays
+- `DetailSurfaceHost` lives in `apps/app/app/_layout.tsx`
+- The host sits above the real root stack content so the actual mounted invoking screen instance remains visible and stateful beneath overlays
 - `CanonicalAddressRouteScreen` remains the route-level resolver/orchestrator, but it no longer acts as a standalone visual page presenter
 - Canonical property-family route screens become surface-content producers consumed by the host
 - The current hidden `[...address]` tab route structure cannot remain the final presentation model because it swaps away from the mounted base tab instance
-- The canonical address entry route should move to a sibling stack route above `(tabs)` so it can own the URL while `DetailSurfaceHost` inside `(tabs)` owns the visible stack
+- The canonical property-family entry route should move to sibling root stack routes above `(tabs)` so it can own the URL while `DetailSurfaceHost` in the root layout owns the visible stack
+- Map preview and camera routes stay tab-owned because they are base map states, not detail-surface layers
 - Route-to-host communication must be explicit and deterministic; the host may not infer state from ad hoc local component state
 
 The host must derive and preserve:
@@ -215,7 +224,7 @@ Implications:
 - feed/saved detail navigation cannot be implemented by rendering a feed-like replica beneath overlays
 - direct `/address/comments` and `/address/guesses` entry must synthesize `map + property + child`
 - close and back behavior must mutate the canonical URL in lockstep with the host stack
-- visual presentation ownership moves out of route screens and into the tabs-layout host
+- visual presentation ownership moves out of route screens and into the root-layout host
 
 That host must be able to:
 
@@ -245,8 +254,8 @@ Do this before broad screen migration.
 
 Requirements:
 
-- mount `DetailSurfaceHost` in `apps/app/app/(tabs)/_layout.tsx`
-- move canonical address entry out of the hidden tabs presentation path and into a sibling stack route above `(tabs)`
+- mount `DetailSurfaceHost` in `apps/app/app/_layout.tsx`
+- move canonical property-family entry out of the hidden tabs presentation path and into sibling root stack routes above `(tabs)`
 - make `CanonicalAddressRouteScreen` produce resolved stack state for the host rather than a full-screen replacement branch
 - preserve the currently mounted base tab instance underneath overlays
 - support `base`, `base + property`, and `base + property + comments|guesses`
@@ -395,7 +404,7 @@ Requirements for this refactor:
 The host placement is decided, but the implementation still has to coordinate three layers cleanly:
 
 - root stack route ownership
-- tabs-layout visual host ownership
+- root-layout visual host ownership
 - route-state propagation between them
 
 This is the main engineering risk and must be implemented deliberately.
@@ -487,7 +496,7 @@ Add or update Maestro flows for:
 
 Before the full refactor, do a narrow architecture spike that proves the core contract without narrowing product scope for the final implementation:
 
-1. Build the tabs-layout `DetailSurfaceHost`
+1. Build the root-layout `DetailSurfaceHost`
 2. Move canonical address ownership onto the root stack + host path
 3. Prove one nested `map + property + comments` stack end-to-end
 4. Verify:
