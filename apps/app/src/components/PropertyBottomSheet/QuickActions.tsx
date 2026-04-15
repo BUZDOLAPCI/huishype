@@ -42,7 +42,6 @@ export function QuickActions({
     <SectionCard
       title="Take Action"
       icon="flash-outline"
-      description="React, save, or share without leaving the detail surface."
     >
       <SharedQuickActions
         isLiked={property.isLiked}
