@@ -41,6 +41,7 @@ import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-rout
 
 import type { AchievementDefinition } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
+import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
 
 // --- Activity event config ---
 
@@ -455,8 +456,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Bottom padding for floating tab bar */}
-        <View style={{ height: 96 }} />
+        <View style={{ height: PROFILE_TAB_BAR_SPACER }} />
       </ScrollView>
     </View>
   );
