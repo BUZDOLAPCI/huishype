@@ -12,9 +12,9 @@ Unify the full property-detail family across map, feed, saved, and other list-st
 
 The contract is:
 
-- Native scope is portrait only
+- Native scope is portrait only. This plan does not introduce or require any native landscape-specific UI.
 - Portrait uses stacked bottom sheets everywhere
-- Landscape and other wide layouts use side-by-side right panels everywhere
+- Landscape and other wide layouts use side-by-side right panels everywhere on web only
 - The same canonical routes power every full detail surface, regardless of entry point
 - Direct deep links must build the same visible stack as in-app navigation, not a special standalone page
 
@@ -82,7 +82,7 @@ Rules:
 
 ### Portrait Contract
 
-Portrait is the canonical mobile behavior on both web and native.
+Portrait is the canonical behavior on native and on narrow web layouts.
 
 Rules:
 
@@ -101,7 +101,9 @@ Concrete examples:
 
 ### Landscape Contract
 
-Landscape applies to web and other wide layouts. Native is portrait-only and does not need a separate landscape behavior in this plan.
+Landscape applies to web and other wide layouts only.
+
+Native is portrait-only. Rotated phones, tablets, and other native wide layouts are explicitly out of scope for this plan and should continue using the portrait behavior rather than introducing a native side-panel mode.
 
 Rules:
 
@@ -314,6 +316,7 @@ Requirements for this refactor:
 - native portrait bottom-sheet parity
 - web portrait bottom-sheet parity
 - web wide-layout side-panel parity
+- no native landscape-specific layout work
 
 ## Risks And Unknowns
 
@@ -386,12 +389,13 @@ Add or update Maestro flows for:
 - "View all comments" always opens the canonical comments surface
 - "View all guesses" always opens the canonical guesses surface
 - Portrait always uses stacked bottom sheets for `property -> comments|guesses`
-- Wide layouts always use side-by-side panels for `base -> property -> comments|guesses`
+- Web wide layouts always use side-by-side panels for `base -> property -> comments|guesses`
 - Comments and guesses never replace property details
 - Direct canonical entry without `returnTo` defaults to a map-backed stack
 - Close and back behavior consistently walk top layer -> property -> base
 - Feed and saved remain centered and width-constrained on wide screens
 - Native achieves portrait bottom-sheet parity
+- Native remains portrait-only with no landscape-specific panel mode introduced
 - Required tests are added or updated and pass
 
 ## Recommended First Spike
