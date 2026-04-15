@@ -14303,8 +14303,21 @@
               "id": "k3sZn",
               "name": "Price Guess Section",
               "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 16,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#1A191808",
+                "offset": {
+                  "x": 0,
+                  "y": 2
+                },
+                "blur": 12
+              },
               "layout": "vertical",
               "gap": 16,
+              "padding": 18,
               "children": [
                 {
                   "type": "frame",
@@ -14379,11 +14392,11 @@
                   "id": "PA7zN",
                   "name": "FMV Visualization",
                   "width": "fill_container",
-                  "fill": "#FFFFFF",
-                  "cornerRadius": 16,
+                  "fill": "#FFFFFF00",
                   "effect": {
                     "type": "shadow",
                     "shadowType": "outer",
+                    "enabled": false,
                     "color": "#1A191808",
                     "offset": {
                       "x": 0,
@@ -14393,7 +14406,6 @@
                   },
                   "layout": "vertical",
                   "gap": 14,
-                  "padding": 18,
                   "children": [
                     {
                       "type": "text",
@@ -14725,11 +14737,11 @@
                   "id": "ncnzn",
                   "name": "Consensus Alignment",
                   "width": "fill_container",
-                  "fill": "#FFFFFF",
-                  "cornerRadius": 16,
+                  "fill": "#FFFFFF00",
                   "effect": {
                     "type": "shadow",
                     "shadowType": "outer",
+                    "enabled": false,
                     "color": "#1A191808",
                     "offset": {
                       "x": 0,
@@ -14739,7 +14751,6 @@
                   },
                   "layout": "vertical",
                   "gap": 14,
-                  "padding": 18,
                   "children": [
                     {
                       "type": "frame",
