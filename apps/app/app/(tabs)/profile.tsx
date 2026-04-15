@@ -14,6 +14,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -190,15 +191,29 @@ export default function ProfileScreen() {
   }, [editName, updateProfile]);
 
   const handleLogout = useCallback(() => {
+    setShowSettings(false);
+
+    if (Platform.OS === 'web') {
+      const shouldSignOut =
+        typeof globalThis.confirm !== 'function' ||
+        globalThis.confirm('Are you sure you want to sign out?');
+
+      if (shouldSignOut) {
+        void signOut();
+      }
+      return;
+    }
+
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign Out',
         style: 'destructive',
-        onPress: () => signOut(),
+        onPress: () => {
+          void signOut();
+        },
       },
     ]);
-    setShowSettings(false);
   }, [signOut]);
 
   // --- Not logged in ---

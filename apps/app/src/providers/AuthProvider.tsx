@@ -33,8 +33,9 @@ const TOKEN_EXPIRY_KEY = 'huishype_token_expiry';
 
 const API_BASE_URL = API_URL;
 
-// Google OAuth config
-const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
+function getGoogleClientId(): string {
+  return process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
+}
 
 // Types
 export interface AuthUser extends User {
@@ -309,6 +310,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
    */
   const signInWithGoogle = useCallback(async () => {
     try {
+      const googleClientId = getGoogleClientId();
+
+      if (!googleClientId) {
+        throw new Error(
+          'Google Sign-In is not configured for this app build. Set EXPO_PUBLIC_GOOGLE_CLIENT_ID in apps/app/.env and restart Expo.'
+        );
+      }
+
       setState((prev) => ({ ...prev, isLoading: true }));
 
       // Create auth request
@@ -323,7 +332,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
 
       const request = new AuthSession.AuthRequest({
-        clientId: GOOGLE_CLIENT_ID,
+        clientId: googleClientId,
         scopes: ['openid', 'email', 'profile'],
         redirectUri,
         responseType: AuthSession.ResponseType.IdToken,

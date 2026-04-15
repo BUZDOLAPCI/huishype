@@ -12,6 +12,8 @@ import { act, renderHook } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 
+process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID = 'test-google-client-id';
+
 // ---------------------------------------------------------------------------
 // Mocks - must be declared before any import that touches the mocked modules
 // ---------------------------------------------------------------------------
@@ -136,6 +138,7 @@ describe('AuthProvider startup token refresh', () => {
     mockMakeRedirectUri.mockClear();
     mockPromptAsync.mockReset();
     mockAuthRequest.mockClear();
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID = 'test-google-client-id';
   });
 
   it('refreshes an expired token on boot and exposes the new token in context', async () => {
@@ -266,5 +269,42 @@ describe('AuthProvider startup token refresh', () => {
       })
     );
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast with a clear error when the Google client ID is missing', async () => {
+    const originalClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    delete process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+
+    try {
+      const { result } = renderHook(() => useAuthContext(), { wrapper });
+      await settleAuthBoot();
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.signInWithGoogle();
+        } catch (error) {
+          thrownError = error;
+        }
+      });
+
+      expect(thrownError).toEqual(
+        expect.objectContaining({
+          message:
+            'Google Sign-In is not configured for this app build. Set EXPO_PUBLIC_GOOGLE_CLIENT_ID in apps/app/.env and restart Expo.',
+        })
+      );
+
+      expect(mockAuthRequest).not.toHaveBeenCalled();
+      expect(mockPromptAsync).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+      if (originalClientId === undefined) {
+        delete process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+      } else {
+        process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID = originalClientId;
+      }
+    }
   });
 });
