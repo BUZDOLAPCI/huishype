@@ -30,6 +30,7 @@ import {
   getSectionScrollTarget,
 } from './sectionScroll';
 import { useIsLandscape } from '../../hooks/useIsLandscape';
+import { TAB_BAR_DOCK_HEIGHT } from '../navigation/tabBarMetrics';
 
 type SheetState = 'closed' | 'peek' | 'partial' | 'full';
 
@@ -104,14 +105,13 @@ if (typeof document !== 'undefined') {
     }
 
     /* ===== Portrait: bottom sheet (slides up from bottom) ===== */
-    /* bottom: 49px positions the sheet above the tab bar, matching native
-       @gorhom/bottom-sheet which renders within the content area above the tab bar */
+    /* Keep the portrait sheet clear of the custom bottom dock. */
     .web-property-panel--portrait {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 49px;
-      height: calc(92vh - 49px);
+      bottom: ${TAB_BAR_DOCK_HEIGHT}px;
+      height: calc(92vh - ${TAB_BAR_DOCK_HEIGHT}px);
       background: white;
       z-index: 2001;
       border-radius: 16px 16px 0 0;

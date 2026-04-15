@@ -1,0 +1,8 @@
+export const TAB_BAR_DOCK_HEIGHT = 106;
+export const TAB_BAR_DOCK_PANEL_HEIGHT = 105;
+export const TAB_BAR_DOCK_TOP_PADDING = 10;
+export const TAB_BAR_DOCK_BOTTOM_PADDING = 22;
+export const TAB_BAR_SEGMENT_HEIGHT = 50;
+export const TAB_BAR_SEGMENT_GAP = 8;
+export const TAB_BAR_SEGMENT_SIDE_PADDING = 12;
+export const PROFILE_TAB_BAR_SPACER = TAB_BAR_DOCK_HEIGHT + 24;
