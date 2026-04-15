@@ -9,18 +9,19 @@ import { savedPropertyKeys } from '../useSavedProperties';
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
 let mockAuthUser: typeof mockUser | null = mockUser;
+const mockGetAccessToken = jest.fn<Promise<string | null>, []>();
 
 jest.mock('../../providers/AuthProvider', () => ({
   useAuthContext: () => ({
     user: mockAuthUser,
     isAuthenticated: !!mockAuthUser,
-    accessToken: mockAuthUser ? 'mock-token' : null,
+    accessToken: mockAuthUser ? 'stale-token' : null,
     isLoading: false,
     authError: null,
     signInWithGoogle: jest.fn(),
     signInWithMockToken: jest.fn(),
     signOut: jest.fn(),
-    getAccessToken: jest.fn(),
+    getAccessToken: mockGetAccessToken,
     refreshAuth: jest.fn(),
   }),
 }));
@@ -65,6 +66,8 @@ describe('usePropertySave', () => {
     queryClient = createQueryClient();
     mockAuthUser = mockUser;
     mockFetch.mockReset();
+    mockGetAccessToken.mockReset();
+    mockGetAccessToken.mockResolvedValue('fresh-token');
   });
 
   afterEach(() => {
@@ -127,6 +130,23 @@ describe('usePropertySave', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('calls onAuthRequired when the access token cannot be refreshed', async () => {
+    mockGetAccessToken.mockResolvedValueOnce(null);
+    const onAuthRequired = jest.fn();
+
+    const { result } = renderHook(
+      () => usePropertySave({ propertyId: 'prop-auth-missing', onAuthRequired }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      await result.current.toggleSave();
+    });
+
+    expect(onAuthRequired).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('toggleSave fires save mutation and optimistically updates cache', async () => {
     const propertyId = 'prop-2';
     const queryKey = propertyKeys.detail(propertyId);
@@ -175,7 +195,19 @@ describe('usePropertySave', () => {
     // Verify fetch was called with POST
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/save`,
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer fresh-token',
+        }),
+      })
+    );
+    expect(mockFetch.mock.calls[0]?.[1]).not.toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Content-Type': expect.anything(),
+        }),
+      })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey })
@@ -233,7 +265,19 @@ describe('usePropertySave', () => {
     // Verify fetch was called with DELETE
     expect(mockFetch).toHaveBeenCalledWith(
       `http://localhost:3100/properties/${propertyId}/save`,
-      expect.objectContaining({ method: 'DELETE' })
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer fresh-token',
+        }),
+      })
+    );
+    expect(mockFetch.mock.calls[0]?.[1]).not.toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Content-Type': expect.anything(),
+        }),
+      })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey })

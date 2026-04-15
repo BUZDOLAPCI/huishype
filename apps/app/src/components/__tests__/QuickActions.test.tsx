@@ -24,6 +24,22 @@ describe('QuickActions', () => {
     expect(screen.getByTestId('quick-action-share')).toBeTruthy();
   });
 
+  it('shows active labels in the full variant', () => {
+    render(
+      <QuickActions
+        variant="full"
+        isLiked
+        isSaved
+        onLike={jest.fn()}
+        onSave={jest.fn()}
+        onShare={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Liked')).toBeTruthy();
+    expect(screen.getByText('Saved')).toBeTruthy();
+  });
+
   it('calls onLike when Like is pressed', () => {
     const onLike = jest.fn();
     render(<QuickActions onLike={onLike} />);

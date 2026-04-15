@@ -14,6 +14,8 @@ import { Icon, type IconName, type IconWeight } from './ui/Icon';
 
 export type QuickActionsVariant = 'compact' | 'full';
 
+const FULL_ACTION_BASE_COLOR = '#504A42';
+
 export interface QuickActionsProps {
   /** Whether the user has liked this property. */
   isLiked?: boolean;
@@ -160,7 +162,12 @@ function ActionButton({
   action: ActionConfig;
   variant: QuickActionsVariant;
 }) {
-  const color = action.isActive ? action.activeColor : action.color;
+  const color =
+    variant === 'full' && !action.isActive
+      ? FULL_ACTION_BASE_COLOR
+      : action.isActive
+        ? action.activeColor
+        : action.color;
   const weight = action.isActive ? action.activeWeight : action.weight;
   const label = action.isActive && action.activeLabel ? action.activeLabel : action.label;
 

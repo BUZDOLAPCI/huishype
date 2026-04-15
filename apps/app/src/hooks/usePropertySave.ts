@@ -77,7 +77,6 @@ async function saveProperty(propertyId: string, accessToken: string): Promise<{ 
   const response = await fetch(`${API_URL}/properties/${propertyId}/save`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       'Authorization': `Bearer ${accessToken}`,
     },
   });
@@ -98,7 +97,6 @@ async function unsaveProperty(propertyId: string, accessToken: string): Promise<
   const response = await fetch(`${API_URL}/properties/${propertyId}/save`, {
     method: 'DELETE',
     headers: {
-      'Content-Type': 'application/json',
       'Authorization': `Bearer ${accessToken}`,
     },
   });
@@ -120,7 +118,7 @@ export function usePropertySave({
   onAuthRequired,
 }: UsePropertySaveOptions): UsePropertySaveReturn {
   const queryClient = useQueryClient();
-  const { user, accessToken } = useAuthContext();
+  const { user, getAccessToken } = useAuthContext();
 
   // Subscribe to the property detail query cache reactively
   const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
@@ -230,7 +228,13 @@ export function usePropertySave({
     if (!propertyId) return;
 
     // Auth gate
-    if (!user || !accessToken) {
+    if (!user) {
+      onAuthRequired?.();
+      return;
+    }
+
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
       onAuthRequired?.();
       return;
     }
@@ -245,7 +249,7 @@ export function usePropertySave({
     } catch {
       // Errors are reflected through mutation state and rollback logic.
     }
-  }, [propertyId, user, accessToken, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
+  }, [propertyId, user, getAccessToken, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
 
   return {
     isSaved,
