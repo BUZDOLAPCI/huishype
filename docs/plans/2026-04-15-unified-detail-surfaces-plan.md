@@ -23,6 +23,7 @@ The target UX is:
 - Tapping a property anywhere opens the property details surface
 - Tapping "View all comments" anywhere opens the comments surface
 - Tapping "View all guesses" anywhere opens the guesses surface
+- The property detail guesses preview includes an explicit inline CTA beside the count text, matching the intended "28 people have guessed    View guesses ->" treatment
 - The invoking screen remains visible underneath or alongside the detail surfaces
 - Comments and guesses never replace property details; they layer above it on portrait and beside it on landscape
 
@@ -41,26 +42,52 @@ This creates inconsistent behavior:
 - Feed and saved card taps push a canonical property route that behaves like a page, not a shared detail surface
 - Map quick-action comments already navigate to the canonical comments route, but the comments route does not preserve the same stack model as property details
 - The inline comments section in the map detail surface does not navigate for "View all comments" because the map sheet never passes `onViewAllComments`
+- The inline guesses preview does not currently expose the equivalent "View guesses" CTA even though the canonical guesses route exists
 - Native comments and guesses routes are still full-screen pages rather than bottom sheets
 
 ## Source Files Involved
 
+- `apps/app/app/(tabs)/_layout.tsx`
+- `apps/app/app/(tabs)/[...address].tsx`
 - `apps/app/app/(tabs)/feed.tsx`
 - `apps/app/app/(tabs)/saved.tsx`
-- `apps/app/app/[...address].tsx`
+- `apps/app/app/(tabs)/index.tsx`
+- `apps/app/app/(tabs)/index.web.tsx`
+- `apps/app/app/_layout.tsx`
+- `apps/app/src/screens/CanonicalAddressRouteScreen.tsx`
 - `apps/app/src/hooks/useMapInteraction.ts`
 - `apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.web.tsx`
 - `apps/app/src/components/PropertyBottomSheet/PropertyBottomSheet.native.tsx`
+- `apps/app/src/components/PropertyBottomSheet/types.ts`
 - `apps/app/src/components/PropertyBottomSheet/PropertyContent.tsx`
 - `apps/app/src/components/PropertyBottomSheet/CommentsSection.tsx`
+- `apps/app/src/components/PropertyBottomSheet/PriceGuessSection.tsx`
 - `apps/app/src/components/ui/ResponsivePanel.web.tsx`
 - `apps/app/src/components/ui/ResponsivePanel.native.tsx`
 - `apps/app/src/screens/PropertyDetailRouteScreen.tsx`
 - `apps/app/src/screens/CommentsRouteScreen.tsx`
 - `apps/app/src/screens/GuessesRouteScreen.tsx`
-- `apps/app/app/_layout.tsx`
 
 ## Contract
+
+### Resolved Product Decisions
+
+These decisions are locked for implementation:
+
+- `CanonicalAddressRouteScreen` stays the route-level orchestrator
+- A new `DetailSurfaceHost` owns presentation and layering
+- `DetailSurfaceHost` renders `base`, `base + property`, or `base + property + comments|guesses`
+- The host must render the actual underlying `map`, `feed`, or `saved` tab instance beneath overlays, not an overlay-only replica
+- `returnTo=/feed` and `returnTo=/saved` must preserve the exact existing tab instance, including scroll position, filters, loaded pages, and other mounted UI state
+- Map preview card remains the first interaction step; promotion into canonical property details happens only when the user opens full property details
+- Property surface parity means the same content and dismissal model everywhere; matching snap points and partial-expansion behavior is explicitly not required
+- On portrait, comments and guesses fully cover property while preserving it underneath
+- On wide web layouts, property and comments/guesses use equal-width right panels
+- When `returnTo` is missing, direct canonical entry defaults to a map-backed stack
+- Browser back and native back must traverse every visible layer in order
+- "View all comments" always routes to canonical comments; there is no inline-expand main path
+- "View all guesses" always routes to canonical guesses; there is no inline-expand main path
+- The implementation ships as a full `property + comments + guesses` rollout, not a comments-only product slice
 
 ### Surface Stack Model
 
@@ -158,10 +185,37 @@ Implication:
 - Map can keep its lightweight preview interaction model
 - Once the user opens the full property details surface, the app should promote into the same canonical route-driven surface stack used by feed and saved
 - `CommentsSection` and guesses previews remain inline preview content inside property details, but the main CTA always routes to the canonical second-level surface
+- The guesses preview must expose that main CTA directly in the section chrome beside the count copy, not hide it behind a separate full-screen-only path
 
 ## Target Architecture
 
 The implementation must provide one shared overlay host for canonical property detail routes.
+
+The architecture is fixed as follows:
+
+- `DetailSurfaceHost` lives in `apps/app/app/(tabs)/_layout.tsx`
+- The host sits above the real tab content so the actual mounted `map`, `feed`, or `saved` screen instance remains visible and stateful beneath overlays
+- `CanonicalAddressRouteScreen` remains the route-level resolver/orchestrator, but it no longer acts as a standalone visual page presenter
+- Canonical property-family route screens become surface-content producers consumed by the host
+- The current hidden `[...address]` tab route structure cannot remain the final presentation model because it swaps away from the mounted base tab instance
+- The canonical address entry route should move to a sibling stack route above `(tabs)` so it can own the URL while `DetailSurfaceHost` inside `(tabs)` owns the visible stack
+- Route-to-host communication must be explicit and deterministic; the host may not infer state from ad hoc local component state
+
+The host must derive and preserve:
+
+- `base` from `returnTo` when present
+- `base = map` when `returnTo` is missing
+- `property` as layer 1 whenever the canonical route kind is `property`, `comments`, or `guesses`
+- `comments` or `guesses` as layer 2 when present
+- browser and native back progression that matches the visible stack
+- the exact mounted base tab instance, not a remounted clone
+
+Implications:
+
+- feed/saved detail navigation cannot be implemented by rendering a feed-like replica beneath overlays
+- direct `/address/comments` and `/address/guesses` entry must synthesize `map + property + child`
+- close and back behavior must mutate the canonical URL in lockstep with the host stack
+- visual presentation ownership moves out of route screens and into the tabs-layout host
 
 That host must be able to:
 
@@ -172,7 +226,7 @@ That host must be able to:
 - derive the base surface from `returnTo` or infer map when missing
 - preserve canonical URLs, browser history, and native back behavior
 
-Any implementation is acceptable if it satisfies that contract, but the architecture must support:
+The architecture must support:
 
 - `base`
 - `base + property`
@@ -181,24 +235,25 @@ Any implementation is acceptable if it satisfies that contract, but the architec
 
 without falling back to full-screen route replacement.
 
-Route screen responsibilities should narrow to surface content, while the host owns presentation and stack orchestration.
+Route screen responsibilities should narrow to surface content and route-state production, while the host owns presentation and stack orchestration.
 
 ## Refactor Strategy
 
-### Phase 0: Lock The Overlay Host Architecture
+### Phase 0: Implement The Host Architecture Baseline
 
 Do this before broad screen migration.
 
-Decide and prove the route/layout structure that can:
+Requirements:
 
-- preserve the invoking surface instead of replacing it
-- render two simultaneous detail surfaces when needed
-- keep canonical address URLs
-- keep browser history coherent
-- keep native back behavior coherent
+- mount `DetailSurfaceHost` in `apps/app/app/(tabs)/_layout.tsx`
+- move canonical address entry out of the hidden tabs presentation path and into a sibling stack route above `(tabs)`
+- make `CanonicalAddressRouteScreen` produce resolved stack state for the host rather than a full-screen replacement branch
+- preserve the currently mounted base tab instance underneath overlays
+- support `base`, `base + property`, and `base + property + comments|guesses`
+- keep canonical URLs, browser history, and native back coherent
 - synthesize the default map-backed stack for direct entry
 
-No large migration should start until this architecture is proven with a narrow spike.
+No broad surface migration should start until this baseline is working end-to-end.
 
 ### Phase 1: Define A Shared Route Surface Primitive
 
@@ -217,6 +272,14 @@ This should replace the current split between:
 - full-page canonical route screens
 - map-specific full-detail surface presentation
 
+The primitive must satisfy these presentation rules:
+
+- portrait uses bottom sheets on native and narrow web
+- wide web uses right-side panels
+- comments and guesses fully cover property on portrait while leaving property mounted underneath
+- wide web uses equal-width property and child panels
+- dismissal behavior is uniform across map, feed, saved, and direct entry
+
 ### Phase 2: Move Property, Comments, And Guesses Onto The Shared Surface Model
 
 Refactor the route screens so they act as content for the shared host instead of standalone pages.
@@ -227,6 +290,10 @@ Requirements:
 - `CommentsRouteScreen` becomes the layer-2 comments surface
 - `GuessesRouteScreen` becomes the layer-2 guesses surface
 - comments and guesses preserve the property surface underneath or beside them
+- `PriceGuessSection` gains an explicit inline "View guesses" CTA beside the participation count text and routes through the same canonical guesses surface as every other entry point
+- `PropertyBottomSheetProps` gains `onViewAllComments` and `onViewAllGuesses`
+- `PropertyContent` passes `onViewAllGuesses` through to `PriceGuessSection`
+- `PriceGuessSection` stops being inline-only and exposes the canonical route CTA in shared property surfaces
 
 ### Phase 3: Unify Entry Points
 
@@ -240,6 +307,9 @@ Requirements:
 - map property open flows promote into canonical `property` while preserving map underneath
 - "View all comments" always routes to canonical `comments`
 - "View all guesses" always routes to canonical `guesses`
+- the property detail guesses preview always shows a visible "View guesses" CTA beside the count text, on both map-driven and canonical property surfaces
+- map-driven property surfaces stop using inline-scroll as the main comments/guesses navigation path
+- feed and saved must resume on the exact same mounted list state after dismissing overlays
 
 At the end of this phase there should be no main CTA path that still expands inline instead of routing.
 
@@ -320,11 +390,15 @@ Requirements for this refactor:
 
 ## Risks And Unknowns
 
-### Overlay Host Placement
+### Tabs Host Coordination
 
-The biggest engineering decision is where the host lives and how canonical address routes drive it without replacing the base screen.
+The host placement is decided, but the implementation still has to coordinate three layers cleanly:
 
-That needs to be settled first.
+- root stack route ownership
+- tabs-layout visual host ownership
+- route-state propagation between them
+
+This is the main engineering risk and must be implemented deliberately.
 
 ### Route-State Synthesis
 
@@ -344,6 +418,14 @@ The map already owns selection and preview flows. The migration must avoid:
 - creating duplicate full-detail implementations
 - leaving map as the only entry point that still behaves differently
 
+### Mounted Base Preservation
+
+The plan depends on keeping the actual base tab instance mounted. The implementation must avoid:
+
+- remounting feed/saved/map when overlays open
+- resetting feed/saved scroll position or filters
+- losing fetched pages or query state because the base screen was replaced instead of overlaid
+
 ## Verification Plan
 
 ### Unit / Component
@@ -352,6 +434,7 @@ The map already owns selection and preview flows. The migration must avoid:
 - synthesized stack resolution tests for direct entry
 - responsive route-surface behavior tests
 - comments and guesses CTA routing tests
+- guesses preview CTA render/placement tests for the "count on the left, View guesses on the right" treatment
 - close/back stack transition tests
 
 ### Web E2E
@@ -363,6 +446,7 @@ Add or update Playwright tests for:
 - property surface -> comments surface
 - property surface -> guesses surface
 - map property -> comments surface
+- map property -> guesses surface via the inline "View guesses" CTA
 - portrait stacked-sheet behavior for canonical property/comments/guesses routes
 - wide-layout side-by-side behavior for `base + property`
 - wide-layout side-by-side behavior for `base + property + comments`
@@ -388,6 +472,7 @@ Add or update Maestro flows for:
 - Feed, saved, and map all open the same canonical property detail surface model
 - "View all comments" always opens the canonical comments surface
 - "View all guesses" always opens the canonical guesses surface
+- The guesses preview shows the count text and a right-aligned "View guesses" CTA in the same row, matching the intended compact summary treatment
 - Portrait always uses stacked bottom sheets for `property -> comments|guesses`
 - Web wide layouts always use side-by-side panels for `base -> property -> comments|guesses`
 - Comments and guesses never replace property details
@@ -400,15 +485,17 @@ Add or update Maestro flows for:
 
 ## Recommended First Spike
 
-Before the full refactor, do a narrow spike that proves the core contract:
+Before the full refactor, do a narrow architecture spike that proves the core contract without narrowing product scope for the final implementation:
 
-1. Build the overlay host for one base surface plus nested detail layers
-2. Migrate only `comments` through that host
-3. Verify:
+1. Build the tabs-layout `DetailSurfaceHost`
+2. Move canonical address ownership onto the root stack + host path
+3. Prove one nested `map + property + comments` stack end-to-end
+4. Verify:
+   - the base tab instance remains mounted underneath
    - portrait stacked bottom sheets
    - wide-layout side-by-side panels
-   - property remains visible when comments opens
+   - property remains mounted when comments opens
    - direct `/comments` entry synthesizes `map + property + comments`
    - close/back returns `comments -> property -> base`
 
-If that spike is solid, migrate property opening and guesses next.
+If that spike is solid, continue immediately into the full `property + comments + guesses` rollout in the same architecture.
