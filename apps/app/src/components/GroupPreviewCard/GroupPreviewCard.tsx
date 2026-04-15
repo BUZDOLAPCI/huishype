@@ -492,6 +492,9 @@ export function GroupPreviewCard({
   const previewData = {
     id: currentProperty.id,
     address: currentProperty.address,
+    streetName: currentProperty.streetName,
+    houseNumber: currentProperty.houseNumber,
+    houseNumberAddition: currentProperty.houseNumberAddition,
     city: currentProperty.city,
     postalCode: currentProperty.postalCode,
     countryCode: currentProperty.countryCode,

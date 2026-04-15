@@ -92,27 +92,9 @@ export const guessKeys = {
     [...guessKeys.property(propertyId), 'user', userId] as const,
 };
 
-// Cooldown period in milliseconds (5 days)
-const COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
-
-// Helper to check if cooldown has passed
-function canEditGuess(guess: PriceGuess): boolean {
-  const updatedAt = new Date(guess.updatedAt).getTime();
-  const cooldownEnd = updatedAt + COOLDOWN_MS;
-  return Date.now() >= cooldownEnd;
-}
-
-// Helper to get cooldown end date
-function getCooldownEndDate(guess: PriceGuess): string | null {
-  const updatedAt = new Date(guess.updatedAt).getTime();
-  const cooldownEnd = updatedAt + COOLDOWN_MS;
-  if (Date.now() >= cooldownEnd) return null;
-  return new Date(cooldownEnd).toISOString();
-}
-
 /**
  * Hook to fetch price guess data for a property
- * Returns FMV statistics, user's guess, and cooldown status
+ * Returns FMV statistics and the current user's guess for a property
  */
 export function useFetchPriceGuess(propertyId: string | null, userId?: string | null) {
   return useQuery({
@@ -147,15 +129,11 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
         ? guesses.find(g => g.userId === userId) ?? null
         : null;
 
-      // Check cooldown status
-      const canEdit = userGuess ? canEditGuess(userGuess) : true;
-      const cooldownEndsAt = userGuess ? getCooldownEndDate(userGuess) : null;
-
       return {
         userGuess,
         fmv,
-        canEdit,
-        cooldownEndsAt,
+        canEdit: true,
+        cooldownEndsAt: null,
         guesses,
       };
     },
@@ -167,7 +145,7 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
 
 /**
  * Hook to submit or update a price guess
- * Handles cooldown errors and invalidates queries on success
+ * Invalidates dependent queries on success
  */
 export function useSubmitGuess() {
   const queryClient = useQueryClient();

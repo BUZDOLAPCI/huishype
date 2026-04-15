@@ -16,7 +16,6 @@ jest.mock('../../../hooks/usePriceGuess', () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
   }),
-  formatCooldownRemaining: () => '2 days',
 }));
 
 jest.mock('../../PriceGuessSlider', () => ({
@@ -131,7 +130,7 @@ describe('PriceGuessSection', () => {
     expect(mockMutateAsync).not.toHaveBeenCalled();
   });
 
-  it('disables the slider only when guess cooldown is active', () => {
+  it('keeps the slider enabled even if stale cooldown fields are present', () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'user-1' },
       isAuthenticated: true,
@@ -165,7 +164,7 @@ describe('PriceGuessSection', () => {
 
     const screen = render(<PriceGuessSection property={property} />);
 
-    expect(screen.getByTestId('price-guess-slider-disabled').props.children).toBe('true');
-    expect(screen.getByText('Cooldown Active')).toBeTruthy();
+    expect(screen.getByTestId('price-guess-slider-disabled').props.children).toBe('false');
+    expect(screen.queryByText('Cooldown Active')).toBeNull();
   });
 });

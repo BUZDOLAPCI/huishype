@@ -16,7 +16,7 @@ import type { IconName } from './ui/Icon';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-export type FMVVisualizationVariant = 'compact' | 'full';
+export type FMVVisualizationVariant = 'compact' | 'full' | 'embedded';
 
 export interface FMVData {
   value: number | null;
@@ -307,6 +307,72 @@ export function FMVVisualization({
   const userGuessDiff = userGuess
     ? ((userGuess - fmv.value) / fmv.value) * 100
     : null;
+
+  if (variant === 'embedded') {
+    return (
+      <View testID={testID}>
+        <Text className="font-display-semibold text-[11px] uppercase tracking-[0.8px] text-[#9C9B99]">
+          Crowd Estimate
+        </Text>
+
+        <View className="mt-2 flex-row items-center gap-3">
+          <Animated.View style={valueAnimatedStyle}>
+            <Text
+              className="font-display-bold text-[32px] leading-[38px] tracking-[-1px] text-[#1A1918]"
+              testID="fmv-value"
+            >
+              {formatPrice(fmv.value, countryCode)}
+            </Text>
+          </Animated.View>
+
+          <View
+            className="flex-row items-center rounded-full px-2.5 py-1"
+            style={{
+              backgroundColor:
+                fmv.confidence === 'high'
+                  ? '#C8F0D8'
+                  : fmv.confidence === 'medium'
+                    ? '#F5E8BC'
+                    : '#F5E4DA',
+            }}
+          >
+            <Icon
+              name={
+                fmv.confidence === 'high'
+                  ? 'ShieldCheck'
+                  : fmv.confidence === 'medium'
+                    ? 'ChartLineUp'
+                    : 'Info'
+              }
+              size={12}
+              color={
+                fmv.confidence === 'high'
+                  ? '#3D8A5A'
+                  : fmv.confidence === 'medium'
+                    ? '#8C6A16'
+                    : '#B56D4E'
+              }
+            />
+            <Text
+              className="ml-1 font-display-semibold text-[11px]"
+              style={{
+                color:
+                  fmv.confidence === 'high'
+                    ? '#3D8A5A'
+                    : fmv.confidence === 'medium'
+                      ? '#8C6A16'
+                      : '#B56D4E',
+              }}
+            >
+              {confidenceInfo.label}
+            </Text>
+          </View>
+        </View>
+
+        <View className="mt-4 h-px bg-[#E5E4E1]" />
+      </View>
+    );
+  }
 
   return (
     <View className="p-4 bg-surface-card rounded-xl shadow-sm" testID={testID}>

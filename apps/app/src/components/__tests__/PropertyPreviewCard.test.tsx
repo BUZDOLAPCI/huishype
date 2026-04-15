@@ -17,8 +17,27 @@ describe('PropertyPreviewCard', () => {
   it('renders property address and city', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 
-    expect(screen.getByText('Teststraat 123')).toBeTruthy();
+    expect(screen.getByTestId('property-preview-address').props.children).toBe('Teststraat 123');
     expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
+  });
+
+  it('renders only the street line when the full address also contains postcode and city', () => {
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          address: 'Beeldbuisring 41, 5651 HA Eindhoven',
+          streetName: 'Beeldbuisring',
+          houseNumber: 41,
+          houseNumberAddition: null,
+          postalCode: '5651 HA',
+          city: 'Eindhoven',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-preview-address').props.children).toBe('Beeldbuisring 41');
+    expect(screen.getByText('Eindhoven, 5651 HA')).toBeTruthy();
   });
 
   it('displays formatted price when official valuation is present', () => {
@@ -95,7 +114,7 @@ describe('PropertyPreviewCard', () => {
     render(<PropertyPreviewCard property={mockProperty} onPress={onPress} />);
 
     // Press the card (the Pressable component wraps the entire content)
-    fireEvent.press(screen.getByText('Teststraat 123'));
+    fireEvent.press(screen.getByTestId('property-preview-address'));
 
     expect(onPress).toHaveBeenCalledTimes(1);
   });
@@ -119,7 +138,7 @@ describe('PropertyPreviewCard', () => {
     render(<PropertyPreviewCard property={propertyWithoutWozValue} />);
 
     // Should render without crashing
-    expect(screen.getByText('Teststraat 123')).toBeTruthy();
+    expect(screen.getByTestId('property-preview-address').props.children).toBe('Teststraat 123');
   });
 
   it('displays asking price when provided', () => {
@@ -249,5 +268,35 @@ describe('PropertyPreviewCard', () => {
 
     expect(screen.getByTestId('property-thumbnail-image')).toBeTruthy();
     expect(screen.queryByTestId('property-thumbnail-marker')).toBeNull();
+  });
+
+  it('shrinks long addresses instead of truncating with ellipsis', () => {
+    const longAddress = 'Beeldbuisring 41 A-12 Achterzijde';
+
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          address: longAddress,
+        }}
+      />
+    );
+
+    fireEvent(screen.getByTestId('property-preview-address-container'), 'layout', {
+      nativeEvent: { layout: { width: 150, height: 20, x: 0, y: 0 } },
+    });
+    fireEvent(screen.UNSAFE_getByProps({ testID: 'property-preview-address-measure' }), 'layout', {
+      nativeEvent: { layout: { width: 260, height: 20, x: 0, y: 0 } },
+    });
+
+    const addressText = screen.getByTestId('property-preview-address');
+
+    expect(addressText.props.children).toBe(longAddress);
+    expect(addressText.props.ellipsizeMode).toBe('clip');
+    expect(addressText.props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fontSize: 11.5 }),
+      ])
+    );
   });
 });

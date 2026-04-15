@@ -46,7 +46,7 @@ describe('GroupPreviewCard', () => {
           onClose={jest.fn()}
         />
       );
-      expect(screen.getByText('Teststraat 42')).toBeTruthy();
+      expect(screen.getByTestId('property-preview-address').props.children).toBe('Teststraat 42');
       expect(screen.getByText('Eindhoven, 5600 AA')).toBeTruthy();
     });
 
@@ -103,7 +103,7 @@ describe('GroupPreviewCard', () => {
         />
       );
       // Should render without crashing
-      expect(screen.getByText('Teststraat 42')).toBeTruthy();
+      expect(screen.getByTestId('property-preview-address').props.children).toBe('Teststraat 42');
     });
 
     it('fires onClose when close button on the card is pressed', () => {
@@ -130,7 +130,7 @@ describe('GroupPreviewCard', () => {
           onPropertyTap={onPropertyTap}
         />
       );
-      fireEvent.press(screen.getByText('Teststraat 42'));
+      fireEvent.press(screen.getByTestId('property-preview-address'));
       expect(onPropertyTap).toHaveBeenCalledWith(prop);
     });
 

@@ -7,9 +7,7 @@ import Animated, {
   withSpring,
   withSequence,
   withTiming,
-  interpolate,
   runOnJS,
-  Easing,
 } from 'react-native-reanimated';
 import {
   Gesture,
@@ -19,7 +17,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
-export type PriceGuessSliderVariant = 'compact' | 'full';
+export type PriceGuessSliderVariant = 'compact' | 'full' | 'embedded';
 
 export interface PriceGuessSliderProps {
   propertyId: string;
@@ -67,6 +65,23 @@ function formatPrice(price: number, countryCode?: string): string {
 function formatLabelPrice(price: number, countryCode?: string): string {
   // Keep the compact labels easy to match in the UI and tests.
   return formatPrice(price, countryCode).replace(/[\s\u00A0\u202F]/g, '');
+}
+
+function formatCompactPrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode, { compact: true })
+    .replace(/[\u00A0\u202F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatBubblePrice(price: number, countryCode?: string): string {
+  return formatPropertyPrice(price, countryCode as CountryCode, { compact: true })
+    .replace(/[\s\u00A0\u202F]+/g, '\u00A0')
+    .trim();
+}
+
+function hasSamePrice(left?: number, right?: number): boolean {
+  return left !== undefined && right !== undefined && left === right;
 }
 
 // Check if two positions are "near" each other (within 3%)
@@ -137,7 +152,7 @@ function ReferenceMarker({
 }
 
 export function PriceGuessSlider({
-  propertyId,
+  propertyId: _propertyId,
   countryCode,
   officialValuation,
   askingPrice,
@@ -168,6 +183,7 @@ export function PriceGuessSlider({
   // Refs
   const lastHapticPrice = useRef(initialPrice);
   const lastWOZCrossing = useRef<number | null>(null);
+  const lastSyncedUserGuess = useRef<number | undefined>(userGuess);
 
   // Throttled haptic feedback
   const triggerSelectionHaptic = useMemo(
@@ -344,18 +360,244 @@ export function PriceGuessSlider({
     [disabled, guessedPrice, thumbPosition, updatePrice, triggerSelectionHaptic]
   );
 
-  // Sync with external userGuess changes
+  // Only sync when the server-side submitted guess itself changes.
   useEffect(() => {
-    if (userGuess !== undefined && userGuess !== guessedPrice) {
-      setGuessedPrice(userGuess);
-      thumbPosition.value = withSpring(priceToPosition(userGuess), { damping: 15 });
+    if (userGuess === lastSyncedUserGuess.current || userGuess === undefined) {
+      return;
     }
-  }, [userGuess, guessedPrice, thumbPosition]);
+
+    lastSyncedUserGuess.current = userGuess;
+    lastHapticPrice.current = userGuess;
+    setGuessedPrice(userGuess);
+    thumbPosition.value = withSpring(priceToPosition(userGuess), { damping: 15 });
+  }, [userGuess, thumbPosition]);
+
+  const showPreviousGuessReference = !hasSamePrice(userGuess, guessedPrice);
 
   // Calculate reference marker positions
   const wozPosition = officialValuation ? priceToPosition(officialValuation) : null;
   const askingPosition = askingPrice ? priceToPosition(askingPrice) : null;
   const fmvPosition = currentFMV ? priceToPosition(currentFMV) : null;
+
+  if (variant === 'embedded') {
+    return (
+      <GestureHandlerRootView>
+        <View testID={testID}>
+          <View className="mb-4" onLayout={handleSliderLayout}>
+            <View className="relative mb-3.5 h-14">
+              {showPreviousGuessReference && userGuess !== undefined ? (
+                <View
+                  className="absolute top-0 items-center"
+                  style={{
+                    left: `${priceToPosition(userGuess) * 100}%`,
+                    transform: [{ translateX: -28 }],
+                  }}
+                  testID="previous-guess-bubble"
+                >
+                  <View
+                    className="rounded-full border px-2.5 py-1"
+                    style={{
+                      backgroundColor: '#F4EFE8',
+                      borderColor: '#D9D2C7',
+                    }}
+                  >
+                    <Text
+                      className="font-display-semibold text-[11px]"
+                      style={{ color: '#7B7469' }}
+                      numberOfLines={1}
+                    >
+                      {formatBubblePrice(userGuess, countryCode)}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+              <View
+                className="absolute bottom-0 items-center"
+                style={{
+                  left: `${priceToPosition(guessedPrice) * 100}%`,
+                  transform: [{ translateX: -32 }],
+                }}
+              >
+                <View
+                  className="rounded-xl px-3.5 py-1.5"
+                  style={{ backgroundColor: disabled ? '#6D6C6A' : '#3D8A5A' }}
+                >
+                  <Text
+                    className="font-display-semibold text-sm text-white"
+                    numberOfLines={1}
+                    testID="price-display"
+                  >
+                    {formatBubblePrice(guessedPrice, countryCode)}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: 0,
+                    height: 0,
+                    borderLeftWidth: 6,
+                    borderRightWidth: 6,
+                    borderTopWidth: 7,
+                    borderLeftColor: 'transparent',
+                    borderRightColor: 'transparent',
+                    borderTopColor: disabled ? '#6D6C6A' : '#3D8A5A',
+                    marginTop: -1,
+                  }}
+                />
+              </View>
+            </View>
+
+            <GestureDetector gesture={composedGestures}>
+              <View
+                className="relative"
+                style={{ height: 28, overflow: 'visible' }}
+              >
+                <View
+                  className="absolute left-0 right-0 rounded-full"
+                  style={{
+                    top: 10,
+                    height: 8,
+                    backgroundColor: '#E5E4E1',
+                  }}
+                />
+                <Animated.View
+                  className="absolute left-0 rounded-l-full"
+                  style={[
+                    fillAnimatedStyle,
+                    {
+                      top: 10,
+                      height: 8,
+                      backgroundColor: disabled ? '#BFC6C1' : '#9BD2B2',
+                    },
+                  ]}
+                />
+
+                {wozPosition !== null ? (
+                  <View
+                    className="absolute"
+                    style={{
+                      left: `${wozPosition * 100}%`,
+                      top: 5,
+                      width: 2,
+                      height: 18,
+                      marginLeft: -1,
+                      borderRadius: 999,
+                      backgroundColor: '#D89575',
+                    }}
+                  />
+                ) : null}
+                {askingPosition !== null ? (
+                  <View
+                    className="absolute"
+                    style={{
+                      left: `${askingPosition * 100}%`,
+                      top: 5,
+                      width: 2,
+                      height: 18,
+                      marginLeft: -1,
+                      borderRadius: 999,
+                      backgroundColor: '#9C9B99',
+                    }}
+                  />
+                ) : null}
+
+                <Animated.View
+                  className="absolute rounded-full"
+                  style={[
+                    thumbAnimatedStyle,
+                    {
+                      top: 0,
+                      width: 28,
+                      height: 28,
+                      borderWidth: 3,
+                      borderColor: disabled ? '#BFC6C1' : '#3D8A5A',
+                      backgroundColor: '#FFFFFF',
+                      shadowColor: '#1A1918',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.12,
+                      shadowRadius: 8,
+                      elevation: 4,
+                    },
+                  ]}
+                  testID="slider-thumb"
+                />
+              </View>
+            </GestureDetector>
+
+            <View className="mt-3 flex-row justify-between">
+              <Text
+                className="font-display text-xs text-[#9C9B99]"
+                testID="price-range-min"
+              >
+                {formatCompactPrice(MIN_PRICE, countryCode)}
+              </Text>
+              <Text
+                className="font-display text-xs text-[#9C9B99]"
+                testID="price-range-max"
+              >
+                {formatCompactPrice(MAX_PRICE, countryCode)}
+              </Text>
+            </View>
+
+            {(wozPosition !== null || askingPosition !== null || fmvPosition !== null) ? (
+              <View className="relative mt-2 h-4">
+                {wozPosition !== null ? (
+                  <Text
+                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#D89575]"
+                    style={{ left: `${wozPosition * 100}%`, transform: [{ translateX: -12 }] }}
+                  >
+                    {countryCode === 'NL' ? 'WOZ' : 'Val.'}
+                  </Text>
+                ) : null}
+                {askingPosition !== null ? (
+                  <Text
+                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#9C9B99]"
+                    style={{ left: `${askingPosition * 100}%`, transform: [{ translateX: -18 }] }}
+                  >
+                    Asking
+                  </Text>
+                ) : null}
+                {askingPosition === null && fmvPosition !== null ? (
+                  <Text
+                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#9C9B99]"
+                    style={{ left: `${fmvPosition * 100}%`, transform: [{ translateX: -12 }] }}
+                  >
+                    FMV
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          <Pressable
+            onPress={handleSubmit}
+            disabled={disabled || isSubmitting}
+            testID="submit-guess-button"
+            className="w-full overflow-hidden rounded-xl"
+            style={{
+              backgroundColor: disabled || isSubmitting ? '#C8D9D0' : '#3D8A5A',
+            }}
+          >
+            <View className="flex-row items-center justify-center py-3.5">
+              <Animated.View style={submitAnimatedStyle}>
+                {isSubmitting ? (
+                  <View className="flex-row items-center">
+                    <Icon name="Calendar" size={18} color="#F4FBF7" />
+                    <Text className="ml-2 font-display-semibold text-base text-[#F4FBF7]">
+                      Submitting...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text className="font-display-semibold text-base text-white">
+                    Submit Guess
+                  </Text>
+                )}
+              </Animated.View>
+            </View>
+          </Pressable>
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView>
@@ -383,6 +625,20 @@ export function PriceGuessSlider({
           >
             {formatPrice(guessedPrice, countryCode)}
           </Text>
+          {showPreviousGuessReference && userGuess !== undefined ? (
+            <View
+              className="mt-3 rounded-full border px-3 py-1"
+              style={{
+                backgroundColor: '#F7F2EA',
+                borderColor: '#E1D8CC',
+              }}
+              testID="previous-guess-bubble"
+            >
+              <Text className="text-xs font-medium" style={{ color: '#7B7469' }}>
+                Previous guess {formatBubblePrice(userGuess, countryCode)}
+              </Text>
+            </View>
+          ) : null}
         </Animated.View>
 
         {/* Slider */}

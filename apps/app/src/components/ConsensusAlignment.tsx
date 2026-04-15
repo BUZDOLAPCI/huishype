@@ -12,12 +12,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
-import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
+import { formatPercentage, formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import type { PriceGuess } from '../hooks/usePriceGuess';
 
 const MIN_GUESSES_FOR_CONSENSUS = 3;
 
-export type ConsensusAlignmentVariant = 'compact' | 'full';
+export type ConsensusAlignmentVariant = 'compact' | 'full' | 'embedded';
 
 export interface ConsensusAlignmentProps {
   userGuess: number;
@@ -30,6 +30,8 @@ export interface ConsensusAlignmentProps {
   isVisible?: boolean;
   /** Display variant. Default 'full'. */
   variant?: ConsensusAlignmentVariant;
+  divergence?: number | null;
+  onViewGuesses?: () => void;
   testID?: string;
 }
 
@@ -129,6 +131,8 @@ export function ConsensusAlignment({
   countryCode,
   isVisible = true,
   variant = 'full',
+  divergence,
+  onViewGuesses,
   testID = 'consensus-alignment',
 }: ConsensusAlignmentProps) {
   // Animation values
@@ -195,6 +199,77 @@ export function ConsensusAlignment({
   const message = hasEnoughGuesses
     ? generateMessage(userGuess, crowdEstimate, alignmentPercentage)
     : 'Not enough data for consensus';
+  const guessVsCrowd = crowdEstimate
+    ? formatPercentage((userGuess - crowdEstimate) / crowdEstimate, { showSign: true })
+    : null;
+
+  if (variant === 'embedded') {
+    return (
+      <Animated.View style={containerStyle} testID={testID}>
+        <View className="flex-row items-center">
+          <Animated.View style={iconStyle} className="mr-2">
+            <Icon
+              name={alignmentInfo.icon}
+              size={16}
+              color={alignmentInfo.iconColor}
+            />
+          </Animated.View>
+          <Animated.View style={textStyle} className="flex-1">
+            <View className="flex-row items-center justify-between gap-3">
+              <Text
+                className="flex-1 font-medium text-[14px] leading-[20px]"
+                style={{ color: alignmentInfo.iconColor }}
+                testID="consensus-message"
+              >
+                {message}
+              </Text>
+              {guessVsCrowd ? (
+                <View className="rounded-full bg-[#F5F4F1] px-2 py-1">
+                  <Text className="font-display-semibold text-[11px] text-[#6D6C6A]">
+                    {guessVsCrowd}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </Animated.View>
+        </View>
+
+        {divergence !== null && divergence !== undefined ? (
+          <>
+            <View className="mt-4 h-px bg-[#E5E4E1]" />
+            <View className="mt-4 flex-row items-center">
+              <Icon name="TrendUp" size={16} color="#F59E0B" />
+              <Text className="ml-2 flex-1 text-[14px] leading-[20px] text-[#6D6C6A]">
+                {divergence > 0
+                  ? `Crowd thinks it’s worth ${Math.abs(divergence).toFixed(1)}% more than asking`
+                  : divergence < 0
+                    ? `Asking price is ${Math.abs(divergence).toFixed(1)}% above crowd estimate`
+                    : 'Asking price matches crowd estimate'}
+              </Text>
+            </View>
+          </>
+        ) : null}
+
+        <View className="mt-4 flex-row items-center justify-between">
+          <View className="flex-row items-center">
+            <Icon name="Users" size={14} color="#9C9B99" />
+            <Text className="ml-1.5 text-[12px] text-[#9C9B99]">
+              {guessCount} {guessCount === 1 ? 'person has' : 'people have'} guessed
+            </Text>
+          </View>
+
+          {onViewGuesses ? (
+            <Text
+              className="font-medium text-[12px] text-[#9C9B99]"
+              onPress={onViewGuesses}
+            >
+              View guesses →
+            </Text>
+          ) : null}
+        </View>
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View

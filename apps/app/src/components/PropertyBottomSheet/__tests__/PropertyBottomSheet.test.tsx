@@ -394,10 +394,12 @@ describe('PropertyBottomSheet', () => {
 });
 
 describe('PropertyBottomSheet sections', () => {
-  it('renders PriceSection with WOZ value', () => {
+  it('renders price snapshot cards without the removed comparison bar', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
+    expect(screen.getByText('Price Snapshot')).toBeTruthy();
     expect(screen.getByText('WOZ Value')).toBeTruthy();
+    expect(screen.queryByText('Price comparison')).toBeNull();
   });
 
   it('renders activity level indicator', () => {

@@ -14,6 +14,7 @@
  * Design spec: Section 7.6 (Preview Card).
  */
 
+import { useEffect, useState } from 'react';
 import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import {
@@ -21,6 +22,7 @@ import {
   getValuationLabel,
   type CountryCode,
 } from '@huishype/shared';
+import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
 import {
   toPropertyImageSource,
 } from '../utils/property-image';
@@ -58,6 +60,9 @@ const ACTIVITY_CONFIG = {
 
 const IMAGE_HEIGHT = 100;
 const CARD_RADIUS = 20;
+const ADDRESS_BASE_FONT_SIZE = 16;
+const ADDRESS_BASE_LINE_HEIGHT = 20;
+const ADDRESS_MIN_FONT_SIZE = 11.5;
 
 type HitZoneRef = ((node: any) => void) | undefined;
 type HitZoneLayout = (() => void) | undefined;
@@ -71,6 +76,9 @@ type NativeHitTargetRegistration = {
 export interface PropertyPreviewData {
   id: string;
   address: string;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
   city: string;
   postalCode?: string | null;
   countryCode?: string;
@@ -111,6 +119,98 @@ export interface PropertyPreviewCardProps {
     comment?: NativeHitTargetRegistration;
     guess?: NativeHitTargetRegistration;
   };
+}
+
+function AutoFitAddressText({ address }: { address: string }) {
+  const [availableWidth, setAvailableWidth] = useState(0);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+
+  useEffect(() => {
+    setMeasuredWidth(0);
+  }, [address]);
+
+  const scale =
+    availableWidth > 0 && measuredWidth > 0 && measuredWidth > availableWidth
+      ? availableWidth / measuredWidth
+      : 1;
+  const fontSize = Math.max(
+    ADDRESS_MIN_FONT_SIZE,
+    Math.round(ADDRESS_BASE_FONT_SIZE * scale * 10) / 10
+  );
+  const lineHeight = Math.round(
+    ADDRESS_BASE_LINE_HEIGHT * (fontSize / ADDRESS_BASE_FONT_SIZE)
+  );
+
+  return (
+    <View
+      style={styles.addressTextContainer}
+      onLayout={(event) => {
+        const nextWidth = event.nativeEvent.layout.width;
+        if (Math.abs(nextWidth - availableWidth) > 0.5) {
+          setAvailableWidth(nextWidth);
+        }
+      }}
+      testID="property-preview-address-container"
+    >
+      <Text
+        style={[styles.address, { fontSize, lineHeight }]}
+        numberOfLines={1}
+        ellipsizeMode="clip"
+        testID="property-preview-address"
+      >
+        {address}
+      </Text>
+
+      <View
+        pointerEvents="none"
+        style={styles.addressMeasurementWrapper}
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Text
+          style={styles.address}
+          numberOfLines={1}
+          onLayout={(event) => {
+            const nextWidth = event.nativeEvent.layout.width;
+            if (Math.abs(nextWidth - measuredWidth) > 0.5) {
+              setMeasuredWidth(nextWidth);
+            }
+          }}
+          testID="property-preview-address-measure"
+        >
+          {address}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function getPreviewAddressLine(property: Pick<
+  PropertyPreviewData,
+  'address' | 'streetName' | 'houseNumber' | 'houseNumberAddition' | 'countryCode'
+>): string {
+  const streetName = property.streetName?.trim();
+  const houseNumber =
+    property.houseNumber != null ? String(property.houseNumber).trim() : '';
+
+  if (streetName && houseNumber) {
+    const countryCode: CountryCode =
+      property.countryCode && isValidCountryCode(property.countryCode)
+        ? property.countryCode
+        : 'NL';
+
+    return getCountryConfig(countryCode).addressFormatter({
+      street: streetName,
+      houseNumber,
+      houseNumberAddition: property.houseNumberAddition ?? undefined,
+      postalCode: '',
+      city: '',
+      countryCode,
+    });
+  }
+
+  const fallbackAddressLine = property.address.trim().split(',', 1)[0]?.trim();
+  return fallbackAddressLine || property.address;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -157,6 +257,7 @@ export function PropertyPreviewCard({
   const activity = ACTIVITY_CONFIG[activityLevel];
   const displayPrice = getDisplayPrice(property);
   const formattedPrice = formatPrice(displayPrice?.price, property.countryCode);
+  const previewAddressLine = getPreviewAddressLine(property);
 
   // Resolve image using shared fallback rules
   const imageSource = toPropertyImageSource({
@@ -212,9 +313,7 @@ export function PropertyPreviewCard({
       <View style={styles.body}>
         {/* Address row + activity badge */}
         <View style={styles.addressRow}>
-          <Text style={styles.address} numberOfLines={1}>
-            {property.address}
-          </Text>
+          <AutoFitAddressText address={previewAddressLine} />
           <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
             <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
             <Text style={[styles.activityLabel, { color: activity.textColor }]}>
@@ -428,12 +527,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
-  address: {
+  addressTextContainer: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 20,
+    minWidth: 0,
+    position: 'relative',
+  },
+  address: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: ADDRESS_BASE_FONT_SIZE,
+    lineHeight: ADDRESS_BASE_LINE_HEIGHT,
     fontWeight: '700',
     color: COLORS.warm900,
+  },
+  addressMeasurementWrapper: {
+    position: 'absolute',
+    left: -10000,
+    top: 0,
+    opacity: 0,
   },
   activityBadge: {
     flexDirection: 'row',

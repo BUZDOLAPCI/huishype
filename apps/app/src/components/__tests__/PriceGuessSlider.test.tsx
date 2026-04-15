@@ -41,6 +41,35 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByTestId('price-display')).toBeTruthy();
   });
 
+  it('uses the submitted guess as a starting point without locking the slider to it', async () => {
+    render(<PriceGuessSlider {...defaultProps} userGuess={400000} />);
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/410\.000/)).toBeTruthy();
+    });
+    expect(screen.getByTestId('previous-guess-bubble')).toBeTruthy();
+    expect(screen.getByText(/400/)).toBeTruthy();
+  });
+
+  it('re-syncs only when the submitted guess prop changes', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider {...defaultProps} userGuess={400000} />
+    );
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+    await waitFor(() => {
+      expect(screen.getByText(/410\.000/)).toBeTruthy();
+    });
+
+    rerender(<PriceGuessSlider {...defaultProps} userGuess={450000} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/450\.000/)).toBeTruthy();
+    });
+  });
+
   it('renders quick adjustment buttons', () => {
     render(<PriceGuessSlider {...defaultProps} />);
 

@@ -139,6 +139,9 @@ export interface UseMapInteractionReturn {
 export interface ToGroupPropertyInput {
   id: string;
   address: string;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
   city: string;
   postalCode?: string | null;
   countryCode?: string | null;
@@ -288,6 +291,9 @@ function convertToGroupProperty(
   return {
     id: p.id,
     address: p.address,
+    streetName: p.streetName ?? null,
+    houseNumber: p.houseNumber ?? null,
+    houseNumberAddition: p.houseNumberAddition ?? null,
     city: p.city,
     postalCode: p.postalCode,
     countryCode,
@@ -646,6 +652,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
             properties: [{
               id: group.primaryPropertyId,
               address: group.address ?? '',
+              streetName: group.streetName ?? null,
+              houseNumber: group.houseNumber ?? null,
+              houseNumberAddition: group.houseNumberAddition ?? null,
               city: group.city ?? '',
               postalCode: group.postalCode ?? null,
               countryCode: group.countryCode ?? undefined,
@@ -692,6 +701,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
             properties: [{
               id: result.primaryPropertyId,
               address: result.address ?? '',
+              streetName: result.streetName ?? null,
+              houseNumber: result.houseNumber ?? null,
+              houseNumberAddition: result.houseNumberAddition ?? null,
               city: result.city ?? '',
               postalCode: result.postalCode,
               countryCode: result.countryCode ?? undefined,
@@ -788,6 +800,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
           properties: [{
             id: property.id,
             address: property.address,
+            streetName: resolvedAddress?.details.street ?? null,
+            houseNumber: resolvedAddress?.details.houseNumber ?? null,
+            houseNumberAddition: resolvedAddress?.details.houseNumberAddition ?? null,
             city: property.city,
             postalCode: property.postalCode ?? null,
             countryCode,

@@ -1,25 +1,17 @@
-import { useState, useCallback } from 'react';
-import { Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-  FadeIn,
-  FadeOut,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { formatPropertyPrice } from '@huishype/shared';
 import type { SectionProps } from './types';
 import { PriceGuessSlider } from '../PriceGuessSlider';
 import { FMVVisualization, type FMVData } from '../FMVVisualization';
 import { ConsensusAlignment } from '../ConsensusAlignment';
+import { Icon } from '../ui/Icon';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
-  formatCooldownRemaining,
-  type FmvResponse,
 } from '../../hooks/usePriceGuess';
 import { useAuth } from '../../hooks/useAuth';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
@@ -30,66 +22,38 @@ interface PriceGuessSectionProps extends SectionProps {
   onLoginRequired?: (copy?: AuthModalCopyInput) => void;
 }
 
-// Format price using country config (defaults to NL)
 function formatPrice(price: number): string {
   return formatPropertyPrice(price);
 }
 
-// Skeleton loading component
 function LoadingSkeleton() {
   return (
-    <SectionCard
-      title="Guess the Price"
-      icon="pricetag"
-      description="What do you think this property is worth?"
-    >
-      <View className="flex-row items-center mb-3">
-        <View className="w-5 h-5 bg-warm-200 rounded animate-pulse" />
-        <View className="h-5 w-32 bg-warm-200 rounded ml-2 animate-pulse" />
-      </View>
-      <View className="h-4 w-full bg-warm-200 rounded mb-4 animate-pulse" />
-      <View className="bg-warm-50 rounded-xl p-4 mb-3">
-        <View className="h-8 w-40 bg-warm-200 rounded mb-4 mx-auto animate-pulse" />
-        <View className="h-3 bg-warm-200 rounded-full mb-4 animate-pulse" />
-        <View className="flex-row justify-center gap-2 mb-4">
-          {[1, 2, 3, 4].map((i) => (
-            <View key={i} className="h-8 w-12 bg-warm-200 rounded animate-pulse" />
-          ))}
+    <SectionCard style={styles.sectionCard} shadow="card-alt">
+      <View className="flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          <View className="h-[18px] w-[18px] rounded bg-warm-200 animate-pulse" />
+          <View className="ml-2 h-5 w-36 rounded bg-warm-200 animate-pulse" />
         </View>
-        <View className="h-12 bg-warm-200 rounded-xl animate-pulse" />
+        <View className="h-6 w-20 rounded-full bg-green-100 animate-pulse" />
       </View>
+      <View className="mt-4 h-4 w-56 rounded bg-warm-200 animate-pulse" />
+      <View className="mt-5 h-3 w-24 rounded bg-warm-200 animate-pulse" />
+      <View className="mt-3 h-10 w-40 rounded bg-warm-200 animate-pulse" />
+      <View className="mt-4 h-px w-full bg-warm-200" />
+      <View className="mt-5 h-28 w-full rounded bg-warm-100 animate-pulse" />
+      <View className="mt-4 h-12 w-full rounded-xl bg-warm-200 animate-pulse" />
     </SectionCard>
-  );
-}
-
-// Cooldown message component
-function CooldownMessage({ cooldownEndsAt }: { cooldownEndsAt: string }) {
-  const remaining = formatCooldownRemaining(cooldownEndsAt);
-
-  return (
-    <View className="flex-row items-center bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
-      <Ionicons name="time-outline" size={20} color="#D97706" />
-      <View className="ml-3 flex-1">
-        <Text className="text-sm font-medium text-amber-800">
-          Cooldown Active
-        </Text>
-        <Text className="text-xs text-amber-600">
-          You can update your guess in {remaining}
-        </Text>
-      </View>
-    </View>
   );
 }
 
 const LOGIN_REQUIRED_COPY = 'Sign in to submit your guess' satisfies AuthModalCopyInput;
 
-// Success message after submission
 function SuccessMessage({ price }: { price: number }) {
   return (
     <Animated.View
       entering={FadeIn.duration(300)}
       exiting={FadeOut.duration(200)}
-      className="flex-row items-center bg-green-50 border border-green-200 rounded-xl p-3 mb-4"
+      className="mt-4 flex-row items-center rounded-xl border border-green-200 bg-green-50 p-3"
     >
       <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
       <View className="ml-3 flex-1">
@@ -106,23 +70,21 @@ function SuccessMessage({ price }: { price: number }) {
 
 export function PriceGuessSection({
   property,
+  onGuessPress,
   onLoginRequired,
 }: PriceGuessSectionProps) {
   const { user, isAuthenticated } = useAuth();
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number | null>(null);
 
-  // Fetch existing guess data
   const {
     data: guessData,
     isLoading,
     refetch,
   } = useFetchPriceGuess(property.id, user?.id);
 
-  // Submit mutation
   const submitGuess = useSubmitGuess();
 
-  // Handle guess submission
   const handleGuessSubmit = useCallback(
     async (price: number) => {
       if (!isAuthenticated) {
@@ -139,22 +101,18 @@ export function PriceGuessSection({
         setSubmittedPrice(price);
         setShowSuccess(true);
 
-        // Hide success message after 3 seconds
         setTimeout(() => {
           setShowSuccess(false);
         }, 3000);
 
-        // Refetch data to get updated stats
         refetch();
       } catch (error) {
         console.error('Failed to submit guess:', error);
-        // Error handling is done by the mutation
       }
     },
-    [isAuthenticated, property.id, submitGuess, refetch, onLoginRequired]
+    [isAuthenticated, onLoginRequired, property.id, refetch, submitGuess]
   );
 
-  // Build FMV data from API response — pass through real distribution
   const fmvData: FMVData | null =
     guessData?.fmv && guessData.fmv.fmv !== null && guessData.fmv.guessCount > 0
       ? {
@@ -168,111 +126,133 @@ export function PriceGuessSection({
         }
       : null;
 
-  // Determine if user can submit
   const hasExistingGuess = !!guessData?.userGuess;
-  const isInCooldown = !guessData?.canEdit && hasExistingGuess;
+  const activeUserGuess = submittedPrice ?? guessData?.userGuess?.guessedPrice ?? null;
 
   if (isLoading) {
     return <LoadingSkeleton />;
   }
 
   return (
-    <SectionCard
-      title="Guess the Price"
-      icon="pricetag"
-      description="What do you think this property is worth?"
-      trailing={
-        hasExistingGuess ? (
-          <View className="bg-green-100 px-2 py-0.5 rounded-full">
-            <Text className="text-xs font-medium text-green-700">
-              Guessed
+    <SectionCard style={styles.sectionCard} shadow="card-alt">
+      <View testID="price-guess-section">
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center">
+            <Icon name="Tag" weight="fill" size={18} color="#F5A623" />
+            <Text className="ml-2 font-display-semibold text-[18px] leading-[22px] text-[#1A1918]">
+              Guess the Price
             </Text>
           </View>
-        ) : null
-      }
-    >
-      <View testID="price-guess-section">
+          {hasExistingGuess ? (
+            <View className="flex-row items-center rounded-full bg-[#C8F0D8] px-2.5 py-1">
+              <Icon name="Check" size={12} color="#3D8A5A" />
+              <Text className="ml-1 font-display-semibold text-[11px] text-[#3D8A5A]">
+                Guessed
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
-        {/* Success message */}
-        {showSuccess && submittedPrice && <SuccessMessage price={submittedPrice} />}
+        <Text className="mt-4 text-[14px] font-medium leading-[20px] text-[#6D6C6A]">
+          What do you think this property is worth?
+        </Text>
 
-        {/* Cooldown message */}
-        {isInCooldown && guessData?.cooldownEndsAt && (
-          <CooldownMessage cooldownEndsAt={guessData.cooldownEndsAt} />
-        )}
+        {showSuccess && submittedPrice ? (
+          <SuccessMessage price={submittedPrice} />
+        ) : null}
 
-        {/* FMV Visualization (if we have data) */}
-        {fmvData && (
-          <View className="mb-4">
+        {fmvData ? (
+          <View className="mt-5">
             <FMVVisualization
               fmv={fmvData}
               userGuess={guessData?.userGuess?.guessedPrice}
               askingPrice={property.askingPrice}
               officialValuation={property.officialValuation ?? undefined}
+              variant="embedded"
               testID="fmv-visualization"
             />
           </View>
-        )}
+        ) : null}
 
-        {/* Consensus Alignment (after submission or when user has existing guess) */}
-        {fmvData && (showSuccess && submittedPrice || hasExistingGuess && guessData?.userGuess) && (
-          <View className="mb-4">
-            <ConsensusAlignment
-              userGuess={submittedPrice ?? guessData!.userGuess!.guessedPrice}
-              crowdEstimate={fmvData.value!}
-              guessCount={fmvData.guessCount}
-              guesses={guessData?.guesses}
-              isVisible
-              testID="consensus-alignment"
-            />
-          </View>
-        )}
+        <View className="mt-5">
+          <PriceGuessSlider
+            propertyId={property.id}
+            officialValuation={property.officialValuation ?? undefined}
+            askingPrice={property.askingPrice}
+            currentFMV={fmvData?.value ?? undefined}
+            userGuess={guessData?.userGuess?.guessedPrice}
+            onGuessSubmit={handleGuessSubmit}
+            disabled={false}
+            isSubmitting={submitGuess.isPending}
+            variant="embedded"
+            testID="price-guess-slider"
+          />
+        </View>
 
-        {/* Price Guess Slider */}
-        <PriceGuessSlider
-          propertyId={property.id}
-          officialValuation={property.officialValuation ?? undefined}
-          askingPrice={property.askingPrice}
-          currentFMV={fmvData?.value ?? undefined}
-          userGuess={guessData?.userGuess?.guessedPrice}
-          onGuessSubmit={handleGuessSubmit}
-          disabled={isInCooldown}
-          isSubmitting={submitGuess.isPending}
-          testID="price-guess-slider"
-        />
-
-        {/* Existing guess display */}
-        {hasExistingGuess && guessData?.userGuess && (
-          <View className="mt-3 flex-row items-center justify-center">
-            <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-            <Text className="text-sm text-warm-500 ml-1">
-              Your current guess:{' '}
-              <Text className="font-semibold text-warm-700">
-                {formatPrice(guessData.userGuess.guessedPrice)}
+        {fmvData && activeUserGuess ? (
+          <View className="mt-5">
+            <View className="flex-row items-center justify-between">
+              <Text className="font-display-semibold text-[11px] uppercase tracking-[0.8px] text-[#9C9B99]">
+                Your Guess
               </Text>
-            </Text>
+              <Text className="font-display-semibold text-[22px] leading-[28px] tracking-[-0.3px] text-[#1A1918]">
+                {formatPrice(activeUserGuess)}
+              </Text>
+            </View>
+            <View className="mt-4 h-px bg-[#E5E4E1]" />
+            <View className="mt-4">
+              <ConsensusAlignment
+                userGuess={activeUserGuess}
+                crowdEstimate={fmvData.value!}
+                guessCount={fmvData.guessCount}
+                guesses={guessData?.guesses}
+                divergence={fmvData.divergence}
+                onViewGuesses={onGuessPress}
+                isVisible
+                variant="embedded"
+                testID="consensus-alignment"
+              />
+            </View>
           </View>
-        )}
+        ) : property.guessCount > 0 ? (
+          <View className="mt-4 flex-row items-center justify-between">
+            <View className="flex-row items-center">
+              <Icon name="Users" size={14} color="#9C9B99" />
+              <Text className="ml-1.5 text-[12px] text-[#9C9B99]">
+                {property.guessCount} {property.guessCount === 1 ? 'person has' : 'people have'} guessed
+              </Text>
+            </View>
+            {onGuessPress ? (
+              <Text
+                className="font-medium text-[12px] text-[#9C9B99]"
+                onPress={onGuessPress}
+              >
+                View guesses →
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
-        {/* Guess count */}
-        {property.guessCount > 0 && (
-          <Text className="text-xs text-warm-400 text-center mt-2">
-            {property.guessCount} {property.guessCount === 1 ? 'person has' : 'people have'} guessed
-          </Text>
-        )}
-
-        {/* Error display */}
-        {submitGuess.isError && (
-          <View className="mt-3 flex-row items-center bg-red-50 border border-red-200 rounded-lg p-2">
+        {submitGuess.isError ? (
+          <View className="mt-4 flex-row items-center rounded-lg border border-red-200 bg-red-50 p-2">
             <Ionicons name="alert-circle" size={16} color="#EF4444" />
-            <Text className="text-xs text-red-600 ml-2 flex-1">
+            <Text className="ml-2 flex-1 text-xs text-red-600">
               {submitGuess.error instanceof Error
                 ? submitGuess.error.message
                 : 'Failed to submit guess. Please try again.'}
             </Text>
           </View>
-        )}
+        ) : null}
       </View>
     </SectionCard>
   );
 }
+
+const styles = StyleSheet.create({
+  sectionCard: {
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#F1ECE4',
+    backgroundColor: '#FFFFFF',
+  },
+});

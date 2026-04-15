@@ -244,7 +244,7 @@ test.describe('Price Guess Flow', () => {
     expect(listData.fmv.guessCount).toBeGreaterThan(0);
   });
 
-  test('guess cooldown prevents immediate re-submission', async ({ request }) => {
+  test('guess can be updated immediately after the first submission', async ({ request }) => {
     const property = await getCanonicalTestPropertyRoute(request);
     const testUser = await createTestUser(request, 'cooldown');
 
@@ -267,10 +267,9 @@ test.describe('Price Guess Flow', () => {
       }
     );
 
-    // Should be rejected with cooldown error
-    expect(secondGuess.status()).toBe(400);
-    const errorData = await secondGuess.json();
-    expect(errorData.error).toBe('COOLDOWN_ACTIVE');
-    expect(errorData.cooldownEndsAt).toBeDefined();
+    expect(secondGuess.status()).toBe(200);
+    const updatedGuess = await secondGuess.json();
+    expect(updatedGuess.guessedPrice).toBe(350000);
+    expect(updatedGuess.message).toContain('updated');
   });
 });

@@ -427,6 +427,7 @@ export function GuessesRouteScreen({
             officialValuation={property?.officialValuation ?? undefined}
             askingPrice={property?.askingPrice ?? undefined}
             currentFMV={guessData?.fmv?.fmv ?? undefined}
+            userGuess={guessData?.userGuess?.guessedPrice}
             onGuessSubmit={handleGuessSubmit}
             disabled={false}
             testID="guesses-slider"

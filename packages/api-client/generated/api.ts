@@ -1240,7 +1240,7 @@ export interface paths {
         put?: never;
         /**
          * Submit a price guess
-         * @description Submit or update a price guess for a property. Updates are subject to a 5-day cooldown period.
+         * @description Submit or update a price guess for a property.
          */
         post: {
             parameters: {
@@ -1313,8 +1313,6 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
-                            /** Format: date-time */
-                            cooldownEndsAt?: string;
                         };
                     };
                 };

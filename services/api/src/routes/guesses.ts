@@ -74,9 +74,6 @@ const guessListResponseSchema = z.object({
   fmv: fmvSchema,
 });
 
-// Cooldown period in milliseconds (5 days)
-const GUESS_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
-
 export async function guessRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
@@ -179,7 +176,7 @@ export async function guessRoutes(app: FastifyInstance) {
       schema: {
         tags: ['guesses'],
         summary: 'Submit a price guess',
-        description: 'Submit or update a price guess for a property. Updates are subject to a 5-day cooldown period.',
+        description: 'Submit or update a price guess for a property.',
         params: propertyParamsSchema,
         body: createGuessSchema,
         response: {
@@ -192,7 +189,6 @@ export async function guessRoutes(app: FastifyInstance) {
           400: z.object({
             error: z.string(),
             message: z.string(),
-            cooldownEndsAt: z.string().datetime().optional(),
           }),
           401: z.object({
             error: z.string(),
@@ -238,15 +234,6 @@ export async function guessRoutes(app: FastifyInstance) {
 
       if (existingGuess.length > 0) {
         const guess = existingGuess[0];
-        const cooldownEnd = new Date(guess.updatedAt.getTime() + GUESS_COOLDOWN_MS);
-
-        if (new Date() < cooldownEnd) {
-          return reply.status(400).send({
-            error: 'COOLDOWN_ACTIVE',
-            message: 'You must wait before updating your guess.',
-            cooldownEndsAt: cooldownEnd.toISOString(),
-          });
-        }
 
         // Update existing guess
         const updated = await db

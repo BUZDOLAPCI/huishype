@@ -230,6 +230,8 @@ describe('useFetchPriceGuess', () => {
 
     expect(result.current.data?.userGuess).toBeTruthy();
     expect(result.current.data?.userGuess?.userId).toBe('user-456');
+    expect(result.current.data?.canEdit).toBe(true);
+    expect(result.current.data?.cooldownEndsAt).toBeNull();
   });
 
   it('refetches viewer-derived guess data when the viewer changes', async () => {

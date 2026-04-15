@@ -1,13 +1,14 @@
 /**
  * Reference Expectation E2E Test: price-guess-slider-ui
  *
- * This test verifies the Price Guess Slider UI matches the reference expectation with:
- * - Large, prominent price display
- * - Slider track with draggable thumb
- * - Reference markers (WOZ, Ask, FMV) positioned on track
- * - Quick adjustment buttons (-50k, -10k, +10k, +50k)
- * - Submit button
- * - Min/max price range labels
+ * This test verifies the Property Details "Guess the Price" section matches
+ * the visual overhaul pen design with:
+ * - Unified white card surface
+ * - Crowd estimate header/value block
+ * - Embedded slider with floating value bubble
+ * - Pen-style WOZ / Asking markers
+ * - Green submit button
+ * - Embedded consensus / footer treatment when guess data exists
  *
  * Screenshot saved to: test-results/reference-expectations/price-guess-slider-ui/
  */
@@ -23,9 +24,6 @@ import {
 // Configuration
 const EXPECTATION_NAME = 'price-guess-slider-ui';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-
-// Center on Eindhoven (properties with data)
-const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
@@ -111,7 +109,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const selection = await fetchCanonicalPropertyFixture(
       page.request,
       'limit=10&city=Eindhoven',
-      (properties) => properties.find((property) => property.guessCount && property.guessCount > 0) ?? properties[0],
+      (properties) =>
+        properties.find(
+          (property) =>
+            property.guessCount &&
+            property.guessCount > 0 &&
+            property.officialValuation &&
+            property.askingPrice
+        ) ??
+        properties.find((property) => property.guessCount && property.guessCount > 0) ??
+        properties[0],
     );
     if (!selection) {
       console.log('No property found, skipping test');
@@ -139,35 +146,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Price slider visible on property page: ${isSliderVisible}`);
 
     if (isSliderVisible) {
-      // Get bounding boxes for slider and submit button
-      const sliderBox = await priceSlider.boundingBox();
-      const submitButton = page.locator('[data-testid="submit-guess-button"]');
-      const submitBox = await submitButton.boundingBox();
+      const sectionBox = await priceSection.boundingBox();
 
-      // Take a screenshot that includes both the slider and submit button
-      if (sliderBox && submitBox) {
-        const topY = Math.max(0, sliderBox.y - 20);
-        const bottomY = submitBox.y + submitBox.height + 40;
+      if (sectionBox) {
         const combinedClip = {
-          x: Math.max(0, Math.min(sliderBox.x, submitBox.x) - 20),
-          y: topY,
-          width: Math.max(sliderBox.width, submitBox.x + submitBox.width - sliderBox.x) + 40,
-          height: bottomY - topY,
+          x: Math.max(0, sectionBox.x - 12),
+          y: Math.max(0, sectionBox.y - 12),
+          width: sectionBox.width + 24,
+          height: sectionBox.height + 24,
         };
         await page.screenshot({
           path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
           clip: combinedClip,
-        });
-      } else if (sliderBox) {
-        const paddedClip = {
-          x: Math.max(0, sliderBox.x - 20),
-          y: Math.max(0, sliderBox.y - 20),
-          width: sliderBox.width + 40,
-          height: sliderBox.height + 120,
-        };
-        await page.screenshot({
-          path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
-          clip: paddedClip,
         });
       } else {
         await priceSlider.screenshot({
@@ -198,7 +188,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       page.request,
       'limit=10&city=Eindhoven',
       (properties) =>
-        properties.find((property) => property.guessCount && property.guessCount > 0) ?? properties[0],
+        properties.find(
+          (property) =>
+            property.guessCount &&
+            property.guessCount > 0 &&
+            property.officialValuation &&
+            property.askingPrice
+        ) ??
+        properties.find((property) => property.guessCount && property.guessCount > 0) ??
+        properties[0],
     );
 
     if (!selection) {
@@ -223,40 +221,29 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await priceSlider.scrollIntoViewIfNeeded().catch(() => {});
     await page.waitForTimeout(500);
 
-    // Check for Price Guess Slider elements
-    const priceHeader = page.locator('[data-testid="price-guess-header"]');
-    const hasHeader = await priceHeader.isVisible().catch(() => false);
-    console.log(`"What do you think..." header visible: ${hasHeader}`);
+    const sectionTitle = page.getByText('Guess the Price').first();
+    const hasSectionTitle = await sectionTitle.isVisible().catch(() => false);
+    console.log(`Section title visible: ${hasSectionTitle}`);
+
+    const crowdEstimate = page.getByText('CROWD ESTIMATE').first();
+    const hasCrowdEstimate = await crowdEstimate.isVisible().catch(() => false);
+    console.log(`Crowd estimate label visible: ${hasCrowdEstimate}`);
 
     // Check for price display (should show EUR format)
     const priceDisplay = page.locator('[data-testid="price-display"]');
     const hasPriceDisplay = await priceDisplay.first().isVisible().catch(() => false);
     console.log(`Price display visible: ${hasPriceDisplay}`);
 
-    // Check for WOZ Value reference (only if property has WOZ value)
+    // Check for WOZ/Asking markers in the embedded slider
     if (selection.property.officialValuation) {
-      const wozValue = page.locator('text=WOZ Value:');
-      const hasWozValue = await wozValue.first().isVisible().catch(() => false);
-      console.log(`WOZ Value text visible: ${hasWozValue}`);
-
-      // Check for WOZ marker on slider
       const wozMarker = page.locator('text=WOZ').first();
       const hasWozMarker = await wozMarker.isVisible().catch(() => false);
       console.log(`WOZ marker visible: ${hasWozMarker}`);
     }
 
-    // Check for quick adjustment buttons
-    const minus50k = page.locator('[data-testid="adjust-minus-50k"]');
-    const minus10k = page.locator('[data-testid="adjust-minus-10k"]');
-    const plus10k = page.locator('[data-testid="adjust-plus-10k"]');
-    const plus50k = page.locator('[data-testid="adjust-plus-50k"]');
-
-    const hasMinus50k = await minus50k.isVisible().catch(() => false);
-    const hasMinus10k = await minus10k.isVisible().catch(() => false);
-    const hasPlus10k = await plus10k.isVisible().catch(() => false);
-    const hasPlus50k = await plus50k.isVisible().catch(() => false);
-
-    console.log(`Quick adjustment buttons: -50k=${hasMinus50k}, -10k=${hasMinus10k}, +10k=${hasPlus10k}, +50k=${hasPlus50k}`);
+    const askingMarker = page.locator('text=Asking').first();
+    const hasAskingMarker = await askingMarker.isVisible().catch(() => false);
+    console.log(`Asking marker visible: ${hasAskingMarker}`);
 
     // Check for submit button
     const submitButton = page.locator('[data-testid="submit-guess-button"]');
@@ -275,9 +262,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const hasMaxLabel = await maxLabel.first().isVisible().catch(() => false);
     console.log(`Min/Max labels: min=${hasMinLabel}, max=${hasMaxLabel}`);
 
+    const consensusBlock = page.locator('[data-testid="consensus-alignment"]');
+    const hasConsensus = await consensusBlock.isVisible().catch(() => false);
+    console.log(`Consensus block visible: ${hasConsensus}`);
+
     // Assert core elements are present
-    expect(hasHeader || hasPriceDisplay).toBe(true);
-    expect(hasMinus50k && hasMinus10k && hasPlus10k && hasPlus50k).toBe(true);
+    expect(hasSectionTitle).toBe(true);
+    expect(hasCrowdEstimate).toBe(true);
+    expect(hasPriceDisplay).toBe(true);
+    expect(hasSubmitButton).toBe(true);
     expect(hasMinLabel && hasMaxLabel).toBe(true);
 
     // Verify page is functional

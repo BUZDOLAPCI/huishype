@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
  * Integration tests for guess routes.
  *
  * Creates a test user via auth, fetches a real property from the DB,
- * then exercises the price guess API including cooldown logic.
+ * then exercises the price guess API including immediate guess updates.
  */
 describe('Guess routes', () => {
   let app: FastifyInstance;
@@ -96,7 +96,7 @@ describe('Guess routes', () => {
       expect(body.message).toContain('submitted');
     });
 
-    it('should return 400 with cooldown when guessing again immediately', async () => {
+    it('should update an existing guess immediately when guessing again', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/guesses`,
@@ -104,11 +104,10 @@ describe('Guess routes', () => {
         payload: { guessedPrice: 400000 },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.error).toBe('COOLDOWN_ACTIVE');
-      expect(body).toHaveProperty('cooldownEndsAt');
-      expect(typeof body.cooldownEndsAt).toBe('string');
+      expect(body.guessedPrice).toBe(400000);
+      expect(body.message).toContain('updated');
     });
   });
 

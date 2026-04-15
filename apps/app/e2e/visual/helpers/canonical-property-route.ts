@@ -14,6 +14,7 @@ export interface CanonicalPropertyFixture extends PropertyRouteAddressLike {
   commentCount?: number | null;
   guessCount?: number | null;
   officialValuation?: number | null;
+  askingPrice?: number | null;
 }
 
 export interface CanonicalPropertySelection {
