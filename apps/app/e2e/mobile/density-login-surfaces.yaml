@@ -6,11 +6,10 @@ appId: nl.huishype.app
     text: 'Continue'
     optional: true
 - waitForAnimationToEnd
-- pressKey: back
-- waitForAnimationToEnd
 
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      text: 'Map'
     timeout: 180000
 
 - runFlow: flows/01-smoke.yaml

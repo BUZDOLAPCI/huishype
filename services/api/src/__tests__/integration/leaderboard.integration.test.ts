@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, comments, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 describe('Leaderboard routes', () => {
   let app: FastifyInstance;
@@ -28,15 +29,15 @@ describe('Leaderboard routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Fetch a real property ID from DB (use page=2 to avoid colliding with
-    // property-likes tests that also fetch the first property)
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1&page=2',
+    const property = await createIntegrationProperty({
+      street: 'Leaderboard Fixture Street',
+      houseNumber: 1,
+      city: 'Leaderboard City',
+      postalCode: '9060AA',
+      lon: 5.4706,
+      lat: 51.4406,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    propertyId = property.id;
 
     // Seed engagement: add a comment and a like on this property
     const commentResp = await app.inject({
@@ -81,6 +82,7 @@ describe('Leaderboard routes', () => {
         // Ignore
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

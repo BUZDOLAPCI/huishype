@@ -18,6 +18,7 @@ import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { clickOnPropertyMarker, clickPreviewAction } from './helpers/screenshot-harness';
 import fs from 'fs';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 /**
  * Mock property data with price information for testing
@@ -80,16 +81,7 @@ const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = 17;
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Increase test timeout
 test.setTimeout(120000);
@@ -209,9 +201,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-          pattern.test(text)
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

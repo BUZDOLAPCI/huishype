@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { waitForFeedLoaded, waitForMapReady } from './helpers';
+import { getPlaywrightApiUrl, getPlaywrightArtifactPath, getPlaywrightWebOrigin } from '../helpers/runtime';
 
 /**
  * Integration tests for HuisHype that test the FULL STACK:
@@ -19,7 +20,7 @@ import { waitForFeedLoaded, waitForMapReady } from './helpers';
  * 3. Web app running on port 8081
  */
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 test.describe('Critical Flows - Full Stack Integration', () => {
   test.describe('API Health & Connectivity', () => {
@@ -39,7 +40,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
     test('API CORS is configured correctly', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/health`, {
         headers: {
-          'Origin': 'http://localhost:8081',
+          'Origin': getPlaywrightWebOrigin(),
         },
       });
 
@@ -190,7 +191,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       // Take screenshot for debugging
       await page.screenshot({
-        path: 'test-results/integration-map-view.png',
+        path: getPlaywrightArtifactPath('integration', 'integration-map-view.png'),
         fullPage: true,
       });
 
@@ -225,7 +226,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       // Take screenshot
       await page.screenshot({
-        path: 'test-results/integration-map-properties.png',
+        path: getPlaywrightArtifactPath('integration', 'integration-map-properties.png'),
         fullPage: true,
       });
 
@@ -259,7 +260,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
         // Take screenshot
         await page.screenshot({
-          path: 'test-results/integration-feed-view.png',
+          path: getPlaywrightArtifactPath('integration', 'integration-feed-view.png'),
           fullPage: true,
         });
 
@@ -313,7 +314,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       // Take screenshot
       await page.screenshot({
-        path: 'test-results/integration-data-state.png',
+        path: getPlaywrightArtifactPath('integration', 'integration-data-state.png'),
         fullPage: true,
       });
 

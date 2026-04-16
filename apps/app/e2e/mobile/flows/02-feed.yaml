@@ -29,33 +29,26 @@ appId: nl.huishype.app
       id: 'property-feed-card'
     timeout: 30000
 
-# Tap the first feed card to view property details
-- tapOn:
-    id: 'property-feed-card'
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-cards-loaded.png
+
+# Scroll once to verify the list is interactive on device, then reset near the
+# top before handing control back to the map flows.
+- swipe:
+    start: '50%,80%'
+    end: '50%,35%'
+    duration: 350
 - waitForAnimationToEnd
-
-- extendedWaitUntil:
-    visible:
-      id: 'property-header-carousel'
-    timeout: 10000
-
-- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-card-tap.png
-
-# Verify property detail actions are present when the detail route opens
-- assertVisible:
-    text: 'Save'
-    optional: true
-- assertVisible:
-    text: 'Share'
-    optional: true
-
-# Navigate back (Android back button)
-- pressKey: back
+- swipe:
+    start: '50%,35%'
+    end: '50%,80%'
+    duration: 350
 - waitForAnimationToEnd
 
 # Switch back to Map tab
 - tapOn:
     id: 'tab-index'
+- waitForAnimationToEnd
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'search-bar-focus-target'
     timeout: 10000

@@ -10,23 +10,8 @@ appId: nl.huishype.app
 # This is a sub-flow; user is authenticated and on the Map tab after
 # cluster-preview flow. The map is at a zoomed-out level (~12-13).
 #
-# COORDINATE-BASED INTERACTIONS:
-# MapLibre Marker children (GroupPreviewCard) are rendered as real native
-# Android Views via MarkerViewNativeComponent (Fabric), but they sit inside
-# MapLibre's native view hierarchy which does NOT expose children to
-# uiautomator/Maestro. The testIDs (group-preview-card, group-preview-like-button,
-# group-preview-close-button, etc.) are invisible to the accessibility tree.
-#
-# Therefore this flow uses coordinate-based tapping (tapOn: point: "X%,Y%")
-# for all preview card interactions. Coordinates are calibrated for the card
-# position after searching "Beeldbuisring 41 Eindhoven" at zoom 17:
-#   - Card body:   ~75%, 50%  (center-right of screen)
-#   - Like button:  ~58%, 62%
-#   - Close button: ~98%, 41%
-#
-# Text content rendered inside the card (address, price) MAY be visible to
-# the accessibility tree even when testIDs are not, so we use text-based
-# assertions where possible.
+# Preview interactions now use surfaced native testIDs. This flow intentionally
+# exercises the actual preview buttons instead of coordinate-based taps.
 
 # =====================================================================
 # SETUP: Navigate to the fixture property to get a single preview card
@@ -56,9 +41,15 @@ appId: nl.huishype.app
     optional: true
 - waitForAnimationToEnd
 
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 15000
+
 # Search for the fixture property
 - tapOn:
     id: 'search-bar-focus-target'
+    optional: true
 - waitForAnimationToEnd
 
 - tapOn:
@@ -71,6 +62,8 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 
 - inputText: 'Beeldbuisring 41 Eindhoven'
+- pressKey: Back
+- waitForAnimationToEnd
 
 # Wait for the actual result row to appear
 - extendedWaitUntil:
@@ -85,9 +78,10 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
-# Wait for the map to settle at zoom 17
+# Wait for the preview card to settle after the search result selection.
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'property-preview-card'
     timeout: 15000
 
 # =====================================================================
@@ -100,20 +94,42 @@ appId: nl.huishype.app
 
 - takeScreenshot: test-results/visual-overhaul/preview-card/android/preview-card-visible.png
 
-# Verify the card shows the fixture property address (text may be accessible
-# even though testIDs inside MapLibre Marker are not)
-- assertVisible:
-    text: '.*Beeldbuisring.*'
-    optional: true
+- extendedWaitUntil:
+    visible:
+      id: 'property-preview-card'
+    timeout: 10000
 
 # =====================================================================
 # TEST 2: Card body tap opens property details (bottom sheet)
 # =====================================================================
 
-# Tap on the card body area (center-right of screen where card renders)
-# This should open the PropertyBottomSheet
 - tapOn:
-    point: '75%,50%'
+    id: 'group-preview-touch-overlay'
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      id: 'property-header-carousel'
+    timeout: 5000
+    optional: true
+
+- tapOn:
+    id: 'property-preview-address-container'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'property-preview-address'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'group-preview-touch-overlay'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'property-preview-card'
     optional: true
 - waitForAnimationToEnd
 
@@ -121,7 +137,7 @@ appId: nl.huishype.app
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'
-    timeout: 10000
+    timeout: 15000
     optional: true
 
 - takeScreenshot: test-results/visual-overhaul/preview-card/android/card-tap-bottom-sheet.png
@@ -135,31 +151,50 @@ appId: nl.huishype.app
 # TEST 3: Dismiss bottom sheet to get back to preview card
 # =====================================================================
 
-# Dismiss the bottom sheet by tapping on empty map area (top-left)
-# Note: swiping down does NOT reliably dismiss @gorhom/bottom-sheet via Maestro
-- tapOn:
-    point: '20%,40%'
+# Dismiss the bottom sheet by swiping it down so the preview card becomes visible again
+- swipe:
+    start: '50%,30%'
+    end: '50%,95%'
+    duration: 500
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
-# The preview card may or may not still be visible after dismissing the bottom sheet
 - takeScreenshot: test-results/visual-overhaul/preview-card/android/after-dismiss-bottom-sheet.png
 
-# Check if card address text is still visible (optional — card may have been dismissed)
-- assertVisible:
-    text: '.*Beeldbuisring.*'
+- extendedWaitUntil:
+    visible:
+      id: 'property-preview-card'
+    timeout: 10000
+
+# Reset the property route before the preview-only checks below.
+- tapOn:
+    text: 'Go back'
     optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'property-back-button'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'tab-index'
+    optional: true
+- waitForAnimationToEnd
 
 # =====================================================================
 # TEST 4: Quick action button (Like) — card stays visible
 # =====================================================================
 
-# If the preview card was dismissed when bottom sheet closed, re-trigger it
-# by searching again
+# Re-search the fixture property so Tests 4 and 5 run from a fresh preview card
 - tapOn:
     id: 'search-clear-button'
     optional: true
 - waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 15000
 - tapOn:
     id: 'search-bar-focus-target'
     optional: true
@@ -187,15 +222,13 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 15000
 - waitForAnimationToEnd
 
-# Tap the Like button area on the preview card
-# This should trigger the like action (or auth modal) but NOT dismiss the card
 - tapOn:
-    point: '58%,62%'
-    optional: true
+    id: 'group-preview-like-button'
 - waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/preview-card/android/after-like-tap.png
@@ -206,17 +239,23 @@ appId: nl.huishype.app
     optional: true
 - waitForAnimationToEnd
 
+- extendedWaitUntil:
+    visible:
+      id: 'property-preview-card'
+    timeout: 10000
+
 # =====================================================================
 # TEST 5: Close button dismisses the card
 # =====================================================================
 
-# Tap the close button (X) in the top-right corner of the preview card
 - tapOn:
-    point: '98%,41%'
-    optional: true
+    id: 'group-preview-close-button'
 - waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/preview-card/android/card-closed.png
+
+- assertNotVisible:
+    id: 'property-preview-card'
 
 # =====================================================================
 # TEST 6: Cluster swipe pagination (zoom out to create clusters)
@@ -243,7 +282,8 @@ appId: nl.huishype.app
 
 # Wait for tiles to reload at new zoom
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000
 
 # Tap center of the map to try to hit a cluster node
@@ -276,9 +316,9 @@ appId: nl.huishype.app
 # CLEANUP: Close any remaining preview and return to clean state
 # =====================================================================
 
-# Tap the close button area to dismiss any preview card
+# Tap the close button to dismiss any preview card
 - tapOn:
-    point: '98%,41%'
+    id: 'group-preview-close-button'
     optional: true
 - waitForAnimationToEnd
 
@@ -290,5 +330,6 @@ appId: nl.huishype.app
 
 # Verify map is visible
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000

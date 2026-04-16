@@ -23,6 +23,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Disable tracing and video to avoid file issues
 test.use({ trace: 'off', video: 'off' });
@@ -36,16 +37,7 @@ const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const CLOSE_ZOOM = 16; // Close enough to see individual properties
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   // Console error collection
@@ -69,9 +61,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-          pattern.test(text)
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }
@@ -82,9 +72,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Collect page errors (uncaught exceptions)
     page.on('pageerror', (error) => {
-      const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-        pattern.test(error.message)
-      );
+      const text = error.message;
+      const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
       if (!isKnown) {
         consoleErrors.push(`Page Error: ${error.message}`);
       }

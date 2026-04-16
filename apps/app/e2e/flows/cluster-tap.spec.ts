@@ -8,32 +8,16 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 // Eindhoven center coordinates
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*\.pbf/,
-  /font/i,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact issues; increase timeout for map-heavy tests
 test.use({ trace: 'off' });
@@ -162,7 +146,7 @@ test.describe('Cluster Tap Flow', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       }

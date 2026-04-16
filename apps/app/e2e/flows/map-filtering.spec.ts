@@ -1,26 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 import { waitForMapReady } from '../integration/helpers';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*\.pbf/,
-  /font/i,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 type SerializableTileSource = {
   serialize?: () => { tiles?: string[] | null } | null;
@@ -63,7 +46,7 @@ test.describe('Map Filtering', () => {
       }
 
       const text = msg.text();
-      if (!KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text))) {
+      if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
         consoleErrors.push(text);
       }
     });

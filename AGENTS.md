@@ -395,6 +395,10 @@ If the change touches mobile, also run:
 pnpm test:e2e:mobile             # Wrapper that bootstraps the device and runs Maestro
 ```
 
+For Playwright, the canonical harness is the root wrapper plus `scripts/playwright/config.mjs` and `scripts/playwright/integration-runtime.mjs`. Treat `apps/app/playwright.config.ts` as a compatibility entrypoint for local invocations, not as a separate test runtime.
+
+For API integration coverage, prefer suite-local fixtures via `services/api/src/__tests__/integration/helpers/fixtures.ts`. Do not add fresh assumptions about shared seeded rows unless the suite is intentionally validating broader dataset-backed behavior and documents that requirement explicitly.
+
 ## Agent-Managed Tooling
 
 The `tools/` directory is the agent workspace. See `tools/README.md` for current tools and guidance on creating new ones. Agents are encouraged to:

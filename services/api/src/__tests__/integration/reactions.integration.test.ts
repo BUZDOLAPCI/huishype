@@ -3,13 +3,14 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, comments, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
- * Integration tests for reaction (like) routes.
+ * Integration tests for comment like routes backed by the reactions table.
  *
- * Creates a test user via auth, fetches a real property,
- * creates a comment, then exercises the like/unlike API.
+ * Creates a test user via auth, seeds a hermetic property, creates a comment,
+ * then exercises the comment like/unlike API.
  */
 describe('Reaction routes', () => {
   let app: FastifyInstance;
@@ -20,29 +21,49 @@ describe('Reaction routes', () => {
   const testUserIds: string[] = [];
   const testCommentIds: string[] = [];
 
-  beforeAll(async () => {
-    app = await buildApp({ logger: false });
-
-    // Create test user
-    const uniqueId = `reacttest${Date.now()}`;
+  async function createAuthenticatedTestUser(label: string) {
+    const uniqueId = `${label}${Date.now()}`;
     const loginResp = await app.inject({
       method: 'POST',
       url: '/auth/google',
       payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
     });
+
+    expect(loginResp.statusCode).toBe(200);
+
     const loginBody = JSON.parse(loginResp.body);
-    userId = loginBody.session.user.id;
-    accessToken = loginBody.session.accessToken;
+    expect(loginBody).toMatchObject({
+      session: {
+        user: {
+          id: expect.any(String),
+        },
+        accessToken: expect.any(String),
+      },
+    });
+
+    return {
+      userId: loginBody.session.user.id as string,
+      accessToken: loginBody.session.accessToken as string,
+    };
+  }
+
+  beforeAll(async () => {
+    app = await buildApp({ logger: false });
+
+    const auth = await createAuthenticatedTestUser('reacttest');
+    userId = auth.userId;
+    accessToken = auth.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const property = await createIntegrationProperty({
+      street: 'Reactions Fixture Street',
+      houseNumber: 1,
+      city: 'Reactions City',
+      postalCode: '9110AA',
+      lon: 5.4711,
+      lat: 51.4411,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    propertyId = property.id;
 
     // Create a comment to like/unlike
     const commentResp = await app.inject({
@@ -51,6 +72,7 @@ describe('Reaction routes', () => {
       headers: { authorization: `Bearer ${accessToken}` },
       payload: { content: 'Comment for reaction tests' },
     });
+    expect(commentResp.statusCode).toBe(201);
     const commentBody = JSON.parse(commentResp.body);
     commentId = commentBody.id;
     testCommentIds.push(commentId);
@@ -74,6 +96,7 @@ describe('Reaction routes', () => {
         // Ignore
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

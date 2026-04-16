@@ -18,6 +18,8 @@ import path from 'path';
 import fs from 'fs';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
 const EXPECTATION_NAME = '0020-backend-vector-tile-clustering';
@@ -31,19 +33,10 @@ const ZOOMED_OUT_LEVEL = 10; // City view - active clusters dominate
 const ZOOMED_IN_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM; // Reveal threshold for ghost-specific layers
 
 // API base URL (assume running locally for tests)
-const API_URL = 'http://localhost:3100';
+const API_URL = getPlaywrightApiUrl();
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test.describe.configure({ mode: 'serial' });
@@ -68,9 +61,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-          pattern.test(text)
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

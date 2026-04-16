@@ -3,8 +3,9 @@ import {
   buildPropertyRoute,
   type PropertyRouteAddressLike,
 } from '@/src/utils/property-route';
+import { getPlaywrightApiUrl } from '../../helpers/runtime';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 export interface CanonicalPropertyFixture extends PropertyRouteAddressLike {
   id: string;

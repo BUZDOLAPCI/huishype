@@ -3,18 +3,18 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db, properties as propertiesTable } from '../../db/index.js';
 import { and, eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for GET /properties/resolve endpoint.
  *
- * Tests against the real PostGIS database seeded with Dutch property data.
+ * Tests against hermetic Dutch property fixtures created within this suite.
  * The endpoint resolves a postal code + house number to a local property.
  */
 describe('GET /properties/resolve', () => {
   let app: FastifyInstance;
   const cleanupPropertyIds: string[] = [];
 
-  // We'll discover a real property from the DB to use in tests
   let knownPostalCode: string;
   let knownHouseNumber: number;
   let knownHouseNumberAddition: string | null;
@@ -58,21 +58,22 @@ describe('GET /properties/resolve', () => {
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Fetch a real property from the seeded database to use in tests
-    const listResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const knownProperty = await createIntegrationProperty({
+      street: 'Resolve Known Street',
+      houseNumber: 16,
+      houseNumberAddition: 'A',
+      city: 'Resolve Known City',
+      postalCode: '5658DP',
+      lon: 5.472,
+      lat: 51.442,
     });
-    const listBody = JSON.parse(listResp.body);
-    expect(listBody.data.length).toBeGreaterThan(0);
-
-    const prop = listBody.data[0];
-    knownPostalCode = prop.postalCode;
-    knownHouseNumber = prop.houseNumber;
-    knownHouseNumberAddition = prop.houseNumberAddition;
-    knownPropertyId = prop.id;
-    knownCity = prop.city;
-    knownCountryCode = prop.countryCode;
+    cleanupPropertyIds.push(knownProperty.id);
+    knownPostalCode = knownProperty.postalCode;
+    knownHouseNumber = knownProperty.houseNumber;
+    knownHouseNumberAddition = knownProperty.houseNumberAddition;
+    knownPropertyId = knownProperty.id;
+    knownCity = knownProperty.city;
+    knownCountryCode = knownProperty.countryCode;
 
     const key = await findUnusedAddressKey('NL');
     const tempRows = Array.from({ length: 11 }, (_, index) => ({

@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for property view tracking endpoints.
@@ -38,14 +39,15 @@ describe('Property view routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property — use offset to reduce collision with other tests
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1&page=3',
+    const property = await createIntegrationProperty({
+      street: 'Property Views Fixture Street',
+      houseNumber: 1,
+      city: 'Views City',
+      postalCode: '9080AA',
+      lon: 5.4709,
+      lat: 51.4409,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    propertyId = property.id;
 
     // Clean any existing views for this property from prior test runs
     await db.execute(sql`DELETE FROM property_views WHERE property_id = ${propertyId}`);
@@ -54,6 +56,7 @@ describe('Property view routes', () => {
   afterAll(async () => {
     // Clean up
     await db.execute(sql`DELETE FROM property_views WHERE property_id = ${propertyId}`);
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     for (const uid of testUserIds) {
       try {
         await db.delete(users).where(eq(users.id, uid));

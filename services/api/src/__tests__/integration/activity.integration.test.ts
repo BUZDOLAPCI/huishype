@@ -5,6 +5,7 @@ import { db } from '../../db/index.js';
 import { users, reactions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 describe('Activity routes', () => {
   let app: FastifyInstance;
@@ -28,22 +29,21 @@ describe('Activity routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const property = await createIntegrationProperty({
+      street: 'Activity Fixture Street',
+      houseNumber: 1,
+      city: 'Activity City',
+      postalCode: '9020AA',
+      lon: 5.4702,
+      lat: 51.4402,
     });
-    const propBody = JSON.parse(propResp.body);
-    if (propBody.data.length > 0) {
-      propertyId = propBody.data[0].id;
+    propertyId = property.id;
 
-      // Like it to create some activity
-      await app.inject({
-        method: 'POST',
-        url: `/properties/${propertyId}/like`,
-        headers: { authorization: `Bearer ${accessToken}` },
-      });
-    }
+    await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/like`,
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
   });
 
   afterAll(async () => {
@@ -55,6 +55,7 @@ describe('Activity routes', () => {
         // Ignore
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

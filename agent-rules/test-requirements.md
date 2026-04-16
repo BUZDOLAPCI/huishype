@@ -5,7 +5,7 @@ Agents must be able to verify changes locally + in CI with:
 - **Unit tests** for all logic
 - **Integration tests** for API/data boundaries
 - **E2E "sim" tests** for every feature across iOS/Android/Web (happy paths + critical edge cases)
-- **Deterministic environments** (seeded data, stable mocks, repeatable runs)
+- **Deterministic environments** (suite-owned fixtures where practical, stable mocks, repeatable runs)
 
 ---
 
@@ -27,9 +27,8 @@ Agents must be able to verify changes locally + in CI with:
 - **Rules:** no network; use dependency injection and mocks
 
 ### Backend and worker
-- **Test runner:** **Jest**
-- **Backend packages:** `services/api`
-- **Worker package:** `services/worker`
+- **Backend runner:** **Jest** (`services/api`)
+- **Worker runner:** **node:test** via `node --import tsx --test` (`services/worker`)
 - **What goes here:** service logic, scoring/trending functions, moderation rules, auth/permission helpers, subscription entitlement checks, worker orchestration helpers
 
 ### Shared and client packages
@@ -48,7 +47,7 @@ Agents must be able to verify changes locally + in CI with:
 ### Backend integration tests
 - **Runner:** Jest
 - **DB:** **Postgres/PostGIS in Docker** (ephemeral per run)
-- **Approach:** run API server against real DB with migrations applied, seed deterministic fixtures
+- **Approach:** run the API against the real schema with migrations applied. Prefer suite-local hermetic fixtures created inside the test via helpers in `services/api/src/__tests__/integration/helpers/fixtures.ts`, and clean them up in-suite. If a broader integration suite intentionally validates shared dataset or materialized-view behavior, document that dependency explicitly in the file header instead of assuming generic seeded rows.
 
 ### API Mocking (Frontend Development)
 - **Framework:** **MSW (Mock Service Worker)**
@@ -75,6 +74,7 @@ Agents must be able to verify changes locally + in CI with:
 - **Framework:** **Playwright**
 - **Coverage:** full user flows (auth, map browsing, posting, commenting, reporting, notifications UI, settings)
 - **Artifacts:** traces, screenshots, videos on failure
+- **Harness:** run from the monorepo root via `scripts/playwright/run-playwright-project.mjs`, which boots the shared static-export web runtime and API process. `apps/app/playwright.config.ts` is a compatibility entrypoint, not a separate harness.
 
 ### Mobile E2E (iOS + Android)
 - **Framework:** **Maestro**
@@ -199,7 +199,7 @@ Artifacts always captured:
   - `services/worker/src/**/*.test.ts`
 - **Backend integration tests**
   - `services/api/src/__tests__/integration/*.integration.test.ts`
-  - (runs against real Postgres/PostGIS DB on port 5440 with migrations + seeds)
+  - (runs against the real Postgres/PostGIS schema; stabilized suites should create and clean up their own fixtures unless the suite explicitly documents a shared dataset/materialized-view dependency)
 - **Web E2E — User Flows (Playwright)**
   - `apps/app/e2e/flows/**/*.spec.ts`
 - **Web E2E — Visual Reference Tests (Playwright)**
@@ -258,7 +258,7 @@ When deciding which tests to run after a change:
 ```
 pnpm test                   # Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration
 pnpm test:unit              # App + API + worker + shared + api-client + mocks unit tests (Jest / Vitest / node:test)
-pnpm test:integration       # API integration tests (runs via turbo → API jest)
+pnpm test:integration       # API integration tests via @huishype/api Jest with NODE_ENV=test
 pnpm test:e2e:web           # Full Playwright suite via the root wrapper
 pnpm test:e2e:flows         # User flow Playwright project
 pnpm test:e2e:visual        # Visual Playwright project

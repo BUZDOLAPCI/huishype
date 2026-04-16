@@ -15,6 +15,7 @@ import path from 'path';
 import fs from 'fs';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
 const EXPECTATION_NAME = 'map-view-property-markers';
@@ -28,16 +29,7 @@ const PITCH_3D = 45; // Slight 3D perspective
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -64,9 +56,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-          pattern.test(text)
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

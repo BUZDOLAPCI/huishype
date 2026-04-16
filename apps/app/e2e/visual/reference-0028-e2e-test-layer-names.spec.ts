@@ -25,6 +25,7 @@ import {
   HIGH_ZOOM_LAYERS,
   GHOST_NODE_ZOOM_THRESHOLD,
 } from './helpers/map-layer-names';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Disable tracing for this test to avoid trace file issues
 test.use({ trace: 'off', video: 'off' });
@@ -37,16 +38,7 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   let consoleErrors: string[] = [];
@@ -66,7 +58,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

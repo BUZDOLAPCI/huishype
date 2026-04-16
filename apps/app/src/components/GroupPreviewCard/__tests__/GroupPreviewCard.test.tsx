@@ -114,10 +114,10 @@ describe('GroupPreviewCard', () => {
           onClose={onClose}
         />
       );
-      // In single mode, close button is rendered inside PropertyPreviewCard
-      const closeBtn = screen.getByTestId('property-preview-close-button');
+      const closeBtn = screen.getByTestId('group-preview-close-button');
       fireEvent.press(closeBtn);
       expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('property-preview-close-button')).toBeNull();
     });
 
     it('fires onPropertyTap when card body is pressed', () => {

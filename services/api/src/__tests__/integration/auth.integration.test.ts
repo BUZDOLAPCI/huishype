@@ -289,6 +289,7 @@ describe('Auth routes', () => {
         url: '/auth/google',
         payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
       });
+      expect(loginResp.statusCode).toBe(200);
       const loginBody = JSON.parse(loginResp.body);
       testUserIds.push(loginBody.session.user.id);
 

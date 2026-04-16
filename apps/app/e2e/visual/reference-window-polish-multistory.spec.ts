@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { waitForMapIdle, waitForMapStyleLoaded } from './helpers/visual-test-helpers';
 import { getPitchForZoom } from '../../src/lib/mapPitch';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const EXPECTATION_NAME = 'window-polish-multistory';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
@@ -11,16 +12,7 @@ const ZOOM = 18.5;
 const PITCH = getPitchForZoom(ZOOM);
 const BEARING = 0;
 
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test.use({ viewport: { width: 768, height: 768 } });
@@ -40,7 +32,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() !== 'error') return;
       const text = msg.text();
-      const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+      const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
       if (!isKnown) {
         consoleErrors.push(text);
       }

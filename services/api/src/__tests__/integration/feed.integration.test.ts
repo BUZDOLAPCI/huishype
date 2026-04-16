@@ -8,9 +8,12 @@ import crypto from 'node:crypto';
 /**
  * Integration tests for the feed endpoint.
  *
- * Tests against the real PostGIS database seeded with listing data.
- * The feed queries mv_latest_active_listings, which must already exist
- * via the migrated schema.
+ * Tests against the real PostGIS database and the migrated
+ * mv_latest_active_listings materialized view.
+ *
+ * This suite seeds dedicated rows for targeted ranking/filter assertions,
+ * while the broader shape checks tolerate whatever listing data is currently
+ * present in the migrated test database.
  */
 describe('Feed routes', () => {
   let app: FastifyInstance;

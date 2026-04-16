@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, comments, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for comment routes.
@@ -45,14 +46,15 @@ describe('Comment routes', () => {
     likerAccessToken = likerBody.session.accessToken;
     testUserIds.push(likerBody.session.user.id);
 
-    // Fetch a real property ID from DB
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const property = await createIntegrationProperty({
+      street: 'Comments Fixture Street',
+      houseNumber: 1,
+      city: 'Comments City',
+      postalCode: '9030AA',
+      lon: 5.4703,
+      lat: 51.4403,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    propertyId = property.id;
   });
 
   afterAll(async () => {
@@ -79,6 +81,7 @@ describe('Comment routes', () => {
         // Ignore cleanup errors
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

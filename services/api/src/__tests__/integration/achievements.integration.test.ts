@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, userAchievements, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 describe('Achievement routes', () => {
   let app: FastifyInstance;
@@ -27,15 +28,15 @@ describe('Achievement routes', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const property = await createIntegrationProperty({
+      street: 'Achievement Fixture Street',
+      houseNumber: 1,
+      city: 'Achievement City',
+      postalCode: '9010AA',
+      lon: 5.4701,
+      lat: 51.4401,
     });
-    const propBody = JSON.parse(propResp.body);
-    if (propBody.data.length > 0) {
-      propertyId = propBody.data[0].id;
-    }
+    propertyId = property.id;
   });
 
   afterAll(async () => {
@@ -48,6 +49,7 @@ describe('Achievement routes', () => {
         // Ignore
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

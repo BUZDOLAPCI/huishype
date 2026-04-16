@@ -1,26 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const AMSTERDAM_CENTER: [number, number] = [4.8952, 52.3702];
 
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*\.pbf/,
-  /font/i,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 async function waitForMapReady(page: Page, timeout = 60_000) {
   await page.waitForSelector('canvas', { timeout });
@@ -84,7 +67,7 @@ test.describe('Map Header Location Label', () => {
     page.on('console', (msg) => {
       if (msg.type() !== 'error') return;
       const text = msg.text();
-      if (!KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text))) {
+      if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
         consoleErrors.push(text);
       }
     });

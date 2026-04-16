@@ -6,6 +6,7 @@ import {
   waitForMapIdle,
   KNOWN_ACCEPTABLE_ERRORS,
 } from './helpers/visual-test-helpers';
+import { isAllowedConsoleMessage } from '../helpers/console';
 
 const EXPECTATION_NAME = 'building-windows';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
@@ -29,9 +30,7 @@ test.describe('3D Building Windows', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((p) =>
-          text.toLowerCase().includes(p.toLowerCase())
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

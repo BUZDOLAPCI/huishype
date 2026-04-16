@@ -5,17 +5,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import {
+  DEFAULT_PLAYWRIGHT_API_PORT,
+  DEFAULT_PLAYWRIGHT_WEB_PORT,
+  PLAYWRIGHT_APP_ROOT,
+  PLAYWRIGHT_REPO_ROOT,
+  applyPlaywrightRuntimeEnvironment,
+  resolveLatestWebDistDir,
+} from './runtime-config.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
 
-const DEFAULT_API_PORT = 3101;
-const DEFAULT_WEB_PORT = 8082;
 const READY_TIMEOUT_MS = 120_000;
 const EXPO_WEB_NODE_HEAP_MB = 8192;
-const repoRoot = process.cwd();
+const repoRoot = PLAYWRIGHT_REPO_ROOT;
 const apiCwd = path.join(repoRoot, 'services', 'api');
-const appCwd = path.join(repoRoot, 'apps', 'app');
+const appCwd = PLAYWRIGHT_APP_ROOT;
 const expoBin = './node_modules/.bin/expo';
-const webDistDir = path.join(appCwd, 'dist');
 const require = createRequire(path.join(apiCwd, 'package.json'));
 
 function resolveTsxRuntimePaths() {
@@ -45,8 +50,8 @@ function resolveTsxRuntimePaths() {
 
 const { tsxPreflight, tsxLoader } = resolveTsxRuntimePaths();
 
-const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
-const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
+const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_PLAYWRIGHT_API_PORT), 10);
+const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_PLAYWRIGHT_WEB_PORT), 10);
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
@@ -213,6 +218,12 @@ async function startServiceWithRetry({
 async function main() {
   assertPositivePort(apiPort, 'PLAYWRIGHT_API_PORT');
   assertPositivePort(webPort, 'PLAYWRIGHT_WEB_PORT');
+  process.env.PLAYWRIGHT_API_PORT = String(apiPort);
+  process.env.PLAYWRIGHT_WEB_PORT = String(webPort);
+  process.env.PLAYWRIGHT_WEB_URL = webUrl;
+  process.env.API_URL = apiUrl;
+  process.env.EXPO_PUBLIC_API_URL = apiUrl;
+  applyPlaywrightRuntimeEnvironment(process.env);
 
   const childEnv = {
     ...process.env,
@@ -282,6 +293,7 @@ async function main() {
   }
 
   console.log('Building Expo web bundle for Playwright runtime ...');
+  const exportStartedAtMs = Date.now();
   execFileSync(
     expoBin,
     ['export', '--platform', 'web', '--clear'],
@@ -295,12 +307,13 @@ async function main() {
       stdio: 'inherit',
     },
   );
+  const exportedWebRoot = resolveLatestWebDistDir({ startedAtMs: exportStartedAtMs });
 
   console.log(`Waiting for static web server at ${webUrl} ...`);
   await ensurePortAvailable(webPort, 'Static web server');
   webServerRuntime = startStaticWebServer({
     port: webPort,
-    rootDir: webDistDir,
+    rootDir: exportedWebRoot,
     runtimeConfig: {
       apiUrl,
     },

@@ -6,16 +6,22 @@ import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import {
+  DEFAULT_PLAYWRIGHT_API_PORT,
+  DEFAULT_PLAYWRIGHT_WEB_PORT,
+  PLAYWRIGHT_APP_ROOT,
+  PLAYWRIGHT_REPO_ROOT,
+  applyPlaywrightRuntimeEnvironment,
+  resolveLatestWebDistDir,
+} from './runtime-config.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
 
-const DEFAULT_API_PORT = 3101;
-const DEFAULT_WEB_PORT = 8082;
 const READY_TIMEOUT_MS = 120_000;
 const EXPO_WEB_NODE_HEAP_MB = 8192;
 
-const repoRoot = process.cwd();
+const repoRoot = PLAYWRIGHT_REPO_ROOT;
 const apiCwd = path.join(repoRoot, 'services', 'api');
-const appCwd = path.join(repoRoot, 'apps', 'app');
+const appCwd = PLAYWRIGHT_APP_ROOT;
 const expoBin = './node_modules/.bin/expo';
 const playwrightBin = './node_modules/.bin/playwright';
 const require = createRequire(path.join(apiCwd, 'package.json'));
@@ -47,8 +53,8 @@ function resolveTsxRuntimePaths() {
 
 const { tsxPreflight, tsxLoader } = resolveTsxRuntimePaths();
 
-let apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_API_PORT), 10);
-let webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_WEB_PORT), 10);
+let apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_PLAYWRIGHT_API_PORT), 10);
+let webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_PLAYWRIGHT_WEB_PORT), 10);
 let apiUrl = `http://127.0.0.1:${apiPort}`;
 let webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
@@ -102,6 +108,43 @@ function updateRuntimePorts(nextApiPort, nextWebPort) {
   webPort = nextWebPort;
   apiUrl = `http://127.0.0.1:${apiPort}`;
   webUrl = `http://127.0.0.1:${webPort}`;
+}
+
+function syncRuntimeEnvironment(env = process.env) {
+  env.PLAYWRIGHT_API_PORT = String(apiPort);
+  env.PLAYWRIGHT_WEB_PORT = String(webPort);
+  env.PLAYWRIGHT_WEB_URL = webUrl;
+  env.API_URL = apiUrl;
+  env.EXPO_PUBLIC_API_URL = apiUrl;
+  applyPlaywrightRuntimeEnvironment(env);
+}
+
+function isAddressInUseError(error) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'EADDRINUSE',
+  );
+}
+
+function createIsolatedStaticWebRoot(sourceDir) {
+  const runtimeRootParent = path.join(
+    repoRoot,
+    'test-results',
+    'playwright',
+    'runtime',
+  );
+  fs.mkdirSync(runtimeRootParent, { recursive: true });
+  const runtimeRoot = fs.mkdtempSync(
+    path.join(runtimeRootParent, 'visual-web-'),
+  );
+  fs.cpSync(sourceDir, runtimeRoot, {
+    recursive: true,
+    force: true,
+    errorOnExist: false,
+  });
+  return runtimeRoot;
 }
 
 async function claimPort(port, host = '127.0.0.1') {
@@ -364,7 +407,9 @@ async function main() {
     await resolveRuntimePort(webPort, { strict: webPortRequested }),
   );
 
-  const childEnv = {
+  syncRuntimeEnvironment(process.env);
+
+  const createChildEnv = () => ({
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
@@ -374,11 +419,15 @@ async function main() {
     PLAYWRIGHT_WEB_PORT: String(webPort),
     PLAYWRIGHT_WEB_URL: webUrl,
     PLAYWRIGHT_DISABLE_WEBSERVER: '1',
-  };
+    PLAYWRIGHT_REPO_ROOT: repoRoot,
+  });
+
+  let childEnv = createChildEnv();
 
   let apiChild = null;
   let apiExitPromise = Promise.resolve();
   let webRuntime = null;
+  let staticWebRoot = null;
   let playwrightChild = null;
   let playwrightExitPromise = Promise.resolve(0);
   const stopping = { current: false };
@@ -397,6 +446,12 @@ async function main() {
       Promise.resolve()
         .then(() => webRuntime?.stop?.())
         .catch(() => {}),
+      Promise.resolve().then(() => {
+        if (staticWebRoot) {
+          fs.rmSync(staticWebRoot, { recursive: true, force: true });
+          staticWebRoot = null;
+        }
+      }),
     ]);
   };
 
@@ -412,8 +467,6 @@ async function main() {
 
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
-
-  await ensurePortAvailable(webPort, 'Static web server');
 
   console.log(`Starting API server on ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
@@ -435,6 +488,7 @@ async function main() {
   apiExitPromise = apiRuntime.exitPromise;
 
   console.log('Building Expo web bundle for Playwright runtime ...');
+  const exportStartedAtMs = Date.now();
   execFileSync(
     expoBin,
     ['export', '--platform', 'web', '--clear'],
@@ -447,22 +501,63 @@ async function main() {
       stdio: 'inherit',
     },
   );
-  await waitForFile(path.join(appCwd, 'dist', 'index.html'), 'Exported web entrypoint');
+  const exportedWebRoot = resolveLatestWebDistDir({ startedAtMs: exportStartedAtMs });
+  await waitForFile(path.join(exportedWebRoot, 'index.html'), 'Exported web entrypoint');
+  staticWebRoot = createIsolatedStaticWebRoot(exportedWebRoot);
+  console.log(`Using exported web bundle from ${exportedWebRoot}`);
 
-  console.log(`Starting static web server on ${webUrl} ...`);
-  webRuntime = startStaticWebServer({
-    port: webPort,
-    rootDir: path.join(appCwd, 'dist'),
-    runtimeConfig: {
-      apiUrl,
-    },
-    logger: {
-      log: () => {},
-      error: console.error,
-    },
-  });
-  await webRuntime.ready;
-  await waitForHttp(webUrl, 'Static web server');
+  const staticWebServerAttempts = webPortRequested ? 1 : 3;
+  let lastStaticWebServerError = null;
+
+  for (let attempt = 1; attempt <= staticWebServerAttempts; attempt += 1) {
+    updateRuntimePorts(
+      apiPort,
+      await resolveRuntimePort(webPort, { strict: webPortRequested }),
+    );
+    syncRuntimeEnvironment(process.env);
+    childEnv = createChildEnv();
+
+    console.log(`Starting static web server on ${webUrl} ...`);
+    const candidateRuntime = startStaticWebServer({
+      port: webPort,
+      rootDir: staticWebRoot,
+      runtimeConfig: {
+        apiUrl,
+      },
+      logger: {
+        log: () => {},
+        error: console.error,
+      },
+    });
+
+    try {
+      await candidateRuntime.ready;
+      await waitForHttp(webUrl, 'Static web server');
+      webRuntime = candidateRuntime;
+      break;
+    } catch (error) {
+      lastStaticWebServerError =
+        error instanceof Error ? error : new Error(String(error));
+      await Promise.resolve(candidateRuntime.stop?.()).catch(() => {});
+
+      if (
+        stopping.current ||
+        webPortRequested ||
+        attempt === staticWebServerAttempts ||
+        !isAddressInUseError(lastStaticWebServerError)
+      ) {
+        throw lastStaticWebServerError;
+      }
+
+      console.warn(
+        `Static web server failed to bind on attempt ${attempt}/${staticWebServerAttempts}: ${lastStaticWebServerError.message}. Retrying with a fresh port...`,
+      );
+    }
+  }
+
+  if (!webRuntime) {
+    throw lastStaticWebServerError ?? new Error('Static web server failed to start');
+  }
 
   console.log(`Runtime ready: ${apiUrl} and ${webUrl}`);
   const runtimeDeathPromise = watchRuntimeDeaths({
@@ -499,7 +594,7 @@ async function main() {
   ]);
 
   await stop('SIGTERM');
-  process.exit(Number(exitCode));
+  process.exit(Number.isInteger(exitCode) ? exitCode : 0);
 }
 
 export {

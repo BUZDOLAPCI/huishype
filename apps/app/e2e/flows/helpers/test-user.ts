@@ -4,8 +4,9 @@
  */
 
 import { expect, type APIRequestContext } from '@playwright/test';
+import { getPlaywrightApiUrl } from '../../helpers/runtime';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
 

@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from './helpers/screenshot-harness';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 test.use({ trace: 'off', video: 'off' });
 
@@ -19,16 +20,7 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4305];
 const ZOOM_LEVEL = 17;
 
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 async function waitForMapReady(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
@@ -114,7 +106,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       } else if (msg.type() === 'warning') {

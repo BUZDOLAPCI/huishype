@@ -1,0 +1,112 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const DEFAULT_PLAYWRIGHT_API_PORT = 3101;
+export const DEFAULT_PLAYWRIGHT_WEB_PORT = 8082;
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+export const PLAYWRIGHT_REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
+export const PLAYWRIGHT_APP_ROOT = path.join(PLAYWRIGHT_REPO_ROOT, 'apps', 'app');
+export const PLAYWRIGHT_OUTPUT_ROOT = path.join(PLAYWRIGHT_REPO_ROOT, 'test-results', 'playwright');
+export const PLAYWRIGHT_ARTIFACT_ROOT = path.join(PLAYWRIGHT_OUTPUT_ROOT, 'artifacts');
+export const PLAYWRIGHT_HTML_REPORT_DIR = path.join(PLAYWRIGHT_OUTPUT_ROOT, 'report');
+
+export const PLAYWRIGHT_TEST_DIR = path.join(PLAYWRIGHT_APP_ROOT, 'e2e');
+export const PLAYWRIGHT_FLOW_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'flows');
+export const PLAYWRIGHT_INTEGRATION_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'integration');
+export const PLAYWRIGHT_VISUAL_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'visual');
+
+export function getPlaywrightWebDistCandidates(repoRoot = PLAYWRIGHT_REPO_ROOT) {
+  return [
+    path.join(PLAYWRIGHT_APP_ROOT, 'dist'),
+    path.join(repoRoot, 'dist'),
+  ];
+}
+
+function readExportCandidate(candidateDir) {
+  const entrypointPath = path.join(candidateDir, 'index.html');
+
+  if (!fs.existsSync(entrypointPath) || !fs.statSync(entrypointPath).isFile()) {
+    return null;
+  }
+
+  const entrypointStat = fs.statSync(entrypointPath);
+  const dirStat = fs.statSync(candidateDir);
+
+  return {
+    dir: candidateDir,
+    entrypointPath,
+    modifiedAtMs: Math.max(entrypointStat.mtimeMs, dirStat.mtimeMs),
+  };
+}
+
+export function resolveLatestWebDistDir({
+  startedAtMs = 0,
+  candidates = getPlaywrightWebDistCandidates(),
+} = {}) {
+  const availableCandidates = candidates
+    .map((candidateDir) => readExportCandidate(candidateDir))
+    .filter(Boolean);
+
+  if (availableCandidates.length === 0) {
+    throw new Error(
+      `Unable to find an exported web bundle. Checked: ${candidates.join(', ')}`,
+    );
+  }
+
+  const freshCandidates = availableCandidates.filter(
+    (candidate) => candidate.modifiedAtMs >= startedAtMs - 1000,
+  );
+  const rankedCandidates = (freshCandidates.length > 0
+    ? freshCandidates
+    : availableCandidates
+  ).sort((left, right) => {
+    if (left.modifiedAtMs !== right.modifiedAtMs) {
+      return right.modifiedAtMs - left.modifiedAtMs;
+    }
+
+    return left.dir.localeCompare(right.dir);
+  });
+
+  return rankedCandidates[0].dir;
+}
+
+function parsePort(rawValue, fallback) {
+  const value = Number.parseInt(rawValue ?? String(fallback), 10);
+  return Number.isInteger(value) ? value : fallback;
+}
+
+export function createPlaywrightRuntimeSettings(env = process.env) {
+  const apiPort = parsePort(env.PLAYWRIGHT_API_PORT, DEFAULT_PLAYWRIGHT_API_PORT);
+  const webPort = parsePort(env.PLAYWRIGHT_WEB_PORT, DEFAULT_PLAYWRIGHT_WEB_PORT);
+  const apiUrl = env.API_URL || env.EXPO_PUBLIC_API_URL || `http://127.0.0.1:${apiPort}`;
+  const webUrl = env.PLAYWRIGHT_WEB_URL || `http://127.0.0.1:${webPort}`;
+
+  return {
+    repoRoot: PLAYWRIGHT_REPO_ROOT,
+    apiPort,
+    webPort,
+    apiUrl,
+    webUrl,
+    webOrigin: new URL(webUrl).origin,
+    artifactRoot: env.PLAYWRIGHT_ARTIFACT_ROOT || PLAYWRIGHT_ARTIFACT_ROOT,
+    htmlReportDir: env.PLAYWRIGHT_HTML_REPORT_DIR || PLAYWRIGHT_HTML_REPORT_DIR,
+  };
+}
+
+export function applyPlaywrightRuntimeEnvironment(env = process.env) {
+  const settings = createPlaywrightRuntimeSettings(env);
+
+  env.API_URL = settings.apiUrl;
+  env.EXPO_PUBLIC_API_URL = settings.apiUrl;
+  env.PLAYWRIGHT_API_PORT = String(settings.apiPort);
+  env.PLAYWRIGHT_WEB_PORT = String(settings.webPort);
+  env.PLAYWRIGHT_WEB_URL = settings.webUrl;
+  env.PLAYWRIGHT_ARTIFACT_ROOT = settings.artifactRoot;
+  env.PLAYWRIGHT_HTML_REPORT_DIR = settings.htmlReportDir;
+  env.PLAYWRIGHT_REPO_ROOT = settings.repoRoot;
+
+  return settings;
+}

@@ -7,17 +7,16 @@ appId: nl.huishype.app
 # 3. Property bottom-sheet expansion
 # 4. Cluster preview at lower zoom
 
-# Dismiss Expo developer menu onboarding popup if it appears
+# Dismiss Expo developer menu onboarding popup if it appears.
 - tapOn:
     text: 'Continue'
     optional: true
 - waitForAnimationToEnd
-- pressKey: back
-- waitForAnimationToEnd
 
-# Wait for the map to fully load
+# Wait for the shared tab bar to load, then let 01-smoke normalize to map.
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      text: 'Map'
     timeout: 180000
 
 - runFlow: flows/01-smoke.yaml

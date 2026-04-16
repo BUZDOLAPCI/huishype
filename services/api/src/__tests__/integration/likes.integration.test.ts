@@ -3,7 +3,8 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, reactions } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for the likes routes (renamed from reactions.ts).
@@ -31,14 +32,15 @@ describe('Likes routes (renamed from reactions)', () => {
     accessToken = loginBody.session.accessToken;
     testUserIds.push(userId);
 
-    // Get a real property
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
+    const property = await createIntegrationProperty({
+      street: 'Likes Fixture Street',
+      houseNumber: 1,
+      city: 'Likes City',
+      postalCode: '9050AA',
+      lon: 5.4705,
+      lat: 51.4405,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThan(0);
-    propertyId = propBody.data[0].id;
+    propertyId = property.id;
   });
 
   afterAll(async () => {
@@ -50,6 +52,7 @@ describe('Likes routes (renamed from reactions)', () => {
         // Ignore
       }
     }
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 

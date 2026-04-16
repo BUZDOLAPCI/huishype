@@ -8,8 +8,9 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 // Eindhoven center for tile coordinate calculations
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];

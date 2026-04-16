@@ -83,7 +83,8 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 15000
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/logged-in.png

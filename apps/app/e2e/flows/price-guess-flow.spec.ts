@@ -13,27 +13,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
 import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 // Known acceptable console errors
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -50,6 +36,33 @@ async function waitForPriceGuessUi(page: Page) {
   return { section, slider };
 }
 
+function normalizePriceText(text: string): string {
+  return text
+    .replace(/[\s\u00A0\u202F.]/g, '')
+    .toLowerCase();
+}
+
+async function readNormalizedText(locator: ReturnType<Page['locator']>) {
+  const text = await locator.textContent();
+  expect(text).not.toBeNull();
+  return normalizePriceText(text ?? '');
+}
+
+async function dragSliderThumb(page: Page, deltaX: number) {
+  const thumb = page.locator('[data-testid="slider-thumb"]').first();
+  const thumbBox = await thumb.boundingBox();
+
+  expect(thumbBox).not.toBeNull();
+
+  const startX = thumbBox!.x + thumbBox!.width / 2;
+  const startY = thumbBox!.y + thumbBox!.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY, { steps: 12 });
+  await page.mouse.up();
+}
+
 test.describe('Price Guess Flow', () => {
   let consoleErrors: string[] = [];
 
@@ -58,7 +71,7 @@ test.describe('Price Guess Flow', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       }
@@ -112,7 +125,7 @@ test.describe('Price Guess Flow', () => {
 
     await waitForPriceGuessUi(page);
 
-    // Verify header text (use .first() because text appears in both header and description)
+    await expect(page.locator('text=Guess the Price').first()).toBeVisible();
     await expect(page.locator('text=What do you think this property is worth?').first()).toBeVisible();
 
     // Verify price display
@@ -135,12 +148,18 @@ test.describe('Price Guess Flow', () => {
     expect(submitBackground).not.toBe('rgba(0, 0, 0, 0)');
     expect(submitBackground).not.toBe('transparent');
 
-    // Verify min/max labels
-    await expect(page.locator('text=\u20AC50.000').first()).toBeVisible();
-    await expect(page.locator('text=\u20AC2.000.000').first()).toBeVisible();
+    const minLabel = page.locator('[data-testid="price-range-min"]').first();
+    const maxLabel = page.locator('[data-testid="price-range-max"]').first();
+    await expect(minLabel).toBeVisible();
+    await expect(maxLabel).toBeVisible();
+
+    const normalizedMin = await readNormalizedText(minLabel);
+    const normalizedMax = await readNormalizedText(maxLabel);
+    expect(normalizedMin).toBe('€50k');
+    expect(normalizedMax).toMatch(/^€2(m|mln)$/);
   });
 
-  test('quick adjustment buttons change price', async ({ page, request }) => {
+  test('dragging the slider thumb changes the displayed price', async ({ page, request }) => {
     const property = await getCanonicalTestPropertyRoute(request);
 
     await page.goto(property.route, { waitUntil: 'domcontentloaded' });
@@ -148,33 +167,20 @@ test.describe('Price Guess Flow', () => {
 
     await waitForPriceGuessUi(page);
 
-    // Verify quick adjustment buttons exist
-    const plus50k = page.locator('[data-testid="adjust-plus-50k"]');
-    const minus10k = page.locator('[data-testid="adjust-minus-10k"]');
-    const plus10k = page.locator('[data-testid="adjust-plus-10k"]');
-    const minus50k = page.locator('[data-testid="adjust-minus-50k"]');
-
-    await expect(plus50k).toBeVisible();
-    await expect(minus10k).toBeVisible();
-    await expect(plus10k).toBeVisible();
-    await expect(minus50k).toBeVisible();
-
-    // Verify price display exists
     const priceDisplay = page.locator('[data-testid="price-display"]');
-    const initialPrice = await priceDisplay.textContent();
-    expect(initialPrice).toContain('\u20AC'); // Has EUR symbol
+    await expect(priceDisplay).toBeVisible();
 
-    // Click +50k button (may not change price if slider is disabled for unauthenticated users)
-    await plus50k.click();
-    await page.waitForTimeout(500);
+    const initialPrice = await readNormalizedText(priceDisplay);
+    expect(initialPrice).toContain('€');
 
-    // Click -10k button
-    await minus10k.click();
-    await page.waitForTimeout(500);
+    await dragSliderThumb(page, 120);
 
-    // Verify the price display still shows a valid price format
-    const finalPrice = await priceDisplay.textContent();
-    expect(finalPrice).toContain('\u20AC');
+    await expect
+      .poll(async () => readNormalizedText(priceDisplay), {
+        timeout: 5000,
+        message: 'Expected slider drag to update the displayed guess price',
+      })
+      .not.toBe(initialPrice);
   });
 
   test('unauthenticated guess submission opens auth modal on submit with guess-specific copy', async ({

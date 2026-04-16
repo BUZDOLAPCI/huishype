@@ -4,13 +4,14 @@
  * This test verifies that properties display REAL addresses from the database,
  * NOT placeholder "BAG Pand..." patterns.
  *
- * IMPORTANT: This test does NOT use MSW mocking - it tests the real API and database.
+ * IMPORTANT: This test does NOT use MSW mocking. It runs against the real API
+ * and database through the shared root Playwright runtime.
  *
  * Prerequisites:
- * 1. Docker services running (postgres, redis)
- * 2. API server running on port 3100 with seeded data
- * 3. Web app running on port 8081
- * 4. Database seeded with real addresses (not "BAG Pand..." placeholders)
+ * 1. Launch through the root Playwright wrapper so the API process and static
+ *    web export are bootstrapped consistently.
+ * 2. The underlying dataset for this environment contains real addresses in the
+ *    bbox below (not placeholder "BAG Pand..." rows).
  */
 
 import { test, expect } from '@playwright/test';
@@ -22,14 +23,16 @@ import {
   waitForPropertyDetailReady,
 } from './helpers';
 import { buildPropertyRoute } from '@/src/utils/property-route';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
-// Bounding box for area with real addresses (seeded via geocoding backend)
-// This area contains properties with real street names like "Opera", "Nabucco", "Ella Fitzgeraldlaan"
+// Stable bbox used by this non-mocked integration test. The environment is
+// expected to contain real addresses here.
 const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 
 // Pattern that indicates placeholder addresses (BAD - should not appear)
@@ -41,16 +44,7 @@ const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
 const REAL_ADDRESS_PATTERN = /^[A-Za-zÀ-ÿ\s'-]+\s+\d+[A-Za-z]?$/;
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe('Address Display - Non-Mocked Integration Tests', () => {
   test.setTimeout(60_000);
@@ -73,7 +67,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }
@@ -83,7 +77,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // Collect page errors
     page.on('pageerror', (error) => {
       const text = error.message;
-      const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+      const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
       if (!isKnown) {
         consoleErrors.push(`Page Error: ${text}`);
       }
@@ -104,7 +98,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
 
   test('API returns properties with real addresses (not BAG Pand placeholders)', async ({ request }) => {
     // Fetch properties directly from the API using bounding box filter
-    // This queries an area seeded with real addresses from the geocoding backend
+    // Query an area that should contain real addresses in the current dataset.
     const response = await request.get(`${API_BASE_URL}/properties?limit=10&bbox=${REAL_ADDRESS_BBOX}`);
     expect(response.ok()).toBe(true);
 
@@ -112,7 +106,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     expect(data.data).toBeDefined();
     expect(Array.isArray(data.data)).toBe(true);
 
-    // Database should be seeded with properties in this area
+    // The current dataset should contain properties in this area.
     expect(data.data.length, 'Expected properties in database within bbox').toBeGreaterThan(0);
 
     // Check each property's address

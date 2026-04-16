@@ -11,27 +11,13 @@
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-test-helpers';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 // Known acceptable console errors
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -71,7 +57,7 @@ test.describe('Search Navigation Flow', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       }
@@ -209,9 +195,12 @@ test.describe('Search Navigation Flow', () => {
 
     const selectedMarker = page.locator('[data-testid="selected-marker"]');
     const previewCard = page.locator('[data-testid="group-preview-card"]');
+    const previewAddress = previewCard.locator('[data-testid="property-preview-address"]').first();
     await expect(selectedMarker).toBeVisible({ timeout: 15000 });
     await expect(previewCard).toBeVisible({ timeout: 15000 });
-    await expect(previewCard).toContainText(testProp.address);
+    await expect(previewAddress).toContainText(testProp.address.split(',', 1)[0]?.trim());
+    await expect(previewCard).toContainText(testProp.city);
+    await expect(previewCard).toContainText(testProp.postalCode);
   });
 
   test('preview card arrow stays aligned with the selected node', async ({

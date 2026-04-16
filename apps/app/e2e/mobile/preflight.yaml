@@ -1,0 +1,20 @@
+appId: nl.huishype.app
+---
+# Keep startup verification separate from the long flow so Metro/dev-client
+# regressions fail fast and can be retried before the expensive journey begins.
+# The runner launches the dev client once. Clear any blocking launch overlay,
+# then normalize to the map shell for the real flow.
+- pressKey: Back
+- waitForAnimationToEnd
+- tapOn:
+    id: 'tab-index'
+    optional: true
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-focus-target'
+    timeout: 180000
+- assertVisible:
+    id: 'tab-index'
+- assertVisible:
+    id: 'tab-feed'

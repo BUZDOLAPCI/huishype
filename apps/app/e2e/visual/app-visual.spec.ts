@@ -21,7 +21,8 @@ import * as path from 'path';
  * real issues like import errors, API mismatches, and runtime failures.
  */
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
+import { getPlaywrightApiUrl } from '../helpers/runtime';
 
 // This suite exercises the real app with screenshots and map rendering under load.
 // A 60s cap is too tight on this machine once the visual project runs in parallel.

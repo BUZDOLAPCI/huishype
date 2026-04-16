@@ -11,30 +11,16 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 
 // Screenshot output directory
-const SCREENSHOT_DIR = 'test-results/flows';
+const SCREENSHOT_DIR = getPlaywrightArtifactPath('flows');
 
 // Known acceptable console errors
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -57,7 +43,7 @@ test.describe('Feed Filtering', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       } else if (msg.type() === 'warning') {

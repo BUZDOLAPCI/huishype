@@ -6,6 +6,7 @@ import {
   waitForMapIdle,
   waitForMapStyleLoaded,
 } from './helpers/visual-test-helpers';
+import { isAllowedConsoleMessage } from '../helpers/console';
 
 const EXPECTATION_NAME = 'startup-view-window-polish';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
@@ -29,9 +30,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       if (msg.type() !== 'error') return;
 
       const text = msg.text();
-      const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-        text.toLowerCase().includes(pattern.toLowerCase()),
-      );
+      const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
 
       if (!isKnown) {
         consoleErrors.push(text);

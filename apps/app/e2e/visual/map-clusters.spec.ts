@@ -14,33 +14,17 @@ import path from 'path';
 import fs from 'fs';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { MAP_LAYER_NAMES } from './helpers/map-layer-names';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import { getPlaywrightArtifactPath } from '../helpers/runtime';
 
 // Configuration
-const SCREENSHOT_DIR = 'test-results/visual/map-clusters';
+const SCREENSHOT_DIR = getPlaywrightArtifactPath('visual', 'map-clusters');
 
 // Eindhoven center - dense area with listings
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*\.pbf/,
-  /font/i,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 // Disable tracing to avoid artifact race conditions
 test.use({ trace: 'off' });
@@ -63,7 +47,7 @@ test.describe('Map Clusters Visual Tests', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!KNOWN_ACCEPTABLE_ERRORS.some((p) => p.test(text))) {
+        if (!isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS)) {
           consoleErrors.push(text);
         }
       } else if (msg.type() === 'warning') {

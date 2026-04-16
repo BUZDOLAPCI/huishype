@@ -3,9 +3,14 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db, ingestBatches, listings } from '../../db/index.js';
 import { users } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { encodeOpaqueIngestCursor } from '../../services/ingest/index.js';
 import { normalizeSourceUrl } from '../../utils/address.js';
+import {
+  createIntegrationListing,
+  createIntegrationPriceHistory,
+  createIntegrationProperty,
+} from './helpers/fixtures.js';
 
 /**
  * Integration tests for listing routes.
@@ -23,13 +28,33 @@ describe('Listing routes', () => {
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Get a real property ID from Eindhoven
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1&city=Eindhoven',
+    const property = await createIntegrationProperty({
+      street: 'Listings Fixture Street',
+      houseNumber: 1,
+      city: 'Listings City',
+      postalCode: '9100AA',
+      lon: 5.471,
+      lat: 51.441,
     });
-    const propBody = JSON.parse(propResp.body);
-    testPropertyId = propBody.data[0].id;
+    testPropertyId = property.id;
+
+    const seededListing = await createIntegrationListing({
+      propertyId: testPropertyId,
+      askingPrice: 450000,
+      thumbnailUrl: 'https://cdn.example.com/listings-seeded-thumb.jpg',
+      createdAt: new Date('2026-04-01T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-01T10:00:00.000Z'),
+    });
+    testListingIds.push(seededListing.id);
+    await createIntegrationPriceHistory({
+      propertyId: testPropertyId,
+      listingId: seededListing.id,
+      price: 450000,
+      eventType: 'listed',
+      source: 'funda',
+      priceDate: new Date('2026-04-01T10:00:00.000Z'),
+      createdAt: new Date('2026-04-01T10:00:00.000Z'),
+    });
 
     // Create a test user for authenticated endpoints
     const uniqueId = `listtest${Date.now()}`;
@@ -46,6 +71,14 @@ describe('Listing routes', () => {
   });
 
   afterAll(async () => {
+    try {
+      await db.execute(sql`DELETE FROM price_history WHERE property_id = ${testPropertyId}`);
+      await db.execute(sql`DELETE FROM listings WHERE property_id = ${testPropertyId}`);
+      await db.execute(sql`DELETE FROM properties WHERE id = ${testPropertyId}`);
+    } catch {
+      // Ignore cleanup errors
+    }
+
     for (const listingId of testListingIds) {
       try {
         await db.delete(listings).where(eq(listings.id, listingId));

@@ -20,6 +20,7 @@ import {
   fetchCanonicalPropertyFixture,
   setupCanonicalPropertyRouteMocks,
 } from './helpers/canonical-property-route';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Disable tracing for this test to avoid trace file issues
 // Use a tall viewport to capture more content since RN Web has fixed height scrollable container
@@ -30,22 +31,7 @@ const EXPECTATION_NAME = 'comments-section-threaded';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /net::ERR_CONNECTION_REFUSED/,
-  /Failed to load resource/,
-  /the server responded with a status of 404 \(Not Found\)/,
-  /the server responded with a status of 500 \(Internal Server Error\)/,
-  /Page Error: A network error occurred\./,
-  /MapLibre error: AJAXError: Failed to fetch/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   // Console error collection
@@ -69,9 +55,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) =>
-          pattern.test(text)
-        );
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }

@@ -2,6 +2,8 @@ import React from 'react';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { QuickActions } from '../QuickActions';
 
+var mockSharedQuickActions = jest.fn();
+
 jest.mock('react-native', () => {
   const actual = jest.requireActual('react-native');
   return {
@@ -13,13 +15,29 @@ jest.mock('react-native', () => {
 });
 
 jest.mock('../../QuickActions', () => ({
-  QuickActions: ({ onShare }: { onShare?: () => void }) => {
+  QuickActions: (props: {
+    onShare?: () => void;
+    onLike?: () => void;
+    onComment?: () => void;
+    onGuess?: () => void;
+    onSave?: () => void;
+  }) => {
     const React = require('react');
-    const { Pressable, Text } = require('react-native');
+    const { Pressable, Text, View } = require('react-native');
+    mockSharedQuickActions(props);
     return React.createElement(
-      Pressable,
-      { onPress: onShare, testID: 'shared-quick-actions-share' },
-      React.createElement(Text, null, 'Share'),
+      View,
+      null,
+      React.createElement(
+        Pressable,
+        { onPress: props.onShare, testID: 'shared-quick-actions-share' },
+        React.createElement(Text, null, 'Share'),
+      ),
+      React.createElement(
+        Pressable,
+        { onPress: props.onLike, testID: 'shared-quick-actions-like' },
+        React.createElement(Text, null, 'Like'),
+      ),
     );
   },
 }));
@@ -87,6 +105,38 @@ describe('PropertyBottomSheet QuickActions', () => {
     isUnsupportedWebShareError.mockReturnValue(false);
   });
 
+  it('forwards property metrics and callbacks into the shared full action row', () => {
+    const onSave = jest.fn();
+    const onLike = jest.fn();
+    const onComment = jest.fn();
+    const onGuess = jest.fn();
+
+    render(
+      <QuickActions
+        property={property}
+        onSave={onSave}
+        onLike={onLike}
+        onComment={onComment}
+        onGuess={onGuess}
+      />
+    );
+
+    expect(mockSharedQuickActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isLiked: property.isLiked,
+        isSaved: property.isSaved,
+        likeCount: property.likeCount,
+        commentCount: property.commentCount,
+        guessCount: property.guessCount,
+        onSave,
+        onLike,
+        onComment,
+        onGuess,
+        variant: 'full',
+      })
+    );
+  });
+
   it('opens the fallback modal when the share attempt reports unsupported', async () => {
     Share.share.mockRejectedValueOnce(new Error('Share is not supported in this browser'));
     isUnsupportedWebShareError.mockReturnValue(true);
@@ -101,8 +151,10 @@ describe('PropertyBottomSheet QuickActions', () => {
     expect(Share.share).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the native share sheet when share is supported', async () => {
-    render(<QuickActions property={property} />);
+  it('uses the native share sheet and emits the share callback when supported', async () => {
+    const onShare = jest.fn();
+
+    render(<QuickActions property={property} onShare={onShare} />);
 
     fireEvent.press(screen.getByTestId('shared-quick-actions-share'));
 
@@ -112,6 +164,7 @@ describe('PropertyBottomSheet QuickActions', () => {
         message: 'Check out "Beeldbuisring 41, 5651HA Eindhoven" on HuisHype: http://localhost:8081/map/eindhoven/5651ha/beeldbuisring/41',
         url: 'http://localhost:8081/map/eindhoven/5651ha/beeldbuisring/41',
       });
+      expect(onShare).toHaveBeenCalledTimes(1);
     });
   });
 });

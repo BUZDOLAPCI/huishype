@@ -16,7 +16,8 @@ appId: nl.huishype.app
 
 # Wait for map to be ready
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000
 
 # Dismiss any existing preview/bottom sheet by tapping empty area then swiping down
@@ -46,7 +47,8 @@ appId: nl.huishype.app
 
 # Wait for tiles to load at the new zoom level
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000
 
 - takeScreenshot: test-results/visual-overhaul/cluster-preview/android/clusters-zoom-level.png
@@ -116,7 +118,8 @@ appId: nl.huishype.app
     optional: true
 - waitForAnimationToEnd
 
-# Final state: map visible with zoom indicator
+# Final state: map visible with floating controls
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000

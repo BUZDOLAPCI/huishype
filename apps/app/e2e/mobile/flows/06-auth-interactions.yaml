@@ -5,10 +5,8 @@ appId: nl.huishype.app
 # Re-search for the fixture property to restore the preview card, then tap the
 # card to open the bottom sheet before testing authenticated interactions.
 #
-# NOTE: GroupPreviewCard is in a MapLibre <Marker> (real native Views on
-# Android v11 alpha, visible to Maestro). Search selection restores the
-# preview card first; we tap that card to open the bottom sheet for
-# authenticated interaction testing.
+# Search selection restores the preview card first; we tap that card to open
+# the bottom sheet for authenticated interaction testing.
 
 # Make sure we're on the Map tab
 - tapOn:
@@ -21,8 +19,14 @@ appId: nl.huishype.app
     optional: true
 - waitForAnimationToEnd
 
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 15000
+
 - tapOn:
     id: 'search-bar-focus-target'
+    optional: true
 - waitForAnimationToEnd
 
 - tapOn:
@@ -35,6 +39,8 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 
 - inputText: 'Beeldbuisring 41 Eindhoven'
+- pressKey: Back
+- waitForAnimationToEnd
 
 - extendedWaitUntil:
     visible:
@@ -47,34 +53,45 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
-# Wait for the preview card to appear, then tap it to open the bottom sheet.
+# Wait for the preview card to appear, then open the bottom sheet using the
+# same unobscured stat-row card-body taps that proved reliable in flow 04.
 - extendedWaitUntil:
-    visible: '.*Beeldbuisring.*'
+    visible:
+      id: 'property-preview-card'
     timeout: 15000
 
 - tapOn:
-    id: 'property-preview-card'
+    id: 'property-preview-comment-count'
+    optional: true
 - waitForAnimationToEnd
 
-# Wait for property detail content to load after the sheet opens
+- tapOn:
+    id: 'property-preview-like-count'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'group-preview-touch-overlay'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'property-preview-card'
+    optional: true
+- waitForAnimationToEnd
+
+# Partial open keeps the preview card mounted over the header region. Expand to
+# full height before asserting the carousel that sits underneath it.
+- swipe:
+    start: '50%,20%'
+    end: '50%,12%'
+    duration: 500
+- waitForAnimationToEnd
+
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'
     timeout: 15000
-
-# Expand bottom sheet
-- swipe:
-    start: '50%,88%'
-    end: '50%,40%'
-    duration: 500
-- waitForAnimationToEnd
-
-# Expand to full height
-- swipe:
-    start: '50%,60%'
-    end: '50%,15%'
-    duration: 500
-- waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/property-detail/android/auth-bottom-sheet.png
 
@@ -88,8 +105,8 @@ appId: nl.huishype.app
 
 # Scroll to price guess section
 - swipe:
-    start: '50%,60%'
-    end: '50%,30%'
+    start: '50%,30%'
+    end: '50%,12%'
     duration: 300
 - waitForAnimationToEnd
 

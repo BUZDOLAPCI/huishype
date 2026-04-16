@@ -2,29 +2,27 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QuickActions } from '../QuickActions';
 
-describe('QuickActions', () => {
-  it('renders Like, Comment, and Guess buttons in compact variant', () => {
+describe('src/components/QuickActions', () => {
+  it('renders the compact action row without full-only actions', () => {
     render(<QuickActions />);
+
     expect(screen.getByTestId('quick-action-like')).toBeTruthy();
     expect(screen.getByTestId('quick-action-comment')).toBeTruthy();
     expect(screen.getByTestId('quick-action-guess')).toBeTruthy();
-  });
-
-  it('does not render Save/Share in compact variant', () => {
-    render(<QuickActions onSave={jest.fn()} onShare={jest.fn()} />);
     expect(screen.queryByTestId('quick-action-save')).toBeNull();
     expect(screen.queryByTestId('quick-action-share')).toBeNull();
   });
 
-  it('renders Save and Share in full variant', () => {
+  it('adds save and share controls only in the full variant', () => {
     render(
       <QuickActions variant="full" onSave={jest.fn()} onShare={jest.fn()} />
     );
+
     expect(screen.getByTestId('quick-action-save')).toBeTruthy();
     expect(screen.getByTestId('quick-action-share')).toBeTruthy();
   });
 
-  it('shows active labels in the full variant', () => {
+  it('shows active labels for liked and saved states', () => {
     render(
       <QuickActions
         variant="full"
@@ -40,40 +38,46 @@ describe('QuickActions', () => {
     expect(screen.getByText('Saved')).toBeTruthy();
   });
 
-  it('calls onLike when Like is pressed', () => {
+  it('fires every supplied action callback', () => {
     const onLike = jest.fn();
-    render(<QuickActions onLike={onLike} />);
-    fireEvent.press(screen.getByTestId('quick-action-like'));
-    expect(onLike).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onComment when Comment is pressed', () => {
     const onComment = jest.fn();
-    render(<QuickActions onComment={onComment} />);
-    fireEvent.press(screen.getByTestId('quick-action-comment'));
-    expect(onComment).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onGuess when Guess is pressed', () => {
     const onGuess = jest.fn();
-    render(<QuickActions onGuess={onGuess} />);
+    const onSave = jest.fn();
+    const onShare = jest.fn();
+
+    render(
+      <QuickActions
+        variant="full"
+        onLike={onLike}
+        onComment={onComment}
+        onGuess={onGuess}
+        onSave={onSave}
+        onShare={onShare}
+      />
+    );
+
+    fireEvent.press(screen.getByTestId('quick-action-like'));
+    fireEvent.press(screen.getByTestId('quick-action-comment'));
     fireEvent.press(screen.getByTestId('quick-action-guess'));
+    fireEvent.press(screen.getByTestId('quick-action-save'));
+    fireEvent.press(screen.getByTestId('quick-action-share'));
+
+    expect(onLike).toHaveBeenCalledTimes(1);
+    expect(onComment).toHaveBeenCalledTimes(1);
     expect(onGuess).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onShare).toHaveBeenCalledTimes(1);
   });
 
-  it('shows formatted like count', () => {
-    render(<QuickActions likeCount={1500} />);
+  it('formats large compact counts and falls back to labels for zero counts', () => {
+    const { rerender } = render(<QuickActions likeCount={1500} />);
+
     expect(screen.getByText('1.5K')).toBeTruthy();
-  });
 
-  it('shows label when count is 0', () => {
-    render(<QuickActions likeCount={0} />);
+    rerender(<QuickActions likeCount={0} />);
     expect(screen.getByText('Like')).toBeTruthy();
-  });
 
-  it('shows "Liked" label when isLiked is true', () => {
-    render(<QuickActions isLiked likeCount={0} />);
-    // In compact variant with 0 count, it shows "Liked" label
+    rerender(<QuickActions isLiked likeCount={0} />);
     expect(screen.getByText('Liked')).toBeTruthy();
   });
 });

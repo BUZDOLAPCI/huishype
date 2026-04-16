@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Alert, Text, View, ActivityIndicator, Pressable, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import { Alert, Text, View, ActivityIndicator, Pressable, Platform, StyleSheet, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -57,6 +57,8 @@ const COLORS = {
 // after a card touch (e.g. user lifts finger outside the map gesture area),
 // the ref resets so the next map tap isn't blocked.
 const TOUCH_GUARD_RESET_MS = 500;
+const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
+const PREVIEW_OVERLAY_MARGIN = 12;
 
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't
@@ -141,6 +143,11 @@ export default function MapScreen() {
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showUserLocation, setShowUserLocation] = useState(false);
+  const [nativePreviewPoint, setNativePreviewPoint] = useState<[number, number] | null>(null);
+  const [nativePreviewSize, setNativePreviewSize] = useState({
+    width: NATIVE_PREVIEW_FALLBACK_WIDTH,
+    height: 0,
+  });
   const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
 
   // Shared map interaction state and logic
@@ -190,6 +197,26 @@ export default function MapScreen() {
   // tap doesn't fall through to the map's onPress handler.
   const previewCardTouchedRef = useRef(false);
   const mapViewportSizeRef = useRef({ width: 0, height: 0 });
+  const shouldRenderNativePreviewOverlay =
+    Platform.OS !== 'web' &&
+    !!interaction.previewGroup &&
+    interaction.previewGroup.properties.length > 0;
+
+  const refreshNativePreviewPoint = useCallback(async () => {
+    if (!shouldRenderNativePreviewOverlay || !mapLoaded || !mapRef.current) {
+      setNativePreviewPoint(null);
+      return;
+    }
+
+    try {
+      const point = await mapRef.current.project(interaction.previewGroup.coordinate);
+      setNativePreviewPoint([point[0], point[1]]);
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[HuisHype] Failed to project preview card anchor:', error);
+      }
+    }
+  }, [interaction.previewGroup, mapLoaded, shouldRenderNativePreviewOverlay]);
 
   // Build a camera adapter for the shared hook
   const cameraCommands: MapCameraCommands = useMemo(() => ({
@@ -227,8 +254,9 @@ export default function MapScreen() {
   const handleRegionIsChanging = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       syncPitchForZoom(event.nativeEvent.zoom);
+      void refreshNativePreviewPoint();
     },
-    [syncPitchForZoom],
+    [refreshNativePreviewPoint, syncPitchForZoom],
   );
 
   // Handle map region change to track zoom level and update city name
@@ -243,9 +271,27 @@ export default function MapScreen() {
       if (center) {
         onViewportCenterChanged(center[0], center[1], zoom);
       }
+      void refreshNativePreviewPoint();
     },
-    [onViewportCenterChanged, syncPitchForZoom]
+    [onViewportCenterChanged, refreshNativePreviewPoint, syncPitchForZoom]
   );
+
+  useEffect(() => {
+    if (!shouldRenderNativePreviewOverlay) {
+      setNativePreviewPoint(null);
+      setNativePreviewSize({
+        width: NATIVE_PREVIEW_FALLBACK_WIDTH,
+        height: 0,
+      });
+      return;
+    }
+
+    void refreshNativePreviewPoint();
+  }, [
+    interaction.currentPreviewIndex,
+    refreshNativePreviewPoint,
+    shouldRenderNativePreviewOverlay,
+  ]);
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
   const handleMapPress = useCallback(
@@ -496,7 +542,7 @@ export default function MapScreen() {
               On Android, Marker renders real native Views (not GL textures),
               so it's accessible to Maestro/uiautomator. The native map engine
               handles projection at 60fps — no async JS roundtrip needed. */}
-          {interaction.previewGroup && interaction.previewGroup.properties.length > 0 && (
+          {Platform.OS === 'web' && interaction.previewGroup && interaction.previewGroup.properties.length > 0 && (
             <Marker
               lngLat={interaction.previewGroup.coordinate}
               anchor="bottom"
@@ -522,6 +568,66 @@ export default function MapScreen() {
             </Marker>
           )}
         </Map>
+        )}
+
+        {shouldRenderNativePreviewOverlay && nativePreviewPoint && interaction.previewGroup && (
+          <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
+            <View
+              style={[
+                styles.nativePreviewOverlay,
+                (() => {
+                  const { width: viewportWidth } = mapViewportSizeRef.current;
+                  const cardWidth = nativePreviewSize.width || NATIVE_PREVIEW_FALLBACK_WIDTH;
+                  const cardHeight = nativePreviewSize.height || 0;
+                  const unclampedLeft = nativePreviewPoint[0] - (cardWidth / 2);
+                  const maxLeft = Math.max(
+                    PREVIEW_OVERLAY_MARGIN,
+                    viewportWidth - cardWidth - PREVIEW_OVERLAY_MARGIN,
+                  );
+
+                  return {
+                    left: Math.min(
+                      Math.max(unclampedLeft, PREVIEW_OVERLAY_MARGIN),
+                      maxLeft,
+                    ),
+                    top: Math.max(
+                      PREVIEW_OVERLAY_MARGIN,
+                      nativePreviewPoint[1] - cardHeight,
+                    ),
+                  };
+                })(),
+              ]}
+            >
+              <View
+                onLayout={(event) => {
+                  const { width, height } = event.nativeEvent.layout;
+                  setNativePreviewSize((current) => (
+                    current.width === width && current.height === height
+                      ? current
+                      : { width, height }
+                  ));
+                }}
+              >
+                <GroupPreviewCard
+                  properties={interaction.previewGroup.properties}
+                  currentIndex={interaction.currentPreviewIndex}
+                  onIndexChange={interaction.setCurrentPreviewIndex}
+                  onClose={interaction.handleClosePreview}
+                  onPropertyTap={interaction.handlePreviewPropertyTap}
+                  onLike={interaction.handleLike}
+                  onComment={interaction.handleComment}
+                  onGuess={interaction.handleGuess}
+                  isLiked={interaction.isLiked}
+                  showArrow
+                  arrowDirection="down"
+                  onTouchStart={() => {
+                    previewCardTouchedRef.current = true;
+                    setTimeout(() => { previewCardTouchedRef.current = false; }, TOUCH_GUARD_RESET_MS);
+                  }}
+                />
+              </View>
+            </View>
+          </View>
         )}
 
         <View
@@ -648,6 +754,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
     alignItems: 'center',
     gap: 10,
+  },
+  nativePreviewOverlay: {
+    position: 'absolute',
+    zIndex: 8,
   },
   roundControl: {
     width: 44,

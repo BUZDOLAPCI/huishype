@@ -37,6 +37,20 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     };
   }
 
+  // React Native still exposes PushNotificationIOS from the core index, but on
+  // Android bridgeless runtimes the module crashes during initialization if
+  // anything touches that export. Route it to a native-safe stub instead.
+  if (
+    platform !== 'web' &&
+    (moduleName === './Libraries/PushNotificationIOS/PushNotificationIOS' ||
+      moduleName === './Libraries/PushNotificationIOS/NativePushNotificationManagerIOS')
+  ) {
+    return {
+      type: 'sourceFile',
+      filePath: path.resolve(__dirname, 'src/stubs/push-notification-ios.js'),
+    };
+  }
+
   if (originalResolveRequest) {
     return originalResolveRequest(context, moduleName, platform);
   }

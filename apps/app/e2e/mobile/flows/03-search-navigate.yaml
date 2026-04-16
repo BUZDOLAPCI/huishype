@@ -11,7 +11,48 @@ appId: nl.huishype.app
 # Maestro/uiautomator. This flow tests search + property resolution +
 # bottom sheet peek.
 
-# Tap on the search bar input
+# Normalize back to the plain map/search surface. Earlier flows can leave us on
+# the shared property-detail route or a preview state.
+- tapOn:
+    text: 'Go back'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'property-back-button'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'search-clear-button'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'search-overlay-backdrop'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'tab-index'
+    optional: true
+- waitForAnimationToEnd
+
+# The map shell can still be painting tiles after feed -> map navigation.
+# The search bar is rendered underneath that transient loading overlay, so wait
+# for the overlay to clear before asserting the search entry surface.
+- extendedWaitUntil:
+    notVisible:
+      id: 'map-loading-indicator'
+    timeout: 30000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 15000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-focus-target'
+    timeout: 15000
+
+# Focus the search bar using whichever control is currently rendered.
 - tapOn:
     id: 'search-bar-focus-target'
 - waitForAnimationToEnd
@@ -40,17 +81,19 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 - waitForAnimationToEnd
+- waitForAnimationToEnd
 
 # After search result tap, the property is resolved and:
 # 1. Camera flies to the property (zoom 17)
-# 2. GroupPreviewCard appears inside Marker (not accessible to Maestro)
+# 2. GroupPreviewCard appears as a native overlay
 # 3. PropertyBottomSheet peeks at 10% with property data
 #
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/search-property-selected.png
 
 # Verify the resolved property preview card appeared
 - extendedWaitUntil:
-    visible: 'Like'
+    visible:
+      id: 'property-preview-card'
     timeout: 10000
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/search-map-at-property.png

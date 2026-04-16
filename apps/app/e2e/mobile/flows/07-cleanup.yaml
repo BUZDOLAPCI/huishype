@@ -17,13 +17,16 @@ appId: nl.huishype.app
     duration: 500
 - waitForAnimationToEnd
 
-# Verify map is visible with zoom indicator
+# Verify map is visible with the floating controls
 - extendedWaitUntil:
-    visible: 'Zoom.*'
+    visible:
+      id: 'zoom-in-button'
     timeout: 10000
 
 # Assert tab bar is accessible
-- assertVisible: 'Map'
-- assertVisible: 'Feed'
+- assertVisible:
+    id: 'tab-index'
+- assertVisible:
+    id: 'tab-feed'
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/final-state.png

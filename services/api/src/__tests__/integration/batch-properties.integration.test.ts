@@ -4,35 +4,44 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for GET /properties/batch endpoint.
  *
- * Tests against the real PostGIS database seeded with Eindhoven data.
+ * Tests against hermetic properties created within this suite.
  */
 describe('GET /properties/batch', () => {
   jest.setTimeout(30000);
   let app: FastifyInstance;
+  let seededPropertyIds: string[];
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
+    seededPropertyIds = [];
+
+    for (let index = 0; index < 3; index++) {
+      const property = await createIntegrationProperty({
+        street: 'Batch Fixture Street',
+        houseNumber: index + 1,
+        city: 'Batch City',
+        postalCode: '9090AA',
+        lon: 5.471 + index * 0.0001,
+        lat: 51.441 + index * 0.0001,
+      });
+      seededPropertyIds.push(property.id);
+    }
   });
 
   afterAll(async () => {
+    await db.execute(
+      sql`DELETE FROM properties WHERE id IN (${seededPropertyIds[0]}, ${seededPropertyIds[1]}, ${seededPropertyIds[2]})`,
+    );
     await app.close();
   });
 
   it('should return properties for valid IDs in correct order', async () => {
-    // First, fetch 3 properties to get real IDs
-    const listResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=3',
-    });
-    expect(listResp.statusCode).toBe(200);
-    const listBody = JSON.parse(listResp.body);
-    expect(listBody.data.length).toBe(3);
-
-    const ids = listBody.data.map((p: { id: string }) => p.id);
+    const ids = seededPropertyIds;
     // Request in reverse order to verify ordering is preserved
     const reversedIds = [...ids].reverse();
 
@@ -68,13 +77,7 @@ describe('GET /properties/batch', () => {
   });
 
   it('should skip non-existent IDs and return only found properties', async () => {
-    // Get one real property
-    const listResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=1',
-    });
-    const listBody = JSON.parse(listResp.body);
-    const realId = listBody.data[0].id;
+    const realId = seededPropertyIds[0];
 
     // Mix with a non-existent UUID
     const fakeId = 'a0000000-0000-4000-a000-000000000001';

@@ -10,8 +10,11 @@ import { jest } from '@jest/globals';
 /**
  * Integration tests for tile routes.
  *
- * Tests against the real PostGIS database seeded with Eindhoven data.
- * Verifies MVT tile generation, clustering, ghost nodes, style.json, and font/sprite serving.
+ * Exercises the real PostGIS-backed tile endpoints.
+ *
+ * Style, sprite, and font assertions are dataset-agnostic. Specific filter,
+ * clustering, and tile-content scenarios seed dedicated rows inside the suite
+ * instead of relying on ambient shared property data.
  */
 describe('Tile routes', () => {
   jest.setTimeout(30000);

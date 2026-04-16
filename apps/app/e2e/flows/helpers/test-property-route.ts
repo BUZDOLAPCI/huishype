@@ -1,8 +1,9 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 
 import { buildPropertyRoute } from '@/src/utils/property-route';
+import { getPlaywrightApiUrl } from '../../helpers/runtime';
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 
 interface CanonicalPropertyRoute {

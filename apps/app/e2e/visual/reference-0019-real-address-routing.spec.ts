@@ -13,29 +13,33 @@ import fs from 'fs';
 import {
   buildCanonicalCityMapPath,
   buildCanonicalPostcodeMapPath,
+  isCanonicalMapRoutePath,
 } from '@huishype/shared';
 import { buildPropertyRoute } from '@/src/utils/property-route';
+import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3100';
+const API_BASE_URL = getPlaywrightApiUrl();
 const REAL_ADDRESS_BBOX = '5.47,51.48,5.49,51.50';
 
-const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
-  /ResizeObserver loop/,
-  /sourceMappingURL/,
-  /Failed to parse source map/,
-  /Fast Refresh/,
-  /\[HMR\]/,
-  /WebSocket connection/,
-  /net::ERR_ABORTED/,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /Failed to load resource/,
-  /the server responded with a status of 404 \(Not Found\)/,
-];
+const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 function getVisibleMapView(page: Page) {
   return page.getByRole('region', { name: 'Map' }).first();
+}
+
+async function expectRootMapSessionUrl(page: Page) {
+  await expect
+    .poll(() => {
+      const pathname = new URL(page.url()).pathname;
+      return pathname === '/' || isCanonicalMapRoutePath(pathname);
+    }, {
+      message: `Expected ${page.url()} to resolve to the root map session`,
+      timeout: 5000,
+    })
+    .toBe(true);
 }
 
 interface TestProperty {
@@ -87,7 +91,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+        const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
         if (!isKnown) {
           consoleErrors.push(text);
         }
@@ -98,7 +102,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     page.on('pageerror', (error) => {
       const text = error.message;
-      const isKnown = KNOWN_ACCEPTABLE_ERRORS.some((pattern) => pattern.test(text));
+      const isKnown = isAllowedConsoleMessage(text, KNOWN_ACCEPTABLE_ERRORS);
       if (!isKnown) {
         consoleErrors.push(`Page Error: ${text}`);
       }
@@ -161,7 +165,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const cityMapView = getVisibleMapView(page);
     await cityMapView.waitFor({ state: 'visible', timeout: 10000 });
     await expect(page.getByTestId('property-header-carousel')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/$/);
+    await expectRootMapSessionUrl(page);
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-city-view.png`,
@@ -183,7 +187,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const postcodeMapView = getVisibleMapView(page);
     await postcodeMapView.waitFor({ state: 'visible', timeout: 10000 });
     await expect(page.getByTestId('property-header-carousel')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/$/);
+    await expectRootMapSessionUrl(page);
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-postcode-view.png`,
@@ -197,7 +201,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     const rootMapView = getVisibleMapView(page);
     await rootMapView.waitFor({ state: 'visible', timeout: 10000 });
-    await expect(page).toHaveURL(/\/$/);
+    await expectRootMapSessionUrl(page);
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-404.png`,
@@ -244,7 +248,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(page.getByText(property.address, { exact: true })).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.locator('[data-testid="map-view"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="map-view"]')).toHaveCount(0);
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-deep-link.png`,

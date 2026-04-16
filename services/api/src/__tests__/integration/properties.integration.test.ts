@@ -4,21 +4,44 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
  * Integration tests for property routes.
  *
- * Tests against the real PostGIS database seeded with Eindhoven data.
+ * Tests against explicit hermetic fixtures created for this suite.
  */
 describe('Property routes', () => {
   jest.setTimeout(60000);
   let app: FastifyInstance;
+  const seededPropertyIds: string[] = [];
+  const fixtureCity = 'Fixtureville';
+  const nearbyFixture = { lon: 5.4697, lat: 51.4416 };
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
+
+    const fixtureProperties = [
+      { street: 'Fixture Street', houseNumber: 1, city: fixtureCity, postalCode: '9200AA', lon: nearbyFixture.lon, lat: nearbyFixture.lat },
+      { street: 'Fixture Street', houseNumber: 2, city: fixtureCity, postalCode: '9200AA', lon: 5.4702, lat: 51.4418 },
+      { street: 'Fixture Street', houseNumber: 3, city: fixtureCity, postalCode: '9200AA', lon: 5.4704, lat: 51.442 },
+      { street: 'Fixture Street', houseNumber: 4, city: fixtureCity, postalCode: '9200AA', lon: 5.4706, lat: 51.4422 },
+      { street: 'Fixture Street', houseNumber: 5, city: fixtureCity, postalCode: '9200AA', lon: 5.4708, lat: 51.4424 },
+      { street: 'Fixture Street', houseNumber: 6, city: fixtureCity, postalCode: '9200AA', lon: 5.471, lat: 51.4426 },
+      { street: 'Radius Street', houseNumber: 1, city: 'Radius City', postalCode: '9300AA', lon: 4.9041, lat: 52.3676 },
+      { street: 'Radius Street', houseNumber: 2, city: 'Radius City', postalCode: '9300AA', lon: 4.9061, lat: 52.3686 },
+    ];
+
+    for (const property of fixtureProperties) {
+      const created = await createIntegrationProperty(property);
+      seededPropertyIds.push(created.id);
+    }
   });
 
   afterAll(async () => {
+    if (seededPropertyIds.length > 0) {
+      await db.execute(sql`DELETE FROM properties WHERE id IN (${sql.join(seededPropertyIds.map((id) => sql`${id}`), sql`, `)})`);
+    }
     await app.close();
   });
 
@@ -66,10 +89,10 @@ describe('Property routes', () => {
       expect(typeof prop.city).toBe('string');
     });
 
-    it('should filter by city=Eindhoven', async () => {
+    it('should filter by a hermetic city fixture', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties?city=Eindhoven&limit=5',
+        url: `/properties?city=${encodeURIComponent(fixtureCity)}&limit=5`,
       });
 
       expect(response.statusCode).toBe(200);
@@ -77,7 +100,7 @@ describe('Property routes', () => {
       expect(body.data.length).toBeGreaterThan(0);
 
       for (const prop of body.data) {
-        expect(prop.city).toBe('Eindhoven');
+        expect(prop.city).toBe(fixtureCity);
       }
     });
 
@@ -112,13 +135,12 @@ describe('Property routes', () => {
       expect(page1.meta.page).toBe(1);
       expect(page2.meta.page).toBe(2);
 
-      // Both pages should have data (DB has thousands of properties)
+      // The suite seeds more than five properties, so page 2 should also contain data.
       expect(page1.data.length).toBeGreaterThan(0);
       expect(page2.data.length).toBeGreaterThan(0);
     });
 
-    it('should filter by bounding box (Eindhoven area)', async () => {
-      // Eindhoven bounding box (approx)
+    it('should filter by bounding box around the hermetic fixture set', async () => {
       const bbox = '5.43,51.40,5.52,51.47';
       const response = await app.inject({
         method: 'GET',
@@ -282,13 +304,7 @@ describe('Property routes', () => {
 
   describe('GET /properties/:id', () => {
     it('should return a single property by ID', async () => {
-      // First get any property ID
-      const listResp = await app.inject({
-        method: 'GET',
-        url: '/properties?limit=1',
-      });
-      const listBody = JSON.parse(listResp.body);
-      const propertyId = listBody.data[0].id;
+      const propertyId = seededPropertyIds[0];
 
       const response = await app.inject({
         method: 'GET',
@@ -455,10 +471,10 @@ describe('Property routes', () => {
   });
 
   describe('GET /properties/nearby', () => {
-    it('should return the nearest grouped feature for Eindhoven center', async () => {
+    it('should return the nearest grouped feature for the hermetic nearby fixture', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=14',
+        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=14`,
       });
 
       expect(response.statusCode).toBe(200);

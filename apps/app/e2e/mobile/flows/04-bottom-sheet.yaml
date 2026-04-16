@@ -12,32 +12,53 @@ appId: nl.huishype.app
 # The sheet peek is too small to expose the header carousel, so wait for the
 # preview surface instead and only assert sheet content after expansion.
 - extendedWaitUntil:
-    visible: '.*Beeldbuisring.*'
+    visible:
+      id: 'property-preview-card'
     timeout: 15000
 
-# Tap the preview card body to open the bottom sheet to its partial state.
+# Tap the unobscured stat row to open the bottom sheet. The search bar overlaps
+# the address row, so targeting the floating card body via the stat metrics is
+# a more reliable way to land inside the preview card's native hit-test zone.
+- tapOn:
+    id: 'property-preview-comment-count'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'property-preview-like-count'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'group-preview-touch-overlay'
+    optional: true
+- waitForAnimationToEnd
+
 - tapOn:
     id: 'property-preview-card'
+    optional: true
 - waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/property-detail/android/bottom-sheet-partial.png
 
-# Wait for sheet content to become visible after the first expansion
+# Partial open keeps the preview card mounted over the header region. Drag the
+# visible sheet upward from its peek position before asserting carousel content
+# that only becomes visible at full height.
+- swipe:
+    start: '50%,30%'
+    end: '50%,12%'
+    duration: 500
+- waitForAnimationToEnd
+
+# Wait for sheet content to become visible after the full expansion
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'
-    timeout: 10000
+    timeout: 15000
 
 - extendedWaitUntil:
     visible: '.*Beeldbuisring.*'
     timeout: 10000
-
-# Swipe up further to fully expand the bottom sheet (90%)
-- swipe:
-    start: '50%,60%'
-    end: '50%,15%'
-    duration: 500
-- waitForAnimationToEnd
 
 - takeScreenshot: test-results/visual-overhaul/property-detail/android/bottom-sheet-full.png
 

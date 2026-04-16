@@ -1,5 +1,10 @@
 import { Page, ConsoleMessage, Response } from '@playwright/test';
 import * as path from 'path';
+import {
+  MAP_ALLOWED_CONSOLE_PATTERNS,
+  isAllowedConsoleMessage,
+} from '../../helpers/console';
+import { getPlaywrightArtifactPath } from '../../helpers/runtime';
 
 /**
  * Visual E2E Test Helpers for HuisHype
@@ -12,29 +17,13 @@ import * as path from 'path';
  */
 
 // Directory for visual test screenshots
-export const VISUAL_SCREENSHOT_DIR = 'test-results/visual';
+export const VISUAL_SCREENSHOT_DIR = getPlaywrightArtifactPath('visual');
 
 /**
  * Known acceptable errors that should not fail tests.
  * MINIMAL list - only errors that genuinely cannot be fixed.
  */
-export const KNOWN_ACCEPTABLE_ERRORS = [
-  // Browser quirk - not a real error
-  'ResizeObserver loop',
-  // Dev server artifacts (Metro bundler)
-  'sourceMappingURL',
-  'Failed to parse source map',
-  'Fast Refresh',
-  '[HMR]',
-  'WebSocket connection',
-  // Network errors during page navigation/unload
-  'net::ERR_ABORTED',
-  'net::ERR_NAME_NOT_RESOLVED',
-  // MapLibre tile 404s for empty areas (external, uncontrollable)
-  'AJAXError',
-  '.pbf',
-  'tiles.openfreemap.org',
-];
+export const KNOWN_ACCEPTABLE_ERRORS = MAP_ALLOWED_CONSOLE_PATTERNS;
 
 /**
  * Console message entry with full context
@@ -137,12 +126,8 @@ export class ConsoleCollector {
    */
   getCriticalErrors(): ConsoleEntry[] {
     return this.getErrors().filter(entry => {
-      const text = entry.text.toLowerCase();
-      const location = (entry.location || '').toLowerCase();
-      const combined = `${text} ${location}`;
-      return !KNOWN_ACCEPTABLE_ERRORS.some(pattern =>
-        combined.includes(pattern.toLowerCase())
-      );
+      const combined = `${entry.text} ${entry.location || ''}`;
+      return !isAllowedConsoleMessage(combined, KNOWN_ACCEPTABLE_ERRORS);
     });
   }
 
@@ -182,9 +167,7 @@ export class ConsoleCollector {
     if (groupedByType.has('error')) {
       lines.push(`\n--- ERRORS (${groupedByType.get('error')!.length}) ---`);
       for (const entry of groupedByType.get('error')!) {
-        const isCritical = !KNOWN_ACCEPTABLE_ERRORS.some(p =>
-          entry.text.toLowerCase().includes(p.toLowerCase())
-        );
+        const isCritical = !isAllowedConsoleMessage(entry.text, KNOWN_ACCEPTABLE_ERRORS);
         lines.push(`[${isCritical ? 'CRITICAL' : 'acceptable'}] ${entry.text}`);
         if (entry.location) {
           lines.push(`  at: ${entry.location}`);

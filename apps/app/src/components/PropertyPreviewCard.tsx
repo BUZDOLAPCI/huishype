@@ -268,35 +268,161 @@ export function PropertyPreviewCard({
   });
 
   const cardContent = (
-    <Pressable
-      onPress={onPress}
-      style={styles.cardPressable}
-      testID="property-preview-card"
-    >
-      {/* Image area */}
-      <View style={styles.imageWrapper}>
-        <PropertyImageSurface
-          source={imageSource}
-          style={styles.image}
-          markerSize={24}
-          imageTestID="property-thumbnail-image"
-          markerTestID="property-thumbnail-marker"
-          placeholder={
-            <View style={styles.placeholder} testID="property-thumbnail-placeholder">
-              <Icon name="HouseLine" size="xl" color={COLORS.warm400} />
-            </View>
-          }
-        />
+    <View style={styles.cardContentContainer}>
+      <Pressable
+        onPress={onPress}
+        style={styles.cardPressable}
+        testID="property-preview-card"
+      >
+        {/* Image area */}
+        <View style={styles.imageWrapper}>
+          <PropertyImageSurface
+            source={imageSource}
+            style={styles.image}
+            markerSize={24}
+            imageTestID="property-thumbnail-image"
+            markerTestID="property-thumbnail-marker"
+            placeholder={
+              <View style={styles.placeholder} testID="property-thumbnail-placeholder">
+                <Icon name="HouseLine" size="xl" color={COLORS.warm400} />
+              </View>
+            }
+          />
+        </View>
 
-        {/* Close button — translucent white circle in top-right of image */}
-        {showCloseButton && onClose && (
+        {/* Body section */}
+        <View style={styles.body}>
+          {/* Address row + activity badge */}
+          <View style={styles.addressRow}>
+            <AutoFitAddressText address={previewAddressLine} />
+            <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
+              <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
+              <Text style={[styles.activityLabel, { color: activity.textColor }]}>
+                {activity.label}
+              </Text>
+            </View>
+          </View>
+
+          {/* City */}
+          <Text style={styles.city} numberOfLines={1}>
+            {property.city}
+            {property.postalCode ? `, ${property.postalCode}` : ''}
+          </Text>
+
+          {/* Stat pills row: like count | comment count | price */}
+          <View style={styles.statPillsRow}>
+            {property.likeCount != null && property.likeCount > 0 && (
+              <View style={styles.statMetric} testID="property-preview-like-count">
+                <Icon name="Heart" size={14} color={COLORS.gold500} />
+                <Text style={[styles.statMetricText, { color: COLORS.gold600 }]}>
+                  {formatCompactCount(property.likeCount)}
+                </Text>
+              </View>
+            )}
+
+            {property.commentCount != null && property.commentCount > 0 && (
+              <>
+                {property.likeCount != null && property.likeCount > 0 && (
+                  <View style={styles.statDivider} />
+                )}
+                <View style={styles.statMetric} testID="property-preview-comment-count">
+                  <Icon name="ChatCircle" size={14} color={COLORS.infoBlue500} />
+                  <Text style={[styles.statMetricText, { color: '#1E88E5' }]}>
+                    {formatCompactCount(property.commentCount)}
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {/* Price */}
+            {formattedPrice && (
+              <View style={styles.priceGroup}>
+                <Text style={styles.priceLabel}>{displayPrice?.label}</Text>
+                <View style={styles.priceValueRow}>
+                  <Icon name="HouseLine" size={14} color={COLORS.gold500} />
+                  <Text style={styles.priceText}>{formattedPrice}</Text>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Quick actions divider + row */}
+        <View style={styles.actionsContainer}>
+          <Pressable
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              onLike?.();
+            }}
+            ref={nativeHitTargets?.like?.ref}
+            onLayout={nativeHitTargets?.like?.onLayout}
+            style={styles.actionButton}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            testID="group-preview-like-button"
+            accessibilityRole="button"
+            accessibilityLabel={isLiked ? 'Liked' : 'Like'}
+          >
+            <Icon
+              name="Heart"
+              size={18}
+              weight={isLiked ? 'fill' : 'regular'}
+              color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
+            />
+            <Text style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}>
+              {isLiked ? 'Liked' : 'Like'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              onComment?.();
+            }}
+            ref={nativeHitTargets?.comment?.ref}
+            onLayout={nativeHitTargets?.comment?.onLayout}
+            style={styles.actionButton}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            testID="group-preview-comment-button"
+            accessibilityRole="button"
+            accessibilityLabel="Comment"
+          >
+            <Icon name="ChatCircle" size={18} color={COLORS.commentGreen} />
+            <Text style={[styles.actionLabel, { color: COLORS.commentGreen }]}>Comment</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              onGuess?.();
+            }}
+            ref={nativeHitTargets?.guess?.ref}
+            onLayout={nativeHitTargets?.guess?.onLayout}
+            style={styles.actionButton}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            testID="group-preview-guess-button"
+            accessibilityRole="button"
+            accessibilityLabel="Guess"
+          >
+            <Icon name="Tag" size={18} color={COLORS.guessOlive} />
+            <Text style={[styles.actionLabel, { color: COLORS.guessOlive }]}>Guess</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+
+      {/* Close button — overlayed outside the main pressable so it cannot
+          trigger the card body press handler on native. */}
+      {showCloseButton && onClose && (
+        <View
+          ref={nativeHitTargets?.close?.ref}
+          onLayout={nativeHitTargets?.close?.onLayout}
+          collapsable={Platform.OS !== 'web' ? false : undefined}
+          style={styles.closeButtonHitArea}
+        >
           <Pressable
             onPress={(e) => {
               e?.stopPropagation?.();
               onClose();
             }}
-            ref={nativeHitTargets?.close?.ref}
-            onLayout={nativeHitTargets?.close?.onLayout}
             style={styles.closeButton}
             hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
             testID="property-preview-close-button"
@@ -306,127 +432,9 @@ export function PropertyPreviewCard({
           >
             <Icon name="X" size={14} color={COLORS.warm700} />
           </Pressable>
-        )}
-      </View>
-
-      {/* Body section */}
-      <View style={styles.body}>
-        {/* Address row + activity badge */}
-        <View style={styles.addressRow}>
-          <AutoFitAddressText address={previewAddressLine} />
-          <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
-            <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
-            <Text style={[styles.activityLabel, { color: activity.textColor }]}>
-              {activity.label}
-            </Text>
-          </View>
         </View>
-
-        {/* City */}
-        <Text style={styles.city} numberOfLines={1}>
-          {property.city}
-          {property.postalCode ? `, ${property.postalCode}` : ''}
-        </Text>
-
-        {/* Stat pills row: like count | comment count | price */}
-        <View style={styles.statPillsRow}>
-          {property.likeCount != null && property.likeCount > 0 && (
-            <View style={styles.statMetric} testID="property-preview-like-count">
-              <Icon name="Heart" size={14} color={COLORS.gold500} />
-              <Text style={[styles.statMetricText, { color: COLORS.gold600 }]}>
-                {formatCompactCount(property.likeCount)}
-              </Text>
-            </View>
-          )}
-
-          {property.commentCount != null && property.commentCount > 0 && (
-            <>
-              {property.likeCount != null && property.likeCount > 0 && (
-                <View style={styles.statDivider} />
-              )}
-              <View style={styles.statMetric} testID="property-preview-comment-count">
-                <Icon name="ChatCircle" size={14} color={COLORS.infoBlue500} />
-                <Text style={[styles.statMetricText, { color: '#1E88E5' }]}>
-                  {formatCompactCount(property.commentCount)}
-                </Text>
-              </View>
-            </>
-          )}
-
-          {/* Price */}
-          {formattedPrice && (
-            <View style={styles.priceGroup}>
-              <Text style={styles.priceLabel}>{displayPrice?.label}</Text>
-              <View style={styles.priceValueRow}>
-                <Icon name="HouseLine" size={14} color={COLORS.gold500} />
-                <Text style={styles.priceText}>{formattedPrice}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Quick actions divider + row */}
-      <View style={styles.actionsContainer}>
-        <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
-            onLike?.();
-          }}
-          ref={nativeHitTargets?.like?.ref}
-          onLayout={nativeHitTargets?.like?.onLayout}
-          style={styles.actionButton}
-          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          testID="group-preview-like-button"
-          accessibilityRole="button"
-          accessibilityLabel={isLiked ? 'Liked' : 'Like'}
-        >
-          <Icon
-            name="Heart"
-            size={18}
-            weight={isLiked ? 'fill' : 'regular'}
-            color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
-          />
-          <Text style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}>
-            {isLiked ? 'Liked' : 'Like'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
-            onComment?.();
-          }}
-          ref={nativeHitTargets?.comment?.ref}
-          onLayout={nativeHitTargets?.comment?.onLayout}
-          style={styles.actionButton}
-          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          testID="group-preview-comment-button"
-          accessibilityRole="button"
-          accessibilityLabel="Comment"
-        >
-          <Icon name="ChatCircle" size={18} color={COLORS.commentGreen} />
-          <Text style={[styles.actionLabel, { color: COLORS.commentGreen }]}>Comment</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={(e) => {
-            e?.stopPropagation?.();
-            onGuess?.();
-          }}
-          ref={nativeHitTargets?.guess?.ref}
-          onLayout={nativeHitTargets?.guess?.onLayout}
-          style={styles.actionButton}
-          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          testID="group-preview-guess-button"
-          accessibilityRole="button"
-          accessibilityLabel="Guess"
-        >
-          <Icon name="Tag" size={18} color={COLORS.guessOlive} />
-          <Text style={[styles.actionLabel, { color: COLORS.guessOlive }]}>Guess</Text>
-        </Pressable>
-      </View>
-    </Pressable>
+      )}
+    </View>
   );
 
   if (showArrow) {
@@ -469,6 +477,10 @@ const styles = StyleSheet.create({
   },
 
   // Image
+  cardContentContainer: {
+    position: 'relative',
+    width: '100%',
+  },
   imageWrapper: {
     position: 'relative',
     width: '100%',
@@ -488,12 +500,17 @@ const styles = StyleSheet.create({
   },
 
   // Close button
-  closeButton: {
+  closeButtonHitArea: {
     position: 'absolute',
     top: 8,
     right: 8,
     width: 30,
     height: 30,
+    zIndex: 3,
+  },
+  closeButton: {
+    width: '100%',
+    height: '100%',
     borderRadius: 15,
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderWidth: 1,

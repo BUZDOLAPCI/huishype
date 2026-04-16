@@ -262,7 +262,7 @@ function useMarkerHitTest(translateX: Animated.Value) {
 /**
  * GroupPreviewCard — unified preview card for both single properties and clusters.
  *
- * - Single (1 property): shows PropertyPreviewCard content + close button
+ * - Single (1 property): shows PropertyPreviewCard content + outer close button
  * - Cluster (>1 properties): adds left/right arrows, page indicator, swipe gestures
  * - Optional arrow pointer to visually connect to map marker
  *
@@ -635,11 +635,8 @@ export function GroupPreviewCard({
               onComment={() => onComment?.(currentProperty)}
               onGuess={() => onGuess?.(currentProperty)}
               onClose={onClose}
-              showCloseButton={!isCluster}
+              showCloseButton={false}
               nativeHitTargets={isNative ? {
-                close: !isCluster
-                  ? { ref: hitTest.zoneRef('close'), onLayout: hitTest.zoneLayout('close') }
-                  : undefined,
                 like: { ref: hitTest.zoneRef('like'), onLayout: hitTest.zoneLayout('like') },
                 comment: { ref: hitTest.zoneRef('comment'), onLayout: hitTest.zoneLayout('comment') },
                 guess: { ref: hitTest.zoneRef('guess'), onLayout: hitTest.zoneLayout('guess') },
@@ -648,8 +645,8 @@ export function GroupPreviewCard({
           </View>
         </Animated.View>
 
-        {/* Close button — in cluster mode, positioned over the image area */}
-        {isCluster && (
+        {/* Close button — positioned over the image area for both single and cluster previews. */}
+        {onClose && (
           <Pressable
             onPress={onClose}
             ref={isNative ? hitTest.zoneRef('close') : undefined}

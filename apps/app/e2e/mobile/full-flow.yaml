@@ -20,19 +20,6 @@
 
 appId: nl.huishype.app
 ---
-# Dismiss Expo developer menu onboarding popup if it appears
-# This popup blocks the app with "Continue" button after first server connection
-- tapOn:
-    text: 'Continue'
-    optional: true
-- waitForAnimationToEnd
-- pressKey: back
-- waitForAnimationToEnd
-
-# Wait for the map to fully load (JS bundle cold start after clearState can take 2+ min)
-- extendedWaitUntil:
-    visible: 'Zoom.*'
-    timeout: 180000
 
 # === UNAUTHENTICATED PHASES ===
 - runFlow: flows/01-smoke.yaml

@@ -112,6 +112,10 @@ const AccessibilityInfo = {
   removeEventListener: jest.fn(),
 };
 
+const Keyboard = {
+  dismiss: jest.fn(),
+};
+
 const Platform = {
   OS: 'ios',
   select: (obj) => obj.ios || obj.default,
@@ -172,5 +176,6 @@ module.exports = {
   Modal,
   BackHandler,
   AccessibilityInfo,
+  Keyboard,
   Linking,
 };
