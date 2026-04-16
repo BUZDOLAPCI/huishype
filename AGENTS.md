@@ -134,6 +134,10 @@ All design decisions and specifications are in `agent-rules/`. **Consult these b
 
 These documents are the source of truth for product design. Pass these information down to all subagents so they have a vision of the big picture.
 
+## Third-Party UI Inspection
+
+When asked to inspect how another website implements a UI behavior or to find the JS source behind an interaction, follow [`docs/third-party-ui-inspection.md`](/home/caslan/dev/git_repos/hh/huishype/docs/third-party-ui-inspection.md). Use that workflow to reproduce the browser interaction, locate the production bundle, and extract the behavior summary for reimplementation.
+
 ## Deferred Gaps
 
 `DEFERRED-GAPS.md` is the canonical register for explicitly accepted deferred
