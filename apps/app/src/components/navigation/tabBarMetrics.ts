@@ -1,5 +1,5 @@
-export const TAB_BAR_DOCK_HEIGHT = 86;
-export const TAB_BAR_DOCK_PANEL_HEIGHT = 85;
+export const TAB_BAR_DOCK_HEIGHT = 82;
+export const TAB_BAR_DOCK_PANEL_HEIGHT = 81;
 export const TAB_BAR_DOCK_TOP_PADDING = 10;
 export const TAB_BAR_DOCK_BOTTOM_PADDING = 10;
 export const TAB_BAR_SEGMENT_HEIGHT = 60;
