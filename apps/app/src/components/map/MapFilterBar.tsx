@@ -22,7 +22,9 @@ import {
   isMapStatusPillActive,
   MAP_STATUS_PILL_STATES,
   type MapFilterCategory,
+  type MapFilterDraftState,
   type MapPriceMode,
+  type MapPriceSuggestion,
   type MapStatusPillState,
 } from '@/src/lib/sharedMapFilters';
 
@@ -47,6 +49,13 @@ interface MapFilterBarProps {
 }
 
 type PriceBound = 'from' | 'to';
+
+interface ActivePriceInputState {
+  mode: MapPriceMode;
+  bound: PriceBound;
+  highlightIndex: number;
+  typedSinceOpen: boolean;
+}
 
 interface MapFilterPillProps {
   label: string;
@@ -124,12 +133,37 @@ const PRICE_MODE_META: Record<MapPriceMode, { title: string; testId: string }> =
   rent: { title: 'Rent Price', testId: 'rent' },
 };
 
+function parseDraftInputValue(value: string): number | null {
+  const digits = value.replace(/[^\d]/g, '');
+  if (!digits) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(digits, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getPriceFieldError(
+  draftFilters: MapFilterDraftState,
+  mode: MapPriceMode,
+): string | null {
+  const fromValue = parseDraftInputValue(
+    mode === 'sale' ? draftFilters.salePriceFrom : draftFilters.rentPriceFrom,
+  );
+  const toValue = parseDraftInputValue(
+    mode === 'sale' ? draftFilters.salePriceTo : draftFilters.rentPriceTo,
+  );
+
+  if (fromValue != null && toValue != null && fromValue > toValue) {
+    return 'Minimum price cannot be higher than maximum price.';
+  }
+
+  return null;
+}
+
 export function MapFilterBar({ controller }: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
-  const [activePriceInput, setActivePriceInput] = useState<{
-    mode: MapPriceMode;
-    bound: PriceBound;
-  } | null>(null);
+  const [activePriceInput, setActivePriceInput] = useState<ActivePriceInputState | null>(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webSuggestionPressKeyRef = useRef<string | null>(null);
   const {
@@ -170,6 +204,14 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
     () => (isPricePanelOpen ? getMapVisiblePriceModes(appliedFilters.marketState) : []),
     [appliedFilters.marketState, isPricePanelOpen],
   );
+  const priceErrors = useMemo(
+    () => ({
+      sale: getPriceFieldError(draftFilters, 'sale'),
+      rent: getPriceFieldError(draftFilters, 'rent'),
+    }),
+    [draftFilters],
+  );
+  const hasPriceRangeError = visiblePriceModes.some((mode) => priceErrors[mode] != null);
 
   const getDraftValue = useCallback(
     (mode: MapPriceMode, bound: PriceBound) => {
@@ -182,21 +224,87 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
     [draftFilters],
   );
 
+  const getSuggestionsForInput = useCallback(
+    (
+      mode: MapPriceMode,
+      bound: PriceBound,
+      typedSinceOpen: boolean,
+    ): MapPriceSuggestion[] =>
+      getMapPriceSuggestions(mode, bound, getDraftValue(mode, bound), {
+        filterByPrefix: typedSinceOpen,
+      }),
+    [getDraftValue],
+  );
+
+  const getHighlightedSuggestionIndex = useCallback(
+    (
+      suggestions: MapPriceSuggestion[],
+      mode: MapPriceMode,
+      bound: PriceBound,
+      currentValueOverride?: string,
+    ): number => {
+      if (suggestions.length === 0) {
+        return -1;
+      }
+
+      const currentValue = currentValueOverride ?? getDraftValue(mode, bound);
+      const selectedIndex = suggestions.findIndex(
+        (suggestion) => suggestion.value === currentValue,
+      );
+      return selectedIndex >= 0 ? selectedIndex : 0;
+    },
+    [getDraftValue],
+  );
+
+  const openPriceSuggestions = useCallback(
+    (
+      mode: MapPriceMode,
+      bound: PriceBound,
+      typedSinceOpen = false,
+    ) => {
+      cancelScheduledPriceInputBlur();
+      const suggestions = getSuggestionsForInput(mode, bound, typedSinceOpen);
+      setActivePriceInput({
+        mode,
+        bound,
+        highlightIndex: getHighlightedSuggestionIndex(suggestions, mode, bound),
+        typedSinceOpen,
+      });
+    },
+    [cancelScheduledPriceInputBlur, getHighlightedSuggestionIndex, getSuggestionsForInput],
+  );
+
   const commitAndClosePricePanel = useCallback(() => {
+    if (hasPriceRangeError) {
+      cancelScheduledPriceInputBlur();
+      return;
+    }
+
     cancelScheduledPriceInputBlur();
     setActivePriceInput(null);
     commitPriceDraft();
     closeCategoryPanel();
-  }, [cancelScheduledPriceInputBlur, closeCategoryPanel, commitPriceDraft]);
+  }, [
+    cancelScheduledPriceInputBlur,
+    closeCategoryPanel,
+    commitPriceDraft,
+    hasPriceRangeError,
+  ]);
 
   const handlePanelBackdropPress = useCallback(() => {
     cancelScheduledPriceInputBlur();
     setActivePriceInput(null);
-    if (openCategory === 'price') {
+    if (openCategory === 'price' && !hasPriceRangeError) {
       commitPriceDraft();
     }
     closeCategoryPanel();
-  }, [cancelScheduledPriceInputBlur, closeCategoryPanel, commitPriceDraft, openCategory]);
+  }, [
+    cancelScheduledPriceInputBlur,
+    closeCategoryPanel,
+    commitPriceDraft,
+    hasPriceRangeError,
+    openCategory,
+  ]);
 
   const handleCategoryPress = useCallback(
     (nextCategory: MapFilterCategory) => {
@@ -231,12 +339,48 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
       return [];
     }
 
-    return getMapPriceSuggestions(
+    return getSuggestionsForInput(
       activePriceInput.mode,
       activePriceInput.bound,
-      getDraftValue(activePriceInput.mode, activePriceInput.bound),
+      activePriceInput.typedSinceOpen,
     );
-  }, [activePriceInput, getDraftValue, isPricePanelOpen]);
+  }, [activePriceInput, getSuggestionsForInput, isPricePanelOpen]);
+
+  useEffect(() => {
+    if (activePriceInput == null) {
+      return;
+    }
+
+    setActivePriceInput((current) => {
+      if (
+        current == null ||
+        current.mode !== activePriceInput.mode ||
+        current.bound !== activePriceInput.bound
+      ) {
+        return current;
+      }
+
+      const nextHighlightIndex =
+        priceSuggestions.length === 0
+          ? -1
+          : Math.min(
+              current.highlightIndex < 0 ? 0 : current.highlightIndex,
+              priceSuggestions.length - 1,
+            );
+
+      if (nextHighlightIndex === current.highlightIndex) {
+        return current;
+      }
+
+      return {
+        ...current,
+        highlightIndex: nextHighlightIndex,
+      };
+    });
+  }, [
+    activePriceInput,
+    priceSuggestions,
+  ]);
 
   const handleSuggestionSelect = useCallback(
     (mode: MapPriceMode, bound: PriceBound, value: string) => {
@@ -272,6 +416,154 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
       handleSuggestionSelect(mode, bound, value);
     },
     [handleSuggestionSelect],
+  );
+
+  const handlePriceDraftChange = useCallback(
+    (mode: MapPriceMode, bound: PriceBound, value: string) => {
+      updatePriceDraft(mode, bound, value);
+
+      setActivePriceInput((current) => {
+        if (current == null || current.mode !== mode || current.bound !== bound) {
+          const suggestions = getMapPriceSuggestions(mode, bound, value, {
+            filterByPrefix: false,
+          });
+          return {
+            mode,
+            bound,
+            highlightIndex: getHighlightedSuggestionIndex(suggestions, mode, bound, value),
+            typedSinceOpen: false,
+          };
+        }
+
+        const suggestions = getMapPriceSuggestions(mode, bound, value, {
+          filterByPrefix: current.typedSinceOpen,
+        });
+        return {
+          ...current,
+          highlightIndex: getHighlightedSuggestionIndex(suggestions, mode, bound, value),
+        };
+      });
+    },
+    [getHighlightedSuggestionIndex, updatePriceDraft],
+  );
+
+  const moveHighlightedSuggestion = useCallback(
+    (direction: -1 | 1) => {
+      if (priceSuggestions.length === 0) {
+        return;
+      }
+
+      setActivePriceInput((current) => {
+        if (current == null) {
+          return current;
+        }
+
+        const currentIndex = current.highlightIndex >= 0 ? current.highlightIndex : 0;
+        const nextIndex =
+          (currentIndex + direction + priceSuggestions.length) % priceSuggestions.length;
+
+        return {
+          ...current,
+          highlightIndex: nextIndex,
+        };
+      });
+    },
+    [priceSuggestions.length],
+  );
+
+  const selectHighlightedSuggestion = useCallback(() => {
+    if (activePriceInput == null) {
+      return false;
+    }
+
+    const highlightedSuggestion = priceSuggestions[activePriceInput.highlightIndex];
+    if (!highlightedSuggestion) {
+      return false;
+    }
+
+    handleSuggestionSelect(
+      activePriceInput.mode,
+      activePriceInput.bound,
+      highlightedSuggestion.value,
+    );
+    return true;
+  }, [activePriceInput, handleSuggestionSelect, priceSuggestions]);
+
+  const handlePriceInputKeyPress = useCallback(
+    (
+      mode: MapPriceMode,
+      bound: PriceBound,
+      event: { nativeEvent?: { key?: string }; preventDefault?: () => void },
+    ) => {
+      const key = event.nativeEvent?.key;
+      if (key == null) {
+        return;
+      }
+
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        event.preventDefault?.();
+        if (
+          activePriceInput == null ||
+          activePriceInput.mode !== mode ||
+          activePriceInput.bound !== bound
+        ) {
+          openPriceSuggestions(mode, bound, false);
+          return;
+        }
+
+        moveHighlightedSuggestion(key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+
+      if (key === 'Enter') {
+        if (activePriceInput?.mode === mode && activePriceInput.bound === bound) {
+          event.preventDefault?.();
+          if (selectHighlightedSuggestion()) {
+            return;
+          }
+        }
+        return;
+      }
+
+      if (/^\d$/.test(key)) {
+        if (
+          activePriceInput == null ||
+          activePriceInput.mode !== mode ||
+          activePriceInput.bound !== bound
+        ) {
+          openPriceSuggestions(mode, bound, true);
+          return;
+        }
+
+        setActivePriceInput((current) => {
+          if (current == null || current.mode !== mode || current.bound !== bound) {
+            return current;
+          }
+
+          return {
+            ...current,
+            typedSinceOpen: true,
+            highlightIndex: 0,
+          };
+        });
+        return;
+      }
+
+      if (
+        key.length === 1 &&
+        key !== 'Backspace' &&
+        key !== 'Delete' &&
+        key !== 'Tab'
+      ) {
+        event.preventDefault?.();
+      }
+    },
+    [
+      activePriceInput,
+      moveHighlightedSuggestion,
+      openPriceSuggestions,
+      selectHighlightedSuggestion,
+    ],
   );
 
   return (
@@ -349,6 +641,7 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
 
                 {visiblePriceModes.map((mode) => {
                   const meta = PRICE_MODE_META[mode];
+                  const priceError = priceErrors[mode];
 
                   return (
                     <View key={mode} style={styles.priceSection}>
@@ -362,16 +655,20 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                           <TextInput
                             keyboardType="number-pad"
                             onBlur={schedulePriceInputBlur}
-                            onChangeText={(value) => updatePriceDraft(mode, 'from', value)}
-                            onFocus={() => {
-                              cancelScheduledPriceInputBlur();
-                              setActivePriceInput({ mode, bound: 'from' });
-                            }}
+                            onChangeText={(value) => handlePriceDraftChange(mode, 'from', value)}
+                            onFocus={() => openPriceSuggestions(mode, 'from', false)}
+                            onKeyPress={(event) =>
+                              handlePriceInputKeyPress(mode, 'from', event)
+                            }
+                            onPressIn={() => openPriceSuggestions(mode, 'from', false)}
                             onSubmitEditing={commitAndClosePricePanel}
                             placeholder="0"
                             placeholderTextColor={COLORS.warm400}
                             returnKeyType="done"
-                            style={styles.priceInput}
+                            style={[
+                              styles.priceInput,
+                              priceError != null && styles.priceInputError,
+                            ]}
                             testID={`map-filter-input-price-${meta.testId}-from`}
                             value={getDraftValue(mode, 'from')}
                           />
@@ -405,6 +702,10 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                                     style={({ pressed }) => [
                                       styles.suggestionOption,
                                       suggestion.custom && styles.suggestionOptionCustom,
+                                      activePriceInput.highlightIndex >= 0 &&
+                                        priceSuggestions[activePriceInput.highlightIndex]?.key ===
+                                          suggestion.key &&
+                                        styles.suggestionOptionHighlighted,
                                       pressed && styles.suggestionOptionPressed,
                                     ]}
                                     testID={`map-filter-suggestion-price-${meta.testId}-from-${
@@ -431,16 +732,20 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                           <TextInput
                             keyboardType="number-pad"
                             onBlur={schedulePriceInputBlur}
-                            onChangeText={(value) => updatePriceDraft(mode, 'to', value)}
-                            onFocus={() => {
-                              cancelScheduledPriceInputBlur();
-                              setActivePriceInput({ mode, bound: 'to' });
-                            }}
+                            onChangeText={(value) => handlePriceDraftChange(mode, 'to', value)}
+                            onFocus={() => openPriceSuggestions(mode, 'to', false)}
+                            onKeyPress={(event) =>
+                              handlePriceInputKeyPress(mode, 'to', event)
+                            }
+                            onPressIn={() => openPriceSuggestions(mode, 'to', false)}
                             onSubmitEditing={commitAndClosePricePanel}
                             placeholder="No max"
                             placeholderTextColor={COLORS.warm400}
                             returnKeyType="done"
-                            style={styles.priceInput}
+                            style={[
+                              styles.priceInput,
+                              priceError != null && styles.priceInputError,
+                            ]}
                             testID={`map-filter-input-price-${meta.testId}-to`}
                             value={getDraftValue(mode, 'to')}
                           />
@@ -474,6 +779,10 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                                     style={({ pressed }) => [
                                       styles.suggestionOption,
                                       suggestion.custom && styles.suggestionOptionCustom,
+                                      activePriceInput.highlightIndex >= 0 &&
+                                        priceSuggestions[activePriceInput.highlightIndex]?.key ===
+                                          suggestion.key &&
+                                        styles.suggestionOptionHighlighted,
                                       pressed && styles.suggestionOptionPressed,
                                     ]}
                                     testID={`map-filter-suggestion-price-${meta.testId}-to-${
@@ -495,6 +804,15 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                           ) : null}
                         </View>
                       </View>
+
+                      {priceError ? (
+                        <Text
+                          style={styles.priceErrorText}
+                          testID={`map-filter-error-price-${meta.testId}`}
+                        >
+                          {priceError}
+                        </Text>
+                      ) : null}
                     </View>
                   );
                 })}
@@ -512,9 +830,11 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                   </Pressable>
 
                   <Pressable
+                    disabled={hasPriceRangeError}
                     onPress={commitAndClosePricePanel}
                     style={({ pressed }) => [
                       styles.primaryAction,
+                      hasPriceRangeError && styles.primaryActionDisabled,
                       pressed && styles.primaryActionPressed,
                     ]}
                     testID="map-filter-apply-price"
@@ -691,6 +1011,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  priceInputError: {
+    borderColor: '#B94A48',
+  },
+  priceErrorText: {
+    color: '#B94A48',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   suggestionListShell: {
     marginTop: 14,
     borderRadius: 16,
@@ -717,6 +1046,9 @@ const styles = StyleSheet.create({
   },
   suggestionOptionCustom: {
     backgroundColor: COLORS.goldTint,
+  },
+  suggestionOptionHighlighted: {
+    backgroundColor: COLORS.warm100,
   },
   suggestionOptionPressed: {
     backgroundColor: COLORS.warm100,
@@ -760,6 +1092,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.gold500,
+  },
+  primaryActionDisabled: {
+    backgroundColor: COLORS.warm400,
   },
   primaryActionPressed: {
     backgroundColor: COLORS.gold600,

@@ -126,6 +126,10 @@ export interface MapPriceSuggestion {
   custom: boolean;
 }
 
+export interface MapPriceSuggestionOptions {
+  filterByPrefix?: boolean;
+}
+
 export interface MapFilterMatchCandidate {
   askingPrice?: number | null;
   officialValuation?: number | null;
@@ -261,6 +265,7 @@ export function getMapPriceSuggestions(
   mode: MapPriceMode,
   bound: 'from' | 'to',
   draftValue: string,
+  options: MapPriceSuggestionOptions = {},
 ): MapPriceSuggestion[] {
   const baseValues =
     mode === 'sale' ? SALE_PRICE_SUGGESTION_VALUES : RENT_PRICE_SUGGESTION_VALUES;
@@ -272,23 +277,19 @@ export function getMapPriceSuggestions(
     sanitizedDraft.length > 0 && Number.isFinite(parsedDraft)
       ? String(parsedDraft)
       : sanitizedDraft;
-  const filteredBaseValues = baseValues.filter((value) => {
-    if (bound === 'to' && value === 0) {
-      return false;
-    }
-
-    if (!normalizedDraft) {
-      return true;
-    }
-
-    return String(value).startsWith(normalizedDraft);
-  });
+  const visibleBaseValues = baseValues.filter((value) => !(bound === 'to' && value === 0));
+  const shouldFilterByPrefix =
+    options.filterByPrefix === true &&
+    (Number.isFinite(parsedDraft) ? parsedDraft > 0 : normalizedDraft.length > 0);
+  const filteredBaseValues = visibleBaseValues.filter((value) =>
+    shouldFilterByPrefix ? String(value).startsWith(normalizedDraft) : true,
+  );
 
   if (
     normalizedDraft.length > 0 &&
     Number.isFinite(parsedDraft) &&
     parsedDraft >= 0 &&
-    !baseValues.some((value) => String(value) === normalizedDraft)
+    !visibleBaseValues.some((value) => String(value) === normalizedDraft)
   ) {
     suggestions.push({
       key: `custom-${normalizedDraft}`,
@@ -307,7 +308,7 @@ export function getMapPriceSuggestions(
     });
   }
 
-  if (bound === 'to' && normalizedDraft.length === 0) {
+  if (bound === 'to' && !shouldFilterByPrefix) {
     suggestions.push({
       key: 'empty',
       label: 'No max',
@@ -362,30 +363,10 @@ export function normalizeMapFilters(filters: MapFilters): MapFilters {
   const rentPriceTo = normalizePositiveInteger(filters.rentPriceTo);
 
   return {
-    salePriceFrom:
-      salePriceFrom != null &&
-      salePriceTo != null &&
-      salePriceFrom > salePriceTo
-        ? salePriceTo
-        : salePriceFrom,
-    salePriceTo:
-      salePriceFrom != null &&
-      salePriceTo != null &&
-      salePriceFrom > salePriceTo
-        ? salePriceFrom
-        : salePriceTo,
-    rentPriceFrom:
-      rentPriceFrom != null &&
-      rentPriceTo != null &&
-      rentPriceFrom > rentPriceTo
-        ? rentPriceTo
-        : rentPriceFrom,
-    rentPriceTo:
-      rentPriceFrom != null &&
-      rentPriceTo != null &&
-      rentPriceFrom > rentPriceTo
-        ? rentPriceFrom
-        : rentPriceTo,
+    salePriceFrom,
+    salePriceTo,
+    rentPriceFrom,
+    rentPriceTo,
     marketState: normalizeMapMarketState(filters.marketState),
   };
 }

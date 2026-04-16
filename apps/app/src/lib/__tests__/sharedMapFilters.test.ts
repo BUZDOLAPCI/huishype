@@ -8,7 +8,9 @@ import {
 
 describe('sharedMapFilters price suggestions', () => {
   it('prepends a typed custom price and filters presets by digit prefix', () => {
-    const suggestions = getMapPriceSuggestions('sale', 'from', '125');
+    const suggestions = getMapPriceSuggestions('sale', 'from', '125', {
+      filterByPrefix: true,
+    });
 
     expect(suggestions[0]).toMatchObject({
       value: '125',
@@ -26,7 +28,9 @@ describe('sharedMapFilters price suggestions', () => {
   });
 
   it('skips the custom row when the typed digits exactly match a preset', () => {
-    const suggestions = getMapPriceSuggestions('sale', 'from', '600000');
+    const suggestions = getMapPriceSuggestions('sale', 'from', '600000', {
+      filterByPrefix: true,
+    });
 
     expect(suggestions).toEqual([
       expect.objectContaining({
@@ -46,7 +50,9 @@ describe('sharedMapFilters price suggestions', () => {
   });
 
   it('omits the no-max option once upper-bound suggestions are filtered', () => {
-    const suggestions = getMapPriceSuggestions('sale', 'to', '12');
+    const suggestions = getMapPriceSuggestions('sale', 'to', '12', {
+      filterByPrefix: true,
+    });
 
     expect(suggestions).toEqual([
       expect.objectContaining({
@@ -62,6 +68,65 @@ describe('sharedMapFilters price suggestions', () => {
         custom: false,
       }),
     ]);
+  });
+
+  it('shows the full list again when a populated field is reopened without typing', () => {
+    const suggestions = getMapPriceSuggestions('sale', 'from', '600000');
+
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '600000',
+        custom: false,
+      }),
+    );
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '50000',
+        custom: false,
+      }),
+    );
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '5000000',
+        custom: false,
+      }),
+    );
+  });
+
+  it('keeps a reopened custom value as the first row before the full preset list', () => {
+    const suggestions = getMapPriceSuggestions('sale', 'from', '612345');
+
+    expect(suggestions[0]).toMatchObject({
+      value: '612345',
+      custom: true,
+    });
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '50000',
+        custom: false,
+      }),
+    );
+  });
+
+  it('keeps no-max visible when a populated upper bound is reopened without typing', () => {
+    const suggestions = getMapPriceSuggestions('sale', 'to', '850000');
+
+    expect(suggestions.at(-1)).toMatchObject({
+      value: '',
+      label: 'No max',
+    });
+  });
+
+  it('does not prefix-filter a typed zero, matching funda reopen behavior', () => {
+    const suggestions = getMapPriceSuggestions('sale', 'from', '0', {
+      filterByPrefix: true,
+    });
+
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '50000',
+      }),
+    );
   });
 
   it('returns sale and rent modes from the current market-state selection', () => {

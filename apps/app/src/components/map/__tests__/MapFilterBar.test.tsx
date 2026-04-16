@@ -37,7 +37,7 @@ describe('MapFilterBar', () => {
     const { getByTestId } = render(<MapFilterBarHarness />);
 
     fireEvent.press(getByTestId('map-filter-pill-price'));
-    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'focus');
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'pressIn');
     fireEvent.press(getByTestId('map-filter-suggestion-price-sale-from-500000'));
 
     expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":null');
@@ -60,7 +60,7 @@ describe('MapFilterBar', () => {
       const { getByTestId } = render(<MapFilterBarHarness />);
 
       fireEvent.press(getByTestId('map-filter-pill-price'));
-      fireEvent(getByTestId('map-filter-input-price-sale-from'), 'focus');
+      fireEvent(getByTestId('map-filter-input-price-sale-from'), 'pressIn');
       fireEvent(getByTestId('map-filter-suggestion-price-sale-from-500000'), 'pointerDown', {
         preventDefault: jest.fn(),
       });
@@ -78,11 +78,25 @@ describe('MapFilterBar', () => {
     }
   });
 
-  it('filters suggestions by typed prefix and hides the custom row on exact matches', () => {
-    const { getByTestId, queryByTestId } = render(<MapFilterBarHarness />);
+  it('opens suggestions when a price field receives focus', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
 
     fireEvent.press(getByTestId('map-filter-pill-price'));
     fireEvent(getByTestId('map-filter-input-price-sale-from'), 'focus');
+
+    expect(getByTestId('map-filter-suggestions-price-sale-from')).toBeTruthy();
+  });
+
+  it('filters suggestions only after numeric keypresses and reopens a populated field with the full list', () => {
+    const { getByTestId, queryByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-price'));
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'pressIn');
+    expect(getByTestId('map-filter-suggestion-price-sale-from-50000')).toBeTruthy();
+
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'keyPress', {
+      nativeEvent: { key: '1' },
+    });
     fireEvent.changeText(getByTestId('map-filter-input-price-sale-from'), '125');
 
     expect(getByTestId('map-filter-suggestion-price-sale-from-125')).toBeTruthy();
@@ -90,10 +104,29 @@ describe('MapFilterBar', () => {
     expect(getByTestId('map-filter-suggestion-price-sale-from-1250000')).toBeTruthy();
     expect(queryByTestId('map-filter-suggestion-price-sale-from-250000')).toBeNull();
 
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'pressIn');
+
+    expect(getByTestId('map-filter-suggestion-price-sale-from-50000')).toBeTruthy();
+    expect(getByTestId('map-filter-suggestion-price-sale-from-250000')).toBeTruthy();
+
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'keyPress', {
+      nativeEvent: { key: '6' },
+    });
     fireEvent.changeText(getByTestId('map-filter-input-price-sale-from'), '600000');
 
     expect(queryByTestId('map-filter-suggestion-price-sale-from-125')).toBeNull();
     expect(getByTestId('map-filter-suggestion-price-sale-from-600000')).toBeTruthy();
+  });
+
+  it('keeps pasted values unfiltered until the user types again', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-price'));
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'pressIn');
+    fireEvent.changeText(getByTestId('map-filter-input-price-sale-from'), '125');
+
+    expect(getByTestId('map-filter-suggestion-price-sale-from-50000')).toBeTruthy();
+    expect(getByTestId('map-filter-suggestion-price-sale-from-250000')).toBeTruthy();
   });
 
   it('lets the max suggestion list clear the upper bound', () => {
@@ -106,11 +139,48 @@ describe('MapFilterBar', () => {
     expect(getByTestId('applied-state').props.children).toContain('"salePriceTo":850000');
 
     fireEvent.press(getByTestId('map-filter-pill-price'));
-    fireEvent(getByTestId('map-filter-input-price-sale-to'), 'focus');
-    fireEvent.changeText(getByTestId('map-filter-input-price-sale-to'), '');
+    fireEvent(getByTestId('map-filter-input-price-sale-to'), 'pressIn');
+
+    expect(getByTestId('map-filter-suggestion-price-sale-to-empty')).toBeTruthy();
+
     fireEvent.press(getByTestId('map-filter-suggestion-price-sale-to-empty'));
     fireEvent.press(getByTestId('map-filter-apply-price'));
 
+    expect(getByTestId('applied-state').props.children).toContain('"salePriceTo":null');
+  });
+
+  it('opens and navigates the suggestion list with arrow keys', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-price'));
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'keyPress', {
+      nativeEvent: { key: 'ArrowDown' },
+    });
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'keyPress', {
+      nativeEvent: { key: 'ArrowDown' },
+    });
+    fireEvent(getByTestId('map-filter-input-price-sale-from'), 'keyPress', {
+      nativeEvent: { key: 'Enter' },
+    });
+    fireEvent.press(getByTestId('map-filter-apply-price'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":50000');
+  });
+
+  it('shows a validation error instead of swapping an invalid range', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-price'));
+    fireEvent.changeText(getByTestId('map-filter-input-price-sale-from'), '800000');
+    fireEvent.changeText(getByTestId('map-filter-input-price-sale-to'), '600000');
+
+    expect(getByTestId('map-filter-error-price-sale').props.children).toBe(
+      'Minimum price cannot be higher than maximum price.',
+    );
+
+    fireEvent.press(getByTestId('map-filter-apply-price'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":null');
     expect(getByTestId('applied-state').props.children).toContain('"salePriceTo":null');
   });
 
