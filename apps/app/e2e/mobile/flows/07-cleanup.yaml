@@ -17,11 +17,21 @@ appId: nl.huishype.app
     duration: 500
 - waitForAnimationToEnd
 
-# Verify map is visible with the floating controls
+# Verify the portrait-native map shell is back in its baseline state
 - extendedWaitUntil:
     visible:
-      id: 'zoom-in-button'
+      id: 'map-view'
     timeout: 10000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 10000
+
+- assertVisible:
+    id: 'map-filter-rail'
+- assertVisible:
+    id: 'location-button'
 
 # Assert tab bar is accessible
 - assertVisible:

@@ -84,8 +84,18 @@ appId: nl.huishype.app
 
 - extendedWaitUntil:
     visible:
-      id: 'zoom-in-button'
+      id: 'map-view'
     timeout: 15000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 15000
+
+- assertVisible:
+    id: 'map-filter-rail'
+- assertVisible:
+    id: 'location-button'
 
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/logged-in.png
 - takeScreenshot: test-results/visual-overhaul/map-screen/android/post-login-map.png

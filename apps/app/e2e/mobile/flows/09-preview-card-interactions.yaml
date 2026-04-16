@@ -8,7 +8,7 @@ appId: nl.huishype.app
 #   4. Cluster swipe pagination
 #
 # This is a sub-flow; user is authenticated and on the Map tab after
-# cluster-preview flow. The map is at a zoomed-out level (~12-13).
+# cluster-preview flow.
 #
 # Preview interactions now use surfaced native testIDs. This flow intentionally
 # exercises the actual preview buttons instead of coordinate-based taps.
@@ -22,9 +22,17 @@ appId: nl.huishype.app
     id: 'tab-index'
 - waitForAnimationToEnd
 
-# Dismiss any existing preview card or bottom sheet by tapping empty map area
+# Normalize the 08 -> 09 handoff.
+# 08 can leave the preview anchored under the search bar, where tapping the
+# close button may focus search instead of clearing the shell state.
 - tapOn:
-    point: '20%,40%'
+    id: 'search-overlay-backdrop'
+    optional: true
+- waitForAnimationToEnd
+
+# Dismiss any existing preview card from safe empty map space
+- tapOn:
+    point: '12%,72%'
     optional: true
 - waitForAnimationToEnd
 
@@ -33,6 +41,16 @@ appId: nl.huishype.app
     start: '50%,30%'
     end: '50%,95%'
     duration: 500
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'group-preview-close-button'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    id: 'search-overlay-backdrop'
+    optional: true
 - waitForAnimationToEnd
 
 # Clear any previous search text
@@ -44,6 +62,11 @@ appId: nl.huishype.app
 - extendedWaitUntil:
     visible:
       id: 'search-bar-container'
+    timeout: 15000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-focus-target'
     timeout: 15000
 
 # Search for the fixture property
@@ -223,7 +246,7 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - extendedWaitUntil:
     visible:
-      id: 'zoom-in-button'
+      id: 'property-preview-card'
     timeout: 15000
 - waitForAnimationToEnd
 
@@ -258,33 +281,33 @@ appId: nl.huishype.app
     id: 'property-preview-card'
 
 # =====================================================================
-# TEST 6: Cluster swipe pagination (zoom out to create clusters)
+# TEST 6: Cluster swipe pagination (enter a low-zoom camera route)
 # =====================================================================
 # Note: Clusters are unreliable due to queryRenderedFeatures bug on Android
 # native (MapLibre issues #2875, #2828). All steps are optional.
 
-# Zoom out several times to reach cluster-visible level (~zoom 13)
-- tapOn:
-    id: 'zoom-out-button'
+# Native portrait intentionally hides zoom buttons, so use a canonical camera
+# route instead of assuming those controls are present.
+- openLink:
+    link: 'huishype:///@51.4405702,5.4707418,13z'
 - waitForAnimationToEnd
-- tapOn:
-    id: 'zoom-out-button'
-- waitForAnimationToEnd
-- tapOn:
-    id: 'zoom-out-button'
-- waitForAnimationToEnd
-- tapOn:
-    id: 'zoom-out-button'
-- waitForAnimationToEnd
-- tapOn:
-    id: 'zoom-out-button'
 - waitForAnimationToEnd
 
-# Wait for tiles to reload at new zoom
+# Wait for tiles to reload at the low-zoom camera route
 - extendedWaitUntil:
     visible:
-      id: 'zoom-in-button'
+      id: 'map-view'
     timeout: 10000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 10000
+
+- assertVisible:
+    id: 'map-filter-rail'
+- assertVisible:
+    id: 'location-button'
 
 # Tap center of the map to try to hit a cluster node
 - tapOn:
@@ -331,5 +354,10 @@ appId: nl.huishype.app
 # Verify map is visible
 - extendedWaitUntil:
     visible:
-      id: 'zoom-in-button'
+      id: 'search-bar-container'
     timeout: 10000
+
+- assertVisible:
+    id: 'map-filter-rail'
+- assertVisible:
+    id: 'location-button'

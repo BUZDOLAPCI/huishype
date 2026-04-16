@@ -103,16 +103,17 @@ appId: nl.huishype.app
     text: 'Share'
     optional: true
 
-# Scroll to price guess section
-- swipe:
-    start: '50%,30%'
-    end: '50%,12%'
-    duration: 300
+# Jump to the price section through the preview quick action. On portrait native
+# the post-login sheet re-opens in preview/peek state, and the app's scroll
+# helper is more reliable than a raw drag gesture here.
+- tapOn:
+    id: 'group-preview-guess-button'
+- waitForAnimationToEnd
 - waitForAnimationToEnd
 
-- assertVisible:
-    text: 'Guess the Price'
-    optional: true
+- extendedWaitUntil:
+    visible: 'Guess the Price'
+    timeout: 15000
 
 - tapOn:
     id: 'submit-guess-button'
@@ -121,16 +122,16 @@ appId: nl.huishype.app
 
 - takeScreenshot: test-results/visual-overhaul/price-guesses/android/auth-price-guess.png
 
-# Scroll to comments
-- swipe:
-    start: '50%,70%'
-    end: '50%,30%'
-    duration: 300
+# Continue via the comment quick action for the same reason: it uses the
+# app-owned native scroll target instead of depending on screen coordinates.
+- tapOn:
+    id: 'group-preview-comment-button'
+- waitForAnimationToEnd
 - waitForAnimationToEnd
 
-- assertVisible:
-    text: 'Comments'
-    optional: true
+- extendedWaitUntil:
+    visible: 'Comments'
+    timeout: 15000
 
 - assertVisible:
     text: '.*thoughts.*'

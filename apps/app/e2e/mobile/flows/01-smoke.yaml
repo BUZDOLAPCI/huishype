@@ -1,7 +1,8 @@
 appId: nl.huishype.app
 ---
 # 01-smoke.yaml — App Launch Verification
-# Verifies the map loaded, tab bar is visible, and zoom controls work.
+# Verifies the portrait-native map shell loaded and stable readiness
+# sentinels are visible.
 # This is a sub-flow; app is already launched by the orchestrator.
 
 # Expo dev-client can surface the developer-menu intro sheet after the app
@@ -46,27 +47,36 @@ appId: nl.huishype.app
 # Verify the map loaded
 - extendedWaitUntil:
     visible:
+      id: 'map-view'
+    timeout: 20000
+
+- extendedWaitUntil:
+    visible:
+      id: 'search-bar-container'
+    timeout: 20000
+
+- extendedWaitUntil:
+    visible:
       id: 'search-bar-focus-target'
     timeout: 20000
 
-- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-app-launched.png
-
-# Test zoom-in control
-- tapOn:
-    id: 'zoom-in-button'
-- waitForAnimationToEnd
-
-# Verify controls still exist after zoom in
 - assertVisible:
-    id: 'zoom-out-button'
-
-# Test zoom-out control (uses Unicode MINUS SIGN, target by testID)
-- tapOn:
-    id: 'zoom-out-button'
-- waitForAnimationToEnd
-
-# Verify the location button remains visible after zoom out
+    id: 'map-filter-rail'
+- assertVisible:
+    id: 'map-filter-pill-price'
 - assertVisible:
     id: 'location-button'
 
-- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-zoom-controls-verified.png
+- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-app-launched.png
+
+# Verify the shared portrait-native chrome stays available after boot.
+- assertVisible:
+    id: 'tab-index'
+- assertVisible:
+    id: 'tab-feed'
+- assertVisible:
+    id: 'search-bar-container'
+- assertVisible:
+    id: 'location-button'
+
+- takeScreenshot: test-results/visual-overhaul/map-screen/android/map-screen-readiness-verified.png

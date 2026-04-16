@@ -2,7 +2,7 @@ appId: nl.huishype.app
 ---
 # Density-aware grouping native verification flow
 # Focused on the map surfaces changed by the sprint:
-# 1. Map smoke / zoom controls
+# 1. Map smoke / portrait map shell readiness
 # 2. Search -> property preview
 # 3. Property bottom-sheet expansion
 # 4. Cluster preview at lower zoom

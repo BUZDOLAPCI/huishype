@@ -7,7 +7,7 @@
 #   5. Dev login
 #   6. Authenticated interactions (comment, guess, like, save)
 #   7. Cleanup & final state
-#   8. Cluster preview card (zoom out + tap cluster)
+#   8. Cluster preview card (low-zoom camera route + tap cluster)
 #   9. Preview card touch interactions (tap-through, quick actions, swipe pagination)
 #
 # Prerequisites:

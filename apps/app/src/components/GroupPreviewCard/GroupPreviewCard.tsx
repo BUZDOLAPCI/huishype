@@ -635,8 +635,10 @@ export function GroupPreviewCard({
               onComment={() => onComment?.(currentProperty)}
               onGuess={() => onGuess?.(currentProperty)}
               onClose={onClose}
-              showCloseButton={false}
+              showCloseButton={!!onClose}
+              closeButtonTestID="group-preview-close-button"
               nativeHitTargets={isNative ? {
+                close: { ref: hitTest.zoneRef('close'), onLayout: hitTest.zoneLayout('close') },
                 like: { ref: hitTest.zoneRef('like'), onLayout: hitTest.zoneLayout('like') },
                 comment: { ref: hitTest.zoneRef('comment'), onLayout: hitTest.zoneLayout('comment') },
                 guess: { ref: hitTest.zoneRef('guess'), onLayout: hitTest.zoneLayout('guess') },
@@ -644,24 +646,6 @@ export function GroupPreviewCard({
             />
           </View>
         </Animated.View>
-
-        {/* Close button — positioned over the image area for both single and cluster previews. */}
-        {onClose && (
-          <Pressable
-            onPress={onClose}
-            ref={isNative ? hitTest.zoneRef('close') : undefined}
-            onLayout={isNative ? hitTest.zoneLayout('close') : undefined}
-            collapsable={isNative ? false : undefined}
-            style={styles.clusterCloseButton}
-            hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
-            testID="group-preview-close-button"
-            accessibilityLabel="Close preview"
-            accessibilityHint="Closes this property preview card"
-            accessibilityRole="button"
-          >
-            <Icon name="X" size={14} color={COLORS.warm700} />
-          </Pressable>
-        )}
 
       </View>
 
@@ -811,34 +795,6 @@ const styles = StyleSheet.create({
   pageDotInactive: {
     backgroundColor: 'rgba(45, 41, 38, 0.22)',
   },
-
-  // Close button for cluster mode
-  clusterCloseButton: {
-    position: 'absolute',
-    // Position over the image area in the card's top-right corner.
-    top: 8,
-    right: 8,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderWidth: 1,
-    borderColor: '#F5F0E8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1A1918',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.12,
-        shadowRadius: 3,
-      },
-      android: { elevation: 2 },
-      default: {},
-    }),
-  },
-
   // Touch overlay for native hit-testing
   touchOverlay: {
     position: 'absolute',

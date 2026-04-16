@@ -206,6 +206,20 @@ describe('PropertyPreviewCard', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('supports overriding the close button testID', () => {
+    render(
+      <PropertyPreviewCard
+        property={mockProperty}
+        showCloseButton={true}
+        onClose={jest.fn()}
+        closeButtonTestID="group-preview-close-button"
+      />
+    );
+
+    expect(screen.getByTestId('group-preview-close-button')).toBeTruthy();
+    expect(screen.queryByTestId('property-preview-close-button')).toBeNull();
+  });
+
   it('hides close button by default', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 

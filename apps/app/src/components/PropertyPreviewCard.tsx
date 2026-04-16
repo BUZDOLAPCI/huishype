@@ -108,8 +108,10 @@ export interface PropertyPreviewCardProps {
   onGuess?: () => void;
   onPress?: () => void;
   onClose?: () => void;
-  /** Whether to show the close button on the image. GroupPreviewCard manages its own close. */
+  /** Whether to show the close button on the image. */
   showCloseButton?: boolean;
+  /** Override for the close button testID when composed inside wrapper components. */
+  closeButtonTestID?: string;
   /** Whether to show the speech bubble arrow pointing downwards */
   showArrow?: boolean;
   /** Optional native hit-target registrations used by map marker wrappers. */
@@ -250,6 +252,7 @@ export function PropertyPreviewCard({
   onPress,
   onClose,
   showCloseButton = false,
+  closeButtonTestID = 'property-preview-close-button',
   showArrow = false,
   nativeHitTargets,
 }: PropertyPreviewCardProps) {
@@ -425,7 +428,7 @@ export function PropertyPreviewCard({
             }}
             style={styles.closeButton}
             hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
-            testID="property-preview-close-button"
+            testID={closeButtonTestID}
             accessibilityLabel="Close preview"
             accessibilityHint="Closes this property preview card"
             accessibilityRole="button"
