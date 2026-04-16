@@ -498,10 +498,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const filterController = useMapFilterController({
     initialAppliedFilters,
   });
+  const { replaceAppliedFilters } = filterController;
   const propertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
   );
+  // Keep map construction stable; later filter changes should update the
+  // vector source tiles in place instead of remounting the whole map.
+  const propertyTileUrlRef = useRef(propertyTileUrl);
+  propertyTileUrlRef.current = propertyTileUrl;
   const appliedFilterSignature = useMemo(
     () => getCanonicalMapFilterSignature(filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -723,7 +728,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       let style: maplibregl.StyleSpecification | string = STYLE_URL;
       try {
         const res = await fetch(STYLE_URL);
-        style = replacePropertySourceTiles(await res.json(), propertyTileUrl);
+        style = replacePropertySourceTiles(
+          await res.json(),
+          propertyTileUrlRef.current,
+        );
       } catch {
         style = STYLE_URL;
       }
@@ -1043,7 +1051,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     cancelPendingSinglePreviewSelection,
     handleAuthRequired,
     handleFeaturePress,
-    propertyTileUrl,
+    replaceMapBrowserPath,
     scheduleSinglePreviewSelection,
     syncVisibleZoom,
   ]);
@@ -1112,7 +1120,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     const handlePopState = () => {
       const nextPathname = getCurrentBrowserPathname('/');
       browserSearchRef.current = window.location.search || '';
-      filterController.replaceAppliedFilters(
+      replaceAppliedFilters(
         parseMapFiltersFromSearchParams(
           new URLSearchParams(browserSearchRef.current),
         ),
@@ -1125,7 +1133,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [filterController.replaceAppliedFilters]);
+  }, [replaceAppliedFilters]);
 
   useEffect(() => {
     browserSearchRef.current = getMapFilterSearchString(
@@ -1302,6 +1310,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     routeState.isLoading,
     routeState.pathname,
     routeState.resolvedRoute,
+    replaceMapBrowserPath,
     setSearchCity,
   ]);
 
