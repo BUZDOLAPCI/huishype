@@ -8,11 +8,12 @@ import {
   parseDraftNumber,
   resetMapFilterCategory,
   sanitizeDraftNumber,
+  toggleMapStatusPill,
   type MapFilterCategory,
   type MapFilterDraftState,
   type MapFilters,
-  type MapMarketState,
   type MapPriceMode,
+  type MapStatusPillState,
 } from '@/src/lib/sharedMapFilters';
 
 export interface UseMapFilterControllerOptions {
@@ -40,7 +41,7 @@ export interface UseMapFilterControllerReturn {
     value: string,
   ) => void;
   commitPriceDraft: () => void;
-  toggleMarketState: (value: MapMarketState) => void;
+  toggleStatusPill: (value: MapStatusPillState) => void;
 }
 
 export function useMapFilterController({
@@ -159,19 +160,9 @@ export function useMapFilterController({
     [appliedFilters, applyFilters, draftFilters],
   );
 
-  const toggleMarketState = useCallback(
-    (value: MapMarketState) => {
-      const currentValues = new Set(appliedFilters.marketState);
-      if (currentValues.has(value)) {
-        currentValues.delete(value);
-      } else {
-        currentValues.add(value);
-      }
-
-      applyFilters({
-        ...appliedFilters,
-        marketState: Array.from(currentValues),
-      });
+  const toggleStatusPill = useCallback(
+    (value: MapStatusPillState) => {
+      applyFilters(toggleMapStatusPill(appliedFilters, value));
     },
     [appliedFilters, applyFilters],
   );
@@ -188,6 +179,6 @@ export function useMapFilterController({
     updatePriceDraft,
     selectPriceSuggestion,
     commitPriceDraft,
-    toggleMarketState,
+    toggleStatusPill,
   };
 }

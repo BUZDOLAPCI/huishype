@@ -2,6 +2,8 @@ import {
   doesMapFilterCandidateMatch,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
+  isMapStatusPillActive,
+  toggleMapStatusPill,
 } from '../sharedMapFilters';
 
 describe('sharedMapFilters price suggestions', () => {
@@ -84,5 +86,43 @@ describe('sharedMapFilters price suggestions', () => {
         },
       ),
     ).toBe(true);
+  });
+
+  it('treats the default market-state set as no status pills selected', () => {
+    expect(
+      isMapStatusPillActive(
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+        },
+        'for-sale',
+      ),
+    ).toBe(false);
+  });
+
+  it('toggles status pills into explicit filtering and back to the default set', () => {
+    const soldOnly = toggleMapStatusPill(
+      {
+        salePriceFrom: null,
+        salePriceTo: null,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+        marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+      },
+      'sold',
+    );
+    expect(soldOnly.marketState).toEqual(['sold']);
+
+    const reset = toggleMapStatusPill(soldOnly, 'sold');
+    expect(reset.marketState).toEqual([
+      'for-sale',
+      'for-rent',
+      'sold',
+      'rented',
+      'not-listed',
+    ]);
   });
 });

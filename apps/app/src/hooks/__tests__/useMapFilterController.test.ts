@@ -40,10 +40,11 @@ describe('useMapFilterController', () => {
     const { result } = renderHook(() => useMapFilterController());
 
     act(() => {
-      result.current.toggleMarketState('sold');
+      result.current.toggleStatusPill('sold');
     });
 
     expect(result.current.orderedCategories[0]).toBe('marketState');
+    expect(result.current.appliedFilters.marketState).toEqual(['sold']);
 
     act(() => {
       result.current.dismissCategory('marketState');
@@ -60,6 +61,28 @@ describe('useMapFilterController', () => {
     expect(result.current.orderedCategories).toEqual([
       'price',
       'marketState',
+    ]);
+  });
+
+  it('treats clearing the last active status pill as returning to the unfiltered default', () => {
+    const { result } = renderHook(() => useMapFilterController());
+
+    act(() => {
+      result.current.toggleStatusPill('for-sale');
+    });
+
+    expect(result.current.appliedFilters.marketState).toEqual(['for-sale']);
+
+    act(() => {
+      result.current.toggleStatusPill('for-sale');
+    });
+
+    expect(result.current.appliedFilters.marketState).toEqual([
+      'for-sale',
+      'for-rent',
+      'sold',
+      'rented',
+      'not-listed',
     ]);
   });
 });

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { waitForMapReady } from '../integration/helpers';
 
@@ -21,15 +21,6 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /Failed to load resource.*\.pbf/,
   /font/i,
 ];
-
-async function getPropertySourceTileUrl(page: Page) {
-  return page.evaluate(() => {
-    const map = (window as any).__mapInstance;
-    const source = map?.getSource?.('properties-source');
-    const serialized = source?.serialize?.();
-    return serialized?.tiles?.[0] ?? null;
-  });
-}
 
 test.describe('Map Filtering Visual', () => {
   let consoleErrors: string[] = [];
@@ -66,21 +57,15 @@ test.describe('Map Filtering Visual', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page, 60_000);
 
-    await page.getByTestId('map-filter-pill-salePrice').click();
-    await page.getByTestId('map-filter-input-salePrice-from').fill('550000');
-    await page.getByTestId('map-filter-input-salePrice-to').fill('850000');
-    await page.getByTestId('map-filter-apply-salePrice').click();
+    await page.getByTestId('map-filter-pill-price').click();
+    await page.getByTestId('map-filter-input-price-sale-from').click();
+    await page.getByTestId('map-filter-input-price-sale-from').fill('125');
+    await expect(page.getByTestId('map-filter-suggestions-price-sale-from')).toBeVisible();
+    await expect(page.getByTestId('map-filter-suggestion-price-sale-from-125')).toBeVisible();
+    await expect(page.getByTestId('map-filter-suggestion-price-sale-from-125000')).toBeVisible();
+    await expect(page.getByTestId('map-filter-suggestion-price-sale-from-1250000')).toBeVisible();
 
-    await expect(page.getByTestId('map-filter-pill-salePrice-dismiss')).toBeVisible();
-    await expect.poll(() => getPropertySourceTileUrl(page)).toContain(
-      'salePriceFrom=550000',
-    );
-    await expect.poll(() => getPropertySourceTileUrl(page)).toContain(
-      'salePriceTo=850000',
-    );
-
-    await page.getByTestId('map-filter-pill-salePrice').click();
-    await expect(page.getByTestId('map-filter-panel-salePrice')).toBeVisible();
+    await expect(page.getByTestId('map-filter-panel-price')).toBeVisible();
 
     await page.screenshot({
       path: testInfo.outputPath('map-filtering-sale-price-panel.png'),

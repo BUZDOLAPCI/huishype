@@ -22,9 +22,18 @@ const KNOWN_ACCEPTABLE_ERRORS: RegExp[] = [
   /font/i,
 ];
 
+type SerializableTileSource = {
+  serialize?: () => { tiles?: string[] | null } | null;
+};
+
+type InspectableMapInstance = {
+  getSource?: (id: string) => SerializableTileSource | null;
+};
+
 async function getPropertySourceTileUrl(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
-    const map = (window as any).__mapInstance;
+    const map = (window as Window & { __mapInstance?: InspectableMapInstance })
+      .__mapInstance;
     const source = map?.getSource?.('properties-source');
     const serialized = source?.serialize?.();
     return serialized?.tiles?.[0] ?? null;
@@ -78,28 +87,31 @@ test.describe('Map Filtering', () => {
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
     expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
 
-    await page.getByTestId('map-filter-pill-salePrice').click();
-    await page.getByTestId('map-filter-input-salePrice-from').fill('500000');
+    await page.getByTestId('map-filter-pill-price').click();
+    await page.getByTestId('map-filter-input-price-sale-from').click();
+    await page.getByTestId('map-filter-input-price-sale-from').fill('612345');
+    await expect(page.getByTestId('map-filter-suggestions-price-sale-from')).toBeVisible();
+    await page.getByTestId('map-filter-suggestion-price-sale-from-612345').click();
 
     await expect.poll(async () => page.evaluate(() => window.location.search)).toBe('');
     await expect.poll(() => getPropertySourceTileUrl(page)).toBe(initialTileUrl);
 
-    await page.getByTestId('map-filter-apply-salePrice').click();
+    await page.getByTestId('map-filter-apply-price').click();
 
     await expect
       .poll(async () => page.evaluate(() => window.location.search))
-      .toContain('salePriceFrom=500000');
+      .toContain('salePriceFrom=612345');
     await expect.poll(() => getPropertySourceTileUrl(page)).toContain(
-      'salePriceFrom=500000',
+      'salePriceFrom=612345',
     );
 
-    await page.getByTestId('map-filter-pill-salePrice-dismiss').click();
+    await page.getByTestId('map-filter-pill-price-dismiss').click();
 
     await expect
       .poll(async () => page.evaluate(() => window.location.search))
-      .not.toContain('salePriceFrom=500000');
+      .not.toContain('salePriceFrom=612345');
     await expect.poll(() => getPropertySourceTileUrl(page)).not.toContain(
-      'salePriceFrom=500000',
+      'salePriceFrom=612345',
     );
   });
 
@@ -111,11 +123,11 @@ test.describe('Map Filtering', () => {
     await waitForMapReady(page, 60_000);
     await waitForPropertySourceTileUrl(page);
 
-    await expect(page.getByTestId('map-filter-pill-salePrice-dismiss')).toBeVisible();
-    await expect(page.getByTestId('map-filter-pill-marketState-dismiss')).toBeVisible();
+    await expect(page.getByTestId('map-filter-pill-price-dismiss')).toBeVisible();
+    await expect(page.getByTestId('map-filter-pill-market-state-for-sale')).toBeVisible();
 
-    await page.getByTestId('map-filter-pill-salePrice').click();
-    await expect(page.getByTestId('map-filter-input-salePrice-from')).toHaveValue('650000');
+    await page.getByTestId('map-filter-pill-price').click();
+    await expect(page.getByTestId('map-filter-input-price-sale-from')).toHaveValue('650000');
     await expect.poll(() => getPropertySourceTileUrl(page)).toContain(
       'salePriceFrom=650000',
     );

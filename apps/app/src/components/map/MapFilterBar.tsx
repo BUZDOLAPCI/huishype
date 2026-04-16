@@ -19,10 +19,11 @@ import {
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapFilterCategoryActive,
-  MAP_MARKET_STATES,
+  isMapStatusPillActive,
+  MAP_STATUS_PILL_STATES,
   type MapFilterCategory,
-  type MapMarketState,
   type MapPriceMode,
+  type MapStatusPillState,
 } from '@/src/lib/sharedMapFilters';
 
 const COLORS = {
@@ -54,6 +55,7 @@ interface MapFilterPillProps {
   onPress: () => void;
   onDismiss?: () => void;
   testID: string;
+  variant?: 'panel' | 'toggle';
 }
 
 function MapFilterPill({
@@ -63,13 +65,19 @@ function MapFilterPill({
   onPress,
   onDismiss,
   testID,
+  variant = 'panel',
 }: MapFilterPillProps) {
+  const showsExpandedState = variant === 'panel';
+
   return (
     <View style={styles.pillShell}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
-        accessibilityState={{ expanded: open, selected: active }}
+        accessibilityState={{
+          expanded: showsExpandedState ? open : undefined,
+          selected: active,
+        }}
         onPress={onPress}
         style={({ pressed }) => [
           styles.pill,
@@ -85,7 +93,9 @@ function MapFilterPill({
         >
           {label}
         </Text>
-        {active ? (
+        {variant === 'toggle' ? (
+          active ? <Icon name="Check" size="sm" color={COLORS.white} /> : null
+        ) : active ? (
           <View style={styles.pillActiveBadge}>
             <Text style={styles.pillActiveBadgeText}>On</Text>
           </View>
@@ -133,10 +143,11 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
     updatePriceDraft,
     selectPriceSuggestion,
     commitPriceDraft,
-    toggleMarketState,
+    toggleStatusPill,
   } = controller;
 
   const topOffset = Platform.OS === 'web' ? 116 : insets.top + 108;
+  const isPricePanelOpen = openCategory === 'price';
 
   const cancelScheduledPriceInputBlur = useCallback(() => {
     if (priceInputBlurTimeoutRef.current != null) {
@@ -156,9 +167,8 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
   useEffect(() => () => cancelScheduledPriceInputBlur(), [cancelScheduledPriceInputBlur]);
 
   const visiblePriceModes = useMemo(
-    () =>
-      openCategory === 'price' ? getMapVisiblePriceModes(appliedFilters.marketState) : [],
-    [appliedFilters.marketState, openCategory],
+    () => (isPricePanelOpen ? getMapVisiblePriceModes(appliedFilters.marketState) : []),
+    [appliedFilters.marketState, isPricePanelOpen],
   );
 
   const getDraftValue = useCallback(
@@ -215,9 +225,9 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
     ],
   );
 
-  const panelTitle = openCategory ? getMapFilterPillLabel(openCategory) : null;
+  const panelTitle = isPricePanelOpen ? getMapFilterPillLabel('price') : null;
   const priceSuggestions = useMemo(() => {
-    if (openCategory !== 'price' || activePriceInput == null) {
+    if (!isPricePanelOpen || activePriceInput == null) {
       return [];
     }
 
@@ -226,7 +236,7 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
       activePriceInput.bound,
       getDraftValue(activePriceInput.mode, activePriceInput.bound),
     );
-  }, [activePriceInput, getDraftValue, openCategory]);
+  }, [activePriceInput, getDraftValue, isPricePanelOpen]);
 
   const handleSuggestionSelect = useCallback(
     (mode: MapPriceMode, bound: PriceBound, value: string) => {
@@ -266,7 +276,7 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
 
   return (
     <>
-      {openCategory ? (
+      {isPricePanelOpen ? (
         <Pressable
           onPress={handlePanelBackdropPress}
           style={styles.panelBackdrop}
@@ -282,28 +292,42 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
           style={styles.rail}
           testID="map-filter-rail"
         >
-          {orderedCategories.map((category) => {
-            const active = isMapFilterCategoryActive(appliedFilters, category);
-            const summary = getMapFilterPillSummary(category, appliedFilters);
-            const label = getMapFilterPillLabel(category);
-            const pillLabel = active && summary ? `${label}: ${summary}` : label;
+          {orderedCategories
+            .filter((category) => category === 'price')
+            .map((category) => {
+              const active = isMapFilterCategoryActive(appliedFilters, category);
+              const summary = getMapFilterPillSummary(category, appliedFilters);
+              const label = getMapFilterPillLabel(category);
+              const pillLabel = active && summary ? `${label}: ${summary}` : label;
 
-            return (
-              <MapFilterPill
-                key={category}
-                active={active}
-                label={pillLabel}
-                onDismiss={() => dismissCategory(category)}
-                onPress={() => handleCategoryPress(category)}
-                open={openCategory === category}
-                testID={`map-filter-pill-${category}`}
-              />
-            );
-          })}
+              return (
+                <MapFilterPill
+                  key={category}
+                  active={active}
+                  label={pillLabel}
+                  onDismiss={() => dismissCategory(category)}
+                  onPress={() => handleCategoryPress(category)}
+                  open={openCategory === category}
+                  testID={`map-filter-pill-${category}`}
+                />
+              );
+            })}
+
+          {MAP_STATUS_PILL_STATES.map((state: MapStatusPillState) => (
+            <MapFilterPill
+              key={state}
+              active={isMapStatusPillActive(appliedFilters, state)}
+              label={getMapMarketStateLabel(state)}
+              onPress={() => toggleStatusPill(state)}
+              open={false}
+              testID={`map-filter-pill-market-state-${state}`}
+              variant="toggle"
+            />
+          ))}
         </ScrollView>
 
-        {openCategory ? (
-          <View style={styles.panel} testID={`map-filter-panel-${openCategory}`}>
+        {isPricePanelOpen ? (
+          <View style={styles.panel} testID="map-filter-panel-price">
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>{panelTitle}</Text>
               <Pressable
@@ -477,12 +501,12 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
 
                 <View style={styles.panelActions}>
                   <Pressable
-                    onPress={() => dismissCategory(openCategory)}
+                    onPress={() => dismissCategory('price')}
                     style={({ pressed }) => [
                       styles.secondaryAction,
                       pressed && styles.secondaryActionPressed,
                     ]}
-                    testID={`map-filter-reset-${openCategory}`}
+                    testID="map-filter-reset-price"
                   >
                     <Text style={styles.secondaryActionText}>Reset</Text>
                   </Pressable>
@@ -499,35 +523,7 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                   </Pressable>
                 </View>
               </>
-            ) : (
-              <View style={styles.marketStateWrap}>
-                {MAP_MARKET_STATES.map((value: MapMarketState) => {
-                  const selected = appliedFilters.marketState.includes(value);
-
-                  return (
-                    <Pressable
-                      key={value}
-                      onPress={() => toggleMarketState(value)}
-                      style={({ pressed }) => [
-                        styles.marketStateOption,
-                        selected && styles.marketStateOptionSelected,
-                        pressed && styles.marketStateOptionPressed,
-                      ]}
-                      testID={`map-filter-market-state-${value}`}
-                    >
-                      <Text
-                        style={[
-                          styles.marketStateLabel,
-                          selected && styles.marketStateLabelSelected,
-                        ]}
-                      >
-                        {getMapMarketStateLabel(value)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
+            ) : null}
           </View>
         ) : null}
       </View>

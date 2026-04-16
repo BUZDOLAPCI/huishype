@@ -22,6 +22,13 @@ export const MAP_MARKET_STATES = [
   'not-listed',
 ] as const satisfies readonly MapMarketState[];
 
+export const MAP_STATUS_PILL_STATES = [
+  'for-sale',
+  'for-rent',
+  'sold',
+  'rented',
+] as const satisfies readonly MapMarketState[];
+
 const MAP_FILTER_QUERY_KEYS = [
   'salePriceFrom',
   'salePriceTo',
@@ -33,6 +40,7 @@ const MAP_FILTER_QUERY_KEYS = [
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
 
 const MAP_MARKET_STATE_SET = new Set<MapMarketState>(MAP_MARKET_STATES);
+const MAP_STATUS_PILL_STATE_SET = new Set<MapMarketState>(MAP_STATUS_PILL_STATES);
 const MAP_FILTER_QUERY_KEY_SET = new Set<string>(MAP_FILTER_QUERY_KEYS);
 const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   'for-sale': 'For Sale',
@@ -46,6 +54,7 @@ const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
 const RENT_PRICE_MARKET_STATES = ['for-rent', 'rented'] as const;
 
 export type MapPriceMode = 'sale' | 'rent';
+export type MapStatusPillState = (typeof MAP_STATUS_PILL_STATES)[number];
 
 const SALE_PRICE_SUGGESTION_VALUES = [
   0,
@@ -202,6 +211,10 @@ function formatDraftNumber(value: number | null): string {
 
 function isMapMarketState(value: string): value is MapMarketState {
   return MAP_MARKET_STATE_SET.has(value as MapMarketState);
+}
+
+function isMapStatusPillState(value: MapMarketState): value is MapStatusPillState {
+  return MAP_STATUS_PILL_STATE_SET.has(value);
 }
 
 function isMapFilterQueryKey(value: string): value is MapFilterQueryKey {
@@ -425,6 +438,45 @@ export function getOrderedMapFilterCategories(
 
 export function getMapMarketStateLabel(state: MapMarketState): string {
   return MAP_MARKET_STATE_LABELS[state];
+}
+
+export function isMapStatusPillActive(
+  filters: MapFilters,
+  state: MapStatusPillState,
+): boolean {
+  const normalized = normalizeMapFilters(filters);
+
+  if (normalized.marketState.length === MAP_MARKET_STATES.length) {
+    return false;
+  }
+
+  return normalized.marketState.includes(state);
+}
+
+export function toggleMapStatusPill(
+  filters: MapFilters,
+  state: MapStatusPillState,
+): MapFilters {
+  const normalized = normalizeMapFilters(filters);
+  const selectedStates = new Set<MapStatusPillState>(
+    normalized.marketState.length === MAP_MARKET_STATES.length
+      ? []
+      : normalized.marketState.filter(isMapStatusPillState),
+  );
+
+  if (selectedStates.has(state)) {
+    selectedStates.delete(state);
+  } else {
+    selectedStates.add(state);
+  }
+
+  return {
+    ...normalized,
+    marketState:
+      selectedStates.size > 0
+        ? MAP_STATUS_PILL_STATES.filter((value) => selectedStates.has(value))
+        : [...MAP_MARKET_STATES],
+  };
 }
 
 export function getMapFilterPillLabel(category: MapFilterCategory): string {

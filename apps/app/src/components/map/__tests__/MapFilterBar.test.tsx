@@ -130,10 +130,7 @@ describe('MapFilterBar', () => {
   it('shows only rent inputs when market state is rent-only', () => {
     const { getByTestId, queryByTestId } = render(<MapFilterBarHarness />);
 
-    fireEvent.press(getByTestId('map-filter-pill-marketState'));
-    fireEvent.press(getByTestId('map-filter-market-state-for-sale'));
-    fireEvent.press(getByTestId('map-filter-market-state-sold'));
-    fireEvent.press(getByTestId('map-filter-market-state-not-listed'));
+    fireEvent.press(getByTestId('map-filter-pill-market-state-for-rent'));
 
     fireEvent.press(getByTestId('map-filter-pill-price'));
 
@@ -143,14 +140,30 @@ describe('MapFilterBar', () => {
     expect(queryByTestId('map-filter-input-price-sale-to')).toBeNull();
   });
 
-  it('applies market-state toggles immediately', () => {
+  it('applies status pill toggles immediately and allows multi-select', () => {
     const { getByTestId } = render(<MapFilterBarHarness />);
 
-    fireEvent.press(getByTestId('map-filter-pill-marketState'));
-    fireEvent.press(getByTestId('map-filter-market-state-sold'));
+    fireEvent.press(getByTestId('map-filter-pill-market-state-sold'));
 
     expect(getByTestId('applied-state').props.children).toContain(
-      '"marketState":["for-sale","for-rent","rented","not-listed"]',
+      '"marketState":["sold"]',
+    );
+
+    fireEvent.press(getByTestId('map-filter-pill-market-state-for-sale'));
+
+    expect(getByTestId('applied-state').props.children).toContain(
+      '"marketState":["for-sale","sold"]',
+    );
+  });
+
+  it('returns to the unfiltered default when the last active status pill is cleared', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-market-state-sold'));
+    fireEvent.press(getByTestId('map-filter-pill-market-state-sold'));
+
+    expect(getByTestId('applied-state').props.children).toContain(
+      '"marketState":["for-sale","for-rent","sold","rented","not-listed"]',
     );
   });
 });
