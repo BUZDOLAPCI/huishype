@@ -30,11 +30,7 @@ describe('map filter normalization', () => {
       rentPriceTo: null,
       marketState: [...MAP_MARKET_STATES],
     });
-    expect(MAP_FILTER_CATEGORIES).toEqual([
-      'salePrice',
-      'rentPrice',
-      'marketState',
-    ]);
+    expect(MAP_FILTER_CATEGORIES).toEqual(['price', 'marketState']);
   });
 
   it('normalizes ranges, invalid numbers, and market-state order', () => {
@@ -76,35 +72,28 @@ describe('map filter activity and reset helpers', () => {
 
   it('detects default and active categories', () => {
     expect(areMapFiltersDefault(createDefaultMapFilters())).toBe(true);
-    expect(isMapFilterCategoryDefault(createDefaultMapFilters(), 'salePrice')).toBe(
-      true,
-    );
-    expect(isMapFilterCategoryActive(activeFilters, 'salePrice')).toBe(true);
-    expect(isMapFilterCategoryActive(activeFilters, 'rentPrice')).toBe(true);
+    expect(isMapFilterCategoryDefault(createDefaultMapFilters(), 'price')).toBe(true);
+    expect(isMapFilterCategoryActive(activeFilters, 'price')).toBe(true);
     expect(isMapFilterCategoryActive(activeFilters, 'marketState')).toBe(true);
   });
 
   it('orders active categories first while keeping stable category order', () => {
-    expect(getOrderedMapFilterCategories(activeFilters)).toEqual([
-      'salePrice',
-      'rentPrice',
-      'marketState',
-    ]);
+    expect(getOrderedMapFilterCategories(activeFilters)).toEqual(['price', 'marketState']);
 
     expect(
       getOrderedMapFilterCategories({
         ...createDefaultMapFilters(),
         rentPriceTo: 1800,
       }),
-    ).toEqual(['rentPrice', 'salePrice', 'marketState']);
+    ).toEqual(['price', 'marketState']);
   });
 
   it('resets only the requested category', () => {
-    expect(resetMapFilterCategory(activeFilters, 'salePrice')).toEqual({
+    expect(resetMapFilterCategory(activeFilters, 'price')).toEqual({
       salePriceFrom: null,
       salePriceTo: null,
       rentPriceFrom: null,
-      rentPriceTo: 1800,
+      rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
     });
 
@@ -119,7 +108,7 @@ describe('map filter activity and reset helpers', () => {
 });
 
 describe('map filter summaries and signatures', () => {
-  it('summarizes sale, rent, and market-state badges', () => {
+  it('summarizes price and market-state badges', () => {
     const filters = normalizeMapFilters({
       salePriceFrom: 250000,
       salePriceTo: 700000,
@@ -128,10 +117,7 @@ describe('map filter summaries and signatures', () => {
       marketState: ['sold'],
     });
 
-    expect(getMapFilterPillSummary('salePrice', filters)).toBe(
-      '€ 250K - € 700K',
-    );
-    expect(getMapFilterPillSummary('rentPrice', filters)).toBe('To € 2,2K');
+    expect(getMapFilterPillSummary('price', filters)).toBe('Sale € 250K - € 700K');
     expect(getMapFilterPillSummary('marketState', filters)).toBe('1 selected');
     expect(getMapFilterPillSummary('marketState', createDefaultMapFilters())).toBe(
       null,

@@ -10,8 +10,7 @@ import type {
 } from '../types/property.js';
 
 export const MAP_FILTER_CATEGORIES = [
-  'salePrice',
-  'rentPrice',
+  'price',
   'marketState',
 ] as const satisfies readonly MapFilterCategory[];
 
@@ -49,10 +48,10 @@ const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   'not-listed': 'Not Listed',
 };
 
-const PRICE_CATEGORY_LABELS: Record<'salePrice' | 'rentPrice', string> = {
-  salePrice: 'Price',
-  rentPrice: 'Rent Price',
-};
+const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
+const RENT_PRICE_MARKET_STATES = ['for-rent', 'rented'] as const;
+
+type MapPriceMode = 'sale' | 'rent';
 
 function formatDraftNumber(value: number | null): string {
   return value == null ? '' : String(value);
@@ -80,6 +79,46 @@ function normalizePriceRange(
   }
 
   return [from, to];
+}
+
+function getPriceBoundsForMode(
+  filters: MapFilters,
+  mode: MapPriceMode,
+): [number | null, number | null] {
+  return mode === 'sale'
+    ? [filters.salePriceFrom, filters.salePriceTo]
+    : [filters.rentPriceFrom, filters.rentPriceTo];
+}
+
+function isPriceModeStateIncluded(
+  marketState: readonly MapMarketState[],
+  mode: MapPriceMode,
+): boolean {
+  const relevantStates =
+    mode === 'sale' ? SALE_PRICE_MARKET_STATES : RENT_PRICE_MARKET_STATES;
+
+  return relevantStates.some((state) => marketState.includes(state));
+}
+
+function getMapVisiblePriceModes(
+  marketState: readonly MapMarketState[],
+): MapPriceMode[] {
+  const hasSale = isPriceModeStateIncluded(marketState, 'sale');
+  const hasRent = isPriceModeStateIncluded(marketState, 'rent');
+
+  if (hasSale && hasRent) {
+    return ['sale', 'rent'];
+  }
+
+  if (hasSale) {
+    return ['sale'];
+  }
+
+  if (hasRent) {
+    return ['rent'];
+  }
+
+  return ['sale', 'rent'];
 }
 
 export function createDefaultMapFilters(): MapFilters {
@@ -182,10 +221,11 @@ export function isMapFilterCategoryActive(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return normalized.salePriceFrom != null || normalized.salePriceTo != null;
-    case 'rentPrice':
-      return normalized.rentPriceFrom != null || normalized.rentPriceTo != null;
+    case 'price':
+      return getMapVisiblePriceModes(normalized.marketState).some((mode) => {
+        const [from, to] = getPriceBoundsForMode(normalized, mode);
+        return from != null || to != null;
+      });
     case 'marketState':
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
   }
@@ -248,7 +288,7 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
     return 'Status';
   }
 
-  return PRICE_CATEGORY_LABELS[category];
+  return 'Price';
 }
 
 export function getMapMarketStateLabel(state: MapMarketState): string {
@@ -262,16 +302,22 @@ export function getMapFilterPillSummary(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return summarizePriceBounds(
-        normalized.salePriceFrom,
-        normalized.salePriceTo,
-      );
-    case 'rentPrice':
-      return summarizePriceBounds(
-        normalized.rentPriceFrom,
-        normalized.rentPriceTo,
-      );
+    case 'price': {
+      const segments = getMapVisiblePriceModes(normalized.marketState)
+        .map((mode) => {
+          const [from, to] = getPriceBoundsForMode(normalized, mode);
+          const summary = summarizePriceBounds(from, to);
+
+          if (!summary) {
+            return null;
+          }
+
+          return mode === 'sale' ? `Sale ${summary}` : `Rent ${summary}`;
+        })
+        .filter((summary): summary is string => summary != null);
+
+      return segments.length > 0 ? segments.join(' · ') : null;
+    }
     case 'marketState':
       return normalized.marketState.length === MAP_MARKET_STATES.length
         ? null
@@ -286,10 +332,14 @@ export function resetMapFilterCategory(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return { ...normalized, salePriceFrom: null, salePriceTo: null };
-    case 'rentPrice':
-      return { ...normalized, rentPriceFrom: null, rentPriceTo: null };
+    case 'price':
+      return {
+        ...normalized,
+        salePriceFrom: null,
+        salePriceTo: null,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+      };
     case 'marketState':
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
   }

@@ -10,8 +10,7 @@ import type {
 export type { MapFilterCategory, MapFilters, MapMarketState };
 
 export const MAP_FILTER_CATEGORIES = [
-  'salePrice',
-  'rentPrice',
+  'price',
   'marketState',
 ] as const satisfies readonly MapFilterCategory[];
 
@@ -43,16 +42,79 @@ const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   'not-listed': 'Not Listed',
 };
 
-const PRICE_CATEGORY_LABELS: Record<'salePrice' | 'rentPrice', string> = {
-  salePrice: 'Price',
-  rentPrice: 'Rent Price',
-};
+const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
+const RENT_PRICE_MARKET_STATES = ['for-rent', 'rented'] as const;
+
+export type MapPriceMode = 'sale' | 'rent';
+
+const SALE_PRICE_SUGGESTION_VALUES = [
+  0,
+  50000,
+  75000,
+  100000,
+  125000,
+  150000,
+  175000,
+  200000,
+  225000,
+  250000,
+  275000,
+  300000,
+  325000,
+  350000,
+  375000,
+  400000,
+  450000,
+  500000,
+  550000,
+  600000,
+  650000,
+  700000,
+  750000,
+  800000,
+  900000,
+  1000000,
+  1250000,
+  1500000,
+  2000000,
+  2500000,
+  3000000,
+  3500000,
+  4000000,
+  4500000,
+  5000000,
+] as const;
+
+const RENT_PRICE_SUGGESTION_VALUES = [
+  500,
+  750,
+  1000,
+  1250,
+  1500,
+  1750,
+  2000,
+  2250,
+  2500,
+  3000,
+  3500,
+  4000,
+  5000,
+  7500,
+  10000,
+] as const;
 
 export interface MapFilterDraftState {
   salePriceFrom: string;
   salePriceTo: string;
   rentPriceFrom: string;
   rentPriceTo: string;
+}
+
+export interface MapPriceSuggestion {
+  key: string;
+  label: string;
+  value: string;
+  custom: boolean;
 }
 
 export interface MapFilterMatchCandidate {
@@ -63,6 +125,29 @@ export interface MapFilterMatchCandidate {
   lastRentedPrice?: number | null;
   marketState?: MapMarketState | null;
   hasListing?: boolean | null;
+}
+
+function getPriceBoundsForMode(
+  filters: MapFilters,
+  mode: MapPriceMode,
+): [number | null, number | null] {
+  return mode === 'sale'
+    ? [filters.salePriceFrom, filters.salePriceTo]
+    : [filters.rentPriceFrom, filters.rentPriceTo];
+}
+
+function isPriceModeStateIncluded(
+  marketState: readonly MapMarketState[],
+  mode: MapPriceMode,
+): boolean {
+  const relevantStates =
+    mode === 'sale' ? SALE_PRICE_MARKET_STATES : RENT_PRICE_MARKET_STATES;
+
+  return relevantStates.some((state) => marketState.includes(state));
+}
+
+function getActivePriceModes(filters: MapFilters): MapPriceMode[] {
+  return getMapVisiblePriceModes(filters.marketState);
 }
 
 function normalizePositiveInteger(value: number | null | undefined): number | null {
@@ -155,6 +240,93 @@ export function parseDraftNumber(value: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function formatSuggestionPrice(value: number): string {
+  return formatPropertyPrice(value, 'NL').replace(/\s+/g, ' ').trim();
+}
+
+export function getMapPriceSuggestions(
+  mode: MapPriceMode,
+  bound: 'from' | 'to',
+  draftValue: string,
+): MapPriceSuggestion[] {
+  const baseValues =
+    mode === 'sale' ? SALE_PRICE_SUGGESTION_VALUES : RENT_PRICE_SUGGESTION_VALUES;
+  const suggestions: MapPriceSuggestion[] = [];
+  const sanitizedDraft = sanitizeDraftNumber(draftValue);
+  const parsedDraft =
+    sanitizedDraft.length > 0 ? Number.parseInt(sanitizedDraft, 10) : Number.NaN;
+  const normalizedDraft =
+    sanitizedDraft.length > 0 && Number.isFinite(parsedDraft)
+      ? String(parsedDraft)
+      : sanitizedDraft;
+  const filteredBaseValues = baseValues.filter((value) => {
+    if (bound === 'to' && value === 0) {
+      return false;
+    }
+
+    if (!normalizedDraft) {
+      return true;
+    }
+
+    return String(value).startsWith(normalizedDraft);
+  });
+
+  if (
+    normalizedDraft.length > 0 &&
+    Number.isFinite(parsedDraft) &&
+    parsedDraft >= 0 &&
+    !baseValues.some((value) => String(value) === normalizedDraft)
+  ) {
+    suggestions.push({
+      key: `custom-${normalizedDraft}`,
+      label: formatSuggestionPrice(parsedDraft),
+      value: normalizedDraft,
+      custom: true,
+    });
+  }
+
+  for (const value of filteredBaseValues) {
+    suggestions.push({
+      key: `preset-${value}`,
+      label: formatSuggestionPrice(value),
+      value: String(value),
+      custom: false,
+    });
+  }
+
+  if (bound === 'to' && normalizedDraft.length === 0) {
+    suggestions.push({
+      key: 'empty',
+      label: 'No max',
+      value: '',
+      custom: false,
+    });
+  }
+
+  return suggestions;
+}
+
+export function getMapVisiblePriceModes(
+  marketState: readonly MapMarketState[],
+): MapPriceMode[] {
+  const hasSale = isPriceModeStateIncluded(marketState, 'sale');
+  const hasRent = isPriceModeStateIncluded(marketState, 'rent');
+
+  if (hasSale && hasRent) {
+    return ['sale', 'rent'];
+  }
+
+  if (hasSale) {
+    return ['sale'];
+  }
+
+  if (hasRent) {
+    return ['rent'];
+  }
+
+  return ['sale', 'rent'];
+}
+
 export function normalizeMapMarketState(
   values: Iterable<MapMarketState | string | null | undefined>,
 ): MapMarketState[] {
@@ -228,10 +400,11 @@ export function isMapFilterCategoryActive(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return normalized.salePriceFrom != null || normalized.salePriceTo != null;
-    case 'rentPrice':
-      return normalized.rentPriceFrom != null || normalized.rentPriceTo != null;
+    case 'price':
+      return getActivePriceModes(normalized).some((mode) => {
+        const [from, to] = getPriceBoundsForMode(normalized, mode);
+        return from != null || to != null;
+      });
     case 'marketState':
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
   }
@@ -259,7 +432,7 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
     return 'Status';
   }
 
-  return PRICE_CATEGORY_LABELS[category];
+  return 'Price';
 }
 
 export function getMapFilterPillSummary(
@@ -269,10 +442,22 @@ export function getMapFilterPillSummary(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return summarizePriceBounds(normalized.salePriceFrom, normalized.salePriceTo);
-    case 'rentPrice':
-      return summarizePriceBounds(normalized.rentPriceFrom, normalized.rentPriceTo);
+    case 'price': {
+      const segments = getActivePriceModes(normalized)
+        .map((mode) => {
+          const [from, to] = getPriceBoundsForMode(normalized, mode);
+          const summary = summarizePriceBounds(from, to);
+
+          if (!summary) {
+            return null;
+          }
+
+          return mode === 'sale' ? `Sale ${summary}` : `Rent ${summary}`;
+        })
+        .filter((summary): summary is string => summary != null);
+
+      return segments.length > 0 ? segments.join(' · ') : null;
+    }
     case 'marketState':
       if (normalized.marketState.length === MAP_MARKET_STATES.length) {
         return null;
@@ -293,10 +478,14 @@ export function resetMapFilterCategory(
   const normalized = normalizeMapFilters(filters);
 
   switch (category) {
-    case 'salePrice':
-      return { ...normalized, salePriceFrom: null, salePriceTo: null };
-    case 'rentPrice':
-      return { ...normalized, rentPriceFrom: null, rentPriceTo: null };
+    case 'price':
+      return {
+        ...normalized,
+        salePriceFrom: null,
+        salePriceTo: null,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+      };
     case 'marketState':
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
   }
@@ -478,26 +667,30 @@ export function doesMapFilterCandidateMatch(
     lastRentedPrice: candidate.lastRentedPrice,
   });
   const inferredMarketState = inferMapMarketState(candidate);
+  const shouldApplySaleFilters =
+    inferredMarketState == null || isPriceModeStateIncluded([inferredMarketState], 'sale');
+  const shouldApplyRentFilters =
+    inferredMarketState == null || isPriceModeStateIncluded([inferredMarketState], 'rent');
 
-  if (normalized.salePriceFrom != null) {
+  if (shouldApplySaleFilters && normalized.salePriceFrom != null) {
     if (saleEffectivePrice == null || saleEffectivePrice < normalized.salePriceFrom) {
       return false;
     }
   }
 
-  if (normalized.salePriceTo != null) {
+  if (shouldApplySaleFilters && normalized.salePriceTo != null) {
     if (saleEffectivePrice == null || saleEffectivePrice > normalized.salePriceTo) {
       return false;
     }
   }
 
-  if (normalized.rentPriceFrom != null) {
+  if (shouldApplyRentFilters && normalized.rentPriceFrom != null) {
     if (rentEffectivePrice == null || rentEffectivePrice < normalized.rentPriceFrom) {
       return false;
     }
   }
 
-  if (normalized.rentPriceTo != null) {
+  if (shouldApplyRentFilters && normalized.rentPriceTo != null) {
     if (rentEffectivePrice == null || rentEffectivePrice > normalized.rentPriceTo) {
       return false;
     }

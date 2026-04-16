@@ -12,6 +12,7 @@ import {
   type MapFilterDraftState,
   type MapFilters,
   type MapMarketState,
+  type MapPriceMode,
 } from '@/src/lib/sharedMapFilters';
 
 export interface UseMapFilterControllerOptions {
@@ -29,16 +30,16 @@ export interface UseMapFilterControllerReturn {
   closeCategoryPanel: () => void;
   dismissCategory: (category: MapFilterCategory) => void;
   updatePriceDraft: (
-    category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+    mode: MapPriceMode,
     bound: 'from' | 'to',
     value: string,
   ) => void;
   selectPriceSuggestion: (
-    category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+    mode: MapPriceMode,
     bound: 'from' | 'to',
-    value: number,
+    value: string,
   ) => void;
-  commitPriceDraft: (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => void;
+  commitPriceDraft: () => void;
   toggleMarketState: (value: MapMarketState) => void;
 }
 
@@ -110,13 +111,13 @@ export function useMapFilterController({
 
   const updatePriceDraft = useCallback(
     (
-      category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+      mode: MapPriceMode,
       bound: 'from' | 'to',
       value: string,
     ) => {
       const sanitized = sanitizeDraftNumber(value);
       setDraftFilters((current: MapFilterDraftState) => {
-        if (category === 'salePrice') {
+        if (mode === 'sale') {
           return {
             ...current,
             salePriceFrom: bound === 'from' ? sanitized : current.salePriceFrom,
@@ -136,28 +137,21 @@ export function useMapFilterController({
 
   const selectPriceSuggestion = useCallback(
     (
-      category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+      mode: MapPriceMode,
       bound: 'from' | 'to',
-      value: number,
+      value: string,
     ) => {
-      updatePriceDraft(category, bound, String(value));
+      updatePriceDraft(mode, bound, value);
     },
     [updatePriceDraft],
   );
 
   const commitPriceDraft = useCallback(
-    (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => {
-      if (category === 'salePrice') {
-        applyFilters({
-          ...appliedFilters,
-          salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
-          salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
-        });
-        return;
-      }
-
+    () => {
       applyFilters({
         ...appliedFilters,
+        salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
+        salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
         rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
         rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
       });

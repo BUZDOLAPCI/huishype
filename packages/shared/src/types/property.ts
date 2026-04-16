@@ -285,7 +285,7 @@ export interface NearbyPropertyGroup extends PropertyNodeGroup {
 /**
  * Canonical filter categories for map state.
  */
-export type MapFilterCategory = 'salePrice' | 'rentPrice' | 'marketState';
+export type MapFilterCategory = 'price' | 'marketState';
 
 /**
  * Exclusive market-state taxonomy for map filtering.

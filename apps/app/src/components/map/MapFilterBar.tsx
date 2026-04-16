@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -16,10 +16,13 @@ import {
   getMapFilterPillLabel,
   getMapFilterPillSummary,
   getMapMarketStateLabel,
+  getMapPriceSuggestions,
+  getMapVisiblePriceModes,
   isMapFilterCategoryActive,
   MAP_MARKET_STATES,
   type MapFilterCategory,
   type MapMarketState,
+  type MapPriceMode,
 } from '@/src/lib/sharedMapFilters';
 
 const COLORS = {
@@ -38,12 +41,11 @@ const COLORS = {
   shadow: 'rgba(65, 52, 36, 0.16)',
 } as const;
 
-const SALE_PRICE_SUGGESTIONS = [250000, 500000, 750000, 1000000];
-const RENT_PRICE_SUGGESTIONS = [1000, 1500, 2000, 3000];
-
 interface MapFilterBarProps {
   controller: UseMapFilterControllerReturn;
 }
+
+type PriceBound = 'from' | 'to';
 
 interface MapFilterPillProps {
   label: string;
@@ -107,15 +109,19 @@ function MapFilterPill({
   );
 }
 
-function isPriceCategory(
-  category: MapFilterCategory | null,
-): category is Extract<MapFilterCategory, 'salePrice' | 'rentPrice'> {
-  return category === 'salePrice' || category === 'rentPrice';
-}
+const PRICE_MODE_META: Record<MapPriceMode, { title: string; testId: string }> = {
+  sale: { title: 'Sale Price', testId: 'sale' },
+  rent: { title: 'Rent Price', testId: 'rent' },
+};
 
 export function MapFilterBar({ controller }: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
-  const priceInputFocusCountRef = useRef(0);
+  const [activePriceInput, setActivePriceInput] = useState<{
+    mode: MapPriceMode;
+    bound: PriceBound;
+  } | null>(null);
+  const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webSuggestionPressKeyRef = useRef<string | null>(null);
   const {
     appliedFilters,
     draftFilters,
@@ -132,41 +138,65 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
 
   const topOffset = Platform.OS === 'web' ? 116 : insets.top + 108;
 
-  const commitAndClosePricePanel = useCallback(
-    (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => {
-      commitPriceDraft(category);
-      closeCategoryPanel();
-    },
-    [closeCategoryPanel, commitPriceDraft],
+  const cancelScheduledPriceInputBlur = useCallback(() => {
+    if (priceInputBlurTimeoutRef.current != null) {
+      clearTimeout(priceInputBlurTimeoutRef.current);
+      priceInputBlurTimeoutRef.current = null;
+    }
+  }, []);
+
+  const schedulePriceInputBlur = useCallback(() => {
+    cancelScheduledPriceInputBlur();
+    priceInputBlurTimeoutRef.current = setTimeout(() => {
+      priceInputBlurTimeoutRef.current = null;
+      setActivePriceInput(null);
+    }, 0);
+  }, [cancelScheduledPriceInputBlur]);
+
+  useEffect(() => () => cancelScheduledPriceInputBlur(), [cancelScheduledPriceInputBlur]);
+
+  const visiblePriceModes = useMemo(
+    () =>
+      openCategory === 'price' ? getMapVisiblePriceModes(appliedFilters.marketState) : [],
+    [appliedFilters.marketState, openCategory],
   );
+
+  const getDraftValue = useCallback(
+    (mode: MapPriceMode, bound: PriceBound) => {
+      if (mode === 'sale') {
+        return bound === 'from' ? draftFilters.salePriceFrom : draftFilters.salePriceTo;
+      }
+
+      return bound === 'from' ? draftFilters.rentPriceFrom : draftFilters.rentPriceTo;
+    },
+    [draftFilters],
+  );
+
+  const commitAndClosePricePanel = useCallback(() => {
+    cancelScheduledPriceInputBlur();
+    setActivePriceInput(null);
+    commitPriceDraft();
+    closeCategoryPanel();
+  }, [cancelScheduledPriceInputBlur, closeCategoryPanel, commitPriceDraft]);
 
   const handlePanelBackdropPress = useCallback(() => {
-    if (isPriceCategory(openCategory)) {
-      commitPriceDraft(openCategory);
+    cancelScheduledPriceInputBlur();
+    setActivePriceInput(null);
+    if (openCategory === 'price') {
+      commitPriceDraft();
     }
     closeCategoryPanel();
-  }, [closeCategoryPanel, commitPriceDraft, openCategory]);
-
-  const scheduleBlurCommit = useCallback(
-    (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => {
-      setTimeout(() => {
-        if (priceInputFocusCountRef.current === 0) {
-          commitAndClosePricePanel(category);
-        }
-      }, 0);
-    },
-    [commitAndClosePricePanel],
-  );
+  }, [cancelScheduledPriceInputBlur, closeCategoryPanel, commitPriceDraft, openCategory]);
 
   const handleCategoryPress = useCallback(
     (nextCategory: MapFilterCategory) => {
-      if (isPriceCategory(openCategory) && openCategory !== nextCategory) {
-        commitPriceDraft(openCategory);
+      if (openCategory === 'price' && openCategory !== nextCategory) {
+        commitPriceDraft();
       }
 
       if (openCategory === nextCategory) {
-        if (isPriceCategory(nextCategory)) {
-          commitAndClosePricePanel(nextCategory);
+        if (nextCategory === 'price') {
+          commitAndClosePricePanel();
           return;
         }
 
@@ -186,8 +216,53 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
   );
 
   const panelTitle = openCategory ? getMapFilterPillLabel(openCategory) : null;
-  const saleSuggestions = useMemo(() => SALE_PRICE_SUGGESTIONS, []);
-  const rentSuggestions = useMemo(() => RENT_PRICE_SUGGESTIONS, []);
+  const priceSuggestions = useMemo(() => {
+    if (openCategory !== 'price' || activePriceInput == null) {
+      return [];
+    }
+
+    return getMapPriceSuggestions(
+      activePriceInput.mode,
+      activePriceInput.bound,
+      getDraftValue(activePriceInput.mode, activePriceInput.bound),
+    );
+  }, [activePriceInput, getDraftValue, openCategory]);
+
+  const handleSuggestionSelect = useCallback(
+    (mode: MapPriceMode, bound: PriceBound, value: string) => {
+      cancelScheduledPriceInputBlur();
+      selectPriceSuggestion(mode, bound, value);
+      setActivePriceInput(null);
+    },
+    [cancelScheduledPriceInputBlur, selectPriceSuggestion],
+  );
+
+  const handleSuggestionPointerDown = useCallback(
+    (mode: MapPriceMode, bound: PriceBound, value: string, event?: { preventDefault?: () => void }) => {
+      if (Platform.OS !== 'web') {
+        return;
+      }
+
+      event?.preventDefault?.();
+      webSuggestionPressKeyRef.current = `${mode}:${bound}:${value}`;
+      handleSuggestionSelect(mode, bound, value);
+    },
+    [handleSuggestionSelect],
+  );
+
+  const handleSuggestionPress = useCallback(
+    (mode: MapPriceMode, bound: PriceBound, value: string) => {
+      const selectionKey = `${mode}:${bound}:${value}`;
+      if (Platform.OS === 'web' && webSuggestionPressKeyRef.current === selectionKey) {
+        webSuggestionPressKeyRef.current = null;
+        return;
+      }
+
+      webSuggestionPressKeyRef.current = null;
+      handleSuggestionSelect(mode, bound, value);
+    },
+    [handleSuggestionSelect],
+  );
 
   return (
     <>
@@ -242,89 +317,163 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
               </Pressable>
             </View>
 
-            {isPriceCategory(openCategory) ? (
+            {openCategory === 'price' ? (
               <>
                 <Text style={styles.panelHint}>
-                  Draft edits stay local until you apply, blur, or press Enter.
+                  Draft edits stay local until you apply, press Enter, or close the panel.
                 </Text>
 
-                <View style={styles.priceInputRow}>
-                  <View style={styles.priceInputColumn}>
-                    <Text style={styles.inputLabel}>From</Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      onBlur={() => {
-                        priceInputFocusCountRef.current = Math.max(
-                          0,
-                          priceInputFocusCountRef.current - 1,
-                        );
-                        scheduleBlurCommit(openCategory);
-                      }}
-                      onChangeText={(value) => updatePriceDraft(openCategory, 'from', value)}
-                      onFocus={() => {
-                        priceInputFocusCountRef.current += 1;
-                      }}
-                      onSubmitEditing={() => commitAndClosePricePanel(openCategory)}
-                      placeholder="0"
-                      placeholderTextColor={COLORS.warm400}
-                      returnKeyType="done"
-                      style={styles.priceInput}
-                      testID={`map-filter-input-${openCategory}-from`}
-                      value={
-                        openCategory === 'salePrice'
-                          ? draftFilters.salePriceFrom
-                          : draftFilters.rentPriceFrom
-                      }
-                    />
-                  </View>
+                {visiblePriceModes.map((mode) => {
+                  const meta = PRICE_MODE_META[mode];
 
-                  <View style={styles.priceInputColumn}>
-                    <Text style={styles.inputLabel}>To</Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      onBlur={() => {
-                        priceInputFocusCountRef.current = Math.max(
-                          0,
-                          priceInputFocusCountRef.current - 1,
-                        );
-                        scheduleBlurCommit(openCategory);
-                      }}
-                      onChangeText={(value) => updatePriceDraft(openCategory, 'to', value)}
-                      onFocus={() => {
-                        priceInputFocusCountRef.current += 1;
-                      }}
-                      onSubmitEditing={() => commitAndClosePricePanel(openCategory)}
-                      placeholder="No max"
-                      placeholderTextColor={COLORS.warm400}
-                      returnKeyType="done"
-                      style={styles.priceInput}
-                      testID={`map-filter-input-${openCategory}-to`}
-                      value={
-                        openCategory === 'salePrice'
-                          ? draftFilters.salePriceTo
-                          : draftFilters.rentPriceTo
-                      }
-                    />
-                  </View>
-                </View>
+                  return (
+                    <View key={mode} style={styles.priceSection}>
+                      {visiblePriceModes.length > 1 ? (
+                        <Text style={styles.priceSectionTitle}>{meta.title}</Text>
+                      ) : null}
 
-                <View style={styles.suggestionRow}>
-                  {(openCategory === 'salePrice' ? saleSuggestions : rentSuggestions).map(
-                    (value) => (
-                      <Pressable
-                        key={value}
-                        onPress={() => selectPriceSuggestion(openCategory, 'from', value)}
-                        style={({ pressed }) => [
-                          styles.suggestionChip,
-                          pressed && styles.suggestionChipPressed,
-                        ]}
-                        testID={`map-filter-suggestion-${openCategory}-${value}`}
-                      >
-                        <Text style={styles.suggestionChipText}>{value.toLocaleString()}</Text>
-                      </Pressable>
-                    ),
-                  )}
-                </View>
+                      <View style={styles.priceInputRow}>
+                        <View style={styles.priceInputColumn}>
+                          <Text style={styles.inputLabel}>From</Text>
+                          <TextInput
+                            keyboardType="number-pad"
+                            onBlur={schedulePriceInputBlur}
+                            onChangeText={(value) => updatePriceDraft(mode, 'from', value)}
+                            onFocus={() => {
+                              cancelScheduledPriceInputBlur();
+                              setActivePriceInput({ mode, bound: 'from' });
+                            }}
+                            onSubmitEditing={commitAndClosePricePanel}
+                            placeholder="0"
+                            placeholderTextColor={COLORS.warm400}
+                            returnKeyType="done"
+                            style={styles.priceInput}
+                            testID={`map-filter-input-price-${meta.testId}-from`}
+                            value={getDraftValue(mode, 'from')}
+                          />
+
+                          {activePriceInput?.mode === mode &&
+                          activePriceInput.bound === 'from' &&
+                          priceSuggestions.length > 0 ? (
+                            <View
+                              style={styles.suggestionListShell}
+                              testID={`map-filter-suggestions-price-${meta.testId}-from`}
+                            >
+                              <ScrollView
+                                keyboardShouldPersistTaps="handled"
+                                nestedScrollEnabled
+                                style={styles.suggestionList}
+                              >
+                                {priceSuggestions.map((suggestion) => (
+                                  <Pressable
+                                    key={suggestion.key}
+                                    onPointerDown={(event) =>
+                                      handleSuggestionPointerDown(
+                                        mode,
+                                        'from',
+                                        suggestion.value,
+                                        event,
+                                      )
+                                    }
+                                    onPress={() =>
+                                      handleSuggestionPress(mode, 'from', suggestion.value)
+                                    }
+                                    style={({ pressed }) => [
+                                      styles.suggestionOption,
+                                      suggestion.custom && styles.suggestionOptionCustom,
+                                      pressed && styles.suggestionOptionPressed,
+                                    ]}
+                                    testID={`map-filter-suggestion-price-${meta.testId}-from-${
+                                      suggestion.value || 'empty'
+                                    }`}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.suggestionOptionText,
+                                        suggestion.custom && styles.suggestionOptionTextCustom,
+                                      ]}
+                                    >
+                                      {suggestion.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        <View style={styles.priceInputColumn}>
+                          <Text style={styles.inputLabel}>To</Text>
+                          <TextInput
+                            keyboardType="number-pad"
+                            onBlur={schedulePriceInputBlur}
+                            onChangeText={(value) => updatePriceDraft(mode, 'to', value)}
+                            onFocus={() => {
+                              cancelScheduledPriceInputBlur();
+                              setActivePriceInput({ mode, bound: 'to' });
+                            }}
+                            onSubmitEditing={commitAndClosePricePanel}
+                            placeholder="No max"
+                            placeholderTextColor={COLORS.warm400}
+                            returnKeyType="done"
+                            style={styles.priceInput}
+                            testID={`map-filter-input-price-${meta.testId}-to`}
+                            value={getDraftValue(mode, 'to')}
+                          />
+
+                          {activePriceInput?.mode === mode &&
+                          activePriceInput.bound === 'to' &&
+                          priceSuggestions.length > 0 ? (
+                            <View
+                              style={styles.suggestionListShell}
+                              testID={`map-filter-suggestions-price-${meta.testId}-to`}
+                            >
+                              <ScrollView
+                                keyboardShouldPersistTaps="handled"
+                                nestedScrollEnabled
+                                style={styles.suggestionList}
+                              >
+                                {priceSuggestions.map((suggestion) => (
+                                  <Pressable
+                                    key={suggestion.key}
+                                    onPointerDown={(event) =>
+                                      handleSuggestionPointerDown(
+                                        mode,
+                                        'to',
+                                        suggestion.value,
+                                        event,
+                                      )
+                                    }
+                                    onPress={() =>
+                                      handleSuggestionPress(mode, 'to', suggestion.value)
+                                    }
+                                    style={({ pressed }) => [
+                                      styles.suggestionOption,
+                                      suggestion.custom && styles.suggestionOptionCustom,
+                                      pressed && styles.suggestionOptionPressed,
+                                    ]}
+                                    testID={`map-filter-suggestion-price-${meta.testId}-to-${
+                                      suggestion.value || 'empty'
+                                    }`}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.suggestionOptionText,
+                                        suggestion.custom && styles.suggestionOptionTextCustom,
+                                      ]}
+                                    >
+                                      {suggestion.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
 
                 <View style={styles.panelActions}>
                   <Pressable
@@ -339,12 +488,12 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
                   </Pressable>
 
                   <Pressable
-                    onPress={() => commitAndClosePricePanel(openCategory)}
+                    onPress={commitAndClosePricePanel}
                     style={({ pressed }) => [
                       styles.primaryAction,
                       pressed && styles.primaryActionPressed,
                     ]}
-                    testID={`map-filter-apply-${openCategory}`}
+                    testID="map-filter-apply-price"
                   >
                     <Text style={styles.primaryActionText}>Apply</Text>
                   </Pressable>
@@ -512,6 +661,15 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 14,
   },
+  priceSection: {
+    gap: 10,
+    marginBottom: 14,
+  },
+  priceSectionTitle: {
+    color: COLORS.warm900,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   priceInputRow: {
     flexDirection: 'row',
     gap: 12,
@@ -537,27 +695,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  suggestionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  suggestionListShell: {
     marginTop: 14,
-  },
-  suggestionChip: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: COLORS.goldTint,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(245, 166, 35, 0.35)',
+    borderColor: COLORS.warm300,
+    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+    elevation: 10,
   },
-  suggestionChipPressed: {
-    backgroundColor: 'rgba(245, 166, 35, 0.26)',
+  suggestionList: {
+    maxHeight: 220,
   },
-  suggestionChipText: {
+  suggestionOption: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.warm300,
+  },
+  suggestionOptionCustom: {
+    backgroundColor: COLORS.goldTint,
+  },
+  suggestionOptionPressed: {
+    backgroundColor: COLORS.warm100,
+  },
+  suggestionOptionText: {
+    color: COLORS.warm900,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  suggestionOptionTextCustom: {
     color: COLORS.gold600,
-    fontSize: 12,
-    fontWeight: '700',
   },
   panelActions: {
     flexDirection: 'row',

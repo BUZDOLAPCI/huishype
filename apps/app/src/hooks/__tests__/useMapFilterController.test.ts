@@ -11,9 +11,9 @@ describe('useMapFilterController', () => {
     );
 
     act(() => {
-      result.current.toggleCategory('salePrice');
-      result.current.updatePriceDraft('salePrice', 'from', '500000');
-      result.current.updatePriceDraft('salePrice', 'to', '750000');
+      result.current.toggleCategory('price');
+      result.current.updatePriceDraft('sale', 'from', '500000');
+      result.current.updatePriceDraft('sale', 'to', '750000');
     });
 
     expect(result.current.appliedFilters.salePriceFrom).toBeNull();
@@ -23,7 +23,7 @@ describe('useMapFilterController', () => {
     expect(onAppliedFiltersChange).not.toHaveBeenCalled();
 
     act(() => {
-      result.current.commitPriceDraft('salePrice');
+      result.current.commitPriceDraft();
     });
 
     expect(result.current.appliedFilters.salePriceFrom).toBe(500000);
@@ -58,8 +58,7 @@ describe('useMapFilterController', () => {
     ]);
     expect(result.current.openCategory).toBeNull();
     expect(result.current.orderedCategories).toEqual([
-      'salePrice',
-      'rentPrice',
+      'price',
       'marketState',
     ]);
   });
