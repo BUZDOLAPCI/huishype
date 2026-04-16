@@ -12,6 +12,12 @@ import {
 import { calculateActivityLevel } from './views.js';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import { resolveNearbyGroupedFeature } from '../services/property-grouping.js';
+import {
+  buildPropertyMarketFilterQuery,
+  mapFiltersQuerySchema,
+  normalizeMapFilters,
+  parseMapFiltersQuery,
+} from '../services/map-filters.js';
 
 // Schema definitions
 const coordinateSchema = z.object({
@@ -56,6 +62,7 @@ const propertyListQuerySchema = z.object({
   city: z.string().optional(),
   minPrice: z.coerce.number().optional(),
   maxPrice: z.coerce.number().optional(),
+  ...mapFiltersQuerySchema.shape,
   // Bounding box for geospatial queries
   bbox: z
     .string()
@@ -237,6 +244,7 @@ const nearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
+  ...mapFiltersQuerySchema.shape,
 });
 
 const nearbyGroupedResultSchema = z.object({
@@ -492,20 +500,19 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { page, limit, city, minPrice, maxPrice, bbox, lat, lon, radius } = request.query;
       const offset = (page - 1) * limit;
+      const parsedMapFilters = parseMapFiltersQuery(request.query);
+      const filters = normalizeMapFilters({
+        ...parsedMapFilters,
+        salePriceFrom: parsedMapFilters.salePriceFrom ?? minPrice ?? null,
+        salePriceTo: parsedMapFilters.salePriceTo ?? maxPrice ?? null,
+      });
+      const mapFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
 
       // Build WHERE conditions dynamically using raw SQL fragments
       const conditions: ReturnType<typeof sql>[] = [];
 
       if (city) {
         conditions.push(sql`p.city = ${city}`);
-      }
-
-      if (minPrice !== undefined) {
-        conditions.push(sql`p.official_valuation >= ${minPrice}`);
-      }
-
-      if (maxPrice !== undefined) {
-        conditions.push(sql`p.official_valuation <= ${maxPrice}`);
       }
 
       // Bounding box query (requires PostGIS)
@@ -526,6 +533,8 @@ export async function propertyRoutes(app: FastifyInstance) {
         conditions.push(...buildRadiusConditions(lon, lat, radius));
       }
 
+      conditions.push(mapFilterQuery.predicate);
+
       const whereFragment = conditions.length > 0
         ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
         : sql``;
@@ -534,6 +543,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const countRows = await db.execute<{ cnt: number }>(sql`
         SELECT COUNT(*)::int AS cnt
         FROM properties p
+        ${mapFilterQuery.join}
         ${whereFragment}
       `);
       const total = Array.from(countRows)[0]?.cnt ?? 0;
@@ -585,6 +595,7 @@ export async function propertyRoutes(app: FastifyInstance) {
             p.created_at,
             p.updated_at
           FROM properties p
+          ${mapFilterQuery.join}
           ${whereFragment}
           ORDER BY p.created_at
           LIMIT ${limit}
@@ -834,7 +845,8 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
-      const result = await resolveNearbyGroupedFeature(lon, lat, zoom);
+      const filters = parseMapFiltersQuery(request.query);
+      const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
       return reply.send(mapNearbyGroupedResult(result));
     }
   );

@@ -453,6 +453,9 @@ async function main() {
   webRuntime = startStaticWebServer({
     port: webPort,
     rootDir: path.join(appCwd, 'dist'),
+    runtimeConfig: {
+      apiUrl,
+    },
     logger: {
       log: () => {},
       error: console.error,

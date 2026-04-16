@@ -4,6 +4,7 @@ import {
   buildCanonicalCityMapPath,
   buildCanonicalCitySlug,
   buildCanonicalCommentsPath,
+  buildCanonicalMapUrl,
   buildCanonicalGuessesPath,
   buildCanonicalHouseSegment,
   buildCanonicalMapPreviewPath,
@@ -13,6 +14,8 @@ import {
   buildCanonicalStreetSlug,
   getCanonicalCountryPrefix,
   getCanonicalCountryPrefixSegment,
+  isCanonicalMapRoutePath,
+  normalizeCanonicalMapUrl,
   normalizeComparableText,
   normalizeInternalReturnTo,
   parseCanonicalCameraPath,
@@ -160,6 +163,45 @@ describe('canonical route builders', () => {
   });
 });
 
+describe('canonical map route URL helpers', () => {
+  it('detects canonical map route paths', () => {
+    expect(isCanonicalMapRoutePath('/')).toBe(true);
+    expect(isCanonicalMapRoutePath('/@52.0907,5.12142,13z')).toBe(true);
+    expect(isCanonicalMapRoutePath('/amsterdam')).toBe(true);
+    expect(isCanonicalMapRoutePath('/amsterdam/1012nx')).toBe(true);
+    expect(
+      isCanonicalMapRoutePath(
+        '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
+      ),
+    ).toBe(true);
+    expect(
+      isCanonicalMapRoutePath('/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a'),
+    ).toBe(false);
+  });
+
+  it('builds and normalizes canonical map URLs with approved filter params', () => {
+    expect(
+      buildCanonicalMapUrl('/amsterdam', {
+        salePriceFrom: 700000,
+        salePriceTo: 250000,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+        marketState: ['not-listed', 'for-sale'],
+      }),
+    ).toBe(
+      '/amsterdam?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
+
+    expect(
+      normalizeCanonicalMapUrl(
+        '/amsterdam?marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000',
+      ),
+    ).toBe(
+      '/amsterdam?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
+  });
+});
+
 describe('internal returnTo normalization', () => {
   it('accepts safe internal paths', () => {
     expect(normalizeInternalReturnTo('/feed')).toBe('/feed');
@@ -173,6 +215,13 @@ describe('internal returnTo normalization', () => {
         '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
       ),
     ).toBe('/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a');
+    expect(
+      normalizeInternalReturnTo(
+        '/amsterdam?marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000',
+      ),
+    ).toBe(
+      '/amsterdam?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
     expect(
       normalizeInternalReturnTo(
         '/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
@@ -192,6 +241,8 @@ describe('internal returnTo normalization', () => {
     expect(normalizeInternalReturnTo('/comments/123')).toBeNull();
     expect(normalizeInternalReturnTo('/guesses/123')).toBeNull();
     expect(normalizeInternalReturnTo('/comments?returnTo=%2Ffeed')).toBeNull();
+    expect(normalizeInternalReturnTo('/feed?salePriceTo=700000')).toBeNull();
+    expect(normalizeInternalReturnTo('/amsterdam?foo=bar')).toBeNull();
   });
 
   it('appends a normalized internal returnTo query only when valid', () => {

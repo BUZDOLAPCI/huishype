@@ -32,6 +32,11 @@ export type {
   PropertyGroupBounds,
   PropertyNodeGroup,
   NearbyPropertyGroup,
+  MapFilterCategory,
+  MapMarketState,
+  MapFilters,
+  SaleEffectivePriceInput,
+  RentEffectivePriceInput,
 } from './property.js';
 
 // Listing types

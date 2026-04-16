@@ -2,6 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
+  buildPropertyTileTemplateUrl,
+  createDefaultMapFilters,
+  getMapFilterSignature,
+  mapFiltersQuerySchema,
+} from '@huishype/shared';
+import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_MAP_LAYERS,
@@ -16,6 +22,7 @@ import {
   buildMvtForTile,
   tileToBBox,
 } from '../services/property-grouping.js';
+import { parseMapFiltersQuery } from '../services/map-filters.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -874,7 +881,10 @@ export async function tileRoutes(app: FastifyInstance) {
       const protocol = request.protocol;
       const host = request.host;
       const baseUrl = `${protocol}://${host}`;
-      const tileUrl = `${baseUrl}/tiles/properties/{z}/{x}/{y}.pbf`;
+      const tileUrl = buildPropertyTileTemplateUrl(
+        baseUrl,
+        createDefaultMapFilters(),
+      );
       const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
@@ -1093,13 +1103,15 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get property tile metadata (TileJSON)',
         description: 'Returns TileJSON 2.1.0 metadata for property vector tiles.',
+        querystring: mapFiltersQuerySchema,
       },
     },
     async (request, reply) => {
       // Build the tile URL using the request's host (includes port)
       const protocol = request.protocol;
       const host = request.host; // .host includes port, .hostname does not
-      const tileUrl = `${protocol}://${host}/tiles/properties/{z}/{x}/{y}.pbf`;
+      const filters = parseMapFiltersQuery(request.query);
+      const tileUrl = buildPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
 
       return reply.send({
         tilejson: '2.1.0',
@@ -1129,13 +1141,15 @@ export async function tileRoutes(app: FastifyInstance) {
         description:
           'Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.',
         params: tileParamsSchema,
+        querystring: mapFiltersQuerySchema,
         // Response schema is omitted for binary data
         // Content-Type will be application/x-protobuf
       },
     },
     async (request, reply) => {
       const { z, x, y } = request.params;
-      const cacheKey = `${z}/${x}/${y}`;
+      const filters = parseMapFiltersQuery(request.query);
+      const cacheKey = `${z}/${x}/${y}:${getMapFilterSignature(filters)}`;
       const now = Date.now();
       const cachedTile = propertyTileCache.get(cacheKey);
 
@@ -1166,7 +1180,7 @@ export async function tileRoutes(app: FastifyInstance) {
       // Track query time for performance monitoring
       const startTime = Date.now();
 
-      const mvtBuffer = await buildMvtForTile({ z, x, y });
+      const mvtBuffer = await buildMvtForTile({ z, x, y }, filters);
 
       const queryTime = Date.now() - startTime;
 

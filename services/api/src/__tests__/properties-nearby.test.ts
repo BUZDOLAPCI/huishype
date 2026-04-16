@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import { buildApp } from '../app.js';
 import { db } from '../db/index.js';
 import type { FastifyInstance } from 'fastify';
@@ -455,6 +456,103 @@ describe('GET /properties/nearby', () => {
       }
     });
 
+    it('applies market filters before resolving nearby grouped features', async () => {
+      const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const lon = 6.82;
+      const lat = 53.24;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES
+          (
+            ${propertyIds[0]},
+            'NL',
+            'Nearby Filter Street',
+            1,
+            'Filterdam',
+            '9999AB',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+          ),
+          (
+            ${propertyIds[1]},
+            'NL',
+            'Nearby Filter Street',
+            2,
+            'Filterdam',
+            '9999AB',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+          )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          price_type,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${listingIds[0]},
+            ${propertyIds[0]},
+            'pararius',
+            ${`https://example.com/nearby-filter-${listingIds[0]}`},
+            'active',
+            1750,
+            'rent',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${listingIds[1]},
+            ${propertyIds[1]},
+            'pararius',
+            ${`https://example.com/nearby-filter-${listingIds[1]}`},
+            'active',
+            2750,
+            'rent',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=20&rentPriceTo=2000&marketState=for-rent`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body).not.toBeNull();
+        expect(body.groupKind).toBe('single');
+        expect(body.primaryPropertyId).toBe(propertyIds[0]);
+        expect(body.propertyIds).toEqual([propertyIds[0]]);
+        expect(body.askingPrice).toBe(1750);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+      }
+    });
+
     it('should include valid UUIDs in grouped propertyIds', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -502,6 +600,11 @@ describe('GET /properties/nearby', () => {
       expect(paramNames).toContain('lon');
       expect(paramNames).toContain('lat');
       expect(paramNames).toContain('zoom');
+      expect(paramNames).toContain('salePriceFrom');
+      expect(paramNames).toContain('salePriceTo');
+      expect(paramNames).toContain('rentPriceFrom');
+      expect(paramNames).toContain('rentPriceTo');
+      expect(paramNames).toContain('marketState');
       expect(paramNames).not.toContain('cluster');
       expect(paramNames).not.toContain('limit');
     });

@@ -301,6 +301,9 @@ async function main() {
   webServerRuntime = startStaticWebServer({
     port: webPort,
     rootDir: webDistDir,
+    runtimeConfig: {
+      apiUrl,
+    },
   });
   await webServerRuntime.ready;
   await waitForHttp(webUrl, 'Static web server');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,8 +55,8 @@ function listHtmlTemplates(rootDir, currentDir = rootDir) {
 }
 
 function isAssetLikePath(pathname) {
-  const extension = path.extname(pathname);
-  return extension.length > 0;
+  const extension = path.extname(pathname).toLowerCase();
+  return extension.length > 0 && Object.hasOwn(MIME_TYPES, extension);
 }
 
 function toRouteSegments(templatePath) {
@@ -83,6 +83,10 @@ function matchTemplate(templateSegments, requestSegments) {
       !isCatchAll &&
       templateSegment.startsWith('[') &&
       templateSegment.endsWith(']');
+    const embeddedDynamicMatch =
+      !isCatchAll && !isDynamic
+        ? templateSegment.match(/^(.*)\[([^\]/]+)\](.*)$/)
+        : null;
 
     if (isCatchAll) {
       if (requestIndex >= requestSegments.length) {
@@ -100,6 +104,25 @@ function matchTemplate(templateSegments, requestSegments) {
     }
 
     if (isDynamic) {
+      dynamicSegments += 1;
+      requestIndex += 1;
+      continue;
+    }
+
+    if (embeddedDynamicMatch) {
+      const [, prefix, , suffix] = embeddedDynamicMatch;
+      const matchesPrefix = prefix.length === 0 || requestSegment.startsWith(prefix);
+      const matchesSuffix = suffix.length === 0 || requestSegment.endsWith(suffix);
+      const dynamicValue = requestSegment.slice(
+        prefix.length,
+        suffix.length === 0 ? requestSegment.length : -suffix.length,
+      );
+
+      if (!matchesPrefix || !matchesSuffix || dynamicValue.length === 0) {
+        return null;
+      }
+
+      staticSegments += Number(prefix.length > 0) + Number(suffix.length > 0);
       dynamicSegments += 1;
       requestIndex += 1;
       continue;
@@ -125,6 +148,7 @@ export function startStaticWebServer({
   rootDir,
   host = '127.0.0.1',
   logger = console,
+  runtimeConfig,
 } = {}) {
   assertValidPort(port);
 
@@ -134,6 +158,9 @@ export function startStaticWebServer({
 
   const resolvedRoot = path.resolve(rootDir);
   const fallbackDocument = path.join(resolvedRoot, 'index.html');
+  const runtimeConfigScript = runtimeConfig
+    ? `<script>window.__HUISHYPE_RUNTIME_CONFIG__=${JSON.stringify(runtimeConfig).replace(/</g, '\\u003c')};</script>`
+    : '';
   const htmlTemplates = listHtmlTemplates(resolvedRoot)
     .map((templatePath) => ({
       templatePath,
@@ -216,6 +243,22 @@ export function startStaticWebServer({
     response.setHeader('Content-Type', contentType);
     response.setHeader('Cache-Control', 'no-store');
 
+    if (contentType.startsWith('text/html') && runtimeConfigScript) {
+      try {
+        const html = readFileSync(filePath, 'utf8');
+        const injectedHtml = html.includes('</head>')
+          ? html.replace('</head>', `${runtimeConfigScript}</head>`)
+          : `${runtimeConfigScript}${html}`;
+        response.end(injectedHtml);
+      } catch (error) {
+        logger.error(`Static HTML read failed for ${filePath}:`, error);
+        response.statusCode = 500;
+        response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        response.end('Internal Server Error');
+      }
+      return;
+    }
+
     const stream = createReadStream(filePath);
     stream.on('error', (error) => {
       logger.error(`Static file read failed for ${filePath}:`, error);
@@ -257,7 +300,10 @@ const isEntrypoint = process.argv[1] != null
 if (isEntrypoint) {
   const port = Number.parseInt(process.env.PORT || '8082', 10);
   const rootDir = process.env.ROOT_DIR;
-  const runtime = startStaticWebServer({ port, rootDir });
+  const runtimeConfig = process.env.HUISHYPE_RUNTIME_CONFIG_JSON
+    ? JSON.parse(process.env.HUISHYPE_RUNTIME_CONFIG_JSON)
+    : (process.env.API_URL ? { apiUrl: process.env.API_URL } : undefined);
+  const runtime = startStaticWebServer({ port, rootDir, runtimeConfig });
 
   const shutdown = (signal) => {
     runtime.stop()

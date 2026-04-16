@@ -103,3 +103,33 @@ test('returns 404 for unresolved asset-like paths instead of serving index.html'
     },
   );
 });
+
+test('matches Expo Router prefixed dynamic HTML routes such as @[camera].html', async () => {
+  await withTempSite(
+    {
+      'index.html': '<!doctype html><html><body>root shell</body></html>',
+      '@[camera].html': '<!doctype html><html><body>camera shell</body></html>',
+    },
+    async (rootDir) => {
+      const port = await getAvailablePort();
+      const runtime = startStaticWebServer({
+        port,
+        rootDir,
+        logger: { log() {}, error() {} },
+      });
+
+      try {
+        await runtime.ready;
+
+        const response = await fetch(`http://127.0.0.1:${port}/@51.4416000,5.4697000,14.00z`);
+        const body = await response.text();
+
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+        assert.equal(body, '<!doctype html><html><body>camera shell</body></html>');
+      } finally {
+        await runtime.stop();
+      }
+    },
+  );
+});

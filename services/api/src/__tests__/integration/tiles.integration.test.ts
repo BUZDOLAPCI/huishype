@@ -3,6 +3,7 @@ import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
 
@@ -53,6 +54,23 @@ describe('Tile routes', () => {
       expect(style.sources['properties-source'].type).toBe('vector');
       expect(style.sources['properties-source'].tiles).toBeDefined();
       expect(style.sources['properties-source'].tiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+    });
+
+    it('should keep style.json base-style oriented even when filter params are present', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json?marketState=for-rent&rentPriceTo=2000',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body);
+      expect(style.sources['properties-source'].tiles[0]).toContain(
+        '/tiles/properties/{z}/{x}/{y}.pbf',
+      );
+      expect(style.sources['properties-source'].tiles[0]).not.toContain('rentPriceTo=');
+      expect(style.sources['properties-source'].tiles[0]).not.toContain('marketState=');
+      expect(style.sources['tree-source'].tiles[0]).not.toContain('marketState=');
+      expect(style.sources['buildings-source'].tiles[0]).not.toContain('marketState=');
     });
 
     it('should include property cluster layers', async () => {
@@ -176,6 +194,19 @@ describe('Tile routes', () => {
       expect(body).toHaveProperty('minzoom', 0);
       expect(body).toHaveProperty('maxzoom', 22);
     });
+
+    it('should include normalized filter params in TileJSON property tile URLs', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties.json?salePriceTo=500000&marketState=not-listed,for-sale',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.tiles[0]).toContain(
+        '/tiles/properties/{z}/{x}/{y}.pbf?salePriceTo=500000&marketState=for-sale%2Cnot-listed',
+      );
+    });
   });
 
   describe('GET /tiles/properties/:z/:x/:y.pbf', () => {
@@ -263,6 +294,90 @@ describe('Tile routes', () => {
       expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
       expect(secondResponse.headers['x-tile-cache']).toBe('hit');
       expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+    });
+
+    it('should include the normalized filter signature in the property tile cache key', async () => {
+      const propertyId = crypto.randomUUID();
+      const listingId = crypto.randomUUID();
+      const lon = 6.94;
+      const lat = 53.34;
+      const z = 20;
+      const x = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
+      const latRad = (lat * Math.PI) / 180;
+      const y = Math.floor(
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+          Math.pow(2, z),
+      );
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Tile Filter Street',
+          1,
+          'Filtermeer',
+          '9999AD',
+          'active',
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+        )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          asking_price,
+          price_type,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${listingId},
+          ${propertyId},
+          'funda',
+          ${`https://example.com/tile-filter-${listingId}`},
+          'active',
+          510000,
+          'sale',
+          NOW(),
+          NOW()
+        )
+      `);
+
+      try {
+        const baseUrl = `/tiles/properties/${z}/${x}/${y}.pbf`;
+        const filteredUrl = `${baseUrl}?marketState=for-rent`;
+
+        const unfilteredResponse = await app.inject({ method: 'GET', url: baseUrl });
+        const firstFilteredResponse = await app.inject({ method: 'GET', url: filteredUrl });
+        const secondFilteredResponse = await app.inject({ method: 'GET', url: filteredUrl });
+
+        expect(unfilteredResponse.statusCode).toBe(200);
+        expect(unfilteredResponse.headers['x-tile-cache']).toBe('miss');
+
+        expect(firstFilteredResponse.statusCode).toBe(204);
+        expect(firstFilteredResponse.headers['x-tile-cache']).toBe('miss');
+
+        expect(secondFilteredResponse.statusCode).toBe(204);
+        expect(secondFilteredResponse.headers['x-tile-cache']).toBe('hit');
+        expect(secondFilteredResponse.headers['x-tile-generation-time']).toBe('0ms');
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
     });
 
     it('should reject invalid zoom level', async () => {

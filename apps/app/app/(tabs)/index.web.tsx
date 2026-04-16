@@ -9,9 +9,11 @@ import {
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
+import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
+import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -26,8 +28,18 @@ import {
   type ResolvedMapRoute,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
+import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
+import { replacePropertySourceTiles, PROPERTY_VECTOR_SOURCE_ID } from '@/src/lib/mapPropertySource';
 import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
+import {
+  appendSearchToPath,
+  buildPropertyTileTemplateUrl,
+  createDefaultMapFilters,
+  getCanonicalMapFilterSignature,
+  getMapFilterSearchString,
+  parseMapFiltersFromSearchParams,
+} from '@/src/lib/sharedMapFilters';
 import {
   getCurrentBrowserPathname,
   replacePassiveBrowserPath,
@@ -474,6 +486,26 @@ function createSelectedMarkerElement(): HTMLDivElement {
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  const initialAppliedFilters = useMemo(
+    () =>
+      typeof window === 'undefined'
+        ? createDefaultMapFilters()
+        : parseMapFiltersFromSearchParams(
+            new URLSearchParams(window.location.search),
+          ),
+    [],
+  );
+  const filterController = useMapFilterController({
+    initialAppliedFilters,
+  });
+  const propertyTileUrl = useMemo(
+    () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
+    [filterController.appliedFilters],
+  );
+  const appliedFilterSignature = useMemo(
+    () => getCanonicalMapFilterSignature(filterController.appliedFilters),
+    [filterController.appliedFilters],
+  );
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -491,6 +523,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
   const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
+  const browserSearchRef = useRef(
+    typeof window === 'undefined' ? '' : window.location.search || '',
+  );
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -570,6 +605,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   const previewOpenRef = useRef(false);
   previewOpenRef.current = !!interaction.previewGroup || !!interaction.highlightedCoordinate;
+
+  const replaceMapBrowserPath = useCallback(
+    (pathname: string) => {
+      const nextHref = appendSearchToPath(pathname, browserSearchRef.current);
+      return replacePassiveBrowserPath(nextHref);
+    },
+    [],
+  );
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -680,7 +723,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       let style: maplibregl.StyleSpecification | string = STYLE_URL;
       try {
         const res = await fetch(STYLE_URL);
-        style = await res.json();
+        style = replacePropertySourceTiles(await res.json(), propertyTileUrl);
       } catch {
         style = STYLE_URL;
       }
@@ -882,7 +925,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           canReplaceLockedAreaPath: canReplaceLockedAreaPathRef.current,
           previewOpen: previewOpenRef.current,
           skipNextPassiveUrlSync: skipNextPassiveUrlSyncRef.current,
-          replaceBrowserPath: replacePassiveBrowserPath,
+          replaceBrowserPath: replaceMapBrowserPath,
         });
         browserPathRef.current = passiveSyncResult.browserPathname;
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
@@ -994,7 +1037,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }
       cancelPendingSinglePreviewSelection();
     };
-  }, [bottomSheetRef, cameraCommands, cancelPendingSinglePreviewSelection, handleAuthRequired, handleFeaturePress, scheduleSinglePreviewSelection, syncVisibleZoom]);
+  }, [
+    bottomSheetRef,
+    cameraCommands,
+    cancelPendingSinglePreviewSelection,
+    handleAuthRequired,
+    handleFeaturePress,
+    propertyTileUrl,
+    scheduleSinglePreviewSelection,
+    syncVisibleZoom,
+  ]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -1059,6 +1111,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     const handlePopState = () => {
       const nextPathname = getCurrentBrowserPathname('/');
+      browserSearchRef.current = window.location.search || '';
+      filterController.replaceAppliedFilters(
+        parseMapFiltersFromSearchParams(
+          new URLSearchParams(browserSearchRef.current),
+        ),
+      );
       browserPathRef.current = nextPathname;
       setRoutePathname(nextPathname);
     };
@@ -1067,7 +1125,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [filterController.replaceAppliedFilters]);
+
+  useEffect(() => {
+    browserSearchRef.current = getMapFilterSearchString(
+      filterController.appliedFilters,
+      browserSearchRef.current,
+    );
+    replaceMapBrowserPath(browserPathRef.current);
+  }, [appliedFilterSignature, filterController.appliedFilters, replaceMapBrowserPath]);
 
   useEffect(() => {
     if (!interaction.previewGroup || !previewCanonicalPath || !previewRouteInput) {
@@ -1120,7 +1186,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       lockedAreaPathRef.current = null;
       canReplaceLockedAreaPathRef.current = true;
       appliedRoutePathRef.current = routeState.pathname;
-      replacePassiveBrowserPath('/');
+      replaceMapBrowserPath('/');
       browserPathRef.current = '/';
       setRoutePathname('/');
       return;
@@ -1140,7 +1206,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         return;
       }
 
-      if (replacePassiveBrowserPath(explicitCanonicalHref)) {
+      if (replaceMapBrowserPath(explicitCanonicalHref)) {
         browserPathRef.current = explicitCanonicalHref;
         setRoutePathname((currentPathname) =>
           currentPathname === explicitCanonicalHref ? currentPathname : explicitCanonicalHref,
@@ -1247,7 +1313,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
       if (browserPathRef.current !== previewCanonicalPath) {
-        replacePassiveBrowserPath(previewCanonicalPath);
+        replaceMapBrowserPath(previewCanonicalPath);
         browserPathRef.current = previewCanonicalPath;
       }
       return;
@@ -1263,10 +1329,63 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       lastCameraPathRef.current &&
       browserPathRef.current !== lastCameraPathRef.current
     ) {
-      replacePassiveBrowserPath(lastCameraPathRef.current);
+      replaceMapBrowserPath(lastCameraPathRef.current);
       browserPathRef.current = lastCameraPathRef.current;
     }
-  }, [interaction.previewGroup, previewCanonicalPath, routeState.isLoading]);
+  }, [
+    interaction.previewGroup,
+    previewCanonicalPath,
+    replaceMapBrowserPath,
+    routeState.isLoading,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) {
+      return;
+    }
+
+    const source = map.getSource(PROPERTY_VECTOR_SOURCE_ID) as
+      | (maplibregl.Source & {
+          setTiles?: (tiles: string[]) => void;
+          serialize?: () => { tiles?: string[] };
+        })
+      | undefined;
+
+    if (!source?.setTiles) {
+      return;
+    }
+
+    const currentTiles = source.serialize?.().tiles ?? [];
+    if (currentTiles[0] === propertyTileUrl) {
+      return;
+    }
+
+    source.setTiles([propertyTileUrl]);
+  }, [appliedFilterSignature, mapLoaded, propertyTileUrl]);
+
+  useEffect(() => {
+    if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {
+      return;
+    }
+
+    const matchesFilters = doesMapSelectionMatchFilters({
+      previewProperty: currentPreviewProperty,
+      selectedProperty: interaction.selectedPropertyForSheet ?? null,
+      filters: filterController.appliedFilters,
+    });
+
+    if (matchesFilters) {
+      return;
+    }
+
+    interaction.bottomSheetRef.current?.close();
+    interaction.handleClosePreview();
+  }, [
+    currentPreviewProperty,
+    filterController.appliedFilters,
+    interaction,
+  ]);
 
   // Manage selected marker with pulsing animation
   useEffect(() => {
@@ -1370,6 +1489,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
         />
+
+        <MapFilterBar controller={filterController} />
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (

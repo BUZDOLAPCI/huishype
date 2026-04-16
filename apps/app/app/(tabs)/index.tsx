@@ -22,14 +22,19 @@ import {
   BottomSheetErrorBoundary,
   GroupPreviewCard,
 } from '@/src/components';
+import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
+import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { fetchNearbyGroup } from '@/src/utils/api';
 import { API_URL } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
+import { replacePropertySourceTiles } from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
+import { buildPropertyTileTemplateUrl } from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
@@ -70,7 +75,7 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
  * alpha on Android only reliably renders custom vector sources when passed
  * as inline style objects.
  */
-function useMergedMapStyle(): Record<string, unknown> | null {
+function useMergedMapStyle(propertyTileUrl: string): Record<string, unknown> | null {
   const [mergedStyle, setMergedStyle] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
@@ -82,18 +87,17 @@ function useMergedMapStyle(): Record<string, unknown> | null {
         if (cancelled) return;
         if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
           (styleJson.layers as Array<unknown>)?.length);
-        setMergedStyle(styleJson);
+        setMergedStyle(replacePropertySourceTiles(styleJson, propertyTileUrl));
       })
       .catch(e => {
         console.error('[HuisHype] Failed to fetch merged style:', e.message);
         // Fallback: minimal style with just our tiles (no base map)
-        const tileUrl = `${API_URL}/tiles/properties/{z}/{x}/{y}.pbf`;
         setMergedStyle({
           version: 8,
           sources: {
             'properties-source': {
               type: 'vector',
-              tiles: [tileUrl],
+              tiles: [propertyTileUrl],
               minzoom: 0,
               maxzoom: 22,
             },
@@ -111,7 +115,11 @@ function useMergedMapStyle(): Record<string, unknown> | null {
         });
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [propertyTileUrl]);
+
+  useEffect(() => {
+    setMergedStyle((current) => replacePropertySourceTiles(current, propertyTileUrl));
+  }, [propertyTileUrl]);
 
   return mergedStyle;
 }
@@ -121,8 +129,13 @@ const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const [hasLayout, setHasLayout] = useState(false);
+  const filterController = useMapFilterController();
+  const propertyTileUrl = useMemo(
+    () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
+    [filterController.appliedFilters],
+  );
   // Merged style as JS object (base map + property vector tiles)
-  const mergedStyle = useMergedMapStyle();
+  const mergedStyle = useMergedMapStyle(propertyTileUrl);
   const mapRef = useRef<MapRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
@@ -143,6 +156,10 @@ export default function MapScreen() {
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  const currentPreviewProperty = useMemo(
+    () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
+    [interaction.currentPreviewIndex, interaction.previewGroup],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -266,7 +283,12 @@ export default function MapScreen() {
       // instead of becoming a zoom-only dead end on native taps.
       const [lon, lat] = lngLat;
       try {
-        const nearby = await fetchNearbyGroup(lon, lat, currentZoom);
+        const nearby = await fetchNearbyGroup(
+          lon,
+          lat,
+          currentZoom,
+          filterController.appliedFilters,
+        );
         if (nearby) {
           handleNearbyResult(nearby, currentZoom, cameraCommands);
           return;
@@ -278,7 +300,14 @@ export default function MapScreen() {
       // No features at tap point — check if we should close preview
       handleEmptyMapTap();
     },
-    [interaction, handleNearbyResult, handleEmptyMapTap, currentZoom, cameraCommands]
+    [
+      interaction,
+      handleNearbyResult,
+      handleEmptyMapTap,
+      currentZoom,
+      cameraCommands,
+      filterController.appliedFilters,
+    ]
   );
 
   // Search bar callbacks
@@ -368,6 +397,29 @@ export default function MapScreen() {
     setCopiedFlash(true);
     setTimeout(() => setCopiedFlash(false), 1500);
   }, [currentZoom]);
+
+  useEffect(() => {
+    if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {
+      return;
+    }
+
+    const matchesFilters = doesMapSelectionMatchFilters({
+      previewProperty: currentPreviewProperty,
+      selectedProperty: interaction.selectedPropertyForSheet ?? null,
+      filters: filterController.appliedFilters,
+    });
+
+    if (matchesFilters) {
+      return;
+    }
+
+    interaction.bottomSheetRef.current?.close();
+    interaction.handleClosePreview();
+  }, [
+    currentPreviewProperty,
+    filterController.appliedFilters,
+    interaction,
+  ]);
 
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
@@ -505,6 +557,8 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
         />
+
+        <MapFilterBar controller={filterController} />
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (

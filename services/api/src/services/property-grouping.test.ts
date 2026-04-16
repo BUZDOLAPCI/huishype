@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { PROPERTY_MAP_FOOTPRINTS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import { db } from '../db/index.js';
+import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import {
   GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
@@ -9,12 +11,14 @@ import {
   getGroupingBufferUnits,
   getGhostClusterRadiusPx,
   getGhostSingleRadiusPx,
+  buildCanonicalGroupsForTile,
   groupCandidatesForTile,
   lngLatToWorldUnits,
   shouldFetchGhostCandidates,
   type GroupingCandidate,
   resolveNearbyGroupedFeature,
 } from './property-grouping.js';
+import { normalizeMapFilters } from './map-filters.js';
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
   const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
@@ -487,4 +491,111 @@ describe('property-grouping', () => {
     expect(result?.floorAreaM2).toBe(87);
     expect(result?.distanceMeters).toBe(0);
   });
+
+  it('applies map filters before grouping clustered active sale candidates', async () => {
+    const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const baseLon = 6.75;
+    const baseLat = 53.2;
+    const zoom = 20;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+
+    await db.execute(sql`
+      INSERT INTO properties (
+        id,
+        country_code,
+        street,
+        house_number,
+        city,
+        postal_code,
+        status,
+        geometry
+      )
+      VALUES
+        (
+          ${propertyIds[0]},
+          'NL',
+          'Filter Cluster Street',
+          1,
+          'Filterstad',
+          '9999AA',
+          'active',
+          ST_SetSRID(ST_MakePoint(${baseLon}, ${baseLat}), 4326)
+        ),
+        (
+          ${propertyIds[1]},
+          'NL',
+          'Filter Cluster Street',
+          2,
+          'Filterstad',
+          '9999AA',
+          'active',
+          ST_SetSRID(ST_MakePoint(${baseLon}, ${baseLat}), 4326)
+        )
+    `);
+
+    await db.execute(sql`
+      INSERT INTO listings (
+        id,
+        property_id,
+        source_name,
+        source_url,
+        status,
+        asking_price,
+        price_type,
+        created_at,
+        updated_at
+      )
+      VALUES
+        (
+          ${listingIds[0]},
+          ${propertyIds[0]},
+          'funda',
+          ${`https://example.com/filter-cluster-${listingIds[0]}`},
+          'active',
+          325000,
+          'sale',
+          NOW() - INTERVAL '2 days',
+          NOW() - INTERVAL '2 days'
+        ),
+        (
+          ${listingIds[1]},
+          ${propertyIds[1]},
+          'funda',
+          ${`https://example.com/filter-cluster-${listingIds[1]}`},
+          'active',
+          825000,
+          'sale',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day'
+        )
+    `);
+
+    try {
+      const unfilteredGroups = await buildCanonicalGroupsForTile(tile);
+      const filteredGroups = await buildCanonicalGroupsForTile(
+        tile,
+        normalizeMapFilters({ salePriceFrom: 600000 }),
+      );
+
+      const unfilteredCluster = unfilteredGroups.find((group) =>
+        propertyIds.every((propertyId) => group.propertyIds.includes(propertyId)),
+      );
+      expect(unfilteredCluster).toBeDefined();
+      expect(unfilteredCluster?.groupKind).toBe('cluster');
+      expect(unfilteredCluster?.pointCount).toBe(2);
+
+      const filteredGroup = filteredGroups.find((group) =>
+        group.propertyIds.includes(propertyIds[1]),
+      );
+      expect(filteredGroup).toBeDefined();
+      expect(filteredGroup?.groupKind).toBe('single');
+      expect(filteredGroup?.pointCount).toBe(1);
+      expect(filteredGroup?.propertyIds).toEqual([propertyIds[1]]);
+      expect(filteredGroups.some((group) => group.propertyIds.includes(propertyIds[0]))).toBe(false);
+    } finally {
+      await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
+      await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+    }
+  }, 30000);
 });

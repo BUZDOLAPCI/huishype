@@ -7,6 +7,11 @@ import {
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
+import {
+  buildPropertyMarketFilterQuery,
+  createDefaultMapFilters,
+  type MapFilters,
+} from './map-filters.js';
 
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
@@ -487,6 +492,7 @@ async function fetchNearbyEmittedGroups(
   lon: number,
   lat: number,
   zoom: number,
+  filters: MapFilters,
 ): Promise<CanonicalPropertyGroup[]> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const tapTile = worldToOwnerTile(worldX, worldY, zoom);
@@ -500,6 +506,7 @@ async function fetchNearbyEmittedGroups(
     tiles.map((tile) => getBufferedTileBBox(tile, bufferUnits)),
     zoom,
     shouldFetchGhostCandidates(zoom),
+    filters,
   );
   const candidatesByTile = new Map<string, GroupingCandidate[]>();
   for (const { tile } of tileBounds) {
@@ -613,15 +620,18 @@ async function fetchGroupingCandidatesInBBox(
   bounds: TileBBox,
   zoom: number,
   includeGhostCandidates: boolean,
+  filters: MapFilters,
 ): Promise<GroupingCandidate[]> {
-  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates);
+  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters);
 }
 
 async function fetchGroupingCandidatesInBBoxes(
   boundsList: TileBBox[],
   zoom: number,
   includeGhostCandidates: boolean,
+  filters: MapFilters,
 ): Promise<GroupingCandidate[]> {
+  const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -663,10 +673,12 @@ async function fetchGroupingCandidatesInBBoxes(
         ST_X(p.geometry) AS lon,
         ST_Y(p.geometry) AS lat
       FROM properties p
+      ${marketFilterQuery.join}
       WHERE p.geometry IS NOT NULL
         AND p.status = 'active'
         AND (${bboxFilter})
         AND ${candidateVisibilityFilter}
+        AND ${marketFilterQuery.predicate}
     ),
     latest_active_listing AS (
       SELECT DISTINCT ON (l.property_id)
@@ -718,12 +730,16 @@ async function fetchGroupingCandidatesInBBoxes(
   return Array.from(rows).map((row) => toCandidate(row, zoom));
 }
 
-async function fetchGroupingCandidates(tile: TileId): Promise<GroupingCandidate[]> {
+async function fetchGroupingCandidates(
+  tile: TileId,
+  filters: MapFilters,
+): Promise<GroupingCandidate[]> {
   const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
   return fetchGroupingCandidatesInBBox(
     bufferedBounds,
     tile.z,
     shouldFetchGhostCandidates(tile.z),
+    filters,
   );
 }
 
@@ -899,8 +915,11 @@ export function groupCandidatesForTile(
   );
 }
 
-export async function buildCanonicalGroupsForTile(tile: TileId): Promise<CanonicalPropertyGroup[]> {
-  const candidates = await fetchGroupingCandidates(tile);
+export async function buildCanonicalGroupsForTile(
+  tile: TileId,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<CanonicalPropertyGroup[]> {
+  const candidates = await fetchGroupingCandidates(tile, filters);
   const groups = groupCandidatesForTile(tile, candidates);
   return hydrateSinglePropertyDetails(groups);
 }
@@ -924,9 +943,10 @@ export async function resolveNearbyGroupedFeature(
   lon: number,
   lat: number,
   zoom: number,
+  filters: MapFilters = createDefaultMapFilters(),
 ): Promise<NearbyResolution | null> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  const emittedGroups = await fetchNearbyEmittedGroups(lon, lat, zoom);
+  const emittedGroups = await fetchNearbyEmittedGroups(lon, lat, zoom, filters);
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;
@@ -986,8 +1006,11 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
   };
 }
 
-export async function buildMvtForTile(tile: TileId): Promise<Buffer> {
-  const groups = await buildCanonicalGroupsForTile(tile);
+export async function buildMvtForTile(
+  tile: TileId,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<Buffer> {
+  const groups = await buildCanonicalGroupsForTile(tile, filters);
   if (groups.length === 0) {
     return Buffer.alloc(0);
   }

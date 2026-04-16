@@ -1,0 +1,199 @@
+import { useCallback, useMemo, useState } from 'react';
+import {
+  areMapFiltersEqual,
+  createDefaultMapFilters,
+  createMapFilterDraftState,
+  getOrderedMapFilterCategories,
+  normalizeMapFilters,
+  parseDraftNumber,
+  resetMapFilterCategory,
+  sanitizeDraftNumber,
+  type MapFilterCategory,
+  type MapFilterDraftState,
+  type MapFilters,
+  type MapMarketState,
+} from '@/src/lib/sharedMapFilters';
+
+export interface UseMapFilterControllerOptions {
+  initialAppliedFilters?: MapFilters;
+  onAppliedFiltersChange?: (filters: MapFilters) => void;
+}
+
+export interface UseMapFilterControllerReturn {
+  appliedFilters: MapFilters;
+  draftFilters: MapFilterDraftState;
+  openCategory: MapFilterCategory | null;
+  orderedCategories: MapFilterCategory[];
+  replaceAppliedFilters: (filters: MapFilters) => void;
+  toggleCategory: (category: MapFilterCategory) => void;
+  closeCategoryPanel: () => void;
+  dismissCategory: (category: MapFilterCategory) => void;
+  updatePriceDraft: (
+    category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+    bound: 'from' | 'to',
+    value: string,
+  ) => void;
+  selectPriceSuggestion: (
+    category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+    bound: 'from' | 'to',
+    value: number,
+  ) => void;
+  commitPriceDraft: (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => void;
+  toggleMarketState: (value: MapMarketState) => void;
+}
+
+export function useMapFilterController({
+  initialAppliedFilters,
+  onAppliedFiltersChange,
+}: UseMapFilterControllerOptions = {}): UseMapFilterControllerReturn {
+  const [appliedFilters, setAppliedFilters] = useState<MapFilters>(() =>
+    normalizeMapFilters(initialAppliedFilters ?? createDefaultMapFilters()),
+  );
+  const [draftFilters, setDraftFilters] = useState<MapFilterDraftState>(() =>
+    createMapFilterDraftState(initialAppliedFilters ?? createDefaultMapFilters()),
+  );
+  const [openCategory, setOpenCategory] = useState<MapFilterCategory | null>(null);
+
+  const orderedCategories = useMemo(
+    () => getOrderedMapFilterCategories(appliedFilters),
+    [appliedFilters],
+  );
+
+  const applyFilters = useCallback(
+    (nextFilters: MapFilters) => {
+      const normalized = normalizeMapFilters(nextFilters);
+      setDraftFilters(createMapFilterDraftState(normalized));
+      setAppliedFilters((current: MapFilters) => {
+        if (areMapFiltersEqual(current, normalized)) {
+          return current;
+        }
+
+        onAppliedFiltersChange?.(normalized);
+        return normalized;
+      });
+    },
+    [onAppliedFiltersChange],
+  );
+
+  const replaceAppliedFilters = useCallback(
+    (nextFilters: MapFilters) => {
+      const normalized = normalizeMapFilters(nextFilters);
+      setAppliedFilters(normalized);
+      setDraftFilters(createMapFilterDraftState(normalized));
+    },
+    [],
+  );
+
+  const toggleCategory = useCallback(
+    (category: MapFilterCategory) => {
+      setOpenCategory((current: MapFilterCategory | null) =>
+        current === category ? null : category,
+      );
+      setDraftFilters(createMapFilterDraftState(appliedFilters));
+    },
+    [appliedFilters],
+  );
+
+  const dismissCategory = useCallback(
+    (category: MapFilterCategory) => {
+      applyFilters(resetMapFilterCategory(appliedFilters, category));
+      setOpenCategory((current: MapFilterCategory | null) =>
+        current === category ? null : current,
+      );
+    },
+    [appliedFilters, applyFilters],
+  );
+
+  const closeCategoryPanel = useCallback(() => {
+    setOpenCategory(null);
+  }, []);
+
+  const updatePriceDraft = useCallback(
+    (
+      category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+      bound: 'from' | 'to',
+      value: string,
+    ) => {
+      const sanitized = sanitizeDraftNumber(value);
+      setDraftFilters((current: MapFilterDraftState) => {
+        if (category === 'salePrice') {
+          return {
+            ...current,
+            salePriceFrom: bound === 'from' ? sanitized : current.salePriceFrom,
+            salePriceTo: bound === 'to' ? sanitized : current.salePriceTo,
+          };
+        }
+
+        return {
+          ...current,
+          rentPriceFrom: bound === 'from' ? sanitized : current.rentPriceFrom,
+          rentPriceTo: bound === 'to' ? sanitized : current.rentPriceTo,
+        };
+      });
+    },
+    [],
+  );
+
+  const selectPriceSuggestion = useCallback(
+    (
+      category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>,
+      bound: 'from' | 'to',
+      value: number,
+    ) => {
+      updatePriceDraft(category, bound, String(value));
+    },
+    [updatePriceDraft],
+  );
+
+  const commitPriceDraft = useCallback(
+    (category: Extract<MapFilterCategory, 'salePrice' | 'rentPrice'>) => {
+      if (category === 'salePrice') {
+        applyFilters({
+          ...appliedFilters,
+          salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
+          salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
+        });
+        return;
+      }
+
+      applyFilters({
+        ...appliedFilters,
+        rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
+        rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
+      });
+    },
+    [appliedFilters, applyFilters, draftFilters],
+  );
+
+  const toggleMarketState = useCallback(
+    (value: MapMarketState) => {
+      const currentValues = new Set(appliedFilters.marketState);
+      if (currentValues.has(value)) {
+        currentValues.delete(value);
+      } else {
+        currentValues.add(value);
+      }
+
+      applyFilters({
+        ...appliedFilters,
+        marketState: Array.from(currentValues),
+      });
+    },
+    [appliedFilters, applyFilters],
+  );
+
+  return {
+    appliedFilters,
+    draftFilters,
+    openCategory,
+    orderedCategories,
+    replaceAppliedFilters,
+    toggleCategory,
+    closeCategoryPanel,
+    dismissCategory,
+    updatePriceDraft,
+    selectPriceSuggestion,
+    commitPriceDraft,
+    toggleMarketState,
+  };
+}

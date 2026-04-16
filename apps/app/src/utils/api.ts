@@ -6,9 +6,17 @@ import type {
   PropertyResolveResponse,
 } from '@huishype/shared';
 import { withDerivedPropertyImageData } from './property-image';
+import {
+  buildNearbyGroupPath,
+  createDefaultMapFilters,
+  type MapFilters,
+} from '@/src/lib/sharedMapFilters';
 
 const DEFAULT_API_PORT = '3100';
 type ApiAccessTokenResolver = () => Promise<string | null>;
+type WebRuntimeConfig = {
+  apiUrl?: string;
+};
 
 let apiAccessTokenResolver: ApiAccessTokenResolver | null = null;
 
@@ -40,6 +48,29 @@ const extractPort = (url: string): string | undefined => {
   }
 };
 
+const getWebRuntimeApiUrl = (): string | undefined => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return undefined;
+  }
+
+  const runtimeConfig = (
+    window as typeof window & {
+      __HUISHYPE_RUNTIME_CONFIG__?: WebRuntimeConfig;
+    }
+  ).__HUISHYPE_RUNTIME_CONFIG__;
+  const apiUrl = runtimeConfig?.apiUrl?.trim();
+
+  if (!apiUrl) {
+    return undefined;
+  }
+
+  try {
+    return new URL(apiUrl).toString().replace(/\/$/, '');
+  } catch {
+    return undefined;
+  }
+};
+
 // Get the API URL, resolving to the correct host for the current environment:
 // - If EXPO_PUBLIC_API_URL is set to a non-localhost address, use it as-is
 // - Native: use the hostname from Expo's hostUri (same host that serves Metro)
@@ -51,6 +82,11 @@ const extractPort = (url: string): string | undefined => {
 // its port is preserved during host rewriting. The hardcoded default port is
 // only used when no URL is configured at all.
 const getApiUrl = (): string => {
+  const runtimeUrl = getWebRuntimeApiUrl();
+  if (runtimeUrl) {
+    return runtimeUrl;
+  }
+
   const envUrl = process.env.EXPO_PUBLIC_API_URL || '';
   const configUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
   const url = envUrl || configUrl || '';
@@ -483,10 +519,11 @@ export async function fetchNearbyGroup(
   lon: number,
   lat: number,
   zoom: number,
+  filters: MapFilters = createDefaultMapFilters(),
 ): Promise<NearbyPropertyGroup | null> {
   try {
     const result = await apiFetch<NearbyGroupedResult | null>(
-      `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${zoom}`,
+      buildNearbyGroupPath(lon, lat, zoom, filters),
     );
     return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {

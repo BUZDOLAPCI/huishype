@@ -2,6 +2,12 @@ import {
   isValidCountryCode,
   type CountryCode,
 } from '../config/country-config.js';
+import type { MapFilters } from '../types/property.js';
+import {
+  getCanonicalMapFilterSignature,
+  hasOnlyAllowedMapFilterQueryParams,
+  parseMapFiltersFromSearchParams,
+} from './map-filters.js';
 import { normalizePostalCode } from './validation.js';
 
 const DEFAULT_COUNTRY_CODE: CountryCode = 'NL';
@@ -138,23 +144,100 @@ function decodePathname(pathname: string): string | null {
   }
 }
 
+function getDecodedPathSegments(pathname: string): string[] | null {
+  const decodedPathname = decodePathname(pathname);
+  if (!decodedPathname) {
+    return null;
+  }
+
+  return decodedPathname.split('/').filter(Boolean);
+}
+
+export function isCanonicalMapRoutePath(pathname: string): boolean {
+  if (pathname === '/' || parseCanonicalCameraPath(pathname) !== null) {
+    return true;
+  }
+
+  const segments = getDecodedPathSegments(pathname);
+  if (!segments) {
+    return false;
+  }
+
+  if (segments.length === 0) {
+    return true;
+  }
+
+  const firstSegment = segments[0]!.toLowerCase();
+  if (
+    SAFE_RETURN_TO_STATIC_PREFIXES.has(firstSegment) ||
+    LEGACY_RETURN_TO_PREFIXES.has(firstSegment)
+  ) {
+    return false;
+  }
+
+  if (firstSegment === 'map') {
+    const resolution = resolveCanonicalCountryPrefix(segments.slice(1));
+    return resolution.isCanonical && resolution.remainingSegments.length === 4;
+  }
+
+  const resolution = resolveCanonicalCountryPrefix(segments);
+  return (
+    resolution.isCanonical &&
+    (resolution.remainingSegments.length === 1 ||
+      resolution.remainingSegments.length === 2)
+  );
+}
+
+export function buildCanonicalMapUrl(
+  pathname: string,
+  filters: MapFilters,
+): string {
+  if (!isCanonicalMapRoutePath(pathname)) {
+    throw new Error(`Path is not a canonical map route: ${pathname}`);
+  }
+
+  const signature = getCanonicalMapFilterSignature(filters);
+  return signature ? `${pathname}?${signature}` : pathname;
+}
+
+export function normalizeCanonicalMapUrl(value: string | URL): string | null {
+  let url: URL;
+  try {
+    url = value instanceof URL ? value : new URL(value, INTERNAL_BASE_URL);
+  } catch {
+    return null;
+  }
+
+  if (url.origin !== INTERNAL_BASE_URL || url.hash) {
+    return null;
+  }
+
+  if (!isCanonicalMapRoutePath(url.pathname)) {
+    return null;
+  }
+
+  if (!hasOnlyAllowedMapFilterQueryParams(url.searchParams)) {
+    return null;
+  }
+
+  return buildCanonicalMapUrl(
+    url.pathname,
+    parseMapFiltersFromSearchParams(url.searchParams),
+  );
+}
+
 function isAllowedInternalReturnToPath(pathname: string): boolean {
   if (pathname === '/') {
     return true;
   }
 
-  if (parseCanonicalCameraPath(pathname) !== null) {
+  if (isCanonicalMapRoutePath(pathname)) {
     return true;
   }
 
-  const decodedPathname = decodePathname(pathname);
-  if (!decodedPathname) {
+  const segments = getDecodedPathSegments(pathname);
+  if (!segments) {
     return false;
-  }
-
-  const segments = decodedPathname.split('/').filter(Boolean);
-  if (segments.length === 0) {
-    return true;
   }
 
   const firstSegment = segments[0]!.toLowerCase();
@@ -167,8 +250,7 @@ function isAllowedInternalReturnToPath(pathname: string): boolean {
   }
 
   if (firstSegment === 'map') {
-    const resolution = resolveCanonicalCountryPrefix(segments.slice(1));
-    return resolution.isCanonical && resolution.remainingSegments.length === 4;
+    return false;
   }
 
   const resolution = resolveCanonicalCountryPrefix(segments);
@@ -256,6 +338,11 @@ function normalizeInternalReturnToAtDepth(
   const searchParams = [...url.searchParams.entries()];
   if (searchParams.length === 0) {
     return url.pathname;
+  }
+
+  const canonicalMapUrl = normalizeCanonicalMapUrl(url);
+  if (canonicalMapUrl) {
+    return canonicalMapUrl;
   }
 
   if (searchParams.length !== 1 || searchParams[0]?.[0] !== 'returnTo') {

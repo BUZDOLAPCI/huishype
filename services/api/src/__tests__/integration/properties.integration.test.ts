@@ -150,6 +150,127 @@ describe('Property routes', () => {
       }
     });
 
+    it('should apply market-state and sale-price filters through the shared market query layer', async () => {
+      const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const soldHistoryId = crypto.randomUUID();
+      const lon = 6.91;
+      const lat = 53.31;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry,
+          official_valuation
+        )
+        VALUES
+          (
+            ${propertyIds[0]},
+            'NL',
+            'Properties Filter Street',
+            1,
+            'Filterveen',
+            '9999AC',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+            420000
+          ),
+          (
+            ${propertyIds[1]},
+            'NL',
+            'Properties Filter Street',
+            2,
+            'Filterveen',
+            '9999AC',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+            390000
+          )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO listings (
+          id,
+          property_id,
+          source_name,
+          source_url,
+          status,
+          price_type,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            ${listingIds[0]},
+            ${propertyIds[0]},
+            'funda',
+            ${`https://example.com/properties-filter-${listingIds[0]}`},
+            'withdrawn',
+            'sale',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days'
+          ),
+          (
+            ${listingIds[1]},
+            ${propertyIds[1]},
+            'funda',
+            ${`https://example.com/properties-filter-${listingIds[1]}`},
+            'sold',
+            'sale',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day'
+          )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO price_history (
+          id,
+          property_id,
+          listing_id,
+          price,
+          price_date,
+          event_type,
+          source,
+          created_at
+        )
+        VALUES (
+          ${soldHistoryId},
+          ${propertyIds[1]},
+          ${listingIds[1]},
+          575000,
+          CURRENT_DATE - INTERVAL '1 day',
+          'sold',
+          'funda',
+          NOW() - INTERVAL '1 day'
+        )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            `/properties?lat=${lat}&lon=${lon}&radius=50&limit=10` +
+            '&marketState=not-listed&salePriceFrom=400000&salePriceTo=450000',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data.map((item: { id: string }) => item.id)).toEqual([propertyIds[0]]);
+        expect(body.meta.total).toBe(1);
+      } finally {
+        await db.execute(sql`DELETE FROM price_history WHERE id = ${soldHistoryId}`);
+        await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+      }
+    });
+
     it('should return 400 for limit > 100', async () => {
       const response = await app.inject({
         method: 'GET',

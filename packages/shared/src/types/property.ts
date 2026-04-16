@@ -281,3 +281,47 @@ export interface PropertyNodeGroup {
 export interface NearbyPropertyGroup extends PropertyNodeGroup {
   distanceMeters: number;
 }
+
+/**
+ * Canonical filter categories for map state.
+ */
+export type MapFilterCategory = 'salePrice' | 'rentPrice' | 'marketState';
+
+/**
+ * Exclusive market-state taxonomy for map filtering.
+ */
+export type MapMarketState =
+  | 'for-sale'
+  | 'for-rent'
+  | 'sold'
+  | 'rented'
+  | 'not-listed';
+
+/**
+ * Shared applied map-filter state.
+ */
+export interface MapFilters {
+  salePriceFrom: number | null;
+  salePriceTo: number | null;
+  rentPriceFrom: number | null;
+  rentPriceTo: number | null;
+  marketState: MapMarketState[];
+}
+
+/**
+ * Sale-side facts used to derive the canonical sale effective price.
+ */
+export interface SaleEffectivePriceInput {
+  activeSaleAskingPrice?: number | null;
+  lastSoldPrice?: number | null;
+  canonicalFmv?: number | null;
+  officialValuation?: number | null;
+}
+
+/**
+ * Rent-side facts used to derive the canonical rent effective price.
+ */
+export interface RentEffectivePriceInput {
+  activeRentAskingPrice?: number | null;
+  lastRentedPrice?: number | null;
+}

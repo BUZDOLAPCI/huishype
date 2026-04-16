@@ -1,4 +1,9 @@
-import { api, resolveProperty, setApiAccessTokenResolver } from '../api';
+import {
+  api,
+  fetchNearbyGroup,
+  resolveProperty,
+  setApiAccessTokenResolver,
+} from '../api';
 
 jest.mock('expo-constants', () => ({
   __esModule: true,
@@ -116,5 +121,64 @@ describe('api auth attachment', () => {
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer explicit-token');
+  });
+});
+
+describe('fetchNearbyGroup', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+  });
+
+  it('threads committed map filters into the nearby request URL', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => null,
+    });
+
+    await fetchNearbyGroup(5.4697, 51.4416, 15, {
+      salePriceFrom: 500000,
+      salePriceTo: 800000,
+      rentPriceFrom: null,
+      rentPriceTo: null,
+      marketState: ['for-sale'],
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/nearby?');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceFrom=500000');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
+  });
+});
+
+describe('API_URL runtime config', () => {
+  const runtimeWindow = globalThis.window as typeof window & {
+    __HUISHYPE_RUNTIME_CONFIG__?: {
+      apiUrl?: string;
+    };
+  };
+  const originalRuntimeConfig = runtimeWindow.__HUISHYPE_RUNTIME_CONFIG__;
+
+  afterEach(() => {
+    jest.resetModules();
+    if (typeof originalRuntimeConfig === 'undefined') {
+      Reflect.deleteProperty(runtimeWindow, '__HUISHYPE_RUNTIME_CONFIG__');
+    } else {
+      runtimeWindow.__HUISHYPE_RUNTIME_CONFIG__ = originalRuntimeConfig;
+    }
+  });
+
+  it('prefers injected web runtime config over the bundled fallback', () => {
+    runtimeWindow.__HUISHYPE_RUNTIME_CONFIG__ = {
+      apiUrl: 'http://127.0.0.1:34001',
+    };
+
+    jest.isolateModules(() => {
+      const apiModule = require('../api') as typeof import('../api');
+      expect(apiModule.API_URL).toBe('http://127.0.0.1:34001');
+    });
   });
 });
