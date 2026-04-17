@@ -54,7 +54,8 @@ export function WebAmbientCommentBubblesPortal({
 
     const nextNodeKeys = new Set<string>();
     const nextTargets = bubbles.map((bubble) => {
-      const screenPoint = map.project(bubble.coordinate);
+      const bubbleAnchorCoordinate = bubble.property.coordinate ?? bubble.coordinate;
+      const screenPoint = map.project(bubbleAnchorCoordinate);
       const shouldShowBelow = screenPoint.y < 190;
       const viewportWidth = map.getContainer().clientWidth || window.innerWidth;
       const { anchorOffsetX, arrowHorizontalAlign } = getAmbientCommentBubbleArrowLayout({
@@ -79,7 +80,9 @@ export function WebAmbientCommentBubblesPortal({
         const container = document.createElement('div');
         container.style.pointerEvents = 'auto';
         container.style.zIndex = '1000';
-        container.style.position = 'relative';
+        // Keep each marker out of normal DOM flow so sibling bubbles do not
+        // shift each other's layout before MapLibre applies its transform.
+        container.style.position = 'absolute';
         container.style.display = 'inline-flex';
         container.style.justifyContent = 'center';
         container.style.alignItems = 'center';
@@ -109,7 +112,7 @@ export function WebAmbientCommentBubblesPortal({
           anchor,
           offset,
         })
-          .setLngLat(bubble.coordinate)
+          .setLngLat(bubbleAnchorCoordinate)
           .addTo(map);
 
         target = {
@@ -123,7 +126,7 @@ export function WebAmbientCommentBubblesPortal({
         targetsRef.current.set(bubble.nodeKey, target);
       } else {
         target.marker
-          .setLngLat(bubble.coordinate)
+          .setLngLat(bubbleAnchorCoordinate)
           .setOffset(offset);
         target.arrowDirection = shouldShowBelow ? 'up' : 'down';
         target.arrowHorizontalAlign = arrowHorizontalAlign;

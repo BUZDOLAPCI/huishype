@@ -203,15 +203,16 @@ export default function MapScreen() {
     property: GroupPreviewProperty;
     coordinate: [number, number];
   }) => {
+    const bubbleCoordinate = bubble.property.coordinate ?? bubble.coordinate;
     const anchoredProperty = {
       ...bubble.property,
-      coordinate: bubble.coordinate,
+      coordinate: bubbleCoordinate,
     };
 
-    interaction.setHighlightedCoordinate(bubble.coordinate);
+    interaction.setHighlightedCoordinate(bubbleCoordinate);
     interaction.setPreviewGroup({
       properties: [anchoredProperty],
-      coordinate: bubble.coordinate,
+      coordinate: bubbleCoordinate,
     });
     interaction.setCurrentPreviewIndex(0);
     interaction.setSelectedPropertyId(anchoredProperty.id);

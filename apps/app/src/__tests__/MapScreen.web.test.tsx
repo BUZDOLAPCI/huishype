@@ -491,17 +491,17 @@ describe('MapScreen web filter updates', () => {
       });
     });
 
-    expect(mockInteraction.setHighlightedCoordinate).toHaveBeenCalledWith([5.48, 51.44]);
+    expect(mockInteraction.setHighlightedCoordinate).toHaveBeenCalledWith([5.481, 51.441]);
     expect(mockInteraction.setPreviewGroup).toHaveBeenCalledWith({
       properties: [
         {
           id: 'prop-9',
           address: 'Stationsplein 1',
           city: 'Eindhoven',
-          coordinate: [5.48, 51.44],
+          coordinate: [5.481, 51.441],
         },
       ],
-      coordinate: [5.48, 51.44],
+      coordinate: [5.481, 51.441],
     });
     expect(mockInteraction.setCurrentPreviewIndex).toHaveBeenCalledWith(0);
     expect(mockInteraction.setSelectedPropertyId).toHaveBeenCalledWith('prop-9');
@@ -509,7 +509,7 @@ describe('MapScreen web filter updates', () => {
       id: 'prop-9',
       address: 'Stationsplein 1',
       city: 'Eindhoven',
-      coordinate: [5.48, 51.44],
+      coordinate: [5.481, 51.441],
     });
   });
 

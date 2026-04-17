@@ -137,6 +137,7 @@ describe('WebAmbientCommentBubblesPortal', () => {
       }),
     );
     expect(mockMarkerInstances).toHaveLength(1);
+    expect(mockMarkerInstances[0]?.element.style.position).toBe('absolute');
     expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
       arrowHorizontalAlign: 'left',
     });
@@ -202,5 +203,34 @@ describe('WebAmbientCommentBubblesPortal', () => {
       (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
       -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
     ]);
+  });
+
+  it('anchors the marker to the hydrated property coordinate when it differs from the group node', () => {
+    const project = jest.fn()
+      .mockReturnValueOnce({ x: 120, y: 320 })
+      .mockReturnValueOnce({ x: 122, y: 318 });
+    const map = {
+      getContainer: jest.fn().mockReturnValue({ clientWidth: 400 }),
+      project,
+    } as unknown as PortalMap;
+
+    renderToDOM(
+      <WebAmbientCommentBubblesPortal
+        map={map}
+        bubbles={[buildBubble({
+          coordinate: [4.9, 52.37],
+          property: {
+            id: 'property-1',
+            address: 'Damrak 1',
+            city: 'Amsterdam',
+            coordinate: [4.901, 52.371],
+          },
+        })]}
+        onBubblePress={jest.fn()}
+      />,
+    );
+
+    expect(project).toHaveBeenCalledWith([4.901, 52.371]);
+    expect(mockMarkerInstances[0]?.setLngLat).toHaveBeenCalledWith([4.901, 52.371]);
   });
 });
