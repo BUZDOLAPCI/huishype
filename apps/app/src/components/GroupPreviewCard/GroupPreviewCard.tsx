@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import {
   Pressable,
   Text,
@@ -9,7 +9,6 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
-import type { GestureResponderEvent } from 'react-native';
 import { Icon } from '../ui/Icon';
 import { PropertyPreviewCard } from '../PropertyPreviewCard';
 import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
@@ -18,11 +17,6 @@ import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 const CARD_WIDTH = 280;
 const PREVIEW_ARROW_SIZE = 10;
 const PAGE_PROGRESS_DOT_COUNT = 4;
-
-/** Maximum movement (px) to still count as a tap, not a drag. */
-const TAP_MOVE_THRESHOLD = 40;
-/** Maximum duration (ms) for a touch to count as a tap. */
-const TAP_DURATION_THRESHOLD = 500;
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -37,227 +31,14 @@ const COLORS = {
   gold600: '#DE911D',
 } as const;
 
-// ─── Coordinate-based hit-testing types ──────────────────────────────────
-
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-type HitZone =
-  | 'close'
-  | 'navLeft'
-  | 'navRight'
-  | 'like'
-  | 'comment'
-  | 'guess'
-  | 'cardBody';
-
-/**
- * Check whether a point (px, py) falls inside a rectangle.
- */
-function pointInRect(px: number, py: number, rect: Rect): boolean {
-  return (
-    px >= rect.x &&
-    px <= rect.x + rect.width &&
-    py >= rect.y &&
-    py <= rect.y + rect.height
-  );
-}
-
 function getProgressDotIndex(currentIndex: number, total: number): number {
   if (total <= 1) return 0;
   const maxIndex = PAGE_PROGRESS_DOT_COUNT - 1;
   return Math.round((currentIndex / (total - 1)) * maxIndex);
 }
 
-/** Minimum horizontal movement (px) before a swipe gesture is recognized. */
-const SWIPE_THRESHOLD = 40;
 /** Maximum horizontal drag distance (px) for the swipe animation. */
 const SWIPE_MAX_DRAG = 80;
-
-// ─── useMarkerHitTest hook ───────────────────────────────────────────────
-
-/**
- * Coordinate-based hit-testing system for use inside MapLibre <Marker> on
- * Android where Pressable.onPress does not fire due to Fabric limitations.
- *
- * Uses `measureLayout` to get each zone's bounds **relative to the L2
- * container**. A transparent overlay View (rendered as the last child of L2
- * on native) captures all touches. Because the overlay is position:absolute
- * covering L2, `locationX`/`locationY` from the overlay's touch events are
- * L2-relative — matching the `measureLayout` coordinate space exactly. This
- * avoids the broken `measure()` path that returns Marker-container-relative
- * coordinates inside MapLibre Markers.
- *
- * This is a "belt and suspenders" approach: Pressable components remain in the
- * tree (for accessibility, test compatibility, and web), but on native the
- * overlay captures taps and dispatches them. In the real Marker scenario,
- * only the overlay handler fires; in tests, fireEvent.press on Pressable
- * still works.
- */
-function useMarkerHitTest(translateX: Animated.Value) {
-  const boundsMap = useRef<Record<string, Rect>>({});
-  const l2Ref = useRef<View>(null);
-  const zoneNodes = useRef<Record<string, any>>({});
-
-  const touchStart = useRef<{
-    locX: number;
-    locY: number;
-    pageX: number;
-    pageY: number;
-    ts: number;
-  } | null>(null);
-
-  /** Re-measure ALL zone positions relative to L2 container. */
-  const remeasureAll = useCallback(() => {
-    const l2 = l2Ref.current;
-    if (!l2) return;
-    for (const [zone, node] of Object.entries(zoneNodes.current)) {
-      if (node?.measureLayout) {
-        try {
-          node.measureLayout(
-            l2,
-            (x: number, y: number, width: number, height: number) => {
-              boundsMap.current[zone] = { x, y, width, height };
-            },
-            () => {
-              // measureLayout failed — view may be detached
-            }
-          );
-        } catch {
-          // measureLayout can throw if views are detached
-        }
-      }
-    }
-  }, []);
-
-  /**
-   * Returns a callback ref for a zone element that stores the native node.
-   *
-   * NOTE: We return individual functions instead of a spreadable object because
-   * `{...{ref: fn}}` does NOT reliably forward refs to Pressable components
-   * on React Native Fabric (New Architecture). Only explicit `ref={fn}` works.
-   */
-  const zoneRef = useCallback(
-    (zone: HitZone) => (node: any) => {
-      zoneNodes.current[zone] = node;
-    },
-    []
-  );
-
-  const zoneLayout = useCallback(
-    (_zone: HitZone) => () => {
-      remeasureAll();
-    },
-    [remeasureAll]
-  );
-
-  /**
-   * Call on the overlay's onTouchStart.
-   * Stores locationX/locationY (overlay-relative = L2-relative) plus
-   * pageX/pageY for swipe delta calculation.
-   */
-  const handleTouchStart = useCallback((e: GestureResponderEvent) => {
-    const { locationX, locationY, pageX, pageY } = e.nativeEvent;
-    touchStart.current = {
-      locX: locationX,
-      locY: locationY,
-      pageX,
-      pageY,
-      ts: Date.now(),
-    };
-  }, []);
-
-  /**
-   * Call on the overlay's onTouchMove.
-   * Drives the swipe animation using page-coordinate deltas.
-   */
-  const handleTouchMove = useCallback(
-    (e: GestureResponderEvent) => {
-      const start = touchStart.current;
-      if (!start) return;
-      const dx = e.nativeEvent.pageX - start.pageX;
-      translateX.setValue(
-        Math.max(-SWIPE_MAX_DRAG, Math.min(SWIPE_MAX_DRAG, dx))
-      );
-    },
-    [translateX]
-  );
-
-  /**
-   * Call on the overlay's onTouchEnd.
-   * Returns `{ zone, dx }` where `zone` is the hit zone name if it was a
-   * valid tap, or null otherwise. `dx` is the horizontal swipe distance.
-   */
-  const handleTouchEnd = useCallback(
-    (
-      e: GestureResponderEvent
-    ): { zone: HitZone | null; dx: number } => {
-      const start = touchStart.current;
-      if (!start) return { zone: null, dx: 0 };
-      touchStart.current = null;
-
-      const endLocX = e.nativeEvent.locationX;
-      const endLocY = e.nativeEvent.locationY;
-      const endPageX = e.nativeEvent.pageX;
-      const endPageY = e.nativeEvent.pageY;
-      const duration = Date.now() - start.ts;
-      const dx = endPageX - start.pageX;
-      const dy = endPageY - start.pageY;
-
-      // Check tap criteria using page coordinates (consistent regardless of target)
-      if (
-        Math.abs(dx) > TAP_MOVE_THRESHOLD ||
-        Math.abs(dy) > TAP_MOVE_THRESHOLD
-      ) {
-        return { zone: null, dx };
-      }
-      if (duration > TAP_DURATION_THRESHOLD) {
-        return { zone: null, dx };
-      }
-
-      // locationX/locationY from the overlay are L2-relative — use directly
-      const hitX = endLocX;
-      const hitY = endLocY;
-
-      // Hit-test in priority order (smallest / most specific first)
-      const priorityOrder: HitZone[] = [
-        'close',
-        'navLeft',
-        'navRight',
-        'like',
-        'comment',
-        'guess',
-        'cardBody',
-      ];
-
-      for (const zone of priorityOrder) {
-        const rect = boundsMap.current[zone];
-        if (rect && pointInRect(hitX, hitY, rect)) {
-          return { zone, dx };
-        }
-      }
-
-      // If no specific zone matched, treat as card body tap
-      return { zone: 'cardBody', dx };
-    },
-    []
-  );
-
-  return {
-    l2Ref,
-    zoneRef,
-    zoneLayout,
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
-  };
-}
-
-// ─── GroupPreviewCard ────────────────────────────────────────────────────
 
 /**
  * GroupPreviewCard — unified preview card for both single properties and clusters.
@@ -266,11 +47,10 @@ function useMarkerHitTest(translateX: Animated.Value) {
  * - Cluster (>1 properties): adds left/right arrows, page indicator, swipe gestures
  * - Optional arrow pointer to visually connect to map marker
  *
- * On native (Android inside MapLibre <Marker>), Pressable.onPress does not fire
- * due to Fabric touch dispatch limitations. All tap interactions are ALSO handled
- * via coordinate-based hit-testing at the L2 (main card container) level using
- * onTouchStart/onTouchEnd. Pressable components remain in the tree for
- * accessibility, web compatibility, and test compatibility.
+ * Native preview cards now render in an absolute overlay outside MapLibre, so
+ * direct Pressable / PanResponder interactions work again on Android. The old
+ * transparent hit-test overlay is intentionally gone; it was swallowing taps
+ * above the real buttons, including the close button.
  */
 export function GroupPreviewCard({
   properties,
@@ -291,8 +71,10 @@ export function GroupPreviewCard({
   const currentProperty = properties[currentIndex];
   const { width: viewportWidth } = useWindowDimensions();
 
-  const isNative = Platform.OS !== 'web';
   const reducedMotion = useReducedMotion();
+  const handleDirectTouchStart = useCallback(() => {
+    onTouchStart?.();
+  }, [onTouchStart]);
 
   const canGoLeft = currentIndex > 0;
   const canGoRight = currentIndex < properties.length - 1;
@@ -344,12 +126,12 @@ export function GroupPreviewCard({
   // Guard against PanResponder being undefined in test environments
   const panResponder = useRef(
     PanResponder?.create?.({
-      onStartShouldSetPanResponder: () => false, // Don't claim taps — let hit-test / Pressable handle them
+      onStartShouldSetPanResponder: () => false, // Let Pressable handle taps; only claim horizontal drags.
       onMoveShouldSetPanResponder: (_, gs) =>
         Math.abs(gs.dx) > 10 && Math.abs(gs.dy) < 30,
       onPanResponderTerminationRequest: () => false, // Don't let map steal the gesture
       onPanResponderMove: (_, gs) => {
-        translateX.setValue(Math.max(-80, Math.min(80, gs.dx)));
+        translateX.setValue(Math.max(-SWIPE_MAX_DRAG, Math.min(SWIPE_MAX_DRAG, gs.dx)));
       },
       onPanResponderRelease: (_, gs) => {
         if (gs.dx > 40 && canGoLeftRef.current) {
@@ -371,115 +153,6 @@ export function GroupPreviewCard({
   useEffect(() => {
     translateX.setValue(0);
   }, [currentIndex, translateX]);
-
-  // ── Coordinate-based hit-testing (native only) ───────────────────────
-
-  const hitTest = useMarkerHitTest(translateX);
-  const { l2Ref } = hitTest;
-
-  // Stable refs for callbacks used in the hit-test handler
-  const onCloseRef = useRef(onClose);
-  const onPropertyTapRef = useRef(onPropertyTap);
-  const onLikeRef = useRef(onLike);
-  const onCommentRef = useRef(onComment);
-  const onGuessRef = useRef(onGuess);
-  const currentPropertyRef = useRef(currentProperty);
-  onCloseRef.current = onClose;
-  onPropertyTapRef.current = onPropertyTap;
-  onLikeRef.current = onLike;
-  onCommentRef.current = onComment;
-  onGuessRef.current = onGuess;
-  currentPropertyRef.current = currentProperty;
-
-  /** Dispatch a tap hit to the appropriate callback. */
-  const dispatchHit = useCallback((zone: HitZone) => {
-    const prop = currentPropertyRef.current;
-    if (!prop) return;
-
-    switch (zone) {
-      case 'close':
-        onCloseRef.current();
-        break;
-      case 'navLeft':
-        goLeftRef.current();
-        break;
-      case 'navRight':
-        goRightRef.current();
-        break;
-      case 'like':
-        onLikeRef.current?.(prop);
-        break;
-      case 'comment':
-        onCommentRef.current?.(prop);
-        break;
-      case 'guess':
-        onGuessRef.current?.(prop);
-        break;
-      case 'cardBody':
-        onPropertyTapRef.current?.(prop);
-        break;
-    }
-  }, []);
-
-  // Ref for onTouchStart callback prop so overlay handler stays stable
-  const onTouchStartRef = useRef(onTouchStart);
-  onTouchStartRef.current = onTouchStart;
-
-  /** Overlay onTouchStart — record position + notify parent. */
-  const onOverlayTouchStart = useMemo(() => {
-    if (!isNative) return undefined;
-    return (e: GestureResponderEvent) => {
-      onTouchStartRef.current?.();
-      hitTest.handleTouchStart(e);
-    };
-  }, [isNative, hitTest]);
-
-  /** Overlay onTouchMove — drive swipe animation. */
-  const onOverlayTouchMove = useMemo(() => {
-    if (!isNative || !isCluster) return undefined;
-    return (e: GestureResponderEvent) => {
-      hitTest.handleTouchMove(e);
-    };
-  }, [isNative, isCluster, hitTest]);
-
-  /** Overlay onTouchEnd — hit-test / swipe dispatch. */
-  const onOverlayTouchEnd = useMemo(() => {
-    if (!isNative) return undefined;
-    return (e: GestureResponderEvent) => {
-      const { zone, dx } = hitTest.handleTouchEnd(e);
-
-      // Check for swipe gestures first (cluster mode only)
-      if (isCluster && Math.abs(dx) > SWIPE_THRESHOLD) {
-        if (dx > 0 && canGoLeftRef.current) {
-          goLeftRef.current();
-          return;
-        } else if (dx < 0 && canGoRightRef.current) {
-          goRightRef.current();
-          return;
-        }
-        // Swipe attempted but cannot navigate — spring back
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-          friction: 8,
-        }).start();
-        return;
-      }
-
-      // Not a swipe — spring back and dispatch tap if valid
-      if (isCluster) {
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-          friction: 8,
-        }).start();
-      }
-
-      if (zone) {
-        dispatchHit(zone);
-      }
-    };
-  }, [isNative, isCluster, hitTest, dispatchHit, translateX]);
 
   if (!currentProperty) return null;
 
@@ -512,9 +185,8 @@ export function GroupPreviewCard({
 
   const cardBody = (
     <View
-      ref={isNative ? l2Ref : undefined}
+      onTouchStart={Platform.OS !== 'web' ? handleDirectTouchStart : undefined}
       style={[styles.outerWrapper, { width: cardWidth }]}
-      collapsable={isNative ? false : undefined}
       testID="group-preview-card"
     >
       {/* Arrow pointing up */}
@@ -536,9 +208,6 @@ export function GroupPreviewCard({
           <View style={styles.clusterHeaderTopRow}>
             <Pressable
               onPress={goLeft}
-              ref={isNative ? hitTest.zoneRef('navLeft') : undefined}
-              onLayout={isNative ? hitTest.zoneLayout('navLeft') : undefined}
-              collapsable={isNative ? false : undefined}
               disabled={!canGoLeft}
               hitSlop={6}
               style={[
@@ -568,9 +237,6 @@ export function GroupPreviewCard({
 
             <Pressable
               onPress={goRight}
-              ref={isNative ? hitTest.zoneRef('navRight') : undefined}
-              onLayout={isNative ? hitTest.zoneLayout('navRight') : undefined}
-              collapsable={isNative ? false : undefined}
               disabled={!canGoRight}
               hitSlop={6}
               style={[
@@ -620,12 +286,10 @@ export function GroupPreviewCard({
           style={[
             isCluster ? { transform: [{ translateX }] } : {},
           ]}
-          {...(isCluster && !isNative ? panResponder.panHandlers : {})}
+          {...(isCluster ? panResponder.panHandlers : {})}
         >
           <View
-            ref={isNative ? hitTest.zoneRef('cardBody') : undefined}
-            onLayout={isNative ? hitTest.zoneLayout('cardBody') : undefined}
-            collapsable={isNative ? false : undefined}
+            testID={Platform.OS !== 'web' ? 'group-preview-touch-overlay' : undefined}
           >
             <PropertyPreviewCard
               property={previewData}
@@ -637,31 +301,11 @@ export function GroupPreviewCard({
               onClose={onClose}
               showCloseButton={!!onClose}
               closeButtonTestID="group-preview-close-button"
-              nativeHitTargets={isNative ? {
-                close: { ref: hitTest.zoneRef('close'), onLayout: hitTest.zoneLayout('close') },
-                like: { ref: hitTest.zoneRef('like'), onLayout: hitTest.zoneLayout('like') },
-                comment: { ref: hitTest.zoneRef('comment'), onLayout: hitTest.zoneLayout('comment') },
-                guess: { ref: hitTest.zoneRef('guess'), onLayout: hitTest.zoneLayout('guess') },
-              } : undefined}
             />
           </View>
         </Animated.View>
 
       </View>
-
-      {/* Transparent touch overlay — captures ALL touches on native (Android
-          inside MapLibre Marker). locationX/locationY from this overlay are
-          outer-wrapper-relative, matching measureLayout zone bounds exactly. */}
-      {isNative && (
-        <View
-          style={styles.touchOverlay}
-          collapsable={false}
-          onTouchStart={onOverlayTouchStart}
-          onTouchMove={onOverlayTouchMove}
-          onTouchEnd={onOverlayTouchEnd}
-          testID="group-preview-touch-overlay"
-        />
-      )}
 
       {/* Arrow pointing down */}
       {showArrow && !arrowUp && (
@@ -795,17 +439,6 @@ const styles = StyleSheet.create({
   pageDotInactive: {
     backgroundColor: 'rgba(45, 41, 38, 0.22)',
   },
-  // Touch overlay for native hit-testing
-  touchOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 100,
-    backgroundColor: 'transparent',
-  },
-
   // Arrow pointers
   arrowUp: {
     alignSelf: 'center',

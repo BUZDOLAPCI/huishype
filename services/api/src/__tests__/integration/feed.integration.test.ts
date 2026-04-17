@@ -1,143 +1,553 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
+import {
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+  refreshLatestActiveListingsView,
+} from './helpers/fixtures.js';
 
 /**
  * Integration tests for the feed endpoint.
  *
- * Tests against the real PostGIS database and the migrated
- * mv_latest_active_listings materialized view.
- *
- * This suite seeds dedicated rows for targeted ranking/filter assertions,
- * while the broader shape checks tolerate whatever listing data is currently
- * present in the migrated test database.
+ * This suite owns a dedicated feed slice in the real test database so the
+ * feed queries, ordering, pagination, and materialized-view behavior are
+ * asserted against explicit fixtures instead of ambient shared listings.
  */
 describe('Feed routes', () => {
+  jest.setTimeout(60000);
+
   let app: FastifyInstance;
+
+  const cleanupPropertyIds: string[] = [];
+  const cleanupUserIds: string[] = [];
+  const runId = Date.now();
+  const coordinateOffset = (runId % 1000) / 100000;
+  const slice = {
+    country: 'NL',
+    lat: 0.2345 + coordinateOffset,
+    lon: 0.1234 + coordinateOffset,
+  };
+
+  type FeedFixtureKey = 'recent' | 'hot' | 'warm' | 'like' | 'cold' | 'outsideRadius';
+  type FeedFixture = {
+    propertyId: string;
+    address: string;
+    city: string;
+    zipCode: string;
+    geometry: { type: 'Point'; coordinates: [number, number] };
+    askingPrice: number;
+    officialValuation: number | null;
+    thumbnailUrl: string | null;
+    lastActivityAt: string;
+    commentCount: number;
+    guessCount: number;
+    likeCount: number;
+    viewCount: number;
+    fmv: number | null;
+    activityLevel: 'hot' | 'warm' | 'cold';
+  };
+  const feedFixtures = {} as Record<FeedFixtureKey, FeedFixture>;
+  let noListingPropertyId: string;
+
+  function atOffset({
+    days = 0,
+    hours = 0,
+    minutes = 0,
+  }: {
+    days?: number;
+    hours?: number;
+    minutes?: number;
+  }) {
+    const date = new Date(Date.now() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000));
+    date.setMilliseconds(0);
+    return date;
+  }
+
+  function buildAddress(street: string, houseNumber: number, postalCode: string, city: string) {
+    return `${street} ${houseNumber}, ${postalCode} ${city}`;
+  }
+
+  function buildFeedUrl(params: Record<string, string | number | undefined> = {}) {
+    const query = new URLSearchParams({
+      country: slice.country,
+      lat: String(slice.lat),
+      lon: String(slice.lon),
+    });
+
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) {
+        query.set(key, String(value));
+      }
+    }
+
+    return `/feed?${query.toString()}`;
+  }
+
+  async function insertComment(
+    propertyId: string,
+    userId: string,
+    createdAt: Date,
+    content: string,
+  ) {
+    await db.execute(sql`
+      INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
+      VALUES (${crypto.randomUUID()}, ${propertyId}, ${userId}, ${content}, ${createdAt.toISOString()}, ${createdAt.toISOString()})
+    `);
+  }
+
+  async function insertGuess(
+    propertyId: string,
+    userId: string,
+    guessedPrice: number,
+    createdAt: Date,
+  ) {
+    await db.execute(sql`
+      INSERT INTO price_guesses (
+        id,
+        property_id,
+        user_id,
+        guessed_price,
+        is_meme_guess,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${crypto.randomUUID()},
+        ${propertyId},
+        ${userId},
+        ${guessedPrice},
+        false,
+        ${createdAt.toISOString()},
+        ${createdAt.toISOString()}
+      )
+    `);
+  }
+
+  async function insertPropertyLike(propertyId: string, userId: string, createdAt: Date) {
+    await db.execute(sql`
+      INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
+      VALUES (${crypto.randomUUID()}, 'property', ${propertyId}, ${userId}, 'like', ${createdAt.toISOString()})
+    `);
+  }
+
+  async function insertView(
+    propertyId: string,
+    createdAt: Date,
+    options: { userId?: string; sessionId?: string } = {},
+  ) {
+    await db.execute(sql`
+      INSERT INTO property_views (id, property_id, user_id, session_id, viewed_at)
+      VALUES (
+        ${crypto.randomUUID()},
+        ${propertyId},
+        ${options.userId ?? null},
+        ${options.sessionId ?? null},
+        ${createdAt.toISOString()}
+      )
+    `);
+  }
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
+
     const viewExists = await db.execute<{ exists: string | null }>(sql`
       SELECT to_regclass('public.mv_latest_active_listings')::text AS exists
     `);
     expect(Array.from(viewExists)[0]?.exists).toBe('mv_latest_active_listings');
+
+    const primaryUser = await createIntegrationUser(app, { label: `feedprimary${runId}` });
+    const secondaryUser = await createIntegrationUser(app, { label: `feedsecondary${runId}` });
+    const tertiaryUser = await createIntegrationUser(app, { label: `feedtertiary${runId}` });
+    cleanupUserIds.push(primaryUser.userId, secondaryUser.userId, tertiaryUser.userId);
+
+    const fixtureDefinitions = [
+      {
+        key: 'recent' as const,
+        street: `Feed Recent ${runId}`,
+        houseNumber: 1,
+        postalCode: '9811AA',
+        city: `Feed City ${runId}`,
+        lon: slice.lon,
+        lat: slice.lat,
+        askingPrice: 410000,
+        officialValuation: 405000,
+        thumbnailUrl: 'https://cdn.example.com/feed-recent.jpg',
+        listingCreatedAt: atOffset({ minutes: 5 }),
+        lastActivityAt: atOffset({ minutes: 5 }),
+        commentCount: 0,
+        guessCount: 0,
+        likeCount: 0,
+        viewCount: 0,
+        fmv: null,
+        activityLevel: 'warm' as const,
+      },
+      {
+        key: 'hot' as const,
+        street: `Feed Hot ${runId}`,
+        houseNumber: 2,
+        postalCode: '9811AB',
+        city: `Feed City ${runId}`,
+        lon: slice.lon + 0.002,
+        lat: slice.lat + 0.002,
+        askingPrice: 560000,
+        officialValuation: 540000,
+        thumbnailUrl: 'https://cdn.example.com/feed-hot.jpg',
+        listingCreatedAt: atOffset({ days: 2 }),
+        lastActivityAt: atOffset({ minutes: 10 }),
+        commentCount: 1,
+        guessCount: 3,
+        likeCount: 1,
+        viewCount: 2,
+        fmv: 550000,
+        activityLevel: 'hot' as const,
+      },
+      {
+        key: 'warm' as const,
+        street: `Feed Warm ${runId}`,
+        houseNumber: 3,
+        postalCode: '9811AC',
+        city: `Feed City ${runId}`,
+        lon: slice.lon + 0.004,
+        lat: slice.lat + 0.004,
+        askingPrice: 470000,
+        officialValuation: 465000,
+        thumbnailUrl: 'https://cdn.example.com/feed-warm.jpg',
+        listingCreatedAt: atOffset({ days: 3 }),
+        lastActivityAt: atOffset({ minutes: 20 }),
+        commentCount: 2,
+        guessCount: 0,
+        likeCount: 0,
+        viewCount: 1,
+        fmv: null,
+        activityLevel: 'warm' as const,
+      },
+      {
+        key: 'like' as const,
+        street: `Feed Like ${runId}`,
+        houseNumber: 4,
+        postalCode: '9811AD',
+        city: `Feed City ${runId}`,
+        lon: slice.lon + 0.006,
+        lat: slice.lat + 0.006,
+        askingPrice: 390000,
+        officialValuation: 388000,
+        thumbnailUrl: 'https://cdn.example.com/feed-like.jpg',
+        listingCreatedAt: atOffset({ days: 4 }),
+        lastActivityAt: atOffset({ minutes: 30 }),
+        commentCount: 0,
+        guessCount: 0,
+        likeCount: 1,
+        viewCount: 0,
+        fmv: null,
+        activityLevel: 'warm' as const,
+      },
+      {
+        key: 'cold' as const,
+        street: `Feed Cold ${runId}`,
+        houseNumber: 5,
+        postalCode: '9811AE',
+        city: `Feed City ${runId}`,
+        lon: slice.lon + 0.008,
+        lat: slice.lat + 0.008,
+        askingPrice: 315000,
+        officialValuation: 310000,
+        thumbnailUrl: 'https://cdn.example.com/feed-cold.jpg',
+        listingCreatedAt: atOffset({ days: 40 }),
+        lastActivityAt: atOffset({ days: 40 }),
+        commentCount: 0,
+        guessCount: 0,
+        likeCount: 0,
+        viewCount: 0,
+        fmv: null,
+        activityLevel: 'cold' as const,
+      },
+      {
+        key: 'outsideRadius' as const,
+        street: `Feed Remote ${runId}`,
+        houseNumber: 6,
+        postalCode: '9811AF',
+        city: `Feed City ${runId}`,
+        lon: slice.lon + 0.4,
+        lat: slice.lat + 0.4,
+        askingPrice: 999000,
+        officialValuation: 998000,
+        thumbnailUrl: 'https://cdn.example.com/feed-remote.jpg',
+        listingCreatedAt: atOffset({ minutes: 15 }),
+        lastActivityAt: atOffset({ minutes: 15 }),
+        commentCount: 0,
+        guessCount: 0,
+        likeCount: 0,
+        viewCount: 0,
+        fmv: null,
+        activityLevel: 'warm' as const,
+      },
+    ];
+
+    for (const definition of fixtureDefinitions) {
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: definition.street,
+        houseNumber: definition.houseNumber,
+        city: definition.city,
+        postalCode: definition.postalCode,
+        lon: definition.lon,
+        lat: definition.lat,
+        officialValuation: definition.officialValuation,
+      });
+      cleanupPropertyIds.push(property.id);
+
+      await createIntegrationListing({
+        propertyId: property.id,
+        askingPrice: definition.askingPrice,
+        thumbnailUrl: definition.thumbnailUrl,
+        createdAt: definition.listingCreatedAt,
+        updatedAt: definition.listingCreatedAt,
+      });
+
+      feedFixtures[definition.key] = {
+        propertyId: property.id,
+        address: buildAddress(
+          definition.street,
+          definition.houseNumber,
+          definition.postalCode,
+          definition.city,
+        ),
+        city: definition.city,
+        zipCode: definition.postalCode,
+        geometry: {
+          type: 'Point',
+          coordinates: [definition.lon, definition.lat],
+        },
+        askingPrice: definition.askingPrice,
+        officialValuation: definition.officialValuation,
+        thumbnailUrl: definition.thumbnailUrl,
+        lastActivityAt: definition.lastActivityAt.toISOString(),
+        commentCount: definition.commentCount,
+        guessCount: definition.guessCount,
+        likeCount: definition.likeCount,
+        viewCount: definition.viewCount,
+        fmv: definition.fmv,
+        activityLevel: definition.activityLevel,
+      };
+    }
+
+    const noListingProperty = await createIntegrationProperty({
+      countryCode: slice.country,
+      street: `Feed No Listing ${runId}`,
+      houseNumber: 7,
+      city: `Feed City ${runId}`,
+      postalCode: '9811AG',
+      lon: slice.lon + 0.01,
+      lat: slice.lat + 0.01,
+      officialValuation: 280000,
+    });
+    noListingPropertyId = noListingProperty.id;
+    cleanupPropertyIds.push(noListingPropertyId);
+
+    await insertComment(
+      feedFixtures.hot.propertyId,
+      primaryUser.userId,
+      atOffset({ minutes: 10 }),
+      'Feed hot comment',
+    );
+    await insertGuess(feedFixtures.hot.propertyId, primaryUser.userId, 500000, atOffset({ hours: 3 }));
+    await insertGuess(
+      feedFixtures.hot.propertyId,
+      secondaryUser.userId,
+      550000,
+      atOffset({ hours: 2 }),
+    );
+    await insertGuess(
+      feedFixtures.hot.propertyId,
+      tertiaryUser.userId,
+      600000,
+      atOffset({ hours: 1 }),
+    );
+    await insertPropertyLike(feedFixtures.hot.propertyId, primaryUser.userId, atOffset({ hours: 4 }));
+    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 5 }), { userId: primaryUser.userId });
+    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 6 }), { sessionId: `feed-hot-${runId}` });
+
+    await insertComment(
+      feedFixtures.warm.propertyId,
+      primaryUser.userId,
+      atOffset({ minutes: 21 }),
+      'Feed warm comment 1',
+    );
+    await insertComment(
+      feedFixtures.warm.propertyId,
+      secondaryUser.userId,
+      atOffset({ minutes: 20 }),
+      'Feed warm comment 2',
+    );
+    await insertView(feedFixtures.warm.propertyId, atOffset({ hours: 7 }), { userId: tertiaryUser.userId });
+
+    await insertPropertyLike(feedFixtures.like.propertyId, secondaryUser.userId, atOffset({ minutes: 30 }));
+
+    await refreshLatestActiveListingsView();
   });
 
   afterAll(async () => {
-    await app.close();
+    try {
+      if (cleanupPropertyIds.length > 0) {
+        const propertyIds = sql.join(cleanupPropertyIds.map((id) => sql`${id}`), sql`, `);
+        await db.execute(sql`
+          DELETE FROM reactions
+          WHERE target_type = 'property'
+            AND target_id IN (${propertyIds})
+        `);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds})`);
+        await refreshLatestActiveListingsView();
+      }
+
+      if (cleanupUserIds.length > 0) {
+        const userIds = sql.join(cleanupUserIds.map((id) => sql`${id}`), sql`, `);
+        await db.execute(sql`DELETE FROM users WHERE id IN (${userIds})`);
+      }
+    } finally {
+      await app.close();
+    }
   });
 
   describe('GET /feed', () => {
-    it('should return paginated feed with default trending filter', async () => {
+    it('defaults to trending order for the owned fixture slice', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/feed',
+        url: buildFeedUrl(),
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-      expect(Array.isArray(body.items)).toBe(true);
-      expect(body.pagination).toHaveProperty('page', 1);
-      expect(body.pagination).toHaveProperty('limit', 20);
-      expect(body.pagination).toHaveProperty('hasMore');
-      expect(typeof body.pagination.hasMore).toBe('boolean');
+      expect(body.pagination).toEqual({
+        page: 1,
+        limit: 20,
+        hasMore: false,
+      });
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.hot.propertyId,
+        feedFixtures.warm.propertyId,
+        feedFixtures.like.propertyId,
+        feedFixtures.recent.propertyId,
+        feedFixtures.cold.propertyId,
+      ]);
     });
 
-    it('should return items with expected fields', async () => {
+    it('returns deterministic feed fields for the hot fixture', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/feed?limit=1',
+        url: buildFeedUrl({ filter: 'trending', limit: 5 }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const item = body.items.find((entry: { id: string }) => entry.id === feedFixtures.hot.propertyId);
+
+      expect(item).toBeDefined();
+      expect(item).toMatchObject({
+        id: feedFixtures.hot.propertyId,
+        address: feedFixtures.hot.address,
+        city: feedFixtures.hot.city,
+        zipCode: feedFixtures.hot.zipCode,
+        countryCode: slice.country,
+        geometry: feedFixtures.hot.geometry,
+        askingPrice: feedFixtures.hot.askingPrice,
+        fmv: feedFixtures.hot.fmv,
+        officialValuation: feedFixtures.hot.officialValuation,
+        thumbnailUrl: feedFixtures.hot.thumbnailUrl,
+        likeCount: feedFixtures.hot.likeCount,
+        commentCount: feedFixtures.hot.commentCount,
+        guessCount: feedFixtures.hot.guessCount,
+        viewCount: feedFixtures.hot.viewCount,
+        activityLevel: feedFixtures.hot.activityLevel,
+        lastActivityAt: feedFixtures.hot.lastActivityAt,
+        hasListing: true,
+      });
+    });
+
+    it('applies latest ordering and deterministic pagination without overlap', async () => {
+      const page1Res = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ filter: 'latest', page: 1, limit: 2 }),
+      });
+      const page2Res = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ filter: 'latest', page: 2, limit: 2 }),
+      });
+      const page3Res = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ filter: 'latest', page: 3, limit: 2 }),
+      });
+
+      expect(page1Res.statusCode).toBe(200);
+      expect(page2Res.statusCode).toBe(200);
+      expect(page3Res.statusCode).toBe(200);
+
+      const page1 = JSON.parse(page1Res.body);
+      const page2 = JSON.parse(page2Res.body);
+      const page3 = JSON.parse(page3Res.body);
+
+      expect(page1.pagination).toEqual({ page: 1, limit: 2, hasMore: true });
+      expect(page2.pagination).toEqual({ page: 2, limit: 2, hasMore: true });
+      expect(page3.pagination).toEqual({ page: 3, limit: 2, hasMore: false });
+
+      expect(page1.items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.recent.propertyId,
+        feedFixtures.hot.propertyId,
+      ]);
+      expect(page2.items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.warm.propertyId,
+        feedFixtures.like.propertyId,
+      ]);
+      expect(page3.items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.cold.propertyId,
+      ]);
+    });
+
+    it('respects limit while staying inside the owned listing-backed slice', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ filter: 'latest', limit: 3 }),
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      // Only test field structure if there are results
-      if (body.items.length > 0) {
-        const item = body.items[0];
-        expect(item).toHaveProperty('id');
-        expect(item).toHaveProperty('address');
-        expect(item).toHaveProperty('city');
-        expect(item).toHaveProperty('zipCode');
-        expect(item).toHaveProperty('countryCode');
-        expect(item).toHaveProperty('geometry');
-        expect(item).toHaveProperty('askingPrice');
-        expect(item).toHaveProperty('fmv');
-        expect(item).toHaveProperty('officialValuation');
-        expect(item).toHaveProperty('thumbnailUrl');
-        expect(item).toHaveProperty('likeCount');
-        expect(item).toHaveProperty('commentCount');
-        expect(item).toHaveProperty('guessCount');
-        expect(item).toHaveProperty('viewCount');
-        expect(item).toHaveProperty('activityLevel');
-        expect(item).toHaveProperty('lastActivityAt');
-        expect(item).toHaveProperty('hasListing');
-
-        // Type checks
-        expect(typeof item.id).toBe('string');
-        expect(typeof item.address).toBe('string');
-        expect(typeof item.city).toBe('string');
-        expect(typeof item.zipCode).toBe('string');
-        expect(typeof item.countryCode).toBe('string');
-        expect(typeof item.likeCount).toBe('number');
-        expect(typeof item.commentCount).toBe('number');
-        expect(typeof item.guessCount).toBe('number');
-        expect(typeof item.viewCount).toBe('number');
-        expect(['hot', 'warm', 'cold']).toContain(item.activityLevel);
-        expect(item.hasListing).toBe(true);
-      }
+      expect(body.pagination).toEqual({ page: 1, limit: 3, hasMore: true });
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.recent.propertyId,
+        feedFixtures.hot.propertyId,
+        feedFixtures.warm.propertyId,
+      ]);
     });
 
-    it('should respect limit parameter', async () => {
+    it('applies spatial and country filtering and excludes non-listing properties', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/feed?limit=3',
+        url: buildFeedUrl({ filter: 'latest', limit: 10 }),
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.items.length).toBeLessThanOrEqual(3);
-      expect(body.pagination.limit).toBe(3);
+      const returnedIds = body.items.map((item: { id: string }) => item.id);
+
+      expect(returnedIds).toEqual([
+        feedFixtures.recent.propertyId,
+        feedFixtures.hot.propertyId,
+        feedFixtures.warm.propertyId,
+        feedFixtures.like.propertyId,
+        feedFixtures.cold.propertyId,
+      ]);
+      expect(returnedIds).not.toContain(feedFixtures.outsideRadius.propertyId);
+      expect(returnedIds).not.toContain(noListingPropertyId);
+      expect(body.items.every((item: { hasListing: boolean }) => item.hasListing === true)).toBe(true);
     });
 
-    it('should support pagination', async () => {
-      // Use filter=latest for stable ordering (last_activity_at DESC, p.id)
-      // trending filter's score can shift when concurrent tests mutate data
-      const page1 = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=latest&page=1&limit=5',
-      });
-      const page2 = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=latest&page=2&limit=5',
-      });
-
-      expect(page1.statusCode).toBe(200);
-      expect(page2.statusCode).toBe(200);
-
-      const body1 = JSON.parse(page1.body);
-      const body2 = JSON.parse(page2.body);
-
-      expect(body1.pagination.page).toBe(1);
-      expect(body2.pagination.page).toBe(2);
-
-      // Pages should return different items (deterministic ordering via p.id tiebreaker)
-      if (body1.items.length > 0 && body2.items.length > 0) {
-        const ids1 = new Set(body1.items.map((i: { id: string }) => i.id));
-        const ids2 = body2.items.map((i: { id: string }) => i.id);
-        const overlap = ids2.filter((id: string) => ids1.has(id)).length;
-        // Allow minor overlap from concurrent test data mutations
-        expect(overlap).toBeLessThan(body2.items.length);
-      }
-    });
-
-    it('should return 400 for limit > 50', async () => {
+    it('returns 400 for limit > 50', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/feed?limit=100',
@@ -145,29 +555,7 @@ describe('Feed routes', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('should accept filter=trending', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=trending&limit=5',
-      });
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-    });
-
-    it('should accept filter=latest', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=latest&limit=5',
-      });
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-    });
-
-    it('should return 400 for obsolete filter values', async () => {
+    it('returns 400 for obsolete filter values', async () => {
       for (const filter of ['recent', 'controversial', 'price-mismatch']) {
         const response = await app.inject({
           method: 'GET',
@@ -177,182 +565,55 @@ describe('Feed routes', () => {
       }
     });
 
-    it('should accept lat/lon for spatial filtering', async () => {
-      // Eindhoven center coordinates
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?lat=51.4416&lon=5.4697&limit=5',
+    it('falls back to the newest active non-null thumbnail while keeping the latest active asking price', async () => {
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Thumbnail ${runId}`,
+        houseNumber: 11,
+        city: `Feed Fallback ${runId}`,
+        postalCode: '9811AZ',
+        lon: slice.lon + 0.2,
+        lat: slice.lat + 0.2,
       });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('items');
-      expect(body).toHaveProperty('pagination');
-    });
-
-    it('should only return properties with listings (hasListing=true)', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?limit=10',
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-
-      for (const item of body.items) {
-        expect(item.hasListing).toBe(true);
-      }
-    });
-
-    it('should have correct hasMore flag', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/feed?limit=1',
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-
-      // With limit=1, hasMore should be true if there are more than 1 item in the feed
-      if (body.items.length === 1) {
-        // hasMore could be true or false depending on total items
-        expect(typeof body.pagination.hasMore).toBe('boolean');
-      } else {
-        // No items means no more
-        expect(body.pagination.hasMore).toBe(false);
-      }
-    });
-
-    it('should fall back to the newest active non-null thumbnail while keeping the latest active asking price', async () => {
-      const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/feed-fallback-thumb.jpg';
+      cleanupPropertyIds.push(property.id);
 
-      await db.execute(sql`
-        INSERT INTO properties (
-          id,
-          country_code,
-          street,
-          house_number,
-          city,
-          postal_code,
-          status,
-          geometry
-        )
-        VALUES (
-          ${propertyId},
-          'NL',
-          'Feed Thumbnail Street',
-          11,
-          'FeedCity',
-          '7777ZZ',
-          'active',
-          ST_SetSRID(ST_MakePoint(0.01, 0.01), 4326)
-        )
-      `);
+      await createIntegrationListing({
+        propertyId: property.id,
+        askingPrice: 610000,
+        thumbnailUrl,
+        sourceUrl: `https://example.com/feed-older-${runId}`,
+        createdAt: atOffset({ days: 2 }),
+        updatedAt: atOffset({ days: 2 }),
+      });
+      await createIntegrationListing({
+        propertyId: property.id,
+        askingPrice: 645000,
+        thumbnailUrl: null,
+        sourceUrl: `https://example.com/feed-latest-${runId}`,
+        createdAt: atOffset({ days: 1 }),
+        updatedAt: atOffset({ days: 1 }),
+      });
 
-      await db.execute(sql`
-        INSERT INTO listings (
-          id,
-          property_id,
-          source_name,
-          source_url,
-          status,
-          asking_price,
-          thumbnail_url,
-          created_at,
-          updated_at
-        )
-        VALUES
-          (
-            ${crypto.randomUUID()},
-            ${propertyId},
-            'funda',
-            'https://example.com/feed-older',
-            'active',
-            610000,
-            ${thumbnailUrl},
-            NOW() - INTERVAL '2 days',
-            NOW() - INTERVAL '2 days'
-          ),
-          (
-            ${crypto.randomUUID()},
-            ${propertyId},
-            'funda',
-            'https://example.com/feed-latest',
-            'active',
-            645000,
-            NULL,
-            NOW() - INTERVAL '1 day',
-            NOW() - INTERVAL '1 day'
-          )
-      `);
+      await refreshLatestActiveListingsView();
 
-      await db.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings`);
+      const response = await app.inject({
+        method: 'GET',
+        url: `/feed?filter=latest&lat=${slice.lat + 0.2}&lon=${slice.lon + 0.2}&country=${slice.country}&limit=10`,
+      });
 
-      try {
-        const response = await app.inject({
-          method: 'GET',
-          url: '/feed?filter=latest&lat=0.01&lon=0.01&country=NL&limit=10',
-        });
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const item = body.items.find((entry: { id: string }) => entry.id === property.id);
 
-        expect(response.statusCode).toBe(200);
-        const body = JSON.parse(response.body);
-        const item = body.items.find((entry: { id: string }) => entry.id === propertyId);
-
-        expect(item).toBeDefined();
-        expect(item.thumbnailUrl).toBe(thumbnailUrl);
-        expect(item.askingPrice).toBe(645000);
-        expect(item.countryCode).toBe('NL');
-        expect(item.geometry).toEqual({
-          type: 'Point',
-          coordinates: [0.01, 0.01],
-        });
-      } finally {
-        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
-        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
-        await db.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings`);
-      }
+      expect(item).toBeDefined();
+      expect(item.thumbnailUrl).toBe(thumbnailUrl);
+      expect(item.askingPrice).toBe(645000);
+      expect(item.countryCode).toBe(slice.country);
+      expect(item.geometry).toEqual({
+        type: 'Point',
+        coordinates: [slice.lon + 0.2, slice.lat + 0.2],
+      });
     });
-
-    it('should return hasMore=true on a non-terminal page and hasMore=false on the terminal page', async () => {
-      // Probe total count with a large limit (max 50)
-      const probeRes = await app.inject({
-        method: 'GET',
-        url: '/feed?filter=latest&limit=50',
-      });
-      expect(probeRes.statusCode).toBe(200);
-      const probeBody = JSON.parse(probeRes.body);
-      const totalItems: number = probeBody.items.length;
-      const probeHasMore: boolean = probeBody.pagination.hasMore;
-
-      // Need at least 3 items so limit=2 gives a non-terminal first page
-      if (totalItems < 3 && !probeHasMore) {
-        return;
-      }
-
-      const limit = 2;
-
-      // Page 1 — with enough items, hasMore must be true
-      const page1Res = await app.inject({
-        method: 'GET',
-        url: `/feed?filter=latest&limit=${limit}&page=1`,
-      });
-      expect(page1Res.statusCode).toBe(200);
-      const page1 = JSON.parse(page1Res.body);
-      expect(page1.items.length).toBe(limit);
-      expect(page1.pagination.hasMore).toBe(true);
-
-      // Jump directly to a page that is guaranteed past the end.
-      // The DB may have up to ~144K listings, so use a very high page.
-      const beyondPage = 999999;
-      const lastRes = await app.inject({
-        method: 'GET',
-        url: `/feed?filter=latest&limit=${limit}&page=${beyondPage}`,
-      });
-      expect(lastRes.statusCode).toBe(200);
-      const lastBody = JSON.parse(lastRes.body);
-      expect(lastBody.items.length).toBe(0);
-      expect(lastBody.pagination.hasMore).toBe(false);
-    }, 15000);
   });
 });

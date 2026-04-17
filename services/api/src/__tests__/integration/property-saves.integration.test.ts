@@ -4,13 +4,19 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, savedProperties } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import crypto from 'node:crypto';
+import {
+  createIntegrationListing,
+  createIntegrationOsmBuildingRectangle,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
 
 /**
  * Integration tests for property save endpoints.
  *
  * Tests POST /properties/:id/save, DELETE /properties/:id/save,
- * GET /saved-properties, and verifies enriched GET /properties/:id isSaved.
+ * GET /saved-properties, and verifies enriched GET /properties/:id isSaved
+ * against fixtures owned by this suite.
  */
 describe('Property save routes', () => {
   jest.setTimeout(60000);
@@ -20,38 +26,86 @@ describe('Property save routes', () => {
   let propertyId: string;
   let propertyId2: string;
   const testUserIds: string[] = [];
+  const testPropertyIds: string[] = [];
+  const testListingIds: string[] = [];
+  const testOsmBuildingIds: number[] = [];
+  const listingThumbnailUrl = 'https://images.example.com/property-save-primary.jpg';
+  const firstSavedAt = '2024-01-01T00:00:00.000Z';
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Create test user
-    const uniqueId = `propsavetest${Date.now()}`;
-    const loginResp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
-    });
-    const loginBody = JSON.parse(loginResp.body);
-    userId = loginBody.session.user.id;
-    accessToken = loginBody.session.accessToken;
+    const auth = await createIntegrationUser(app, { label: 'property-saves' });
+    userId = auth.userId;
+    accessToken = auth.accessToken;
     testUserIds.push(userId);
 
-    // Get two real properties for testing
-    const propResp = await app.inject({
-      method: 'GET',
-      url: '/properties?limit=2',
+    const primaryProperty = await createIntegrationProperty({
+      street: 'Property Saves Street',
+      houseNumber: 10,
+      city: 'Fixturestad',
+      postalCode: '9910AA',
+      lon: 5.4701,
+      lat: 51.4401,
+      officialValuation: 410000,
+      yearBuilt: 1998,
+      floorAreaM2: 128,
     });
-    const propBody = JSON.parse(propResp.body);
-    expect(propBody.data.length).toBeGreaterThanOrEqual(2);
-    propertyId = propBody.data[0].id;
-    propertyId2 = propBody.data[1].id;
+    propertyId = primaryProperty.id;
+    testPropertyIds.push(primaryProperty.id);
+
+    const secondaryProperty = await createIntegrationProperty({
+      street: 'Property Saves Street',
+      houseNumber: 12,
+      city: 'Fixturestad',
+      postalCode: '9910AA',
+      lon: 5.4704,
+      lat: 51.4404,
+      officialValuation: 395000,
+      yearBuilt: 2004,
+      floorAreaM2: 116,
+    });
+    propertyId2 = secondaryProperty.id;
+    testPropertyIds.push(secondaryProperty.id);
+
+    const primaryListing = await createIntegrationListing({
+      propertyId,
+      sourceName: 'funda',
+      sourceUrl: `https://example.com/property-saves/${propertyId}`,
+      askingPrice: 455000,
+      thumbnailUrl: listingThumbnailUrl,
+    });
+    testListingIds.push(primaryListing.id);
   });
 
   afterAll(async () => {
-    // Clean up saved_properties and users created by this test
     for (const uid of testUserIds) {
       try {
         await db.delete(savedProperties).where(eq(savedProperties.userId, uid));
+      } catch {
+        // Ignore
+      }
+    }
+    if (testListingIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM listings
+        WHERE id IN (${sql.join(testListingIds.map((id) => sql`${id}`), sql`, `)})
+      `);
+    }
+    if (testPropertyIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM properties
+        WHERE id IN (${sql.join(testPropertyIds.map((id) => sql`${id}`), sql`, `)})
+      `);
+    }
+    if (testOsmBuildingIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM osm_buildings
+        WHERE osm_id IN (${sql.join(testOsmBuildingIds.map((id) => sql`${id}`), sql`, `)})
+      `);
+    }
+    for (const uid of testUserIds) {
+      try {
         await db.delete(users).where(eq(users.id, uid));
       } catch {
         // Ignore
@@ -81,6 +135,14 @@ describe('Property save routes', () => {
       expect(response.statusCode).toBe(201);
       const body = JSON.parse(response.body);
       expect(body.saved).toBe(true);
+
+      // Pin the initial save timestamp so saved-properties ordering is stable.
+      await db.execute(sql`
+        UPDATE saved_properties
+        SET created_at = ${firstSavedAt}::timestamptz
+        WHERE user_id = ${userId}
+          AND property_id = ${propertyId}
+      `);
     });
 
     it('should return 404 for non-existent property', async () => {
@@ -158,16 +220,17 @@ describe('Property save routes', () => {
       expect(body.data).toBeInstanceOf(Array);
       expect(body.data.length).toBe(1);
       expect(body.data[0].id).toBe(propertyId);
-      // Verify property summary fields are present
+      expect(body.data[0].hasListing).toBe(true);
+      expect(body.data[0].askingPrice).toBe(455000);
+      expect(body.data[0].thumbnailUrl).toBe(listingThumbnailUrl);
       expect(body.data[0]).toHaveProperty('street');
       expect(body.data[0]).toHaveProperty('houseNumber');
       expect(body.data[0]).toHaveProperty('city');
       expect(body.data[0]).toHaveProperty('address');
       expect(body.data[0]).toHaveProperty('savedAt');
-      expect(body.data[0]).toHaveProperty('hasListing');
-      expect(body.data[0]).toHaveProperty('thumbnailUrl');
       expect(body.data[0]).toHaveProperty('commentCount');
       expect(body.data[0]).toHaveProperty('guessCount');
+      expect(body.data[0].savedAt).toBe(firstSavedAt);
     });
 
     it('should return saved properties ordered by savedAt DESC', async () => {
@@ -229,53 +292,33 @@ describe('Property save routes', () => {
     });
 
     it('should return imageryGeometry for NL properties snapped to a nearby building', async () => {
-      const imageryPropertyId = crypto.randomUUID();
-      const imageryOsmId = Number(`8${Date.now()}`.slice(0, 12));
+      const imageryProperty = await createIntegrationProperty({
+        countryCode: 'NL',
+        street: 'Saved Imagery Street',
+        houseNumber: 9,
+        city: 'TestCity',
+        postalCode: '1234AB',
+        lon: 5.47,
+        lat: 51.44025,
+      });
+      testPropertyIds.push(imageryProperty.id);
 
-      await db.execute(sql`
-        INSERT INTO properties (
-          id,
-          country_code,
-          street,
-          house_number,
-          city,
-          postal_code,
-          status,
-          geometry
-        )
-        VALUES (
-          ${imageryPropertyId},
-          'NL',
-          'Saved Imagery Street',
-          9,
-          'TestCity',
-          '1234AB',
-          'active',
-          ST_SetSRID(ST_MakePoint(5.47, 51.44025), 4326)
-        )
-      `);
+      const imageryBuilding = await createIntegrationOsmBuildingRectangle({
+        minLon: 5.47035,
+        minLat: 51.44015,
+        maxLon: 5.47065,
+        maxLat: 51.44045,
+      });
+      testOsmBuildingIds.push(imageryBuilding.osmId);
 
-      await db.execute(sql`
-        INSERT INTO osm_buildings (osm_id, geometry)
-        VALUES (
-          ${imageryOsmId},
-          ST_SetSRID(
-            ST_GeomFromText(
-              'POLYGON((5.47035 51.44015, 5.47065 51.44015, 5.47065 51.44045, 5.47035 51.44045, 5.47035 51.44015))'
-            ),
-            4326
-          )
-        )
-      `);
+      const saveResponse = await app.inject({
+        method: 'POST',
+        url: `/properties/${imageryProperty.id}/save`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(saveResponse.statusCode).toBe(201);
 
       try {
-        const saveResponse = await app.inject({
-          method: 'POST',
-          url: `/properties/${imageryPropertyId}/save`,
-          headers: { authorization: `Bearer ${accessToken}` },
-        });
-        expect(saveResponse.statusCode).toBe(201);
-
         const response = await app.inject({
           method: 'GET',
           url: '/saved-properties?limit=10&offset=0',
@@ -284,7 +327,7 @@ describe('Property save routes', () => {
 
         expect(response.statusCode).toBe(200);
         const body = JSON.parse(response.body);
-        const savedProperty = body.data.find((item: { id: string }) => item.id === imageryPropertyId);
+        const savedProperty = body.data.find((item: { id: string }) => item.id === imageryProperty.id);
 
         expect(savedProperty).toBeDefined();
         expect(savedProperty.geometry.coordinates).toEqual([5.47, 51.44025]);
@@ -297,10 +340,8 @@ describe('Property save routes', () => {
         await db.execute(sql`
           DELETE FROM saved_properties
           WHERE user_id = ${userId}
-            AND property_id = ${imageryPropertyId}
+            AND property_id = ${imageryProperty.id}
         `);
-        await db.execute(sql`DELETE FROM properties WHERE id = ${imageryPropertyId}`);
-        await db.execute(sql`DELETE FROM osm_buildings WHERE osm_id = ${imageryOsmId}`);
       }
     });
   });

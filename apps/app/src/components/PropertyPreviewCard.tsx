@@ -64,13 +64,6 @@ const ADDRESS_BASE_FONT_SIZE = 16;
 const ADDRESS_BASE_LINE_HEIGHT = 20;
 const ADDRESS_MIN_FONT_SIZE = 11.5;
 
-type HitZoneRef = ((node: any) => void) | undefined;
-type HitZoneLayout = (() => void) | undefined;
-type NativeHitTargetRegistration = {
-  ref?: HitZoneRef;
-  onLayout?: HitZoneLayout;
-};
-
 // ─── Types ───────────────────────────────────────────────────────────────
 
 export interface PropertyPreviewData {
@@ -114,13 +107,6 @@ export interface PropertyPreviewCardProps {
   closeButtonTestID?: string;
   /** Whether to show the speech bubble arrow pointing downwards */
   showArrow?: boolean;
-  /** Optional native hit-target registrations used by map marker wrappers. */
-  nativeHitTargets?: {
-    close?: NativeHitTargetRegistration;
-    like?: NativeHitTargetRegistration;
-    comment?: NativeHitTargetRegistration;
-    guess?: NativeHitTargetRegistration;
-  };
 }
 
 function AutoFitAddressText({ address }: { address: string }) {
@@ -254,7 +240,6 @@ export function PropertyPreviewCard({
   showCloseButton = false,
   closeButtonTestID = 'property-preview-close-button',
   showArrow = false,
-  nativeHitTargets,
 }: PropertyPreviewCardProps) {
   const activityLevel = property.activityLevel ?? 'cold';
   const activity = ACTIVITY_CONFIG[activityLevel];
@@ -357,8 +342,6 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onLike?.();
             }}
-            ref={nativeHitTargets?.like?.ref}
-            onLayout={nativeHitTargets?.like?.onLayout}
             style={styles.actionButton}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-like-button"
@@ -381,8 +364,6 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onComment?.();
             }}
-            ref={nativeHitTargets?.comment?.ref}
-            onLayout={nativeHitTargets?.comment?.onLayout}
             style={styles.actionButton}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-comment-button"
@@ -398,8 +379,6 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onGuess?.();
             }}
-            ref={nativeHitTargets?.guess?.ref}
-            onLayout={nativeHitTargets?.guess?.onLayout}
             style={styles.actionButton}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-guess-button"
@@ -415,27 +394,23 @@ export function PropertyPreviewCard({
       {/* Close button — overlayed outside the main pressable so it cannot
           trigger the card body press handler on native. */}
       {showCloseButton && onClose && (
-        <View
-          ref={nativeHitTargets?.close?.ref}
-          onLayout={nativeHitTargets?.close?.onLayout}
+        <Pressable
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            onClose();
+          }}
           collapsable={Platform.OS !== 'web' ? false : undefined}
           style={styles.closeButtonHitArea}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          testID={closeButtonTestID}
+          accessibilityLabel="Close preview"
+          accessibilityHint="Closes this property preview card"
+          accessibilityRole="button"
         >
-          <Pressable
-            onPress={(e) => {
-              e?.stopPropagation?.();
-              onClose();
-            }}
-            style={styles.closeButton}
-            hitSlop={{ top: 9, bottom: 9, left: 9, right: 9 }}
-            testID={closeButtonTestID}
-            accessibilityLabel="Close preview"
-            accessibilityHint="Closes this property preview card"
-            accessibilityRole="button"
-          >
+          <View pointerEvents="none" style={styles.closeButton}>
             <Icon name="X" size={14} color={COLORS.warm700} />
-          </Pressable>
-        </View>
+          </View>
+        </Pressable>
       )}
     </View>
   );
@@ -505,15 +480,18 @@ const styles = StyleSheet.create({
   // Close button
   closeButtonHitArea: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 30,
-    height: 30,
+    top: 6,
+    right: 6,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 3,
   },
   closeButton: {
-    width: '100%',
-    height: '100%',
+    width: 30,
+    height: 30,
     borderRadius: 15,
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderWidth: 1,

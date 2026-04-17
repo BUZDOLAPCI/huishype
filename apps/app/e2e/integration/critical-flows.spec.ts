@@ -1,12 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { waitForFeedLoaded, waitForMapReady } from './helpers';
-import { getPlaywrightApiUrl, getPlaywrightArtifactPath, getPlaywrightWebOrigin } from '../helpers/runtime';
+import {
+  getPlaywrightApiUrl,
+  getPlaywrightArtifactPath,
+  getPlaywrightWebOrigin,
+} from '../helpers/runtime';
 
 /**
- * Integration tests for HuisHype that test the FULL STACK:
+ * Integration tests for HuisHype that exercise the real Playwright web runtime:
  * - Real API server (not MSW mocks)
  * - Real database (Docker Postgres with PostGIS)
- * - Real frontend app
+ * - Real statically served web app
  *
  * These tests catch real integration issues like:
  * - Wrong API URL prefixes
@@ -14,10 +18,9 @@ import { getPlaywrightApiUrl, getPlaywrightArtifactPath, getPlaywrightWebOrigin 
  * - Database connection issues
  * - Route registration problems
  *
- * IMPORTANT: These tests require:
- * 1. Docker services running (postgres, redis)
- * 2. API server running on port 3100
- * 3. Web app running on port 8081
+ * Normally these run through the root Playwright wrapper, which provisions the
+ * API process and static web runtime on dynamic ports and exposes them through
+ * the runtime helpers imported below.
  */
 
 const API_BASE_URL = getPlaywrightApiUrl();
@@ -40,7 +43,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
     test('API CORS is configured correctly', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/health`, {
         headers: {
-          'Origin': getPlaywrightWebOrigin(),
+          Origin: getPlaywrightWebOrigin(),
         },
       });
 
@@ -129,7 +132,9 @@ test.describe('Critical Flows - Full Stack Integration', () => {
         const city = allData.data[0].city;
 
         // Filter by that city
-        const filteredResponse = await request.get(`${API_BASE_URL}/properties?city=${encodeURIComponent(city)}`);
+        const filteredResponse = await request.get(
+          `${API_BASE_URL}/properties?city=${encodeURIComponent(city)}`
+        );
         expect(filteredResponse.ok()).toBe(true);
 
         const filteredData = await filteredResponse.json();
@@ -159,7 +164,9 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       const lon = 4.9041;
       const radius = 5000; // 5km
 
-      const response = await request.get(`${API_BASE_URL}/properties?lat=${lat}&lon=${lon}&radius=${radius}&limit=10`);
+      const response = await request.get(
+        `${API_BASE_URL}/properties?lat=${lat}&lon=${lon}&radius=${radius}&limit=10`
+      );
       expect(response.ok()).toBe(true);
 
       const data = await response.json();
@@ -183,7 +190,9 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       // Listen for failed requests
       const failedRequests: string[] = [];
       page.on('requestfailed', (request) => {
-        failedRequests.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`);
+        failedRequests.push(
+          `${request.method()} ${request.url()}: ${request.failure()?.errorText}`
+        );
       });
 
       await page.goto('/');
@@ -235,8 +244,8 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       // Verify API calls went to a real API (not a mock)
       // Match any host on port 3100 (localhost, LAN IP, etc.)
-      const validApiCalls = apiCalls.filter((url) =>
-        url.includes(':3100/') || url.includes(API_BASE_URL)
+      const validApiCalls = apiCalls.filter(
+        (url) => url.includes(':3100/') || url.includes(API_BASE_URL)
       );
       expect(validApiCalls.length).toBeGreaterThan(0);
     });
@@ -246,13 +255,15 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       await page.waitForLoadState('networkidle').catch(() => {});
 
       // Try to navigate to feed tab
-      const feedTab = page.getByRole('tab', { name: /feed/i }).or(
-        page.locator('[data-testid="feed-tab"]')
-      ).or(
-        page.locator('text=Feed')
-      );
+      const feedTab = page
+        .getByRole('tab', { name: /feed/i })
+        .or(page.locator('[data-testid="feed-tab"]'))
+        .or(page.locator('text=Feed'));
 
-      const isFeedTabVisible = await feedTab.first().isVisible().catch(() => false);
+      const isFeedTabVisible = await feedTab
+        .first()
+        .isVisible()
+        .catch(() => false);
 
       if (isFeedTabVisible) {
         await feedTab.first().click();
@@ -343,7 +354,9 @@ test.describe('Comments API - Full Stack', () => {
       if (propertiesData.data.length > 0) {
         const propertyId = propertiesData.data[0].id;
 
-        const commentsResponse = await request.get(`${API_BASE_URL}/properties/${propertyId}/comments`);
+        const commentsResponse = await request.get(
+          `${API_BASE_URL}/properties/${propertyId}/comments`
+        );
 
         // Comments endpoint should exist and return valid structure
         expect(commentsResponse.ok()).toBe(true);
@@ -367,7 +380,9 @@ test.describe('Guesses API - Full Stack', () => {
       if (propertiesData.data.length > 0) {
         const propertyId = propertiesData.data[0].id;
 
-        const guessesResponse = await request.get(`${API_BASE_URL}/properties/${propertyId}/guesses`);
+        const guessesResponse = await request.get(
+          `${API_BASE_URL}/properties/${propertyId}/guesses`
+        );
 
         // Guesses endpoint should exist and return valid structure
         expect(guessesResponse.ok()).toBe(true);

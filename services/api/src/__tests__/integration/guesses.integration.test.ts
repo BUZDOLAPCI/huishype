@@ -9,7 +9,7 @@ import { createIntegrationProperty } from './helpers/fixtures.js';
 /**
  * Integration tests for guess routes.
  *
- * Creates a test user via auth, fetches a real property from the DB,
+ * Creates a test user via auth, inserts a suite-owned property fixture,
  * then exercises the price guess API including immediate guess updates.
  */
 describe('Guess routes', () => {

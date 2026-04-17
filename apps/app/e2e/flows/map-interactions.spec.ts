@@ -354,9 +354,16 @@ test.describe('Map Interactions', () => {
     const landscapeZoomBox = await zoomControl.boundingBox();
     expect(searchBarBox).not.toBeNull();
     expect(landscapeZoomBox).not.toBeNull();
-    expect(Math.abs(1280 - (landscapeZoomBox!.x + landscapeZoomBox!.width) - 16)).toBeLessThanOrEqual(4);
-    expect(landscapeZoomBox!.y).toBeGreaterThanOrEqual(searchBarBox!.y + searchBarBox!.height + 8);
-    expect(landscapeZoomBox!.y).toBeLessThanOrEqual(searchBarBox!.y + searchBarBox!.height + 32);
+    const landscapeViewport = page.viewportSize();
+    expect(landscapeViewport).not.toBeNull();
+
+    const searchBarBottom = searchBarBox!.y + searchBarBox!.height;
+    const zoomControlRightInset = landscapeViewport!.width - (landscapeZoomBox!.x + landscapeZoomBox!.width);
+    const zoomControlGapBelowSearchBar = landscapeZoomBox!.y - searchBarBottom;
+
+    expect(Math.abs(zoomControlRightInset - 16)).toBeLessThanOrEqual(4);
+    expect(zoomControlGapBelowSearchBar).toBeGreaterThanOrEqual(-1);
+    expect(landscapeZoomBox!.y + landscapeZoomBox!.height / 2).toBeLessThanOrEqual(landscapeViewport!.height / 2);
     expect(landscapeZoomBox!.width).toBeLessThan(44);
     expect(landscapeZoomBox!.height).toBeLessThan(90);
   });

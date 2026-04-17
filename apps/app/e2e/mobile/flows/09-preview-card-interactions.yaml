@@ -10,8 +10,8 @@ appId: nl.huishype.app
 # This is a sub-flow; user is authenticated and on the Map tab after
 # cluster-preview flow.
 #
-# Preview interactions now use surfaced native testIDs. This flow intentionally
-# exercises the actual preview buttons instead of coordinate-based taps.
+# Preview interactions now use the actual native Pressables in the absolute
+# overlay, not the retired Marker hit-test shim.
 
 # =====================================================================
 # SETUP: Navigate to the fixture property to get a single preview card
@@ -126,10 +126,6 @@ appId: nl.huishype.app
 # TEST 2: Card body tap opens property details (bottom sheet)
 # =====================================================================
 
-- tapOn:
-    id: 'group-preview-touch-overlay'
-- waitForAnimationToEnd
-
 - extendedWaitUntil:
     visible:
       id: 'property-header-carousel'
@@ -143,11 +139,6 @@ appId: nl.huishype.app
 
 - tapOn:
     id: 'property-preview-address'
-    optional: true
-- waitForAnimationToEnd
-
-- tapOn:
-    id: 'group-preview-touch-overlay'
     optional: true
 - waitForAnimationToEnd
 

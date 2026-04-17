@@ -197,26 +197,35 @@ export default function MapScreen() {
   // tap doesn't fall through to the map's onPress handler.
   const previewCardTouchedRef = useRef(false);
   const mapViewportSizeRef = useRef({ width: 0, height: 0 });
-  const shouldRenderNativePreviewOverlay =
-    Platform.OS !== 'web' &&
-    !!interaction.previewGroup &&
-    interaction.previewGroup.properties.length > 0;
+  const nativePreviewGroup = useMemo(() => {
+    if (Platform.OS === 'web') {
+      return null;
+    }
+
+    const previewGroup = interaction.previewGroup;
+    if (!previewGroup || previewGroup.properties.length === 0) {
+      return null;
+    }
+
+    return previewGroup;
+  }, [interaction.previewGroup]);
+  const shouldRenderNativePreviewOverlay = nativePreviewGroup !== null;
 
   const refreshNativePreviewPoint = useCallback(async () => {
-    if (!shouldRenderNativePreviewOverlay || !mapLoaded || !mapRef.current) {
+    if (!nativePreviewGroup || !mapLoaded || !mapRef.current) {
       setNativePreviewPoint(null);
       return;
     }
 
     try {
-      const point = await mapRef.current.project(interaction.previewGroup.coordinate);
+      const point = await mapRef.current.project(nativePreviewGroup.coordinate);
       setNativePreviewPoint([point[0], point[1]]);
     } catch (error) {
       if (__DEV__) {
         console.warn('[HuisHype] Failed to project preview card anchor:', error);
       }
     }
-  }, [interaction.previewGroup, mapLoaded, shouldRenderNativePreviewOverlay]);
+  }, [mapLoaded, nativePreviewGroup]);
 
   // Build a camera adapter for the shared hook
   const cameraCommands: MapCameraCommands = useMemo(() => ({
@@ -570,7 +579,7 @@ export default function MapScreen() {
         </Map>
         )}
 
-        {shouldRenderNativePreviewOverlay && nativePreviewPoint && interaction.previewGroup && (
+        {shouldRenderNativePreviewOverlay && nativePreviewPoint && nativePreviewGroup && (
           <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
             <View
               style={[
@@ -609,7 +618,7 @@ export default function MapScreen() {
                 }}
               >
                 <GroupPreviewCard
-                  properties={interaction.previewGroup.properties}
+                  properties={nativePreviewGroup.properties}
                   currentIndex={interaction.currentPreviewIndex}
                   onIndexChange={interaction.setCurrentPreviewIndex}
                   onClose={interaction.handleClosePreview}

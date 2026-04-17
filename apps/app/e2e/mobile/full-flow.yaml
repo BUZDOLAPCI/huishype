@@ -11,16 +11,15 @@
 #   9. Preview card touch interactions (tap-through, quick actions, swipe pagination)
 #
 # Prerequisites:
-# - App installed on emulator, Metro dev server running
-# - Backend API accessible with seeded test fixture data
-#   (run: pnpm --filter api run db:seed-fixture)
+# - App installed on a connected Android test device, Metro dev server running
+# - Backend API accessible with the Beeldbuisring 41 fixture data used by these flows
+#   (run: pnpm --filter @huishype/api db:seed-test-fixture)
 #
 # Usage:
 # maestro test apps/app/e2e/mobile/full-flow.yaml
 
 appId: nl.huishype.app
 ---
-
 # === UNAUTHENTICATED PHASES ===
 - runFlow: flows/01-smoke.yaml
 - runFlow: flows/02-feed.yaml

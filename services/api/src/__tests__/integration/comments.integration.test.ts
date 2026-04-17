@@ -9,7 +9,7 @@ import { createIntegrationProperty } from './helpers/fixtures.js';
 /**
  * Integration tests for comment routes.
  *
- * Creates a test user via auth, fetches a real property from the DB,
+ * Creates test users via auth, inserts a suite-owned property fixture,
  * then exercises the comments CRUD API.
  */
 describe('Comment routes', () => {
@@ -338,10 +338,14 @@ describe('Comment routes', () => {
       });
       expect(anonymousResponse.statusCode).toBe(200);
       const anonymousBody = JSON.parse(anonymousResponse.body);
-      const anonymousParent = anonymousBody.data.find((c: { id: string }) => c.id === parentBody.id);
+      const anonymousParent = anonymousBody.data.find(
+        (c: { id: string }) => c.id === parentBody.id
+      );
       expect(anonymousParent.isLiked).toBe(false);
       expect(anonymousParent.likeCount).toBe(1);
-      const anonymousReply = anonymousParent.replies.find((r: { id: string }) => r.id === replyBody.id);
+      const anonymousReply = anonymousParent.replies.find(
+        (r: { id: string }) => r.id === replyBody.id
+      );
       expect(anonymousReply.isLiked).toBe(false);
       expect(anonymousReply.likeCount).toBe(1);
 

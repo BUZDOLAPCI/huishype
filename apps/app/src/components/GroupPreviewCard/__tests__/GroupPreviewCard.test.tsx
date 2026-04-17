@@ -120,6 +120,21 @@ describe('GroupPreviewCard', () => {
       expect(screen.queryByTestId('property-preview-close-button')).toBeNull();
     });
 
+    it('does not mount the retired native hit-test overlay above the real card pressable', () => {
+      render(
+        <GroupPreviewCard
+          properties={[makeProperty()]}
+          onClose={jest.fn()}
+        />
+      );
+
+      const previewSurface = screen.getByTestId('group-preview-touch-overlay');
+
+      expect(previewSurface.props.onTouchStart).toBeUndefined();
+      expect(previewSurface.props.onTouchMove).toBeUndefined();
+      expect(previewSurface.props.onTouchEnd).toBeUndefined();
+    });
+
     it('fires onPropertyTap when card body is pressed', () => {
       const onPropertyTap = jest.fn();
       const prop = makeProperty();

@@ -84,10 +84,11 @@ Unit-test runners are mixed by workspace: `apps/app` and `services/api` use Jest
 |---------|-------------|
 | `pnpm dev` | Run workspace `dev` scripts via Turborepo |
 | `pnpm build` | Build all packages |
-| `pnpm test` | Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration |
+| `pnpm test` | Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright harness self-tests + Playwright integration |
 | `pnpm test:all` | Broader superset: `pnpm test` plus Playwright flows, Playwright visual, and mobile E2E |
 | `pnpm test:unit` | Run unit tests for app, API, worker, shared, api-client, and mocks |
 | `pnpm test:integration` | Run API integration tests |
+| `pnpm test:e2e:harness` | Run the Playwright wrapper self-tests under `scripts/playwright/*.test.mjs` |
 | `pnpm test:e2e:web` | Run the full root Playwright suite via `scripts/playwright/run-playwright-project.mjs` |
 | `pnpm test:e2e:integration` | Run the Playwright integration project |
 | `pnpm test:e2e:flows` | Run the Playwright flows project |
