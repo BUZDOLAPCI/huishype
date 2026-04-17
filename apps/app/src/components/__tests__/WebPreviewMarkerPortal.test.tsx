@@ -4,7 +4,16 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import type { PreviewGroup } from '@/src/hooks/useMapInteraction';
 
-const mockGroupPreviewCard = jest.fn((props: any) => (
+type MockPreviewCardProps = {
+  properties: Array<{
+    address: string;
+    thumbnailUrl?: string | null;
+  }>;
+  currentIndex: number;
+  arrowDirection: string;
+};
+
+const mockGroupPreviewCard = jest.fn((props: MockPreviewCardProps) => (
   <div data-testid="mock-group-preview-card">
     <span data-testid="mock-address">{props.properties[props.currentIndex].address}</span>
     <span data-testid="mock-thumbnail">
@@ -22,7 +31,7 @@ var mockMarkerInstances: Array<{
 }> = [];
 
 jest.mock('../GroupPreviewCard', () => ({
-  GroupPreviewCard: (props: any) => mockGroupPreviewCard(props),
+  GroupPreviewCard: (props: MockPreviewCardProps) => mockGroupPreviewCard(props),
 }));
 
 jest.mock('maplibre-gl', () => {
@@ -58,6 +67,8 @@ import { WebPreviewMarkerPortal } from '../WebPreviewMarkerPortal';
 const { Marker: mockMarkerConstructor } = jest.requireMock('maplibre-gl') as {
   Marker: jest.Mock;
 };
+
+type PortalMap = React.ComponentProps<typeof WebPreviewMarkerPortal>['map'];
 
 let container: HTMLDivElement;
 let root: Root;
@@ -103,7 +114,7 @@ describe('WebPreviewMarkerPortal', () => {
   it('updates preview content without recreating the marker when hydration fills fields', () => {
     const map = {
       project: jest.fn().mockReturnValue({ y: 320 }),
-    } as any;
+    } as unknown as PortalMap;
 
     const initialPreview = buildPreviewGroup();
     renderToDOM(
@@ -165,7 +176,7 @@ describe('WebPreviewMarkerPortal', () => {
   it('recreates the marker when the preview coordinate changes', () => {
     const map = {
       project: jest.fn().mockReturnValue({ y: 120 }),
-    } as any;
+    } as unknown as PortalMap;
 
     renderToDOM(
       <WebPreviewMarkerPortal

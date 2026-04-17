@@ -23,7 +23,10 @@ import {
 import { useAuth } from '@/src/hooks/useAuth';
 import { AuthModal } from '@/src/components';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
-import { resolvePropertyImageWithType } from '@/src/utils/property-image';
+import {
+  resolvePropertyImageWithType,
+  toPropertyImageSource,
+} from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
@@ -261,12 +264,9 @@ export function GuessesRouteScreen({
       .slice(0, 20);
   }, [guessData?.guesses]);
 
-  const propertyImage = property
-    ? resolvePropertyImageWithType({
-        listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
-        aerialImageUrl: (property as any).aerialImageUrl ?? null,
-        countryCode: property.countryCode,
-      })
+  const propertyImageSource = property ? toPropertyImageSource(property) : null;
+  const propertyImage = propertyImageSource
+    ? resolvePropertyImageWithType(propertyImageSource)
     : { url: null, type: 'placeholder' as const };
 
   const handleGuessSubmit = useCallback(

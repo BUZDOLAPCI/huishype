@@ -22,19 +22,6 @@ test.use({ trace: 'off', video: 'off' });
 const EXPECTATION_NAME = 'pdok-aerial-imagery';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Test coordinates - Tegenbosch 16, Eindhoven from BAG / Woningstats
-const TEGENBOSCH_COORDS = {
-  lat: 51.4613225767584,
-  lon: 5.41869962895219,
-  // Expected RD coordinates: X: 157189.018, Y: 385806.139
-};
-
-// Secondary test coordinates - Dom Tower, Utrecht (well-known landmark)
-const DOM_TOWER_COORDS = {
-  lat: 52.0907,
-  lon: 5.1214,
-};
-
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
@@ -100,9 +87,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Manually construct the URL using the same logic as the utility
     // This is to test the URL format independently of the React app
     // Using Tegenbosch 16, Eindhoven - BAG / Woningstats reference location
-    const lat = TEGENBOSCH_COORDS.lat;
-    const lon = TEGENBOSCH_COORDS.lon;
-
     // RD New coordinates from BAG / Woningstats
     const rdX = 157189.018;
     const rdY = 385806.139;
@@ -365,7 +349,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(bboxParts.length).toBe(4);
 
     // All BBOX coordinates should be valid numbers (in RD New format ~100000-300000 range)
-    bboxParts.forEach((coord, index) => {
+    bboxParts.forEach((coord, _index) => {
       const num = parseFloat(coord);
       expect(isNaN(num)).toBe(false);
       // RD coordinates for Netherlands are typically in range 0-300000

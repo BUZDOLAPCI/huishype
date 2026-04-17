@@ -14,6 +14,7 @@ import fs from 'fs';
 import { waitForMapStyleLoaded } from '../visual/helpers/visual-test-helpers';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import type { WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 
@@ -107,7 +108,7 @@ test.describe('App Boot & Navigation', () => {
 
     // Verify map instance exists and is functional
     const mapState = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return null;
       return {
         zoom: map.getZoom?.() ?? 0,
@@ -153,12 +154,6 @@ test.describe('App Boot & Navigation', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/app-feed-tab.png` });
 
     // Verify we are on the feed page - check for feed-specific content
-    const feedScreen = page.locator('[data-testid="feed-screen"]');
-    const feedLoading = page.locator('[data-testid="feed-loading"]');
-    const feedEmpty = page.locator('[data-testid="feed-empty"]');
-    const feedError = page.locator('[data-testid="feed-error"]');
-    const filterChip = page.locator('[data-testid="filter-chip-trending"]');
-
     const onFeedPage = await isAnyVisible(page, [
       '[data-testid="feed-screen"]',
       '[data-testid="feed-loading"]',
@@ -205,7 +200,7 @@ test.describe('App Boot & Navigation', () => {
     await waitForMapStyleLoaded(page);
 
     const zoom = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map?.getZoom?.() ?? null;
     });
     expect(zoom).not.toBeNull();

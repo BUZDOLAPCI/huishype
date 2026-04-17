@@ -10,6 +10,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import type { MapFeature, WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 
@@ -29,7 +30,7 @@ async function waitForMapReady(page: Page, timeout = 60000) {
   // First wait for the map instance to exist
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map && typeof map.getZoom === 'function';
     },
     { timeout, polling: 500 }
@@ -37,8 +38,8 @@ async function waitForMapReady(page: Page, timeout = 60000) {
   // Then wait for it to be loaded (tiles/style downloaded)
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
-      return map?.loaded() ?? false;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      return map?.loaded?.() ?? false;
     },
     { timeout: Math.min(timeout, 30000), polling: 1000 }
   ).catch(() => {
@@ -49,7 +50,7 @@ async function waitForMapReady(page: Page, timeout = 60000) {
 /** Get the current zoom level from the map */
 async function getMapZoom(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const map = (window as any).__mapInstance;
+    const map = (window as WindowWithMapInstance).__mapInstance;
     return map ? map.getZoom() : -1;
   });
 }
@@ -63,7 +64,7 @@ async function setMapView(
 ) {
   await page.evaluate(
     ({ center, zoom, pitch }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (map) {
         map.setCenter(center);
         map.setZoom(zoom);
@@ -83,18 +84,26 @@ async function setMapView(
 async function queryFeaturesAtCenter(
   page: Page,
   layers: string[]
-): Promise<Array<{ point_count?: number; property_ids?: string; id?: string }>> {
+): Promise<
+  Array<{
+    point_count?: number | string;
+    property_ids?: string | string[];
+    id?: string | number;
+  }>
+> {
   return page.evaluate(
     ({ layers }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return [];
       const center = map.getCenter();
+      if (!center) return [];
+
       const point = map.project(center);
       const features = map.queryRenderedFeatures(
         [point.x, point.y],
         { layers: layers.filter((l: string) => map.getLayer(l)) }
       );
-      return features.map((f: any) => ({
+      return features.map((f: MapFeature) => ({
         point_count: f.properties?.point_count,
         property_ids: f.properties?.property_ids,
         id: f.properties?.id,
@@ -185,13 +194,11 @@ test.describe('Cluster Tap Flow', () => {
       [z, x - 1, y],
     ];
 
-    let tileResponse: any = null;
     for (const [tz, tx, ty] of tilesToTry) {
       const resp = await request.get(
         `${API_BASE_URL}/tiles/properties/${tz}/${tx}/${ty}.pbf`
       );
       if (resp.status() === 200) {
-        tileResponse = resp;
         console.log(`Found tile with data at z${tz}/${tx}/${ty}`);
         break;
       }
@@ -203,7 +210,7 @@ test.describe('Cluster Tap Flow', () => {
     if (batchResp.status() === 200) {
       const data = await batchResp.json();
       if (data.data && data.data.length > 0) {
-        const ids = data.data.map((p: any) => p.id).join(',');
+        const ids = data.data.map((p: { id: string }) => p.id).join(',');
         const batchResult = await request.get(
           `${API_BASE_URL}/properties/batch?ids=${ids}`
         );
@@ -348,7 +355,6 @@ test.describe('Cluster Tap Flow', () => {
 
       // Property bottom sheet should have a selected property
       const hasSelectedProperty = await page.evaluate(() => {
-        const map = (window as any).__mapInstance;
         // Check for selected marker
         const marker = document.querySelector('[data-testid="selected-marker"]');
         return !!marker;
@@ -408,19 +414,28 @@ test.describe('Cluster Tap Flow', () => {
 
     // Query cluster features and check for property_ids
     const clusterFeatures = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return [];
 
       const features = map.queryRenderedFeatures(undefined, {
-        layers: ['property-clusters'].filter((l: string) => map.getLayer(l)),
+        layers: ['property-clusters'].filter((layer: string) => map.getLayer(layer)),
       });
 
-      return features.slice(0, 5).map((f: any) => ({
-        point_count: f.properties?.point_count,
-        has_property_ids: !!f.properties?.property_ids,
-        property_ids_length: f.properties?.property_ids
-          ? f.properties.property_ids.split(',').length
-          : 0,
+      return features.slice(0, 5).map((feature: MapFeature) => ({
+        point_count: feature.properties?.point_count,
+        has_property_ids: !!feature.properties?.property_ids,
+        property_ids_length: (() => {
+          const propertyIds = feature.properties?.property_ids;
+          if (!propertyIds) {
+            return 0;
+          }
+
+          if (typeof propertyIds === 'string') {
+            return propertyIds.split(',').filter(Boolean).length;
+          }
+
+          return propertyIds.length;
+        })(),
       }));
     });
 

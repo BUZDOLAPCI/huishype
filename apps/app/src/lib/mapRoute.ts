@@ -3,12 +3,10 @@ import {
   buildCanonicalCitySlug,
   buildCanonicalCommentsPath,
   buildCanonicalGuessesPath,
-  buildCanonicalHouseSegment,
   buildCanonicalMapPreviewPath,
   buildCanonicalPostcodeMapPath,
   buildCanonicalPostcodeSlug,
   buildCanonicalPropertyPath,
-  buildCanonicalStreetSlug,
   normalizePostalCode,
   parseCanonicalCameraPath,
   resolveCanonicalCountryPrefix,
@@ -19,7 +17,7 @@ import {
   type GeocodeSuggestion,
 } from '@huishype/shared';
 import { apiGeocoder } from '@/src/services/api-geocoder';
-import { searchAddresses, splitHouseNumber, type ResolvedAddress } from '@/src/services/address-resolver';
+import { splitHouseNumber, type ResolvedAddress } from '@/src/services/address-resolver';
 import {
   resolveProperty,
   type PropertyResolveResult,
@@ -160,29 +158,6 @@ function slugToQueryText(slug: string): string {
 
 function isAreaLevelSuggestion(result: GeocodeSuggestion): boolean {
   return !result.street && !result.houseNumber;
-}
-
-function buildCanonicalInputFromResolvedAddress(
-  result: ResolvedAddress,
-): CanonicalPropertyRouteInput | null {
-  const houseNumber = result.details.houseNumber ?? null;
-  if (
-    !result.details.city ||
-    !result.details.zip ||
-    !result.details.street ||
-    !houseNumber
-  ) {
-    return null;
-  }
-
-  return {
-    city: result.details.city,
-    postalCode: result.details.zip,
-    streetName: result.details.street,
-    houseNumber,
-    houseNumberAddition: result.details.houseNumberAddition,
-    countryCode: result.details.countryCode ?? 'NL',
-  };
 }
 
 function matchesCitySuggestion(

@@ -24,7 +24,7 @@ test.beforeAll(async () => {
 
 async function setMapZoom(page: Page, zoom: number): Promise<void> {
   const didSetZoom = await page.evaluate(({ targetZoom, center }) => {
-    const map = (window as any).__mapInstance;
+    const map = window.__mapInstance;
     if (!map) return false;
     map.jumpTo({
       center,
@@ -39,7 +39,7 @@ async function setMapZoom(page: Page, zoom: number): Promise<void> {
 
   await page.waitForFunction(
     (targetZoom) => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       if (!map) {
         return false;
       }
@@ -52,7 +52,7 @@ async function setMapZoom(page: Page, zoom: number): Promise<void> {
 
   await page.waitForFunction(
     ({ clusterLayerId, previewLimit }) => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       if (!map || !map.isStyleLoaded?.()) {
         return false;
       }
@@ -67,7 +67,7 @@ async function setMapZoom(page: Page, zoom: number): Promise<void> {
         { layers: [clusterLayerId] }
       ) || [];
 
-      return features.some((feature: any) => {
+      return features.some((feature) => {
         const pointCount = Number(feature.properties?.point_count || 0);
         const propertyIdCount = String(feature.properties?.property_ids || '')
           .split(',')
@@ -95,7 +95,7 @@ async function clearPreviewState(page: Page): Promise<void> {
 async function openClusterPreview(page: Page): Promise<{ success: boolean; pointCount?: number }> {
   const candidates = await page.evaluate(
     ({ clusterLayerId, previewLimit }) => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       if (!map) {
         return [];
       }
@@ -116,12 +116,12 @@ async function openClusterPreview(page: Page): Promise<{ success: boolean; point
       const centerY = canvas.height / 2;
 
       return features
-        .filter((feature: any) =>
+        .filter((feature) =>
           feature.geometry?.type === 'Point' &&
           Number(feature.properties?.point_count || 0) > 1 &&
           Number(feature.properties?.point_count || 0) <= previewLimit
         )
-        .map((feature: any) => {
+        .map((feature) => {
           const propertyIds = String(feature.properties?.property_ids || '')
             .split(',')
             .filter(Boolean);
@@ -139,8 +139,8 @@ async function openClusterPreview(page: Page): Promise<{ success: boolean; point
               point.y <= canvas.height - edgeMargin,
           };
         })
-        .filter((candidate: any) => candidate.propertyIdCount > 1 && candidate.inBounds)
-        .sort((a: any, b: any) => a.distanceToCenter - b.distanceToCenter);
+        .filter((candidate) => candidate.propertyIdCount > 1 && candidate.inBounds)
+        .sort((a, b) => a.distanceToCenter - b.distanceToCenter);
     },
     {
       clusterLayerId: PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,

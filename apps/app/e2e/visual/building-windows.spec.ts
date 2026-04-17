@@ -70,7 +70,7 @@ test.describe('3D Building Windows', () => {
       // Navigate to Eindhoven center with 3D pitch
       await page.evaluate(
         ({ center, z }) => {
-          const map = (window as any).__mapInstance;
+          const map = window.__mapInstance;
           map.jumpTo({
             center,
             zoom: z,
@@ -87,7 +87,7 @@ test.describe('3D Building Windows', () => {
 
       // Verify 3d-buildings layer exists
       const layerInfo = await page.evaluate(() => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         const has3DBuildings = !!map.getLayer('3d-buildings');
         const currentZoom = map.getZoom();
         return { has3DBuildings, currentZoom };

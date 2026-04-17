@@ -1,4 +1,4 @@
-import { Page, ConsoleMessage, Response } from '@playwright/test';
+import { Page, ConsoleMessage, Request, Response } from '@playwright/test';
 import * as path from 'path';
 import {
   MAP_ALLOWED_CONSOLE_PATTERNS,
@@ -199,9 +199,9 @@ export class ConsoleCollector {
 export class ApiTracker {
   private calls: ApiCallEntry[] = [];
   private page: Page | null = null;
-  private requestListener: ((request: any) => void) | null = null;
+  private requestListener: ((request: Request) => void) | null = null;
   private responseListener: ((response: Response) => void) | null = null;
-  private failedListener: ((request: any) => void) | null = null;
+  private failedListener: ((request: Request) => void) | null = null;
   private pendingRequests: Map<string, { startTime: number; method: string; url: string }> = new Map();
 
   /**
@@ -214,7 +214,7 @@ export class ApiTracker {
     this.calls = [];
     this.pendingRequests = new Map();
 
-    this.requestListener = (request: any) => {
+    this.requestListener = (request: Request) => {
       const url = request.url();
       if (urlPattern.test(url)) {
         this.pendingRequests.set(request.url() + request.method(), {
@@ -243,7 +243,7 @@ export class ApiTracker {
       }
     };
 
-    this.failedListener = (request: any) => {
+    this.failedListener = (request: Request) => {
       const url = request.url();
       const key = url + request.method();
       const pending = this.pendingRequests.get(key);
@@ -598,7 +598,7 @@ export function createVisualTestContext(page: Page, testName: string): VisualTes
 export async function waitForMapStyleLoaded(page: Page, timeout: number = 45000): Promise<void> {
   await page.waitForFunction(
     () => {
-      const m = (window as any).__mapInstance;
+      const m = window.__mapInstance;
       if (!m) return false;
       if (typeof m.isStyleLoaded === 'function' && m.isStyleLoaded()) {
         return true;
@@ -621,7 +621,7 @@ export async function waitForMapStyleLoaded(page: Page, timeout: number = 45000)
 export async function waitForMapIdle(page: Page, timeout: number = 15000): Promise<void> {
   await page.evaluate((t) => {
     return new Promise<void>((resolve) => {
-      const m = (window as any).__mapInstance;
+      const m = window.__mapInstance;
       if (!m) { resolve(); return; }
       if (m.areTilesLoaded && m.areTilesLoaded() && m.isStyleLoaded()) { resolve(); }
       else {

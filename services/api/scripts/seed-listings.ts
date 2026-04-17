@@ -583,7 +583,6 @@ async function seedListings() {
       let listingBuffer: ListingRow[] = [];
       let unmatchedBuffer: UnmatchedListing[] = [];
       let totalInserted = 0;
-      let totalDuplicates = 0;
 
       while (offset < totalListings) {
         const batch: MirrorListing[] = await mirrorDb`
@@ -668,7 +667,6 @@ async function seedListings() {
               try {
                 const result = await batchInsertListings(mainDb, listingBuffer);
                 totalInserted += result.inserted;
-                totalDuplicates += result.duplicates;
                 sourceStats.duplicates += result.duplicates;
               } catch (err) {
                 sourceStats.errors++;
@@ -738,7 +736,6 @@ async function seedListings() {
         try {
           const result = await batchInsertListings(mainDb, chunk);
           totalInserted += result.inserted;
-          totalDuplicates += result.duplicates;
           sourceStats.duplicates += result.duplicates;
         } catch (err) {
           sourceStats.errors++;

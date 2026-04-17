@@ -23,7 +23,6 @@ import {
   ALL_PROPERTY_LAYERS,
   LOW_ZOOM_LAYERS,
   HIGH_ZOOM_LAYERS,
-  GHOST_NODE_ZOOM_THRESHOLD,
 } from './helpers/map-layer-names';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
@@ -97,7 +96,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
       (layerNames) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         // Verify all expected property layers are added
         return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
@@ -110,7 +109,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const LOW_ZOOM = 13;
     await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setCenter(center);
           mapInstance.setZoom(zoom);
@@ -122,7 +121,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map to settle at the new zoom/center
     await page.waitForFunction(
       (expectedZoom) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
       },
@@ -132,7 +131,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return { error: 'No map instance' };
 
       const result: Record<string, boolean> = {};
@@ -182,7 +181,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
       (layerNames) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
       },
@@ -194,7 +193,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const HIGH_ZOOM = 17;
     await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setCenter(center);
           mapInstance.setZoom(zoom);
@@ -206,7 +205,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map to settle at the new zoom/center
     await page.waitForFunction(
       (expectedZoom) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return Math.abs(mapInstance.getZoom() - expectedZoom) < 0.5 && !mapInstance.isMoving();
       },
@@ -216,7 +215,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check which layers exist
     const layerInfo = await page.evaluate((expectedLayers) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return { error: 'No map instance' };
 
       const result: Record<string, boolean> = {};
@@ -265,7 +264,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map instance and property layers to be available
     await page.waitForFunction(
       (layerNames) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
       },
@@ -276,7 +275,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Configure map to high zoom
     await page.evaluate(
       ({ center }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setCenter(center);
           mapInstance.setZoom(17);
@@ -288,7 +287,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map to settle at zoom 17
     await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return Math.abs(mapInstance.getZoom() - 17) < 0.5 && !mapInstance.isMoving();
       },
@@ -298,7 +297,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Query features from all property layers (should not produce errors)
     const queryResult = await page.evaluate((layerNames) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return { error: 'No map instance' };
 
       const canvas = mapInstance.getCanvas();
@@ -312,7 +311,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
               { layers: [layerId] }
             );
             results[layerId] = features?.length || 0;
-          } catch (e) {
+          } catch {
             results[layerId] = -1; // Error
           }
         } else {
@@ -354,7 +353,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for the map instance and all property layers to be available (polling, no fixed timeout)
     await page.waitForFunction(
       (layerNames) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         return layerNames.every((name: string) => mapInstance.getLayer(name) !== undefined);
       },
@@ -364,7 +363,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Get all property-related layers from the map
     const actualLayers = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return [];
 
       const allLayers = mapInstance.getStyle()?.layers?.map((l: { id: string }) => l.id) || [];

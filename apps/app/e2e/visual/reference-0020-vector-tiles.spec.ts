@@ -164,7 +164,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set map to zoomed-out level
     const mapConfigured = await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           mapInstance.setPitch(0);
           mapInstance.setBearing(0);
@@ -194,7 +194,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify zoom level
     const currentZoom = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       return mapInstance ? mapInstance.getZoom() : null;
     });
 
@@ -216,7 +216,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set map to zoomed-in level
     const mapConfigured = await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           mapInstance.setPitch(45); // Add some perspective for street view
           mapInstance.setBearing(0);
@@ -242,7 +242,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify zoom level is at street level
     const currentZoom = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       return mapInstance ? mapInstance.getZoom() : null;
     });
 
@@ -261,7 +261,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Poll for the vector tile source to be added (it's added asynchronously in the map 'load' event)
     const hasVectorSource = await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         const source = mapInstance.getSource('properties-source');
         if (!source) return false;
@@ -278,7 +278,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Poll for property layers to be added (they're added together with the source in the load event)
     const layerCheckResult = await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
 
         const expectedLayers = [
@@ -290,7 +290,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           'ghost-nodes',
         ];
 
-        const allLayers = mapInstance.getStyle()?.layers?.map((l: any) => l.id) || [];
+        const allLayers = mapInstance.getStyle()?.layers?.map((l) => l.id) || [];
         const missingLayers = expectedLayers.filter((layerId: string) => !mapInstance.getLayer(layerId));
 
         if (missingLayers.length > 0) return null; // Keep polling
@@ -334,7 +334,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Check ghost layer visibility at low zoom (Z10)
     const ghostLayerLowZoom = await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
 
         mapInstance.setZoom(zoom);
@@ -345,7 +345,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!ghostLayer) return null;
 
         return {
-          minzoom: ghostLayer.minzoom,
+          minzoom: ghostLayer.minzoom ?? 0,
           visibility: mapInstance.getLayoutProperty('ghost-nodes', 'visibility'),
         };
       },
@@ -354,13 +354,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (ghostLayerLowZoom) {
       console.log(`Ghost layer minzoom: ${ghostLayerLowZoom.minzoom}`);
-      expect(ghostLayerLowZoom.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(ghostLayerLowZoom.minzoom ?? 0).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
     }
 
     // Check ghost layer visibility at the reveal threshold.
     const ghostLayerHighZoom = await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
 
         mapInstance.setZoom(zoom);
@@ -372,8 +372,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         // At the reveal threshold, the ghost layer should be potentially visible.
         return {
           currentZoom: mapInstance.getZoom(),
-          layerMinZoom: ghostLayer.minzoom,
-          wouldBeVisible: mapInstance.getZoom() >= ghostLayer.minzoom,
+          layerMinZoom: ghostLayer.minzoom ?? 0,
+          wouldBeVisible: mapInstance.getZoom() >= (ghostLayer.minzoom ?? 0),
         };
       },
       { center: EINDHOVEN_CENTER, zoom: ZOOMED_IN_LEVEL }
@@ -395,7 +395,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set to default zoom level
     await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setPitch(50);
           mapInstance.setBearing(0);

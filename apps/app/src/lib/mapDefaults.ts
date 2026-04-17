@@ -1,4 +1,4 @@
-import { getCountryConfig, type CountryCode, isValidCountryCode } from '@huishype/shared/config';
+import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
 
 const IS_DEV = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 

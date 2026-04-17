@@ -14,6 +14,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import type { VisualMapContainerElement, VisualMapFeatureLike } from './helpers/visual-map-types';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Disable tracing for this test to avoid trace file issues
@@ -103,7 +104,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set map to appropriate zoom level programmatically
     const mapConfigured = await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           mapInstance.setCenter(center);
@@ -112,10 +113,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         }
 
         // Fallback: try to find map through container
-        const mapContainer = document.querySelector('[data-testid="map-view"]');
+        const mapContainer = document.querySelector('[data-testid="map-view"]') as VisualMapContainerElement | null;
         if (mapContainer) {
-          const fallbackMap = (mapContainer as any)._maplibre ||
-                               (mapContainer as any).__map;
+          const fallbackMap = mapContainer._maplibre || mapContainer.__map;
 
           if (fallbackMap && typeof fallbackMap.setZoom === 'function') {
             fallbackMap.setCenter(center);
@@ -137,9 +137,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let layersReady = false;
     for (let i = 0; i < 10; i++) {
       layersReady = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
-        const layers = mapInstance.getStyle()?.layers?.map((l: any) => l.id) || [];
+        const layers = mapInstance.getStyle()?.layers?.map((l) => l.id) || [];
         return layers.includes('ghost-nodes') || layers.includes('active-nodes');
       });
       if (layersReady) {
@@ -168,12 +168,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Try to find and click on a property marker layer feature
       // The map has 'ghost-nodes', 'active-nodes', and 'property-clusters' layers
       const featureInfo = await page.evaluate(async () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return { found: false, reason: 'No map instance' };
 
         // Query rendered features for property markers
         const canvas = mapInstance.getCanvas();
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         let clustersFound = 0;
 
         // Try to get cluster features first
@@ -183,7 +183,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['property-clusters'] }
           ) || [];
           clustersFound = clusterFeatures.length;
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         try {
           const ghostFeatures = mapInstance.queryRenderedFeatures(
@@ -191,7 +191,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['ghost-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
@@ -199,7 +199,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['active-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         if (allFeatures.length === 0) {
           return { found: false, reason: `No features (${clustersFound} clusters found at this zoom)` };
@@ -212,6 +212,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         }
 
         const coordinates = feature.geometry.coordinates;
+        const [lng, lat] = coordinates as [number, number];
 
         // Project coordinates to screen point
         const point = mapInstance.project(coordinates);
@@ -229,7 +230,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         // Fire click event on the map with features array
         mapInstance.fire('click', {
           point: { x: point.x, y: point.y },
-          lngLat: { lng: coordinates[0], lat: coordinates[1] },
+          lngLat: { lng, lat },
           originalEvent: clickEvent
         });
 
@@ -246,7 +247,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Fallback: Use Playwright click on a property marker position
       // First, get the screen coordinates of a property marker
       const markerCoords = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
 
         // Query all property markers
@@ -302,7 +303,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Whether preview card is visible or not, use programmatic approach
     // because the click might not work reliably with the bottom sheet library on web
     const sheetOpened = await page.evaluate(() => {
-      const bottomSheetRef = (window as any).__bottomSheetRef;
+      const bottomSheetRef = window.__bottomSheetRef;
       if (bottomSheetRef?.current) {
         bottomSheetRef.current.snapToIndex(0);
         return true;
@@ -451,12 +452,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // First, select a property by clicking on a marker
     const markerCoords = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return null;
 
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
-      const layerIds = (style?.layers || []).map((l: any) => l.id);
+      const layerIds = (style?.layers || []).map((l) => l.id);
       const ghostFeatures = layerIds.includes('ghost-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
         : [];
@@ -492,7 +493,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Open bottom sheet programmatically as fallback
     await page.evaluate(() => {
-      const bottomSheetRef = (window as any).__bottomSheetRef;
+      const bottomSheetRef = window.__bottomSheetRef;
       if (bottomSheetRef?.current) {
         bottomSheetRef.current.snapToIndex(0);
       }
@@ -572,12 +573,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // First, select a property by clicking on a marker
     const markerCoords = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return null;
 
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
-      const layerIds = (style?.layers || []).map((l: any) => l.id);
+      const layerIds = (style?.layers || []).map((l) => l.id);
       const ghostFeatures = layerIds.includes('ghost-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
         : [];
@@ -613,7 +614,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Open bottom sheet programmatically as fallback
     await page.evaluate(() => {
-      const bottomSheetRef = (window as any).__bottomSheetRef;
+      const bottomSheetRef = window.__bottomSheetRef;
       if (bottomSheetRef?.current) {
         bottomSheetRef.current.snapToIndex(0);
       }
@@ -698,12 +699,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // First, select a property by clicking on a marker
     const markerCoords = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return null;
 
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
-      const layerIds = (style?.layers || []).map((l: any) => l.id);
+      const layerIds = (style?.layers || []).map((l) => l.id);
       const ghostFeatures = layerIds.includes('ghost-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
         : [];
@@ -739,7 +740,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Open bottom sheet programmatically as fallback
     await page.evaluate(() => {
-      const bottomSheetRef = (window as any).__bottomSheetRef;
+      const bottomSheetRef = window.__bottomSheetRef;
       if (bottomSheetRef?.current) {
         bottomSheetRef.current.snapToIndex(0);
       }

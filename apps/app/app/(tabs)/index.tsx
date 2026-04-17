@@ -60,6 +60,8 @@ const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const PREVIEW_OVERLAY_MARGIN = 12;
 
+type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
+
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't
 // work on MapLibre Native (e.g. data-driven fill-extrusion-color).
@@ -77,8 +79,8 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
  * alpha on Android only reliably renders custom vector sources when passed
  * as inline style objects.
  */
-function useMergedMapStyle(propertyTileUrl: string): Record<string, unknown> | null {
-  const [mergedStyle, setMergedStyle] = useState<Record<string, unknown> | null>(null);
+function useMergedMapStyle(propertyTileUrl: string): InlineMapStyle | null {
+  const [mergedStyle, setMergedStyle] = useState<InlineMapStyle | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +91,7 @@ function useMergedMapStyle(propertyTileUrl: string): Record<string, unknown> | n
         if (cancelled) return;
         if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
           (styleJson.layers as Array<unknown>)?.length);
-        setMergedStyle(replacePropertySourceTiles(styleJson, propertyTileUrl));
+        setMergedStyle(replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTileUrl));
       })
       .catch(e => {
         console.error('[HuisHype] Failed to fetch merged style:', e.message);
@@ -488,7 +490,7 @@ export default function MapScreen() {
         <Map
           ref={mapRef}
           style={StyleSheet.absoluteFillObject}
-          mapStyle={mergedStyle as any}
+          mapStyle={mergedStyle}
           compass
           compassPosition={{ top: 160, right: 16 }}
           compassHiddenFacingNorth

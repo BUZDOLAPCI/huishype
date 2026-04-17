@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { BackHandler, Platform } from 'react-native';
 
+import type { PropertyContentProps } from '@/src/components/PropertyBottomSheet';
 import PropertyDetailRouteScreen from '@/src/screens/PropertyDetailRouteScreen';
 import type { PropertyDetails } from '@/src/hooks/useProperties';
 
@@ -62,13 +63,13 @@ jest.mock('@/src/components', () => ({
 }));
 
 jest.mock('@/src/components/PropertyBottomSheet/PropertyContent', () => ({
-  PropertyContent: (props: any) => {
+  PropertyContent: (props: PropertyContentProps) => {
     const React = require('react');
     const { Text, Pressable } = require('react-native');
     mockPropertyContent(props);
     return (
       <>
-        <Text>{props.property.address}</Text>
+        <Text>{props.property?.address ?? ''}</Text>
         <Pressable
           onPress={() => props.onAuthRequired?.('Sign in to submit your guess')}
         >
@@ -127,7 +128,6 @@ describe('PropertyDetailRouteScreen', () => {
       manageInteractionsInternally: true,
       onAuthRequired: expect.any(Function),
       onViewAllComments: expect.any(Function),
-      onViewAllGuesses: expect.any(Function),
     }));
 
     expect(screen.getByText('Auth modal closed')).toBeTruthy();
@@ -181,7 +181,7 @@ describe('PropertyDetailRouteScreen', () => {
   it('intercepts Android hardware back to honor the explicit origin', () => {
     const addEventListenerSpy = jest.spyOn(BackHandler, 'addEventListener');
     const removeListener = jest.fn();
-    addEventListenerSpy.mockReturnValue({ remove: removeListener } as any);
+    addEventListenerSpy.mockReturnValue({ remove: removeListener });
 
     render(
       <PropertyDetailRouteScreen propertyId="route-property-1" returnTo="/feed" />,

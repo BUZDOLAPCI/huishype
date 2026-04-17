@@ -16,6 +16,7 @@ import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import { clickRenderedPropertyMarkerById, type WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 
@@ -40,7 +41,7 @@ async function focusMapOnSeededPropertyArea(page: Page) {
   await waitForMapStyleLoaded(page, 60000);
 
   await page.evaluate(({ center, zoom }) => {
-    const map = (window as any).__mapInstance;
+    const map = (window as WindowWithMapInstance).__mapInstance;
     if (map) {
       map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
     }
@@ -48,61 +49,6 @@ async function focusMapOnSeededPropertyArea(page: Page) {
 
   await waitForMapIdle(page, 10000);
   await page.waitForTimeout(3000);
-}
-
-async function clickPropertyMarkerById(page: Page, propertyId: string) {
-  const result = await page.evaluate((targetPropertyId) => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, reason: 'No canvas' };
-    }
-
-    const layerNames = ['ghost-clusters', 'active-nodes', 'ghost-nodes'];
-    const rect = canvas.getBoundingClientRect();
-
-    for (const layerName of layerNames) {
-      try {
-        if (!mapInstance.getLayer(layerName)) continue;
-
-        const features = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: [layerName] }
-        ) || [];
-
-        const match = features.find((feature: any) => {
-          const id = feature.properties?.id ||
-            (feature.properties?.property_ids as string | undefined)?.split(',')[0];
-          return id === targetPropertyId && feature.geometry?.type === 'Point';
-        });
-
-        if (match) {
-          const point = mapInstance.project(match.geometry.coordinates);
-          return {
-            success: true,
-            screenX: rect.left + point.x,
-            screenY: rect.top + point.y,
-          };
-        }
-      } catch {
-        // ignore layer query errors
-      }
-    }
-
-    return { success: false, reason: 'Property not found in rendered features' };
-  }, propertyId);
-
-  if (result.success) {
-    await page.mouse.move(result.screenX, result.screenY);
-    await page.mouse.click(result.screenX, result.screenY);
-    await page.waitForTimeout(500);
-  }
-
-  return result;
 }
 
 test.describe('Map to Property Flow', () => {
@@ -162,7 +108,7 @@ test.describe('Map to Property Flow', () => {
     // Zoom to property level centered on Eindhoven
     const mapConfigured = await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = (window as WindowWithMapInstance).__mapInstance;
         if (map && typeof map.setZoom === 'function') {
           map.setCenter(center);
           map.setZoom(zoom);
@@ -180,7 +126,7 @@ test.describe('Map to Property Flow', () => {
 
     // Verify zoom level
     const actualZoom = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map?.getZoom?.() ?? 0;
     });
     expect(actualZoom).toBeGreaterThanOrEqual(17);
@@ -188,7 +134,7 @@ test.describe('Map to Property Flow', () => {
     // Wait for property features to render
     await page.waitForFunction(
       () => {
-        const map = (window as any).__mapInstance;
+        const map = (window as WindowWithMapInstance).__mapInstance;
         if (!map || !map.isStyleLoaded()) return false;
         const canvas = map.getCanvas();
         if (!canvas) return false;
@@ -214,7 +160,7 @@ test.describe('Map to Property Flow', () => {
 
     // Query for rendered features count
     const featureCounts = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return { ghost: 0, active: 0, clusters: 0 };
       const canvas = map.getCanvas();
 
@@ -261,7 +207,7 @@ test.describe('Map to Property Flow', () => {
 
     // Zoom to property level to trigger layer loading
     await page.evaluate(({ center, zoom }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (map) {
         map.setCenter(center);
         map.setZoom(zoom);
@@ -273,12 +219,12 @@ test.describe('Map to Property Flow', () => {
 
     // Check that the expected property layers exist
     const layerInfo = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return null;
       const style = map.getStyle();
       const layers = style?.layers || [];
 
-      const propertyLayers = layers.filter((l: any) =>
+      const propertyLayers = layers.filter((l: { id?: string }) =>
         l.id === 'ghost-nodes' ||
         l.id === 'active-nodes' ||
         l.id === 'property-clusters' ||
@@ -289,7 +235,7 @@ test.describe('Map to Property Flow', () => {
 
       return {
         totalLayers: layers.length,
-        propertyLayerIds: propertyLayers.map((l: any) => l.id),
+        propertyLayerIds: propertyLayers.map((l: { id?: string }) => l.id),
         sources: Object.keys(style?.sources || {}),
       };
     });
@@ -493,15 +439,17 @@ test.describe('Map to Property Flow', () => {
 
     const initialText = ((await previewCard.textContent()) || '').trim();
     expect(initialText.length).toBeGreaterThan(5);
+    const propertyId = firstClick.propertyId;
+    if (!propertyId) {
+      throw new Error('Expected clicked marker to provide a propertyId');
+    }
 
     await closeButton.click({ force: true });
     await expect(previewCard).toHaveCount(0);
 
-    const secondClick = await clickPropertyMarkerById(page, firstClick.propertyId!);
-    console.log('Feature to reopen after close:', secondClick);
-    expect(secondClick.success, 'Should be able to click the same property again').toBe(true);
+    const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
+    expect(reopenResult.success).toBe(true);
     await expect(previewCard).toBeVisible({ timeout: 10000 });
-
     const reopenedText = ((await previewCard.textContent()) || '').trim();
     expect(reopenedText).toBe(initialText);
   });

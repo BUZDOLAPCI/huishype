@@ -109,7 +109,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const mapConfigured = await page.evaluate(
       ({ center, zoom }) => {
         // The app exposes __mapInstance on window for testing
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           // Set flat pitch for zoomed-out view (no 3D perspective)
@@ -160,7 +160,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify we're at the expected zoom level (approximately)
     const currentZoom = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       return mapInstance ? mapInstance.getZoom() : null;
     });
 
@@ -182,7 +182,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set zoomed-out view programmatically
     await page.evaluate(
       ({ center, zoom }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setPitch(0);
           mapInstance.setBearing(0);
@@ -210,7 +210,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify zoom level is at zoomed-out level
     const mapState = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         return {
           zoom: mapInstance.getZoom(),
@@ -271,7 +271,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Expect style to load successfully (OpenFreeMap Bright style)
     // Also check for the map's actual style URL as a fallback
     const styleFromMap = await page.evaluate(() => {
-      const m = (window as any).__mapInstance;
+      const m = window.__mapInstance;
       if (!m) return null;
       const style = m.getStyle();
       return style?.name || style?.sources ? 'loaded' : null;
@@ -290,11 +290,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Verify the style includes expected features for zoomed-out view
     // At zoomed-out levels, we should have labels and base layers
     const hasLabels = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const style = mapInstance.getStyle();
         // Check for label layers (place names)
-        return style?.layers?.some((layer: any) =>
+        return style?.layers?.some((layer) =>
           layer.type === 'symbol' && layer.layout?.['text-field']
         );
       }

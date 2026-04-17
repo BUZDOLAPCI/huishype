@@ -5,7 +5,6 @@
 import {
   searchAddresses,
   splitHouseNumber,
-  type ResolvedAddress,
 } from '../address-resolver';
 import { apiGeocoder } from '../api-geocoder';
 import type { GeocodeSuggestion } from '../geocoder';

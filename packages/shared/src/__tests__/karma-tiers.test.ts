@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { KARMA_TIERS, getKarmaTier, type KarmaTier } from '../utils/karma-tiers.js';
+import { KARMA_TIERS, getKarmaTier } from '../utils/karma-tiers.js';
 
 describe('karma-tiers', () => {
   describe('KARMA_TIERS', () => {

@@ -2,12 +2,13 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
 import { PropertyBottomSheet } from '../PropertyBottomSheet.web';
+import type { PropertyBottomSheetRef, PropertyContentProps } from '../index';
 import type { PropertyDetails } from '../../../hooks/useProperties';
 
-const mockPropertyContent = jest.fn<void, [any]>();
+const mockPropertyContent = jest.fn<void, [PropertyContentProps]>();
 
 jest.mock('../PropertyContent', () => ({
-  PropertyContent: (props: any) => {
+  PropertyContent: (props: PropertyContentProps) => {
     mockPropertyContent(props);
     return null;
   },
@@ -118,7 +119,7 @@ describe('PropertyBottomSheet.web', () => {
 
   it('exposes the preview-open imperative handle', () => {
     setWindowSize(390, 844);
-    const ref = React.createRef<any>();
+    const ref = React.createRef<PropertyBottomSheetRef>();
 
     render(
       <PropertyBottomSheet

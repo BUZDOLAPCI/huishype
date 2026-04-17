@@ -15,6 +15,16 @@ const API_BASE_URL = getPlaywrightApiUrl();
 // Eindhoven center for tile coordinate calculations
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
+type PropertyListItem = {
+  id: string;
+  address: string;
+  city: string;
+  geometry: {
+    type: 'Point';
+    coordinates: [number, number];
+  };
+};
+
 /** Calculate tile coordinates for a given lon/lat/zoom */
 function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: number } {
   const x = Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
@@ -38,7 +48,7 @@ test.describe('Cluster Tap - API Integration', () => {
       return;
     }
 
-    const ids = listData.data.map((p: any) => p.id);
+    const ids = listData.data.map((p: PropertyListItem) => p.id);
     const batchResp = await request.get(
       `${API_BASE_URL}/properties/batch?ids=${ids.join(',')}`
     );
@@ -73,7 +83,7 @@ test.describe('Cluster Tap - API Integration', () => {
       return;
     }
 
-    const ids = listData.data.map((p: any) => p.id);
+    const ids = listData.data.map((p: PropertyListItem) => p.id);
 
     // Request in original order
     const resp1 = await request.get(

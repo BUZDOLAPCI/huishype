@@ -121,7 +121,9 @@ async function main() {
   console.log(`Countries: ${countries.join(', ')}`);
 
   // Step 1: Prepare osm_buildings table (created by Drizzle migration)
-  const isFullImport = requested.length === 0 || (requested.length === 1 && requested[0] === 'all' as any);
+  const countryFlagIndex = process.argv.indexOf('--country');
+  const countryArg = countryFlagIndex === -1 ? undefined : process.argv[countryFlagIndex + 1];
+  const isFullImport = requested.length === 0 || countryArg?.toUpperCase() === 'ALL';
   console.log('\n[1/4] Preparing osm_buildings table...');
   psql(`CREATE EXTENSION IF NOT EXISTS hstore;`);
   if (isFullImport) {

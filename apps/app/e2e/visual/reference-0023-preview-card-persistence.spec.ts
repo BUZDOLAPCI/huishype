@@ -16,6 +16,7 @@
 import { test, expect, Page, Route } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import type { VisualMapClickEventLike, VisualMapFeatureLike } from './helpers/visual-map-types';
 import { clickOnPropertyMarker, clickPreviewAction } from './helpers/screenshot-harness';
 import fs from 'fs';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -101,7 +102,7 @@ async function waitForMapReady(page: Page): Promise<void> {
 
 async function collapseWebPanelToPreviewOnly(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as any).__bottomSheetRef?.current?.close?.();
+    window.__bottomSheetRef?.current?.close?.();
   });
 
   await page.waitForFunction(() => {
@@ -118,7 +119,7 @@ async function collapseWebPanelToPreviewOnly(page: Page): Promise<void> {
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<boolean> {
   const result = await page.evaluate(
     ({ center, zoom }) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return false;
 
       mapInstance.jumpTo({
@@ -257,18 +258,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks if needed
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -341,18 +342,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -418,18 +419,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -493,18 +494,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -567,18 +568,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -615,7 +616,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // interference (backdrop click re-triggers property click, close button blocked
     // by panel content).
     await page.evaluate(() => {
-      const ref = (window as any).__bottomSheetRef;
+      const ref = window.__bottomSheetRef;
       if (ref?.current?.close) {
         ref.current.close();
       }
@@ -623,29 +624,29 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(1000);
 
     // Verify the panel is closed
-    const sheetIndexAfterClose = await page.evaluate(() => (window as any).__sheetIndex);
+    const sheetIndexAfterClose = await page.evaluate(() => window.__sheetIndex);
     console.log(`Sheet index after panel close: ${sheetIndexAfterClose}`);
 
     // Instrument the map click handler to confirm whether the background tap
     // reaches MapLibre and what features are found at the chosen point.
     await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return;
-      (window as any).__mapClickFired = false;
-      (window as any).__mapClickDebug = {};
-      const debugHandler = (e: any) => {
+      window.__mapClickFired = false;
+      window.__mapClickDebug = {};
+      const debugHandler = (e: VisualMapClickEventLike) => {
         const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
         const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
         const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
-        (window as any).__mapClickFired = true;
-        (window as any).__mapClickDebug = {
+        window.__mapClickFired = true;
+        window.__mapClickDebug = {
           point: e.point,
           featuresFound: features.length,
-          sheetIndex: (window as any).__sheetIndex,
+          sheetIndex: window.__sheetIndex,
         };
       };
       mapInstance.on('click', debugHandler);
-      (window as any).__debugHandler = debugHandler;
+      window.__debugHandler = debugHandler;
     });
 
     // Now simulate empty-background tap. We need to click the actual canvas at a point
@@ -658,7 +659,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Popup bounding box: ${JSON.stringify(popupBox)}`);
 
     const emptySpotResult = await page.evaluate((popupRect) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance || !mapInstance.isStyleLoaded()) {
         return { success: false, reason: 'Map not ready' };
       }
@@ -737,25 +738,25 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Instrument the map's general click handler to track if it fires
     await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return;
-      (window as any).__mapClickFired = false;
-      (window as any).__mapClickDebug = {};
-      const debugHandler = (e: any) => {
+      window.__mapClickFired = false;
+      window.__mapClickDebug = {};
+      const debugHandler = (e: VisualMapClickEventLike) => {
         const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
         const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
         const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
-        (window as any).__mapClickFired = true;
-        (window as any).__mapClickDebug = {
+        window.__mapClickFired = true;
+        window.__mapClickDebug = {
           point: e.point,
           featuresFound: features.length,
-          sheetIndex: (window as any).__sheetIndex,
+          sheetIndex: window.__sheetIndex,
         };
       };
       // Register as first listener so it runs before others
       mapInstance.on('click', debugHandler);
       // Store for cleanup
-      (window as any).__debugHandler = debugHandler;
+      window.__debugHandler = debugHandler;
     });
 
     // Click the empty spot on the canvas
@@ -768,9 +769,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Cleanup debug handler
     await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
-      if (mapInstance && (window as any).__debugHandler) {
-        mapInstance.off('click', (window as any).__debugHandler);
+      const mapInstance = window.__mapInstance;
+      if (mapInstance && window.__debugHandler) {
+        mapInstance.off('click', window.__debugHandler);
       }
     });
 
@@ -788,8 +789,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     }
 
     // Verify preview card is NOW closed
-    const mapClickFired = await page.evaluate(() => (window as any).__mapClickFired);
-    const mapClickDebug = await page.evaluate(() => (window as any).__mapClickDebug);
+    const mapClickFired = await page.evaluate(() => window.__mapClickFired);
+    const mapClickDebug = await page.evaluate(() => window.__mapClickDebug);
     console.log(`Map click fired: ${mapClickFired}`);
     console.log(`Map click debug: ${JSON.stringify(mapClickDebug)}`);
     const previewVisibleAfterBackgroundTap = await previewCard.isVisible().catch(() => false);
@@ -827,18 +828,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -936,18 +937,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -974,8 +975,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // On web, clicking a marker auto-opens the WebPropertyPanel.
     // The panel is already open at this point. Verify it's expanded.
     const sheetIndexBefore = await page.evaluate(() => {
-      const bottomSheetRef = (window as any).__bottomSheetRef;
-      const sheetIndexFromWindow = (window as any).__sheetIndex;
+      const bottomSheetRef = window.__bottomSheetRef;
+      const sheetIndexFromWindow = window.__sheetIndex;
       return {
         fromRef: bottomSheetRef?.current?.getCurrentIndex?.() ?? -999,
         fromWindow: sheetIndexFromWindow ?? -999
@@ -1052,18 +1053,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();

@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, Text, View, type ViewStyle } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
@@ -15,12 +15,9 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
-import { API_URL, fetchBatchProperties, type PropertyResolveResult } from '@/src/utils/api';
+import { API_URL, type PropertyResolveResult } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
-import {
-  PREVIEW_CARD_VIEWPORT_ANCHOR,
-  viewportAnchorToOffset,
-} from '@/src/lib/mapCameraAnchor';
+import { viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
@@ -31,7 +28,6 @@ import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { replacePropertySourceTiles, PROPERTY_VECTOR_SOURCE_ID } from '@/src/lib/mapPropertySource';
-import { getPropertyThumbnailFromGeometry } from '@/src/lib/propertyThumbnail';
 import {
   appendSearchToPath,
   buildPropertyTileTemplateUrl,
@@ -50,12 +46,7 @@ import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
-import {
-  buildCanonicalRouteHref,
-  buildPropertyMapRoute,
-  buildPropertyRoute,
-  toInternalAppHref,
-} from '@/src/utils/property-route';
+import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
@@ -70,7 +61,6 @@ const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 18;
 const FLOATING_ZOOM_CONTROL_TOP = 118;
 const FLOATING_ZOOM_CONTROL_SIZE = 40;
-const PREVIEW_FLY_DURATION_MS = 500;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
@@ -79,6 +69,50 @@ const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+
+type WebViewStyle = ViewStyle & {
+  animation?: string;
+  boxShadow?: string;
+  filter?: string;
+  transition?: string;
+};
+
+const MAP_OVERLAY_STYLE: WebViewStyle = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(255, 248, 240, 0.08)',
+};
+
+const MAP_LOADING_STYLE: WebViewStyle = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 10,
+  transition: 'opacity 0.3s ease-out',
+};
+
+const MAP_LOADING_SPINNER_STYLE: WebViewStyle = {
+  animation: 'spin 1s linear infinite',
+};
+
+const MAP_DEBUG_ZOOM_STYLE: WebViewStyle = {
+  position: 'absolute',
+  top: 120,
+  left: 16,
+  zIndex: 50,
+};
+
+const MAP_LOCATION_BUTTON_STYLE: WebViewStyle = {
+  position: 'absolute',
+  bottom: 108,
+  right: 18,
+  zIndex: 10,
+};
 
 export interface MapScreenProps {
   pathnameOverride?: string | null;
@@ -178,18 +212,6 @@ function getExplicitCanonicalReplaceHref(
 
   return buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo);
 }
-
-// Vegetation configuration
-const VEGETATION_CONFIG = {
-  minZoom: 14,
-  colors: {
-    forest: '#4CAF50',
-    park: '#66BB6A',
-    grass: '#C8E6C9',
-    tree: '#43A047',
-    treeTrunk: '#8D6E63',
-  },
-};
 
 const ENHANCED_GREEN_COLORS = {
   park: '#D4F5D4',
@@ -1446,37 +1468,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
         <View
           pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(255, 248, 240, 0.08)',
-          } as any}
+          style={MAP_OVERLAY_STYLE}
         />
 
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
             className="absolute inset-0 items-center justify-center bg-warm-100"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 10,
-              transition: 'opacity 0.3s ease-out',
-            } as any}
+            style={MAP_LOADING_STYLE}
             testID="map-loading-indicator"
           >
             <View className="items-center">
               <View
                 className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full"
-                style={{
-                  animation: 'spin 1s linear infinite',
-                } as any}
+                style={MAP_LOADING_SPINNER_STYLE}
               />
               <Text className="text-warm-600 mt-3 text-base">Loading map...</Text>
             </View>
@@ -1505,7 +1510,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         {DEBUG_CAMERA && (
           <View
             className="bg-surface-card/90 px-3 py-2 rounded-full shadow-md"
-            style={{ position: 'absolute', top: 120, left: 16, zIndex: 50 } as any}
+            style={MAP_DEBUG_ZOOM_STYLE}
           >
             <Text className="text-sm text-warm-700">Zoom: {visibleZoom.toFixed(1)}</Text>
           </View>
@@ -1513,12 +1518,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
         {/* Location button — bottom-right of map, above tab bar */}
         <View
-          style={{
-            position: 'absolute',
-            bottom: 108,
-            right: 18,
-            zIndex: 10,
-          } as any}
+          style={MAP_LOCATION_BUTTON_STYLE}
         >
           <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>

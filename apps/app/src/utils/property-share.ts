@@ -22,14 +22,6 @@ export interface PropertyShareLinks {
   email: string;
 }
 
-function getWebNavigator(): Navigator | null {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') {
-    return null;
-  }
-
-  return window.navigator ?? null;
-}
-
 function normalizeOrigin(origin?: string | null): string {
   if (origin?.trim()) {
     return origin.trim().replace(/\/+$/, '');

@@ -58,7 +58,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await page.evaluate(
       ({ center, zoom, pitch, bearing }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return false;
         map.jumpTo({ center, zoom, pitch, bearing });
         return true;
@@ -70,7 +70,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(2500);
 
     const mapState = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       return map
         ? {
             zoom: map.getZoom?.() ?? 0,

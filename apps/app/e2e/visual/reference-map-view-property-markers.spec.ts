@@ -15,6 +15,7 @@ import path from 'path';
 import fs from 'fs';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import type { VisualMapContainerElement } from './helpers/visual-map-types';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
@@ -107,7 +108,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const mapConfigured = await page.evaluate(
       ({ center, zoom, pitch }) => {
         // Access the MapLibre map instance via window.__mapInstance (exposed by our code)
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           mapInstance.setCenter(center);
@@ -117,10 +118,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         }
 
         // Fallback: try to find map through container
-        const mapContainer = document.querySelector('[data-testid="map-view"]');
+        const mapContainer = document.querySelector('[data-testid="map-view"]') as VisualMapContainerElement | null;
         if (mapContainer) {
-          const fallbackMap = (mapContainer as any)._maplibre ||
-                               (mapContainer as any).__map;
+          const fallbackMap = mapContainer._maplibre || mapContainer.__map;
 
           if (fallbackMap && typeof fallbackMap.setZoom === 'function') {
             fallbackMap.setCenter(center);
@@ -141,7 +141,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify and log the actual zoom level
     const actualZoom = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       return mapInstance?.getZoom?.() ?? 0;
     });
     console.log(`Actual zoom level after setting: ${actualZoom}`);
@@ -167,7 +167,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for property features to render in the viewport
     await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
         const canvas = mapInstance.getCanvas();
         if (!canvas) return false;
@@ -209,13 +209,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check for property marker layers and rendered features
     const markerInfo = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const style = mapInstance.getStyle();
         const layers = style?.layers || [];
 
         // Look for marker-related layers
-        const markerLayers = layers.filter((layer: any) =>
+        const markerLayers = layers.filter((layer) =>
           layer.id.includes('marker') ||
           layer.id.includes('property') ||
           layer.id.includes('node') ||
@@ -224,8 +224,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         );
 
         // Query rendered features using all available property layers
-        const availableLayers = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
-          .filter(l => mapInstance.getLayer(l));
         const canvas = mapInstance.getCanvas();
         let ghostNodes = 0, activeNodes = 0, clusters = 0;
 
@@ -256,7 +254,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         return {
           totalLayers: layers.length,
           markerLayerCount: markerLayers.length,
-          markerLayerIds: markerLayers.map((l: any) => l.id),
+          markerLayerIds: markerLayers.map((l) => l.id),
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           renderedMarkers: {
@@ -297,7 +295,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check map configuration
     const mapConfig = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
 
       if (mapInstance) {
         return {
@@ -327,7 +325,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify the map has expected layers for property markers
     const layerInfo = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const style = mapInstance.getStyle();
         const layers = style?.layers || [];

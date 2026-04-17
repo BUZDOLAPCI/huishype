@@ -16,9 +16,19 @@
 import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { FastifyInstance } from 'fastify';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+type OpenApiSpec = {
+  paths?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+type SwaggerApp = FastifyInstance & {
+  swagger(): OpenApiSpec | null;
+};
 
 async function exportOpenApi() {
   // Dynamically import buildApp so we get the fully-wired Fastify instance
@@ -26,12 +36,13 @@ async function exportOpenApi() {
   const { buildApp } = await import('../src/app.js');
 
   const app = await buildApp({ logger: false });
+  const swaggerApp = app as SwaggerApp;
 
   // @fastify/swagger generates the OpenAPI document during ready()
   await app.ready();
 
-  // The swagger decorator is registered by @fastify/swagger
-  const spec = (app as any).swagger();
+  // The swagger decorator is registered by @fastify/swagger.
+  const spec = swaggerApp.swagger();
 
   if (!spec) {
     console.error('ERROR: No OpenAPI spec generated. Check @fastify/swagger registration.');

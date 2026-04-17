@@ -2,12 +2,33 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
+import type { PropertyBottomSheetRef } from '../index';
 import type { Property, PropertyDetails } from '../../../hooks/useProperties';
+
+type BottomSheetHandle = {
+  expand: jest.Mock;
+  collapse: jest.Mock;
+  close: jest.Mock;
+  snapToIndex: jest.Mock;
+};
+
+type BottomSheetMockProps = React.PropsWithChildren<{
+  index?: number;
+  onChange?: (index: number) => void;
+}>;
+
+type BottomSheetScrollViewProps = React.PropsWithChildren<{
+  testID?: string;
+}>;
+
+type BottomSheetScrollViewHandle = {
+  scrollTo: jest.Mock;
+};
 
 const mockUseProperty = jest.fn();
 const mockUseListings = jest.fn();
 const mockRecordPropertyView = jest.fn();
-const mockBottomSheetHandle = {
+const mockBottomSheetHandle: BottomSheetHandle = {
   expand: jest.fn(),
   collapse: jest.fn(),
   close: jest.fn(),
@@ -41,14 +62,14 @@ const renderWithProviders = (ui: React.ReactElement) => {
 // Mock @gorhom/bottom-sheet
 jest.mock('@gorhom/bottom-sheet', () => {
   const { View, ScrollView } = require('react-native');
-  const React = require('react');
+  const React = require('react') as typeof import('react');
 
   const MockBottomSheet = React.forwardRef(
-    ({ children, onChange, index }: any, ref: any) => {
+    ({ children, index }: BottomSheetMockProps, ref: React.ForwardedRef<BottomSheetHandle>) => {
       React.useImperativeHandle(ref, () => mockBottomSheetHandle);
 
       // Only render if index >= 0 or explicitly set
-      if (index < 0) return null;
+      if ((index ?? -1) < 0) return null;
 
       return <View testID="bottom-sheet">{children}</View>;
     }
@@ -57,13 +78,17 @@ jest.mock('@gorhom/bottom-sheet', () => {
   return {
     __esModule: true,
     default: MockBottomSheet,
-    BottomSheetScrollView: React.forwardRef(({ children }: any, ref: any) => {
+    BottomSheetScrollView: React.forwardRef<
+      BottomSheetScrollViewHandle,
+      BottomSheetScrollViewProps
+    >(({ children }, ref: React.ForwardedRef<BottomSheetScrollViewHandle>) => {
       React.useImperativeHandle(ref, () => ({
         scrollTo: mockBottomSheetScrollTo,
       }));
 
       return <ScrollView testID="bottom-sheet-scroll">{children}</ScrollView>;
-    }),
+      },
+    ),
     BottomSheetBackdrop: () => null,
   };
 });
@@ -76,10 +101,10 @@ jest.mock('react-native-reanimated', () => {
     default: {
       View,
     },
-    useSharedValue: (value: any) => ({ value }),
-    useAnimatedStyle: (fn: any) => fn(),
-    withSpring: (value: any) => value,
-    withTiming: (value: any) => value,
+    useSharedValue: (value: unknown) => ({ value }),
+    useAnimatedStyle: (fn: () => unknown) => fn(),
+    withSpring: (value: unknown) => value,
+    withTiming: (value: unknown) => value,
     interpolate: () => 1,
     Extrapolation: { CLAMP: 'clamp' },
     Easing: { inOut: () => {}, ease: {} },
@@ -273,11 +298,13 @@ describe('PropertyBottomSheet', () => {
   it('opens from the preview card at the top of the sheet content', () => {
     const setTimeoutSpy = jest
       .spyOn(global, 'setTimeout')
-      .mockImplementation(((callback: (...args: any[]) => void) => {
-        callback();
-        return 0 as any;
+      .mockImplementation(((callback: TimerHandler) => {
+        if (typeof callback === 'function') {
+          callback();
+        }
+        return 0 as unknown as ReturnType<typeof setTimeout>;
       }) as typeof setTimeout);
-    const ref = React.createRef<any>();
+    const ref = React.createRef<PropertyBottomSheetRef>();
 
     renderWithProviders(
       <PropertyBottomSheet
@@ -289,7 +316,7 @@ describe('PropertyBottomSheet', () => {
 
     expect(ref.current).toBeTruthy();
 
-    ref.current.openFromPreview();
+    ref.current?.openFromPreview();
 
     expect(mockBottomSheetHandle.snapToIndex).toHaveBeenCalledWith(1);
     expect(mockBottomSheetScrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
@@ -420,7 +447,7 @@ describe('PropertyBottomSheet sections', () => {
 
 describe('PropertyBottomSheet ref methods', () => {
   it('exposes expand, collapse, close, and snapToIndex methods via ref', () => {
-    const ref = React.createRef<any>();
+    const ref = React.createRef<PropertyBottomSheetRef>();
     renderWithProviders(<PropertyBottomSheet ref={ref} property={mockProperty} />);
 
     // These methods should be available on the ref

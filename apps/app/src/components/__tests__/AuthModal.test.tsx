@@ -6,7 +6,11 @@
  */
 
 // Define __DEV__ global (normally set by Metro/RN bundler)
-(global as any).__DEV__ = true;
+Object.defineProperty(globalThis, '__DEV__', {
+  configurable: true,
+  value: true,
+  writable: true,
+});
 
 // Mock useAuth hook with controllable return values
 const mockSignInWithGoogle = jest.fn();

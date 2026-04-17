@@ -15,6 +15,7 @@ import path from 'path';
 import fs from 'fs';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapIdle } from './helpers/visual-test-helpers';
+import type { VisualMapFeatureLike } from './helpers/visual-map-types';
 import {
   clickOnPropertyMarker,
   clickPreviewAction,
@@ -54,7 +55,7 @@ async function waitForMapReady(page: Page): Promise<void> {
   // Wait for map to fully initialize, style to load, layers to exist, and features to render
   await page.waitForFunction(
     () => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
 
       // Check if property layers exist
@@ -76,7 +77,7 @@ async function waitForMapReady(page: Page): Promise<void> {
           { layers: ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters'].filter(l => mapInstance.getLayer(l)) }
         );
         featureCount = features?.length || 0;
-      } catch (e) {
+      } catch {
         // Ignore errors during query
       }
 
@@ -95,7 +96,7 @@ async function waitForMapReady(page: Page): Promise<void> {
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<boolean> {
   const result = await page.evaluate(
     ({ center, zoom }) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return false;
 
       mapInstance.jumpTo({
@@ -114,7 +115,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   // Wait for property features to actually be rendered after zoom
   await page.waitForFunction(
     () => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
       const canvas = mapInstance.getCanvas();
       if (!canvas) return false;
@@ -141,7 +142,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
 
 async function collapseWebPanelToPreviewOnly(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as any).__bottomSheetRef?.current?.close?.();
+    window.__bottomSheetRef?.current?.close?.();
   });
 
   await page.waitForFunction(() => {
@@ -224,7 +225,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Get map state for debugging
     let mapState = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
           layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
@@ -257,11 +258,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // If map.fire didn't work, try direct Playwright clicks on marker positions
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
 
         const canvas = mapInstance.getCanvas();
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
           const ghostFeatures = mapInstance.queryRenderedFeatures(
@@ -269,7 +270,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['ghost-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
@@ -277,7 +278,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['active-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         try {
           const clusterFeatures = mapInstance.queryRenderedFeatures(
@@ -285,9 +286,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['property-clusters'] }
           ) || [];
           allFeatures = allFeatures.concat(clusterFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
-        return allFeatures.slice(0, 10).map((f: any) => {
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -352,7 +353,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Final map state for debugging
     mapState = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
           layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
@@ -407,11 +408,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // If map.fire didn't work, try direct Playwright clicks on marker positions
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
 
         const canvas = mapInstance.getCanvas();
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
           const ghostFeatures = mapInstance.queryRenderedFeatures(
@@ -419,7 +420,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['ghost-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
@@ -427,9 +428,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['active-nodes'] }
           ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
-        return allFeatures.slice(0, 10).map((f: any) => {
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();

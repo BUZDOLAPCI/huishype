@@ -325,15 +325,22 @@ describe('Handler wiring', () => {
 });
 
 describe('Handler path alignment', () => {
-  // Extract handler info from MSW handler objects
-  function getHandlerInfo(handler: any): { method: string; path: string } | null {
-    try {
-      const info = handler.info;
-      if (info && info.method && info.path) {
-        return { method: info.method.toUpperCase(), path: info.path };
-      }
-    } catch {
-      // Some handlers may have different structure
+  type HandlerInfo = { method: string; path: string };
+  type HandlerWithInfo = {
+    info?: {
+      method?: unknown;
+      path?: unknown;
+    };
+  };
+
+  function getHandlerInfo(handler: unknown): HandlerInfo | null {
+    if (typeof handler !== 'object' || handler === null || !('info' in handler)) {
+      return null;
+    }
+
+    const info = (handler as HandlerWithInfo).info;
+    if (typeof info?.method === 'string' && typeof info.path === 'string') {
+      return { method: info.method.toUpperCase(), path: info.path };
     }
     return null;
   }

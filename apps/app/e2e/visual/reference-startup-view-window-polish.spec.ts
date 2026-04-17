@@ -58,7 +58,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForTimeout(3000);
 
     const mapState = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       if (!map) return null;
 
       const center = map.getCenter?.();

@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { ScrollView, Text, View, StyleSheet } from 'react-native';
+import { ScrollView, View, StyleSheet } from 'react-native';
 import { Chip } from './ui/Chip';
 import { Icon } from './ui/Icon';
 import type { FeedTab } from '../hooks/useFeed';

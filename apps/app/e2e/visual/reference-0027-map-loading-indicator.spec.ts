@@ -10,7 +10,7 @@
  * Screenshot saved to: test-results/reference-expectations/0027-map-loading-indicator/
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { waitForMapStyleLoaded } from './helpers/visual-test-helpers';
@@ -206,8 +206,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Track state transitions
     let sawLoadingState = false;
     let sawLoadedState = false;
-    let transitionWasSmooth = true;
-
     // Monitor for loading indicator and map canvas
     for (let i = 0; i < 100; i++) {
       const loadingVisible = await page.locator('[data-testid="map-loading-indicator"]').isVisible().catch(() => false);

@@ -85,7 +85,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         // Configure map for individual point viewing (zoom past cluster threshold)
         await page.evaluate(
           ({ center, zoom }) => {
-            const mapInstance = (window as any).__mapInstance;
+            const mapInstance = window.__mapInstance;
             if (mapInstance && typeof mapInstance.setZoom === 'function') {
               mapInstance.setCenter(center);
               mapInstance.setZoom(zoom);
@@ -100,7 +100,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         // Get map state info for debugging
         const mapStateInfo = await page.evaluate(() => {
-          const mapInstance = (window as any).__mapInstance;
+          const mapInstance = window.__mapInstance;
           if (!mapInstance) return { hasMap: false };
 
           const source = mapInstance.getSource('properties');
@@ -108,9 +108,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
           // Check all layers
           const layers = mapInstance.getStyle()?.layers || [];
-          const propertyLayers = layers.filter((l: any) =>
+          const propertyLayers = layers.filter((l) =>
             l.id.includes('point') || l.id.includes('cluster')
-          ).map((l: any) => l.id);
+          ).map((l) => l.id);
 
           // Check clusters
           const clusterFeatures = mapInstance.queryRenderedFeatures(undefined, {
@@ -137,7 +137,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         // Click on a property marker using map's fire() method (more reliable than mouse.click)
         const markerClicked = await page.evaluate(() => {
-          const mapInstance = (window as any).__mapInstance;
+          const mapInstance = window.__mapInstance;
 
           if (!mapInstance) {
             console.log('No map instance found');
@@ -158,7 +158,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             const centerY = canvas.height / 2;
 
             // Sort features by distance from center to click a more central one
-            const sortedFeatures = [...features].sort((a: any, b: any) => {
+            const sortedFeatures = [...features].sort((a, b) => {
               if (!a.geometry || !b.geometry) return 0;
               if (a.geometry.type !== 'Point' || b.geometry.type !== 'Point') return 0;
 
@@ -214,7 +214,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           console.log('Preview not visible, trying Playwright mouse click...');
 
           const markerPosition = await page.evaluate(() => {
-            const mapInstance = (window as any).__mapInstance;
+            const mapInstance = window.__mapInstance;
             if (!mapInstance) return null;
 
             const features = mapInstance.queryRenderedFeatures(undefined, {
@@ -347,7 +347,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Zoom to see individual points
       await page.evaluate(
         ({ center, zoom }) => {
-          const mapInstance = (window as any).__mapInstance;
+          const mapInstance = window.__mapInstance;
           if (mapInstance) {
             mapInstance.setCenter(center);
             mapInstance.setZoom(zoom);
@@ -362,7 +362,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       // Click on a property marker using map's fire() method
       const markerClicked = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
 
         const features = mapInstance.queryRenderedFeatures(undefined, {

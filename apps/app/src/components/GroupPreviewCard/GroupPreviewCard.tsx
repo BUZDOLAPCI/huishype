@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { Icon } from '../ui/Icon';
 import { PropertyPreviewCard } from '../PropertyPreviewCard';
-import type { GroupPreviewCardProps, GroupPreviewProperty } from './types';
+import type { GroupPreviewCardProps } from './types';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import type { WebViewStyle } from '@/src/lib/webStyle';
 
 const CARD_WIDTH = 280;
 const PREVIEW_ARROW_SIZE = 10;
@@ -39,6 +40,15 @@ function getProgressDotIndex(currentIndex: number, total: number): number {
 
 /** Maximum horizontal drag distance (px) for the swipe animation. */
 const SWIPE_MAX_DRAG = 80;
+const WEB_ARROW_SHADOW_STYLE: WebViewStyle = {
+  filter: 'drop-shadow(0px -2px 3px rgba(0,0,0,0.08))',
+};
+const WEB_ARROW_DOWN_SHADOW_STYLE: WebViewStyle = {
+  filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.08))',
+};
+const WEB_CARD_SHADOW_STYLE: WebViewStyle = {
+  boxShadow: '0px 14px 30px rgba(26, 25, 24, 0.18), 0px 4px 12px rgba(180, 119, 18, 0.10)',
+};
 
 /**
  * GroupPreviewCard — unified preview card for both single properties and clusters.
@@ -192,12 +202,7 @@ export function GroupPreviewCard({
       {/* Arrow pointing up */}
       {showArrow && arrowUp && (
         <View
-          style={[
-            styles.arrowUp,
-            Platform.OS === 'web'
-              ? { filter: 'drop-shadow(0px -2px 3px rgba(0,0,0,0.08))' } as any
-              : {},
-          ]}
+          style={[styles.arrowUp, Platform.OS === 'web' ? WEB_ARROW_SHADOW_STYLE : null]}
           testID="group-preview-arrow-up"
         />
       )}
@@ -310,12 +315,7 @@ export function GroupPreviewCard({
       {/* Arrow pointing down */}
       {showArrow && !arrowUp && (
         <View
-          style={[
-            styles.arrowDown,
-            Platform.OS === 'web'
-              ? { filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.08))' } as any
-              : {},
-          ]}
+          style={[styles.arrowDown, Platform.OS === 'web' ? WEB_ARROW_DOWN_SHADOW_STYLE : null]}
           testID="group-preview-arrow-down"
         />
       )}
@@ -351,9 +351,7 @@ const styles = StyleSheet.create({
       default: {},
     }),
     // Web shadow
-    ...(Platform.OS === 'web'
-      ? { boxShadow: '0px 14px 30px rgba(26, 25, 24, 0.18), 0px 4px 12px rgba(180, 119, 18, 0.10)' } as any
-      : {}),
+    ...(Platform.OS === 'web' ? WEB_CARD_SHADOW_STYLE : {}),
   },
 
   // Cluster header

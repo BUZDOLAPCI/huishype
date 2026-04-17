@@ -1,9 +1,9 @@
 import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle } from 'react';
-import { type ScrollView } from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
   type BottomSheetBackdropProps,
+  type BottomSheetScrollViewMethods,
 } from '@gorhom/bottom-sheet';
 import Animated, {
   useAnimatedStyle,
@@ -33,13 +33,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onShare,
       onLike,
       onGuessPress,
-      onCommentPress,
+      onCommentPress: _onCommentPress,
       onAuthRequired,
     },
     ref
   ) {
     const bottomSheetRef = useRef<BottomSheetLib>(null);
-    const scrollViewRef = useRef<ScrollView>(null);
+    const scrollViewRef = useRef<BottomSheetScrollViewMethods | null>(null);
     const animatedIndex = useSharedValue(-1);
 
     // Section layout positions for scroll-to
@@ -141,7 +141,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         style={{ zIndex: 1000 }}
       >
         <BottomSheetScrollView
-          ref={scrollViewRef as any}
+          ref={scrollViewRef}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
@@ -157,7 +157,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onScrollToComments={() => scrollToSection(sectionPositions.current.comments)}
               onScrollToGuess={() => scrollToSection(sectionPositions.current.guess)}
               onGuessPress={onGuessPress}
-              onCommentPress={onCommentPress}
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={handleGuessSectionLayout}
               onCommentsSectionLayout={handleCommentsSectionLayout}

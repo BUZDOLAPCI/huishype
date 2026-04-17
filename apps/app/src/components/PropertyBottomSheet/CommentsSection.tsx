@@ -9,7 +9,6 @@ import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 
 interface CommentsSectionProps extends SectionProps {
-  onAddComment?: () => void;
   onViewAll?: () => void;
   onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 }
@@ -22,7 +21,6 @@ const COMMENT_AUTH_REQUIRED_COPY = 'Sign in to post your comment' satisfies Auth
  */
 export function CommentsSection({
   property,
-  onAddComment,
   onViewAll,
   onAuthRequired,
 }: CommentsSectionProps) {

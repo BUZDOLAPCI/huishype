@@ -101,9 +101,9 @@ export interface UseMapInteractionReturn {
   resetTransientUI: () => void;
 
   // ── Quick-action handlers ───────────────────────────────────
-  handleLike: (property?: any) => void;
-  handleComment: (property?: any) => void;
-  handleGuess: (property?: any) => void;
+  handleLike: (property?: string | GroupPreviewProperty | null) => void;
+  handleComment: (property?: string | GroupPreviewProperty | null) => void;
+  handleGuess: (property?: string | GroupPreviewProperty | null) => void;
   handleSave: (propertyId?: string) => void;
   handleShare: (propertyId: string) => void;
   handleGuessPress: (propertyId: string) => void;
@@ -499,15 +499,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, [resetTransientUI]);
 
   // ── Quick-action handlers ───────────────────────────────────
-  const handleLike = useCallback((_property?: any) => {
+  const handleLike = useCallback((_property?: string | GroupPreviewProperty | null) => {
     toggleLike();
   }, [toggleLike]);
 
-  const handleComment = useCallback((_property?: any) => {
+  const handleComment = useCallback((_property?: string | GroupPreviewProperty | null) => {
     bottomSheetRef.current?.scrollToComments();
   }, []);
 
-  const handleGuess = useCallback((_property?: any) => {
+  const handleGuess = useCallback((_property?: string | GroupPreviewProperty | null) => {
     bottomSheetRef.current?.scrollToGuess();
   }, []);
 

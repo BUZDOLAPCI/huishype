@@ -76,7 +76,7 @@ test.describe(`Paper Mario Trees`, () => {
     // Jump to park at z17 with 3D pitch
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         map.jumpTo({ center, zoom, pitch: 50 });
       },
       { center: PARK_CENTER, zoom: TREE_ZOOM }
@@ -88,13 +88,13 @@ test.describe(`Paper Mario Trees`, () => {
 
     // Verify tree source and symbol layer exist
     const layerInfo = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       const style = map.getStyle();
       const sources = Object.keys(style.sources);
       const hasTreeSource = sources.includes('tree-source');
       const hasPaperTrees = !!map.getLayer('paper-trees');
-      const treeLayerIndex = style.layers.findIndex((layer: any) => layer.id === 'paper-trees');
-      const buildingLayerIndex = style.layers.findIndex((layer: any) => layer.id === '3d-buildings');
+      const treeLayerIndex = style.layers.findIndex((layer) => layer.id === 'paper-trees');
+      const buildingLayerIndex = style.layers.findIndex((layer) => layer.id === '3d-buildings');
       const zoom = map.getZoom();
       return { hasTreeSource, hasPaperTrees, treeLayerIndex, buildingLayerIndex, zoom };
     });
@@ -110,7 +110,7 @@ test.describe(`Paper Mario Trees`, () => {
 
     // Query tree features to confirm tiles loaded
     const featureCount = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       const features = map.querySourceFeatures('tree-source', {
         sourceLayer: 'scattered-trees',
       });
@@ -140,7 +140,7 @@ test.describe(`Paper Mario Trees`, () => {
     // Jump to same park area but at z14 (below tree minzoom of 15)
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         map.jumpTo({ center, zoom, pitch: 0 });
       },
       { center: PARK_CENTER, zoom: BELOW_MIN_ZOOM }
@@ -151,7 +151,7 @@ test.describe(`Paper Mario Trees`, () => {
 
     // tree-source has minzoom:15, so no tiles fetched at z14
     const featureCount = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = window.__mapInstance;
       const features = map.querySourceFeatures('tree-source', {
         sourceLayer: 'scattered-trees',
       });

@@ -281,7 +281,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
       expect(styleCalls.length, 'Should request the merged map style').toBeGreaterThan(0);
 
       const mapSourceInfo = await page.evaluate(() => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return null;
 
         const style = map.getStyle?.();

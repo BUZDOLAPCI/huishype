@@ -7,7 +7,7 @@
  * - Unauthenticated users get 401 on protected routes
  */
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';

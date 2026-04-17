@@ -81,6 +81,17 @@ jest.mock('../../lib/propertyThumbnail', () => ({
 
 const mockUseProperty = useProperty as jest.Mock;
 
+type MockBottomSheetHandle = {
+  expand: jest.Mock;
+  collapse: jest.Mock;
+  close: jest.Mock;
+  snapToIndex: jest.Mock;
+  openFromPreview: jest.Mock;
+  scrollToComments: jest.Mock;
+  scrollToGuess: jest.Mock;
+  getCurrentIndex: jest.Mock;
+};
+
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: PropsWithChildren) {
     return React.createElement(
@@ -451,7 +462,7 @@ describe('useMapInteraction', () => {
       const snapToIndex = jest.fn();
 
       act(() => {
-        (result.current.bottomSheetRef as React.MutableRefObject<any>).current = {
+        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
           expand: jest.fn(),
           collapse: jest.fn(),
           close: jest.fn(),

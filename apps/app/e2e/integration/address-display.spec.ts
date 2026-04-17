@@ -41,8 +41,6 @@ const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
 
 // Pattern that indicates real addresses (GOOD - should appear)
 // Real Dutch addresses look like: "Straatnaam 123" or similar
-const REAL_ADDRESS_PATTERN = /^[A-Za-zÀ-ÿ\s'-]+\s+\d+[A-Za-z]?$/;
-
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
@@ -162,7 +160,6 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // Look for cluster preview cards or property markers
     const previewCard = page.locator('[data-testid="group-preview-card"]');
     const propertyCard = page.locator('[data-testid="group-preview-property-card"]');
-    const addressText = page.locator('[data-testid="property-address"]');
 
     // Check if any preview cards are visible
     const previewVisible = await previewCard.first().isVisible().catch(() => false);
@@ -278,7 +275,7 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
   test('cluster preview card shows real address format', async ({ page, request }) => {
     // Get properties to verify what the API returns (using bbox for real addresses)
     const apiResponse = await request.get(`${API_BASE_URL}/properties?limit=5&bbox=${REAL_ADDRESS_BBOX}`);
-    const apiData = apiResponse.ok() ? await apiResponse.json() : { data: [] };
+    expect(apiResponse.ok()).toBe(true);
 
     // Navigate to map
     await page.goto('/');

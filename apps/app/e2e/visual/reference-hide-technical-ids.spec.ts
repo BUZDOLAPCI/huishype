@@ -101,7 +101,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Configure map to area with properties
     await page.evaluate(
       ({ center }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setCenter(center);
           mapInstance.setZoom(17);
@@ -120,7 +120,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Query for property markers and click on one
       // Use correct layer names from index.web.tsx and check if layer exists first
       const propertyPos = await page.evaluate(() => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return null;
 
         const canvas = map.getCanvas();
@@ -148,7 +148,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
                 return { x: point.x, y: point.y };
               }
             }
-          } catch (e) {
+          } catch {
             /* ignore - layer might not exist */
           }
         }
@@ -176,7 +176,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         // Programmatically expand the bottom sheet
         const snapped = await page.evaluate(() => {
-          const win = window as any;
+          const win = window;
           if (win.__bottomSheetRef?.current?.snapToIndex) {
             win.__bottomSheetRef.current.snapToIndex(2); // Full expand
             return true;

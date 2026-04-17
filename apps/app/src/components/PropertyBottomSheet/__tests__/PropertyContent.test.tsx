@@ -11,6 +11,24 @@ const mockRecordPropertyView = jest.fn();
 const mockUsePropertyLike = jest.fn();
 const mockUsePropertySave = jest.fn();
 
+type PropertyHeaderProps = {
+  property: {
+    address: string;
+  };
+};
+
+type QuickActionsProps = {
+  property: {
+    isSaved?: boolean;
+    isLiked?: boolean;
+  };
+  onSave?: () => void;
+  onLike?: () => void;
+  onShare?: () => void;
+  onComment?: () => void;
+  onGuess?: () => void;
+};
+
 jest.mock('../../../hooks/useProperties', () => {
   return {
     useProperty: (...args: unknown[]) => mockUseProperty(...args),
@@ -36,7 +54,7 @@ jest.mock('../../../hooks/usePropertySave', () => ({
 }));
 
 jest.mock('../PropertyHeader', () => ({
-  PropertyHeader: ({ property }: any) => {
+  PropertyHeader: ({ property }: PropertyHeaderProps) => {
     const React = require('react');
     const { Text } = require('react-native');
     return <Text>{property.address}</Text>;
@@ -52,7 +70,7 @@ jest.mock('../PriceSection', () => ({
 }));
 
 jest.mock('../QuickActions', () => ({
-  QuickActions: ({ property, onSave, onLike, onShare, onComment, onGuess }: any) => {
+  QuickActions: ({ property, onSave, onLike, onShare, onComment, onGuess }: QuickActionsProps) => {
     const React = require('react');
     const { Text, Pressable } = require('react-native');
     return (

@@ -84,7 +84,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Set map to zoom 12 centered on Eindhoven
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (map) {
           map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
         }
@@ -97,7 +97,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Verify cluster layers exist
     const layerInfo = await page.evaluate(
       ({ clusterLayer, countLayer, singleActiveLayer }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return null;
         return {
           hasClusters: !!map.getLayer(clusterLayer),
@@ -119,10 +119,10 @@ test.describe('Map Clusters Visual Tests', () => {
     // Query rendered cluster features
     const clusterFeatures = await page.evaluate(
       ({ layer }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map || !map.getLayer(layer)) return [];
         const features = map.queryRenderedFeatures(undefined, { layers: [layer] });
-        return features.slice(0, 10).map((f: any) => ({
+        return features.slice(0, 10).map((f) => ({
           point_count: f.properties?.point_count,
           has_property_ids: !!f.properties?.property_ids,
         }));
@@ -154,7 +154,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Set map to zoom 15 - transition zone
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (map) {
           map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
         }
@@ -167,7 +167,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Check which layers are visible at this zoom
     const layerVisibility = await page.evaluate(
       ({ layers }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return null;
         const result: Record<string, { exists: boolean; featureCount: number }> = {};
         for (const [key, layerId] of Object.entries(layers)) {
@@ -204,7 +204,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Set map to zoom 18 for individual nodes
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (map) {
           map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
         }
@@ -217,7 +217,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // Check active and ghost node layers
     const nodeInfo = await page.evaluate(
       ({ activeLayer, ghostLayer }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return null;
 
         const hasActive = !!map.getLayer(activeLayer);
@@ -272,7 +272,7 @@ test.describe('Map Clusters Visual Tests', () => {
 
     await page.evaluate(
       ({ center, zoom }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (map) {
           map.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
         }
@@ -285,10 +285,10 @@ test.describe('Map Clusters Visual Tests', () => {
     // Verify cluster features expose the canonical grouped metadata contract.
     const clusterData = await page.evaluate(
       ({ layer }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map || !map.getLayer(layer)) return [];
         const features = map.queryRenderedFeatures(undefined, { layers: [layer] });
-        return features.slice(0, 5).map((f: any) => ({
+        return features.slice(0, 5).map((f) => ({
           node_class: f.properties?.node_class,
           group_kind: f.properties?.group_kind,
           primary_property_id: f.properties?.primary_property_id,
@@ -308,7 +308,7 @@ test.describe('Map Clusters Visual Tests', () => {
         expect(cluster.group_kind).toBe('cluster');
         expect(cluster.primary_property_id).toBeTruthy();
         expect(cluster.property_ids).toBeTruthy();
-        const ids = cluster.property_ids.split(',');
+        const ids = String(cluster.property_ids || '').split(',');
         expect(ids.length).toBeGreaterThan(0);
         expect(cluster.preview_property_ids).toBeTruthy();
         console.log(

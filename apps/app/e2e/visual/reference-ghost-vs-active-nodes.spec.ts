@@ -15,6 +15,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
+import type { VisualMapContainerElement } from './helpers/visual-map-types';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
@@ -107,7 +108,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Set map to unclustered zoom level with flat view for clear node visibility
     const mapConfigured = await page.evaluate(
       ({ center, zoom, pitch }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           mapInstance.setCenter(center);
@@ -117,10 +118,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         }
 
         // Fallback: try to find map through container
-        const mapContainer = document.querySelector('[data-testid="map-view"]');
+        const mapContainer = document.querySelector('[data-testid="map-view"]') as VisualMapContainerElement | null;
         if (mapContainer) {
-          const fallbackMap =
-            (mapContainer as any)._maplibre || (mapContainer as any).__map;
+          const fallbackMap = mapContainer._maplibre || mapContainer.__map;
 
           if (fallbackMap && typeof fallbackMap.setZoom === 'function') {
             fallbackMap.setCenter(center);
@@ -170,7 +170,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify the property layers exist
     const layerInfo = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const ghostLayer = mapInstance.getLayer('ghost-nodes');
         const activeLayer = mapInstance.getLayer('active-nodes');
@@ -204,7 +204,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for property layers to be added (requires API data to load)
     await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         return mapInstance?.getLayer?.('ghost-nodes') !== undefined;
       },
       { timeout: 15000 }
@@ -213,7 +213,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check layer configurations
     const layerConfig = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
 
       if (mapInstance) {
         const ghostLayer = mapInstance.getLayer('ghost-nodes');
@@ -283,7 +283,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Zoom to unclustered level
     await page.evaluate(
       ({ center, zoom, pitch }) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           mapInstance.setCenter(center);
           mapInstance.setZoom(zoom);
@@ -298,7 +298,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Query for visible features in both layers
     const featureInfo = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return null;
 
       // Query rendered features for both layers

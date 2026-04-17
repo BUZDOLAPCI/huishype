@@ -5,7 +5,6 @@ import {
   Text,
   Pressable,
   Keyboard,
-  Platform,
   type TextInput as TextInputType,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';

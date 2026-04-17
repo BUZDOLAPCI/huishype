@@ -16,12 +16,13 @@
  *   test-results/visual-overhaul/<surface>/notes.md
  */
 
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { test as base } from '@playwright/test';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ALL_PROPERTY_LAYERS } from './map-layer-names';
-import { ConsoleCollector, KNOWN_ACCEPTABLE_ERRORS } from './visual-test-helpers';
+import { ConsoleCollector } from './visual-test-helpers';
+import type { VisualMapFeatureLike } from './visual-map-types';
 
 // ============================================
 // Viewport presets
@@ -371,7 +372,7 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
           .filter(Boolean);
       };
 
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       const hasQueryableLayer =
         !!mapInstance &&
         layerNames.some((layerName) => {
@@ -391,7 +392,7 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
         return { success: false, featureCount: 0, reason: 'No canvas' };
       }
 
-      let allFeatures: any[] = [];
+      let allFeatures: VisualMapFeatureLike[] = [];
 
       for (const layerName of layerNames) {
         try {
@@ -416,10 +417,10 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
       const edgeMargin = 40;
 
       const pointCandidates = allFeatures
-        .filter((feature: any) =>
+        .filter((feature) =>
           feature.geometry?.type === 'Point'
         )
-        .map((feature: any) => {
+        .map((feature) => {
           const coordinates = feature.geometry.coordinates;
           const point = mapInstance.project(coordinates);
           const pointCount = toNumber(feature.properties?.point_count) ?? 1;
@@ -445,9 +446,9 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
               Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
           };
         })
-        .filter((candidate: any) => candidate.inBounds)
-        .filter((candidate: any) => candidate.isSingle || candidate.isPreviewableCluster)
-        .sort((a: any, b: any) => {
+        .filter((candidate) => candidate.inBounds)
+        .filter((candidate) => candidate.isSingle || candidate.isPreviewableCluster)
+        .sort((a, b) => {
           if (a.isSingle !== b.isSingle) {
             return a.isSingle ? -1 : 1;
           }
@@ -475,7 +476,10 @@ export async function clickOnPropertyMarker(page: Page): Promise<ClickOnProperty
         featureCount: allFeatures.length,
         screenX: rect.left + candidate.point.x,
         screenY: rect.top + candidate.point.y,
-        propertyId: candidate.feature.properties?.id,
+        propertyId:
+          candidate.feature.properties?.id == null
+            ? undefined
+            : String(candidate.feature.properties.id),
         pointCount: candidate.pointCount,
       };
     }, [...ALL_PROPERTY_LAYERS]);

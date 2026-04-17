@@ -31,7 +31,7 @@ async function waitForMapReady(page: Page): Promise<void> {
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<void> {
   await page.evaluate(
     ({ targetCenter, targetZoom }) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return;
       mapInstance.jumpTo({ center: targetCenter, zoom: targetZoom, pitch: 0 });
     },
@@ -52,12 +52,12 @@ async function openExpandedPanel(page: Page): Promise<void> {
   await expect(previewCard).toBeVisible({ timeout: 10000 });
 
   await page.waitForFunction(
-    () => Boolean((window as any).__bottomSheetRef?.current?.snapToIndex),
+    () => Boolean(window.__bottomSheetRef?.current?.snapToIndex),
     { timeout: 10000 }
   );
 
   await page.evaluate(() => {
-    const sheet = (window as any).__bottomSheetRef?.current;
+    const sheet = window.__bottomSheetRef?.current;
     sheet?.snapToIndex?.(1);
   });
 

@@ -16,7 +16,7 @@
  * Screenshot saved to: test-results/reference-expectations/consensus-alignment-feedback/
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';

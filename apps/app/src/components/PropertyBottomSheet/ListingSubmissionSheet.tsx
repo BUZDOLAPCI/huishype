@@ -48,7 +48,7 @@ export function ListingSubmissionSheet({
   const [error, setError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
-  const { accessToken, user, isAuthenticated } = useAuthContext();
+  const { accessToken, isAuthenticated } = useAuthContext();
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = {
@@ -107,7 +107,7 @@ export function ListingSubmissionSheet({
       data.url = trimmedUrl;
       setPreviewData(data);
       setStep('preview');
-    } catch (err) {
+    } catch {
       setError('Network error. Please check your connection and try again.');
     } finally {
       setIsLoadingPreview(false);
@@ -159,7 +159,7 @@ export function ListingSubmissionSheet({
         onSubmitted();
         reset();
       }, 1200);
-    } catch (err) {
+    } catch {
       setError('Network error. Please check your connection and try again.');
       setStep('error');
     }

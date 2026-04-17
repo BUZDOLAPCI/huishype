@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import type { WindowWithMapInstance } from '../helpers/map-instance';
 
 const AMSTERDAM_CENTER: [number, number] = [4.8952, 52.3702];
 
@@ -9,14 +10,14 @@ async function waitForMapReady(page: Page, timeout = 60_000) {
   await page.waitForSelector('canvas', { timeout });
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map && typeof map.getZoom === 'function';
     },
     { timeout, polling: 500 },
   );
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
       return typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : !!map.getStyle?.();
     },
@@ -28,7 +29,7 @@ async function waitForMapReady(page: Page, timeout = 60_000) {
 async function setMapView(page: Page, center: [number, number], zoom: number) {
   await page.evaluate(
     ({ center: targetCenter, zoom: targetZoom }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       map?.jumpTo({ center: targetCenter, zoom: targetZoom, pitch: 0, bearing: 0 });
     },
     { center, zoom },
@@ -36,7 +37,7 @@ async function setMapView(page: Page, center: [number, number], zoom: number) {
 
   await page.waitForFunction(
     ({ zoom: targetZoom }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map && Math.abs(map.getZoom() - targetZoom) < 0.1;
     },
     { zoom },

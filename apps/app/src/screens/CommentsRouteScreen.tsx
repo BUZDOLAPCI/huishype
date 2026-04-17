@@ -31,7 +31,10 @@ import {
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
-import { resolvePropertyImageWithType } from '@/src/utils/property-image';
+import {
+  resolvePropertyImageWithType,
+  toPropertyImageSource,
+} from '@/src/utils/property-image';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import {
@@ -191,12 +194,9 @@ export function CommentsRouteScreen({
     }
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
-  const propertyImage = property
-    ? resolvePropertyImageWithType({
-        listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
-        aerialImageUrl: (property as any).aerialImageUrl ?? null,
-        countryCode: property.countryCode,
-      })
+  const propertyImageSource = property ? toPropertyImageSource(property) : null;
+  const propertyImage = propertyImageSource
+    ? resolvePropertyImageWithType(propertyImageSource)
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
@@ -285,13 +285,9 @@ export function CommentsRouteScreen({
 
             {property && (
               <View style={styles.headerPropertyInfo}>
-                {propertyImage.url && (
+                {propertyImage.url && propertyImageSource && (
                   <PropertyImageSurface
-                    source={{
-                      listingPhotoUrl: (property as any).listingPhotoUrl ?? null,
-                      aerialImageUrl: (property as any).aerialImageUrl ?? null,
-                      countryCode: property.countryCode,
-                    }}
+                    source={propertyImageSource}
                     style={styles.headerThumbnail}
                     markerSize={16}
                     imageTestID="comments-property-image"

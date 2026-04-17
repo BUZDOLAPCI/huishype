@@ -6,7 +6,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
 type SerializableTileSource = {
-  serialize?: () => { tiles?: string[] | null } | null;
+  serialize?: () => { tiles?: readonly string[] | null } | null;
 };
 
 type InspectableMapInstance = {
@@ -19,7 +19,8 @@ async function getPropertySourceTileUrl(page: import('@playwright/test').Page) {
       .__mapInstance;
     const source = map?.getSource?.('properties-source');
     const serialized = source?.serialize?.();
-    return serialized?.tiles?.[0] ?? null;
+    const tiles = serialized?.tiles;
+    return Array.isArray(tiles) ? tiles[0] ?? null : null;
   });
 }
 

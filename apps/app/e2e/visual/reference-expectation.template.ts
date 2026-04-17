@@ -145,37 +145,3 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // await expect(header).toBeVisible();
   });
 });
-
-/**
- * Helper: Take screenshot at specific coordinates/zoom
- * Useful for map-based expectations
- */
-async function captureMapState(
-  page: import('@playwright/test').Page,
-  options: {
-    center?: [number, number]; // [lng, lat]
-    zoom?: number;
-    pitch?: number;
-    bearing?: number;
-    waitMs?: number;
-  } = {}
-) {
-  const { center, zoom, pitch, bearing, waitMs = 2000 } = options;
-
-  await page.evaluate(
-    ({ center, zoom, pitch, bearing }) => {
-      // Access map instance if available
-      const mapContainer = document.querySelector('[data-testid="map-view"]');
-      if (mapContainer && (window as any).__mapInstance) {
-        const map = (window as any).__mapInstance;
-        if (center) map.setCenter(center);
-        if (zoom !== undefined) map.setZoom(zoom);
-        if (pitch !== undefined) map.setPitch(pitch);
-        if (bearing !== undefined) map.setBearing(bearing);
-      }
-    },
-    { center, zoom, pitch, bearing }
-  );
-
-  await page.waitForTimeout(waitMs);
-}

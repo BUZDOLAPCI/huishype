@@ -8,7 +8,6 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { waitForMapStyleLoaded } from '../visual/helpers/visual-test-helpers';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 import { getPlaywrightArtifactPath } from '../helpers/runtime';
 

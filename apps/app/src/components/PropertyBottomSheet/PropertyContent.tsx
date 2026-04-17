@@ -61,7 +61,6 @@ export interface PropertyContentProps {
 
   // Navigation to full-page routes
   onViewAllComments?: (id: string) => void;
-  onViewAllGuesses?: (id: string) => void;
 
   // Layout measurement callbacks — containers that need scroll-to-section
   // (native sheet, web panel) provide these; detail page omits them.
@@ -93,9 +92,7 @@ interface PropertyContentSectionsProps {
   onScrollToGuess?: () => void;
   onAuthRequired?: (copy?: AuthModalCopyInput) => void;
   onGuessPress?: (id: string) => void;
-  onCommentPress?: (id: string) => void;
   onViewAllComments?: (id: string) => void;
-  onViewAllGuesses?: (id: string) => void;
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
 }
@@ -111,9 +108,7 @@ function PropertyContentSections({
   onScrollToGuess,
   onAuthRequired,
   onGuessPress,
-  onCommentPress,
   onViewAllComments,
-  onViewAllGuesses,
   onGuessSectionLayout,
   onCommentsSectionLayout,
 }: PropertyContentSectionsProps) {
@@ -196,7 +191,6 @@ function PropertyContentSections({
           <View onLayout={commentsSectionLayout} testID="property-content-comments-section">
             <CommentsSection
               property={property}
-              onAddComment={() => onCommentPress?.(property.id)}
               onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
               onAuthRequired={onAuthRequired}
             />
@@ -274,9 +268,8 @@ export function PropertyContent({
   onScrollToGuess,
   onAuthRequired,
   onGuessPress,
-  onCommentPress,
+  onCommentPress: _onCommentPress,
   onViewAllComments,
-  onViewAllGuesses,
   onGuessSectionLayout,
   onCommentsSectionLayout,
   isVisible = true,
@@ -325,9 +318,7 @@ export function PropertyContent({
         onScrollToGuess={onScrollToGuess}
         onAuthRequired={onAuthRequired}
         onGuessPress={onGuessPress}
-        onCommentPress={onCommentPress}
         onViewAllComments={onViewAllComments}
-        onViewAllGuesses={onViewAllGuesses}
         onGuessSectionLayout={onGuessSectionLayout}
         onCommentsSectionLayout={onCommentsSectionLayout}
       />

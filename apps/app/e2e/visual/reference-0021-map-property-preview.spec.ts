@@ -15,6 +15,7 @@
 import { test, expect, Page, Route, Locator } from '@playwright/test';
 import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
+import type { VisualMapFeatureLike } from './helpers/visual-map-types';
 import { clickOnPropertyMarker } from './helpers/screenshot-harness';
 import fs from 'fs';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -126,7 +127,7 @@ async function waitForPreviewCardVisible(
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<boolean> {
   const result = await page.evaluate(
     ({ center, zoom }) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return false;
 
       mapInstance.jumpTo({
@@ -145,7 +146,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   // Wait for property features to be rendered
   await page.waitForFunction(
     () => {
-      const m = (window as any).__mapInstance;
+      const m = window.__mapInstance;
       if (!m || !m.isStyleLoaded()) return false;
       const canvas = m.getCanvas();
       if (!canvas) return false;
@@ -245,17 +246,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Get map state for debugging
     let mapState = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let features: any[] = [];
+        let features: VisualMapFeatureLike[] = [];
         try {
           features = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
@@ -286,21 +287,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // If map.fire didn't work, try direct Playwright clicks on marker positions
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
 
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
 
-        return allFeatures.slice(0, 10).map((f: any) => {
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -343,7 +344,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           { timeout: 5000 }
         );
         console.log('Price element visible in card');
-      } catch (e) {
+      } catch {
         console.log('Price element not found within timeout - may indicate mock not applied');
       }
 
@@ -416,18 +417,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback click attempts
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();
@@ -662,18 +663,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Fallback click attempts if preview not visible
     if (!previewVisible && clickResult.featureCount > 0) {
       const markerPositions = await page.evaluate(() => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
         const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
-        let allFeatures: any[] = [];
+        let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
             { layers }
           ) || [];
-        } catch (e) { /* ignore */ }
-        return allFeatures.slice(0, 10).map((f: any) => {
+        } catch { /* ignore */ }
+        return allFeatures.slice(0, 10).map((f) => {
           if (f.geometry?.type === 'Point') {
             const point = mapInstance.project(f.geometry.coordinates);
             const rect = canvas.getBoundingClientRect();

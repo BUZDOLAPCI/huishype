@@ -260,7 +260,6 @@ export async function fetchOgMetadata(url: string): Promise<OgMetadata> {
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;

@@ -7,6 +7,49 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
 
+type StyleSource = {
+  type: string;
+  tiles?: string[];
+  [key: string]: unknown;
+};
+
+type StyleLayer = {
+  id: string;
+  type: string;
+  source?: string;
+  'source-layer'?: string;
+  minzoom?: number;
+  layout?: Record<string, unknown>;
+  paint?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+type StyleJson = {
+  version: number;
+  sources: Record<string, StyleSource>;
+  layers: StyleLayer[];
+  glyphs?: string;
+  sprite?: string;
+  [key: string]: unknown;
+};
+
+function requireValue<T>(value: T | null | undefined, message: string): T {
+  if (value == null) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function requireComparableNumber(value: unknown, message: string): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (Array.isArray(value) && typeof value[2] === 'number') {
+    return value[2];
+  }
+  throw new Error(message);
+}
+
 /**
  * Integration tests for tile routes.
  *
@@ -36,7 +79,7 @@ describe('Tile routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const style = JSON.parse(response.body);
+      const style = JSON.parse(response.body) as StyleJson;
 
       expect(style).toHaveProperty('version', 8);
       expect(style).toHaveProperty('sources');
@@ -52,11 +95,12 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
+      const style = JSON.parse(response.body) as StyleJson;
+      const propertiesSource = requireValue(style.sources['properties-source'], 'properties-source missing from style.json');
+      const propertiesTiles = requireValue(propertiesSource.tiles, 'properties-source tiles missing from style.json');
       expect(style.sources).toHaveProperty('properties-source');
-      expect(style.sources['properties-source'].type).toBe('vector');
-      expect(style.sources['properties-source'].tiles).toBeDefined();
-      expect(style.sources['properties-source'].tiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+      expect(propertiesSource.type).toBe('vector');
+      expect(propertiesTiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
     });
 
     it('should keep style.json base-style oriented even when filter params are present', async () => {
@@ -66,14 +110,20 @@ describe('Tile routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const style = JSON.parse(response.body);
-      expect(style.sources['properties-source'].tiles[0]).toContain(
+      const style = JSON.parse(response.body) as StyleJson;
+      const propertiesSource = requireValue(style.sources['properties-source'], 'properties-source missing from style.json');
+      const propertiesTiles = requireValue(propertiesSource.tiles, 'properties-source tiles missing from style.json');
+      const treeSource = requireValue(style.sources['tree-source'], 'tree-source missing from style.json');
+      const treeTiles = requireValue(treeSource.tiles, 'tree-source tiles missing from style.json');
+      const buildingsSource = requireValue(style.sources['buildings-source'], 'buildings-source missing from style.json');
+      const buildingsTiles = requireValue(buildingsSource.tiles, 'buildings-source tiles missing from style.json');
+      expect(propertiesTiles[0]).toContain(
         '/tiles/properties/{z}/{x}/{y}.pbf',
       );
-      expect(style.sources['properties-source'].tiles[0]).not.toContain('rentPriceTo=');
-      expect(style.sources['properties-source'].tiles[0]).not.toContain('marketState=');
-      expect(style.sources['tree-source'].tiles[0]).not.toContain('marketState=');
-      expect(style.sources['buildings-source'].tiles[0]).not.toContain('marketState=');
+      expect(propertiesTiles[0]).not.toContain('rentPriceTo=');
+      expect(propertiesTiles[0]).not.toContain('marketState=');
+      expect(treeTiles[0]).not.toContain('marketState=');
+      expect(buildingsTiles[0]).not.toContain('marketState=');
     });
 
     it('should include property cluster layers', async () => {
@@ -82,8 +132,8 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
-      const layerIds = style.layers.map((l: any) => l.id);
+      const style = JSON.parse(response.body) as StyleJson;
+      const layerIds = style.layers.map((layer) => layer.id);
 
       expect(layerIds).toContain('property-clusters');
       expect(layerIds).toContain('cluster-count');
@@ -99,9 +149,11 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
-      const buildings3D = style.layers.find((l: any) => l.id === '3d-buildings');
-      expect(buildings3D).toBeDefined();
+      const style = JSON.parse(response.body) as StyleJson;
+      const buildings3D = style.layers.find((layer) => layer.id === '3d-buildings');
+      if (!buildings3D) {
+        throw new Error('3d-buildings layer missing from style.json');
+      }
       expect(buildings3D.source).toBe('buildings-source');
       expect(buildings3D['source-layer']).toBe('buildings');
       expect(buildings3D.type).toBe('fill-extrusion');
@@ -113,10 +165,11 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
-      expect(style.sources['buildings-source']).toBeDefined();
-      expect(style.sources['buildings-source'].type).toBe('vector');
-      expect(style.sources['buildings-source'].tiles[0]).toContain('/tiles/buildings/');
+      const style = JSON.parse(response.body) as StyleJson;
+      const buildingsSource = requireValue(style.sources['buildings-source'], 'buildings-source missing from style.json');
+      const buildingsTiles = requireValue(buildingsSource.tiles, 'buildings-source tiles missing from style.json');
+      expect(buildingsSource.type).toBe('vector');
+      expect(buildingsTiles[0]).toContain('/tiles/buildings/');
     });
 
     it('cluster-count layer should have correct text configuration', async () => {
@@ -125,16 +178,19 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
-      const clusterCount = style.layers.find((l: any) => l.id === 'cluster-count');
-
-      expect(clusterCount).toBeDefined();
+      const style = JSON.parse(response.body) as StyleJson;
+      const clusterCount = style.layers.find((layer) => layer.id === 'cluster-count');
+      if (!clusterCount) {
+        throw new Error('cluster-count layer missing from style.json');
+      }
+      const clusterCountLayout = requireValue(clusterCount.layout, 'cluster-count layout missing from style.json');
+      const clusterCountPaint = requireValue(clusterCount.paint, 'cluster-count paint missing from style.json');
       expect(clusterCount.type).toBe('symbol');
-      expect(clusterCount.layout).toHaveProperty('text-field');
-      expect(clusterCount.layout).toHaveProperty('text-font');
-      expect(clusterCount.layout['text-font']).toEqual(['Noto Sans Regular']);
-      expect(clusterCount.layout).toHaveProperty('text-size');
-      expect(clusterCount.paint).toHaveProperty('text-color', '#FFFFFF');
+      expect(clusterCountLayout).toHaveProperty('text-field');
+      expect(clusterCountLayout).toHaveProperty('text-font');
+      expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Regular']);
+      expect(clusterCountLayout).toHaveProperty('text-size');
+      expect(clusterCountPaint).toHaveProperty('text-color', '#FFFFFF');
     });
 
     it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
@@ -143,30 +199,37 @@ describe('Tile routes', () => {
         url: '/tiles/style.json',
       });
 
-      const style = JSON.parse(response.body);
-      const activeClusters = style.layers.find((layer: any) => layer.id === 'property-clusters');
-      const activeClusterCount = style.layers.find((layer: any) => layer.id === 'cluster-count');
-      const ghostClusters = style.layers.find((layer: any) => layer.id === 'ghost-clusters');
-      const ghostClusterCount = style.layers.find((layer: any) => layer.id === 'ghost-cluster-count');
+      const style = JSON.parse(response.body) as StyleJson;
+      const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
+      const activeClusterCount = style.layers.find((layer) => layer.id === 'cluster-count');
+      const ghostClusters = style.layers.find((layer) => layer.id === 'ghost-clusters');
+      const ghostClusterCount = style.layers.find((layer) => layer.id === 'ghost-cluster-count');
 
-      expect(ghostClusters).toBeDefined();
-      expect(ghostClusterCount).toBeDefined();
+      if (!activeClusters || !activeClusterCount || !ghostClusters || !ghostClusterCount) {
+        throw new Error('Expected cluster layers missing from style.json');
+      }
       expect(ghostClusters.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
       expect(ghostClusterCount.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
-      expect(ghostClusters.paint['circle-opacity']).toBeLessThan(
-        activeClusters.paint['circle-opacity'],
+      const ghostClustersPaint = requireValue(ghostClusters.paint, 'ghost-clusters paint missing from style.json');
+      const activeClustersPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
+      const ghostClusterCountPaint = requireValue(ghostClusterCount.paint, 'ghost-cluster-count paint missing from style.json');
+      const activeClusterCountLayout = requireValue(activeClusterCount.layout, 'cluster-count layout missing from style.json');
+      const ghostClusterCountLayout = requireValue(ghostClusterCount.layout, 'ghost-cluster-count layout missing from style.json');
+
+      expect(requireComparableNumber(ghostClustersPaint['circle-opacity'], 'ghost-clusters circle-opacity missing')).toBeLessThan(
+        requireComparableNumber(activeClustersPaint['circle-opacity'], 'property-clusters circle-opacity missing'),
       );
-      expect(ghostClusters.paint['circle-stroke-width']).toBeLessThan(
-        activeClusters.paint['circle-stroke-width'][2],
+      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeLessThan(
+        requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing'),
       );
-      expect(ghostClusters.paint['circle-radius'][2]).toBeLessThan(
-        activeClusters.paint['circle-radius'][2],
+      expect(requireComparableNumber(ghostClustersPaint['circle-radius'], 'ghost-clusters circle-radius missing')).toBeLessThan(
+        requireComparableNumber(activeClustersPaint['circle-radius'], 'property-clusters circle-radius missing'),
       );
-      expect(ghostClusterCount.layout['text-size']).toBeLessThan(
-        activeClusterCount.layout['text-size'][2],
+      expect(requireComparableNumber(ghostClusterCountLayout['text-size'], 'ghost-cluster-count text-size missing')).toBeLessThan(
+        requireComparableNumber(activeClusterCountLayout['text-size'], 'cluster-count text-size missing'),
       );
-      expect(ghostClusterCount.paint['text-color']).toBe('#475569');
-      expect(ghostClusterCount.paint['text-halo-color']).toBe('rgba(255, 255, 255, 0.85)');
+      expect(ghostClusterCountPaint['text-color']).toBe('#475569');
+      expect(ghostClusterCountPaint['text-halo-color']).toBe('rgba(255, 255, 255, 0.85)');
     });
 
     it('should set Cache-Control header', async () => {

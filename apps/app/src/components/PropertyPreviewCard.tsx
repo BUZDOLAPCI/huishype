@@ -23,10 +23,9 @@ import {
   type CountryCode,
 } from '@huishype/shared';
 import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
-import {
-  toPropertyImageSource,
-} from '../utils/property-image';
+import { toPropertyImageSource } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
+import type { WebViewStyle } from '@/src/lib/webStyle';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -63,6 +62,9 @@ const CARD_RADIUS = 20;
 const ADDRESS_BASE_FONT_SIZE = 16;
 const ADDRESS_BASE_LINE_HEIGHT = 20;
 const ADDRESS_MIN_FONT_SIZE = 11.5;
+const WEB_ARROW_STYLE: WebViewStyle = {
+  filter: 'drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.09))',
+};
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -421,12 +423,7 @@ export function PropertyPreviewCard({
         {cardContent}
         {/* Arrow pointer triangle */}
         <View
-          style={[
-            styles.arrow,
-            Platform.OS === 'web'
-              ? { filter: 'drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.09))' } as any
-              : {},
-          ]}
+          style={[styles.arrow, Platform.OS === 'web' ? WEB_ARROW_STYLE : null]}
           testID="property-preview-arrow"
         />
       </View>
@@ -593,7 +590,7 @@ const styles = StyleSheet.create({
   priceGroup: {
     alignItems: 'flex-end',
     flexDirection: 'column',
-    marginLeft: 'auto' as any,
+    marginLeft: 'auto',
   },
   priceLabel: {
     fontSize: 11.5,

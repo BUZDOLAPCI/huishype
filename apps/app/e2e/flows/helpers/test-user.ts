@@ -3,7 +3,7 @@
  * Used by flow E2E tests that require authenticated API calls.
  */
 
-import { expect, type APIRequestContext } from '@playwright/test';
+import { type APIRequestContext } from '@playwright/test';
 import { getPlaywrightApiUrl } from '../../helpers/runtime';
 
 const API_BASE_URL = getPlaywrightApiUrl();

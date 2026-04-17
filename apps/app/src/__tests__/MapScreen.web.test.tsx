@@ -2,6 +2,50 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
+type MockMapInstance = {
+  options: {
+    container: HTMLDivElement;
+    style: {
+      sources?: Record<string, { tiles?: string[] }>;
+    };
+  };
+  keyboard: {
+    disableRotation: jest.Mock;
+  };
+  addControl: jest.Mock;
+  getContainer: jest.Mock;
+  getCanvas: jest.Mock;
+  getCenter: jest.Mock;
+  getZoom: jest.Mock;
+  getBearing: jest.Mock;
+  getStyle: jest.Mock;
+  getPaintProperty: jest.Mock;
+  setPaintProperty: jest.Mock;
+  on: jest.Mock;
+  once: jest.Mock;
+  off: jest.Mock;
+  getLayer: jest.Mock;
+  getSource: jest.Mock;
+  fitBounds: jest.Mock;
+  flyTo: jest.Mock;
+  jumpTo: jest.Mock;
+  project: jest.Mock;
+  remove: jest.Mock;
+  propertySource: {
+    serialize: jest.Mock;
+    setTiles: jest.Mock;
+  };
+  trigger: (event: string, payload?: unknown) => void;
+};
+
+type MockMarkerInstance = {
+  setLngLat: jest.Mock;
+  addTo: jest.Mock;
+  remove: jest.Mock;
+};
+
+type MockMapEventHandler = (...args: unknown[]) => void;
+
 let mockAppliedFilters = { tag: 'tile-a' };
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
@@ -62,12 +106,14 @@ const mockMapInstances: Array<{
 }> = [];
 
 jest.mock('react-native', () => {
-  const React = require('react');
+  const React = require('react') as typeof import('react');
   const createElement = (tag: string) =>
-    React.forwardRef((props: any, ref: any) => {
+    React.forwardRef<HTMLElement, React.PropsWithChildren<{ testID?: string }>>(
+      (props, ref) => {
       const { children, testID, ...rest } = props;
       return React.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
-    });
+      },
+    );
 
   return {
     Alert: {
@@ -192,7 +238,7 @@ jest.mock('maplibre-gl', () => {
 
     const canvas = globalThis.document.createElement('canvas');
 
-    const instance: any = {};
+    const instance = {} as MockMapInstance;
     Object.assign(instance, {
       options,
       keyboard: {
@@ -207,9 +253,10 @@ jest.mock('maplibre-gl', () => {
       getStyle: jest.fn(() => ({ layers: [] })),
       getPaintProperty: jest.fn(() => null),
       setPaintProperty: jest.fn(),
-      on: jest.fn((event: string, layerOrHandler: any, maybeHandler: any) => {
-        const handler =
-          typeof layerOrHandler === 'function' ? layerOrHandler : maybeHandler;
+      on: jest.fn((event: string, layerOrHandler: unknown, maybeHandler?: unknown) => {
+        const handler = (
+          typeof layerOrHandler === 'function' ? layerOrHandler : maybeHandler
+        ) as MockMapEventHandler | undefined;
         if (!handler) {
           return instance;
         }
@@ -249,7 +296,7 @@ jest.mock('maplibre-gl', () => {
 
   const NavigationControl = jest.fn();
   const Marker = jest.fn().mockImplementation(() => {
-    const instance: any = {};
+    const instance = {} as MockMarkerInstance;
     Object.assign(instance, {
       setLngLat: jest.fn(() => instance),
       addTo: jest.fn(() => instance),

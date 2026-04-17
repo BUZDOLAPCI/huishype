@@ -17,6 +17,7 @@ import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import fs from 'fs';
 import { getPitchForZoom } from '../../src/lib/mapPitch';
+import type { VisualMapContainerElement } from './helpers/visual-map-types';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 // Configuration
@@ -110,7 +111,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const mapConfigured = await page.evaluate(
       ({ center, zoom, pitch, bearing }) => {
         // Access the MapLibre map instance via window.__mapInstance (exposed by our code)
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
 
         if (mapInstance && typeof mapInstance.setZoom === 'function') {
           // Use jumpTo for immediate positioning (faster than flyTo for tests)
@@ -124,10 +125,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         }
 
         // Fallback: try to find map through container
-        const mapContainer = document.querySelector('[data-testid="map-view"]');
+        const mapContainer = document.querySelector('[data-testid="map-view"]') as VisualMapContainerElement | null;
         if (mapContainer) {
-          const fallbackMap = (mapContainer as any)._maplibre ||
-                               (mapContainer as any).__map;
+          const fallbackMap = mapContainer._maplibre || mapContainer.__map;
 
           if (fallbackMap && typeof fallbackMap.setZoom === 'function') {
             fallbackMap.jumpTo({
@@ -163,7 +163,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await page.waitForFunction(
       ({ center, zoom, bearing, pitch }) => {
-        const map = (window as any).__mapInstance;
+        const map = window.__mapInstance;
         if (!map) return false;
 
         const currentCenter = map.getCenter?.();
@@ -190,7 +190,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map to be idle (tiles loaded) before proceeding
     await page.evaluate(() => {
       return new Promise<void>((resolve) => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (mapInstance) {
           // Check if already idle
           if (!mapInstance.isMoving() && !mapInstance.isZooming() && !mapInstance.isRotating()) {
@@ -231,7 +231,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Verify the 3D buildings layer exists
     // Note: Vegetation is FLAT (not 3D extruded) like in Snap Maps - only buildings are 3D
     const layerInfo = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const buildingLayer = mapInstance.getLayer('3d-buildings');
         return {
@@ -263,7 +263,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map instance to be fully loaded with style and layers
     await page.waitForFunction(
       () => {
-        const mapInstance = (window as any).__mapInstance;
+        const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         if (!mapInstance.isStyleLoaded || !mapInstance.isStyleLoaded()) return false;
         // 3D buildings layer is added in the map's 'load' event handler
@@ -278,7 +278,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Check map configuration
     // Note: Vegetation is FLAT (not 3D extruded) like in Snap Maps - only buildings are 3D
     const mapConfig = await page.evaluate(() => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
 
       if (mapInstance) {
         return {

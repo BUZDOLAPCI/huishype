@@ -34,7 +34,7 @@ async function waitForMapReady(page: Page): Promise<void> {
 async function zoomMapTo(page: Page, center: [number, number], zoom: number): Promise<void> {
   await page.evaluate(
     ({ targetCenter, targetZoom }) => {
-      const mapInstance = (window as any).__mapInstance;
+      const mapInstance = window.__mapInstance;
       if (!mapInstance) return;
       mapInstance.jumpTo({ center: targetCenter, zoom: targetZoom, pitch: 0 });
     },

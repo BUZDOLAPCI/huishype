@@ -10,10 +10,11 @@
  * - Verify vector tiles load at different zoom levels
  */
 
-import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { test, expect, type TestInfo } from '@playwright/test';
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import { clickRenderedPropertyMarkerById, type MapFeature, type WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 
@@ -32,7 +33,7 @@ async function waitForMapReady(page: import('@playwright/test').Page, timeout = 
   // First wait for the map instance to exist
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map && typeof map.getZoom === 'function';
     },
     { timeout, polling: 500 }
@@ -40,8 +41,8 @@ async function waitForMapReady(page: import('@playwright/test').Page, timeout = 
   // Then wait for it to be loaded (tiles/style downloaded)
   await page.waitForFunction(
     () => {
-      const map = (window as any).__mapInstance;
-      return map?.loaded() ?? false;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      return map?.loaded?.() ?? false;
     },
     { timeout: Math.min(timeout, 30000), polling: 1000 }
   ).catch(() => {
@@ -53,7 +54,7 @@ async function waitForMapReady(page: import('@playwright/test').Page, timeout = 
 /** Get the current zoom level from the map */
 async function getMapZoom(page: import('@playwright/test').Page): Promise<number> {
   return page.evaluate(() => {
-    const map = (window as any).__mapInstance;
+    const map = (window as WindowWithMapInstance).__mapInstance;
     return map ? map.getZoom() : -1;
   });
 }
@@ -61,7 +62,7 @@ async function getMapZoom(page: import('@playwright/test').Page): Promise<number
 /** Get the current pitch from the map */
 async function getMapPitch(page: import('@playwright/test').Page): Promise<number> {
   return page.evaluate(() => {
-    const map = (window as any).__mapInstance;
+    const map = (window as WindowWithMapInstance).__mapInstance;
     return map ? map.getPitch() : -1;
   });
 }
@@ -75,7 +76,7 @@ async function setMapView(
 ) {
   await page.evaluate(
     ({ center, zoom, pitch }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (map) {
         map.jumpTo({
           center,
@@ -88,7 +89,7 @@ async function setMapView(
   );
   await page.waitForFunction(
     ({ zoom, pitch }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
 
       const zoomMatches = Math.abs(map.getZoom() - zoom) < 0.1;
@@ -111,7 +112,7 @@ async function captureMapScreenshot(testInfo: TestInfo, page: import('@playwrigh
 
 async function waitForPointFeatures(page: import('@playwright/test').Page, timeout = 20000) {
   await page.waitForFunction(() => {
-    const map = (window as any).__mapInstance;
+    const map = (window as WindowWithMapInstance).__mapInstance;
     if (!map || !map.isStyleLoaded()) return false;
 
     const canvas = map.getCanvas();
@@ -127,67 +128,11 @@ async function waitForPointFeatures(page: import('@playwright/test').Page, timeo
         { layers }
       ) || [];
 
-      return features.some((feature: any) => feature.geometry?.type === 'Point');
+      return features.some((feature: MapFeature) => feature.geometry?.type === 'Point');
     } catch {
       return false;
     }
   }, { timeout, polling: 500 });
-}
-
-async function clickPropertyMarkerById(page: Page, propertyId: string) {
-  const result = await page.evaluate((targetPropertyId) => {
-    const mapInstance = (window as any).__mapInstance;
-    if (!mapInstance || !mapInstance.isStyleLoaded()) {
-      return { success: false, reason: 'Map not ready' };
-    }
-
-    const canvas = mapInstance.getCanvas();
-    if (!canvas) {
-      return { success: false, reason: 'No canvas' };
-    }
-
-    const layerNames = ['ghost-clusters', 'active-nodes', 'ghost-nodes'];
-    const rect = canvas.getBoundingClientRect();
-
-    for (const layerName of layerNames) {
-      try {
-        if (!mapInstance.getLayer(layerName)) continue;
-
-        const features = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: [layerName] }
-        ) || [];
-
-        const match = features.find((feature: any) => {
-          const id = feature.properties?.id ||
-            (feature.properties?.property_ids as string | undefined)?.split(',')[0];
-          return id === targetPropertyId && feature.geometry?.type === 'Point';
-        });
-
-        if (match) {
-          const point = mapInstance.project(match.geometry.coordinates);
-          return {
-            success: true,
-            screenX: rect.left + point.x,
-            screenY: rect.top + point.y,
-            propertyId: targetPropertyId,
-          };
-        }
-      } catch {
-        // ignore layer query errors
-      }
-    }
-
-    return { success: false, reason: 'Property not found in rendered features' };
-  }, propertyId);
-
-  if (result.success) {
-    await page.mouse.move(result.screenX, result.screenY);
-    await page.mouse.click(result.screenX, result.screenY);
-    await page.waitForTimeout(500);
-  }
-
-  return result;
 }
 
 test.describe('Map Interactions', () => {
@@ -233,7 +178,7 @@ test.describe('Map Interactions', () => {
 
     // Map instance should exist
     const hasMap = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return !!map && typeof map.getZoom === 'function';
     });
     expect(hasMap).toBe(true);
@@ -266,7 +211,7 @@ test.describe('Map Interactions', () => {
     await waitForMapReady(page);
 
     const pitchControls = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return {
         touchPitchEnabled: map?.touchPitch?.isEnabled?.() ?? null,
         keyboardRotationDisabled: map?.keyboard?._rotationDisabled ?? null,
@@ -306,8 +251,8 @@ test.describe('Map Interactions', () => {
     await expect(compassButton).toBeHidden();
 
     await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      map.rotateTo(35, { duration: 0 });
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      map?.rotateTo?.(35, { duration: 0 });
     });
 
     await expect(compassControl).toBeVisible();
@@ -322,16 +267,16 @@ test.describe('Map Interactions', () => {
     expect(Math.abs((compassBox!.x + compassBox!.width / 2) - (locationBox!.x + locationBox!.width / 2))).toBeLessThanOrEqual(2);
 
     const rotatedBearing = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      return map.getBearing();
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      return map?.getBearing?.() ?? 0;
     });
     expect(Math.abs(rotatedBearing)).toBeGreaterThan(1);
 
     await compassButton.click();
 
     await page.waitForFunction(() => {
-      const map = (window as any).__mapInstance;
-      return Math.abs(map.getBearing()) < 0.5;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      return map ? Math.abs(map.getBearing()) < 0.5 : false;
     });
     await expect(compassControl).toBeHidden();
     await expect(zoomControl).toBeVisible();
@@ -398,8 +343,10 @@ test.describe('Map Interactions', () => {
     await page.getByTestId('location-button').click();
 
     await page.waitForFunction(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map) return false;
       const center = map.getCenter();
+      if (!center) return false;
       return (
         Math.abs(center.lng - 5.1214) < 0.001 &&
         Math.abs(center.lat - 52.0907) < 0.001 &&
@@ -408,13 +355,20 @@ test.describe('Map Interactions', () => {
     });
 
     const mapState = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map) return null;
       const center = map.getCenter();
+      if (!center) return null;
       return {
         center: [center.lng, center.lat],
         zoom: map.getZoom(),
       };
     });
+
+    expect(mapState).not.toBeNull();
+    if (!mapState) {
+      throw new Error('Expected map state after geolocation recenter');
+    }
 
     expect(Math.abs(mapState.center[0] - 5.1214)).toBeLessThan(0.001);
     expect(Math.abs(mapState.center[1] - 52.0907)).toBeLessThan(0.001);
@@ -440,6 +394,8 @@ test.describe('Map Interactions', () => {
       throw new Error('Expected clicked marker to provide a propertyId');
     }
     await expect(previewCard).toBeVisible();
+    const initialText = (await previewCard.textContent()) || '';
+    expect(initialText.length).toBeGreaterThan(5);
 
     const closeButton = page
       .getByTestId('property-preview-close-button')
@@ -447,10 +403,11 @@ test.describe('Map Interactions', () => {
     await closeButton.click();
     await expect(previewCard).toHaveCount(0);
 
-    const reopenedClick = await clickPropertyMarkerById(page, propertyId);
-    expect(reopenedClick.success).toBe(true);
-    expect(reopenedClick.propertyId).toBe(propertyId);
-    await expect(previewCard).toBeVisible();
+    const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
+    expect(reopenResult.success).toBe(true);
+    await expect(previewCard).toBeVisible({ timeout: 10000 });
+    const reopenedText = (await previewCard.textContent()) || '';
+    expect(reopenedText).toBe(initialText);
   });
 
   test('preview card stays horizontally aligned with the selected node', async ({ page }, testInfo) => {
@@ -502,7 +459,7 @@ test.describe('Map Interactions', () => {
 
     // Check if vector tile source exists
     const hasTileSource = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
       // Check for property-related sources
       const style = map.getStyle();
@@ -533,7 +490,7 @@ test.describe('Map Interactions', () => {
     await page.waitForTimeout(3000);
 
     const lowZoomFeatures = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return { count: 0, hasCluster: false };
       const canvas = map.getCanvas();
       if (!canvas) return { count: 0, hasCluster: false };
@@ -545,7 +502,7 @@ test.describe('Map Interactions', () => {
       return {
         count: features.length,
         hasCluster: features.some(
-          (f: any) => f.properties?.group_kind === 'cluster'
+          (feature: MapFeature) => feature.properties?.group_kind === 'cluster'
         ),
       };
     });
@@ -557,7 +514,7 @@ test.describe('Map Interactions', () => {
     await page.waitForTimeout(3000);
 
     const highZoomFeatures = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return { count: 0, hasGhost: false };
       const canvas = map.getCanvas();
       if (!canvas) return { count: 0, hasGhost: false };
@@ -569,7 +526,7 @@ test.describe('Map Interactions', () => {
       return {
         count: features.length,
         hasGhost: features.some(
-          (f: any) => f.properties?.node_class === 'ghost'
+          (feature: MapFeature) => feature.properties?.node_class === 'ghost'
         ),
       };
     });
@@ -589,7 +546,7 @@ test.describe('Map Interactions', () => {
     await page.waitForTimeout(5000);
 
     const nodeInfo = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return { total: 0, ghost: 0, active: 0 };
 
       const features = map.queryRenderedFeatures();
@@ -635,7 +592,7 @@ test.describe('Map Interactions', () => {
 
     // Verify we are centered on Eindhoven
     const center = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return null;
       const c = map.getCenter();
       return { lng: c.lng, lat: c.lat };
@@ -651,8 +608,8 @@ test.describe('Map Interactions', () => {
     // Wait for map to finish loading tiles
     await page.waitForFunction(
       () => {
-        const map = (window as any).__mapInstance;
-        return map?.loaded() ?? false;
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        return map?.loaded?.() ?? false;
       },
       { timeout: 30000, polling: 1000 }
     ).catch(() => {
@@ -661,8 +618,8 @@ test.describe('Map Interactions', () => {
 
     // Map should be loaded
     const isLoaded = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
-      return map?.loaded() ?? false;
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      return map?.loaded?.() ?? false;
     });
     expect(isLoaded).toBe(true);
   });
@@ -674,11 +631,11 @@ test.describe('Map Interactions', () => {
     // Set high zoom with pitch for 3D buildings
     // minZoom for 3D buildings is 14, needs pitch ~50
     await page.evaluate(({ center }) => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       map?.jumpTo({ center, zoom: 16, pitch: 50 });
     }, { center: EINDHOVEN_CENTER });
     await page.waitForFunction(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
       return map.getZoom() >= 15.9 && map.getPitch() > 0;
     }, { timeout: 15000, polling: 250 });
@@ -686,20 +643,18 @@ test.describe('Map Interactions', () => {
 
     // Check if fill-extrusion layer exists
     const has3DBuildings = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
       const style = map.getStyle();
       if (!style?.layers) return false;
-      return style.layers.some(
-        (layer: any) => layer.type === 'fill-extrusion'
-      );
+      return style.layers.some((layer: { type?: string }) => layer.type === 'fill-extrusion');
     });
 
     console.log(`3D buildings layer present: ${has3DBuildings}`);
 
     // Verify pitch is set
     const pitch = await page.evaluate(() => {
-      const map = (window as any).__mapInstance;
+      const map = (window as WindowWithMapInstance).__mapInstance;
       return map ? map.getPitch() : 0;
     });
     expect(pitch).toBeGreaterThan(0);
