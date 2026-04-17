@@ -12,6 +12,7 @@ import {
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
 LogManager.setLogLevel('warn');
@@ -58,9 +59,62 @@ const COLORS = {
 // the ref resets so the next map tap isn't blocked.
 const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
+const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const PREVIEW_OVERLAY_MARGIN = 12;
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
+type PreviewArrowDirection = 'up' | 'down';
+type NativePreviewLayout = {
+  arrowDirection: PreviewArrowDirection;
+  left: number;
+  top: number;
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function getNativePreviewOverlayLayout(params: {
+  anchorPoint: [number, number];
+  cardSize: { width: number; height: number };
+  topBoundary: number;
+  viewportSize: { width: number; height: number };
+}): NativePreviewLayout {
+  const {
+    anchorPoint,
+    cardSize,
+    topBoundary,
+    viewportSize,
+  } = params;
+  const viewportWidth = Math.max(viewportSize.width, 0);
+  const viewportHeight = Math.max(viewportSize.height, 0);
+  const cardWidth = cardSize.width > 0 ? cardSize.width : NATIVE_PREVIEW_FALLBACK_WIDTH;
+  const cardHeight = Math.max(cardSize.height, 0);
+  const boundedTop = Math.max(topBoundary, PREVIEW_OVERLAY_MARGIN);
+  const boundedBottom = Math.max(PREVIEW_OVERLAY_MARGIN, viewportHeight - PREVIEW_OVERLAY_MARGIN);
+  const maxLeft = Math.max(
+    PREVIEW_OVERLAY_MARGIN,
+    viewportWidth - cardWidth - PREVIEW_OVERLAY_MARGIN,
+  );
+  const maxTop = Math.max(boundedTop, boundedBottom - cardHeight);
+  const availableAbove = anchorPoint[1] - boundedTop;
+  const availableBelow = boundedBottom - anchorPoint[1];
+  const fitsAbove = cardHeight === 0 || availableAbove >= cardHeight;
+  const fitsBelow = cardHeight === 0 || availableBelow >= cardHeight;
+  const placeBelow = !fitsAbove && (fitsBelow || availableBelow > availableAbove);
+
+  return {
+    arrowDirection: placeBelow ? 'up' : 'down',
+    left: clamp(
+      anchorPoint[0] - (cardWidth / 2),
+      PREVIEW_OVERLAY_MARGIN,
+      maxLeft,
+    ),
+    top: placeBelow
+      ? clamp(anchorPoint[1], boundedTop, maxTop)
+      : clamp(anchorPoint[1] - cardHeight, boundedTop, maxTop),
+  };
+}
 
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't
@@ -132,7 +186,9 @@ function useMergedMapStyle(propertyTileUrl: string): InlineMapStyle | null {
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const [hasLayout, setHasLayout] = useState(false);
+  const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
   const propertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
@@ -198,7 +254,6 @@ export default function MapScreen() {
   // Touch guard: when preview card is touched, suppress handleMapPress so the
   // tap doesn't fall through to the map's onPress handler.
   const previewCardTouchedRef = useRef(false);
-  const mapViewportSizeRef = useRef({ width: 0, height: 0 });
   const nativePreviewGroup = useMemo(() => {
     if (Platform.OS === 'web') {
       return null;
@@ -233,7 +288,7 @@ export default function MapScreen() {
   const cameraCommands: MapCameraCommands = useMemo(() => ({
     flyTo: (opts) => {
       const padding = opts.anchor
-        ? viewportAnchorToPadding(mapViewportSizeRef.current, opts.anchor)
+        ? viewportAnchorToPadding(mapViewportSize, opts.anchor)
         : undefined;
 
       cameraRef.current?.flyTo({
@@ -250,7 +305,7 @@ export default function MapScreen() {
         { padding: { top: opts.padding, right: opts.padding, bottom: opts.padding, left: opts.padding }, duration: opts.duration },
       );
     },
-  }), []);
+  }), [mapViewportSize]);
 
   const syncPitchForZoom = useCallback((zoom?: number) => {
     if (zoom === undefined || !Number.isFinite(zoom)) return;
@@ -300,8 +355,28 @@ export default function MapScreen() {
     void refreshNativePreviewPoint();
   }, [
     interaction.currentPreviewIndex,
+    mapViewportSize.height,
+    mapViewportSize.width,
     refreshNativePreviewPoint,
     shouldRenderNativePreviewOverlay,
+  ]);
+
+  const nativePreviewLayout = useMemo(() => {
+    if (!nativePreviewPoint) {
+      return null;
+    }
+
+    return getNativePreviewOverlayLayout({
+      anchorPoint: nativePreviewPoint,
+      cardSize: nativePreviewSize,
+      topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
+      viewportSize: mapViewportSize,
+    });
+  }, [
+    insets.top,
+    mapViewportSize,
+    nativePreviewPoint,
+    nativePreviewSize,
   ]);
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
@@ -483,7 +558,11 @@ export default function MapScreen() {
       {/* Map View */}
       <View style={{ flex: 1 }} onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
-        mapViewportSizeRef.current = { width, height };
+        setMapViewportSize((current) => (
+          current.width === width && current.height === height
+            ? current
+            : { width, height }
+        ));
         if (!hasLayout) setHasLayout(true);
       }}>
         {hasLayout && mergedStyle && (
@@ -581,32 +660,12 @@ export default function MapScreen() {
         </Map>
         )}
 
-        {shouldRenderNativePreviewOverlay && nativePreviewPoint && nativePreviewGroup && (
+        {shouldRenderNativePreviewOverlay && nativePreviewPoint && nativePreviewGroup && nativePreviewLayout && (
           <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
             <View
               style={[
                 styles.nativePreviewOverlay,
-                (() => {
-                  const { width: viewportWidth } = mapViewportSizeRef.current;
-                  const cardWidth = nativePreviewSize.width || NATIVE_PREVIEW_FALLBACK_WIDTH;
-                  const cardHeight = nativePreviewSize.height || 0;
-                  const unclampedLeft = nativePreviewPoint[0] - (cardWidth / 2);
-                  const maxLeft = Math.max(
-                    PREVIEW_OVERLAY_MARGIN,
-                    viewportWidth - cardWidth - PREVIEW_OVERLAY_MARGIN,
-                  );
-
-                  return {
-                    left: Math.min(
-                      Math.max(unclampedLeft, PREVIEW_OVERLAY_MARGIN),
-                      maxLeft,
-                    ),
-                    top: Math.max(
-                      PREVIEW_OVERLAY_MARGIN,
-                      nativePreviewPoint[1] - cardHeight,
-                    ),
-                  };
-                })(),
+                nativePreviewLayout,
               ]}
             >
               <View
@@ -630,7 +689,7 @@ export default function MapScreen() {
                   onGuess={interaction.handleGuess}
                   isLiked={interaction.isLiked}
                   showArrow
-                  arrowDirection="down"
+                  arrowDirection={nativePreviewLayout.arrowDirection}
                   onTouchStart={() => {
                     previewCardTouchedRef.current = true;
                     setTimeout(() => { previewCardTouchedRef.current = false; }, TOUCH_GUARD_RESET_MS);

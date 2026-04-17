@@ -46,6 +46,12 @@ interface AppleTokenClaims {
   email_verified?: string | boolean;
 }
 
+interface MockGoogleTokenPayload {
+  email?: string;
+  googleId?: string;
+  name?: string;
+}
+
 function decodeJwtSegment<T>(token: string, index: number): T | null {
   const segment = token.split('.')[index];
   if (!segment) {
@@ -125,6 +131,57 @@ async function verifyAppleJwt(idToken: string): Promise<AppleTokenClaims | null>
   return valid ? claims : null;
 }
 
+function parseMockGoogleToken(
+  idToken: string,
+): { email: string; googleId: string; name?: string } | null {
+  if (idToken.startsWith('mock-google:')) {
+    const encodedPayload = idToken.slice('mock-google:'.length);
+    if (!encodedPayload) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(
+        Buffer.from(encodedPayload, 'base64url').toString('utf8'),
+      ) as MockGoogleTokenPayload;
+
+      if (!payload.email || !payload.googleId) {
+        return null;
+      }
+
+      return {
+        email: payload.email.toLowerCase(),
+        googleId: payload.googleId,
+        name: payload.name,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (!idToken.startsWith('mock-google-')) {
+    return null;
+  }
+
+  const legacyPayload = idToken.slice('mock-google-'.length);
+  const separatorIndex = legacyPayload.lastIndexOf('-gid');
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const legacyLabel = legacyPayload.slice(0, separatorIndex);
+  const legacyGoogleId = legacyPayload.slice(separatorIndex + 1);
+  if (!legacyLabel || !legacyGoogleId) {
+    return null;
+  }
+
+  return {
+    email: `${legacyLabel}@gmail.com`,
+    googleId: legacyGoogleId,
+    name: legacyLabel,
+  };
+}
+
 /**
  * Validate Google ID token
  * In production, this would verify with Google's API
@@ -134,17 +191,9 @@ async function validateGoogleToken(
   idToken: string
 ): Promise<{ email: string; googleId: string; name?: string } | null> {
   if (config.isDev === true) {
-    // Mock validation for development
-    // Token format: mock-google-{email}-{googleId}
-    if (idToken.startsWith('mock-google-')) {
-      const parts = idToken.split('-');
-      if (parts.length >= 4) {
-        return {
-          email: parts[2] + '@gmail.com',
-          googleId: parts[3],
-          name: parts[2],
-        };
-      }
+    const mockGoogleUser = parseMockGoogleToken(idToken);
+    if (mockGoogleUser) {
+      return mockGoogleUser;
     }
 
     // For any token in dev mode, create a test user

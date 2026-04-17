@@ -294,7 +294,7 @@ function createFlowForAttempt(flowPath) {
   const composedFlowPath = `/tmp/huishype-maestro-composed-${process.pid}.yaml`;
   fs.writeFileSync(
     composedFlowPath,
-    `appId: nl.huishype.app\n---\n- runFlow: ${path.resolve(REPO_ROOT, PREFLIGHT_FLOW_PATH)}\n- runFlow: ${path.resolve(REPO_ROOT, flowPath)}\n`,
+    `appId: nl.huishype.app\n---\n# Preflight owns Expo dev-client first-launch normalization before the real flow.\n- runFlow: ${path.resolve(REPO_ROOT, PREFLIGHT_FLOW_PATH)}\n- runFlow: ${path.resolve(REPO_ROOT, flowPath)}\n`,
     'utf8',
   );
   return composedFlowPath;

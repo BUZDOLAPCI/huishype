@@ -14,10 +14,10 @@ export const MAP_ALLOWED_CONSOLE_PATTERNS: ConsoleAllowPattern[] = [
   /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
+// Keep shared network exceptions tight. Localhost / runtime connectivity
+// failures must stay fatal unless an individual spec explicitly scopes them.
 export const NETWORK_ALLOWED_CONSOLE_PATTERNS: ConsoleAllowPattern[] = [
   ...MAP_ALLOWED_CONSOLE_PATTERNS,
-  /net::ERR_NAME_NOT_RESOLVED/,
-  /net::ERR_CONNECTION_REFUSED/,
 ];
 
 export function isAllowedConsoleMessage(

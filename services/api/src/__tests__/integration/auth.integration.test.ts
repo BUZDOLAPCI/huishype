@@ -8,7 +8,8 @@ import { eq } from 'drizzle-orm';
 /**
  * Integration tests for auth routes.
  *
- * Uses dev-mode mock tokens (format: mock-google-{email}-{googleId}).
+ * Uses dev-mode mock tokens (structured `mock-google:<base64url-json>` and
+ * legacy `mock-google-{email}-{googleId}`).
  * The auth route validates these in dev mode and creates real users in the DB.
  */
 describe('Auth routes', () => {
@@ -32,6 +33,51 @@ describe('Auth routes', () => {
   });
 
   describe('POST /auth/google', () => {
+    it('should preserve unique identities for structured mock tokens with hyphenated labels', async () => {
+      const buildStructuredToken = (label: string) =>
+        `mock-google:${Buffer.from(
+          JSON.stringify({
+            email: `${label}@gmail.com`,
+            googleId: `gid-${label}`,
+            name: label,
+          }),
+          'utf8',
+        ).toString('base64url')}`;
+
+      const firstToken = buildStructuredToken(`property-saves-${Date.now()}-a`);
+      const secondToken = buildStructuredToken(`property-saves-${Date.now()}-b`);
+
+      const firstResponse = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: firstToken },
+      });
+      expect(firstResponse.statusCode).toBe(200);
+      const firstBody = JSON.parse(firstResponse.body);
+      testUserIds.push(firstBody.session.user.id);
+
+      const repeatResponse = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: firstToken },
+      });
+      expect(repeatResponse.statusCode).toBe(200);
+      const repeatBody = JSON.parse(repeatResponse.body);
+      expect(repeatBody.session.user.id).toBe(firstBody.session.user.id);
+      expect(repeatBody.isNewUser).toBe(false);
+
+      const secondResponse = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: secondToken },
+      });
+      expect(secondResponse.statusCode).toBe(200);
+      const secondBody = JSON.parse(secondResponse.body);
+      testUserIds.push(secondBody.session.user.id);
+
+      expect(secondBody.session.user.id).not.toBe(firstBody.session.user.id);
+    });
+
     it('should create a new user with mock token and return session', async () => {
       const uniqueId = `authtest${Date.now()}`;
       const response = await app.inject({

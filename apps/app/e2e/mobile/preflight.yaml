@@ -4,6 +4,10 @@ appId: nl.huishype.app
 # regressions fail fast and can be retried before the expensive journey begins.
 # The runner launches the dev client once. Clear any blocking launch overlay,
 # then normalize to the map shell for the real flow.
+- tapOn:
+    text: 'Continue'
+    optional: true
+- waitForAnimationToEnd
 - pressKey: Back
 - waitForAnimationToEnd
 - tapOn:

@@ -14,11 +14,10 @@ import { createIntegrationProperty } from './helpers/fixtures.js';
 describe('GET /properties/batch', () => {
   jest.setTimeout(30000);
   let app: FastifyInstance;
-  let seededPropertyIds: string[];
+  let seededPropertyIds: string[] = [];
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
-    seededPropertyIds = [];
 
     for (let index = 0; index < 3; index++) {
       const property = await createIntegrationProperty({
@@ -34,10 +33,15 @@ describe('GET /properties/batch', () => {
   });
 
   afterAll(async () => {
-    await db.execute(
-      sql`DELETE FROM properties WHERE id IN (${seededPropertyIds[0]}, ${seededPropertyIds[1]}, ${seededPropertyIds[2]})`,
-    );
-    await app.close();
+    if (seededPropertyIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM properties
+        WHERE id IN (${sql.join(seededPropertyIds.map((id) => sql`${id}`), sql`, `)})
+      `);
+    }
+    if (app) {
+      await app.close();
+    }
   });
 
   it('should return properties for valid IDs in correct order', async () => {

@@ -5,13 +5,8 @@ appId: nl.huishype.app
 # sentinels are visible.
 # This is a sub-flow; app is already launched by the orchestrator.
 
-# Expo dev-client can surface the developer-menu intro sheet after the app
-# becomes interactive. Dismiss it before normalizing the map surface.
-- tapOn:
-    text: 'Continue'
-    optional: true
-- waitForAnimationToEnd
-
+# Preflight already owns first-launch dev-client dismissal. This flow should
+# only normalize the in-app map shell after startup succeeds.
 # Normalize to the map tab in case Expo restored a nested route after boot.
 - tapOn:
     text: 'Go back'

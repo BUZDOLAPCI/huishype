@@ -49,13 +49,18 @@ test('map and network allowlists stay narrow and explicit', () => {
   );
   assert.equal(
     isAllowedConsoleMessage('net::ERR_CONNECTION_REFUSED', NETWORK_ALLOWED_CONSOLE_PATTERNS),
-    true,
+    false,
+  );
+  assert.equal(
+    isAllowedConsoleMessage('net::ERR_NAME_NOT_RESOLVED', NETWORK_ALLOWED_CONSOLE_PATTERNS),
+    false,
   );
   assert.equal(
     isAllowedConsoleMessage('Failed to load resource: the server responded with a status of 404 (Not Found)', NETWORK_ALLOWED_CONSOLE_PATTERNS),
     false,
   );
   assert.equal(BASE_ALLOWED_CONSOLE_PATTERNS.length, 4);
+  assert.equal(NETWORK_ALLOWED_CONSOLE_PATTERNS.length, MAP_ALLOWED_CONSOLE_PATTERNS.length);
 });
 
 test('attachConsoleErrorCollector records only unallowed console errors by default', () => {
@@ -80,7 +85,7 @@ test('attachConsoleErrorCollector records only unallowed console errors by defau
   ]);
 });
 
-test('attachConsoleErrorCollector respects an explicit network allowlist', () => {
+test('attachConsoleErrorCollector keeps runtime connectivity failures fatal in the shared network allowlist', () => {
   const page = new EventEmitter();
   const consoleErrors = attachConsoleErrorCollector(
     page as unknown as Page,
@@ -88,6 +93,28 @@ test('attachConsoleErrorCollector respects an explicit network allowlist', () =>
   );
 
   page.emit('console', createConsoleMessage('error', 'net::ERR_CONNECTION_REFUSED'));
+  page.emit(
+    'console',
+    createConsoleMessage(
+      'error',
+      'Failed to load resource: the server responded with a status of 500 (Internal Server Error)',
+    ),
+  );
+
+  assert.deepEqual(consoleErrors, [
+    'net::ERR_CONNECTION_REFUSED',
+    'Failed to load resource: the server responded with a status of 500 (Internal Server Error)',
+  ]);
+});
+
+test('attachConsoleErrorCollector can use a suite-specific connectivity exception when explicitly scoped', () => {
+  const page = new EventEmitter();
+  const consoleErrors = attachConsoleErrorCollector(
+    page as unknown as Page,
+    [...NETWORK_ALLOWED_CONSOLE_PATTERNS, /net::ERR_NAME_NOT_RESOLVED/],
+  );
+
+  page.emit('console', createConsoleMessage('error', 'net::ERR_NAME_NOT_RESOLVED'));
   page.emit(
     'console',
     createConsoleMessage(

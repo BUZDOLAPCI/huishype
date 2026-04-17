@@ -64,7 +64,16 @@ interface CreateOsmBuildingRectangleOptions {
 }
 
 function buildMockGoogleToken(label: string) {
-  return `mock-google-${label}-gid${label}`;
+  const payload = Buffer.from(
+    JSON.stringify({
+      email: `${label}@gmail.com`,
+      googleId: `gid${label}`,
+      name: label,
+    }),
+    'utf8',
+  ).toString('base64url');
+
+  return `mock-google:${payload}`;
 }
 
 export async function createIntegrationUser(app: FastifyInstance, options: CreateUserOptions) {
