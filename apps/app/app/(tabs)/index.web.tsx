@@ -10,12 +10,21 @@ import {
   PropertyBottomSheet,
 } from '@/src/components';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
+import { WebAmbientCommentBubblesPortal } from '@/src/components/WebAmbientCommentBubblesPortal';
 import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
+import {
+  useAmbientCommentBubbles,
+  toAmbientBubbleVisibleNode,
+} from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
-import { API_URL, type PropertyResolveResult } from '@/src/utils/api';
+import {
+  API_URL,
+  normalizeRenderedPropertyGroup,
+  type PropertyResolveResult,
+} from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import { viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import {
@@ -28,6 +37,7 @@ import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { replacePropertySourceTiles, PROPERTY_VECTOR_SOURCE_ID } from '@/src/lib/mapPropertySource';
+import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import {
   appendSearchToPath,
   buildPropertyTileTemplateUrl,
@@ -506,6 +516,7 @@ function createSelectedMarkerElement(): HTMLDivElement {
 
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
+const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const initialAppliedFilters = useMemo(
@@ -553,6 +564,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const browserSearchRef = useRef(
     typeof window === 'undefined' ? '' : window.location.search || '',
   );
+  const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -583,15 +595,47 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   } = interaction;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
+  const webViewportSize = {
+    width:
+      mapRef.current?.getContainer().clientWidth ??
+      (typeof window === 'undefined' ? 0 : window.innerWidth),
+    height:
+      mapRef.current?.getContainer().clientHeight ??
+      (typeof window === 'undefined' ? 0 : window.innerHeight),
+  };
+  const ambientBubblesEnabled =
+    mapLoaded &&
+    !interaction.previewGroup &&
+    interaction.sheetIndex < 0;
+  const ambientCommentBubbles = useAmbientCommentBubbles({
+    enabled: ambientBubblesEnabled,
+    maxVisibleBubbles: webViewportSize.width < 560 ? 1 : 2,
+  });
+  const clearAmbientCommentBubblesRef = useRef(ambientCommentBubbles.clearBubbles);
+  clearAmbientCommentBubblesRef.current = ambientCommentBubbles.clearBubbles;
+  const handleAmbientBubblePress = useCallback((property: GroupPreviewProperty) => {
+    if (property.coordinate) {
+      interaction.setHighlightedCoordinate(property.coordinate);
+      interaction.setPreviewGroup({
+        properties: [property],
+        coordinate: property.coordinate,
+      });
+      interaction.setCurrentPreviewIndex(0);
+    }
+
+    interaction.setSelectedPropertyId(property.id);
+    interaction.handleComment(property);
+  }, [interaction]);
 
   useFocusEffect(
     useCallback(() => {
       return () => {
         clearLocalPreviewRouteCache();
         resetTransientUI();
+        ambientCommentBubbles.clearBubbles();
         setSearchResetToken((value) => value + 1);
       };
-    }, [resetTransientUI]),
+    }, [ambientCommentBubbles, resetTransientUI]),
   );
 
   const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
@@ -632,7 +676,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   const previewOpenRef = useRef(false);
   previewOpenRef.current = !!interaction.previewGroup || !!interaction.highlightedCoordinate;
-
   const replaceMapBrowserPath = useCallback(
     (pathname: string) => {
       const nextHref = appendSearchToPath(pathname, browserSearchRef.current);
@@ -738,6 +781,123 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       Alert.alert('Location unavailable', message);
     }
   }, []);
+
+  const clearAmbientBubbleRefreshTimeout = useCallback(() => {
+    if (ambientBubbleRefreshTimeoutRef.current) {
+      clearTimeout(ambientBubbleRefreshTimeoutRef.current);
+      ambientBubbleRefreshTimeoutRef.current = null;
+    }
+  }, []);
+
+  const collectVisibleAmbientBubbleNodes = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) {
+      return [];
+    }
+
+    const container = map.getContainer();
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) {
+      return [];
+    }
+
+    const features = map.queryRenderedFeatures(
+      [[0, 0], [container.clientWidth, container.clientHeight]],
+      { layers: PROPERTY_LAYER_IDS },
+    ) as unknown as GeoJSON.Feature[];
+    const visibleNodes = new Map<string, ReturnType<typeof toAmbientBubbleVisibleNode>>();
+
+    for (const feature of features) {
+      const group = normalizeRenderedPropertyGroup(feature);
+      if (!group || group.groupKind !== 'single' || group.commentCount <= 0) {
+        continue;
+      }
+
+      const projectedPoint = map.project(group.coordinate);
+      const property = toGroupProperty({
+        id: group.primaryPropertyId,
+        address: group.address ?? '',
+        streetName: group.streetName ?? null,
+        houseNumber: group.houseNumber ?? null,
+        houseNumberAddition: group.houseNumberAddition ?? null,
+        city: group.city ?? '',
+        postalCode: group.postalCode ?? null,
+        countryCode: group.countryCode ?? undefined,
+        officialValuation: group.officialValuation ?? null,
+        askingPrice: group.askingPrice ?? null,
+        activityScore: group.activityScore,
+        geometry: { type: 'Point', coordinates: group.coordinate },
+        thumbnailUrl: group.thumbnailUrl ?? null,
+        yearBuilt: group.yearBuilt ?? null,
+        floorAreaM2: group.floorAreaM2 ?? null,
+        likeCount: group.likeCount ?? 0,
+        commentCount: group.commentCount ?? 0,
+        guessCount: group.guessCount ?? 0,
+      }, group.activityScore);
+
+      visibleNodes.set(group.primaryPropertyId, toAmbientBubbleVisibleNode({
+        property,
+        coordinate: group.coordinate,
+        screenPoint: [projectedPoint.x, projectedPoint.y],
+        commentCount: group.commentCount,
+        likeCount: group.likeCount,
+        activityScore: group.activityScore,
+        hasListing: group.hasListing,
+        nodeClass: group.nodeClass,
+      }));
+    }
+
+    return Array.from(visibleNodes.values());
+  }, [toGroupProperty]);
+
+  const refreshAmbientCommentBubbles = useCallback(async () => {
+    if (!ambientBubblesEnabled) {
+      ambientCommentBubbles.clearBubbles();
+      return;
+    }
+
+    const visibleNodes = await collectVisibleAmbientBubbleNodes();
+    await ambientCommentBubbles.refreshBubbles(visibleNodes);
+  }, [
+    ambientBubblesEnabled,
+    ambientCommentBubbles,
+    collectVisibleAmbientBubbleNodes,
+  ]);
+  const refreshAmbientCommentBubblesRef = useRef(refreshAmbientCommentBubbles);
+  refreshAmbientCommentBubblesRef.current = refreshAmbientCommentBubbles;
+
+  const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
+    clearAmbientBubbleRefreshTimeout();
+    ambientCommentBubbles.clearBubbles();
+
+    if (!ambientBubblesEnabled) {
+      return;
+    }
+
+    ambientBubbleRefreshTimeoutRef.current = setTimeout(() => {
+      ambientBubbleRefreshTimeoutRef.current = null;
+      void refreshAmbientCommentBubbles();
+    }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
+  }, [
+    ambientBubblesEnabled,
+    ambientCommentBubbles,
+    clearAmbientBubbleRefreshTimeout,
+    refreshAmbientCommentBubbles,
+  ]);
+
+  useEffect(() => {
+    scheduleAmbientCommentBubbleRefresh();
+  }, [
+    ambientBubblesEnabled,
+    filterController.appliedFilters,
+    mapLoaded,
+    scheduleAmbientCommentBubbleRefresh,
+    webViewportSize.height,
+    webViewportSize.width,
+  ]);
+
+  useEffect(() => () => {
+    clearAmbientBubbleRefreshTimeout();
+  }, [clearAmbientBubbleRefreshTimeout]);
 
   // Initialize map
   useEffect(() => {
@@ -915,6 +1075,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('idle', () => {
         if (!cancelled) {
           markMapLoaded();
+          void refreshAmbientCommentBubblesRef.current();
         }
       });
 
@@ -961,6 +1122,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
         skipNextPassiveUrlSyncRef.current =
           passiveSyncResult.skipNextPassiveUrlSync;
+        void refreshAmbientCommentBubblesRef.current();
       });
 
       // Trigger initial reverse geocode for the default camera position
@@ -975,16 +1137,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('dragstart', () => {
         isDragging.current = true;
         canReplaceLockedAreaPathRef.current = true;
+        clearAmbientCommentBubblesRef.current();
       });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
       map.on('zoomstart', () => {
         isZooming.current = true;
         canReplaceLockedAreaPathRef.current = true;
+        clearAmbientCommentBubblesRef.current();
       });
       map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
       map.on('rotatestart', () => {
         isRotating.current = true;
         canReplaceLockedAreaPathRef.current = true;
+        clearAmbientCommentBubblesRef.current();
       });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 
@@ -1535,6 +1700,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           onComment={interaction.handleComment}
           onGuess={interaction.handleGuess}
           isLiked={interaction.isLiked}
+        />
+
+        <WebAmbientCommentBubblesPortal
+          map={mapRef.current}
+          bubbles={ambientCommentBubbles.bubbles}
+          onBubblePress={handleAmbientBubblePress}
         />
 
       </View>

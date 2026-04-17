@@ -80,6 +80,7 @@ export interface UseMapInteractionReturn {
   // ── Bottom sheet ────────────────────────────────────────────
   bottomSheetRef: React.RefObject<PropertyBottomSheetRef | null>;
   sheetIndexRef: React.MutableRefObject<number>;
+  sheetIndex: number;
   handleSheetIndexChange: (index: number) => void;
   handleSheetClose: () => void;
 
@@ -252,6 +253,9 @@ function mergeHydratedPreviewProperty(
 
   return {
     ...currentProperty,
+    coordinate:
+      currentProperty.coordinate ??
+      (selectedProperty.geometry?.type === 'Point' ? selectedProperty.geometry.coordinates : undefined),
     address: selectedProperty.address,
     city: selectedProperty.city,
     postalCode: selectedProperty.postalCode,
@@ -291,6 +295,7 @@ function convertToGroupProperty(
   return {
     id: p.id,
     address: p.address,
+    coordinate: p.geometry?.coordinates,
     streetName: p.streetName ?? null,
     houseNumber: p.houseNumber ?? null,
     houseNumberAddition: p.houseNumberAddition ?? null,
@@ -328,6 +333,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const currentPreviewProperty = previewGroup?.properties[currentPreviewIndex] ?? null;
   const previewActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSheetSectionRef = useRef<'comments' | 'guess' | null>(null);
 
   const selectedPropertyForSheet = useMemo(() => {
     if (!selectedPropertyId || !selectedProperty) {
@@ -398,13 +404,31 @@ export function useMapInteraction(): UseMapInteractionReturn {
     });
   }, [currentPreviewIndex, previewGroup, selectedProperty]);
 
+  useEffect(() => {
+    if (!selectedPropertyForSheet || !pendingSheetSectionRef.current) {
+      return;
+    }
+
+    const pendingSection = pendingSheetSectionRef.current;
+    pendingSheetSectionRef.current = null;
+
+    if (pendingSection === 'comments') {
+      bottomSheetRef.current?.scrollToComments();
+      return;
+    }
+
+    bottomSheetRef.current?.scrollToGuess();
+  }, [selectedPropertyForSheet]);
+
   // ── Bottom sheet ────────────────────────────────────────────
   const bottomSheetRef = useRef<PropertyBottomSheetRef>(null);
   // -1 = closed, 0 = peek, 1 = partial, 2 = full
   const sheetIndexRef = useRef<number>(-1);
+  const [sheetIndex, setSheetIndex] = useState(-1);
 
   const handleSheetIndexChange = useCallback((index: number) => {
     sheetIndexRef.current = index;
+    setSheetIndex(index);
     // Expose for web testing (window global)
     if (typeof window !== 'undefined') {
       (window as unknown as { __sheetIndex: number }).__sheetIndex = index;
@@ -455,6 +479,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       clearTimeout(previewActivationTimeoutRef.current);
       previewActivationTimeoutRef.current = null;
     }
+    pendingSheetSectionRef.current = null;
     setHighlightedCoordinate(null);
     setPreviewGroup(null);
     setSelectedPropertyId(null);
@@ -503,9 +528,74 @@ export function useMapInteraction(): UseMapInteractionReturn {
     toggleLike();
   }, [toggleLike]);
 
-  const handleComment = useCallback((_property?: string | GroupPreviewProperty | null) => {
+  const handleComment = useCallback((property?: string | GroupPreviewProperty | null) => {
+    const targetProperty =
+      typeof property === 'string'
+        ? previewGroup?.properties.find((entry) => entry.id === property) ?? null
+        : property ?? null;
+    const targetId =
+      typeof property === 'string'
+        ? property
+        : targetProperty?.id ?? selectedPropertyId;
+
+    if (!targetId) {
+      bottomSheetRef.current?.scrollToComments();
+      return;
+    }
+
+    if (previewGroup) {
+      const previewIndex = previewGroup.properties.findIndex((entry) => entry.id === targetId);
+      if (previewIndex >= 0 && previewIndex !== currentPreviewIndex) {
+        setCurrentPreviewIndex(previewIndex);
+      }
+    }
+
+    if (targetProperty) {
+      const targetCoordinate =
+        targetProperty.coordinate ??
+        previewGroup?.coordinate ??
+        highlightedCoordinate ??
+        (selectedProperty?.geometry?.type === 'Point' ? selectedProperty.geometry.coordinates : null);
+
+      if (targetCoordinate) {
+        setHighlightedCoordinate(targetCoordinate);
+      }
+
+      const targetAlreadyInPreview = previewGroup?.properties.some(
+        (entry) => entry.id === targetProperty.id,
+      ) ?? false;
+
+      if (targetCoordinate && (!previewGroup || !targetAlreadyInPreview)) {
+        setPreviewGroup({
+          properties: [targetProperty],
+          coordinate: targetCoordinate,
+        });
+        setCurrentPreviewIndex(0);
+      }
+    }
+
+    if (selectedPropertyId !== targetId) {
+      pendingSheetSectionRef.current = 'comments';
+      setSelectedPropertyId(targetId);
+      bottomSheetRef.current?.openFromPreview();
+      return;
+    }
+
+    if (!selectedPropertyForSheet) {
+      pendingSheetSectionRef.current = 'comments';
+      bottomSheetRef.current?.openFromPreview();
+      return;
+    }
+
     bottomSheetRef.current?.scrollToComments();
-  }, []);
+  }, [
+    currentPreviewIndex,
+    highlightedCoordinate,
+    previewGroup,
+    selectedProperty,
+    selectedPropertyForSheet,
+    selectedPropertyId,
+  ]);
 
   const handleGuess = useCallback((_property?: string | GroupPreviewProperty | null) => {
     bottomSheetRef.current?.scrollToGuess();
@@ -651,6 +741,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setPreviewGroup({
             properties: [{
               id: group.primaryPropertyId,
+              coordinate: coord,
               address: group.address ?? '',
               streetName: group.streetName ?? null,
               houseNumber: group.houseNumber ?? null,
@@ -700,6 +791,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setPreviewGroup({
             properties: [{
               id: result.primaryPropertyId,
+              coordinate: coord,
               address: result.address ?? '',
               streetName: result.streetName ?? null,
               houseNumber: result.houseNumber ?? null,
@@ -799,6 +891,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         setPreviewGroup({
           properties: [{
             id: property.id,
+            coordinate: coord,
             address: property.address,
             streetName: resolvedAddress?.details.street ?? null,
             houseNumber: resolvedAddress?.details.houseNumber ?? null,
@@ -854,6 +947,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Bottom sheet
     bottomSheetRef,
     sheetIndexRef,
+    sheetIndex,
     handleSheetIndexChange,
     handleSheetClose,
 

@@ -26,10 +26,12 @@ type MockMapInstance = {
   off: jest.Mock;
   getLayer: jest.Mock;
   getSource: jest.Mock;
+  isStyleLoaded: jest.Mock;
   fitBounds: jest.Mock;
   flyTo: jest.Mock;
   jumpTo: jest.Mock;
   project: jest.Mock;
+  queryRenderedFeatures: jest.Mock;
   remove: jest.Mock;
   propertySource: {
     serialize: jest.Mock;
@@ -50,6 +52,31 @@ let mockAppliedFilters = { tag: 'tile-a' };
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
+const mockAmbientCommentBubbles = {
+  bubbles: [] as Array<{
+    property: { id: string; address: string; city: string; coordinate?: [number, number] };
+    coordinate: [number, number];
+    screenPoint: [number, number] | null;
+    preview: {
+      text: string;
+      likeCount: number;
+      authorName: string;
+      authorPhotoUrl: string | null;
+    };
+  }>,
+  clearBubbles: jest.fn(),
+  refreshBubbles: jest.fn(),
+};
+let capturedAmbientBubblePortalProps:
+  | {
+      onBubblePress: (property: {
+        id: string;
+        address: string;
+        city: string;
+        coordinate?: [number, number];
+      }) => void;
+    }
+  | null = null;
 const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
@@ -61,6 +88,7 @@ const mockInteraction = {
   setSelectedPropertyId: jest.fn(),
   selectedProperty: null,
   selectedPropertyForSheet: null,
+  sheetIndex: -1,
   toGroupProperty: jest.fn(),
   setPreviewGroup: jest.fn(),
   setCurrentPreviewIndex: jest.fn(),
@@ -151,6 +179,13 @@ jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
   WebPreviewMarkerPortal: () => null,
 }));
 
+jest.mock('@/src/components/WebAmbientCommentBubblesPortal', () => ({
+  WebAmbientCommentBubblesPortal: (props: typeof capturedAmbientBubblePortalProps) => {
+    capturedAmbientBubblePortalProps = props;
+    return null;
+  },
+}));
+
 jest.mock('@/src/components/navigation/MapHeaderRow', () => ({
   MapHeaderRow: () => null,
 }));
@@ -165,6 +200,11 @@ jest.mock('@/src/components/navigation/LocationButton', () => ({
 
 jest.mock('@/src/hooks/useMapInteraction', () => ({
   useMapInteraction: jest.fn(() => mockInteraction),
+}));
+
+jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
+  useAmbientCommentBubbles: jest.fn(() => mockAmbientCommentBubbles),
+  toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
@@ -276,10 +316,12 @@ jest.mock('maplibre-gl', () => {
       getSource: jest.fn((sourceId: string) =>
         sourceId === 'properties-source' ? propertySource : undefined,
       ),
+      isStyleLoaded: jest.fn(() => true),
       fitBounds: jest.fn(),
       flyTo: jest.fn(),
       jumpTo: jest.fn(),
-      project: jest.fn(() => ({ y: 0 })),
+      project: jest.fn(() => ({ x: 0, y: 0 })),
+      queryRenderedFeatures: jest.fn(() => []),
       remove: jest.fn(),
       propertySource,
       trigger(event: string, payload?: unknown) {
@@ -333,6 +375,8 @@ describe('MapScreen web filter updates', () => {
     jest.clearAllMocks();
     mockMapInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
+    mockAmbientCommentBubbles.bubbles = [];
+    capturedAmbientBubblePortalProps = null;
     (global as { __DEV__?: boolean }).__DEV__ = false;
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -391,5 +435,63 @@ describe('MapScreen web filter updates', () => {
     expect(map.propertySource.setTiles).toHaveBeenCalledWith([
       'https://tiles.test/tile-b',
     ]);
+  });
+
+  it('opens comments for the tapped ambient bubble property', async () => {
+    mockAmbientCommentBubbles.bubbles = [
+      {
+        property: {
+          id: 'prop-9',
+          address: 'Stationsplein 1',
+          city: 'Eindhoven',
+          coordinate: [5.48, 51.44],
+        },
+        coordinate: [5.48, 51.44],
+        screenPoint: [120, 180],
+        preview: {
+          text: 'Why is this still unsold?',
+          likeCount: 2,
+          authorName: 'Robin',
+          authorPhotoUrl: null,
+        },
+      },
+    ];
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(capturedAmbientBubblePortalProps).not.toBeNull();
+
+    act(() => {
+      capturedAmbientBubblePortalProps?.onBubblePress({
+        id: 'prop-9',
+        address: 'Stationsplein 1',
+        city: 'Eindhoven',
+        coordinate: [5.48, 51.44],
+      });
+    });
+
+    expect(mockInteraction.setHighlightedCoordinate).toHaveBeenCalledWith([5.48, 51.44]);
+    expect(mockInteraction.setPreviewGroup).toHaveBeenCalledWith({
+      properties: [
+        {
+          id: 'prop-9',
+          address: 'Stationsplein 1',
+          city: 'Eindhoven',
+          coordinate: [5.48, 51.44],
+        },
+      ],
+      coordinate: [5.48, 51.44],
+    });
+    expect(mockInteraction.setCurrentPreviewIndex).toHaveBeenCalledWith(0);
+    expect(mockInteraction.setSelectedPropertyId).toHaveBeenCalledWith('prop-9');
+    expect(mockInteraction.handleComment).toHaveBeenCalledWith({
+      id: 'prop-9',
+      address: 'Stationsplein 1',
+      city: 'Eindhoven',
+      coordinate: [5.48, 51.44],
+    });
   });
 });

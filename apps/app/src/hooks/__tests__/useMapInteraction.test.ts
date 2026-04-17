@@ -380,6 +380,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.sheetIndexRef.current).toBe(1);
+      expect(result.current.sheetIndex).toBe(1);
     });
 
     it('handleSheetClose does not clear preview (persistence rule)', () => {
@@ -511,6 +512,148 @@ describe('useMapInteraction', () => {
 
       // After changing index, selected should sync to prop-2
       expect(result.current.selectedPropertyId).toBe('prop-2');
+    });
+
+    it('aligns cluster selection before opening comments for a specific property', async () => {
+      mockUseProperty.mockImplementation((propertyId: string | null) => ({
+        data: propertyId
+          ? {
+              id: propertyId,
+              address: propertyId === 'prop-2' ? '456 Oak Ave' : '123 Main St',
+              city: 'Rotterdam',
+              postalCode: '3011AA',
+              countryCode: 'NL',
+              geometry: { type: 'Point', coordinates: [4.48, 51.92] },
+              officialValuation: 420000,
+              askingPrice: 445000,
+              fmv: null,
+              aerialImageUrl: null,
+              thumbnailUrl: null,
+              yearBuilt: 1995,
+              floorAreaM2: 110,
+              likeCount: 4,
+              commentCount: 6,
+              guessCount: 2,
+            }
+          : null,
+        isLoading: false,
+      }));
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const openFromPreview = jest.fn();
+      const scrollToComments = jest.fn();
+
+      act(() => {
+        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
+          expand: jest.fn(),
+          collapse: jest.fn(),
+          close: jest.fn(),
+          snapToIndex: jest.fn(),
+          openFromPreview,
+          scrollToComments,
+          scrollToGuess: jest.fn(),
+          getCurrentIndex: jest.fn().mockReturnValue(-1),
+        };
+        result.current.setPreviewGroup({
+          properties: [
+            { id: 'prop-1', address: '123 Main St', city: 'Rotterdam', coordinate: [4.47, 51.92] },
+            { id: 'prop-2', address: '456 Oak Ave', city: 'Rotterdam', coordinate: [4.48, 51.92] },
+          ],
+          coordinate: [4.47, 51.92],
+        });
+      });
+
+      act(() => {
+        result.current.handleComment({
+          id: 'prop-2',
+          address: '456 Oak Ave',
+          city: 'Rotterdam',
+          coordinate: [4.48, 51.92],
+        });
+      });
+
+      expect(result.current.currentPreviewIndex).toBe(1);
+      expect(result.current.selectedPropertyId).toBe('prop-2');
+      expect(openFromPreview).toHaveBeenCalledTimes(1);
+
+      await waitFor(() => {
+        expect(scrollToComments).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('creates a single-property preview when an ambient bubble opens comments', async () => {
+      mockUseProperty.mockImplementation((propertyId: string | null) => ({
+        data: propertyId
+          ? {
+              id: propertyId,
+              address: 'Stationsplein 1',
+              city: 'Eindhoven',
+              postalCode: '5611AB',
+              countryCode: 'NL',
+              geometry: { type: 'Point', coordinates: [5.48, 51.44] },
+              officialValuation: 385000,
+              askingPrice: 399000,
+              fmv: null,
+              aerialImageUrl: null,
+              thumbnailUrl: null,
+              yearBuilt: 2002,
+              floorAreaM2: 96,
+              likeCount: 3,
+              commentCount: 8,
+              guessCount: 1,
+            }
+          : null,
+        isLoading: false,
+      }));
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const openFromPreview = jest.fn();
+      const scrollToComments = jest.fn();
+
+      act(() => {
+        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
+          expand: jest.fn(),
+          collapse: jest.fn(),
+          close: jest.fn(),
+          snapToIndex: jest.fn(),
+          openFromPreview,
+          scrollToComments,
+          scrollToGuess: jest.fn(),
+          getCurrentIndex: jest.fn().mockReturnValue(-1),
+        };
+      });
+
+      act(() => {
+        result.current.handleComment({
+          id: 'prop-9',
+          address: 'Stationsplein 1',
+          city: 'Eindhoven',
+          coordinate: [5.48, 51.44],
+        });
+      });
+
+      expect(result.current.previewGroup).toMatchObject({
+        properties: [{
+          id: 'prop-9',
+          address: 'Stationsplein 1',
+          city: 'Eindhoven',
+          coordinate: [5.48, 51.44],
+        }],
+        coordinate: [5.48, 51.44],
+      });
+      expect(result.current.highlightedCoordinate).toEqual([5.48, 51.44]);
+      expect(result.current.selectedPropertyId).toBe('prop-9');
+      expect(openFromPreview).toHaveBeenCalledTimes(1);
+
+      await waitFor(() => {
+        expect(scrollToComments).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

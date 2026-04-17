@@ -1,6 +1,7 @@
 export interface GroupPreviewProperty {
   id: string;
   address: string;
+  coordinate?: [number, number];
   streetName?: string | null;
   houseNumber?: string | number | null;
   houseNumberAddition?: string | null;
