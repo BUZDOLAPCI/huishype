@@ -20,7 +20,13 @@ describe('useAmbientCommentBubbles', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('hydrates a grouped node from its member properties and keeps the node anchor', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
     mockFetchBatchProperties.mockResolvedValue([
       {
         id: 'member-a',

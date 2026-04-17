@@ -23,7 +23,11 @@ import {
   BottomSheetErrorBoundary,
   GroupPreviewCard,
 } from '@/src/components';
-import { AmbientCommentBubble } from '@/src/components/AmbientCommentBubble';
+import {
+  AmbientCommentBubble,
+  AMBIENT_COMMENT_BUBBLE_HEIGHT,
+  AMBIENT_COMMENT_BUBBLE_WIDTH,
+} from '@/src/components/AmbientCommentBubble';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
@@ -851,7 +855,10 @@ export default function MapScreen() {
 
               const bubbleLayout = getNativePreviewOverlayLayout({
                 anchorPoint: bubble.screenPoint,
-                cardSize: { width: 236, height: 88 },
+                cardSize: {
+                  width: AMBIENT_COMMENT_BUBBLE_WIDTH,
+                  height: AMBIENT_COMMENT_BUBBLE_HEIGHT,
+                },
                 topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
                 viewportSize: mapViewportSize,
               });
