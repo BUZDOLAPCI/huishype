@@ -59,7 +59,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
-      - name: Run canonical gate (lint, typecheck, unit, integration, Playwright harness + integration)
+      - name: Run canonical gate (lint, typecheck, unit, API integration, Playwright harness self-tests, Playwright integration)
         run: pnpm test
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test

@@ -32,6 +32,7 @@ import { API_URL } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
+import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import { replacePropertySourceTiles } from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -60,61 +61,8 @@ const COLORS = {
 const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
-const PREVIEW_OVERLAY_MARGIN = 12;
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
-type PreviewArrowDirection = 'up' | 'down';
-type NativePreviewLayout = {
-  arrowDirection: PreviewArrowDirection;
-  left: number;
-  top: number;
-};
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-export function getNativePreviewOverlayLayout(params: {
-  anchorPoint: [number, number];
-  cardSize: { width: number; height: number };
-  topBoundary: number;
-  viewportSize: { width: number; height: number };
-}): NativePreviewLayout {
-  const {
-    anchorPoint,
-    cardSize,
-    topBoundary,
-    viewportSize,
-  } = params;
-  const viewportWidth = Math.max(viewportSize.width, 0);
-  const viewportHeight = Math.max(viewportSize.height, 0);
-  const cardWidth = cardSize.width > 0 ? cardSize.width : NATIVE_PREVIEW_FALLBACK_WIDTH;
-  const cardHeight = Math.max(cardSize.height, 0);
-  const boundedTop = Math.max(topBoundary, PREVIEW_OVERLAY_MARGIN);
-  const boundedBottom = Math.max(PREVIEW_OVERLAY_MARGIN, viewportHeight - PREVIEW_OVERLAY_MARGIN);
-  const maxLeft = Math.max(
-    PREVIEW_OVERLAY_MARGIN,
-    viewportWidth - cardWidth - PREVIEW_OVERLAY_MARGIN,
-  );
-  const maxTop = Math.max(boundedTop, boundedBottom - cardHeight);
-  const availableAbove = anchorPoint[1] - boundedTop;
-  const availableBelow = boundedBottom - anchorPoint[1];
-  const fitsAbove = cardHeight === 0 || availableAbove >= cardHeight;
-  const fitsBelow = cardHeight === 0 || availableBelow >= cardHeight;
-  const placeBelow = !fitsAbove && (fitsBelow || availableBelow > availableAbove);
-
-  return {
-    arrowDirection: placeBelow ? 'up' : 'down',
-    left: clamp(
-      anchorPoint[0] - (cardWidth / 2),
-      PREVIEW_OVERLAY_MARGIN,
-      maxLeft,
-    ),
-    top: placeBelow
-      ? clamp(anchorPoint[1], boundedTop, maxTop)
-      : clamp(anchorPoint[1] - cardHeight, boundedTop, maxTop),
-  };
-}
 
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't

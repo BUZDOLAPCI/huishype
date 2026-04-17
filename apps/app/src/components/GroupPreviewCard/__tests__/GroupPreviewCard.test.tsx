@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react-native';
-import { GroupPreviewCard } from '../GroupPreviewCard';
+import { GroupPreviewCard, shouldClaimPreviewSwipe } from '../GroupPreviewCard';
 import type { GroupPreviewProperty } from '../types';
 
 jest.mock('react-native', () => {
@@ -36,6 +36,23 @@ const makeProperties = (count: number): GroupPreviewProperty[] =>
   );
 
 describe('GroupPreviewCard', () => {
+  describe('shouldClaimPreviewSwipe', () => {
+    it('does not claim low-drift thumb jitter', () => {
+      expect(shouldClaimPreviewSwipe({ dx: 11, dy: 3, vx: 0.12 })).toBe(false);
+      expect(shouldClaimPreviewSwipe({ dx: 15, dy: 13, vx: 0.2 })).toBe(false);
+    });
+
+    it('claims clearly horizontal drags', () => {
+      expect(shouldClaimPreviewSwipe({ dx: 22, dy: 6, vx: 0.18 })).toBe(true);
+      expect(shouldClaimPreviewSwipe({ dx: -24, dy: 9, vx: -0.2 })).toBe(true);
+    });
+
+    it('keeps short deliberate flicks eligible for cluster swipe navigation', () => {
+      expect(shouldClaimPreviewSwipe({ dx: 13, dy: 2, vx: 0.42 })).toBe(true);
+      expect(shouldClaimPreviewSwipe({ dx: -14, dy: 4, vx: -0.5 })).toBe(true);
+    });
+  });
+
   // ---- Single property mode ----
 
   describe('single property', () => {

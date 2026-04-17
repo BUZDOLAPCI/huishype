@@ -11,7 +11,7 @@
     "typecheck": "turbo run typecheck",
     "test:unit": "pnpm -r --sort --workspace-concurrency=4 --filter=@huishype/app --filter=@huishype/api --filter=@huishype/worker --filter=@huishype/shared --filter=@huishype/api-client --filter=@huishype/mocks test",
     "test:integration": "pnpm --filter @huishype/api test:integration",
-    "test:e2e:harness": "node --test ./scripts/playwright/runtime-config.test.mjs ./scripts/playwright/run-playwright-project.test.mjs",
+    "test:e2e:harness": "node --test ./scripts/playwright/*.test.mjs",
     "test:e2e:web": "node ./scripts/playwright/run-playwright-project.mjs --config=playwright.config.ts",
     "test:e2e:flows": "node ./scripts/playwright/run-playwright-project.mjs --project=flows",
     "test:e2e:visual": "node ./scripts/playwright/run-playwright-project.mjs --project=visual",

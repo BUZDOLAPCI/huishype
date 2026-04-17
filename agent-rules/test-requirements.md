@@ -48,7 +48,7 @@ Agents must be able to verify changes locally + in CI with:
 
 ### Contract tests
 
-- **OpenAPI validation:** schema lint + breaking-change checks in CI
+- **OpenAPI workflow:** update the exported schema, generated client, and related tests when API contracts change; there is no standalone schema-lint or breaking-change CI gate enforced today
 - **Generated client sanity tests:** compile-time type checks + smoke calls against local env
 
 ### Backend integration tests
@@ -191,7 +191,7 @@ Artifacts always captured:
 
 ## One-command workflows (must exist)
 
-- `test` — canonical repo gate: lint + typecheck + unit + API integration + Playwright integration
+- `test` — canonical repo gate: lint + typecheck + unit + API integration + Playwright harness self-tests + Playwright integration
 - `test:unit` — app + API + worker + shared + api-client + mocks
 - `test:integration` — backend with DB
 - `test:e2e:harness` — Node tests for the shared Playwright runtime wrapper
@@ -291,7 +291,7 @@ When deciding which tests to run after a change:
 ### Quick Reference Commands
 
 ```
-pnpm test                   # Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright integration
+pnpm test                   # Canonical merge gate: lint + typecheck + unit (app + API + worker + shared + api-client + mocks) + API integration + Playwright harness self-tests + Playwright integration
 pnpm test:unit              # App + API + worker + shared + api-client + mocks unit tests (Jest / Vitest / node:test)
 pnpm test:integration       # API integration tests via @huishype/api Jest with NODE_ENV=test
 pnpm test:e2e:web           # Full Playwright suite via the root wrapper

@@ -370,7 +370,7 @@ Other agents may be editing nearby files at the same time. Do not overwrite, rev
 
 ## Verification
 
-Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical repo gate is `pnpm test`, which covers app, API, worker, shared, api-client, and mocks unit coverage plus API integration and Playwright integration. Follow "All tests green" development.
+Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical repo gate is `pnpm test`, which covers lint, typecheck, app/API/worker/shared/api-client/mocks unit coverage, API integration, Playwright harness self-tests, and Playwright integration. Follow "All tests green" development.
 
 ## Pre-Commit Quality Gate (Mandatory)
 

@@ -18,6 +18,11 @@ import type { WebViewStyle } from '@/src/lib/webStyle';
 const CARD_WIDTH = 280;
 const PREVIEW_ARROW_SIZE = 10;
 const PAGE_PROGRESS_DOT_COUNT = 4;
+const SWIPE_ACTIVATION_DISTANCE = 18;
+const SWIPE_FLICK_DISTANCE = 12;
+const SWIPE_FLICK_VELOCITY = 0.35;
+const SWIPE_DIRECTIONAL_BIAS = 1.25;
+const SWIPE_DIRECTIONAL_LEEWAY = 6;
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -49,6 +54,32 @@ const WEB_ARROW_DOWN_SHADOW_STYLE: WebViewStyle = {
 const WEB_CARD_SHADOW_STYLE: WebViewStyle = {
   boxShadow: '0px 14px 30px rgba(26, 25, 24, 0.18), 0px 4px 12px rgba(180, 119, 18, 0.10)',
 };
+
+type PreviewSwipeGesture = {
+  dx: number;
+  dy: number;
+  vx?: number;
+};
+
+export function shouldClaimPreviewSwipe(gesture: PreviewSwipeGesture): boolean {
+  const absDx = Math.abs(gesture.dx);
+  const absDy = Math.abs(gesture.dy);
+  const absVx = Math.abs(gesture.vx ?? 0);
+
+  if (absDx < SWIPE_FLICK_DISTANCE) {
+    return false;
+  }
+
+  const isClearlyHorizontal =
+    absDx >= absDy * SWIPE_DIRECTIONAL_BIAS ||
+    absDx >= absDy + SWIPE_DIRECTIONAL_LEEWAY;
+
+  if (!isClearlyHorizontal) {
+    return false;
+  }
+
+  return absDx >= SWIPE_ACTIVATION_DISTANCE || absVx >= SWIPE_FLICK_VELOCITY;
+}
 
 /**
  * GroupPreviewCard — unified preview card for both single properties and clusters.
@@ -137,8 +168,7 @@ export function GroupPreviewCard({
   const panResponder = useRef(
     PanResponder?.create?.({
       onStartShouldSetPanResponder: () => false, // Let Pressable handle taps; only claim horizontal drags.
-      onMoveShouldSetPanResponder: (_, gs) =>
-        Math.abs(gs.dx) > 10 && Math.abs(gs.dy) < 30,
+      onMoveShouldSetPanResponder: (_, gs) => shouldClaimPreviewSwipe(gs),
       onPanResponderTerminationRequest: () => false, // Don't let map steal the gesture
       onPanResponderMove: (_, gs) => {
         translateX.setValue(Math.max(-SWIPE_MAX_DRAG, Math.min(SWIPE_MAX_DRAG, gs.dx)));
