@@ -67,21 +67,27 @@ export function rankAmbientCommentCandidates(
 
 export function getAmbientCommentRotationWindow<T>(
   candidates: T[],
-  rotationIndex: number,
+  rotationStep: number,
   bubbleCount: number,
 ): T[] {
   if (candidates.length === 0 || bubbleCount <= 0) {
     return [];
   }
 
-  if (candidates.length <= bubbleCount) {
-    return candidates;
+  const normalizedStep = Math.max(0, rotationStep);
+  const maxVisibleCount = Math.min(bubbleCount, candidates.length);
+  const visibleCount = Math.min(normalizedStep + 1, maxVisibleCount);
+
+  if (candidates.length <= maxVisibleCount) {
+    return candidates.slice(0, visibleCount);
   }
 
-  const startIndex = ((rotationIndex % candidates.length) + candidates.length) % candidates.length;
+  const startIndex = normalizedStep < maxVisibleCount
+    ? 0
+    : normalizedStep - maxVisibleCount + 1;
   const window: T[] = [];
 
-  for (let index = 0; index < bubbleCount; index += 1) {
+  for (let index = 0; index < visibleCount; index += 1) {
     window.push(candidates[(startIndex + index) % candidates.length]!);
   }
 

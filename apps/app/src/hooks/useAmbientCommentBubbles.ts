@@ -155,7 +155,7 @@ export function useAmbientCommentBubbles({
   toGroupProperty,
 }: UseAmbientCommentBubblesOptions) {
   const [hydratedBubbles, setHydratedBubbles] = useState<AmbientCommentBubble[]>([]);
-  const [rotationIndex, setRotationIndex] = useState(0);
+  const [rotationStep, setRotationStep] = useState(0);
 
   const previewCacheRef = useRef(new Map<string, CommentPreviewCacheEntry>());
   const propertyCacheRef = useRef(new Map<string, PropertyCacheEntry>());
@@ -164,7 +164,7 @@ export function useAmbientCommentBubbles({
   const clearBubbles = useCallback(() => {
     requestIdRef.current += 1;
     setHydratedBubbles([]);
-    setRotationIndex(0);
+    setRotationStep(0);
   }, []);
 
   const getCachedPreview = useCallback(async (propertyId: string) => {
@@ -367,7 +367,7 @@ export function useAmbientCommentBubbles({
 
     if (rankedNodes.length === 0) {
       setHydratedBubbles([]);
-      setRotationIndex(0);
+      setRotationStep(0);
       return;
     }
 
@@ -391,14 +391,8 @@ export function useAmbientCommentBubbles({
     );
 
     setHydratedBubbles(nextHydratedBubbles);
-    setRotationIndex((current) => {
-      if (nextHydratedBubbles.length <= maxVisibleBubbles) {
-        return 0;
-      }
-
-      return current + Math.floor(Math.random() * nextHydratedBubbles.length);
-    });
-  }, [clearBubbles, enabled, hydrateBubbleForNode, maxVisibleBubbles]);
+    setRotationStep(0);
+  }, [clearBubbles, enabled, hydrateBubbleForNode]);
 
   useEffect(() => {
     if (!enabled) {
@@ -407,26 +401,26 @@ export function useAmbientCommentBubbles({
   }, [clearBubbles, enabled]);
 
   useEffect(() => {
-    if (!enabled || hydratedBubbles.length <= maxVisibleBubbles) {
+    if (!enabled || hydratedBubbles.length <= 1) {
       return undefined;
     }
 
     const interval = setInterval(() => {
-      setRotationIndex((currentIndex) => currentIndex + 1);
+      setRotationStep((currentStep) => currentStep + 1);
     }, ROTATION_INTERVAL_MS);
 
     return () => {
       clearInterval(interval);
     };
-  }, [enabled, hydratedBubbles.length, maxVisibleBubbles]);
+  }, [enabled, hydratedBubbles.length]);
 
   const bubbles = useMemo(
     () => getAmbientCommentRotationWindow(
       hydratedBubbles,
-      rotationIndex,
-      Math.min(maxVisibleBubbles, hydratedBubbles.length),
+      rotationStep,
+      maxVisibleBubbles,
     ),
-    [hydratedBubbles, maxVisibleBubbles, rotationIndex],
+    [hydratedBubbles, maxVisibleBubbles, rotationStep],
   );
 
   return {

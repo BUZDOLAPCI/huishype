@@ -179,12 +179,16 @@ describe('rankAmbientCommentCandidates', () => {
 });
 
 describe('getAmbientCommentRotationWindow', () => {
-  it('returns a wrapped window across the ranked pool', () => {
-    const window = getAmbientCommentRotationWindow(['a', 'b', 'c', 'd'], 3, 2);
-    expect(window).toEqual(['d', 'a']);
+  it('ramps up from one bubble before sliding the window forward', () => {
+    expect(getAmbientCommentRotationWindow(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['a']);
+    expect(getAmbientCommentRotationWindow(['a', 'b', 'c', 'd'], 1, 2)).toEqual(['a', 'b']);
+    expect(getAmbientCommentRotationWindow(['a', 'b', 'c', 'd'], 2, 2)).toEqual(['b', 'c']);
+    expect(getAmbientCommentRotationWindow(['a', 'b', 'c', 'd'], 4, 2)).toEqual(['d', 'a']);
   });
 
-  it('returns all candidates when the pool is smaller than the requested bubble count', () => {
-    expect(getAmbientCommentRotationWindow(['a'], 5, 2)).toEqual(['a']);
+  it('ramps up and then stops when the pool is smaller than the requested bubble count', () => {
+    expect(getAmbientCommentRotationWindow(['a', 'b'], 0, 3)).toEqual(['a']);
+    expect(getAmbientCommentRotationWindow(['a', 'b'], 1, 3)).toEqual(['a', 'b']);
+    expect(getAmbientCommentRotationWindow(['a', 'b'], 5, 3)).toEqual(['a', 'b']);
   });
 });

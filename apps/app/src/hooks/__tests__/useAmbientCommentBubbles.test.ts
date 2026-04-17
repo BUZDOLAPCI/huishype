@@ -181,4 +181,104 @@ describe('useAmbientCommentBubbles', () => {
       },
     });
   });
+
+  it('adds ambient bubbles one at a time and evicts the oldest once the max is reached', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
+    mockApiFetch.mockImplementation(async (path: string) => {
+      const propertyId = path.match(/\/properties\/([^/]+)\/comments/)?.[1];
+
+      return {
+        data: propertyId ? [{
+          id: `comment-${propertyId}`,
+          content: `Comment from ${propertyId}`,
+          likeCount: 1,
+          user: {
+            username: propertyId,
+            displayName: propertyId?.toUpperCase() ?? null,
+            profilePhotoUrl: null,
+          },
+        }] : [],
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useAmbientCommentBubbles({
+        enabled: true,
+        maxVisibleBubbles: 2,
+        toGroupProperty: (property) => ({
+          id: property.id,
+          address: property.address,
+          city: property.city,
+          coordinate: property.geometry?.coordinates,
+          postalCode: property.postalCode,
+          countryCode: property.countryCode,
+          officialValuation: property.officialValuation,
+          askingPrice: property.askingPrice,
+          activityScore: property.activityScore,
+          likeCount: property.likeCount,
+          commentCount: property.commentCount,
+          guessCount: property.guessCount,
+        }),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-a',
+          property: { id: 'a', address: 'A', city: 'Eindhoven' },
+          coordinate: [5.4, 51.44],
+          screenPoint: [120, 180],
+          commentCount: 5,
+          likeCount: 1,
+          activityScore: 10,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-b',
+          property: { id: 'b', address: 'B', city: 'Eindhoven' },
+          coordinate: [5.41, 51.45],
+          screenPoint: [140, 190],
+          commentCount: 4,
+          likeCount: 1,
+          activityScore: 9,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-c',
+          property: { id: 'c', address: 'C', city: 'Eindhoven' },
+          coordinate: [5.42, 51.46],
+          screenPoint: [160, 200],
+          commentCount: 3,
+          likeCount: 1,
+          activityScore: 8,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ]);
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a']);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'b']);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['b', 'c']);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 });
