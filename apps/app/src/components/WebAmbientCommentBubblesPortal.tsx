@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
 
@@ -13,6 +13,8 @@ import type { AmbientCommentBubble as AmbientCommentBubbleData } from '@/src/hoo
 type BubblePortalTarget = {
   nodeKey: string;
   container: HTMLDivElement;
+  marker: maplibregl.Marker;
+  anchor: 'top' | 'bottom';
   arrowDirection: 'up' | 'down';
   arrowHorizontalAlign: 'left' | 'right';
 };
@@ -28,16 +30,29 @@ export function WebAmbientCommentBubblesPortal({
   bubbles,
   onBubblePress,
 }: WebAmbientCommentBubblesPortalProps) {
+  const targetsRef = useRef(new Map<string, BubblePortalTarget>());
+  const previousMapRef = useRef<maplibregl.Map | null>(null);
   const [targets, setTargets] = useState<BubblePortalTarget[]>([]);
 
   useEffect(() => {
-    const markers: maplibregl.Marker[] = [];
+    if (previousMapRef.current !== map) {
+      for (const target of targetsRef.current.values()) {
+        target.marker.remove();
+      }
+      targetsRef.current.clear();
+      previousMapRef.current = map;
+    }
 
     if (!map || bubbles.length === 0) {
+      for (const target of targetsRef.current.values()) {
+        target.marker.remove();
+      }
+      targetsRef.current.clear();
       setTargets([]);
       return undefined;
     }
 
+    const nextNodeKeys = new Set<string>();
     const nextTargets = bubbles.map((bubble) => {
       const screenPoint = map.project(bubble.coordinate);
       const shouldShowBelow = screenPoint.y < 190;
@@ -47,65 +62,103 @@ export function WebAmbientCommentBubblesPortal({
         viewportWidth,
       });
       const horizontalOffset = (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - anchorOffsetX;
-      const container = document.createElement('div');
-      container.style.pointerEvents = 'auto';
-      container.style.zIndex = '1000';
-      container.style.position = 'relative';
-      container.style.display = 'inline-flex';
-      container.style.justifyContent = 'center';
-      container.style.alignItems = 'center';
-      container.style.width = 'max-content';
-      container.style.overflow = 'visible';
-      container.dataset.testid = `ambient-comment-bubble-marker-${bubble.property.id}`;
+      const anchor = shouldShowBelow ? 'top' : 'bottom';
+      const offset: [number, number] = [
+        horizontalOffset,
+        shouldShowBelow
+          ? AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX
+          : -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
+      ];
 
-      [
-        'pointerdown',
-        'pointermove',
-        'pointerup',
-        'mousedown',
-        'mousemove',
-        'mouseup',
-        'click',
-        'touchstart',
-        'touchmove',
-        'touchend',
-        'wheel',
-        'dblclick',
-      ].forEach((eventName) => {
-        container.addEventListener(eventName, (event) => event.stopPropagation());
-      });
+      const existingTarget = targetsRef.current.get(bubble.nodeKey);
 
-      const marker = new maplibregl.Marker({
-        element: container,
-        anchor: shouldShowBelow ? 'top' : 'bottom',
-        offset: [
-          horizontalOffset,
-          shouldShowBelow
-            ? AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX
-            : -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
-        ],
-      })
-        .setLngLat(bubble.coordinate)
-        .addTo(map);
+      let target = existingTarget;
+      if (!target || target.anchor !== anchor) {
+        existingTarget?.marker.remove();
 
-      markers.push(marker);
+        const container = document.createElement('div');
+        container.style.pointerEvents = 'auto';
+        container.style.zIndex = '1000';
+        container.style.position = 'relative';
+        container.style.display = 'inline-flex';
+        container.style.justifyContent = 'center';
+        container.style.alignItems = 'center';
+        container.style.width = 'max-content';
+        container.style.overflow = 'visible';
+        container.dataset.testid = `ambient-comment-bubble-marker-${bubble.property.id}`;
 
-      return {
-        nodeKey: bubble.nodeKey,
-        container,
-        arrowDirection: shouldShowBelow ? 'up' : 'down',
-        arrowHorizontalAlign,
-      } satisfies BubblePortalTarget;
+        [
+          'pointerdown',
+          'pointermove',
+          'pointerup',
+          'mousedown',
+          'mousemove',
+          'mouseup',
+          'click',
+          'touchstart',
+          'touchmove',
+          'touchend',
+          'wheel',
+          'dblclick',
+        ].forEach((eventName) => {
+          container.addEventListener(eventName, (event) => event.stopPropagation());
+        });
+
+        const marker = new maplibregl.Marker({
+          element: container,
+          anchor,
+          offset,
+        })
+          .setLngLat(bubble.coordinate)
+          .addTo(map);
+
+        target = {
+          nodeKey: bubble.nodeKey,
+          container,
+          marker,
+          anchor,
+          arrowDirection: shouldShowBelow ? 'up' : 'down',
+          arrowHorizontalAlign,
+        };
+        targetsRef.current.set(bubble.nodeKey, target);
+      } else {
+        target.marker
+          .setLngLat(bubble.coordinate)
+          .setOffset(offset);
+        target.arrowDirection = shouldShowBelow ? 'up' : 'down';
+        target.arrowHorizontalAlign = arrowHorizontalAlign;
+      }
+
+      nextNodeKeys.add(bubble.nodeKey);
+
+      return target;
     });
+
+    for (const [nodeKey, target] of targetsRef.current.entries()) {
+      if (nextNodeKeys.has(nodeKey)) {
+        continue;
+      }
+
+      target.marker.remove();
+      targetsRef.current.delete(nodeKey);
+    }
 
     setTargets(nextTargets);
 
     return () => {
-      for (const marker of markers) {
-        marker.remove();
-      }
+      // Markers persist across equivalent bubble refreshes; cleanup happens when
+      // a bubble disappears, changes anchor side, the map instance changes, or
+      // the component unmounts.
     };
   }, [bubbles, map]);
+
+  useEffect(() => () => {
+    for (const target of targetsRef.current.values()) {
+      target.marker.remove();
+    }
+    targetsRef.current.clear();
+    previousMapRef.current = null;
+  }, []);
 
   const targetsByNodeKey = useMemo(
     () => new Map(targets.map((target) => [target.nodeKey, target])),
@@ -134,6 +187,7 @@ export function WebAmbientCommentBubblesPortal({
             />
           </div>,
           target.container,
+          bubble.nodeKey,
         );
       })}
     </>

@@ -19,6 +19,7 @@ var mockMarkerInstances: Array<{
   element: HTMLDivElement;
   remove: jest.Mock;
   setLngLat: jest.Mock;
+  setOffset: jest.Mock;
 }> = [];
 
 jest.mock('../AmbientCommentBubble', () => {
@@ -37,11 +38,13 @@ jest.mock('maplibre-gl', () => {
       element: HTMLDivElement;
       remove: jest.Mock;
       setLngLat: jest.Mock;
+      setOffset: jest.Mock;
     };
 
     instance = {
       element: options.element,
       setLngLat: jest.fn().mockImplementation(() => instance),
+      setOffset: jest.fn().mockImplementation(() => instance),
       addTo: jest.fn().mockImplementation(() => {
         globalThis.document.body.appendChild(options.element);
         return instance;
@@ -165,5 +168,39 @@ describe('WebAmbientCommentBubblesPortal', () => {
     expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
       arrowHorizontalAlign: 'right',
     });
+  });
+
+  it('reuses an existing marker when an equivalent bubble refreshes', () => {
+    const map = {
+      getContainer: jest.fn().mockReturnValue({ clientWidth: 400 }),
+      project: jest.fn().mockReturnValue({ x: 120, y: 320 }),
+    } as unknown as PortalMap;
+
+    renderToDOM(
+      <WebAmbientCommentBubblesPortal
+        map={map}
+        bubbles={[buildBubble()]}
+        onBubblePress={jest.fn()}
+      />,
+    );
+
+    const firstMarker = mockMarkerInstances[0];
+    expect(firstMarker).toBeDefined();
+
+    renderToDOM(
+      <WebAmbientCommentBubblesPortal
+        map={map}
+        bubbles={[buildBubble()]}
+        onBubblePress={jest.fn()}
+      />,
+    );
+
+    expect(mockMarkerConstructor).toHaveBeenCalledTimes(1);
+    expect(firstMarker.remove).not.toHaveBeenCalled();
+    expect(firstMarker.setLngLat).toHaveBeenCalledTimes(2);
+    expect(firstMarker.setOffset).toHaveBeenCalledWith([
+      (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+      -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
+    ]);
   });
 });
