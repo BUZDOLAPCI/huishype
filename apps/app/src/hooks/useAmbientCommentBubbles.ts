@@ -2,9 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import {
+  AMBIENT_COMMENT_BUBBLE_HEIGHT,
+  AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
+  AMBIENT_COMMENT_BUBBLE_WIDTH,
+  getAmbientCommentBubbleArrowLayout,
+} from '@/src/components/AmbientCommentBubble';
+import {
   getAmbientCommentRotationWindow,
   rankAmbientCommentCandidates,
 } from '@/src/lib/ambientCommentBubbles';
+import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import {
   apiFetch,
   fetchBatchProperties,
@@ -17,6 +24,7 @@ const CACHE_TTL_MS = 3 * 60 * 1000;
 const EMPTY_CACHE_TTL_MS = 45 * 1000;
 const COMMENT_FETCH_LIMIT = 4;
 const SHORT_COMMENT_MAX_LENGTH = 72;
+const DEFAULT_BUBBLE_MINIMUM_GAP_PX = 18;
 
 interface AmbientCommentUser {
   username: string;
@@ -65,6 +73,7 @@ export interface RefreshAmbientCommentBubblesOptions {
   appendToExisting?: boolean;
   minimumVisibleCount?: number;
   preserveRotation?: boolean;
+  placementContext?: AmbientBubblePlacementContext;
 }
 
 interface UseAmbientCommentBubblesOptions {
@@ -82,6 +91,88 @@ interface CommentPreviewCacheEntry {
 interface PropertyCacheEntry {
   expiresAt: number;
   property: BatchProperty | null;
+}
+
+export interface AmbientBubblePlacementContext {
+  viewportSize: { width: number; height: number };
+  topBoundary?: number;
+  minimumGapPx?: number;
+}
+
+interface BubbleScreenBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function getBubbleScreenBounds(
+  screenPoint: [number, number] | null,
+  placementContext: AmbientBubblePlacementContext,
+): BubbleScreenBounds | null {
+  if (!screenPoint) {
+    return null;
+  }
+
+  const { viewportSize, topBoundary } = placementContext;
+  if (viewportSize.width <= 0 || viewportSize.height <= 0) {
+    return null;
+  }
+
+  const arrowLayout = getAmbientCommentBubbleArrowLayout({
+    anchorX: screenPoint[0],
+    viewportWidth: viewportSize.width,
+  });
+
+  if (topBoundary !== undefined) {
+    const nativeLayout = getNativePreviewOverlayLayout({
+      anchorPoint: screenPoint,
+      anchorOffsetX: arrowLayout.anchorOffsetX,
+      cardSize: {
+        width: AMBIENT_COMMENT_BUBBLE_WIDTH,
+        height: AMBIENT_COMMENT_BUBBLE_HEIGHT,
+      },
+      topBoundary,
+      viewportSize,
+    });
+
+    if (!nativeLayout) {
+      return null;
+    }
+
+    return {
+      left: nativeLayout.left,
+      right: nativeLayout.left + AMBIENT_COMMENT_BUBBLE_WIDTH,
+      top: nativeLayout.top,
+      bottom: nativeLayout.top + AMBIENT_COMMENT_BUBBLE_HEIGHT,
+    };
+  }
+
+  const top =
+    screenPoint[1] < 190
+      ? screenPoint[1] + AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX
+      : screenPoint[1] - AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX - AMBIENT_COMMENT_BUBBLE_HEIGHT;
+  const left = screenPoint[0] - arrowLayout.anchorOffsetX;
+
+  return {
+    left,
+    right: left + AMBIENT_COMMENT_BUBBLE_WIDTH,
+    top,
+    bottom: top + AMBIENT_COMMENT_BUBBLE_HEIGHT,
+  };
+}
+
+function doBubbleBoundsConflict(
+  left: BubbleScreenBounds,
+  right: BubbleScreenBounds,
+  minimumGapPx: number,
+): boolean {
+  return !(
+    left.right + minimumGapPx <= right.left ||
+    right.right + minimumGapPx <= left.left ||
+    left.bottom + minimumGapPx <= right.top ||
+    right.bottom + minimumGapPx <= left.top
+  );
 }
 
 function toAmbientCommentPreview(
@@ -196,8 +287,10 @@ export function useAmbientCommentBubbles({
 
   const previewCacheRef = useRef(new Map<string, CommentPreviewCacheEntry>());
   const propertyCacheRef = useRef(new Map<string, PropertyCacheEntry>());
+  const hydratedBubblesRef = useRef<AmbientCommentBubble[]>([]);
   const requestIdRef = useRef(0);
   const rotationDeadlineRef = useRef<number | null>(null);
+  hydratedBubblesRef.current = hydratedBubbles;
 
   const clearBubbles = useCallback(() => {
     requestIdRef.current += 1;
@@ -391,7 +484,7 @@ export function useAmbientCommentBubbles({
     const nodesByKey = new Map(
       visibleNodes.map((node) => [node.nodeKey, node] as const),
     );
-    const rankedNodes = rankAmbientCommentCandidates(
+    const rankedNodeCandidates = rankAmbientCommentCandidates(
       visibleNodes.map((node) => ({
         nodeKey: node.nodeKey,
         propertyId: node.property.id,
@@ -404,10 +497,10 @@ export function useAmbientCommentBubbles({
         likeCount: node.likeCount,
         activityScore: node.activityScore,
       })),
-      HYDRATION_POOL_SIZE,
+      visibleNodes.length,
     );
 
-    if (rankedNodes.length === 0) {
+    if (rankedNodeCandidates.length === 0) {
       if (options?.appendToExisting) {
         if (options.minimumVisibleCount && options.minimumVisibleCount > 0) {
           setRotationStep((currentStep) =>
@@ -423,15 +516,77 @@ export function useAmbientCommentBubbles({
       return;
     }
 
-    const hydrated = await Promise.all(
-      rankedNodes.map(async (candidate) => {
-        const node = nodesByKey.get(candidate.nodeKey ?? candidate.propertyId);
-        if (!node) {
-          return null;
-        }
+    const currentHydratedBubbles = hydratedBubblesRef.current;
+    const placementContext = options?.placementContext;
+    const minimumGapPx = placementContext?.minimumGapPx ?? DEFAULT_BUBBLE_MINIMUM_GAP_PX;
+    const existingBubbleNodeKeys = new Set(
+      options?.appendToExisting
+        ? currentHydratedBubbles.map((bubble) => bubble.nodeKey)
+        : [],
+    );
+    const blockingBounds = options?.appendToExisting && placementContext
+      ? currentHydratedBubbles.flatMap((bubble) => {
+          const liveNode = nodesByKey.get(bubble.nodeKey);
+          if (!liveNode?.screenPoint) {
+            return [];
+          }
 
-        return hydrateBubbleForNode(node);
-      }),
+          const bounds = getBubbleScreenBounds(liveNode.screenPoint, placementContext);
+          if (!bounds) {
+            return [];
+          }
+
+          return [{ nodeKey: bubble.nodeKey, bounds }] as const;
+        })
+      : [];
+    const selectedNodes: AmbientBubbleVisibleNode[] = [];
+    const selectedBubbleBounds: BubbleScreenBounds[] = [];
+
+    for (const candidate of rankedNodeCandidates) {
+      if (selectedNodes.length >= HYDRATION_POOL_SIZE) {
+        break;
+      }
+
+      const node = nodesByKey.get(candidate.nodeKey ?? candidate.propertyId);
+      if (!node) {
+        continue;
+      }
+
+      if (!placementContext) {
+        selectedNodes.push(node);
+        continue;
+      }
+
+      const bounds = getBubbleScreenBounds(node.screenPoint, placementContext);
+      if (!bounds) {
+        if (existingBubbleNodeKeys.has(node.nodeKey)) {
+          selectedNodes.push(node);
+        }
+        continue;
+      }
+
+      if (!existingBubbleNodeKeys.has(node.nodeKey)) {
+        const conflictsWithExisting = blockingBounds.some((blockingBubble) =>
+          doBubbleBoundsConflict(bounds, blockingBubble.bounds, minimumGapPx),
+        );
+        if (conflictsWithExisting) {
+          continue;
+        }
+      }
+
+      const conflictsWithSelected = selectedBubbleBounds.some((selectedBounds) =>
+        doBubbleBoundsConflict(bounds, selectedBounds, minimumGapPx),
+      );
+      if (conflictsWithSelected) {
+        continue;
+      }
+
+      selectedNodes.push(node);
+      selectedBubbleBounds.push(bounds);
+    }
+
+    const hydrated = await Promise.all(
+      selectedNodes.map(async (node) => hydrateBubbleForNode(node)),
     );
 
     if (requestIdRef.current !== requestId) {

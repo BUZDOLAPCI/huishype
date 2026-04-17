@@ -516,16 +516,20 @@ export default function MapScreen() {
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
-    if (options) {
-      await refreshAmbientCommentBubbleItems(visibleNodes, options);
-      return;
-    }
-
-    await refreshAmbientCommentBubbleItems(visibleNodes);
+    await refreshAmbientCommentBubbleItems(visibleNodes, {
+      ...options,
+      placementContext: {
+        ...(options?.placementContext ?? {}),
+        viewportSize: mapViewportSize,
+        topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
+      },
+    });
   }, [
     ambientBubblesEnabled,
     clearAmbientCommentBubbles,
     collectVisibleAmbientBubbleNodes,
+    insets.top,
+    mapViewportSize,
     refreshAmbientCommentBubbleItems,
   ]);
 

@@ -626,6 +626,9 @@ describe('MapScreen web filter updates', () => {
       appendToExisting: true,
       minimumVisibleCount: 3,
       preserveRotation: true,
+      placementContext: {
+        viewportSize: { width: 800, height: 600 },
+      },
     });
   });
 
@@ -716,6 +719,10 @@ describe('MapScreen web filter updates', () => {
         likeCount: 4,
         activityScore: 18,
       }),
-    ]);
+    ], {
+      placementContext: {
+        viewportSize: { width: 800, height: 600 },
+      },
+    });
   });
 });

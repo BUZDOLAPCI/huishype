@@ -518,6 +518,7 @@ function createSelectedMarkerElement(): HTMLDivElement {
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
+const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const initialAppliedFilters = useMemo(
@@ -550,6 +551,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
+  const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
   const [searchResetToken, setSearchResetToken] = useState(0);
   const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
@@ -894,12 +896,29 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
-    if (options) {
-      await refreshAmbientCommentBubbleItems(visibleNodes, options);
-      return;
-    }
+    const placementViewportSize = (() => {
+      const map = mapRef.current;
+      if (map) {
+        const container = map.getContainer();
+        return {
+          width: container.clientWidth,
+          height: container.clientHeight,
+        };
+      }
 
-    await refreshAmbientCommentBubbleItems(visibleNodes);
+      return {
+        width: typeof window === 'undefined' ? 0 : window.innerWidth,
+        height: typeof window === 'undefined' ? 0 : window.innerHeight,
+      };
+    })();
+
+    await refreshAmbientCommentBubbleItems(visibleNodes, {
+      ...options,
+      placementContext: {
+        ...(options?.placementContext ?? {}),
+        viewportSize: placementViewportSize,
+      },
+    });
   }, [
     ambientBubblesEnabled,
     clearAmbientCommentBubbles,
@@ -979,6 +998,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           pitch: getPitchForZoom(Number.isFinite(zoom) ? zoom : DEFAULT_ZOOM),
         }),
       });
+      lastSettledAmbientBubbleZoomRef.current = map.getZoom();
 
       map.keyboard.disableRotation();
 
@@ -1144,6 +1164,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('moveend', () => {
         const center = map.getCenter();
         const zoom = map.getZoom();
+        const previousSettledBubbleZoom = lastSettledAmbientBubbleZoomRef.current;
+        lastSettledAmbientBubbleZoomRef.current = zoom;
         const previousCameraPath = lastCameraPathRef.current;
         const nextCameraPath = serializeCanonicalCameraPath({
           lat: center.lat,
@@ -1166,6 +1188,17 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
         skipNextPassiveUrlSyncRef.current =
           passiveSyncResult.skipNextPassiveUrlSync;
+
+        const didConsiderablyZoomOut =
+          previousSettledBubbleZoom !== null &&
+          previousSettledBubbleZoom - zoom >= AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA;
+
+        if (didConsiderablyZoomOut) {
+          clearAmbientCommentBubbles();
+          scheduleAmbientCommentBubbleRefreshRef.current();
+          return;
+        }
+
         if (
           ambientBubbleVisibleCountRef.current < maxVisibleAmbientCommentBubblesRef.current
         ) {
@@ -1285,6 +1318,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     bottomSheetRef,
     cameraCommands,
     cancelPendingSinglePreviewSelection,
+    clearAmbientCommentBubbles,
     handleAuthRequired,
     handleFeaturePress,
     replaceMapBrowserPath,

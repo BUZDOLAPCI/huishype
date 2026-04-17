@@ -182,6 +182,96 @@ describe('useAmbientCommentBubbles', () => {
     });
   });
 
+  it('skips nearby candidates on initial hydration and picks the next far-enough bubble', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
+    mockApiFetch.mockImplementation(async (path: string) => {
+      const propertyId = path.match(/\/properties\/([^/]+)\/comments/)?.[1];
+
+      return {
+        data: propertyId ? [{
+          id: `comment-${propertyId}`,
+          content: `Comment from ${propertyId}`,
+          likeCount: 1,
+          user: {
+            username: propertyId,
+            displayName: propertyId?.toUpperCase() ?? null,
+            profilePhotoUrl: null,
+          },
+        }] : [],
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useAmbientCommentBubbles({
+        enabled: true,
+        maxVisibleBubbles: 3,
+        toGroupProperty: (property) => ({
+          id: property.id,
+          address: property.address,
+          city: property.city,
+          coordinate: property.geometry?.coordinates,
+          postalCode: property.postalCode,
+          countryCode: property.countryCode,
+          officialValuation: property.officialValuation,
+          askingPrice: property.askingPrice,
+          activityScore: property.activityScore,
+          likeCount: property.likeCount,
+          commentCount: property.commentCount,
+          guessCount: property.guessCount,
+        }),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-a',
+          property: { id: 'a', address: 'A', city: 'Eindhoven' },
+          coordinate: [5.4, 51.44],
+          screenPoint: [100, 120],
+          commentCount: 5,
+          likeCount: 1,
+          activityScore: 10,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-b',
+          property: { id: 'b', address: 'B', city: 'Eindhoven' },
+          coordinate: [5.401, 51.441],
+          screenPoint: [160, 130],
+          commentCount: 4,
+          likeCount: 1,
+          activityScore: 9,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-c',
+          property: { id: 'c', address: 'C', city: 'Eindhoven' },
+          coordinate: [5.42, 51.46],
+          screenPoint: [600, 130],
+          commentCount: 3,
+          likeCount: 1,
+          activityScore: 8,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ], {
+        minimumVisibleCount: 2,
+        placementContext: {
+          viewportSize: { width: 800, height: 600 },
+        },
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'c']);
+  });
+
   it('adds ambient bubbles one at a time and evicts the oldest once the max is reached', async () => {
     jest.useFakeTimers();
     jest.spyOn(Date, 'now').mockReturnValue(180_000);
@@ -485,6 +575,134 @@ describe('useAmbientCommentBubbles', () => {
     });
 
     expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'b']);
+  });
+
+  it('skips appended bubbles that are too close to existing bubbles or each other', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
+    mockApiFetch.mockImplementation(async (path: string) => {
+      const propertyId = path.match(/\/properties\/([^/]+)\/comments/)?.[1];
+
+      return {
+        data: propertyId ? [{
+          id: `comment-${propertyId}`,
+          content: `Comment from ${propertyId}`,
+          likeCount: 1,
+          user: {
+            username: propertyId,
+            displayName: propertyId?.toUpperCase() ?? null,
+            profilePhotoUrl: null,
+          },
+        }] : [],
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useAmbientCommentBubbles({
+        enabled: true,
+        maxVisibleBubbles: 3,
+        toGroupProperty: (property) => ({
+          id: property.id,
+          address: property.address,
+          city: property.city,
+          coordinate: property.geometry?.coordinates,
+          postalCode: property.postalCode,
+          countryCode: property.countryCode,
+          officialValuation: property.officialValuation,
+          askingPrice: property.askingPrice,
+          activityScore: property.activityScore,
+          likeCount: property.likeCount,
+          commentCount: property.commentCount,
+          guessCount: property.guessCount,
+        }),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-a',
+          property: { id: 'a', address: 'A', city: 'Eindhoven' },
+          coordinate: [5.4, 51.44],
+          screenPoint: [100, 120],
+          commentCount: 5,
+          likeCount: 1,
+          activityScore: 10,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ], {
+        placementContext: {
+          viewportSize: { width: 800, height: 600 },
+        },
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a']);
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-a',
+          property: { id: 'a', address: 'A', city: 'Eindhoven' },
+          coordinate: [5.4, 51.44],
+          screenPoint: [100, 120],
+          commentCount: 5,
+          likeCount: 1,
+          activityScore: 10,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-b',
+          property: { id: 'b', address: 'B', city: 'Eindhoven' },
+          coordinate: [5.401, 51.441],
+          screenPoint: [160, 130],
+          commentCount: 4,
+          likeCount: 1,
+          activityScore: 9,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-c',
+          property: { id: 'c', address: 'C', city: 'Eindhoven' },
+          coordinate: [5.42, 51.46],
+          screenPoint: [600, 130],
+          commentCount: 3,
+          likeCount: 1,
+          activityScore: 8,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-d',
+          property: { id: 'd', address: 'D', city: 'Eindhoven' },
+          coordinate: [5.421, 51.461],
+          screenPoint: [660, 140],
+          commentCount: 2,
+          likeCount: 1,
+          activityScore: 7,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ], {
+        appendToExisting: true,
+        minimumVisibleCount: 3,
+        preserveRotation: true,
+        placementContext: {
+          viewportSize: { width: 800, height: 600 },
+        },
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'c']);
   });
 
   it('evicts the oldest hydrated bubbles when append refresh overflows the pool', async () => {
