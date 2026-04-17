@@ -61,7 +61,9 @@ export interface AmbientCommentBubble {
   preview: AmbientCommentPreview;
 }
 
-interface RefreshAmbientCommentBubblesOptions {
+export interface RefreshAmbientCommentBubblesOptions {
+  appendToExisting?: boolean;
+  minimumVisibleCount?: number;
   preserveRotation?: boolean;
 }
 
@@ -151,6 +153,37 @@ async function fetchAmbientCommentPreview(propertyId: string): Promise<AmbientCo
 
 export function toAmbientBubbleVisibleNode(node: AmbientBubbleVisibleNode): AmbientBubbleVisibleNode {
   return node;
+}
+
+function mergeAmbientCommentBubblePool(
+  currentBubbles: AmbientCommentBubble[],
+  nextBubbles: AmbientCommentBubble[],
+): AmbientCommentBubble[] {
+  if (nextBubbles.length === 0) {
+    return currentBubbles;
+  }
+
+  const mergedBubbles = currentBubbles.slice();
+  const indexByNodeKey = new Map(
+    currentBubbles.map((bubble, index) => [bubble.nodeKey, index] as const),
+  );
+
+  for (const bubble of nextBubbles) {
+    const existingIndex = indexByNodeKey.get(bubble.nodeKey);
+    if (existingIndex === undefined) {
+      indexByNodeKey.set(bubble.nodeKey, mergedBubbles.length);
+      mergedBubbles.push(bubble);
+      continue;
+    }
+
+    mergedBubbles[existingIndex] = bubble;
+  }
+
+  if (mergedBubbles.length <= HYDRATION_POOL_SIZE) {
+    return mergedBubbles;
+  }
+
+  return mergedBubbles.slice(-HYDRATION_POOL_SIZE);
 }
 
 export function useAmbientCommentBubbles({
@@ -375,6 +408,15 @@ export function useAmbientCommentBubbles({
     );
 
     if (rankedNodes.length === 0) {
+      if (options?.appendToExisting) {
+        if (options.minimumVisibleCount && options.minimumVisibleCount > 0) {
+          setRotationStep((currentStep) =>
+            Math.max(currentStep, options.minimumVisibleCount! - 1),
+          );
+        }
+        return;
+      }
+
       setHydratedBubbles([]);
       setRotationStep(0);
       rotationDeadlineRef.current = null;
@@ -400,10 +442,28 @@ export function useAmbientCommentBubbles({
       (bubble): bubble is AmbientCommentBubble => bubble !== null,
     );
 
-    setHydratedBubbles(nextHydratedBubbles);
-    if (!options?.preserveRotation) {
-      setRotationStep(0);
+    if (options?.appendToExisting) {
+      setHydratedBubbles((currentBubbles) =>
+        mergeAmbientCommentBubblePool(currentBubbles, nextHydratedBubbles),
+      );
+    } else {
+      setHydratedBubbles(nextHydratedBubbles);
     }
+
+    if (!options?.preserveRotation && !options?.minimumVisibleCount) {
+      setRotationStep(0);
+      return;
+    }
+
+    setRotationStep((currentStep) => {
+      const baseStep = options?.preserveRotation ? currentStep : 0;
+      const minimumVisibleStep =
+        options?.minimumVisibleCount && options.minimumVisibleCount > 0
+          ? options.minimumVisibleCount - 1
+          : 0;
+
+      return Math.max(baseStep, minimumVisibleStep);
+    });
   }, [clearBubbles, enabled, hydrateBubbleForNode]);
 
   useEffect(() => {

@@ -36,6 +36,7 @@ import {
   useAmbientCommentBubbles,
   toAmbientBubbleVisibleNode,
   type AmbientCommentBubble as AmbientCommentBubbleData,
+  type RefreshAmbientCommentBubblesOptions,
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
@@ -184,6 +185,7 @@ export default function MapScreen() {
     toGroupProperty,
   } = interaction;
   const [searchResetToken, setSearchResetToken] = useState(0);
+  const maxVisibleAmbientCommentBubbles = mapViewportSize.width < 560 ? 1 : 2;
   const ambientBubblesEnabled =
     mapLoaded &&
     interaction.previewGroup === null &&
@@ -192,7 +194,7 @@ export default function MapScreen() {
     mapViewportSize.height > 0;
   const ambientCommentBubbles = useAmbientCommentBubbles({
     enabled: ambientBubblesEnabled,
-    maxVisibleBubbles: mapViewportSize.width < 560 ? 1 : 2,
+    maxVisibleBubbles: maxVisibleAmbientCommentBubbles,
     toGroupProperty,
   });
   const {
@@ -373,22 +375,6 @@ export default function MapScreen() {
   );
 
   // Handle map region change to track zoom level and update city name
-  const handleRegionDidChange = useCallback(
-    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
-      const { zoom, center } = event.nativeEvent;
-      if (zoom !== undefined) {
-        setCurrentZoom(zoom);
-        syncPitchForZoom(zoom);
-      }
-      // Update city name via reverse geocoding of the viewport center
-      if (center) {
-        onViewportCenterChanged(center[0], center[1], zoom);
-      }
-      void refreshNativePreviewPoint();
-    },
-    [onViewportCenterChanged, refreshNativePreviewPoint, syncPitchForZoom]
-  );
-
   useEffect(() => {
     if (!shouldRenderNativePreviewOverlay) {
       setNativePreviewPoint(null);
@@ -521,13 +507,20 @@ export default function MapScreen() {
     return Array.from(visibleNodes.values());
   }, [mapViewportSize.height, mapViewportSize.width, toGroupProperty]);
 
-  const refreshAmbientCommentBubbles = useCallback(async () => {
+  const refreshAmbientCommentBubbles = useCallback(async (
+    options?: RefreshAmbientCommentBubblesOptions,
+  ) => {
     if (!ambientBubblesEnabled) {
       clearAmbientCommentBubbles();
       return;
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
+    if (options) {
+      await refreshAmbientCommentBubbleItems(visibleNodes, options);
+      return;
+    }
+
     await refreshAmbientCommentBubbleItems(visibleNodes);
   }, [
     ambientBubblesEnabled,
@@ -536,7 +529,9 @@ export default function MapScreen() {
     refreshAmbientCommentBubbleItems,
   ]);
 
-  const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
+  const scheduleAmbientCommentBubbleRefresh = useCallback((
+    options?: RefreshAmbientCommentBubblesOptions,
+  ) => {
     clearAmbientBubbleRefreshTimeout();
 
     if (!ambientBubblesEnabled) {
@@ -546,7 +541,7 @@ export default function MapScreen() {
 
     ambientBubbleRefreshTimeoutRef.current = setTimeout(() => {
       ambientBubbleRefreshTimeoutRef.current = null;
-      void refreshAmbientCommentBubbles();
+      void refreshAmbientCommentBubbles(options);
     }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
   }, [
     ambientBubblesEnabled,
@@ -554,6 +549,37 @@ export default function MapScreen() {
     clearAmbientBubbleRefreshTimeout,
     refreshAmbientCommentBubbles,
   ]);
+
+  // Handle map region change to track zoom level and update city name
+  const handleRegionDidChange = useCallback(
+    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      const { zoom, center } = event.nativeEvent;
+      if (zoom !== undefined) {
+        setCurrentZoom(zoom);
+        syncPitchForZoom(zoom);
+      }
+      // Update city name via reverse geocoding of the viewport center
+      if (center) {
+        onViewportCenterChanged(center[0], center[1], zoom);
+      }
+      void refreshNativePreviewPoint();
+      if (ambientCommentBubbleItems.length < maxVisibleAmbientCommentBubbles) {
+        scheduleAmbientCommentBubbleRefresh({
+          appendToExisting: true,
+          minimumVisibleCount: maxVisibleAmbientCommentBubbles,
+          preserveRotation: true,
+        });
+      }
+    },
+    [
+      ambientCommentBubbleItems.length,
+      maxVisibleAmbientCommentBubbles,
+      onViewportCenterChanged,
+      refreshNativePreviewPoint,
+      scheduleAmbientCommentBubbleRefresh,
+      syncPitchForZoom,
+    ],
+  );
 
   useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();

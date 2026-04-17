@@ -380,6 +380,213 @@ describe('useAmbientCommentBubbles', () => {
     expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['b', 'c']);
   });
 
+  it('tops up visible bubbles on append refresh without dropping older bubbles', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
+    mockApiFetch.mockImplementation(async (path: string) => {
+      const propertyId = path.match(/\/properties\/([^/]+)\/comments/)?.[1];
+
+      return {
+        data: propertyId ? [{
+          id: `comment-${propertyId}`,
+          content: `Comment from ${propertyId}`,
+          likeCount: 1,
+          user: {
+            username: propertyId,
+            displayName: propertyId?.toUpperCase() ?? null,
+            profilePhotoUrl: null,
+          },
+        }] : [],
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useAmbientCommentBubbles({
+        enabled: true,
+        maxVisibleBubbles: 2,
+        toGroupProperty: (property) => ({
+          id: property.id,
+          address: property.address,
+          city: property.city,
+          coordinate: property.geometry?.coordinates,
+          postalCode: property.postalCode,
+          countryCode: property.countryCode,
+          officialValuation: property.officialValuation,
+          askingPrice: property.askingPrice,
+          activityScore: property.activityScore,
+          likeCount: property.likeCount,
+          commentCount: property.commentCount,
+          guessCount: property.guessCount,
+        }),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-a',
+          property: { id: 'a', address: 'A', city: 'Eindhoven' },
+          coordinate: [5.4, 51.44],
+          screenPoint: [120, 180],
+          commentCount: 5,
+          likeCount: 1,
+          activityScore: 10,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+        {
+          nodeKey: 'node-b',
+          property: { id: 'b', address: 'B', city: 'Eindhoven' },
+          coordinate: [5.41, 51.45],
+          screenPoint: [140, 190],
+          commentCount: 4,
+          likeCount: 1,
+          activityScore: 9,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ]);
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a']);
+
+    await act(async () => {
+      await result.current.refreshBubbles([], {
+        appendToExisting: true,
+        minimumVisibleCount: 2,
+        preserveRotation: true,
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'b']);
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        {
+          nodeKey: 'node-c',
+          property: { id: 'c', address: 'C', city: 'Eindhoven' },
+          coordinate: [5.42, 51.46],
+          screenPoint: [160, 200],
+          commentCount: 3,
+          likeCount: 1,
+          activityScore: 8,
+          hasListing: true,
+          nodeClass: 'active',
+          candidatePropertyIds: [],
+        },
+      ], {
+        appendToExisting: true,
+        minimumVisibleCount: 2,
+        preserveRotation: true,
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual(['a', 'b']);
+  });
+
+  it('evicts the oldest hydrated bubbles when append refresh overflows the pool', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Date, 'now').mockReturnValue(180_000);
+
+    mockApiFetch.mockImplementation(async (path: string) => {
+      const propertyId = path.match(/\/properties\/([^/]+)\/comments/)?.[1];
+
+      return {
+        data: propertyId ? [{
+          id: `comment-${propertyId}`,
+          content: `Comment from ${propertyId}`,
+          likeCount: 1,
+          user: {
+            username: propertyId,
+            displayName: propertyId?.toUpperCase() ?? null,
+            profilePhotoUrl: null,
+          },
+        }] : [],
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useAmbientCommentBubbles({
+        enabled: true,
+        maxVisibleBubbles: 5,
+        toGroupProperty: (property) => ({
+          id: property.id,
+          address: property.address,
+          city: property.city,
+          coordinate: property.geometry?.coordinates,
+          postalCode: property.postalCode,
+          countryCode: property.countryCode,
+          officialValuation: property.officialValuation,
+          askingPrice: property.askingPrice,
+          activityScore: property.activityScore,
+          likeCount: property.likeCount,
+          commentCount: property.commentCount,
+          guessCount: property.guessCount,
+        }),
+      }),
+    );
+
+    const buildNode = (id: string, commentCount: number, x: number) => ({
+      nodeKey: `node-${id}`,
+      property: { id, address: id.toUpperCase(), city: 'Eindhoven' },
+      coordinate: [x, 51.44] as [number, number],
+      screenPoint: [120, 180] as [number, number],
+      commentCount,
+      likeCount: 1,
+      activityScore: 10 - commentCount,
+      hasListing: true,
+      nodeClass: 'active' as const,
+      candidatePropertyIds: [],
+    });
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        buildNode('a', 5, 5.4),
+        buildNode('b', 4, 5.41),
+        buildNode('c', 3, 5.42),
+        buildNode('d', 2, 5.43),
+        buildNode('e', 1, 5.44),
+      ]);
+    });
+
+    await act(async () => {
+      await result.current.refreshBubbles([], {
+        appendToExisting: true,
+        minimumVisibleCount: 5,
+        preserveRotation: true,
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
+
+    await act(async () => {
+      await result.current.refreshBubbles([
+        buildNode('f', 6, 5.45),
+      ], {
+        appendToExisting: true,
+        minimumVisibleCount: 5,
+        preserveRotation: true,
+      });
+    });
+
+    expect(result.current.bubbles.map((bubble) => bubble.property.id)).toEqual([
+      'b',
+      'c',
+      'd',
+      'e',
+      'f',
+    ]);
+  });
+
   afterEach(() => {
     jest.useRealTimers();
   });

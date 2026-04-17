@@ -16,6 +16,7 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import {
   useAmbientCommentBubbles,
   toAmbientBubbleVisibleNode,
+  type RefreshAmbientCommentBubblesOptions,
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
@@ -603,13 +604,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       mapRef.current?.getContainer().clientHeight ??
       (typeof window === 'undefined' ? 0 : window.innerHeight),
   };
+  const maxVisibleAmbientCommentBubbles = webViewportSize.width < 560 ? 2 : 3;
   const ambientBubblesEnabled =
     mapLoaded &&
     !interaction.previewGroup &&
     interaction.sheetIndex < 0;
   const ambientCommentBubbles = useAmbientCommentBubbles({
     enabled: ambientBubblesEnabled,
-    maxVisibleBubbles: webViewportSize.width < 560 ? 2 : 3,
+    maxVisibleBubbles: maxVisibleAmbientCommentBubbles,
     toGroupProperty,
   });
   const {
@@ -617,6 +619,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     clearBubbles: clearAmbientCommentBubbles,
     refreshBubbles: refreshAmbientCommentBubbleItems,
   } = ambientCommentBubbles;
+  const scheduleAmbientCommentBubbleRefreshRef =
+    useRef<(options?: RefreshAmbientCommentBubblesOptions) => void>(() => {});
+  const ambientBubbleVisibleCountRef = useRef(ambientCommentBubbleItems.length);
+  ambientBubbleVisibleCountRef.current = ambientCommentBubbleItems.length;
+  const maxVisibleAmbientCommentBubblesRef = useRef(maxVisibleAmbientCommentBubbles);
+  maxVisibleAmbientCommentBubblesRef.current = maxVisibleAmbientCommentBubbles;
   const handleAmbientBubblePress = useCallback((bubble: {
     property: GroupPreviewProperty;
     coordinate: [number, number];
@@ -877,13 +885,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return Array.from(visibleNodes.values());
   }, [toGroupProperty]);
 
-  const refreshAmbientCommentBubbles = useCallback(async () => {
+  const refreshAmbientCommentBubbles = useCallback(async (
+    options?: RefreshAmbientCommentBubblesOptions,
+  ) => {
     if (!ambientBubblesEnabled) {
       clearAmbientCommentBubbles();
       return;
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
+    if (options) {
+      await refreshAmbientCommentBubbleItems(visibleNodes, options);
+      return;
+    }
+
     await refreshAmbientCommentBubbleItems(visibleNodes);
   }, [
     ambientBubblesEnabled,
@@ -892,7 +907,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     refreshAmbientCommentBubbleItems,
   ]);
 
-  const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
+  const scheduleAmbientCommentBubbleRefresh = useCallback((
+    options?: RefreshAmbientCommentBubblesOptions,
+  ) => {
     clearAmbientBubbleRefreshTimeout();
 
     if (!ambientBubblesEnabled) {
@@ -902,7 +919,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     ambientBubbleRefreshTimeoutRef.current = setTimeout(() => {
       ambientBubbleRefreshTimeoutRef.current = null;
-      void refreshAmbientCommentBubbles();
+      void refreshAmbientCommentBubbles(options);
     }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
   }, [
     ambientBubblesEnabled,
@@ -910,6 +927,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     clearAmbientBubbleRefreshTimeout,
     refreshAmbientCommentBubbles,
   ]);
+  scheduleAmbientCommentBubbleRefreshRef.current = scheduleAmbientCommentBubbleRefresh;
 
   useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();
@@ -1148,6 +1166,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
         skipNextPassiveUrlSyncRef.current =
           passiveSyncResult.skipNextPassiveUrlSync;
+        if (
+          ambientBubbleVisibleCountRef.current < maxVisibleAmbientCommentBubblesRef.current
+        ) {
+          scheduleAmbientCommentBubbleRefreshRef.current({
+            appendToExisting: true,
+            minimumVisibleCount: maxVisibleAmbientCommentBubblesRef.current,
+            preserveRotation: true,
+          });
+        }
       });
 
       // Trigger initial reverse geocode for the default camera position

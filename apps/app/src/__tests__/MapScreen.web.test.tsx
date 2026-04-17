@@ -536,6 +536,99 @@ describe('MapScreen web filter updates', () => {
     expect(mockAmbientCommentBubbles.clearBubbles).not.toHaveBeenCalled();
   });
 
+  it('tops up ambient bubbles on moveend when the visible count is under the viewport max', async () => {
+    jest.useFakeTimers();
+    mockAmbientCommentBubbles.bubbles = [
+      {
+        nodeKey: 'property:existing',
+        property: {
+          id: 'existing',
+          address: 'Existing 1',
+          city: 'Eindhoven',
+          coordinate: [5.47, 51.43],
+        },
+        coordinate: [5.47, 51.43],
+        screenPoint: [100, 120],
+        preview: {
+          text: 'Existing bubble',
+          likeCount: 1,
+          authorName: 'Robin',
+          authorPhotoUrl: null,
+        },
+      },
+    ];
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    Object.defineProperty(map.options.container, 'clientWidth', {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(map.options.container, 'clientHeight', {
+      configurable: true,
+      value: 600,
+    });
+    map.project.mockReturnValue({ x: 44, y: 66 });
+    map.queryRenderedFeatures.mockReturnValue([
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [5.48, 51.44],
+        },
+        properties: {
+          node_class: 'active',
+          group_kind: 'single',
+          primary_property_id: 'moveend-prop',
+          commentCount: 6,
+          likeCount: 4,
+          activityScore: 18,
+          guessCount: 1,
+          hasListing: true,
+          address: 'Stationsplein 2',
+          city: 'Eindhoven',
+        },
+      },
+    ]);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+      await Promise.resolve();
+    });
+    mockAmbientCommentBubbles.refreshBubbles.mockClear();
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+      await Promise.resolve();
+    });
+
+    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
+      expect.objectContaining({
+        nodeKey: 'property:moveend-prop',
+        coordinate: [5.48, 51.44],
+        screenPoint: [44, 66],
+        candidatePropertyIds: ['moveend-prop'],
+        commentCount: 6,
+        likeCount: 4,
+        activityScore: 18,
+      }),
+    ], {
+      appendToExisting: true,
+      minimumVisibleCount: 3,
+      preserveRotation: true,
+    });
+  });
+
   it('does not reset preview state on a normal rerender while focused', async () => {
     await act(async () => {
       root.render(<MapScreen />);
