@@ -4,9 +4,9 @@ import * as maplibregl from 'maplibre-gl';
 
 import {
   AmbientCommentBubble,
-  AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
   AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
   AMBIENT_COMMENT_BUBBLE_WIDTH,
+  getAmbientCommentBubbleArrowLayout,
 } from './AmbientCommentBubble';
 import type { AmbientCommentBubble as AmbientCommentBubbleData } from '@/src/hooks/useAmbientCommentBubbles';
 
@@ -14,6 +14,7 @@ type BubblePortalTarget = {
   nodeKey: string;
   container: HTMLDivElement;
   arrowDirection: 'up' | 'down';
+  arrowHorizontalAlign: 'left' | 'right';
 };
 
 interface WebAmbientCommentBubblesPortalProps {
@@ -40,8 +41,12 @@ export function WebAmbientCommentBubblesPortal({
     const nextTargets = bubbles.map((bubble) => {
       const screenPoint = map.project(bubble.coordinate);
       const shouldShowBelow = screenPoint.y < 190;
-      const horizontalOffset =
-        (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X;
+      const viewportWidth = map.getContainer().clientWidth || window.innerWidth;
+      const { anchorOffsetX, arrowHorizontalAlign } = getAmbientCommentBubbleArrowLayout({
+        anchorX: screenPoint.x,
+        viewportWidth,
+      });
+      const horizontalOffset = (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - anchorOffsetX;
       const container = document.createElement('div');
       container.style.pointerEvents = 'auto';
       container.style.zIndex = '1000';
@@ -89,6 +94,7 @@ export function WebAmbientCommentBubblesPortal({
         nodeKey: bubble.nodeKey,
         container,
         arrowDirection: shouldShowBelow ? 'up' : 'down',
+        arrowHorizontalAlign,
       } satisfies BubblePortalTarget;
     });
 
@@ -122,6 +128,7 @@ export function WebAmbientCommentBubblesPortal({
               authorName={bubble.preview.authorName}
               authorPhotoUrl={bubble.preview.authorPhotoUrl}
               arrowDirection={target.arrowDirection}
+              arrowHorizontalAlign={target.arrowHorizontalAlign}
               onPress={() => onBubblePress(bubble)}
               testID={`ambient-comment-bubble-${bubble.property.id}`}
             />

@@ -25,9 +25,9 @@ import {
 } from '@/src/components';
 import {
   AmbientCommentBubble,
-  AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
   AMBIENT_COMMENT_BUBBLE_HEIGHT,
   AMBIENT_COMMENT_BUBBLE_WIDTH,
+  getAmbientCommentBubbleArrowLayout,
 } from '@/src/components/AmbientCommentBubble';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
@@ -854,9 +854,13 @@ export default function MapScreen() {
                 return null;
               }
 
+              const bubbleArrowLayout = getAmbientCommentBubbleArrowLayout({
+                anchorX: bubble.screenPoint[0],
+                viewportWidth: mapViewportSize.width,
+              });
               const bubbleLayout = getNativePreviewOverlayLayout({
                 anchorPoint: bubble.screenPoint,
-                anchorOffsetX: AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+                anchorOffsetX: bubbleArrowLayout.anchorOffsetX,
                 cardSize: {
                   width: AMBIENT_COMMENT_BUBBLE_WIDTH,
                   height: AMBIENT_COMMENT_BUBBLE_HEIGHT,
@@ -880,6 +884,7 @@ export default function MapScreen() {
                     authorName={bubble.preview.authorName}
                     authorPhotoUrl={bubble.preview.authorPhotoUrl}
                     arrowDirection={bubbleLayout.arrowDirection}
+                    arrowHorizontalAlign={bubbleArrowLayout.arrowHorizontalAlign}
                     onPress={() => handleAmbientBubblePress(bubble)}
                     testID={`ambient-comment-bubble-${bubble.property.id}`}
                   />

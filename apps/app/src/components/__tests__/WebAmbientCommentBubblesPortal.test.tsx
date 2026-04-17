@@ -112,7 +112,8 @@ describe('WebAmbientCommentBubblesPortal', () => {
 
   it('anchors the marker to the arrow tip instead of the bubble center', () => {
     const map = {
-      project: jest.fn().mockReturnValue({ y: 320 }),
+      getContainer: jest.fn().mockReturnValue({ clientWidth: 400 }),
+      project: jest.fn().mockReturnValue({ x: 120, y: 320 }),
     } as unknown as PortalMap;
 
     renderToDOM(
@@ -133,5 +134,36 @@ describe('WebAmbientCommentBubblesPortal', () => {
       }),
     );
     expect(mockMarkerInstances).toHaveLength(1);
+    expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
+      arrowHorizontalAlign: 'left',
+    });
+  });
+
+  it('moves the bubble to extend leftward when the anchor is on the right half of the viewport', () => {
+    const map = {
+      getContainer: jest.fn().mockReturnValue({ clientWidth: 400 }),
+      project: jest.fn().mockReturnValue({ x: 280, y: 320 }),
+    } as unknown as PortalMap;
+
+    renderToDOM(
+      <WebAmbientCommentBubblesPortal
+        map={map}
+        bubbles={[buildBubble()]}
+        onBubblePress={jest.fn()}
+      />,
+    );
+
+    expect(mockMarkerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor: 'bottom',
+        offset: [
+          -((AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X),
+          -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
+        ],
+      }),
+    );
+    expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
+      arrowHorizontalAlign: 'right',
+    });
   });
 });

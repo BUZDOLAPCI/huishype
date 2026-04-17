@@ -22,6 +22,32 @@ export const AMBIENT_COMMENT_BUBBLE_WIDTH = 236;
 export const AMBIENT_COMMENT_BUBBLE_HEIGHT = 64;
 export const AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX = 24;
 export const AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X = 35;
+export type AmbientCommentBubbleArrowHorizontalAlign = 'left' | 'right';
+
+export function getAmbientCommentBubbleArrowLayout(params: {
+  anchorX: number;
+  viewportWidth: number;
+}): {
+  anchorOffsetX: number;
+  arrowHorizontalAlign: AmbientCommentBubbleArrowHorizontalAlign;
+} {
+  const { anchorX, viewportWidth } = params;
+  const arrowHorizontalAlign =
+    Number.isFinite(anchorX) &&
+    Number.isFinite(viewportWidth) &&
+    viewportWidth > 0 &&
+    anchorX > viewportWidth / 2
+      ? 'right'
+      : 'left';
+
+  return {
+    anchorOffsetX:
+      arrowHorizontalAlign === 'right'
+        ? AMBIENT_COMMENT_BUBBLE_WIDTH - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X
+        : AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+    arrowHorizontalAlign,
+  };
+}
 
 const FULL_WIDTH_LINE_CHAR_BUDGET = 19;
 const BADGE_LINE_CHAR_BUDGET = 13;
@@ -89,6 +115,7 @@ export interface AmbientCommentBubbleProps {
   authorName: string;
   authorPhotoUrl?: string | null;
   arrowDirection?: 'up' | 'down';
+  arrowHorizontalAlign?: AmbientCommentBubbleArrowHorizontalAlign;
   onPress?: () => void;
   testID?: string;
 }
@@ -99,10 +126,13 @@ export function AmbientCommentBubble({
   authorName,
   authorPhotoUrl,
   arrowDirection = 'down',
+  arrowHorizontalAlign = 'left',
   onPress,
   testID = 'ambient-comment-bubble',
 }: AmbientCommentBubbleProps) {
   const arrowUp = arrowDirection === 'up';
+  const arrowHorizontalPosition =
+    arrowHorizontalAlign === 'right' ? styles.arrowRightAligned : styles.arrowLeftAligned;
   const showPhoto = !!authorPhotoUrl;
   const { firstLine, secondLine } = splitBubbleText(text);
 
@@ -116,7 +146,10 @@ export function AmbientCommentBubble({
     >
       <View style={[styles.stack, arrowUp ? styles.stackUp : styles.stackDown]}>
         {arrowUp && (
-          <View style={styles.arrowUpContainer} testID={`${testID}-arrow-up`}>
+          <View
+            style={[styles.arrowUpContainer, arrowHorizontalPosition]}
+            testID={`${testID}-arrow-up`}
+          >
             <View style={styles.arrowUpBorder} />
             <View style={styles.arrowUpFill} />
           </View>
@@ -154,7 +187,10 @@ export function AmbientCommentBubble({
         </View>
 
         {!arrowUp && (
-          <View style={styles.arrowDownContainer} testID={`${testID}-arrow-down`}>
+          <View
+            style={[styles.arrowDownContainer, arrowHorizontalPosition]}
+            testID={`${testID}-arrow-down`}
+          >
             <View style={styles.arrowDownBorder} />
             <View style={styles.arrowDownFill} />
           </View>
@@ -248,10 +284,15 @@ const styles = StyleSheet.create({
     color: COLORS.warm500,
     fontWeight: '600',
   },
+  arrowLeftAligned: {
+    left: 24,
+  },
+  arrowRightAligned: {
+    right: 24,
+  },
   arrowUpContainer: {
     position: 'absolute',
     top: 1,
-    left: 24,
     width: 22,
     height: 10,
     zIndex: 2,
@@ -285,7 +326,6 @@ const styles = StyleSheet.create({
   arrowDownContainer: {
     position: 'absolute',
     bottom: 1,
-    left: 24,
     width: 22,
     height: 10,
     zIndex: 2,

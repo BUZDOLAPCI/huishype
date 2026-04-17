@@ -1,7 +1,12 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
-import { AmbientCommentBubble } from '../AmbientCommentBubble';
+import {
+  AmbientCommentBubble,
+  AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+  AMBIENT_COMMENT_BUBBLE_WIDTH,
+  getAmbientCommentBubbleArrowLayout,
+} from '../AmbientCommentBubble';
 
 describe('AmbientCommentBubble', () => {
   it('renders fallback avatar initial and like count', () => {
@@ -61,6 +66,33 @@ describe('AmbientCommentBubble', () => {
 
     expect(screen.getByTestId('ambient-bubble-arrow-up')).toBeTruthy();
     expect(screen.queryByTestId('ambient-bubble-arrow-down')).toBeNull();
+  });
+
+  it('still renders the downward arrow when right-edge alignment is requested', () => {
+    render(
+      <AmbientCommentBubble
+        text="Short note"
+        likeCount={1}
+        authorName="Nina"
+        arrowHorizontalAlign="right"
+        testID="ambient-bubble"
+      />
+    );
+
+    expect(screen.getByTestId('ambient-bubble-arrow-down')).toBeTruthy();
+  });
+
+  it('keeps the arrow on the left edge until the anchor passes the horizontal midpoint', () => {
+    expect(getAmbientCommentBubbleArrowLayout({ anchorX: 200, viewportWidth: 400 })).toEqual({
+      anchorOffsetX: AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+      arrowHorizontalAlign: 'left',
+    });
+
+    expect(getAmbientCommentBubbleArrowLayout({ anchorX: 201, viewportWidth: 400 })).toEqual({
+      anchorOffsetX:
+        AMBIENT_COMMENT_BUBBLE_WIDTH - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+      arrowHorizontalAlign: 'right',
+    });
   });
 
   it('calls onPress when tapped', () => {
