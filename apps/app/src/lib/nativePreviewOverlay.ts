@@ -49,6 +49,7 @@ export function isNativePreviewAnchorVisible(params: {
 
 export function getNativePreviewOverlayLayout(params: {
   anchorPoint: [number, number];
+  anchorOffsetX?: number;
   cardSize: { width: number; height: number };
   topBoundary: number;
   viewportSize: { width: number; height: number };
@@ -57,6 +58,7 @@ export function getNativePreviewOverlayLayout(params: {
 }): NativePreviewLayout | null {
   const {
     anchorPoint,
+    anchorOffsetX,
     cardSize,
     topBoundary,
     viewportSize,
@@ -71,6 +73,8 @@ export function getNativePreviewOverlayLayout(params: {
   }
 
   const cardWidth = cardSize.width > 0 ? cardSize.width : fallbackWidth;
+  const resolvedAnchorOffsetX =
+    anchorOffsetX == null ? cardWidth / 2 : clamp(anchorOffsetX, 0, cardWidth);
   const cardHeight = Math.max(cardSize.height, 0);
   const boundedTop = Math.max(topBoundary, margin);
   const boundedBottom = Math.max(margin, viewportHeight - margin);
@@ -88,7 +92,7 @@ export function getNativePreviewOverlayLayout(params: {
   return {
     arrowDirection: placeBelow ? 'up' : 'down',
     left: clamp(
-      anchorPoint[0] - (cardWidth / 2),
+      anchorPoint[0] - resolvedAnchorOffsetX,
       margin,
       maxLeft,
     ),

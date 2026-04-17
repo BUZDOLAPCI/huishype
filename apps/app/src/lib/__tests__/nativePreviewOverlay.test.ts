@@ -94,5 +94,21 @@ describe('nativePreviewOverlay', () => {
         top: 200,
       });
     });
+
+    it('can anchor the card from a custom point instead of its horizontal center', () => {
+      expect(
+        getNativePreviewOverlayLayout({
+          anchorPoint: [140, 350],
+          anchorOffsetX: 35,
+          cardSize: { width: 236, height: 64 },
+          topBoundary,
+          viewportSize,
+        }),
+      ).toEqual({
+        arrowDirection: 'down',
+        left: 105,
+        top: 286,
+      });
+    });
   });
 });

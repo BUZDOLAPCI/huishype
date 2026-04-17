@@ -25,6 +25,7 @@ import {
 } from '@/src/components';
 import {
   AmbientCommentBubble,
+  AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
   AMBIENT_COMMENT_BUBBLE_HEIGHT,
   AMBIENT_COMMENT_BUBBLE_WIDTH,
 } from '@/src/components/AmbientCommentBubble';
@@ -855,6 +856,7 @@ export default function MapScreen() {
 
               const bubbleLayout = getNativePreviewOverlayLayout({
                 anchorPoint: bubble.screenPoint,
+                anchorOffsetX: AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
                 cardSize: {
                   width: AMBIENT_COMMENT_BUBBLE_WIDTH,
                   height: AMBIENT_COMMENT_BUBBLE_HEIGHT,

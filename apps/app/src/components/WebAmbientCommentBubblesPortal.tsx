@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
 
-import { AmbientCommentBubble, AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX } from './AmbientCommentBubble';
+import {
+  AmbientCommentBubble,
+  AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+  AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
+  AMBIENT_COMMENT_BUBBLE_WIDTH,
+} from './AmbientCommentBubble';
 import type { AmbientCommentBubble as AmbientCommentBubbleData } from '@/src/hooks/useAmbientCommentBubbles';
 
 type BubblePortalTarget = {
@@ -35,6 +40,8 @@ export function WebAmbientCommentBubblesPortal({
     const nextTargets = bubbles.map((bubble) => {
       const screenPoint = map.project(bubble.coordinate);
       const shouldShowBelow = screenPoint.y < 190;
+      const horizontalOffset =
+        (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X;
       const container = document.createElement('div');
       container.style.pointerEvents = 'auto';
       container.style.zIndex = '1000';
@@ -67,7 +74,7 @@ export function WebAmbientCommentBubblesPortal({
         element: container,
         anchor: shouldShowBelow ? 'top' : 'bottom',
         offset: [
-          0,
+          horizontalOffset,
           shouldShowBelow
             ? AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX
             : -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
