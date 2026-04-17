@@ -1,4 +1,5 @@
 export interface AmbientCommentCandidateInput {
+  nodeKey?: string;
   propertyId: string;
   coordinate: [number, number];
   address: string | null;
@@ -30,7 +31,7 @@ export function rankAmbientCommentCandidates(
     return [];
   }
 
-  const strongestByProperty = new Map<string, AmbientCommentCandidate>();
+  const strongestByNode = new Map<string, AmbientCommentCandidate>();
 
   for (const candidate of candidates) {
     if (!candidate.propertyId || candidate.commentCount <= 0) {
@@ -41,14 +42,15 @@ export function rankAmbientCommentCandidates(
       ...candidate,
       score: scoreAmbientCommentCandidate(candidate),
     };
-    const currentBest = strongestByProperty.get(candidate.propertyId);
+    const nodeKey = candidate.nodeKey ?? candidate.propertyId;
+    const currentBest = strongestByNode.get(nodeKey);
 
     if (!currentBest || rankedCandidate.score > currentBest.score) {
-      strongestByProperty.set(candidate.propertyId, rankedCandidate);
+      strongestByNode.set(nodeKey, rankedCandidate);
     }
   }
 
-  return [...strongestByProperty.values()]
+  return [...strongestByNode.values()]
     .sort((left, right) => {
       if (right.score !== left.score) {
         return right.score - left.score;

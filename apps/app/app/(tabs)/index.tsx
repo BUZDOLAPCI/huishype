@@ -187,23 +187,30 @@ export default function MapScreen() {
   const ambientCommentBubbles = useAmbientCommentBubbles({
     enabled: ambientBubblesEnabled,
     maxVisibleBubbles: mapViewportSize.width < 560 ? 1 : 2,
+    toGroupProperty,
   });
-  const handleAmbientBubblePress = useCallback((property: GroupPreviewProperty) => {
-    if (!property) {
-      return;
-    }
+  const {
+    bubbles: ambientCommentBubbleItems,
+    clearBubbles: clearAmbientCommentBubbles,
+    refreshBubbles: refreshAmbientCommentBubbleItems,
+  } = ambientCommentBubbles;
+  const handleAmbientBubblePress = useCallback((bubble: {
+    property: GroupPreviewProperty;
+    coordinate: [number, number];
+  }) => {
+    const anchoredProperty = {
+      ...bubble.property,
+      coordinate: bubble.coordinate,
+    };
 
-    if (property.coordinate) {
-      interaction.setHighlightedCoordinate(property.coordinate);
-      interaction.setPreviewGroup({
-        properties: [property],
-        coordinate: property.coordinate,
-      });
-      interaction.setCurrentPreviewIndex(0);
-    }
-
-    interaction.setSelectedPropertyId(property.id);
-    interaction.handleComment(property);
+    interaction.setHighlightedCoordinate(bubble.coordinate);
+    interaction.setPreviewGroup({
+      properties: [anchoredProperty],
+      coordinate: bubble.coordinate,
+    });
+    interaction.setCurrentPreviewIndex(0);
+    interaction.setSelectedPropertyId(anchoredProperty.id);
+    interaction.handleComment(anchoredProperty);
   }, [interaction]);
 
   // Dynamic city name for the map header
@@ -217,10 +224,10 @@ export default function MapScreen() {
     useCallback(() => {
       return () => {
         resetTransientUI();
-        ambientCommentBubbles.clearBubbles();
+        clearAmbientCommentBubbles();
         setSearchResetToken((value) => value + 1);
       };
-    }, [ambientCommentBubbles, resetTransientUI])
+    }, [clearAmbientCommentBubbles, resetTransientUI])
   );
 
   // Trigger initial reverse geocode for the default center
@@ -309,9 +316,9 @@ export default function MapScreen() {
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       syncPitchForZoom(event.nativeEvent.zoom);
       void refreshNativePreviewPoint();
-      ambientCommentBubbles.clearBubbles();
+      clearAmbientCommentBubbles();
     },
-    [ambientCommentBubbles, refreshNativePreviewPoint, syncPitchForZoom],
+    [clearAmbientCommentBubbles, refreshNativePreviewPoint, syncPitchForZoom],
   );
 
   // Handle map region change to track zoom level and update city name
@@ -398,7 +405,19 @@ export default function MapScreen() {
 
     for (const feature of features) {
       const group = normalizeRenderedPropertyGroup(feature);
-      if (!group || group.groupKind !== 'single' || group.commentCount <= 0) {
+      if (!group || group.commentCount <= 0) {
+        continue;
+      }
+
+      const candidatePropertyIds = Array.from(
+        new Set(
+          (group.groupKind === 'cluster'
+            ? (group.previewPropertyIds.length > 0 ? group.previewPropertyIds : group.propertyIds)
+            : [group.primaryPropertyId]
+          ).filter(Boolean),
+        ),
+      );
+      if (candidatePropertyIds.length === 0) {
         continue;
       }
 
@@ -431,7 +450,12 @@ export default function MapScreen() {
         guessCount: group.guessCount ?? 0,
       }, group.activityScore);
 
-      visibleNodes.set(group.primaryPropertyId, toAmbientBubbleVisibleNode({
+      const nodeKey = group.groupKind === 'cluster'
+        ? `cluster:${group.primaryPropertyId}:${group.coordinate[0]}:${group.coordinate[1]}`
+        : `property:${group.primaryPropertyId}`;
+
+      visibleNodes.set(nodeKey, toAmbientBubbleVisibleNode({
+        nodeKey,
         property,
         coordinate: group.coordinate,
         screenPoint: projectedPoint,
@@ -440,6 +464,7 @@ export default function MapScreen() {
         activityScore: group.activityScore,
         hasListing: group.hasListing,
         nodeClass: group.nodeClass,
+        candidatePropertyIds,
       }));
     }
 
@@ -448,21 +473,22 @@ export default function MapScreen() {
 
   const refreshAmbientCommentBubbles = useCallback(async () => {
     if (!ambientBubblesEnabled) {
-      ambientCommentBubbles.clearBubbles();
+      clearAmbientCommentBubbles();
       return;
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
-    await ambientCommentBubbles.refreshBubbles(visibleNodes);
+    await refreshAmbientCommentBubbleItems(visibleNodes);
   }, [
     ambientBubblesEnabled,
-    ambientCommentBubbles,
+    clearAmbientCommentBubbles,
     collectVisibleAmbientBubbleNodes,
+    refreshAmbientCommentBubbleItems,
   ]);
 
   const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
     clearAmbientBubbleRefreshTimeout();
-    ambientCommentBubbles.clearBubbles();
+    clearAmbientCommentBubbles();
 
     if (!ambientBubblesEnabled) {
       return;
@@ -474,7 +500,7 @@ export default function MapScreen() {
     }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
   }, [
     ambientBubblesEnabled,
-    ambientCommentBubbles,
+    clearAmbientCommentBubbles,
     clearAmbientBubbleRefreshTimeout,
     refreshAmbientCommentBubbles,
   ]);
@@ -816,9 +842,9 @@ export default function MapScreen() {
           </View>
         )}
 
-        {ambientCommentBubbles.bubbles.length > 0 && (
+        {ambientCommentBubbleItems.length > 0 && (
           <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
-            {ambientCommentBubbles.bubbles.map((bubble) => {
+            {ambientCommentBubbleItems.map((bubble) => {
               if (!bubble.screenPoint) {
                 return null;
               }
@@ -836,7 +862,7 @@ export default function MapScreen() {
 
               return (
                 <View
-                  key={bubble.property.id}
+                  key={bubble.nodeKey}
                   style={[styles.nativeAmbientBubbleOverlay, bubbleLayout]}
                 >
                   <AmbientCommentBubble
@@ -845,7 +871,7 @@ export default function MapScreen() {
                     authorName={bubble.preview.authorName}
                     authorPhotoUrl={bubble.preview.authorPhotoUrl}
                     arrowDirection={bubbleLayout.arrowDirection}
-                    onPress={() => handleAmbientBubblePress(bubble.property)}
+                    onPress={() => handleAmbientBubblePress(bubble)}
                     testID={`ambient-comment-bubble-${bubble.property.id}`}
                   />
                 </View>

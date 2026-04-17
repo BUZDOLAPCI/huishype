@@ -610,21 +610,32 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const ambientCommentBubbles = useAmbientCommentBubbles({
     enabled: ambientBubblesEnabled,
     maxVisibleBubbles: webViewportSize.width < 560 ? 1 : 2,
+    toGroupProperty,
   });
-  const clearAmbientCommentBubblesRef = useRef(ambientCommentBubbles.clearBubbles);
-  clearAmbientCommentBubblesRef.current = ambientCommentBubbles.clearBubbles;
-  const handleAmbientBubblePress = useCallback((property: GroupPreviewProperty) => {
-    if (property.coordinate) {
-      interaction.setHighlightedCoordinate(property.coordinate);
-      interaction.setPreviewGroup({
-        properties: [property],
-        coordinate: property.coordinate,
-      });
-      interaction.setCurrentPreviewIndex(0);
-    }
+  const {
+    bubbles: ambientCommentBubbleItems,
+    clearBubbles: clearAmbientCommentBubbles,
+    refreshBubbles: refreshAmbientCommentBubbleItems,
+  } = ambientCommentBubbles;
+  const clearAmbientCommentBubblesRef = useRef(clearAmbientCommentBubbles);
+  clearAmbientCommentBubblesRef.current = clearAmbientCommentBubbles;
+  const handleAmbientBubblePress = useCallback((bubble: {
+    property: GroupPreviewProperty;
+    coordinate: [number, number];
+  }) => {
+    const anchoredProperty = {
+      ...bubble.property,
+      coordinate: bubble.coordinate,
+    };
 
-    interaction.setSelectedPropertyId(property.id);
-    interaction.handleComment(property);
+    interaction.setHighlightedCoordinate(bubble.coordinate);
+    interaction.setPreviewGroup({
+      properties: [anchoredProperty],
+      coordinate: bubble.coordinate,
+    });
+    interaction.setCurrentPreviewIndex(0);
+    interaction.setSelectedPropertyId(anchoredProperty.id);
+    interaction.handleComment(anchoredProperty);
   }, [interaction]);
 
   useFocusEffect(
@@ -632,10 +643,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return () => {
         clearLocalPreviewRouteCache();
         resetTransientUI();
-        ambientCommentBubbles.clearBubbles();
+        clearAmbientCommentBubbles();
         setSearchResetToken((value) => value + 1);
       };
-    }, [ambientCommentBubbles, resetTransientUI]),
+    }, [clearAmbientCommentBubbles, resetTransientUI]),
   );
 
   const selectedMarkerCoordinate = useMemo<[number, number] | null>(() => {
@@ -808,7 +819,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     for (const feature of features) {
       const group = normalizeRenderedPropertyGroup(feature);
-      if (!group || group.groupKind !== 'single' || group.commentCount <= 0) {
+      if (!group || group.commentCount <= 0) {
+        continue;
+      }
+
+      const candidatePropertyIds = Array.from(
+        new Set(
+          (group.groupKind === 'cluster'
+            ? (group.previewPropertyIds.length > 0 ? group.previewPropertyIds : group.propertyIds)
+            : [group.primaryPropertyId]
+          ).filter(Boolean),
+        ),
+      );
+      if (candidatePropertyIds.length === 0) {
         continue;
       }
 
@@ -834,7 +857,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         guessCount: group.guessCount ?? 0,
       }, group.activityScore);
 
-      visibleNodes.set(group.primaryPropertyId, toAmbientBubbleVisibleNode({
+      const nodeKey = group.groupKind === 'cluster'
+        ? `cluster:${group.primaryPropertyId}:${group.coordinate[0]}:${group.coordinate[1]}`
+        : `property:${group.primaryPropertyId}`;
+
+      visibleNodes.set(nodeKey, toAmbientBubbleVisibleNode({
+        nodeKey,
         property,
         coordinate: group.coordinate,
         screenPoint: [projectedPoint.x, projectedPoint.y],
@@ -843,6 +871,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         activityScore: group.activityScore,
         hasListing: group.hasListing,
         nodeClass: group.nodeClass,
+        candidatePropertyIds,
       }));
     }
 
@@ -851,23 +880,24 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
   const refreshAmbientCommentBubbles = useCallback(async () => {
     if (!ambientBubblesEnabled) {
-      ambientCommentBubbles.clearBubbles();
+      clearAmbientCommentBubbles();
       return;
     }
 
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
-    await ambientCommentBubbles.refreshBubbles(visibleNodes);
+    await refreshAmbientCommentBubbleItems(visibleNodes);
   }, [
     ambientBubblesEnabled,
-    ambientCommentBubbles,
+    clearAmbientCommentBubbles,
     collectVisibleAmbientBubbleNodes,
+    refreshAmbientCommentBubbleItems,
   ]);
   const refreshAmbientCommentBubblesRef = useRef(refreshAmbientCommentBubbles);
   refreshAmbientCommentBubblesRef.current = refreshAmbientCommentBubbles;
 
   const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
     clearAmbientBubbleRefreshTimeout();
-    ambientCommentBubbles.clearBubbles();
+    clearAmbientCommentBubbles();
 
     if (!ambientBubblesEnabled) {
       return;
@@ -879,7 +909,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
   }, [
     ambientBubblesEnabled,
-    ambientCommentBubbles,
+    clearAmbientCommentBubbles,
     clearAmbientBubbleRefreshTimeout,
     refreshAmbientCommentBubbles,
   ]);
@@ -1704,7 +1734,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
         <WebAmbientCommentBubblesPortal
           map={mapRef.current}
-          bubbles={ambientCommentBubbles.bubbles}
+          bubbles={ambientCommentBubbleItems}
           onBubblePress={handleAmbientBubblePress}
         />
 

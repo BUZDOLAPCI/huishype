@@ -3,11 +3,10 @@ import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
 
 import { AmbientCommentBubble, AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX } from './AmbientCommentBubble';
-import type { GroupPreviewProperty } from './GroupPreviewCard';
 import type { AmbientCommentBubble as AmbientCommentBubbleData } from '@/src/hooks/useAmbientCommentBubbles';
 
 type BubblePortalTarget = {
-  propertyId: string;
+  nodeKey: string;
   container: HTMLDivElement;
   arrowDirection: 'up' | 'down';
 };
@@ -15,7 +14,7 @@ type BubblePortalTarget = {
 interface WebAmbientCommentBubblesPortalProps {
   map: maplibregl.Map | null;
   bubbles: AmbientCommentBubbleData[];
-  onBubblePress: (property: GroupPreviewProperty) => void;
+  onBubblePress: (bubble: AmbientCommentBubbleData) => void;
 }
 
 export function WebAmbientCommentBubblesPortal({
@@ -80,7 +79,7 @@ export function WebAmbientCommentBubblesPortal({
       markers.push(marker);
 
       return {
-        propertyId: bubble.property.id,
+        nodeKey: bubble.nodeKey,
         container,
         arrowDirection: shouldShowBelow ? 'up' : 'down',
       } satisfies BubblePortalTarget;
@@ -95,15 +94,15 @@ export function WebAmbientCommentBubblesPortal({
     };
   }, [bubbles, map]);
 
-  const targetsByPropertyId = useMemo(
-    () => new Map(targets.map((target) => [target.propertyId, target])),
+  const targetsByNodeKey = useMemo(
+    () => new Map(targets.map((target) => [target.nodeKey, target])),
     [targets],
   );
 
   return (
     <>
       {bubbles.map((bubble) => {
-        const target = targetsByPropertyId.get(bubble.property.id);
+        const target = targetsByNodeKey.get(bubble.nodeKey);
         if (!target) {
           return null;
         }
@@ -116,7 +115,7 @@ export function WebAmbientCommentBubblesPortal({
               authorName={bubble.preview.authorName}
               authorPhotoUrl={bubble.preview.authorPhotoUrl}
               arrowDirection={target.arrowDirection}
-              onPress={() => onBubblePress(bubble.property)}
+              onPress={() => onBubblePress(bubble)}
               testID={`ambient-comment-bubble-${bubble.property.id}`}
             />
           </div>,

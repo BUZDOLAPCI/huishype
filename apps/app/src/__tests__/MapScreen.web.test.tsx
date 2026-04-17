@@ -32,6 +32,7 @@ type MockMapInstance = {
   jumpTo: jest.Mock;
   project: jest.Mock;
   queryRenderedFeatures: jest.Mock;
+  resize: jest.Mock;
   remove: jest.Mock;
   propertySource: {
     serialize: jest.Mock;
@@ -54,6 +55,7 @@ const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 const mockAmbientCommentBubbles = {
   bubbles: [] as Array<{
+    nodeKey?: string;
     property: { id: string; address: string; city: string; coordinate?: [number, number] };
     coordinate: [number, number];
     screenPoint: [number, number] | null;
@@ -69,11 +71,15 @@ const mockAmbientCommentBubbles = {
 };
 let capturedAmbientBubblePortalProps:
   | {
-      onBubblePress: (property: {
-        id: string;
-        address: string;
-        city: string;
-        coordinate?: [number, number];
+      onBubblePress: (bubble: {
+        nodeKey?: string;
+        property: {
+          id: string;
+          address: string;
+          city: string;
+          coordinate?: [number, number];
+        };
+        coordinate: [number, number];
       }) => void;
     }
   | null = null;
@@ -147,13 +153,19 @@ jest.mock('react-native', () => {
     Alert: {
       alert: jest.fn(),
     },
+    Platform: {
+      OS: 'web',
+    },
     Text: createElement('span'),
     View: createElement('div'),
   };
 });
 
 jest.mock('@react-navigation/native', () => ({
-  useFocusEffect: jest.fn(),
+  useFocusEffect: jest.fn((effect: () => void | (() => void)) => {
+    const React = require('react') as typeof import('react');
+    React.useEffect(() => effect(), [effect]);
+  }),
 }));
 
 jest.mock('expo-router', () => ({
@@ -224,6 +236,7 @@ jest.mock('@/src/hooks/useMapFilterController', () => ({
 }));
 
 jest.mock('@/src/utils/api', () => ({
+  ...jest.requireActual('@/src/utils/api'),
   API_URL: 'http://api.test',
   fetchBatchProperties: jest.fn(),
 }));
@@ -322,6 +335,7 @@ jest.mock('maplibre-gl', () => {
       jumpTo: jest.fn(),
       project: jest.fn(() => ({ x: 0, y: 0 })),
       queryRenderedFeatures: jest.fn(() => []),
+      resize: jest.fn(),
       remove: jest.fn(),
       propertySource,
       trigger(event: string, payload?: unknown) {
@@ -440,11 +454,12 @@ describe('MapScreen web filter updates', () => {
   it('opens comments for the tapped ambient bubble property', async () => {
     mockAmbientCommentBubbles.bubbles = [
       {
+        nodeKey: 'cluster:prop-9',
         property: {
           id: 'prop-9',
           address: 'Stationsplein 1',
           city: 'Eindhoven',
-          coordinate: [5.48, 51.44],
+          coordinate: [5.481, 51.441],
         },
         coordinate: [5.48, 51.44],
         screenPoint: [120, 180],
@@ -466,10 +481,13 @@ describe('MapScreen web filter updates', () => {
 
     act(() => {
       capturedAmbientBubblePortalProps?.onBubblePress({
-        id: 'prop-9',
-        address: 'Stationsplein 1',
-        city: 'Eindhoven',
         coordinate: [5.48, 51.44],
+        property: {
+          id: 'prop-9',
+          address: 'Stationsplein 1',
+          city: 'Eindhoven',
+          coordinate: [5.481, 51.441],
+        },
       });
     });
 
@@ -493,5 +511,95 @@ describe('MapScreen web filter updates', () => {
       city: 'Eindhoven',
       coordinate: [5.48, 51.44],
     });
+  });
+
+  it('does not reset preview state on a normal rerender while focused', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    mockAppliedFilters = { tag: 'tile-b' };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.resetTransientUI).not.toHaveBeenCalled();
+  });
+
+  it('passes grouped-node member property candidates into ambient bubble refresh', async () => {
+    mockInteraction.toGroupProperty.mockImplementation((property: {
+      id: string;
+      address: string;
+      city: string;
+      geometry?: { coordinates: [number, number] };
+    }) => ({
+      id: property.id,
+      address: property.address,
+      city: property.city,
+      coordinate: property.geometry?.coordinates,
+    }));
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    Object.defineProperty(map.options.container, 'clientWidth', {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(map.options.container, 'clientHeight', {
+      configurable: true,
+      value: 600,
+    });
+    map.project.mockReturnValue({ x: 44, y: 66 });
+    map.queryRenderedFeatures.mockReturnValue([
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [5.48, 51.44],
+        },
+        properties: {
+          node_class: 'active',
+          group_kind: 'cluster',
+          primary_property_id: 'cluster-primary',
+          point_count: 3,
+          property_ids: 'member-1,member-2,member-3',
+          preview_property_ids: 'member-2,member-1',
+          commentCount: 6,
+          likeCount: 4,
+          activityScore: 18,
+          guessCount: 1,
+          hasListing: true,
+        },
+      },
+    ]);
+
+    act(() => {
+      map.trigger('load');
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
+      expect.objectContaining({
+        nodeKey: 'cluster:cluster-primary:5.48:51.44',
+        coordinate: [5.48, 51.44],
+        screenPoint: [44, 66],
+        candidatePropertyIds: ['member-2', 'member-1'],
+        commentCount: 6,
+        likeCount: 4,
+        activityScore: 18,
+      }),
+    ]);
   });
 });
