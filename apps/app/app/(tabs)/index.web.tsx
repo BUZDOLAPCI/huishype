@@ -617,8 +617,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     clearBubbles: clearAmbientCommentBubbles,
     refreshBubbles: refreshAmbientCommentBubbleItems,
   } = ambientCommentBubbles;
-  const clearAmbientCommentBubblesRef = useRef(clearAmbientCommentBubbles);
-  clearAmbientCommentBubblesRef.current = clearAmbientCommentBubbles;
   const handleAmbientBubblePress = useCallback((bubble: {
     property: GroupPreviewProperty;
     coordinate: [number, number];
@@ -893,14 +891,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     collectVisibleAmbientBubbleNodes,
     refreshAmbientCommentBubbleItems,
   ]);
-  const refreshAmbientCommentBubblesRef = useRef(refreshAmbientCommentBubbles);
-  refreshAmbientCommentBubblesRef.current = refreshAmbientCommentBubbles;
 
   const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
     clearAmbientBubbleRefreshTimeout();
-    clearAmbientCommentBubbles();
 
     if (!ambientBubblesEnabled) {
+      clearAmbientCommentBubbles();
       return;
     }
 
@@ -1106,7 +1102,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('idle', () => {
         if (!cancelled) {
           markMapLoaded();
-          void refreshAmbientCommentBubblesRef.current();
         }
       });
 
@@ -1153,7 +1148,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
         skipNextPassiveUrlSyncRef.current =
           passiveSyncResult.skipNextPassiveUrlSync;
-        void refreshAmbientCommentBubblesRef.current();
       });
 
       // Trigger initial reverse geocode for the default camera position
@@ -1168,19 +1162,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('dragstart', () => {
         isDragging.current = true;
         canReplaceLockedAreaPathRef.current = true;
-        clearAmbientCommentBubblesRef.current();
       });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
       map.on('zoomstart', () => {
         isZooming.current = true;
         canReplaceLockedAreaPathRef.current = true;
-        clearAmbientCommentBubblesRef.current();
       });
       map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
       map.on('rotatestart', () => {
         isRotating.current = true;
         canReplaceLockedAreaPathRef.current = true;
-        clearAmbientCommentBubblesRef.current();
       });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 

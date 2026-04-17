@@ -35,6 +35,7 @@ import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInt
 import {
   useAmbientCommentBubbles,
   toAmbientBubbleVisibleNode,
+  type AmbientCommentBubble as AmbientCommentBubbleData,
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
@@ -76,6 +77,7 @@ const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
+
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
 
 // Style URL — served by our API, single source of truth for all map layers.
@@ -170,7 +172,6 @@ export default function MapScreen() {
   });
   const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleAmbientCommentBubbleRefreshRef = useRef<() => void>(() => {});
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -199,6 +200,11 @@ export default function MapScreen() {
     clearBubbles: clearAmbientCommentBubbles,
     refreshBubbles: refreshAmbientCommentBubbleItems,
   } = ambientCommentBubbles;
+  const [positionedAmbientCommentBubbleItems, setPositionedAmbientCommentBubbleItems] = useState<
+    AmbientCommentBubbleData[]
+  >([]);
+  const ambientCommentBubbleItemsRef = useRef(ambientCommentBubbleItems);
+  ambientCommentBubbleItemsRef.current = ambientCommentBubbleItems;
   const handleAmbientBubblePress = useCallback((bubble: {
     property: GroupPreviewProperty;
     coordinate: [number, number];
@@ -285,6 +291,45 @@ export default function MapScreen() {
     }
   }, [mapLoaded, nativePreviewGroup]);
 
+  useEffect(() => {
+    setPositionedAmbientCommentBubbleItems(ambientCommentBubbleItems);
+  }, [ambientCommentBubbleItems]);
+
+  const syncAmbientCommentBubbleScreenPoints = useCallback(async () => {
+    const map = mapRef.current;
+    const currentBubbles = ambientCommentBubbleItemsRef.current;
+
+    if (!map || currentBubbles.length === 0) {
+      setPositionedAmbientCommentBubbleItems(currentBubbles);
+      return;
+    }
+
+    const nextBubbles = await Promise.all(
+      currentBubbles.map(async (bubble) => {
+        const anchorCoordinate = bubble.property.coordinate ?? bubble.coordinate;
+
+        try {
+          const point = await map.project(anchorCoordinate);
+          return {
+            ...bubble,
+            screenPoint: [point[0], point[1]] as [number, number],
+          };
+        } catch {
+          return {
+            ...bubble,
+            screenPoint: null,
+          };
+        }
+      }),
+    );
+
+    if (ambientCommentBubbleItemsRef.current !== currentBubbles) {
+      return;
+    }
+
+    setPositionedAmbientCommentBubbleItems(nextBubbles);
+  }, []);
+
   // Build a camera adapter for the shared hook
   const cameraCommands: MapCameraCommands = useMemo(() => ({
     flyTo: (opts) => {
@@ -322,9 +367,9 @@ export default function MapScreen() {
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       syncPitchForZoom(event.nativeEvent.zoom);
       void refreshNativePreviewPoint();
-      clearAmbientCommentBubbles();
+      void syncAmbientCommentBubbleScreenPoints();
     },
-    [clearAmbientCommentBubbles, refreshNativePreviewPoint, syncPitchForZoom],
+    [refreshNativePreviewPoint, syncAmbientCommentBubbleScreenPoints, syncPitchForZoom],
   );
 
   // Handle map region change to track zoom level and update city name
@@ -340,7 +385,6 @@ export default function MapScreen() {
         onViewportCenterChanged(center[0], center[1], zoom);
       }
       void refreshNativePreviewPoint();
-      scheduleAmbientCommentBubbleRefreshRef.current();
     },
     [onViewportCenterChanged, refreshNativePreviewPoint, syncPitchForZoom]
   );
@@ -494,9 +538,9 @@ export default function MapScreen() {
 
   const scheduleAmbientCommentBubbleRefresh = useCallback(() => {
     clearAmbientBubbleRefreshTimeout();
-    clearAmbientCommentBubbles();
 
     if (!ambientBubblesEnabled) {
+      clearAmbientCommentBubbles();
       return;
     }
 
@@ -510,7 +554,6 @@ export default function MapScreen() {
     clearAmbientBubbleRefreshTimeout,
     refreshAmbientCommentBubbles,
   ]);
-  scheduleAmbientCommentBubbleRefreshRef.current = scheduleAmbientCommentBubbleRefresh;
 
   useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();
@@ -848,9 +891,9 @@ export default function MapScreen() {
           </View>
         )}
 
-        {ambientCommentBubbleItems.length > 0 && (
+        {positionedAmbientCommentBubbleItems.length > 0 && (
           <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
-            {ambientCommentBubbleItems.map((bubble) => {
+            {positionedAmbientCommentBubbleItems.map((bubble) => {
               if (!bubble.screenPoint) {
                 return null;
               }

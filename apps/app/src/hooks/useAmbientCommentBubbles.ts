@@ -61,6 +61,10 @@ export interface AmbientCommentBubble {
   preview: AmbientCommentPreview;
 }
 
+interface RefreshAmbientCommentBubblesOptions {
+  preserveRotation?: boolean;
+}
+
 interface UseAmbientCommentBubblesOptions {
   enabled: boolean;
   maxVisibleBubbles?: number;
@@ -160,11 +164,13 @@ export function useAmbientCommentBubbles({
   const previewCacheRef = useRef(new Map<string, CommentPreviewCacheEntry>());
   const propertyCacheRef = useRef(new Map<string, PropertyCacheEntry>());
   const requestIdRef = useRef(0);
+  const rotationDeadlineRef = useRef<number | null>(null);
 
   const clearBubbles = useCallback(() => {
     requestIdRef.current += 1;
     setHydratedBubbles([]);
     setRotationStep(0);
+    rotationDeadlineRef.current = null;
   }, []);
 
   const getCachedPreview = useCallback(async (propertyId: string) => {
@@ -337,7 +343,10 @@ export function useAmbientCommentBubbles({
     return null;
   }, [getCachedPreview, getCachedProperties, toGroupProperty]);
 
-  const refreshBubbles = useCallback(async (visibleNodes: AmbientBubbleVisibleNode[]) => {
+  const refreshBubbles = useCallback(async (
+    visibleNodes: AmbientBubbleVisibleNode[],
+    options?: RefreshAmbientCommentBubblesOptions,
+  ) => {
     if (!enabled) {
       clearBubbles();
       return;
@@ -368,6 +377,7 @@ export function useAmbientCommentBubbles({
     if (rankedNodes.length === 0) {
       setHydratedBubbles([]);
       setRotationStep(0);
+      rotationDeadlineRef.current = null;
       return;
     }
 
@@ -391,7 +401,9 @@ export function useAmbientCommentBubbles({
     );
 
     setHydratedBubbles(nextHydratedBubbles);
-    setRotationStep(0);
+    if (!options?.preserveRotation) {
+      setRotationStep(0);
+    }
   }, [clearBubbles, enabled, hydrateBubbleForNode]);
 
   useEffect(() => {
@@ -402,17 +414,30 @@ export function useAmbientCommentBubbles({
 
   useEffect(() => {
     if (!enabled || hydratedBubbles.length <= 1) {
+      rotationDeadlineRef.current = null;
       return undefined;
     }
 
+    rotationDeadlineRef.current = Date.now() + ROTATION_INTERVAL_MS;
     const interval = setInterval(() => {
+      rotationDeadlineRef.current = Date.now() + ROTATION_INTERVAL_MS;
       setRotationStep((currentStep) => currentStep + 1);
     }, ROTATION_INTERVAL_MS);
 
     return () => {
       clearInterval(interval);
+      rotationDeadlineRef.current = null;
     };
   }, [enabled, hydratedBubbles.length]);
+
+  const getMillisecondsUntilNextRotation = useCallback(() => {
+    const nextDeadline = rotationDeadlineRef.current;
+    if (nextDeadline === null) {
+      return ROTATION_INTERVAL_MS;
+    }
+
+    return Math.max(0, nextDeadline - Date.now());
+  }, []);
 
   const bubbles = useMemo(
     () => getAmbientCommentRotationWindow(
@@ -427,5 +452,6 @@ export function useAmbientCommentBubbles({
     bubbles,
     clearBubbles,
     refreshBubbles,
+    getMillisecondsUntilNextRotation,
   };
 }

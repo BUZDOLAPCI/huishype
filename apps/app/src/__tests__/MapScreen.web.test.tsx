@@ -387,6 +387,7 @@ describe('MapScreen web filter updates', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
     mockMapInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
     mockAmbientCommentBubbles.bubbles = [];
@@ -411,6 +412,7 @@ describe('MapScreen web filter updates', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     act(() => {
       root.unmount();
     });
@@ -513,6 +515,27 @@ describe('MapScreen web filter updates', () => {
     });
   });
 
+  it('does not clear ambient bubbles when a map gesture starts', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    mockAmbientCommentBubbles.clearBubbles.mockClear();
+
+    act(() => {
+      map.trigger('dragstart');
+      map.trigger('zoomstart');
+      map.trigger('rotatestart');
+    });
+
+    expect(mockAmbientCommentBubbles.clearBubbles).not.toHaveBeenCalled();
+  });
+
   it('does not reset preview state on a normal rerender while focused', async () => {
     await act(async () => {
       root.render(<MapScreen />);
@@ -529,7 +552,9 @@ describe('MapScreen web filter updates', () => {
     expect(mockInteraction.resetTransientUI).not.toHaveBeenCalled();
   });
 
-  it('passes grouped-node member property candidates into ambient bubble refresh', async () => {
+  it('passes grouped-node member property candidates into ambient bubble refresh during initial seeding', async () => {
+    jest.useFakeTimers();
+
     mockInteraction.toGroupProperty.mockImplementation((property: {
       id: string;
       address: string;
@@ -582,13 +607,11 @@ describe('MapScreen web filter updates', () => {
 
     act(() => {
       map.trigger('load');
-      map.trigger('idle');
     });
-    await flushMicrotasks();
-    act(() => {
-      map.trigger('moveend');
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+      await Promise.resolve();
     });
-    await flushMicrotasks();
 
     expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
       expect.objectContaining({
