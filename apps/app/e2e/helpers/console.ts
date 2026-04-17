@@ -11,26 +11,13 @@ export const BASE_ALLOWED_CONSOLE_PATTERNS: ConsoleAllowPattern[] = [
 
 export const MAP_ALLOWED_CONSOLE_PATTERNS: ConsoleAllowPattern[] = [
   ...BASE_ALLOWED_CONSOLE_PATTERNS,
-  /AJAXError/,
-  /\.pbf/,
-  /tiles\.openfreemap\.org/,
-  /pointerEvents is deprecated/,
-  /GL Driver Message/,
-  /Expected value to be of type/,
-  /Failed to load resource.*\/sprites\//,
-  /Failed to load resource.*\.pbf/,
-  /font/i,
+  /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
 export const NETWORK_ALLOWED_CONSOLE_PATTERNS: ConsoleAllowPattern[] = [
   ...MAP_ALLOWED_CONSOLE_PATTERNS,
   /net::ERR_NAME_NOT_RESOLVED/,
   /net::ERR_CONNECTION_REFUSED/,
-  /Failed to load resource/,
-  /the server responded with a status of 404 \(Not Found\)/,
-  /the server responded with a status of 500 \(Internal Server Error\)/,
-  /Page Error: A network error occurred\./,
-  /MapLibre error: AJAXError: Failed to fetch/,
 ];
 
 export function isAllowedConsoleMessage(

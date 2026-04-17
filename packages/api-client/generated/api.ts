@@ -405,6 +405,11 @@ export interface paths {
                     city?: string;
                     minPrice?: number;
                     maxPrice?: number;
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
                     bbox?: string;
                     lat?: number;
@@ -607,6 +612,11 @@ export interface paths {
                     lon: number;
                     lat: number;
                     zoom?: number;
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -649,6 +659,9 @@ export interface paths {
                             commentCount: number;
                             guessCount: number;
                             hasListing: boolean;
+                            streetName: string | null;
+                            houseNumber: number | null;
+                            houseNumberAddition: string | null;
                             address: string | null;
                             city: string | null;
                             postalCode: string | null;
@@ -1403,6 +1416,7 @@ export interface paths {
                                     karma: number;
                                 };
                                 likeCount: number;
+                                isLiked: boolean;
                                 replies: {
                                     /** Format: uuid */
                                     id: string;
@@ -1425,6 +1439,7 @@ export interface paths {
                                         karma: number;
                                     };
                                     likeCount: number;
+                                    isLiked: boolean;
                                 }[];
                             }[];
                             meta: {
@@ -1506,6 +1521,7 @@ export interface paths {
                                 karma: number;
                             };
                             likeCount: number;
+                            isLiked: boolean;
                             message: string;
                         };
                     };
@@ -1970,7 +1986,13 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2007,7 +2029,13 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string;
+                };
                 header?: never;
                 path: {
                     z: number;

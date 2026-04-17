@@ -20,8 +20,7 @@ export const PLAYWRIGHT_VISUAL_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'visual
 
 export function getPlaywrightWebDistCandidates(repoRoot = PLAYWRIGHT_REPO_ROOT) {
   return [
-    path.join(PLAYWRIGHT_APP_ROOT, 'dist'),
-    path.join(repoRoot, 'dist'),
+    path.join(repoRoot, 'apps', 'app', 'dist'),
   ];
 }
 
@@ -78,11 +77,15 @@ function parsePort(rawValue, fallback) {
   return Number.isInteger(value) ? value : fallback;
 }
 
+function toLocalhostUrl(port) {
+  return `http://127.0.0.1:${port}`;
+}
+
 export function createPlaywrightRuntimeSettings(env = process.env) {
   const apiPort = parsePort(env.PLAYWRIGHT_API_PORT, DEFAULT_PLAYWRIGHT_API_PORT);
   const webPort = parsePort(env.PLAYWRIGHT_WEB_PORT, DEFAULT_PLAYWRIGHT_WEB_PORT);
-  const apiUrl = env.API_URL || env.EXPO_PUBLIC_API_URL || `http://127.0.0.1:${apiPort}`;
-  const webUrl = env.PLAYWRIGHT_WEB_URL || `http://127.0.0.1:${webPort}`;
+  const apiUrl = toLocalhostUrl(apiPort);
+  const webUrl = toLocalhostUrl(webPort);
 
   return {
     repoRoot: PLAYWRIGHT_REPO_ROOT,

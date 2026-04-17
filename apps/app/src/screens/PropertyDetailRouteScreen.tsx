@@ -26,6 +26,7 @@ import {
 import {
   buildPropertyMapRoute,
   buildPropertyCommentsRoute,
+  buildPropertyGuessesRoute,
   buildPropertyRoute,
   normalizePropertyReturnTarget,
   toInternalAppHref,
@@ -88,6 +89,24 @@ export function PropertyDetailRouteScreen({
       router.push(
         toInternalAppHref(
           buildPropertyCommentsRoute(
+            property,
+            buildPropertyRoute(property, normalizedReturnTarget),
+          ),
+        ),
+      );
+    },
+    [normalizedReturnTarget, property],
+  );
+
+  const handleViewAllGuesses = useCallback(
+    (nextPropertyId: string) => {
+      if (!property || property.id !== nextPropertyId) {
+        return;
+      }
+
+      router.push(
+        toInternalAppHref(
+          buildPropertyGuessesRoute(
             property,
             buildPropertyRoute(property, normalizedReturnTarget),
           ),
@@ -233,6 +252,7 @@ export function PropertyDetailRouteScreen({
             property={property}
             manageInteractionsInternally
             onAuthRequired={handleAuthRequired}
+            onGuessPress={handleViewAllGuesses}
             onViewAllComments={handleViewAllComments}
           />
         </ScrollView>
