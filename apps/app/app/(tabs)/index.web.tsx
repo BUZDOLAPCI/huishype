@@ -609,7 +609,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     interaction.sheetIndex < 0;
   const ambientCommentBubbles = useAmbientCommentBubbles({
     enabled: ambientBubblesEnabled,
-    maxVisibleBubbles: webViewportSize.width < 560 ? 1 : 2,
+    maxVisibleBubbles: webViewportSize.width < 560 ? 2 : 3,
     toGroupProperty,
   });
   const {
