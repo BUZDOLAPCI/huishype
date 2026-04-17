@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --testPathIgnorePatterns='__tests__/integration'",
     "test:unit": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --testPathIgnorePatterns='__tests__/integration'",
     "test:integration": "NODE_ENV=test NODE_OPTIONS='--experimental-vm-modules' jest --runInBand --testPathPattern='__tests__/integration' --testTimeout=15000",

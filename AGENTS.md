@@ -380,6 +380,10 @@ Run these checks before every commit. All must pass.
 pnpm test                         # Canonical repo gate
 ```
 
+### Lint Warning Policy
+
+ESLint warnings are treated as failures. Keep package lint scripts strict with `--max-warnings=0`, and if a warning pattern is low-value for this repo, solve it by improving the code or refining config narrowly rather than tolerating warnings or adding broad suppressions.
+
 If the change touches web E2E, also run the relevant root Playwright wrappers:
 
 ```bash
