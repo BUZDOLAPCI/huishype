@@ -96,6 +96,20 @@ function buildBubble(overrides?: Partial<AmbientCommentBubble>): AmbientCommentB
   };
 }
 
+function expectMarkerOffsetToEqual(expectedX: number, expectedY: number) {
+  const markerOptions = mockMarkerConstructor.mock.calls.at(-1)?.[0] as {
+    offset?: [number, number];
+  } | undefined;
+
+  expect(markerOptions).toEqual(
+    expect.objectContaining({
+      anchor: 'bottom',
+    }),
+  );
+  expect(markerOptions?.offset?.[0]).toBeCloseTo(expectedX);
+  expect(markerOptions?.offset?.[1]).toBe(expectedY);
+}
+
 describe('WebAmbientCommentBubblesPortal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -127,14 +141,9 @@ describe('WebAmbientCommentBubblesPortal', () => {
       />,
     );
 
-    expect(mockMarkerConstructor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        anchor: 'bottom',
-        offset: [
-          (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
-          -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
-        ],
-      }),
+    expectMarkerOffsetToEqual(
+      (AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X,
+      -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
     );
     expect(mockMarkerInstances).toHaveLength(1);
     expect(mockMarkerInstances[0]?.element.style.position).toBe('absolute');
@@ -157,14 +166,9 @@ describe('WebAmbientCommentBubblesPortal', () => {
       />,
     );
 
-    expect(mockMarkerConstructor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        anchor: 'bottom',
-        offset: [
-          -((AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X),
-          -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
-        ],
-      }),
+    expectMarkerOffsetToEqual(
+      -((AMBIENT_COMMENT_BUBBLE_WIDTH / 2) - AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X),
+      -AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX,
     );
     expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
       arrowHorizontalAlign: 'right',
