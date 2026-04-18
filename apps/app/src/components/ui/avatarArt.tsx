@@ -19,6 +19,11 @@ const AVATAR_MONOGRAM_LETTER_SPACING = {
   double: 4.5,
 } as const;
 const LARGE_MONOGRAM_MIN_AVATAR_SIZE = 40;
+const AVATAR_OUTER_RING = {
+  radius: 47,
+  strokeWidth: 4,
+  opacity: 0.28,
+} as const;
 export const AVATAR_PALETTES = [
   {
     start: '#F9E8DE',
@@ -305,6 +310,16 @@ export function AvatarArtPreview({
 
       <Rect width={AVATAR_VIEWBOX} height={AVATAR_VIEWBOX} fill={`url(#${gradientId})`} />
       {renderAccent(normalizedAccentIndex, palette, layout)}
+      <Ellipse
+        cx={AVATAR_VIEWBOX / 2}
+        cy={AVATAR_VIEWBOX / 2}
+        rx={AVATAR_OUTER_RING.radius}
+        ry={AVATAR_OUTER_RING.radius}
+        fill="none"
+        stroke={palette.letter}
+        strokeOpacity={AVATAR_OUTER_RING.opacity}
+        strokeWidth={AVATAR_OUTER_RING.strokeWidth}
+      />
 
       <Ellipse
         cx={AVATAR_MONOGRAM_CENTER.x}
