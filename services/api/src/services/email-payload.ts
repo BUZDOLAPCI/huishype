@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from 'node:fs';
-import sharp from 'sharp';
 
 import { config } from '../config.js';
 
@@ -18,29 +17,22 @@ const MAGIC_LINK_EMAIL_SUBJECT = 'Sign in to HuisHype';
 const MAGIC_LINK_EMAIL_PREHEADER =
   'Use your secure HuisHype sign-in link. It expires in 15 minutes.';
 const MAGIC_LINK_EMAIL_LOGO_CID = 'huishype-logo';
-const MAGIC_LINK_EMAIL_LOGO_SVG_URL = new URL(
-  '../../../../apps/app/assets/images/logo-with-chat-bubble.svg',
+const MAGIC_LINK_EMAIL_LOGO_PNG_URL = new URL(
+  '../../assets/logo-email.png',
   import.meta.url
 );
 
-function resolveMagicLinkEmailLogoSvg(): Buffer {
-  if (!existsSync(MAGIC_LINK_EMAIL_LOGO_SVG_URL)) {
+function resolveMagicLinkEmailLogoPng(): Buffer {
+  if (!existsSync(MAGIC_LINK_EMAIL_LOGO_PNG_URL)) {
     throw new Error(
-      `Magic-link email logo source not found at ${MAGIC_LINK_EMAIL_LOGO_SVG_URL.pathname}`
+      `Magic-link email logo source not found at ${MAGIC_LINK_EMAIL_LOGO_PNG_URL.pathname}`
     );
   }
 
-  return readFileSync(MAGIC_LINK_EMAIL_LOGO_SVG_URL);
+  return readFileSync(MAGIC_LINK_EMAIL_LOGO_PNG_URL);
 }
 
-const MAGIC_LINK_EMAIL_LOGO_BASE64 = await sharp(resolveMagicLinkEmailLogoSvg())
-  .resize(512, 512, {
-    fit: 'contain',
-    background: { r: 0, g: 0, b: 0, alpha: 0 },
-  })
-  .png()
-  .toBuffer()
-  .then((buffer) => buffer.toString('base64'));
+const MAGIC_LINK_EMAIL_LOGO_BASE64 = resolveMagicLinkEmailLogoPng().toString('base64');
 
 type MagicLinkEmailRenderOptions = {
   logoSrc?: string;
