@@ -14,14 +14,20 @@ const COLORS = {
   avatarBg: '#F4C971',
 } as const;
 
+const AMBIENT_COMMENT_BUBBLE_SCALE = 0.82;
+
+function scaleBubbleSize(value: number): number {
+  return value * AMBIENT_COMMENT_BUBBLE_SCALE;
+}
+
 const WEB_BUBBLE_SHADOW: WebViewStyle = {
-  boxShadow: '0px 14px 30px rgba(33, 27, 22, 0.14), 0px 3px 12px rgba(180, 119, 18, 0.08)',
+  boxShadow: `0px ${scaleBubbleSize(14)}px ${scaleBubbleSize(30)}px rgba(33, 27, 22, 0.14), 0px ${scaleBubbleSize(3)}px ${scaleBubbleSize(12)}px rgba(180, 119, 18, 0.08)`,
 };
 
-export const AMBIENT_COMMENT_BUBBLE_WIDTH = 236;
-export const AMBIENT_COMMENT_BUBBLE_HEIGHT = 64;
-export const AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX = 24;
-export const AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X = 35;
+export const AMBIENT_COMMENT_BUBBLE_WIDTH = scaleBubbleSize(236);
+export const AMBIENT_COMMENT_BUBBLE_HEIGHT = scaleBubbleSize(64);
+export const AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX = scaleBubbleSize(24);
+export const AMBIENT_COMMENT_BUBBLE_ARROW_TIP_CENTER_X = scaleBubbleSize(35);
 export type AmbientCommentBubbleArrowHorizontalAlign = 'left' | 'right';
 
 export function getAmbientCommentBubbleArrowLayout(params: {
@@ -34,9 +40,9 @@ export function getAmbientCommentBubbleArrowLayout(params: {
   const { anchorX, viewportWidth } = params;
   const arrowHorizontalAlign =
     Number.isFinite(anchorX) &&
-    Number.isFinite(viewportWidth) &&
-    viewportWidth > 0 &&
-    anchorX > viewportWidth / 2
+      Number.isFinite(viewportWidth) &&
+      viewportWidth > 0 &&
+      anchorX > viewportWidth / 2
       ? 'right'
       : 'left';
 
@@ -180,7 +186,12 @@ export function AmbientCommentBubble({
             </View>
 
             <View style={styles.likesRow} testID={`${testID}-likes`}>
-              <Icon name="Heart" size={16} color={COLORS.heart} weight="fill" />
+              <Icon
+                name="Heart"
+                size={scaleBubbleSize(16)}
+                color={COLORS.heart}
+                weight="fill"
+              />
               <Text style={styles.likesText}>{likeCount}</Text>
             </View>
           </View>
@@ -209,37 +220,37 @@ const styles = StyleSheet.create({
     width: AMBIENT_COMMENT_BUBBLE_WIDTH,
   },
   stackUp: {
-    paddingTop: 10,
+    paddingTop: scaleBubbleSize(10),
   },
   stackDown: {
-    paddingBottom: 10,
+    paddingBottom: scaleBubbleSize(10),
   },
   card: {
     position: 'relative',
     width: AMBIENT_COMMENT_BUBBLE_WIDTH,
     minHeight: AMBIENT_COMMENT_BUBBLE_HEIGHT,
-    borderRadius: 24,
+    borderRadius: scaleBubbleSize(24),
     backgroundColor: COLORS.white,
-    paddingHorizontal: 14,
-    paddingTop: 1,
-    paddingBottom: 1,
+    paddingHorizontal: scaleBubbleSize(14),
+    paddingTop: scaleBubbleSize(1),
+    paddingBottom: scaleBubbleSize(1),
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.warm200,
     shadowColor: '#1F1814',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: scaleBubbleSize(8) },
     shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 7,
+    shadowRadius: scaleBubbleSize(18),
+    elevation: scaleBubbleSize(7),
     zIndex: 1,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scaleBubbleSize(40),
+    height: scaleBubbleSize(40),
+    borderRadius: scaleBubbleSize(20),
     backgroundColor: COLORS.avatarBg,
-    marginRight: 12,
+    marginRight: scaleBubbleSize(12),
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -249,26 +260,26 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   avatarInitial: {
-    fontSize: 16,
+    fontSize: scaleBubbleSize(16),
     fontWeight: '700',
     color: COLORS.warm900,
   },
   contentColumn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 30,
+    minHeight: scaleBubbleSize(30),
     justifyContent: 'center',
   },
   text: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: scaleBubbleSize(15),
+    lineHeight: scaleBubbleSize(20),
     fontWeight: '600',
     color: COLORS.warm700,
   },
   bottomRow: {
-    minHeight: 17,
-    paddingRight: 44,
-    marginTop: -2,
+    minHeight: scaleBubbleSize(17),
+    paddingRight: scaleBubbleSize(44),
+    marginTop: scaleBubbleSize(-2),
   },
   likesRow: {
     position: 'absolute',
@@ -276,25 +287,25 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: scaleBubbleSize(4),
   },
   likesText: {
-    fontSize: 15,
-    lineHeight: 17,
+    fontSize: scaleBubbleSize(15),
+    lineHeight: scaleBubbleSize(17),
     color: COLORS.warm500,
     fontWeight: '600',
   },
   arrowLeftAligned: {
-    left: 24,
+    left: scaleBubbleSize(24),
   },
   arrowRightAligned: {
-    right: 24,
+    right: scaleBubbleSize(24),
   },
   arrowUpContainer: {
     position: 'absolute',
-    top: 1,
-    width: 22,
-    height: 10,
+    top: scaleBubbleSize(1),
+    width: scaleBubbleSize(22),
+    height: scaleBubbleSize(10),
     zIndex: 2,
   },
   arrowUpBorder: {
@@ -303,31 +314,31 @@ const styles = StyleSheet.create({
     top: 0,
     width: 0,
     height: 0,
-    borderLeftWidth: 11,
-    borderRightWidth: 11,
-    borderBottomWidth: 10,
+    borderLeftWidth: scaleBubbleSize(11),
+    borderRightWidth: scaleBubbleSize(11),
+    borderBottomWidth: scaleBubbleSize(10),
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderBottomColor: COLORS.warm200,
   },
   arrowUpFill: {
     position: 'absolute',
-    left: 1,
-    top: 1,
+    left: scaleBubbleSize(1),
+    top: scaleBubbleSize(1),
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 9,
+    borderLeftWidth: scaleBubbleSize(10),
+    borderRightWidth: scaleBubbleSize(10),
+    borderBottomWidth: scaleBubbleSize(9),
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderBottomColor: COLORS.white,
   },
   arrowDownContainer: {
     position: 'absolute',
-    bottom: 1,
-    width: 22,
-    height: 10,
+    bottom: scaleBubbleSize(1),
+    width: scaleBubbleSize(22),
+    height: scaleBubbleSize(10),
     zIndex: 2,
   },
   arrowDownBorder: {
@@ -336,22 +347,22 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 0,
     height: 0,
-    borderLeftWidth: 11,
-    borderRightWidth: 11,
-    borderTopWidth: 10,
+    borderLeftWidth: scaleBubbleSize(11),
+    borderRightWidth: scaleBubbleSize(11),
+    borderTopWidth: scaleBubbleSize(10),
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: COLORS.warm200,
   },
   arrowDownFill: {
     position: 'absolute',
-    left: 1,
-    bottom: 1,
+    left: scaleBubbleSize(1),
+    bottom: scaleBubbleSize(1),
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 9,
+    borderLeftWidth: scaleBubbleSize(10),
+    borderRightWidth: scaleBubbleSize(10),
+    borderTopWidth: scaleBubbleSize(9),
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: COLORS.white,
