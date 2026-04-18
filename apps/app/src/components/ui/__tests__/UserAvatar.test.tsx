@@ -86,6 +86,14 @@ describe('UserAvatar', () => {
       expect(getByTestId('user-avatar-art-initials').props.children).toBe('BO');
     });
 
+    it('renders fallback initials larger and more spaced for two-letter monograms', () => {
+      const { getByTestId } = render(<UserAvatar username="bob" />);
+      const initials = getByTestId('user-avatar-art-initials');
+
+      expect(initials.props.fontSize).toBe(34);
+      expect(initials.props.letterSpacing).toBe(2.5);
+    });
+
     it('renders Image when profilePhotoUrl is provided', () => {
       const { getByTestId } = render(
         <UserAvatar

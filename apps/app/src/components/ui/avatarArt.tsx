@@ -2,8 +2,19 @@ import React from 'react';
 import { Circle, Defs, Ellipse, LinearGradient, Path, Rect, Stop, Svg, Text as SvgText } from 'react-native-svg';
 
 const AVATAR_VIEWBOX = 100;
-
-const AVATAR_PALETTES = [
+const AVATAR_MONOGRAM_CENTER = {
+  x: 50,
+  y: 54,
+} as const;
+const AVATAR_MONOGRAM_FONT_SIZE = {
+  single: 44,
+  double: 38,
+} as const;
+const AVATAR_MONOGRAM_LETTER_SPACING = {
+  single: 0.8,
+  double: 4.5,
+} as const;
+export const AVATAR_PALETTES = [
   {
     start: '#F9E8DE',
     end: '#FFF8F1',
@@ -62,40 +73,59 @@ const AVATAR_PALETTES = [
   },
 ] as const;
 
-const AVATAR_LAYOUTS = [
+export const AVATAR_LAYOUTS = [
   {
     centerX: 50,
-    centerY: 55,
+    centerY: 50,
     waveLift: 0,
   },
   {
-    centerX: 47,
-    centerY: 53,
-    waveLift: -4,
+    centerX: 38,
+    centerY: 34,
+    waveLift: -12,
   },
   {
-    centerX: 53,
-    centerY: 53,
-    waveLift: -2,
+    centerX: 64,
+    centerY: 32,
+    waveLift: -8,
   },
   {
-    centerX: 48,
-    centerY: 54,
-    waveLift: 4,
+    centerX: 40,
+    centerY: 66,
+    waveLift: 10,
   },
   {
-    centerX: 52,
-    centerY: 54,
-    waveLift: 3,
+    centerX: 62,
+    centerY: 62,
+    waveLift: 8,
   },
   {
     centerX: 50,
-    centerY: 52,
-    waveLift: 6,
+    centerY: 24,
+    waveLift: 14,
   },
 ] as const;
 
-const ACCENT_VARIANT_COUNT = 4;
+export const AVATAR_ACCENT_VARIANTS = [
+  {
+    id: 0,
+    label: 'Top glow + bottom wave',
+  },
+  {
+    id: 1,
+    label: 'Top-right orb + low horizon',
+  },
+  {
+    id: 2,
+    label: 'Bottom-left glow + top crest',
+  },
+  {
+    id: 3,
+    label: 'Top-left orb + rising sweep',
+  },
+] as const;
+
+const ACCENT_VARIANT_COUNT = AVATAR_ACCENT_VARIANTS.length;
 
 export const DEFAULT_AVATAR_VARIANT_COUNT =
   AVATAR_PALETTES.length * AVATAR_LAYOUTS.length * ACCENT_VARIANT_COUNT;
@@ -135,9 +165,16 @@ function renderAccent(
     case 0:
       return (
         <>
-          <Ellipse cx={26} cy={24} rx={24} ry={18} fill={palette.glow} opacity={0.9} />
+          <Ellipse
+            cx={layout.centerX - 18}
+            cy={layout.centerY - 18}
+            rx={24}
+            ry={18}
+            fill={palette.glow}
+            opacity={0.9}
+          />
           <Path
-            d={`M 8 84 C 24 68 ${layout.centerX - 10} 66 ${layout.centerX} ${74 + layout.waveLift * 0.3} C ${layout.centerX + 16} 84 88 82 96 70 L 100 100 L 0 100 Z`}
+            d={`M 0 ${86 + layout.waveLift * 0.25} C 18 ${68 + layout.waveLift} ${layout.centerX - 14} ${60 + layout.waveLift * 0.45} ${layout.centerX + 2} ${74 + layout.waveLift * 0.25} C ${layout.centerX + 22} 88 84 86 100 ${66 + layout.waveLift * 0.3} L 100 100 L 0 100 Z`}
             fill={palette.accent}
             opacity={0.8}
           />
@@ -146,9 +183,15 @@ function renderAccent(
     case 1:
       return (
         <>
-          <Circle cx={72} cy={22} r={20} fill={palette.glow} opacity={0.82} />
+          <Circle
+            cx={layout.centerX + 18}
+            cy={layout.centerY - 14}
+            r={20}
+            fill={palette.glow}
+            opacity={0.82}
+          />
           <Path
-            d="M 0 72 C 18 62 34 60 48 66 C 64 73 76 74 100 58 L 100 100 L 0 100 Z"
+            d={`M 0 ${74 + layout.waveLift * 0.2} C 16 ${60 + layout.waveLift * 0.45} ${layout.centerX - 6} ${58 + layout.waveLift * 0.25} ${layout.centerX + 10} ${66 + layout.waveLift * 0.2} C ${layout.centerX + 28} 76 78 76 100 ${54 + layout.waveLift * 0.35} L 100 100 L 0 100 Z`}
             fill={palette.accent}
             opacity={0.84}
           />
@@ -157,9 +200,16 @@ function renderAccent(
     case 2:
       return (
         <>
-          <Ellipse cx={20} cy={82} rx={34} ry={22} fill={palette.glow} opacity={0.7} />
+          <Ellipse
+            cx={layout.centerX - 26}
+            cy={layout.centerY + 24}
+            rx={34}
+            ry={22}
+            fill={palette.glow}
+            opacity={0.7}
+          />
           <Path
-            d={`M ${layout.centerX - 24} 26 C ${layout.centerX - 18} 10 ${layout.centerX + 8} 8 ${layout.centerX + 18} 22 C ${layout.centerX + 8} 18 ${layout.centerX - 6} 20 ${layout.centerX - 24} 26 Z`}
+            d={`M ${layout.centerX - 28} ${layout.centerY - 12} C ${layout.centerX - 20} ${layout.centerY - 30} ${layout.centerX + 8} ${layout.centerY - 32} ${layout.centerX + 20} ${layout.centerY - 14} C ${layout.centerX + 6} ${layout.centerY - 18} ${layout.centerX - 10} ${layout.centerY - 16} ${layout.centerX - 28} ${layout.centerY - 12} Z`}
             fill={palette.accent}
             opacity={0.8}
           />
@@ -168,9 +218,15 @@ function renderAccent(
     default:
       return (
         <>
-          <Circle cx={18} cy={22} r={16} fill={palette.glow} opacity={0.86} />
+          <Circle
+            cx={layout.centerX - 26}
+            cy={layout.centerY - 18}
+            r={16}
+            fill={palette.glow}
+            opacity={0.86}
+          />
           <Path
-            d="M 12 92 C 22 64 52 58 74 68 C 86 74 93 72 100 66 L 100 100 L 0 100 C 2 98 7 95 12 92 Z"
+            d={`M ${layout.centerX - 30} ${88 + layout.waveLift * 0.15} C ${layout.centerX - 18} ${58 + layout.waveLift * 0.45} ${layout.centerX + 10} ${54 + layout.waveLift * 0.25} ${layout.centerX + 26} ${66 + layout.waveLift * 0.2} C ${layout.centerX + 38} 74 90 74 100 ${62 + layout.waveLift * 0.3} L 100 100 L 0 100 C 4 98 10 94 ${layout.centerX - 30} ${88 + layout.waveLift * 0.15} Z`}
             fill={palette.accent}
             opacity={0.78}
           />
@@ -186,13 +242,30 @@ export interface DefaultAvatarArtProps {
   testID?: string;
 }
 
-export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatarArtProps) {
-  const hash = hashAvatarSeed(seed);
-  const palette = AVATAR_PALETTES[hash % AVATAR_PALETTES.length];
-  const layout = AVATAR_LAYOUTS[(hash >>> 3) % AVATAR_LAYOUTS.length];
-  const accentIndex = (hash >>> 6) % ACCENT_VARIANT_COUNT;
-  const gradientId = `avatar-gradient-${hash}`;
+export interface AvatarArtPreviewProps {
+  paletteIndex: number;
+  layoutIndex: number;
+  accentIndex: number;
+  initials: string;
+  size: number;
+  testID?: string;
+}
+
+export function AvatarArtPreview({
+  paletteIndex,
+  layoutIndex,
+  accentIndex,
+  initials,
+  size,
+  testID,
+}: AvatarArtPreviewProps) {
+  const palette = AVATAR_PALETTES[((paletteIndex % AVATAR_PALETTES.length) + AVATAR_PALETTES.length) % AVATAR_PALETTES.length];
+  const layout = AVATAR_LAYOUTS[((layoutIndex % AVATAR_LAYOUTS.length) + AVATAR_LAYOUTS.length) % AVATAR_LAYOUTS.length];
+  const normalizedAccentIndex =
+    ((accentIndex % ACCENT_VARIANT_COUNT) + ACCENT_VARIANT_COUNT) % ACCENT_VARIANT_COUNT;
+  const gradientId = `avatar-gradient-${paletteIndex}-${layoutIndex}-${normalizedAccentIndex}-${initials}`;
   const monogram = initials.trim().slice(0, 2).toUpperCase() || '?';
+  const isSingleLetterMonogram = monogram.length === 1;
 
   return (
     <Svg
@@ -209,22 +282,31 @@ export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatar
       </Defs>
 
       <Rect width={AVATAR_VIEWBOX} height={AVATAR_VIEWBOX} fill={`url(#${gradientId})`} />
-      {renderAccent(accentIndex, palette, layout)}
+      {renderAccent(normalizedAccentIndex, palette, layout)}
 
       <Ellipse
-        cx={layout.centerX}
-        cy={layout.centerY + 4}
-        rx={22}
-        ry={18}
+        cx={AVATAR_MONOGRAM_CENTER.x}
+        cy={AVATAR_MONOGRAM_CENTER.y + 4}
+        rx={24}
+        ry={19}
         fill="#FFFFFF"
         opacity={0.18}
       />
       <SvgText
-        x={layout.centerX}
-        y={layout.centerY}
+        x={AVATAR_MONOGRAM_CENTER.x}
+        y={AVATAR_MONOGRAM_CENTER.y}
         fill={palette.letter}
-        fontSize={monogram.length > 1 ? 30 : 34}
+        fontSize={
+          isSingleLetterMonogram
+            ? AVATAR_MONOGRAM_FONT_SIZE.single
+            : AVATAR_MONOGRAM_FONT_SIZE.double
+        }
         fontWeight="700"
+        letterSpacing={
+          isSingleLetterMonogram
+            ? AVATAR_MONOGRAM_LETTER_SPACING.single
+            : AVATAR_MONOGRAM_LETTER_SPACING.double
+        }
         textAnchor="middle"
         alignmentBaseline="middle"
         testID={testID ? `${testID}-initials` : undefined}
@@ -232,5 +314,20 @@ export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatar
         {monogram}
       </SvgText>
     </Svg>
+  );
+}
+
+export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatarArtProps) {
+  const hash = hashAvatarSeed(seed);
+
+  return (
+    <AvatarArtPreview
+      paletteIndex={hash}
+      layoutIndex={hash >>> 3}
+      accentIndex={hash >>> 6}
+      initials={initials}
+      size={size}
+      testID={testID}
+    />
   );
 }
