@@ -55,8 +55,8 @@ export function getAmbientCommentBubbleArrowLayout(params: {
   };
 }
 
-const FULL_WIDTH_LINE_CHAR_BUDGET = 19;
-const BADGE_LINE_CHAR_BUDGET = 13;
+const FULL_WIDTH_LINE_CHAR_BUDGET = 21;
+const BADGE_LINE_CHAR_BUDGET = 14;
 
 function takePreviewLine(text: string, charBudget: number): { line: string; rest: string } {
   if (text.length <= charBudget) {
@@ -155,12 +155,12 @@ export function AmbientCommentBubble({
         )}
 
         <View style={[styles.card, Platform.OS === 'web' ? WEB_BUBBLE_SHADOW : null]}>
-          <View style={styles.avatar}>
+          <View style={styles.avatar} testID={`${testID}-avatar-wrap`}>
             <UserAvatar
               username={authorName}
               displayName={authorName}
               profilePhotoUrl={authorPhotoUrl}
-              size="md"
+              size="sm"
               testID={`${testID}-avatar`}
             />
           </View>
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   avatar: {
-    marginRight: scaleBubbleSize(12),
+    marginRight: scaleBubbleSize(8),
   },
   contentColumn: {
     flex: 1,

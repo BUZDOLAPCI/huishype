@@ -25,6 +25,22 @@ describe('AmbientCommentBubble', () => {
     expect(screen.getByTestId('ambient-bubble-likes')).toBeTruthy();
   });
 
+  it('uses the compact avatar size and tighter avatar gap', () => {
+    render(
+      <AmbientCommentBubble
+        text="Why is this still unsold?"
+        likeCount={2}
+        authorName="Nina"
+        testID="ambient-bubble"
+      />
+    );
+
+    expect(screen.getByTestId('ambient-bubble-avatar-art-initials').props.fontSize).toBe(38);
+    expect(screen.getByTestId('ambient-bubble-avatar-wrap').props.style.marginRight).toBeCloseTo(
+      6.4
+    );
+  });
+
   it('pins the reaction badge to the bottom row by splitting text into two lines', () => {
     render(
       <AmbientCommentBubble
