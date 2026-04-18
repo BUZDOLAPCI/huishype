@@ -1,5 +1,5 @@
 import React from 'react';
-import { Circle, Defs, Ellipse, LinearGradient, Path, Rect, Stop, Svg, Text as SvgText } from 'react-native-svg';
+import { Defs, Ellipse, LinearGradient, Path, Rect, Stop, Svg, Text as SvgText } from 'react-native-svg';
 
 const AVATAR_VIEWBOX = 100;
 const AVATAR_MONOGRAM_CENTER = {
@@ -109,19 +109,19 @@ export const AVATAR_LAYOUTS = [
 export const AVATAR_ACCENT_VARIANTS = [
   {
     id: 0,
-    label: 'Top glow + bottom wave',
+    label: 'Tilted glow + tide band',
   },
   {
     id: 1,
-    label: 'Top-right orb + low horizon',
+    label: 'Canopy band + drift oval',
   },
   {
     id: 2,
-    label: 'Bottom-left glow + top crest',
+    label: 'Basin glow + floating contour',
   },
   {
     id: 3,
-    label: 'Top-left orb + rising sweep',
+    label: 'Side ribbon + soft column',
   },
 ] as const;
 
@@ -161,20 +161,23 @@ function renderAccent(
   palette: (typeof AVATAR_PALETTES)[number],
   layout: (typeof AVATAR_LAYOUTS)[number]
 ) {
+  const waveLift = layout.waveLift;
+
   switch (accentIndex) {
     case 0:
       return (
         <>
           <Ellipse
-            cx={layout.centerX - 18}
-            cy={layout.centerY - 18}
+            cx={26 + layout.centerX * 0.12}
+            cy={18 + layout.centerY * 0.08}
             rx={24}
-            ry={18}
+            ry={14}
             fill={palette.glow}
-            opacity={0.9}
+            opacity={0.88}
+            transform={`rotate(-18 ${26 + layout.centerX * 0.12} ${18 + layout.centerY * 0.08})`}
           />
           <Path
-            d={`M 0 ${86 + layout.waveLift * 0.25} C 18 ${68 + layout.waveLift} ${layout.centerX - 14} ${60 + layout.waveLift * 0.45} ${layout.centerX + 2} ${74 + layout.waveLift * 0.25} C ${layout.centerX + 22} 88 84 86 100 ${66 + layout.waveLift * 0.3} L 100 100 L 0 100 Z`}
+            d={`M 0 ${86 + waveLift * 0.12} C 12 ${78 + waveLift * 0.2} 22 ${82 + waveLift * 0.14} 34 ${76 + waveLift * 0.18} C 42 ${72 + waveLift * 0.12} 50 ${72 + waveLift * 0.1} 58 ${76 + waveLift * 0.12} C 70 ${82 + waveLift * 0.12} 84 ${84 + waveLift * 0.15} 100 ${74 + waveLift * 0.2} L 100 100 L 0 100 Z`}
             fill={palette.accent}
             opacity={0.8}
           />
@@ -183,17 +186,19 @@ function renderAccent(
     case 1:
       return (
         <>
-          <Circle
-            cx={layout.centerX + 18}
-            cy={layout.centerY - 14}
-            r={20}
+          <Ellipse
+            cx={78 - (50 - layout.centerX) * 0.18}
+            cy={28 + layout.centerY * 0.1}
+            rx={24}
+            ry={15}
             fill={palette.glow}
-            opacity={0.82}
+            opacity={0.78}
+            transform={`rotate(22 ${78 - (50 - layout.centerX) * 0.18} ${28 + layout.centerY * 0.1})`}
           />
           <Path
-            d={`M 0 ${74 + layout.waveLift * 0.2} C 16 ${60 + layout.waveLift * 0.45} ${layout.centerX - 6} ${58 + layout.waveLift * 0.25} ${layout.centerX + 10} ${66 + layout.waveLift * 0.2} C ${layout.centerX + 28} 76 78 76 100 ${54 + layout.waveLift * 0.35} L 100 100 L 0 100 Z`}
+            d={`M 0 ${24 + waveLift * 0.12} C 12 ${16 + waveLift * 0.15} 28 ${18 + waveLift * 0.08} 42 ${24 + waveLift * 0.12} C 56 ${30 + waveLift * 0.15} 72 ${34 + waveLift * 0.12} 86 ${28 + waveLift * 0.1} C 94 ${24 + waveLift * 0.08} 98 ${24 + waveLift * 0.1} 100 ${20 + waveLift * 0.08} L 100 0 L 0 0 Z`}
             fill={palette.accent}
-            opacity={0.84}
+            opacity={0.82}
           />
         </>
       );
@@ -201,15 +206,15 @@ function renderAccent(
       return (
         <>
           <Ellipse
-            cx={layout.centerX - 26}
-            cy={layout.centerY + 24}
-            rx={34}
-            ry={22}
+            cx={22 + layout.centerX * 0.08}
+            cy={76 + layout.centerY * 0.04}
+            rx={26}
+            ry={18}
             fill={palette.glow}
-            opacity={0.7}
+            opacity={0.68}
           />
           <Path
-            d={`M ${layout.centerX - 28} ${layout.centerY - 12} C ${layout.centerX - 20} ${layout.centerY - 30} ${layout.centerX + 8} ${layout.centerY - 32} ${layout.centerX + 20} ${layout.centerY - 14} C ${layout.centerX + 6} ${layout.centerY - 18} ${layout.centerX - 10} ${layout.centerY - 16} ${layout.centerX - 28} ${layout.centerY - 12} Z`}
+            d={`M ${68 + layout.centerX * 0.1} ${16 + waveLift * 0.06} C ${78 + layout.centerX * 0.06} ${8 + waveLift * 0.05} ${92} ${12 + waveLift * 0.04} ${96} ${24 + waveLift * 0.06} C ${98} ${34 + waveLift * 0.08} ${92} ${42 + waveLift * 0.06} ${82} ${42 + waveLift * 0.05} C ${74 + layout.centerX * 0.04} ${42 + waveLift * 0.04} ${68 + layout.centerX * 0.04} ${34 + waveLift * 0.04} ${66 + layout.centerX * 0.04} ${26 + waveLift * 0.04} C ${66 + layout.centerX * 0.06} ${22 + waveLift * 0.05} ${66 + layout.centerX * 0.08} ${18 + waveLift * 0.05} ${68 + layout.centerX * 0.1} ${16 + waveLift * 0.06} Z`}
             fill={palette.accent}
             opacity={0.8}
           />
@@ -218,15 +223,17 @@ function renderAccent(
     default:
       return (
         <>
-          <Circle
-            cx={layout.centerX - 26}
-            cy={layout.centerY - 18}
-            r={16}
+          <Ellipse
+            cx={18 + layout.centerX * 0.08}
+            cy={34 + layout.centerY * 0.1}
+            rx={14}
+            ry={24}
             fill={palette.glow}
-            opacity={0.86}
+            opacity={0.82}
+            transform={`rotate(22 ${18 + layout.centerX * 0.08} ${34 + layout.centerY * 0.1})`}
           />
           <Path
-            d={`M ${layout.centerX - 30} ${88 + layout.waveLift * 0.15} C ${layout.centerX - 18} ${58 + layout.waveLift * 0.45} ${layout.centerX + 10} ${54 + layout.waveLift * 0.25} ${layout.centerX + 26} ${66 + layout.waveLift * 0.2} C ${layout.centerX + 38} 74 90 74 100 ${62 + layout.waveLift * 0.3} L 100 100 L 0 100 C 4 98 10 94 ${layout.centerX - 30} ${88 + layout.waveLift * 0.15} Z`}
+            d={`M 100 0 L 100 100 C 92 100 84 94 82 84 C 78 66 82 48 92 30 C 96 22 98 12 100 0 Z`}
             fill={palette.accent}
             opacity={0.78}
           />
@@ -301,7 +308,7 @@ export function AvatarArtPreview({
             ? AVATAR_MONOGRAM_FONT_SIZE.single
             : AVATAR_MONOGRAM_FONT_SIZE.double
         }
-        fontWeight="700"
+        fontWeight="900"
         letterSpacing={
           isSingleLetterMonogram
             ? AVATAR_MONOGRAM_LETTER_SPACING.single
