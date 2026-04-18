@@ -1,6 +1,7 @@
-import { Image, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 
 import { Icon } from './ui/Icon';
+import { UserAvatar } from './ui/UserAvatar';
 import type { WebViewStyle } from '@/src/lib/webStyle';
 
 const COLORS = {
@@ -11,10 +12,9 @@ const COLORS = {
   warm700: '#54483F',
   warm900: '#2E2621',
   heart: '#BCAEA0',
-  avatarBg: '#F4C971',
 } as const;
 
-const AMBIENT_COMMENT_BUBBLE_SCALE = 0.82;
+const AMBIENT_COMMENT_BUBBLE_SCALE = 0.8;
 
 function scaleBubbleSize(value: number): number {
   return value * AMBIENT_COMMENT_BUBBLE_SCALE;
@@ -57,12 +57,6 @@ export function getAmbientCommentBubbleArrowLayout(params: {
 
 const FULL_WIDTH_LINE_CHAR_BUDGET = 19;
 const BADGE_LINE_CHAR_BUDGET = 13;
-
-function getInitial(authorName: string): string {
-  const trimmed = authorName.trim();
-  if (trimmed.length === 0) return 'H';
-  return trimmed.charAt(0).toUpperCase();
-}
 
 function takePreviewLine(text: string, charBudget: number): { line: string; rest: string } {
   if (text.length <= charBudget) {
@@ -139,7 +133,6 @@ export function AmbientCommentBubble({
   const arrowUp = arrowDirection === 'up';
   const arrowHorizontalPosition =
     arrowHorizontalAlign === 'right' ? styles.arrowRightAligned : styles.arrowLeftAligned;
-  const showPhoto = !!authorPhotoUrl;
   const { firstLine, secondLine } = splitBubbleText(text);
 
   return (
@@ -163,11 +156,13 @@ export function AmbientCommentBubble({
 
         <View style={[styles.card, Platform.OS === 'web' ? WEB_BUBBLE_SHADOW : null]}>
           <View style={styles.avatar}>
-            {showPhoto ? (
-              <Image source={{ uri: authorPhotoUrl }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarInitial}>{getInitial(authorName)}</Text>
-            )}
+            <UserAvatar
+              username={authorName}
+              displayName={authorName}
+              profilePhotoUrl={authorPhotoUrl}
+              size="md"
+              testID={`${testID}-avatar`}
+            />
           </View>
 
           <View style={styles.contentColumn}>
@@ -246,23 +241,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   avatar: {
-    width: scaleBubbleSize(40),
-    height: scaleBubbleSize(40),
-    borderRadius: scaleBubbleSize(20),
-    backgroundColor: COLORS.avatarBg,
     marginRight: scaleBubbleSize(12),
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarInitial: {
-    fontSize: scaleBubbleSize(16),
-    fontWeight: '700',
-    color: COLORS.warm900,
   },
   contentColumn: {
     flex: 1,

@@ -1,9 +1,9 @@
 /**
- * UserAvatar — Deterministic warm-toned avatar with initials fallback.
+ * UserAvatar — Deterministic initial avatar with profile-photo override.
  *
- * Generates a stable background colour from a username hash using a
- * curated warm palette. Renders a profile photo when available, or
- * initials on a coloured circle.
+ * Renders a profile photo when available. Otherwise it falls back to a
+ * deterministic pastel background with initials generated from the
+ * username hash so the app gets a broad range of non-identifying default avatars.
  *
  * Size variants:
  *   xs  (28px) — nested replies
@@ -13,35 +13,19 @@
  */
 
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Image, StyleSheet } from 'react-native';
 
-// Warm-toned palette — 10 colours that harmonise with the gold/warm brand.
-// Chosen for readability of white initials on each background.
-const AVATAR_PALETTE = [
-  '#D97706', // amber-600
-  '#B45309', // amber-700
-  '#C2410C', // orange-700
-  '#9A3412', // orange-800
-  '#A16207', // yellow-700
-  '#4D7C0F', // lime-700
-  '#15803D', // green-700
-  '#0E7490', // cyan-700
-  '#1D4ED8', // blue-700
-  '#7C3AED', // violet-600
-] as const;
+import {
+  DefaultAvatarArt,
+  getAvatarColor,
+  getAvatarVariantIndex,
+} from './avatarArt';
 
 const SIZE_MAP = {
   xs: 28,
   sm: 32,
   md: 40,
   lg: 80,
-} as const;
-
-const FONT_SCALE = {
-  xs: 11,
-  sm: 13,
-  md: 16,
-  lg: 32,
 } as const;
 
 export type AvatarSize = keyof typeof SIZE_MAP;
@@ -57,33 +41,20 @@ export interface UserAvatarProps {
   size?: AvatarSize;
   testID?: string;
 }
+export { getAvatarColor, getAvatarVariantIndex };
 
-/**
- * Simple FNV-1a-inspired hash for deterministic palette selection.
- * Not cryptographic — just needs to be stable and well-distributed.
- */
-function hashUsername(username: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < username.length; i++) {
-    hash ^= username.charCodeAt(i);
-    hash = (hash * 16777619) >>> 0;
+export function getAvatarInitials(name: string): string {
+  const normalized = name.trim();
+  if (normalized.length === 0) {
+    return '?';
   }
-  return hash;
-}
 
-/** Get 1-2 letter initials from a name. */
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
+  const parts = normalized.split(/\s+/);
   if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }
-  return name.slice(0, 2).toUpperCase();
-}
 
-/** Get a deterministic palette colour for a username. */
-export function getAvatarColor(username: string): string {
-  const index = hashUsername(username) % AVATAR_PALETTE.length;
-  return AVATAR_PALETTE[index];
+  return normalized.slice(0, 2).toUpperCase();
 }
 
 export function UserAvatar({
@@ -94,10 +65,11 @@ export function UserAvatar({
   testID,
 }: UserAvatarProps) {
   const dimension = SIZE_MAP[size];
-  const fontSize = FONT_SCALE[size];
   const borderRadius = dimension / 2;
-  const bgColor = getAvatarColor(username);
-  const initials = getInitials(displayName || username || '?');
+  const avatarSeed = username || displayName || 'guest';
+  const bgColor = getAvatarColor(avatarSeed);
+  const initials = getAvatarInitials(displayName || username || '?');
+  const resolvedTestID = testID ?? 'user-avatar';
 
   if (profilePhotoUrl) {
     return (
@@ -112,7 +84,7 @@ export function UserAvatar({
             backgroundColor: bgColor,
           },
         ]}
-        testID={testID ?? 'user-avatar'}
+        testID={resolvedTestID}
         accessibilityLabel={`Avatar for ${displayName || username}`}
       />
     );
@@ -129,12 +101,15 @@ export function UserAvatar({
           backgroundColor: bgColor,
         },
       ]}
-      testID={testID ?? 'user-avatar'}
+      testID={resolvedTestID}
       accessibilityLabel={`Avatar for ${displayName || username}`}
     >
-      <Text style={[styles.initials, { fontSize }]}>
-        {initials}
-      </Text>
+      <DefaultAvatarArt
+        seed={avatarSeed}
+        initials={initials}
+        size={dimension}
+        testID={`${resolvedTestID}-art`}
+      />
     </View>
   );
 }
@@ -146,9 +121,6 @@ const styles = StyleSheet.create({
   fallback: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  initials: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    overflow: 'hidden',
   },
 });

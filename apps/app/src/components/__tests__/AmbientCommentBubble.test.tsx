@@ -9,7 +9,7 @@ import {
 } from '../AmbientCommentBubble';
 
 describe('AmbientCommentBubble', () => {
-  it('renders fallback avatar initial and like count', () => {
+  it('renders fallback avatar art and like count', () => {
     render(
       <AmbientCommentBubble
         text="Why is this still unsold?"
@@ -19,7 +19,8 @@ describe('AmbientCommentBubble', () => {
       />
     );
 
-    expect(screen.getByText('N')).toBeTruthy();
+    expect(screen.getByTestId('ambient-bubble-avatar')).toBeTruthy();
+    expect(screen.getByTestId('ambient-bubble-avatar-art')).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy();
     expect(screen.getByTestId('ambient-bubble-likes')).toBeTruthy();
   });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import { UserAvatar, getAvatarColor } from '../UserAvatar';
+import { UserAvatar, getAvatarColor, getAvatarInitials, getAvatarVariantIndex } from '../UserAvatar';
 
 describe('UserAvatar', () => {
   describe('getAvatarColor', () => {
@@ -25,27 +25,65 @@ describe('UserAvatar', () => {
     });
   });
 
+  describe('getAvatarVariantIndex', () => {
+    it('is deterministic for the same username', () => {
+      expect(getAvatarVariantIndex('alice')).toBe(getAvatarVariantIndex('alice'));
+    });
+
+    it('spreads users across a broad illustrated avatar range', () => {
+      const variants = new Set(
+        [
+          'alice',
+          'bob',
+          'charlie',
+          'dave',
+          'eve',
+          'frank',
+          'grace',
+          'heidi',
+          'ivan',
+          'judy',
+          'mallory',
+          'nia',
+          'oscar',
+          'peggy',
+          'quentin',
+          'riley',
+        ].map(getAvatarVariantIndex)
+      );
+
+      expect(variants.size).toBeGreaterThanOrEqual(10);
+    });
+  });
+
+  describe('getAvatarInitials', () => {
+    it('uses display-name initials when two words are present', () => {
+      expect(getAvatarInitials('Alice Wonderland')).toBe('AW');
+    });
+
+    it('uses the first two letters for single-word names', () => {
+      expect(getAvatarInitials('Alice')).toBe('AL');
+    });
+
+    it('returns a placeholder for empty input', () => {
+      expect(getAvatarInitials('')).toBe('?');
+    });
+  });
+
   describe('component rendering', () => {
-    it('renders initials fallback when no profilePhotoUrl', () => {
-      const { getByText, getByTestId } = render(
+    it('renders initials over the illustrated fallback when no profilePhotoUrl', () => {
+      const { getByTestId } = render(
         <UserAvatar username="alice" displayName="Alice Wonderland" />
       );
+
       expect(getByTestId('user-avatar')).toBeTruthy();
-      expect(getByText('AW')).toBeTruthy();
+      expect(getByTestId('user-avatar-art')).toBeTruthy();
+      expect(getByTestId('user-avatar-art-initials').props.children).toBe('AW');
     });
 
-    it('renders single-name initials correctly', () => {
-      const { getByText } = render(
-        <UserAvatar username="alice" displayName="Alice" />
-      );
-      expect(getByText('AL')).toBeTruthy();
-    });
-
-    it('falls back to username when no displayName', () => {
-      const { getByText } = render(
-        <UserAvatar username="bob" />
-      );
-      expect(getByText('BO')).toBeTruthy();
+    it('falls back to username initials when displayName is absent', () => {
+      const { getByTestId } = render(<UserAvatar username="bob" />);
+      expect(getByTestId('user-avatar-art-initials').props.children).toBe('BO');
     });
 
     it('renders Image when profilePhotoUrl is provided', () => {
@@ -63,6 +101,7 @@ describe('UserAvatar', () => {
         <UserAvatar username="dave" testID="custom-avatar" />
       );
       expect(getByTestId('custom-avatar')).toBeTruthy();
+      expect(getByTestId('custom-avatar-art')).toBeTruthy();
     });
 
     it('supports all size variants', () => {
@@ -72,6 +111,7 @@ describe('UserAvatar', () => {
           <UserAvatar username="eve" size={size} testID={`avatar-${size}`} />
         );
         expect(getByTestId(`avatar-${size}`)).toBeTruthy();
+        expect(getByTestId(`avatar-${size}-art`)).toBeTruthy();
         unmount();
       }
     });

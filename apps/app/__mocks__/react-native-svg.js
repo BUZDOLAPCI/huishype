@@ -15,6 +15,7 @@ module.exports = {
   default: createSvgComponent('Svg'),
   Svg: createSvgComponent('Svg'),
   Circle: createSvgComponent('Circle'),
+  Ellipse: createSvgComponent('Ellipse'),
   Rect: createSvgComponent('Rect'),
   Path: createSvgComponent('Path'),
   G: createSvgComponent('G'),
