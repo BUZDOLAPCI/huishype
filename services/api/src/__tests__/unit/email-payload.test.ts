@@ -45,7 +45,7 @@ describe('buildResendMagicLinkPayload', () => {
     expect(content.text).toContain('This link expires in 15 minutes and can only be used once.');
     expect(content.text).toContain('Need help? Contact support@huishype.nl.');
     expect(content.html).toContain('Sign in to HuisHype');
-    expect(content.html).toContain('Use the secure button below to continue to HuisHype.');
+    expect(content.html).toContain('Use the button below to continue to HuisHype.');
     expect(content.html).toContain('background:#fdae10');
     expect(content.html).toContain('color:#ffffff');
     expect(content.html).toContain('font-size:12px;line-height:20px');
