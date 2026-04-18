@@ -6,14 +6,19 @@ const AVATAR_MONOGRAM_CENTER = {
   x: 50,
   y: 54,
 } as const;
-const AVATAR_MONOGRAM_FONT_SIZE = {
+const AVATAR_MONOGRAM_FONT_SIZE_SMALL = {
   single: 44,
   double: 38,
+} as const;
+const AVATAR_MONOGRAM_FONT_SIZE_LARGE = {
+  single: 48,
+  double: 42,
 } as const;
 const AVATAR_MONOGRAM_LETTER_SPACING = {
   single: 0.8,
   double: 4.5,
 } as const;
+const LARGE_MONOGRAM_MIN_AVATAR_SIZE = 40;
 export const AVATAR_PALETTES = [
   {
     start: '#F9E8DE',
@@ -258,6 +263,15 @@ export interface AvatarArtPreviewProps {
   testID?: string;
 }
 
+function getMonogramFontSize(size: number, isSingleLetterMonogram: boolean): number {
+  const fontSizeSet =
+    size >= LARGE_MONOGRAM_MIN_AVATAR_SIZE
+      ? AVATAR_MONOGRAM_FONT_SIZE_LARGE
+      : AVATAR_MONOGRAM_FONT_SIZE_SMALL;
+
+  return isSingleLetterMonogram ? fontSizeSet.single : fontSizeSet.double;
+}
+
 export function AvatarArtPreview({
   paletteIndex,
   layoutIndex,
@@ -273,6 +287,7 @@ export function AvatarArtPreview({
   const gradientId = `avatar-gradient-${paletteIndex}-${layoutIndex}-${normalizedAccentIndex}-${initials}`;
   const monogram = initials.trim().slice(0, 2).toUpperCase() || '?';
   const isSingleLetterMonogram = monogram.length === 1;
+  const monogramFontSize = getMonogramFontSize(size, isSingleLetterMonogram);
 
   return (
     <Svg
@@ -303,11 +318,7 @@ export function AvatarArtPreview({
         x={AVATAR_MONOGRAM_CENTER.x}
         y={AVATAR_MONOGRAM_CENTER.y}
         fill={palette.letter}
-        fontSize={
-          isSingleLetterMonogram
-            ? AVATAR_MONOGRAM_FONT_SIZE.single
-            : AVATAR_MONOGRAM_FONT_SIZE.double
-        }
+        fontSize={monogramFontSize}
         fontWeight="900"
         letterSpacing={
           isSingleLetterMonogram

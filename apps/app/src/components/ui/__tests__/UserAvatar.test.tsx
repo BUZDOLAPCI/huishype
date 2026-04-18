@@ -90,8 +90,16 @@ describe('UserAvatar', () => {
       const { getByTestId } = render(<UserAvatar username="bob" />);
       const initials = getByTestId('user-avatar-art-initials');
 
-      expect(initials.props.fontSize).toBe(34);
-      expect(initials.props.letterSpacing).toBe(2.5);
+      expect(initials.props.fontSize).toBe(42);
+      expect(initials.props.letterSpacing).toBe(4.5);
+    });
+
+    it('keeps smaller thread avatars on the compact monogram scale', () => {
+      const { getByTestId } = render(<UserAvatar username="bob" size="sm" />);
+      const initials = getByTestId('user-avatar-art-initials');
+
+      expect(initials.props.fontSize).toBe(38);
+      expect(initials.props.letterSpacing).toBe(4.5);
     });
 
     it('renders Image when profilePhotoUrl is provided', () => {
