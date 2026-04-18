@@ -5,68 +5,60 @@ const AVATAR_VIEWBOX = 100;
 
 const AVATAR_PALETTES = [
   {
-    start: '#D6B4AB',
-    end: '#B98C86',
-    glow: '#F1DFD8',
-    accent: '#9A6F6F',
-    scrim: '#7B5B5D',
-    letter: '#FFF7EE',
+    start: '#F9E8DE',
+    end: '#FFF8F1',
+    glow: '#F6D4C6',
+    accent: '#EFB7B2',
+    letter: '#6D5C66',
   },
   {
-    start: '#BDD1BB',
-    end: '#90A18E',
-    glow: '#E4EEDD',
-    accent: '#728576',
-    scrim: '#5D6A60',
-    letter: '#FAF8EF',
+    start: '#EAF4E7',
+    end: '#FDF8EC',
+    glow: '#D2E8C8',
+    accent: '#BFDCC8',
+    letter: '#57665E',
   },
   {
-    start: '#BCC8DE',
-    end: '#8E9AB6',
-    glow: '#E2E7F3',
-    accent: '#6E7899',
-    scrim: '#59617D',
-    letter: '#FBF8FF',
+    start: '#E8EDF8',
+    end: '#F9F6FF',
+    glow: '#D5DBF5',
+    accent: '#C8CCE8',
+    letter: '#5B627A',
   },
   {
-    start: '#D9B2C2',
-    end: '#B98599',
-    glow: '#F0D8E1',
-    accent: '#946B7F',
-    scrim: '#7C5968',
-    letter: '#FFF7FA',
+    start: '#F8E5EC',
+    end: '#FFF8F8',
+    glow: '#F0CDD8',
+    accent: '#E1BAC9',
+    letter: '#715B68',
   },
   {
-    start: '#D6C294',
-    end: '#B19771',
-    glow: '#EEE2BD',
-    accent: '#927958',
-    scrim: '#75614B',
-    letter: '#FFF8EE',
+    start: '#F6EECF',
+    end: '#FFF9EC',
+    glow: '#F1DEA8',
+    accent: '#E1C58E',
+    letter: '#6F6258',
   },
   {
-    start: '#AFCFC8',
-    end: '#7EA39F',
-    glow: '#DDF0EA',
-    accent: '#5F8683',
-    scrim: '#4C6B68',
-    letter: '#F7FCFA',
+    start: '#E6F5F1',
+    end: '#F7FCFA',
+    glow: '#C7E8DD',
+    accent: '#A9D8CE',
+    letter: '#556A68',
   },
   {
-    start: '#C8B5D9',
-    end: '#A08AB6',
-    glow: '#EBE0F4',
-    accent: '#7E6B98',
-    scrim: '#655872',
-    letter: '#FCF8FF',
+    start: '#F3E7F7',
+    end: '#FCF8FF',
+    glow: '#E1CCF0',
+    accent: '#D3B7E8',
+    letter: '#665B75',
   },
   {
-    start: '#DAB8A1',
-    end: '#BA8E76',
-    glow: '#F2DECF',
-    accent: '#976F5F',
-    scrim: '#7A5B50',
-    letter: '#FFF6EE',
+    start: '#FBE9D8',
+    end: '#FFF7EE',
+    glow: '#F6D4AD',
+    accent: '#EDC2A2',
+    letter: '#716158',
   },
 ] as const;
 
@@ -143,44 +135,44 @@ function renderAccent(
     case 0:
       return (
         <>
-          <Ellipse cx={26} cy={24} rx={24} ry={18} fill={palette.glow} opacity={0.72} />
+          <Ellipse cx={26} cy={24} rx={24} ry={18} fill={palette.glow} opacity={0.9} />
           <Path
             d={`M 8 84 C 24 68 ${layout.centerX - 10} 66 ${layout.centerX} ${74 + layout.waveLift * 0.3} C ${layout.centerX + 16} 84 88 82 96 70 L 100 100 L 0 100 Z`}
             fill={palette.accent}
-            opacity={0.78}
+            opacity={0.8}
           />
         </>
       );
     case 1:
       return (
         <>
-          <Circle cx={72} cy={22} r={20} fill={palette.glow} opacity={0.7} />
+          <Circle cx={72} cy={22} r={20} fill={palette.glow} opacity={0.82} />
           <Path
             d="M 0 72 C 18 62 34 60 48 66 C 64 73 76 74 100 58 L 100 100 L 0 100 Z"
             fill={palette.accent}
-            opacity={0.8}
+            opacity={0.84}
           />
         </>
       );
     case 2:
       return (
         <>
-          <Ellipse cx={20} cy={82} rx={34} ry={22} fill={palette.glow} opacity={0.62} />
+          <Ellipse cx={20} cy={82} rx={34} ry={22} fill={palette.glow} opacity={0.7} />
           <Path
             d={`M ${layout.centerX - 24} 26 C ${layout.centerX - 18} 10 ${layout.centerX + 8} 8 ${layout.centerX + 18} 22 C ${layout.centerX + 8} 18 ${layout.centerX - 6} 20 ${layout.centerX - 24} 26 Z`}
             fill={palette.accent}
-            opacity={0.78}
+            opacity={0.8}
           />
         </>
       );
     default:
       return (
         <>
-          <Circle cx={18} cy={22} r={16} fill={palette.glow} opacity={0.72} />
+          <Circle cx={18} cy={22} r={16} fill={palette.glow} opacity={0.86} />
           <Path
             d="M 12 92 C 22 64 52 58 74 68 C 86 74 93 72 100 66 L 100 100 L 0 100 C 2 98 7 95 12 92 Z"
             fill={palette.accent}
-            opacity={0.76}
+            opacity={0.78}
           />
         </>
       );
@@ -222,39 +214,17 @@ export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatar
       <Ellipse
         cx={layout.centerX}
         cy={layout.centerY + 4}
-        rx={26}
-        ry={20}
-        fill={palette.scrim}
-        opacity={0.28}
+        rx={22}
+        ry={18}
+        fill="#FFFFFF"
+        opacity={0.18}
       />
-      <Ellipse
-        cx={layout.centerX}
-        cy={layout.centerY + 2}
-        rx={20}
-        ry={15}
-        fill={palette.glow}
-        opacity={0.12}
-      />
-      <SvgText
-        x={layout.centerX}
-        y={layout.centerY + 1.4}
-        fill={palette.scrim}
-        opacity={0.24}
-        fontSize={monogram.length > 1 ? 34 : 40}
-        fontWeight="800"
-        letterSpacing={monogram.length > 1 ? 0.8 : 0}
-        textAnchor="middle"
-        alignmentBaseline="middle"
-      >
-        {monogram}
-      </SvgText>
       <SvgText
         x={layout.centerX}
         y={layout.centerY}
         fill={palette.letter}
-        fontSize={monogram.length > 1 ? 34 : 40}
-        fontWeight="800"
-        letterSpacing={monogram.length > 1 ? 0.8 : 0}
+        fontSize={monogram.length > 1 ? 30 : 34}
+        fontWeight="700"
         textAnchor="middle"
         alignmentBaseline="middle"
         testID={testID ? `${testID}-initials` : undefined}
