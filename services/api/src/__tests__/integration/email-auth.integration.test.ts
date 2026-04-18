@@ -31,6 +31,22 @@ describe('Email auth routes', () => {
     await app.close();
   });
 
+  describe('GET /auth/email/preview', () => {
+    it('should render the browser preview page in dev/test mode', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/auth/email/preview?email=previewer%40example.com&token=preview-token-123',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain('text/html');
+      expect(response.body).toContain('Magic link email preview');
+      expect(response.body).toContain('previewer@example.com');
+      expect(response.body).toContain('preview-token-123');
+      expect(response.body).toContain('iframe');
+    });
+  });
+
   describe('POST /auth/email/request', () => {
     it('should return a token in dev mode', async () => {
       const response = await app.inject({

@@ -22,7 +22,11 @@ import {
   getAccessTokenExpiry,
 } from '../plugins/auth.js';
 import { getKarmaRank } from '../services/karma.js';
-import { buildResendMagicLinkPayload } from '../services/email-payload.js';
+import {
+  buildMagicLinkEmailPreviewPage,
+  buildResendMagicLinkPayload,
+  getMagicLinkEmailLogoPngBase64,
+} from '../services/email-payload.js';
 import { withGeneratedUniqueUsername } from '../utils/username.js';
 
 // Token is valid for 15 minutes
@@ -66,6 +70,52 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
 
 export async function emailAuthRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  if (config.isDev === true) {
+    app.get(
+      '/auth/email/preview/logo.png',
+      {
+        schema: {
+          hide: true,
+        },
+      },
+      async (_request, reply) => {
+        const logoBuffer = Buffer.from(getMagicLinkEmailLogoPngBase64(), 'base64');
+
+        return reply
+          .type('image/png')
+          .header('Cache-Control', 'no-store')
+          .send(logoBuffer);
+      }
+    );
+
+    app.get(
+      '/auth/email/preview',
+      {
+        schema: {
+          tags: ['Auth'],
+          summary: 'Preview the email magic link template',
+          description:
+            'Renders the current magic link email template in a browser preview. ' +
+            'Available only in development and test environments.',
+          querystring: z.object({
+            email: z.string().email().optional(),
+            token: z.string().min(1).optional(),
+          }),
+        },
+      },
+      async (request, reply) => {
+        const previewEmail = request.query.email?.trim().toLowerCase() || 'preview@huishype.nl';
+        const previewToken = request.query.token?.trim() || 'preview-magic-link-token';
+        const magicLink = buildMagicLink(previewToken);
+        const logoUrl = `${request.protocol}://${request.headers.host}/auth/email/preview/logo.png`;
+
+        return reply
+          .type('text/html; charset=utf-8')
+          .send(buildMagicLinkEmailPreviewPage(previewEmail, magicLink, logoUrl));
+      }
+    );
+  }
 
   /**
    * POST /auth/email/request — request a magic link

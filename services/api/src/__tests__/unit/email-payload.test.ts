@@ -26,20 +26,58 @@ describe('buildResendMagicLinkPayload', () => {
     jest.resetModules();
   });
 
-  it('includes the configured reply_to address in the resend payload', async () => {
-    const { buildResendMagicLinkPayload } = await import('../../services/email-payload.js');
+  it('builds a cleaner resend payload with branded HTML, inline logo, and preview content', async () => {
+    const {
+      buildMagicLinkEmailContent,
+      buildResendMagicLinkPayload,
+      buildMagicLinkEmailPreviewPage,
+    } = await import('../../services/email-payload.js');
 
-    const payload = buildResendMagicLinkPayload(
-      'user@example.com',
-      'https://huishype.nl/auth/callback?emailToken=abc123',
-    );
+    const email = 'user@example.com';
+    const magicLink = 'https://huishype.nl/auth/callback?emailToken=abc123';
+
+    const content = buildMagicLinkEmailContent(email, magicLink);
+    const payload = buildResendMagicLinkPayload(email, magicLink);
+    const previewPage = buildMagicLinkEmailPreviewPage(email, magicLink);
+
+    expect(content.subject).toBe('Sign in to HuisHype');
+    expect(content.text).not.toContain('We received a request to sign in to HuisHype for');
+    expect(content.text).toContain('This link expires in 15 minutes and can only be used once.');
+    expect(content.text).toContain('Need help? Contact support@huishype.nl.');
+    expect(content.html).toContain('Sign in to HuisHype');
+    expect(content.html).toContain('Use the secure button below to continue to HuisHype.');
+    expect(content.html).toContain('background:#fdae10');
+    expect(content.html).toContain('color:#ffffff');
+    expect(content.html).toContain('font-size:12px;line-height:20px');
+    expect(content.html).toContain('color:#F5A623');
+    expect(content.html).toContain('font-size:22px;line-height:28px;font-weight:700');
+    expect(content.html).not.toContain('Your secure sign-in link');
+    expect(content.html).toContain('support@huishype.nl');
+    expect(content.html).toContain('Explore homes with context, signal, and community.');
+    expect(content.html).toContain(magicLink);
+    expect(content.html).toContain('cid:huishype-logo');
 
     expect(payload).toMatchObject({
       from: 'HuisHype <noreply@huishype.nl>',
-      to: ['user@example.com'],
+      to: [email],
       reply_to: 'support@huishype.nl',
-      subject: 'Your HuisHype sign-in link',
+      subject: 'Sign in to HuisHype',
     });
-    expect(payload.html).toContain('https://huishype.nl/auth/callback?emailToken=abc123');
+    expect(payload.text).toContain(magicLink);
+    expect(payload.html).not.toContain('Your secure sign-in link');
+    expect(payload.attachments).toEqual([
+      expect.objectContaining({
+        filename: 'huishype-logo.png',
+        content_type: 'image/png',
+        content_id: 'huishype-logo',
+      }),
+    ]);
+
+    expect(previewPage).toContain('Magic link email preview');
+    expect(previewPage).toContain('iframe');
+    expect(previewPage).toContain(email);
+    expect(previewPage).toContain('srcdoc=');
+    expect(previewPage).toContain('CID logo attachment');
+    expect(previewPage).toContain('/auth/email/preview/logo.png');
   });
 });
