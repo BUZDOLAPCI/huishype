@@ -20,13 +20,32 @@ import type {
   PropertyCluster,
 } from '@huishype/shared';
 
+export const mockUserIds = {
+  jan: 'b0000000-0000-4000-a000-000000000001',
+  maria: 'b0000000-0000-4000-a000-000000000002',
+  pieter: 'b0000000-0000-4000-a000-000000000003',
+  sophie: 'b0000000-0000-4000-a000-000000000004',
+  newcomer: 'b0000000-0000-4000-a000-000000000005',
+  emma: 'b0000000-0000-4000-a000-000000000006',
+  lars: 'b0000000-0000-4000-a000-000000000007',
+  anna: 'b0000000-0000-4000-a000-000000000008',
+} as const;
+
+export const mockPropertyIds = {
+  prinsengracht263: 'a0000000-0000-4000-a000-000000000001',
+  herengracht502: 'a0000000-0000-4000-a000-000000000002',
+  coolsingel40: 'a0000000-0000-4000-a000-000000000003',
+  langeVoorhout102: 'a0000000-0000-4000-a000-000000000004',
+  oudegracht150: 'a0000000-0000-4000-a000-000000000005',
+} as const;
+
 // ============================================
 // Users
 // ============================================
 
 export const mockUsers: User[] = [
   {
-    id: 'user-001',
+    id: mockUserIds.jan,
     username: 'jandevries',
     displayName: 'Jan de Vries',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
@@ -35,7 +54,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-01-15T10:30:00Z',
   },
   {
-    id: 'user-002',
+    id: mockUserIds.maria,
     username: 'mariabakker',
     displayName: 'Maria Bakker',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
@@ -44,7 +63,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-03-20T14:15:00Z',
   },
   {
-    id: 'user-003',
+    id: mockUserIds.pieter,
     username: 'pieterjansen',
     displayName: 'Pieter Jansen',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
@@ -53,7 +72,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-06-01T09:00:00Z',
   },
   {
-    id: 'user-004',
+    id: mockUserIds.sophie,
     username: 'sophiemeijer',
     displayName: 'Sophie Meijer',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
@@ -62,7 +81,7 @@ export const mockUsers: User[] = [
     createdAt: '2023-11-10T16:45:00Z',
   },
   {
-    id: 'user-005',
+    id: mockUserIds.newcomer,
     username: 'newuser',
     displayName: 'New User',
     karma: 0,
@@ -70,7 +89,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-12-01T12:00:00Z',
   },
   {
-    id: 'user-006',
+    id: mockUserIds.emma,
     username: 'emmavandijk',
     displayName: 'Emma van Dijk',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
@@ -79,7 +98,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-02-10T08:30:00Z',
   },
   {
-    id: 'user-007',
+    id: mockUserIds.lars,
     username: 'larshendriks',
     displayName: 'Lars Hendriks',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
@@ -88,7 +107,7 @@ export const mockUsers: User[] = [
     createdAt: '2024-04-15T11:20:00Z',
   },
   {
-    id: 'user-008',
+    id: mockUserIds.anna,
     username: 'annadegroot',
     displayName: 'Anna de Groot',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
@@ -137,7 +156,7 @@ export const mockUserProfiles: UserProfile[] = mockUsers.map((user, index) => ({
 
 export const mockProperties: Property[] = [
   {
-    id: 'prop-001',
+    id: mockPropertyIds.prinsengracht263,
     countryCode: 'NL',
     nationalId: '0363010012345678',
     address: 'Prinsengracht 263',
@@ -153,7 +172,7 @@ export const mockProperties: Property[] = [
     propertyType: 'house',
   },
   {
-    id: 'prop-002',
+    id: mockPropertyIds.herengracht502,
     countryCode: 'NL',
     nationalId: '0363010087654321',
     address: 'Herengracht 502',
@@ -169,7 +188,7 @@ export const mockProperties: Property[] = [
     propertyType: 'apartment',
   },
   {
-    id: 'prop-003',
+    id: mockPropertyIds.coolsingel40,
     countryCode: 'NL',
     nationalId: '0599010012345678',
     address: 'Coolsingel 40',
@@ -185,7 +204,7 @@ export const mockProperties: Property[] = [
     propertyType: 'apartment',
   },
   {
-    id: 'prop-004',
+    id: mockPropertyIds.langeVoorhout102,
     countryCode: 'NL',
     nationalId: '0518010012345678',
     address: 'Lange Voorhout 102',
@@ -201,7 +220,7 @@ export const mockProperties: Property[] = [
     propertyType: 'house',
   },
   {
-    id: 'prop-005',
+    id: mockPropertyIds.oudegracht150,
     countryCode: 'NL',
     nationalId: '0344010012345678',
     address: 'Oudegracht 150',
@@ -361,32 +380,32 @@ export const mockListingSummaries: ListingSummary[] = mockListings.map(
 export const mockGuesses: PriceGuess[] = [
   {
     id: 'guess-001',
-    propertyId: 'prop-001',
-    userId: 'user-001',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.jan,
     guessedPrice: 2850000,
     createdAt: '2024-12-01T10:30:00Z',
     editableAt: '2024-12-06T10:30:00Z',
   },
   {
     id: 'guess-002',
-    propertyId: 'prop-001',
-    userId: 'user-002',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.maria,
     guessedPrice: 2700000,
     createdAt: '2024-12-02T14:15:00Z',
     editableAt: '2024-12-07T14:15:00Z',
   },
   {
     id: 'guess-003',
-    propertyId: 'prop-002',
-    userId: 'user-001',
+    propertyId: mockPropertyIds.herengracht502,
+    userId: mockUserIds.jan,
     guessedPrice: 1800000,
     createdAt: '2024-12-05T09:00:00Z',
     editableAt: '2024-12-10T09:00:00Z',
   },
   {
     id: 'guess-004',
-    propertyId: 'prop-003',
-    userId: 'user-003',
+    propertyId: mockPropertyIds.coolsingel40,
+    userId: mockUserIds.pieter,
     guessedPrice: 450000,
     createdAt: '2024-12-10T16:45:00Z',
     editableAt: '2024-12-15T16:45:00Z',
@@ -418,10 +437,10 @@ export const mockFMV: FMV = {
 export const mockComments: CommentWithReplies[] = [
   {
     id: 'comment-001',
-    propertyId: 'prop-001',
-    userId: 'user-001',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.jan,
     user: {
-      id: 'user-001',
+      id: mockUserIds.jan,
       username: 'jandevries',
       displayName: 'Jan de Vries',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
@@ -438,10 +457,10 @@ export const mockComments: CommentWithReplies[] = [
     replies: [
       {
         id: 'comment-001-r1',
-        propertyId: 'prop-001',
-        userId: 'user-002',
+        propertyId: mockPropertyIds.prinsengracht263,
+        userId: mockUserIds.maria,
         user: {
-          id: 'user-002',
+          id: mockUserIds.maria,
           username: 'mariabakker',
           displayName: 'Maria Bakker',
           profilePhotoUrl:
@@ -450,7 +469,7 @@ export const mockComments: CommentWithReplies[] = [
           karmaRank: 'Local Expert',
         },
         parentId: 'comment-001',
-        mentionedUser: { id: 'user-001', username: 'jandevries' },
+        mentionedUser: { id: mockUserIds.jan, username: 'jandevries' },
         content:
           'Eens! Maar de historische waarde van dit pand is wel uniek. Anne Frank museum is naast de deur.',
         likes: 8,
@@ -460,10 +479,10 @@ export const mockComments: CommentWithReplies[] = [
       },
       {
         id: 'comment-001-r2',
-        propertyId: 'prop-001',
-        userId: 'user-004',
+        propertyId: mockPropertyIds.prinsengracht263,
+        userId: mockUserIds.sophie,
         user: {
-          id: 'user-004',
+          id: mockUserIds.sophie,
           username: 'sophiemeijer',
           displayName: 'Sophie Meijer',
           profilePhotoUrl:
@@ -472,7 +491,7 @@ export const mockComments: CommentWithReplies[] = [
           karmaRank: 'Master',
         },
         parentId: 'comment-001',
-        mentionedUser: { id: 'user-002', username: 'mariabakker' },
+        mentionedUser: { id: mockUserIds.maria, username: 'mariabakker' },
         content: 'Klopt, maar toeristen overlast is wel een minpunt daar.',
         likes: 5,
         createdAt: '2024-12-18T14:20:00Z',
@@ -482,10 +501,10 @@ export const mockComments: CommentWithReplies[] = [
   },
   {
     id: 'comment-002',
-    propertyId: 'prop-001',
-    userId: 'user-003',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.pieter,
     user: {
-      id: 'user-003',
+      id: mockUserIds.pieter,
       username: 'pieterjansen',
       displayName: 'Pieter Jansen',
       profilePhotoUrl:
@@ -503,10 +522,10 @@ export const mockComments: CommentWithReplies[] = [
   },
   {
     id: 'comment-003',
-    propertyId: 'prop-001',
-    userId: 'user-004',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.sophie,
     user: {
-      id: 'user-004',
+      id: mockUserIds.sophie,
       username: 'sophiemeijer',
       displayName: 'Sophie Meijer',
       profilePhotoUrl:

@@ -1083,6 +1083,8 @@ describe('useMapInteraction', () => {
         countryCode: 'NL',
         officialValuation: 250000,
         hasListing: true,
+        hasActiveListing: true,
+        marketState: 'for-sale',
         coordinates: { lon: 4.9, lat: 52.37 },
       };
       const resolvedAddress = {
@@ -1121,10 +1123,59 @@ describe('useMapInteraction', () => {
 
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        hasActiveListing: true,
+        activityLevel: 'warm',
+      });
       expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
         { type: 'Point', coordinates: [4.9, 52.37] },
         'NL',
       );
+    });
+
+    it('opens a following overlay item directly from overlay payload identity', () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+
+      act(() => {
+        result.current.handleFollowingOverlayPress(
+          {
+            id: 'follow-1',
+            coordinate: [5.47, 51.44],
+            address: 'Stationsplein 1',
+            city: 'Eindhoven',
+            postalCode: '5611AA',
+            countryCode: 'NL',
+            askingPrice: 440000,
+            thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+            hasActiveListing: true,
+            marketState: 'for-sale',
+            activityTypes: ['comment'],
+            actorCount: 2,
+            lastActivityAt: '2026-04-19T09:00:00.000Z',
+          },
+          14,
+          camera,
+        );
+      });
+
+      act(() => {
+        jest.runOnlyPendingTimers();
+      });
+
+      expect(result.current.selectedPropertyId).toBe('follow-1');
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'follow-1',
+        address: 'Stationsplein 1',
+        city: 'Eindhoven',
+        askingPrice: 440000,
+        marketState: 'for-sale',
+        thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+      });
     });
 
     it('handleLocationResolved flies to coordinate without setting preview', () => {
@@ -1284,6 +1335,22 @@ describe('useMapInteraction', () => {
 
       expect(gpp.activityScore).toBe(75);
       expect(gpp.activityLevel).toBe('hot');
+    });
+
+    it('derives warm activity for listing-backed previews even without social score', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-2',
+        address: 'Listingstraat 4',
+        city: 'Eindhoven',
+        hasActiveListing: true,
+      });
+
+      expect(gpp.activityLevel).toBe('warm');
+      expect(gpp.hasActiveListing).toBe(true);
     });
 
     it('reuses the preview aerial image for the sheet property when available', async () => {
@@ -1456,8 +1523,57 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          activityLevel: 'warm',
+          activityLevel: 'hot',
           activityScore: 7,
+        });
+      });
+    });
+
+    it('replaces neutral bootstrap activity with hydrated server activity', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: null,
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 425000,
+          askingPrice: 449000,
+          socialScore: 64,
+          recentSocialScore: 18,
+          activityLevel: 'hot',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.previewGroup?.properties[0]).toMatchObject({
+          socialScore: 64,
+          recentSocialScore: 18,
+          activityLevel: 'hot',
         });
       });
     });

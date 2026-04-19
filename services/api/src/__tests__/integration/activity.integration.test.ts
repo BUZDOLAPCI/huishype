@@ -12,18 +12,38 @@ import {
   userFollows,
   users,
 } from '../../db/schema.js';
-import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
+import {
+  createIntegrationFollow,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
 
 describe('Activity routes', () => {
   let app: FastifyInstance;
   let viewerUserId: string;
   let viewerAccessToken: string;
   let followedUserId: string;
-  let followedAccessToken: string;
   let otherUserId: string;
-  let otherAccessToken: string;
   let propertyId: string;
   const testUserIds: string[] = [];
+  const activityEventIds = {
+    viewerLike: crypto.randomUUID(),
+    followedComment: crypto.randomUUID(),
+    otherComment: crypto.randomUUID(),
+    followedGuess: crypto.randomUUID(),
+    followedSave: crypto.randomUUID(),
+    otherLike: crypto.randomUUID(),
+  };
+  const timeline = {
+    followCreatedAt: new Date('2035-01-01T09:00:00.000Z'),
+    viewerLikeCreatedAt: new Date('2035-01-01T10:00:00.000Z'),
+    followedCommentCreatedAt: new Date('2035-01-01T11:00:00.000Z'),
+    otherCommentCreatedAt: new Date('2035-01-01T11:30:00.000Z'),
+    followedGuessUpdatedAt: new Date('2035-01-01T12:00:00.000Z'),
+    followedSaveCreatedAt: new Date('2035-01-01T12:30:00.000Z'),
+    otherLikeCreatedAt: new Date('2035-01-01T13:00:00.000Z'),
+    viewerSaveCreatedAt: new Date('2035-01-01T14:00:00.000Z'),
+  };
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -35,12 +55,10 @@ describe('Activity routes', () => {
 
     const followed = await createIntegrationUser(app, { label: 'activity-followed' });
     followedUserId = followed.userId;
-    followedAccessToken = followed.accessToken;
     testUserIds.push(followed.userId);
 
     const other = await createIntegrationUser(app, { label: 'activity-other' });
     otherUserId = other.userId;
-    otherAccessToken = other.accessToken;
     testUserIds.push(other.userId);
 
     const property = await createIntegrationProperty({
@@ -53,51 +71,64 @@ describe('Activity routes', () => {
     });
     propertyId = property.id;
 
-    await app.inject({
-      method: 'POST',
-      url: `/properties/${propertyId}/like`,
-      headers: { authorization: `Bearer ${viewerAccessToken}` },
+    await db.insert(reactions).values({
+      id: activityEventIds.viewerLike,
+      targetType: 'property',
+      targetId: propertyId,
+      userId: viewerUserId,
+      reactionType: 'like',
+      createdAt: timeline.viewerLikeCreatedAt,
     });
 
-    await app.inject({
-      method: 'PUT',
-      url: `/users/${followedUserId}/follow`,
-      headers: { authorization: `Bearer ${viewerAccessToken}` },
+    await createIntegrationFollow({
+      followerUserId: viewerUserId,
+      followedUserId,
+      createdAt: timeline.followCreatedAt,
     });
 
     await db.insert(comments).values([
       {
-        id: crypto.randomUUID(),
+        id: activityEventIds.followedComment,
         userId: followedUserId,
         propertyId,
         content: 'Followed user comment',
+        createdAt: timeline.followedCommentCreatedAt,
+        updatedAt: timeline.followedCommentCreatedAt,
       },
       {
-        id: crypto.randomUUID(),
+        id: activityEventIds.otherComment,
         userId: otherUserId,
         propertyId,
         content: 'Unfollowed user comment',
+        createdAt: timeline.otherCommentCreatedAt,
+        updatedAt: timeline.otherCommentCreatedAt,
       },
     ]);
 
     await db.insert(priceGuesses).values({
-      id: crypto.randomUUID(),
+      id: activityEventIds.followedGuess,
       userId: followedUserId,
       propertyId,
       guessedPrice: 325000,
       isMemeGuess: false,
+      createdAt: timeline.followedCommentCreatedAt,
+      updatedAt: timeline.followedGuessUpdatedAt,
     });
 
-    await app.inject({
-      method: 'POST',
-      url: `/properties/${propertyId}/save`,
-      headers: { authorization: `Bearer ${followedAccessToken}` },
+    await db.insert(savedProperties).values({
+      id: activityEventIds.followedSave,
+      userId: followedUserId,
+      propertyId,
+      createdAt: timeline.followedSaveCreatedAt,
     });
 
-    await app.inject({
-      method: 'POST',
-      url: `/properties/${propertyId}/like`,
-      headers: { authorization: `Bearer ${otherAccessToken}` },
+    await db.insert(reactions).values({
+      id: activityEventIds.otherLike,
+      targetType: 'property',
+      targetId: propertyId,
+      userId: otherUserId,
+      reactionType: 'like',
+      createdAt: timeline.otherLikeCreatedAt,
     });
   });
 
@@ -124,7 +155,7 @@ describe('Activity routes', () => {
     it('returns public activity items with the normalized property payload', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/activity?limit=1',
+        url: '/activity?limit=5',
       });
 
       expect(response.statusCode).toBe(200);
@@ -132,27 +163,31 @@ describe('Activity routes', () => {
       expect(Array.isArray(body.items)).toBe(true);
       expect(body.pagination).toEqual(
         expect.objectContaining({
-          limit: 1,
+          limit: 5,
           offset: 0,
           hasMore: expect.any(Boolean),
         })
       );
-
-      if (body.items.length > 0) {
-        expect(body.items[0].eventType).not.toBe('save');
-        expect(body.items[0].property).toEqual(
-          expect.objectContaining({
-            id: expect.any(String),
-            address: expect.any(String),
-            streetName: expect.any(String),
-            houseNumber: expect.any(Number),
-            houseNumberAddition: null,
-            city: expect.any(String),
-            postalCode: expect.any(String),
-            countryCode: expect.any(String),
-          })
-        );
-      }
+      expect(body.items.slice(0, 5).map((item: { id: string }) => item.id)).toEqual([
+        activityEventIds.otherLike,
+        activityEventIds.followedGuess,
+        activityEventIds.otherComment,
+        activityEventIds.followedComment,
+        activityEventIds.viewerLike,
+      ]);
+      expect(body.items[0].eventType).toBe('property_like');
+      expect(body.items[0].property).toEqual(
+        expect.objectContaining({
+          id: propertyId,
+          address: expect.any(String),
+          streetName: 'Activity Fixture Street',
+          houseNumber: 1,
+          houseNumberAddition: null,
+          city: 'Activity City',
+          postalCode: '9020AA',
+          countryCode: 'NL',
+        })
+      );
     });
 
     it('keeps public activity newest-first and excludes save events', async () => {
@@ -189,13 +224,16 @@ describe('Activity routes', () => {
     it('filters following scope to followed-user activity and still excludes saves', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/activity?scope=following&limit=50',
+        url: '/activity?scope=following&limit=10',
         headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.items.length).toBeGreaterThan(0);
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        activityEventIds.followedGuess,
+        activityEventIds.followedComment,
+      ]);
       expect(
         body.items.every((item: { actor: { id: string } }) => item.actor.id === followedUserId)
       ).toBe(true);
@@ -224,39 +262,36 @@ describe('Activity routes', () => {
     it('returns personal activity and includes save events only on the self route', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/users/me/activity?limit=50',
+        url: '/users/me/activity?limit=10',
         headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(Array.isArray(body.items)).toBe(true);
-      expect(
-        body.items.some((item: { eventType: string }) => item.eventType === 'property_like')
-      ).toBe(true);
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([activityEventIds.viewerLike]);
 
-      await app.inject({
-        method: 'POST',
-        url: `/properties/${propertyId}/save`,
-        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      const viewerSaveId = crypto.randomUUID();
+      await db.insert(savedProperties).values({
+        id: viewerSaveId,
+        userId: viewerUserId,
+        propertyId,
+        createdAt: timeline.viewerSaveCreatedAt,
       });
 
       const withSaveResponse = await app.inject({
         method: 'GET',
-        url: '/users/me/activity?limit=50',
+        url: '/users/me/activity?limit=10',
         headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
       const withSaveBody = JSON.parse(withSaveResponse.body);
-      expect(
-        withSaveBody.items.some((item: { eventType: string }) => item.eventType === 'save')
-      ).toBe(true);
+      expect(withSaveBody.items.map((item: { id: string }) => item.id)).toEqual([
+        viewerSaveId,
+        activityEventIds.viewerLike,
+      ]);
+      expect(withSaveBody.items[0].eventType).toBe('save');
 
-      await app.inject({
-        method: 'DELETE',
-        url: `/properties/${propertyId}/save`,
-        headers: { authorization: `Bearer ${viewerAccessToken}` },
-      });
+      await db.delete(savedProperties).where(eq(savedProperties.id, viewerSaveId));
     });
 
     it('exposes thumbnailUrl using the newest active non-null listing thumbnail fallback', async () => {

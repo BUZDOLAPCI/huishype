@@ -18,6 +18,10 @@ function officialValuationColumn(propertyAlias: string): SQL {
   return sql.raw(`${propertyAlias}.official_valuation`);
 }
 
+export function buildCanonicalHouseNumberAdditionExpression(column: string): SQL {
+  return sql`NULLIF(UPPER(BTRIM(${sql.raw(column)})), '')`;
+}
+
 function listingOrderExpression(listingAlias: string): SQL {
   return sql`COALESCE(${sql.raw(`${listingAlias}.mirror_last_changed_at`)}, ${sql.raw(
     `${listingAlias}.updated_at`,
@@ -116,6 +120,7 @@ export function buildPropertyListingFactsJoin(
         active_listing.id IS NOT NULL AS has_active_listing,
         latest_listing.status AS latest_listing_status,
         active_listing.asking_price AS asking_price,
+        active_listing.sort_at AS active_listing_sort_at,
         active_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
           WHEN active_listing.id IS NOT NULL AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'rent'
@@ -153,7 +158,8 @@ export function buildPropertyListingFactsJoin(
         SELECT
           l.id,
           l.asking_price,
-          l.price_type
+          l.price_type,
+          COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) AS sort_at
         FROM listings l
         WHERE l.property_id = ${idColumn}
           AND l.status = 'active'

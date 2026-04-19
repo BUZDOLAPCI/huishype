@@ -1,9 +1,13 @@
 import {
+  buildNearbyGroupPath,
+  buildPropertyTileTemplateUrl,
+  createDefaultMapFilters,
   doesMapFilterCandidateMatch,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapStatusPillActive,
   toggleMapStatusPill,
+  updateMapFilterSearchParams,
 } from '../sharedMapFilters';
 
 describe('sharedMapFilters price suggestions', () => {
@@ -231,5 +235,22 @@ describe('sharedMapFilters price suggestions', () => {
       'not-listed',
     ]);
     expect(reset.activity).toBe('all');
+  });
+
+  it('keeps app-local socialScope out of public search serialization', () => {
+    const params = updateMapFilterSearchParams(
+      new URLSearchParams('socialScope=following&foo=bar'),
+      createDefaultMapFilters(),
+    );
+
+    expect(params.get('socialScope')).toBe('following');
+    expect(params.get('foo')).toBe('bar');
+  });
+
+  it('keeps app-local socialScope out of public tile and nearby URLs', () => {
+    const filters = createDefaultMapFilters();
+
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).not.toContain('socialScope');
+    expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).not.toContain('socialScope');
   });
 });

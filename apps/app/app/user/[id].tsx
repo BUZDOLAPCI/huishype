@@ -6,7 +6,12 @@ import { AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import { useFollowUser, usePublicProfile, useUnfollowUser } from '@/src/hooks/useUserProfile';
+import {
+  emitSocialFollowAnalyticsEvent,
+  useFollowUser,
+  usePublicProfile,
+  useUnfollowUser,
+} from '@/src/hooks/useUserProfile';
 
 function KarmaRankBadge({ title, level }: { title: string; level: number }) {
   const colors = [
@@ -43,6 +48,17 @@ export default function PublicProfileScreen() {
   const isFollowing = profile?.relationship === 'following' || profile?.relationship === 'mutual';
   const isFollowPending = followMutation.isPending || unfollowMutation.isPending;
 
+  React.useEffect(() => {
+    if (!profile || isOwnProfile) {
+      return;
+    }
+
+    emitSocialFollowAnalyticsEvent('follow_button_impression', {
+      targetUserId: profile.id,
+      relationship: profile.relationship,
+    });
+  }, [isOwnProfile, profile]);
+
   const handleFollowPress = React.useCallback(async () => {
     if (!profile) {
       return;
@@ -54,6 +70,12 @@ export default function PublicProfileScreen() {
     }
 
     try {
+      emitSocialFollowAnalyticsEvent('follow_button_click', {
+        action: isFollowing ? 'unfollow' : 'follow',
+        targetUserId: profile.id,
+        relationship: profile.relationship,
+      });
+
       if (isFollowing) {
         await unfollowMutation.mutateAsync(profile.id);
       } else {

@@ -115,6 +115,70 @@ async function withHermeticNearbyActiveCluster(
   }
 }
 
+async function withHermeticNearbyListingOnlyProperty(
+  run: (fixture: { lon: number; lat: number; propertyId: string }) => Promise<void>,
+) {
+  const propertyId = crypto.randomUUID();
+  const listingId = crypto.randomUUID();
+  const lon = -29.812345;
+  const lat = 0.123456;
+
+  await db.execute(sql`
+    INSERT INTO properties (
+      id,
+      country_code,
+      street,
+      house_number,
+      city,
+      postal_code,
+      status,
+      geometry
+    )
+    VALUES (
+      ${propertyId},
+      'NL',
+      'Listing Visibility Street',
+      1,
+      'Fixture City',
+      '1000AB',
+      'active',
+      ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO listings (
+      id,
+      property_id,
+      source_name,
+      source_url,
+      status,
+      asking_price,
+      price_type,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${listingId},
+      ${propertyId},
+      'funda',
+      ${`https://example.com/listing-only-${listingId}`},
+      'active',
+      350000,
+      'sale',
+      NOW() - INTERVAL '1 day',
+      NOW() - INTERVAL '1 day'
+    )
+  `);
+
+  try {
+    await run({ lon, lat, propertyId });
+  } finally {
+    await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+  }
+}
+
 function tileForCoordinate(lon: number, lat: number, zoom: number) {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   return {
@@ -546,18 +610,44 @@ describe('GET /properties/nearby', () => {
         expect(body.primaryPropertyId).toBe(propertyId);
         expect(body.address).toEqual(expect.any(String));
         expect(body.city).toBe('Remote City');
-        expect(body.postalCode).toBe('9999 ZZ');
-        expect(body.countryCode).toBe('NL');
-        expect(body.officialValuation).toBe(123456);
-        expect(body.yearBuilt).toBe(1994);
-        expect(body.floorAreaM2).toBe(101);
         expect(body.activeListingCount).toBe(0);
         expect(body.hasActiveListing).toBe(false);
         expect(body.marketState).toBe('not-listed');
         expect(body.askingPrice).toBeNull();
+        expect(body).not.toHaveProperty('postalCode');
+        expect(body).not.toHaveProperty('countryCode');
+        expect(body).not.toHaveProperty('officialValuation');
+        expect(body).not.toHaveProperty('yearBuilt');
+        expect(body).not.toHaveProperty('floorAreaM2');
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
+    });
+
+    it('keeps listing-backed for-sale properties visible at low zoom without an activity filter', async () => {
+      await withHermeticNearbyListingOnlyProperty(async ({ lon, lat, propertyId }) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM - 1}&marketState=for-sale`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body).not.toBeNull();
+        expect(body.nodeClass).toBe('active');
+        expect(body.groupKind).toBe('single');
+        expect(body.primaryPropertyId).toBe(propertyId);
+        expect(body.propertyIds).toEqual([propertyId]);
+        expect(body.activeListingCount).toBe(1);
+        expect(body.socialCount).toBe(0);
+        expect(body.recentSocialCount).toBe(0);
+        expect(body.socialScoreTotal).toBe(0);
+        expect(body.socialScoreMax).toBe(0);
+        expect(body.hasActiveListing).toBe(true);
+        expect(body.marketState).toBe('for-sale');
+        expect(body.askingPrice).toBe(350000);
+      });
     });
 
     it('applies market filters before resolving nearby grouped features', async () => {

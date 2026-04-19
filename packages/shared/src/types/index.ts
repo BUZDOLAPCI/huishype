@@ -161,7 +161,11 @@ export type {
   UnfollowUserResponse,
   // Property
   PropertyResolveRequest,
+  ResolvedProperty,
   PropertyResolveResponse,
+  LatestListingStatus,
+  PropertyContractBase,
+  PropertyFmvResponse,
   GetPropertyRequest,
   GetPropertyResponse,
   // Listing
@@ -188,6 +192,10 @@ export type {
   GetSavedPropertiesRequest,
   SavedProperty,
   GetSavedPropertiesResponse,
+  FollowingViewportActivityType,
+  GetFollowingViewportRequest,
+  FollowingViewportProperty,
+  GetFollowingViewportResponse,
   // Notification
   GetNotificationsResponse,
   GetUnreadCountResponse,

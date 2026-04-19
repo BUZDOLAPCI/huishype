@@ -14,6 +14,7 @@ import {
   buildCanonicalGroupsForTile,
   groupCandidatesForTile,
   lngLatToWorldUnits,
+  serializeGroupForTile,
   shouldFetchGhostCandidates,
   type GroupingCandidate,
   resolveNearbyGroupedFeature,
@@ -297,6 +298,48 @@ describe('property-grouping', () => {
     expect(groups[0].primaryPropertyId).toBe(active.id);
   });
 
+  it('keeps listing-backed zero-social candidates active below ghost reveal zoom while hiding true ghosts', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const listed = makeCandidate(
+      '00000000-0000-0000-0000-000000000013',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'for-sale',
+      },
+    );
+    const hiddenGhost = makeCandidate(
+      '00000000-0000-0000-0000-000000000014',
+      baseLon + 0.001,
+      baseLat + 0.001,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [listed, hiddenGhost]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('single');
+    expect(groups[0].primaryPropertyId).toBe(listed.id);
+    expect(groups[0].propertyIds).toEqual([listed.id]);
+    expect(groups[0].activeListingCount).toBe(1);
+    expect(groups[0].socialCount).toBe(0);
+    expect(groups[0].socialScoreTotal).toBe(0);
+  });
+
   it('builds ghost clusters from ghost members only once ghosts are revealed', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
@@ -463,12 +506,8 @@ describe('property-grouping', () => {
             country_code: 'NL',
             street: 'Mockstraat',
             house_number: 12,
-            house_number_addition: 'A',
             city: 'Eindhoven',
             postal_code: '5611 AA',
-            official_valuation: 345000,
-            year_built: 1998,
-            floor_area_m2: 87,
             asking_price: 359000,
             thumbnail_url: 'https://cdn.example.com/mock-thumb.jpg',
           },
@@ -487,14 +526,55 @@ describe('property-grouping', () => {
     expect(result?.primaryPropertyId).toBe(propertyId);
     expect(result?.address).toEqual(expect.any(String));
     expect(result?.city).toBe('Eindhoven');
-    expect(result?.postalCode).toBe('5611 AA');
-    expect(result?.countryCode).toBe('NL');
-    expect(result?.officialValuation).toBe(345000);
     expect(result?.askingPrice).toBe(359000);
     expect(result?.thumbnailUrl).toBe('https://cdn.example.com/mock-thumb.jpg');
-    expect(result?.yearBuilt).toBe(1998);
-    expect(result?.floorAreaM2).toBe(87);
     expect(result?.distanceMeters).toBe(0);
+  });
+
+  it('serializes grouped singles as thin preview seeds for tile transport', () => {
+    const feature = serializeGroupForTile({
+      nodeClass: 'active',
+      groupKind: 'single',
+      primaryPropertyId: '00000000-0000-4000-a000-0000000000bb',
+      pointCount: 1,
+      propertyIds: ['00000000-0000-4000-a000-0000000000bb'],
+      previewPropertyIds: ['00000000-0000-4000-a000-0000000000bb'],
+      coordinate: [5.47, 51.44],
+      bbox: null,
+      activeListingCount: 1,
+      socialCount: 1,
+      recentSocialCount: 1,
+      socialScoreTotal: 3,
+      socialScoreMax: 3,
+      recentSocialScoreTotal: 1,
+      commentCount: 2,
+      address: 'Mockstraat 12, 5611 AA Eindhoven',
+      city: 'Eindhoven',
+      askingPrice: 359000,
+      thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
+      hasActiveListing: true,
+      marketState: 'for-sale',
+      ownerTile: { z: 17, x: 67478, y: 43551 },
+      anchorWorldX: 0,
+      anchorWorldY: 0,
+    });
+
+    expect(feature).toMatchObject({
+      address: 'Mockstraat 12, 5611 AA Eindhoven',
+      city: 'Eindhoven',
+      askingPrice: 359000,
+      thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
+      hasActiveListing: true,
+      marketState: 'for-sale',
+    });
+    expect(feature).not.toHaveProperty('streetName');
+    expect(feature).not.toHaveProperty('houseNumber');
+    expect(feature).not.toHaveProperty('houseNumberAddition');
+    expect(feature).not.toHaveProperty('postalCode');
+    expect(feature).not.toHaveProperty('countryCode');
+    expect(feature).not.toHaveProperty('officialValuation');
+    expect(feature).not.toHaveProperty('yearBuilt');
+    expect(feature).not.toHaveProperty('floorAreaM2');
   });
 
   it('applies map filters before grouping clustered active sale candidates', async () => {

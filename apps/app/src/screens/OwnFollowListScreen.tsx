@@ -24,7 +24,10 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
   const followersQuery = useFollowers();
   const followingQuery = useFollowing();
   const query = kind === 'followers' ? followersQuery : followingQuery;
-  const items = query.data?.items ?? [];
+  const items = React.useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? [],
+    [query.data?.pages]
+  );
 
   if (!user) {
     return (
@@ -108,6 +111,20 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
         data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
+        onEndReached={() => {
+          if (query.hasNextPage && !query.isFetchingNextPage) {
+            void query.fetchNextPage();
+          }
+        }}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          query.isFetchingNextPage ? (
+            <Text className="text-sm text-warm-500 text-center py-4">
+              Loading more...
+            </Text>
+          ) : null
+        }
+        testID={`follow-list-${kind}`}
         renderItem={({ item }: { item: FollowListItem }) => (
           <Pressable
             onPress={() => router.push(`/user/${item.id}`)}

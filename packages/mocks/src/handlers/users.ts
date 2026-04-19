@@ -6,7 +6,7 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import { mockUserProfiles, mockGuesses } from '../data/fixtures.js';
+import { mockComments, mockGuesses, mockUserIds, mockUserProfiles } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 
 type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
@@ -22,10 +22,10 @@ const karmaRankLevels: Record<string, number> = {
 };
 
 const followEdges = new Set<string>([
-  'user-001:user-002',
-  'user-003:user-001',
-  'user-001:user-007',
-  'user-007:user-001',
+  `${mockUserIds.jan}:${mockUserIds.maria}`,
+  `${mockUserIds.pieter}:${mockUserIds.jan}`,
+  `${mockUserIds.jan}:${mockUserIds.lars}`,
+  `${mockUserIds.lars}:${mockUserIds.jan}`,
 ]);
 
 function followEdgeKey(followerUserId: string, followedUserId: string) {
@@ -80,6 +80,13 @@ function buildPublicProfile(userId: string, viewerId: string | null) {
     return null;
   }
 
+  const guessCount = mockGuesses.filter((guess) => guess.userId === userId).length;
+  const commentCount = mockComments.reduce((count, comment) => {
+    const topLevelCount = comment.userId === userId ? 1 : 0;
+    const replyCount = comment.replies.filter((reply) => reply.userId === userId).length;
+    return count + topLevelCount + replyCount;
+  }, 0);
+
   return {
     id: profile.id,
     displayName: profile.displayName,
@@ -88,8 +95,8 @@ function buildPublicProfile(userId: string, viewerId: string | null) {
     homeCountry: null,
     karma: profile.karma,
     karmaRank: mapKarmaRank(profile.karmaRank),
-    guessCount: profile.totalGuesses,
-    commentCount: Math.max(0, profile.totalGuesses - profile.resolvedGuesses),
+    guessCount,
+    commentCount,
     joinedAt: profile.createdAt,
     followerCount: getFollowerCount(profile.id),
     followingCount: getFollowingCount(profile.id),

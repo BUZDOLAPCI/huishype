@@ -6,6 +6,10 @@ import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
+import {
+  buildPropertyListingFactsJoin,
+  buildPropertySocialFactsJoin,
+} from '../services/property-queries.js';
 
 // --- Zod schemas ---
 
@@ -58,6 +62,7 @@ interface FeedRow extends Record<string, unknown> {
   asking_price: number | null;
   official_valuation: number | null;
   thumbnail_url: string | null;
+  has_listing: boolean;
   comment_count: number;
   guess_count: number;
   like_count: number;
@@ -124,16 +129,6 @@ export async function feedRoutes(app: FastifyInstance) {
           orderBy = sql`ORDER BY trending_score DESC, last_activity_at DESC, p.id`;
       }
 
-      // --- Data query ---
-      // Reads from mv_latest_active_listings — a materialized view that
-      // pre-computes the latest active listing per property.  Avoids a
-      // full DISTINCT ON scan of the listings table on every request.
-      // The view is refreshed after listing mutations (insert/update/status change).
-      //
-      // Social data uses pre-aggregated GROUP BY subqueries.
-      // With current small social tables (<10K rows), full-table GROUP BY + hash join
-      // is cheaper than thousands of per-property LATERAL index seeks.
-      // FILTER(WHERE ...) combines all-time and 7-day counts in a single pass.
       const rows = await db.execute<FeedRow>(sql`
         SELECT
           p.id,
@@ -145,60 +140,42 @@ export async function feedRoutes(app: FastifyInstance) {
           p.postal_code AS zip_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          l.asking_price,
+          lf.asking_price,
           p.official_valuation,
-          lt.thumbnail_url,
-          COALESCE(c.cnt, 0)::int AS comment_count,
-          COALESCE(g.cnt, 0)::int AS guess_count,
-          COALESCE(r.cnt, 0)::int AS like_count,
-          COALESCE(v.cnt, 0)::int AS view_count,
-          g.fmv,
-          g.stddev AS guess_stddev,
+          lf.thumbnail_url,
+          lf.has_listing,
           (
-            COALESCE(c.cnt_7d, 0)::numeric * 1.0
-            + COALESCE(g.cnt_7d, 0)::numeric * 2.0
-            + COALESCE(r.cnt_7d, 0)::numeric * 0.5
+            COALESCE(sf.top_level_comment_count, 0)
+            + COALESCE(sf.reply_count, 0)
+          )::int AS comment_count,
+          COALESCE(sf.guess_count, 0)::int AS guess_count,
+          COALESCE(sf.property_like_count, 0)::int AS like_count,
+          COALESCE(sf.view_count, 0)::int AS view_count,
+          guess_stats.fmv,
+          guess_stats.stddev AS guess_stddev,
+          (
+            (
+              COALESCE(sf.recent_top_level_comment_count, 0)
+              + COALESCE(sf.recent_reply_count, 0)
+            )::numeric * 1.0
+            + COALESCE(sf.recent_guess_count, 0)::numeric * 2.0
+            + COALESCE(sf.recent_property_like_count, 0)::numeric * 0.5
           ) AS trending_score,
-          COALESCE(
-            GREATEST(c.latest, g.latest, r.latest),
-            l.listed_at
-          ) AS last_activity_at
-        FROM mv_latest_active_listings l
-        INNER JOIN properties p ON p.id = l.property_id
+          COALESCE(sf.last_social_at, lf.active_listing_sort_at) AS last_activity_at
+        FROM properties p
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+        ${buildPropertySocialFactsJoin('p', 'sf')}
+        LEFT JOIN LATERAL (
+          SELECT
+            CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(pg.guessed_price))::bigint END AS fmv,
+            STDDEV(pg.guessed_price) AS stddev
+          FROM price_guesses pg
+          WHERE pg.property_id = p.id
+        ) guess_stats ON TRUE
+        WHERE 1=1
           AND p.status = 'active'
           AND p.geometry IS NOT NULL
-        LEFT JOIN (
-          SELECT property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
-            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d
-          FROM comments GROUP BY property_id
-        ) c ON c.property_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
-            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d,
-            CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(guessed_price))::bigint END AS fmv,
-            STDDEV(guessed_price) AS stddev
-          FROM price_guesses GROUP BY property_id
-        ) g ON g.property_id = p.id
-        LEFT JOIN (
-          SELECT target_id AS property_id, COUNT(*) AS cnt, MAX(created_at) AS latest,
-            COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS cnt_7d
-          FROM reactions WHERE target_type = 'property' AND reaction_type = 'like'
-          GROUP BY target_id
-        ) r ON r.property_id = p.id
-        LEFT JOIN (
-          SELECT property_id, COUNT(*) AS cnt
-          FROM property_views GROUP BY property_id
-        ) v ON v.property_id = p.id
-        LEFT JOIN LATERAL (
-          SELECT thumbnail_url
-          FROM listings
-          WHERE property_id = p.id
-            AND status = 'active'
-            AND thumbnail_url IS NOT NULL
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) lt ON true
-        WHERE 1=1
+          AND lf.has_active_listing = TRUE
           ${spatialCondition}
           ${countryCondition}
           ${dataFilterWhere}
@@ -244,7 +221,7 @@ export async function feedRoutes(app: FastifyInstance) {
           new Date(r.last_activity_at)
         ),
         lastActivityAt: new Date(r.last_activity_at).toISOString(),
-        hasListing: true,
+        hasListing: r.has_listing,
       }));
 
       return reply.send({

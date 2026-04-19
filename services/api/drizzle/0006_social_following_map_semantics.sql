@@ -16,6 +16,28 @@ CREATE INDEX "user_follows_follower_created_idx" ON "user_follows" USING btree (
 --> statement-breakpoint
 CREATE INDEX "user_follows_followed_created_idx" ON "user_follows" USING btree ("followed_user_id","created_at" DESC,"follower_user_id");
 --> statement-breakpoint
+UPDATE "properties"
+SET "house_number_addition" = NULL
+WHERE "house_number_addition" IS NOT NULL
+  AND BTRIM("house_number_addition") = '';
+--> statement-breakpoint
+UPDATE "properties"
+SET "house_number_addition" = UPPER(BTRIM("house_number_addition"))
+WHERE "house_number_addition" IS NOT NULL
+  AND "house_number_addition" <> UPPER(BTRIM("house_number_addition"));
+--> statement-breakpoint
+ALTER TABLE "properties" DROP CONSTRAINT IF EXISTS "properties_house_number_addition_canonical_chk";
+--> statement-breakpoint
+ALTER TABLE "properties"
+  ADD CONSTRAINT "properties_house_number_addition_canonical_chk"
+  CHECK (
+    "house_number_addition" IS NULL
+    OR (
+      BTRIM("house_number_addition") <> ''
+      AND "house_number_addition" = UPPER(BTRIM("house_number_addition"))
+    )
+  );
+--> statement-breakpoint
 DELETE FROM "property_views" WHERE "user_id" IS NULL AND "session_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "property_views" DROP CONSTRAINT IF EXISTS "property_views_identity_required_chk";

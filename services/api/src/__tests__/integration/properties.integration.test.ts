@@ -491,6 +491,12 @@ describe('Property routes', () => {
       expect(body).toHaveProperty('recentSocialScoreTotal');
       expect(body).not.toHaveProperty('hasListing');
       expect(body).not.toHaveProperty('activityScore');
+      expect(body).not.toHaveProperty('streetName');
+      expect(body).not.toHaveProperty('postalCode');
+      expect(body).not.toHaveProperty('countryCode');
+      expect(body).not.toHaveProperty('officialValuation');
+      expect(body).not.toHaveProperty('yearBuilt');
+      expect(body).not.toHaveProperty('floorAreaM2');
     });
 
     it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {

@@ -2,7 +2,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
-import type { MapMarketState } from '@/src/lib/sharedMapFilters';
+import {
+  fetchFollowingViewport,
+  type FollowingViewportItem,
+} from '../utils/api';
+import {
+  createDefaultMapFilters,
+  type MapFilters,
+  type MapMarketState,
+} from '@/src/lib/sharedMapFilters';
 
 // Types for property data
 export interface PropertyGeometry {
@@ -92,6 +100,8 @@ export interface PropertyDetails extends Property {
   isLiked?: boolean;
   isSaved?: boolean;
 }
+
+export type { FollowingViewportItem };
 
 // Query params for fetching properties
 export interface PropertyQueryParams {
@@ -217,6 +227,14 @@ export const propertyKeys = {
   detail: (id: string) => [...propertyKeys.details(), id] as const,
   map: (bounds?: { north: number; south: number; east: number; west: number }) =>
     [...propertyKeys.all, 'map', bounds] as const,
+  followingViewport: (
+    viewerKey: string,
+    bbox: string | null,
+    filters: Pick<
+      MapFilters,
+      'salePriceFrom' | 'salePriceTo' | 'rentPriceFrom' | 'rentPriceTo' | 'marketState'
+    >,
+  ) => [...propertyKeys.all, 'following-viewport', viewerKey, bbox, filters] as const,
 };
 
 // Hook to fetch properties with optional filters
@@ -261,6 +279,49 @@ export function useAllProperties(limit = 100) {
     queryFn: () => fetchProperties({ limit, city: 'Eindhoven' }),
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 2,
+  });
+}
+
+export function useFollowingViewport(
+  bounds: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  } | null,
+  filters: MapFilters = createDefaultMapFilters(),
+  enabled = true,
+) {
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const bbox = bounds
+    ? `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
+    : null;
+  const viewportFilters = {
+    salePriceFrom: filters.salePriceFrom,
+    salePriceTo: filters.salePriceTo,
+    rentPriceFrom: filters.rentPriceFrom,
+    rentPriceTo: filters.rentPriceTo,
+    marketState: filters.marketState,
+  };
+  const viewerKey = isAuthenticated && user ? user.id : 'anon';
+
+  return useQuery({
+    queryKey: propertyKeys.followingViewport(viewerKey, bbox, viewportFilters),
+    queryFn: async () => {
+      if (!bbox) {
+        return [];
+      }
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchFollowingViewport(bbox, filters);
+    },
+    enabled: enabled && !!bbox && isAuthenticated,
+    staleTime: 15 * 1000,
+    retry: false,
   });
 }
 

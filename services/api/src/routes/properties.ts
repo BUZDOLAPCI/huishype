@@ -18,6 +18,7 @@ import {
 } from '../services/map-filters.js';
 import {
   buildActivityFilterPredicate,
+  buildCanonicalHouseNumberAdditionExpression,
   buildPropertyListingFactsJoin,
   buildPropertySocialFactsJoin,
 } from '../services/property-queries.js';
@@ -218,18 +219,10 @@ const nearbyGroupedResultSchema = z.object({
   socialScoreMax: z.number(),
   recentSocialScoreTotal: z.number(),
   commentCount: z.number(),
-  streetName: z.string().nullable(),
-  houseNumber: z.number().nullable(),
-  houseNumberAddition: z.string().nullable(),
   address: z.string().nullable(),
   city: z.string().nullable(),
-  postalCode: z.string().nullable(),
-  countryCode: z.string().nullable(),
-  officialValuation: z.number().nullable(),
   askingPrice: z.number().nullable(),
   thumbnailUrl: z.string().nullable(),
-  yearBuilt: z.number().nullable(),
-  floorAreaM2: z.number().nullable(),
   hasActiveListing: z.boolean().nullable(),
   marketState: marketStateSchema.nullable(),
 });
@@ -516,18 +509,10 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
     socialScoreMax: result.socialScoreMax,
     recentSocialScoreTotal: result.recentSocialScoreTotal,
     commentCount: result.commentCount,
-    streetName: result.groupKind === 'single' ? result.streetName : null,
-    houseNumber: result.groupKind === 'single' ? result.houseNumber : null,
-    houseNumberAddition: result.groupKind === 'single' ? result.houseNumberAddition : null,
     address: result.groupKind === 'single' ? result.address : null,
     city: result.groupKind === 'single' ? result.city : null,
-    postalCode: result.groupKind === 'single' ? result.postalCode : null,
-    countryCode: result.groupKind === 'single' ? result.countryCode : null,
-    officialValuation: result.groupKind === 'single' ? result.officialValuation : null,
     askingPrice: result.groupKind === 'single' ? result.askingPrice : null,
     thumbnailUrl: result.groupKind === 'single' ? result.thumbnailUrl : null,
-    yearBuilt: result.groupKind === 'single' ? result.yearBuilt : null,
-    floorAreaM2: result.groupKind === 'single' ? result.floorAreaM2 : null,
     hasActiveListing: result.groupKind === 'single' ? result.hasActiveListing : null,
     marketState: result.groupKind === 'single' ? result.marketState : null,
   };
@@ -741,8 +726,8 @@ export async function propertyRoutes(app: FastifyInstance) {
       const normalizedStreet = normalizeComparableAddressPart(street);
       const normalizedCity = normalizeComparableAddressPart(city);
       const additionCondition = normalizedAddition
-        ? sql`p.house_number_addition = ${normalizedAddition}`
-        : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
+        ? sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} = ${normalizedAddition}`
+        : sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} IS NULL`;
 
       const conditions: SQL[] = [
         sql`p.country_code = ${cc}`,
@@ -778,7 +763,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.country_code,
           p.street,
           p.house_number,
-          p.house_number_addition,
+          ${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} AS house_number_addition,
           p.city,
           p.postal_code,
           p.official_valuation,

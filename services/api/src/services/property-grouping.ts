@@ -10,6 +10,7 @@ import { formatDisplayAddress } from '../utils/address.js';
 import {
   buildActivityFilterPredicate,
   buildPropertyListingFactsJoin,
+  buildPropertySocialFactsJoin,
 } from './property-queries.js';
 import {
   areMapFiltersDefault,
@@ -69,12 +70,8 @@ type SinglePropertyDetailRow = {
   country_code: string;
   street: string;
   house_number: number;
-  house_number_addition: string | null;
   city: string;
   postal_code: string | null;
-  official_valuation: number | null;
-  year_built: number | null;
-  floor_area_m2: number | null;
   asking_price: number | null;
   thumbnail_url: string | null;
   has_active_listing: boolean;
@@ -94,96 +91,6 @@ export type GroupingCandidate = {
   worldY: number;
 };
 
-function buildGroupingSocialFactsJoin(propertyAlias = 'p', alias = 'sf') {
-  const propertyId = sql.raw(`${propertyAlias}.id`);
-
-  return sql`
-    LEFT JOIN LATERAL (
-      WITH top_level_comments AS (
-        SELECT
-          COUNT(*)::int AS count,
-          COUNT(*) FILTER (
-            WHERE c.created_at > NOW() - INTERVAL '7 days'
-          )::int AS recent_count
-        FROM comments c
-        WHERE c.property_id = ${propertyId}
-          AND c.parent_id IS NULL
-      ),
-      replies AS (
-        SELECT
-          COUNT(*)::int AS count,
-          COUNT(*) FILTER (
-            WHERE c.created_at > NOW() - INTERVAL '7 days'
-          )::int AS recent_count
-        FROM comments c
-        WHERE c.property_id = ${propertyId}
-          AND c.parent_id IS NOT NULL
-      ),
-      property_likes AS (
-        SELECT
-          COUNT(*)::int AS count,
-          COUNT(*) FILTER (
-            WHERE r.created_at > NOW() - INTERVAL '7 days'
-          )::int AS recent_count
-        FROM reactions r
-        WHERE r.target_type = 'property'
-          AND r.reaction_type = 'like'
-          AND r.target_id = ${propertyId}
-      ),
-      comment_likes AS (
-        SELECT
-          COUNT(*)::int AS count,
-          COUNT(*) FILTER (
-            WHERE r.created_at > NOW() - INTERVAL '7 days'
-          )::int AS recent_count
-        FROM reactions r
-        INNER JOIN comments c ON c.id = r.target_id
-        WHERE r.target_type = 'comment'
-          AND r.reaction_type = 'like'
-          AND c.property_id = ${propertyId}
-      ),
-      guesses AS (
-        SELECT
-          COUNT(*)::int AS count,
-          COUNT(*) FILTER (
-            WHERE GREATEST(pg.created_at, pg.updated_at) > NOW() - INTERVAL '7 days'
-          )::int AS recent_count
-        FROM price_guesses pg
-        WHERE pg.property_id = ${propertyId}
-      ),
-      views AS (
-        SELECT
-          COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
-          COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
-            WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
-          )::int AS recent_unique_viewer_count
-        FROM property_views pv
-        WHERE pv.property_id = ${propertyId}
-      )
-      SELECT
-        COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
-        COALESCE(replies.count, 0)::int AS reply_count,
-        (
-          COALESCE(top_level_comments.count, 0) * 1.0
-          + COALESCE(replies.count, 0) * 1.0
-          + COALESCE(property_likes.count, 0) * 1.0
-          + COALESCE(comment_likes.count, 0) * 0.8
-          + COALESCE(guesses.count, 0) * 0.85
-          + COALESCE(views.unique_viewer_count, 0) * 0.5
-        )::double precision AS social_score,
-        (
-          COALESCE(top_level_comments.recent_count, 0) * 1.0
-          + COALESCE(replies.recent_count, 0) * 1.0
-          + COALESCE(property_likes.recent_count, 0) * 1.0
-          + COALESCE(comment_likes.recent_count, 0) * 0.8
-          + COALESCE(guesses.recent_count, 0) * 0.85
-          + COALESCE(views.recent_unique_viewer_count, 0) * 0.5
-        )::double precision AS recent_social_score
-      FROM top_level_comments, replies, property_likes, comment_likes, guesses, views
-    ) ${sql.raw(alias)} ON TRUE
-  `;
-}
-
 type SerializedBbox = [number, number, number, number];
 
 export type CanonicalPropertyGroup = {
@@ -202,18 +109,10 @@ export type CanonicalPropertyGroup = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
-  streetName: string | null;
-  houseNumber: number | null;
-  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
-  postalCode: string | null;
-  countryCode: string | null;
-  officialValuation: number | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
   hasActiveListing: boolean | null;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
   ownerTile: TileId;
@@ -222,18 +121,10 @@ export type CanonicalPropertyGroup = {
 };
 
 type SinglePropertyDetail = {
-  streetName: string;
-  houseNumber: number;
-  houseNumberAddition: string | null;
   address: string;
   city: string;
-  postalCode: string | null;
-  countryCode: string;
-  officialValuation: number | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
   hasActiveListing: boolean;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
 };
@@ -275,18 +166,10 @@ export type TileTransportFeature = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
-  streetName: string | null;
-  houseNumber: number | null;
-  houseNumberAddition: string | null;
   address: string | null;
   city: string | null;
-  postalCode: string | null;
-  countryCode: string | null;
-  officialValuation: number | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
   hasActiveListing: boolean | null;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
   id: string | null;
@@ -462,7 +345,7 @@ function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): n
 }
 
 function isGhostCandidate(candidate: GroupingCandidate): boolean {
-  return candidate.socialScore === 0;
+  return !candidate.hasActiveListing && candidate.socialScore === 0;
 }
 
 function serializeBbox(candidates: GroupingCandidate[]): SerializedBbox {
@@ -667,18 +550,10 @@ function buildCanonicalGroup(
     socialScoreMax: Math.max(...members.map((member) => member.socialScore)),
     recentSocialScoreTotal: members.reduce((sum, member) => sum + member.recentSocialScore, 0),
     commentCount: members.reduce((sum, member) => sum + member.commentCount, 0),
-    streetName: null,
-    houseNumber: null,
-    houseNumberAddition: null,
     address: null,
     city: null,
-    postalCode: null,
-    countryCode: null,
-    officialValuation: null,
     askingPrice: null,
     thumbnailUrl: null,
-    yearBuilt: null,
-    floorAreaM2: null,
     hasActiveListing: null,
     marketState: null,
     ownerTile,
@@ -776,7 +651,7 @@ async function fetchGroupingCandidatesInBBoxes(
       lf.market_state
     FROM properties p
     ${listingFactsJoin}
-    ${buildGroupingSocialFactsJoin('p', 'sf')}
+    ${buildPropertySocialFactsJoin('p', 'sf')}
     WHERE p.geometry IS NOT NULL
       AND p.status = 'active'
       AND (${bboxFilter})
@@ -816,12 +691,8 @@ async function fetchSinglePropertyDetails(
       p.country_code,
       p.street,
       p.house_number,
-      p.house_number_addition,
       p.city,
       p.postal_code,
-      p.official_valuation,
-      p.year_built,
-      p.floor_area_m2,
       lf.asking_price,
       lf.thumbnail_url,
       lf.has_active_listing,
@@ -837,27 +708,19 @@ async function fetchSinglePropertyDetails(
       return [
         row.id,
         {
-          streetName: row.street,
-          houseNumber: row.house_number,
-          houseNumberAddition: row.house_number_addition,
           address: formatDisplayAddress(
             {
               street: row.street,
               houseNumber: row.house_number,
-              houseNumberAddition: row.house_number_addition,
+              houseNumberAddition: null,
               postalCode: row.postal_code ?? '',
               city: row.city,
             },
             isValidCountryCode(countryCode) ? countryCode : undefined,
           ),
           city: row.city,
-          postalCode: row.postal_code,
-          countryCode,
-          officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
           askingPrice: row.asking_price != null ? Number(row.asking_price) : null,
           thumbnailUrl: row.thumbnail_url,
-          yearBuilt: row.year_built != null ? Number(row.year_built) : null,
-          floorAreaM2: row.floor_area_m2 != null ? Number(row.floor_area_m2) : null,
           hasActiveListing: row.has_active_listing,
           marketState: row.market_state,
         } satisfies SinglePropertyDetail,
@@ -891,18 +754,10 @@ async function hydrateSinglePropertyDetails(
 
     return {
       ...group,
-      streetName: detail.streetName,
-      houseNumber: detail.houseNumber,
-      houseNumberAddition: detail.houseNumberAddition,
       address: detail.address,
       city: detail.city,
-      postalCode: detail.postalCode,
-      countryCode: detail.countryCode,
-      officialValuation: detail.officialValuation,
       askingPrice: detail.askingPrice,
       thumbnailUrl: detail.thumbnailUrl,
-      yearBuilt: detail.yearBuilt,
-      floorAreaM2: detail.floorAreaM2,
       hasActiveListing: detail.hasActiveListing,
       marketState: detail.marketState,
     };
@@ -1035,18 +890,10 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     socialScoreMax: group.socialScoreMax,
     recentSocialScoreTotal: group.recentSocialScoreTotal,
     commentCount: group.commentCount,
-    streetName: group.groupKind === 'single' ? group.streetName : null,
-    houseNumber: group.groupKind === 'single' ? group.houseNumber : null,
-    houseNumberAddition: group.groupKind === 'single' ? group.houseNumberAddition : null,
     address: group.groupKind === 'single' ? group.address : null,
     city: group.groupKind === 'single' ? group.city : null,
-    postalCode: group.groupKind === 'single' ? group.postalCode : null,
-    countryCode: group.groupKind === 'single' ? group.countryCode : null,
-    officialValuation: group.groupKind === 'single' ? group.officialValuation : null,
     askingPrice: group.groupKind === 'single' ? group.askingPrice : null,
     thumbnailUrl: group.groupKind === 'single' ? group.thumbnailUrl : null,
-    yearBuilt: group.groupKind === 'single' ? group.yearBuilt : null,
-    floorAreaM2: group.groupKind === 'single' ? group.floorAreaM2 : null,
     hasActiveListing: group.groupKind === 'single' ? group.hasActiveListing : null,
     marketState: group.groupKind === 'single' ? group.marketState : null,
     id: group.groupKind === 'single' ? group.primaryPropertyId : null,
@@ -1085,18 +932,10 @@ export async function buildMvtForTile(
         (feature->>'socialScoreMax')::double precision AS "socialScoreMax",
         (feature->>'recentSocialScoreTotal')::double precision AS "recentSocialScoreTotal",
         (feature->>'commentCount')::integer AS "commentCount",
-        NULLIF(feature->>'streetName', 'null') AS "streetName",
-        NULLIF(feature->>'houseNumber', 'null')::integer AS "houseNumber",
-        NULLIF(feature->>'houseNumberAddition', 'null') AS "houseNumberAddition",
         NULLIF(feature->>'address', 'null') AS address,
         NULLIF(feature->>'city', 'null') AS city,
-        NULLIF(feature->>'postalCode', 'null') AS "postalCode",
-        NULLIF(feature->>'countryCode', 'null') AS "countryCode",
-        NULLIF(feature->>'officialValuation', 'null')::bigint AS "officialValuation",
         NULLIF(feature->>'askingPrice', 'null')::bigint AS "askingPrice",
         NULLIF(feature->>'thumbnailUrl', 'null') AS "thumbnailUrl",
-        NULLIF(feature->>'yearBuilt', 'null')::integer AS "yearBuilt",
-        NULLIF(feature->>'floorAreaM2', 'null')::double precision AS "floorAreaM2",
         NULLIF(feature->>'hasActiveListing', 'null')::boolean AS "hasActiveListing",
         NULLIF(feature->>'marketState', 'null') AS "marketState",
         NULLIF(feature->>'id', 'null') AS id
@@ -1136,13 +975,8 @@ export async function buildMvtForTile(
         "commentCount",
         address,
         city,
-        "postalCode",
-        "countryCode",
-        "officialValuation",
         "askingPrice",
         "thumbnailUrl",
-        "yearBuilt",
-        "floorAreaM2",
         "hasActiveListing",
         "marketState",
         id

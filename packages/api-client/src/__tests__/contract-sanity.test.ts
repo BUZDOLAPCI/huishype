@@ -15,6 +15,10 @@ import type { paths } from '../../generated/api.js';
 import type {
   GetFeedRequest,
   GetFeedResponse,
+  GetFollowingViewportRequest,
+  GetFollowingViewportResponse,
+  GetPropertyResponse,
+  GetSavedPropertiesResponse,
   SubmitListingRequest,
   SubmitListingResponse,
 } from '@huishype/shared';
@@ -50,6 +54,8 @@ type CanonicalSubmitListingError = {
 type SavedPropertiesQueryFromOpenApi = NonNullable<
   paths['/saved-properties']['get']['parameters']['query']
 >;
+type SavedPropertiesResponseFromOpenApi =
+  paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
 type ActivityQueryFromOpenApi = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponseFromOpenApi =
   paths['/activity']['get']['responses'][200]['content']['application/json'];
@@ -61,8 +67,14 @@ type NotificationEventTypeFromOpenApi =
   NotificationsResponseFromOpenApi['items'][number]['eventType'];
 type FollowRouteResponseFromOpenApi =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
+type PropertyResponseFromOpenApi =
+  paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
 type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
+type FollowingViewportQueryFromOpenApi =
+  paths['/properties/following-viewport']['get']['parameters']['query'];
+type FollowingViewportResponseFromOpenApi =
+  paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
 type Expect<T extends true> = T;
 type Equal<A, B> =
@@ -83,6 +95,8 @@ const feedContractAssertions = [
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
   true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
+  true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,
+  true as Assert<IsExact<PropertyResponseFromOpenApi, GetPropertyResponse>>,
   true as Expect<
     Equal<
       ActivityResponseFromOpenApi['items'][number]['eventType'],
@@ -140,6 +154,13 @@ const feedContractAssertions = [
       | null
     >
   >,
+  true as Expect<
+    Equal<
+      keyof FollowingViewportQueryFromOpenApi,
+      keyof GetFollowingViewportRequest
+    >
+  >,
+  true as Assert<IsExact<FollowingViewportResponseFromOpenApi, GetFollowingViewportResponse>>,
   true as Expect<Equal<HasStaleMapMethod, false>>,
 ] as const;
 
@@ -162,6 +183,7 @@ describe('Generated OpenAPI types', () => {
       '/properties',
       '/properties/resolve',
       '/properties/nearby',
+      '/properties/following-viewport',
       '/properties/batch',
       '/properties/{id}',
       '/properties/{id}/save',
@@ -241,6 +263,7 @@ describe('HuisHypeApiClient', () => {
     // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
+    expect(typeof client.getFollowingViewport).toBe('function');
     expect('getMapProperties' in client).toBe(false);
 
     // Guesses
@@ -298,18 +321,53 @@ describe('HuisHypeApiClient', () => {
     );
 
     try {
-      await expect(client.trackView('property-123')).resolves.toEqual({
+      await expect(client.trackView('a0000000-0000-4000-a000-000000000001')).resolves.toEqual({
         viewCount: 1,
         uniqueViewers: 1,
       });
       expect(sessionIdResolver).toHaveBeenCalledTimes(1);
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/properties/property-123/view',
+        'http://localhost:3100/properties/a0000000-0000-4000-a000-000000000001/view',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'x-session-id': 'session-123',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes following viewport market state arrays against the canonical route', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'mock-token',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(
+        client.getFollowingViewport({
+          bbox: '4.8,52.3,4.9,52.4',
+          marketState: ['for-sale', 'sold'],
+        })
+      ).resolves.toEqual({ items: [] });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/following-viewport?bbox=4.8%2C52.3%2C4.9%2C52.4&marketState=for-sale%2Csold',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer mock-token',
           }),
         })
       );

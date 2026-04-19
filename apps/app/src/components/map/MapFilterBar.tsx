@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
 import type { UseMapFilterControllerReturn } from '@/src/hooks/useMapFilterController';
+import type { MapSocialScope } from '@/src/lib/mapRoute';
 import {
   getMapActivityFilterLabel,
   getMapFilterPillLabel,
@@ -48,6 +49,8 @@ const COLORS = {
 
 interface MapFilterBarProps {
   controller: UseMapFilterControllerReturn;
+  socialScope?: MapSocialScope;
+  onToggleFollowing?: () => void;
 }
 
 type PriceBound = 'from' | 'to';
@@ -163,7 +166,11 @@ function getPriceFieldError(
   return null;
 }
 
-export function MapFilterBar({ controller }: MapFilterBarProps) {
+export function MapFilterBar({
+  controller,
+  socialScope = 'all',
+  onToggleFollowing,
+}: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
   const [activePriceInput, setActivePriceInput] = useState<ActivePriceInputState | null>(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -587,6 +594,17 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
           style={styles.rail}
           testID="map-filter-rail"
         >
+          {onToggleFollowing ? (
+            <MapFilterPill
+              active={socialScope === 'following'}
+              label="Following"
+              onPress={onToggleFollowing}
+              open={false}
+              testID="map-filter-pill-social-following"
+              variant="toggle"
+            />
+          ) : null}
+
           {orderedCategories
             .filter((category) => category === 'price')
             .map((category) => {

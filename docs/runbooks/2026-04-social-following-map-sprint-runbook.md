@@ -32,6 +32,8 @@ The key rule is separation of concerns:
 - Lock the `Following` viewport contract up front: bbox/property-query input shape, unique-property output deduped by property identity and keyed by qualifying-activity existence semantics, intersection with active market-state and price filters only, authenticated API caching only, overlay payload sufficient for intentional overlay rendering plus direct property opening, no personalized nearby fallback, and no grouping or clustering in v1.
 - Keep public map `activity` in shared/public `MapFilters`. Keep `socialScope` out of public filter serialization, tile URLs, nearby URLs, and shared public cache keys.
 - Do not model `Following` as another `marketState`. Do not model `social` or `recent` as market states either.
+- Treat omitted/default public `activity` as `all`. Public base-map coverage must
+  not silently collapse to social-only visibility.
 - Lock public map recency semantics now: recent means a strict last-7-days window, there is no 30-day fallback, and guesses use `GREATEST(created_at, updated_at)` for recency.
 - Do not start the visual/style rewrite until transport fields, parsers, hydration, and filter semantics are stable end to end.
 - Do not treat the semantic cutover as complete while tile style still derives semantic hue from `point_count`; automated proof of additive composition fields is part of completion, not optional polish.
@@ -239,6 +241,9 @@ The public map is the base layer under both the new public activity facet and th
 - Update `/properties`, `/properties/batch`, `/properties/:id`, and `/saved-properties` together so consumers stop inferring listing or social state from partial preview fields.
 - Keep `/properties/resolve` lean and neutral. If it carries preview listing signal, keep it to `hasActiveListing` or `marketState`.
 - Add public server-side filter support for `activity='all' | 'social' | 'recent'` as an orthogonal facet to `marketState`, with no save-derived public semantics.
+- Preserve public low-zoom listing coverage: when `marketState` is `for-sale`
+  or `for-rent` and public `activity` is omitted or `all`, listing-backed
+  properties remain visible even without social activity.
 - Include `lastSocialAt` in public property payloads only if its public value is not save-derived.
 - Land semantic-hue proof as soon as the composition fields exist: Phase 2 may make only the minimal style/source-of-truth changes needed so semantic hue keys off composition fields rather than `point_count`. Full additive ring/fill/pulse topology, broader layer/queryable-layer work, and copy remain Phase 6 work.
 
@@ -272,6 +277,9 @@ The public map is the base layer under both the new public activity facet and th
 - One shared listing-facts source of truth drives tiles, nearby, list, batch, detail, and saved-property semantics.
 - Address-addition normalization and view identity invariants are enforced in write paths and fixtures.
 - Public tiles, nearby, batch, and detail expose the locked grouped/property semantics, with tiles and nearby driven by one shared canonical grouped model, and `activity='social'` and `activity='recent'` are server-backed and orthogonal to `marketState`.
+- Public base-map defaults are preserved: omitted `activity` means `all`, and
+  `for-sale` / `for-rent` low-zoom views still show listing-backed coverage
+  without requiring social activity.
 - Likes-only and views-only properties are socially active in public semantics when their scores are non-zero.
 - Exact scoring/recency semantics are enforced: strict 7-day recent window, no 30-day fallback, guess recency via `GREATEST(created_at, updated_at)`, guess-count dedupe to one guess per user/property, and the locked initial weights drive both `socialScore` and `recentSocialScore`.
 - Single-view-only nodes count as social without independently tripping pulse semantics.
@@ -679,6 +687,12 @@ Both plans require the UI to communicate separate listing and social axes. That 
 ## Execution Notes
 
 - 2026-04-19 backend/map semantic alignment: grouped public map payloads are considered correct only when tiles and `/properties/nearby` emit `activeListingCount`, `socialCount`, `recentSocialCount`, `socialScoreTotal`, `socialScoreMax`, `recentSocialScoreTotal`, and `commentCount`, while grouped singles stay thin and only add `hasActiveListing` plus `marketState` alongside preview seed fields. Legacy grouped `hasListing` and `activityScore*` fields are treated as drift and removed from parity checks.
+- 2026-04-19 low-zoom listing visibility resolution: public map semantics are
+  only considered correct when omitted/default `activity` is treated as `all`
+  and low-zoom `for-sale` / `for-rent` views continue to show listing-backed
+  coverage without requiring social activity. Regressions that hide
+  listing-backed ghosts below reveal zoom are treated as contract drift, not UI
+  polish.
 - 2026-04-19 view identity clarification: `POST /properties/:id/view` requires either an authenticated `user_id` or an anonymous `x-session-id`. Identity-less writes are rejected, and unique-viewer counting uses `COUNT(DISTINCT COALESCE(user_id::text, session_id))` with no row-id fallback.
 - 2026-04-19 mock ownership clarification: the mock property layer owns parity for `/properties/resolve`, `/properties/nearby`, `/properties/following-viewport`, and `POST /properties/:id/view`, so handler-alignment coverage must assert the same auth split and grouped-field contract there too.
 

@@ -50,6 +50,18 @@ function requireComparableNumber(value: unknown, message: string): number {
   throw new Error(message);
 }
 
+function collectExpressionStrings(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectExpressionStrings(entry));
+  }
+
+  return [];
+}
+
 /**
  * Integration tests for tile routes.
  *
@@ -141,6 +153,38 @@ describe('Tile routes', () => {
       expect(layerIds).toContain('ghost-clusters');
       expect(layerIds).toContain('ghost-cluster-count');
       expect(layerIds).toContain('ghost-nodes');
+    });
+
+    it('derives semantic hue from composition fields instead of point_count', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body) as StyleJson;
+      const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
+      const activeNodes = style.layers.find((layer) => layer.id === 'active-nodes');
+
+      if (!activeClusters || !activeNodes) {
+        throw new Error('Expected active property layers missing from style.json');
+      }
+
+      const activeClusterPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
+      const activeNodePaint = requireValue(activeNodes.paint, 'active-nodes paint missing from style.json');
+      const clusterColorFields = collectExpressionStrings(activeClusterPaint['circle-color']);
+      const nodeColorFields = collectExpressionStrings(activeNodePaint['circle-color']);
+      const clusterRadiusFields = collectExpressionStrings(activeClusterPaint['circle-radius']);
+
+      expect(clusterRadiusFields).toContain('point_count');
+      expect(clusterColorFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'socialCount', 'activeListingCount']),
+      );
+      expect(nodeColorFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'socialCount', 'activeListingCount']),
+      );
+      expect(clusterColorFields).not.toContain('point_count');
+      expect(nodeColorFields).not.toContain('point_count');
     });
 
     it('should include 3D buildings layer with OSM source', async () => {

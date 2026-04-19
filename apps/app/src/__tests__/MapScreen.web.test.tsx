@@ -18,6 +18,7 @@ type MockMapInstance = {
   getCenter: jest.Mock;
   getZoom: jest.Mock;
   getBearing: jest.Mock;
+  getBounds: jest.Mock;
   getStyle: jest.Mock;
   getPaintProperty: jest.Mock;
   setPaintProperty: jest.Mock;
@@ -50,9 +51,32 @@ type MockMarkerInstance = {
 type MockMapEventHandler = (...args: unknown[]) => void;
 
 let mockAppliedFilters = { tag: 'tile-a' };
+let mockIsAuthenticated = true;
+let mockFollowingViewportData: Array<{
+  id: string;
+  coordinate: [number, number];
+  address: string;
+  city: string;
+  postalCode: string | null;
+  countryCode: string;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  hasActiveListing: boolean;
+  marketState: 'for-sale';
+  activityTypes: ['comment'];
+  actorCount: number;
+  lastActivityAt: string;
+}> = [];
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
+const mockReplacePassiveBrowserPath = jest.fn(() => true);
+let capturedMapFilterBarProps:
+  | {
+      socialScope?: 'all' | 'following';
+      onToggleFollowing?: () => void;
+    }
+  | null = null;
 const mockAmbientCommentBubbles = {
   bubbles: [] as Array<{
     nodeKey?: string;
@@ -87,6 +111,7 @@ const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
   handleFeaturePress: jest.fn(),
+  handleFollowingOverlayPress: jest.fn(),
   handleEmptyMapTap: jest.fn(),
   resetTransientUI: jest.fn(),
   highlightedCoordinate: null,
@@ -156,6 +181,11 @@ jest.mock('react-native', () => {
     Platform: {
       OS: 'web',
     },
+    Pressable: createElement('button'),
+    StyleSheet: {
+      create: <T,>(styles: T) => styles,
+      absoluteFillObject: {},
+    },
     Text: createElement('span'),
     View: createElement('div'),
   };
@@ -184,7 +214,10 @@ jest.mock('@/src/components', () => {
 });
 
 jest.mock('@/src/components/map/MapFilterBar', () => ({
-  MapFilterBar: () => null,
+  MapFilterBar: (props: typeof capturedMapFilterBarProps) => {
+    capturedMapFilterBarProps = props;
+    return null;
+  },
 }));
 
 jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
@@ -219,6 +252,15 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
   toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
+const mockUseFollowingViewport = jest.fn(() => ({
+  data: mockFollowingViewportData,
+  isLoading: false,
+}));
+
+jest.mock('@/src/hooks/useProperties', () => ({
+  useFollowingViewport: (...args: unknown[]) => mockUseFollowingViewport(...args),
+}));
+
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
@@ -226,6 +268,12 @@ jest.mock('@/src/hooks/useMapCityName', () => ({
     onViewportCenterChanged: mockOnViewportCenterChanged,
   })),
   extractCityFromAddress: jest.fn(() => null),
+}));
+
+jest.mock('@/src/providers/AuthProvider', () => ({
+  useAuthContext: jest.fn(() => ({
+    isAuthenticated: mockIsAuthenticated,
+  })),
 }));
 
 jest.mock('@/src/hooks/useMapFilterController', () => ({
@@ -246,6 +294,7 @@ jest.mock('@/src/lib/currentLocation', () => ({
 }));
 
 jest.mock('@/src/lib/mapRoute', () => ({
+  ...jest.requireActual('@/src/lib/mapRoute'),
   clearLocalPreviewRouteCache: jest.fn(),
   extractCanonicalRouteInput: jest.fn(() => null),
   registerLocalPreviewRoute: jest.fn(),
@@ -264,7 +313,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
   getCurrentBrowserPathname: jest.fn(() => '/'),
-  replacePassiveBrowserPath: jest.fn(() => true),
+  replacePassiveBrowserPath: (...args: unknown[]) => mockReplacePassiveBrowserPath(...args),
 }));
 
 jest.mock('@/src/lib/useResolvedMapRoute', () => ({
@@ -303,6 +352,12 @@ jest.mock('maplibre-gl', () => {
       getCenter: jest.fn(() => ({ lng: 4.9, lat: 52.37 })),
       getZoom: jest.fn(() => 14),
       getBearing: jest.fn(() => 0),
+      getBounds: jest.fn(() => ({
+        getWest: () => 4.8,
+        getSouth: () => 52.3,
+        getEast: () => 5.0,
+        getNorth: () => 52.4,
+      })),
       getStyle: jest.fn(() => ({ layers: [] })),
       getPaintProperty: jest.fn(() => null),
       setPaintProperty: jest.fn(),
@@ -390,8 +445,12 @@ describe('MapScreen web filter updates', () => {
     jest.useRealTimers();
     mockMapInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
+    mockIsAuthenticated = true;
+    mockFollowingViewportData = [];
+    mockReplacePassiveBrowserPath.mockClear();
     mockAmbientCommentBubbles.bubbles = [];
     capturedAmbientBubblePortalProps = null;
+    capturedMapFilterBarProps = null;
     (global as { __DEV__?: boolean }).__DEV__ = false;
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -451,6 +510,77 @@ describe('MapScreen web filter updates', () => {
     expect(map.propertySource.setTiles).toHaveBeenCalledWith([
       'https://tiles.test/tile-b',
     ]);
+  });
+
+  it('treats following as app-local state and does not mutate public tile updates', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith('/?socialScope=following');
+    expect(map.propertySource.setTiles).not.toHaveBeenCalled();
+    expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
+      [4.8, 52.3, 5.0, 52.4],
+      mockAppliedFilters,
+      true,
+    );
+  });
+
+  it('shows the signed-out following gate and triggers auth copy when toggled', async () => {
+    mockIsAuthenticated = false;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="map-following-state-signed-out"]')).not.toBeNull();
+    expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
+      subtitle: 'Sign in to see homes with activity from people you follow.',
+    });
+  });
+
+  it('restores socialScope from the browser search on first render', async () => {
+    window.history.replaceState({}, '', '/?socialScope=following');
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
+      [4.8, 52.3, 5.0, 52.4],
+      mockAppliedFilters,
+      true,
+    );
+    window.history.replaceState({}, '', '/');
   });
 
   it('opens comments for the tapped ambient bubble property', async () => {

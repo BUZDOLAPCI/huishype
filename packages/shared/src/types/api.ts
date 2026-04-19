@@ -3,7 +3,7 @@
  * These types define the contract between frontend and backend
  */
 
-import type { PropertyDetail, PropertySummary } from './property.js';
+import type { PropertyDetail, PropertySummary, MapMarketState } from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
 import type {
   User,
@@ -169,22 +169,97 @@ export interface PropertyResolveRequest {
   city?: string;
 }
 
-export interface PropertyResolveResponse {
+export interface ResolvedProperty {
   id: string;
-  address: string; // formatted: "Street Number, PostalCode City"
+  countryCode: string;
+  address: string;
   postalCode: string;
   city: string;
   coordinates: { lon: number; lat: number };
-  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
   officialValuation: number | null;
+}
+
+export type PropertyResolveResponse = ResolvedProperty | null;
+
+export type LatestListingStatus = 'active' | 'sold' | 'rented' | 'withdrawn' | null;
+
+export interface PropertyContractBase {
+  id: string;
+  nationalId: string | null;
   countryCode: string;
+  region: string | null;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
+  status: 'active' | 'inactive' | 'demolished';
+  officialValuation: number | null;
+  createdAt: string;
+  updatedAt: string;
+  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  latestListingStatus: LatestListingStatus;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  socialScore: number;
+  recentSocialScore: number;
+  lastSocialAt: string | null;
+  topLevelCommentCount: number;
+  replyCount: number;
+  propertyLikeCount: number;
+  commentLikeCount: number;
+  guessCount: number;
+  viewCount: number;
+  uniqueViewerCount: number;
+  recentTopLevelCommentCount: number;
+  recentReplyCount: number;
+  recentPropertyLikeCount: number;
+  recentCommentLikeCount: number;
+  recentGuessCount: number;
+  recentViewCount: number;
+  recentUniqueViewerCount: number;
+}
+
+export interface PropertyFmvResponse {
+  fmv: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  guessCount: number;
+  distribution: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+    min: number;
+    max: number;
+  } | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  divergence: number | null;
 }
 
 export interface GetPropertyRequest {
   id: string;
 }
 
-export type GetPropertyResponse = PropertyDetail;
+export interface GetPropertyResponse extends PropertyContractBase {
+  isLiked: boolean;
+  isSaved: boolean;
+  commentCount: number;
+  likeCount: number;
+  uniqueViewers: number;
+  activityLevel: 'hot' | 'warm' | 'cold';
+  fmv: PropertyFmvResponse;
+}
 
 // ============================================
 // Listing API Types
@@ -357,20 +432,70 @@ export interface SavedProperty {
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
-  hasListing: boolean;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  commentCount: number;
-  guessCount: number;
-  savedAt: string;
   createdAt: string;
   updatedAt: string;
+  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  latestListingStatus: LatestListingStatus;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  socialScore: number;
+  recentSocialScore: number;
+  lastSocialAt: string | null;
+  topLevelCommentCount: number;
+  replyCount: number;
+  propertyLikeCount: number;
+  commentLikeCount: number;
+  guessCount: number;
+  viewCount: number;
+  uniqueViewerCount: number;
+  recentTopLevelCommentCount: number;
+  recentReplyCount: number;
+  recentPropertyLikeCount: number;
+  recentCommentLikeCount: number;
+  recentGuessCount: number;
+  recentViewCount: number;
+  recentUniqueViewerCount: number;
+  savedAt: string;
+  isSaved: true;
 }
 
 export interface GetSavedPropertiesResponse {
   data: SavedProperty[];
   total: number;
   hasMore: boolean;
+}
+
+export type FollowingViewportActivityType = 'property_like' | 'comment' | 'price_guess';
+
+export interface GetFollowingViewportRequest {
+  bbox: string;
+  salePriceFrom?: number;
+  salePriceTo?: number;
+  rentPriceFrom?: number;
+  rentPriceTo?: number;
+  marketState?: MapMarketState | MapMarketState[];
+}
+
+export interface FollowingViewportProperty {
+  id: string;
+  coordinate: [number, number];
+  address: string;
+  city: string;
+  postalCode: string | null;
+  countryCode: string;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  activityTypes: FollowingViewportActivityType[];
+  actorCount: number;
+  lastActivityAt: string;
+}
+
+export interface GetFollowingViewportResponse {
+  items: FollowingViewportProperty[];
 }
 
 // ============================================

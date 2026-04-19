@@ -7,6 +7,7 @@
 
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
+import { mockUserIds } from '../data/fixtures.js';
 
 // --- Mock leaderboard data aligned with OpenAPI schema ---
 
@@ -26,7 +27,7 @@ interface LeaderboardEntry {
 const mockRankings: LeaderboardEntry[] = [
   {
     rank: 1,
-    userId: 'user-004',
+    userId: mockUserIds.sophie,
     displayName: 'Sophie Meijer',
     handle: 'sophiemeijer',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
@@ -38,7 +39,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 2,
-    userId: 'user-001',
+    userId: mockUserIds.jan,
     displayName: 'Jan de Vries',
     handle: 'jandevries',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
@@ -50,7 +51,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 3,
-    userId: 'user-006',
+    userId: mockUserIds.emma,
     displayName: 'Emma van Dijk',
     handle: 'emmavandijk',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
@@ -62,7 +63,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 4,
-    userId: 'user-002',
+    userId: mockUserIds.maria,
     displayName: 'Maria Bakker',
     handle: 'mariabakker',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
@@ -74,7 +75,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 5,
-    userId: 'user-007',
+    userId: mockUserIds.lars,
     displayName: 'Lars Hendriks',
     handle: 'larshendriks',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
@@ -86,7 +87,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 6,
-    userId: 'user-008',
+    userId: mockUserIds.anna,
     displayName: 'Anna de Groot',
     handle: 'annadegroot',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
@@ -98,7 +99,7 @@ const mockRankings: LeaderboardEntry[] = [
   },
   {
     rank: 7,
-    userId: 'user-003',
+    userId: mockUserIds.pieter,
     displayName: 'Pieter Jansen',
     handle: 'pieterjansen',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',

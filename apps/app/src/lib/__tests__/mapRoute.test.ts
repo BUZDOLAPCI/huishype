@@ -1,4 +1,8 @@
-import { resolveMapRoute } from '../mapRoute';
+import {
+  parseMapSocialScopeFromSearchParams,
+  resolveMapRoute,
+  updateMapSocialScopeSearchParams,
+} from '../mapRoute';
 
 const mockResolveProperty = jest.fn();
 
@@ -74,5 +78,44 @@ describe('resolveMapRoute', () => {
       street: 'fakestraat',
       city: 'eindhoven',
     });
+  });
+});
+
+describe('map social scope search params', () => {
+  it('parses following as app-local map state', () => {
+    expect(
+      parseMapSocialScopeFromSearchParams(
+        new URLSearchParams('socialScope=following'),
+      ),
+    ).toBe('following');
+  });
+
+  it('defaults unknown values back to all', () => {
+    expect(
+      parseMapSocialScopeFromSearchParams(
+        new URLSearchParams('socialScope=something-else'),
+      ),
+    ).toBe('all');
+  });
+
+  it('serializes following without disturbing unrelated params', () => {
+    const params = updateMapSocialScopeSearchParams(
+      new URLSearchParams('returnTo=%2Ffeed&salePriceFrom=500000'),
+      'following',
+    );
+
+    expect(params.get('socialScope')).toBe('following');
+    expect(params.get('returnTo')).toBe('/feed');
+    expect(params.get('salePriceFrom')).toBe('500000');
+  });
+
+  it('clears the app-local param when returning to all', () => {
+    const params = updateMapSocialScopeSearchParams(
+      new URLSearchParams('socialScope=following&returnTo=%2Ffeed'),
+      'all',
+    );
+
+    expect(params.has('socialScope')).toBe(false);
+    expect(params.get('returnTo')).toBe('/feed');
   });
 });

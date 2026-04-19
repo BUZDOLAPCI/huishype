@@ -9,55 +9,10 @@ import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
-import type { MapMarketState } from '@/src/lib/sharedMapFilters';
-
-interface SavedPropertyApiResponse {
-  id: string;
-  nationalId: string | null;
-  countryCode: string;
-  street: string;
-  houseNumber: number;
-  houseNumberAddition: string | null;
-  address: string;
-  city: string;
-  postalCode: string | null;
-  geometry: { type: 'Point'; coordinates: [number, number] } | null;
-  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
-  status: 'active' | 'inactive' | 'demolished';
-  officialValuation: number | null;
-  hasListing: boolean;
-  hasActiveListing?: boolean;
-  marketState?: MapMarketState;
-  latestListingStatus?: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  socialScore?: number;
-  recentSocialScore?: number;
-  lastSocialAt?: string | null;
-  topLevelCommentCount?: number;
-  replyCount?: number;
-  propertyLikeCount?: number;
-  commentLikeCount?: number;
-  guessCount: number;
-  viewCount?: number;
-  uniqueViewerCount?: number;
-  recentTopLevelCommentCount?: number;
-  recentReplyCount?: number;
-  recentPropertyLikeCount?: number;
-  recentCommentLikeCount?: number;
-  recentGuessCount?: number;
-  recentViewCount?: number;
-  recentUniqueViewerCount?: number;
-  savedAt: string;
-  isSaved?: true;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { SavedProperty } from '@huishype/shared';
 
 interface SavedPropertiesApiResponse {
-  data: SavedPropertyApiResponse[];
+  data: SavedProperty[];
   total: number;
   hasMore: boolean;
 }
@@ -69,7 +24,9 @@ export const savedPropertyKeys = {
 
 const PAGE_SIZE = 20;
 
-export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
+export function transformSavedProperty(property: SavedProperty): FeedProperty {
+  const commentCount = property.topLevelCommentCount + property.replyCount;
+
   const activityLevel: 'hot' | 'warm' | 'cold' =
     (property.recentSocialScore ?? 0) > 0
       ? 'hot'
@@ -106,7 +63,7 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     replyCount: property.replyCount ?? 0,
     propertyLikeCount: property.propertyLikeCount ?? 0,
     commentLikeCount: property.commentLikeCount ?? 0,
-    commentCount: property.topLevelCommentCount ?? 0,
+    commentCount,
     guessCount: property.guessCount,
     viewCount: property.viewCount ?? 0,
     uniqueViewerCount: property.uniqueViewerCount ?? 0,

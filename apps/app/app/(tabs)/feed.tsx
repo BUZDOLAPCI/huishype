@@ -5,7 +5,13 @@
  * Recent Activity uses the /activity endpoint via useActivityFeed.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
 
@@ -31,6 +37,7 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
+import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   buildPropertyRoute,
@@ -53,6 +60,7 @@ export default function FeedScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
+  const trackedFollowingEmptyViewRef = useRef(false);
 
   const headerRightAction = useMemo(
     () => (
@@ -105,6 +113,42 @@ export default function FeedScreen() {
     if (!activityQuery.data?.pages) return [];
     return activityQuery.data.pages.flatMap((page) => page.items);
   }, [activityQuery.data, isPropertyFeed]);
+
+  useEffect(() => {
+    if (activeFilter !== 'following' || !isAuthenticated) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    emitSocialFollowAnalyticsEvent('following_feed_opened', {});
+  }, [activeFilter, isAuthenticated]);
+
+  useEffect(() => {
+    const shouldTrackFollowingEmpty =
+      activeFilter === 'following' &&
+      isAuthenticated &&
+      !activityQuery.isLoading &&
+      !activityQuery.isError &&
+      activities.length === 0;
+
+    if (!shouldTrackFollowingEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitSocialFollowAnalyticsEvent('following_feed_empty_viewed', {});
+  }, [
+    activeFilter,
+    activities.length,
+    activityQuery.isError,
+    activityQuery.isLoading,
+    isAuthenticated,
+  ]);
 
   const activeQuery = isPropertyFeed ? feedQuery : activityQuery;
 
@@ -174,11 +218,33 @@ export default function FeedScreen() {
         actor={item.actor}
         property={item.property}
         createdAt={item.createdAt}
-        onPropertyPress={() => handlePropertyPress(item.property)}
-        onActorPress={() => handleActorPress(item.actor.id)}
+        onPropertyPress={() => {
+          if (activeFilter === 'following') {
+            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
+              activityId: item.id,
+              eventType: item.eventType,
+              propertyId: item.property.id,
+              target: 'property',
+            });
+          }
+
+          handlePropertyPress(item.property);
+        }}
+        onActorPress={() => {
+          if (activeFilter === 'following') {
+            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
+              activityId: item.id,
+              actorId: item.actor.id,
+              eventType: item.eventType,
+              target: 'actor',
+            });
+          }
+
+          handleActorPress(item.actor.id);
+        }}
       />
     ),
-    [handleActorPress, handlePropertyPress]
+    [activeFilter, handleActorPress, handlePropertyPress]
   );
 
   const propertyKeyExtractor = useCallback(

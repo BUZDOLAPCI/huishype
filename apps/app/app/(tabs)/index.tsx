@@ -31,6 +31,8 @@ import {
 } from '@/src/components/AmbientCommentBubble';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
+import { FollowingMapMarker } from '@/src/components/map/FollowingMapMarker';
+import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import {
   useAmbientCommentBubbles,
@@ -40,6 +42,7 @@ import {
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useFollowingViewport } from '@/src/hooks/useProperties';
 import {
   fetchNearbyGroup,
   normalizeRenderedPropertyGroup,
@@ -56,6 +59,8 @@ import { buildPropertyTileTemplateUrl } from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import type { MapSocialScope } from '@/src/lib/mapRoute';
+import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
@@ -78,6 +83,23 @@ const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
+
+type ViewportBounds = [number, number, number, number];
+
+function areViewportBoundsEqual(
+  left: ViewportBounds | null,
+  right: ViewportBounds | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
 
@@ -152,9 +174,12 @@ const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const { isAuthenticated } = useAuthContext();
   const [hasLayout, setHasLayout] = useState(false);
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
+  const [socialScope, setSocialScope] = useState<MapSocialScope>('all');
+  const [followingBounds, setFollowingBounds] = useState<ViewportBounds | null>(null);
   const propertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -184,6 +209,11 @@ export default function MapScreen() {
     resetTransientUI,
     toGroupProperty,
   } = interaction;
+  const followingViewport = useFollowingViewport(
+    socialScope === 'following' ? followingBounds : null,
+    filterController.appliedFilters,
+    socialScope === 'following' && mapLoaded,
+  );
   const [searchResetToken, setSearchResetToken] = useState(0);
   const maxVisibleAmbientCommentBubbles = mapViewportSize.width < 560 ? 1 : 2;
   const ambientBubblesEnabled =
@@ -226,6 +256,22 @@ export default function MapScreen() {
     interaction.setSelectedPropertyId(anchoredProperty.id);
     interaction.handleComment(anchoredProperty);
   }, [interaction]);
+
+  const handleToggleFollowing = useCallback(() => {
+    setSocialScope((currentScope) => {
+      if (currentScope === 'following') {
+        return 'all';
+      }
+
+      if (!isAuthenticated) {
+        interaction.handleAuthRequired({
+          subtitle: 'Sign in to see homes with activity from people you follow.',
+        });
+      }
+
+      return 'following';
+    });
+  }, [interaction, isAuthenticated]);
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
@@ -292,6 +338,24 @@ export default function MapScreen() {
       }
     }
   }, [mapLoaded, nativePreviewGroup]);
+
+  const refreshFollowingBounds = useCallback(async () => {
+    if (!mapRef.current) {
+      return;
+    }
+
+    try {
+      const bounds = await mapRef.current.getBounds();
+      const nextBounds: ViewportBounds = [bounds[0], bounds[1], bounds[2], bounds[3]];
+      setFollowingBounds((currentBounds) =>
+        areViewportBoundsEqual(currentBounds, nextBounds) ? currentBounds : nextBounds,
+      );
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[HuisHype] Failed to read following viewport bounds:', error);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     setPositionedAmbientCommentBubbleItems(ambientCommentBubbleItems);
@@ -566,6 +630,7 @@ export default function MapScreen() {
       if (center) {
         onViewportCenterChanged(center[0], center[1], zoom);
       }
+      void refreshFollowingBounds();
       void refreshNativePreviewPoint();
       if (ambientCommentBubbleItems.length < maxVisibleAmbientCommentBubbles) {
         scheduleAmbientCommentBubbleRefresh({
@@ -579,11 +644,20 @@ export default function MapScreen() {
       ambientCommentBubbleItems.length,
       maxVisibleAmbientCommentBubbles,
       onViewportCenterChanged,
+      refreshFollowingBounds,
       refreshNativePreviewPoint,
       scheduleAmbientCommentBubbleRefresh,
       syncPitchForZoom,
     ],
   );
+
+  useEffect(() => {
+    if (!mapLoaded) {
+      return;
+    }
+
+    void refreshFollowingBounds();
+  }, [mapLoaded, refreshFollowingBounds]);
 
   useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();
@@ -849,6 +923,28 @@ export default function MapScreen() {
             </Marker>
           )}
 
+          {socialScope === 'following' &&
+          isAuthenticated &&
+          followingViewport.data?.map((item) => (
+            <Marker
+              key={`following-overlay-${item.id}`}
+              anchor="bottom"
+              lngLat={item.coordinate}
+            >
+              <FollowingMapMarker
+                item={item}
+                onPress={(pressedItem) =>
+                  interaction.handleFollowingOverlayPress(
+                    pressedItem,
+                    currentZoom,
+                    cameraCommands,
+                  )
+                }
+                testID={`map-following-marker-${item.id}`}
+              />
+            </Marker>
+          ))}
+
           {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),
               so it's accessible to Maestro/uiautomator. The native map engine
@@ -1002,7 +1098,33 @@ export default function MapScreen() {
           transientResetKey={searchResetToken}
         />
 
-        <MapFilterBar controller={filterController} />
+        <MapFilterBar
+          controller={filterController}
+          onToggleFollowing={handleToggleFollowing}
+          socialScope={socialScope}
+        />
+
+        {socialScope === 'following' && !isAuthenticated ? (
+          <FollowingMapStateCard
+            mode="signed-out"
+            onPrimaryPress={() =>
+              interaction.handleAuthRequired({
+                subtitle: 'Sign in to see homes with activity from people you follow.',
+              })
+            }
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        !followingViewport.isLoading &&
+        (followingViewport.data?.length ?? 0) === 0 ? (
+          <FollowingMapStateCard
+            mode="empty"
+            onPrimaryPress={() => setSocialScope('all')}
+          />
+        ) : null}
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (

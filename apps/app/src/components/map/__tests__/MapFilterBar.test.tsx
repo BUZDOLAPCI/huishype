@@ -7,11 +7,19 @@ import { MapFilterBar } from '../MapFilterBar';
 
 function MapFilterBarHarness() {
   const controller = useMapFilterController();
+  const [socialScope, setSocialScope] = React.useState<'all' | 'following'>('all');
 
   return (
     <View>
-      <MapFilterBar controller={controller} />
+      <MapFilterBar
+        controller={controller}
+        onToggleFollowing={() =>
+          setSocialScope((current) => (current === 'following' ? 'all' : 'following'))
+        }
+        socialScope={socialScope}
+      />
       <Text testID="applied-state">{JSON.stringify(controller.appliedFilters)}</Text>
+      <Text testID="social-scope-state">{socialScope}</Text>
     </View>
   );
 }
@@ -252,5 +260,15 @@ describe('MapFilterBar', () => {
     fireEvent.press(getByTestId('map-filter-pill-activity-recent'));
 
     expect(getByTestId('applied-state').props.children).toContain('"activity":"all"');
+  });
+
+  it('toggles following as app-local state without mutating public applied filters', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-social-following'));
+
+    expect(getByTestId('social-scope-state').props.children).toBe('following');
+    expect(getByTestId('applied-state').props.children).not.toContain('following');
+    expect(getByTestId('applied-state').props.children).not.toContain('socialScope');
   });
 });

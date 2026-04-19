@@ -25,6 +25,7 @@ import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import {
   fetchBatchProperties,
+  type FollowingViewportItem,
   normalizeRenderedPropertyGroup,
   type PropertyResolveResult,
   type NearbyPropertyGroup,
@@ -127,6 +128,12 @@ export interface UseMapInteractionReturn {
   handleFeaturePress: (features: GeoJSON.Feature[], currentZoom: number, camera: MapCameraCommands) => Promise<boolean>;
   /** Process a nearby grouped API result (native fallback). Returns true if handled. */
   handleNearbyResult: (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => void;
+  /** Open a preview directly from the authenticated following overlay payload. */
+  handleFollowingOverlayPress: (
+    item: FollowingViewportItem,
+    currentZoom: number,
+    camera: MapCameraCommands,
+  ) => void;
   /** Decide whether to dismiss the preview (empty background tap). */
   handleEmptyMapTap: () => void;
   /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
@@ -154,6 +161,7 @@ export interface ToGroupPropertyInput {
   socialScore?: number | null;
   recentSocialScore?: number | null;
   lastSocialAt?: string | null;
+  activityLevel?: 'hot' | 'warm' | 'cold' | null;
   activityScore?: number;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
   imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
@@ -173,6 +181,82 @@ export function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   if (score >= 50) return 'hot';
   if (score > 0) return 'warm';
   return 'cold';
+}
+
+interface DerivedPreviewActivity {
+  socialScore?: number;
+  recentSocialScore?: number;
+  activityScore?: number;
+  activityLevel?: 'hot' | 'warm' | 'cold';
+}
+
+function derivePreviewActivity(input: {
+  socialScore?: number | null;
+  recentSocialScore?: number | null;
+  activityScore?: number | null;
+  activityLevel?: 'hot' | 'warm' | 'cold' | null;
+  hasActiveListing?: boolean | null;
+  bootstrapNeutral?: boolean;
+}): DerivedPreviewActivity {
+  const socialScore =
+    typeof input.socialScore === 'number' ? input.socialScore : undefined;
+  const recentSocialScore =
+    typeof input.recentSocialScore === 'number' ? input.recentSocialScore : undefined;
+  const activityScore =
+    typeof input.activityScore === 'number'
+      ? input.activityScore
+      : socialScore;
+
+  if (input.activityLevel === 'hot' || input.activityLevel === 'warm' || input.activityLevel === 'cold') {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore,
+      activityLevel: input.activityLevel,
+    };
+  }
+
+  if ((recentSocialScore ?? 0) > 0) {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore: activityScore ?? recentSocialScore,
+      activityLevel: 'hot',
+    };
+  }
+
+  if ((activityScore ?? 0) > 0) {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore,
+      activityLevel: getActivityLevel(activityScore),
+    };
+  }
+
+  if (input.hasActiveListing) {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore: activityScore ?? 0,
+      activityLevel: 'warm',
+    };
+  }
+
+  if (input.bootstrapNeutral) {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore,
+    };
+  }
+
+  return {
+    socialScore: socialScore ?? 0,
+    recentSocialScore: recentSocialScore ?? 0,
+    activityScore: activityScore ?? 0,
+    activityLevel: 'cold',
+  };
 }
 
 /** Estimate the zoom level that would show a bbox, conservatively accounting for padding. */
@@ -229,12 +313,15 @@ function mergeHydratedPreviewProperty(
   currentProperty: GroupPreviewProperty,
   selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
 ): GroupPreviewProperty {
-  const mergedSocialScore =
-    selectedProperty.socialScore ?? currentProperty.socialScore ?? currentProperty.activityScore ?? 0;
-  const mergedRecentSocialScore =
-    selectedProperty.recentSocialScore ?? currentProperty.recentSocialScore ?? 0;
-  const mergedActivityScore = currentProperty.activityScore ?? mergedSocialScore;
-  const mergedActivityLevel = getActivityLevel(mergedActivityScore);
+  const mergedActivity = derivePreviewActivity({
+    socialScore: selectedProperty.socialScore ?? currentProperty.socialScore,
+    recentSocialScore:
+      selectedProperty.recentSocialScore ?? currentProperty.recentSocialScore,
+    activityScore: selectedProperty.socialScore ?? currentProperty.activityScore,
+    activityLevel: selectedProperty.activityLevel ?? currentProperty.activityLevel,
+    hasActiveListing:
+      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing,
+  });
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
   const mergedOfficialValuation =
     currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
@@ -279,13 +366,13 @@ function mergeHydratedPreviewProperty(
     askingPrice: mergedAskingPrice,
     fmv: mergedFmv,
     hasActiveListing:
-      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? false,
+      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? null,
     marketState: selectedProperty.marketState ?? currentProperty.marketState ?? null,
-    socialScore: mergedSocialScore,
-    recentSocialScore: mergedRecentSocialScore,
+    socialScore: mergedActivity.socialScore,
+    recentSocialScore: mergedActivity.recentSocialScore,
     lastSocialAt: selectedProperty.lastSocialAt ?? currentProperty.lastSocialAt ?? null,
-    activityLevel: mergedActivityLevel,
-    activityScore: mergedActivityScore,
+    activityLevel: mergedActivity.activityLevel,
+    activityScore: mergedActivity.activityScore,
     aerialImageUrl: mergedAerialImageUrl,
     thumbnailUrl: mergedThumbnailUrl,
     yearBuilt: selectedProperty.yearBuilt,
@@ -301,9 +388,13 @@ function convertToGroupProperty(
   p: ToGroupPropertyInput,
   activityScore?: number,
 ): GroupPreviewProperty {
-  const socialScore = p.socialScore ?? p.activityScore ?? 0;
-  const recentSocialScore = p.recentSocialScore ?? 0;
-  const score = activityScore ?? p.activityScore ?? socialScore;
+  const derivedActivity = derivePreviewActivity({
+    socialScore: p.socialScore,
+    recentSocialScore: p.recentSocialScore,
+    activityScore: activityScore ?? p.activityScore,
+    activityLevel: p.activityLevel,
+    hasActiveListing: p.hasActiveListing,
+  });
   const countryCode = p.countryCode ?? undefined;
   const aerialImageUrl = derivePropertyAerialImageUrl({
     aerialImageUrl: p.aerialImageUrl,
@@ -325,13 +416,13 @@ function convertToGroupProperty(
     officialValuation: p.officialValuation,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
-    hasActiveListing: p.hasActiveListing ?? false,
+    hasActiveListing: p.hasActiveListing ?? null,
     marketState: p.marketState ?? null,
-    socialScore,
-    recentSocialScore,
+    socialScore: derivedActivity.socialScore,
+    recentSocialScore: derivedActivity.recentSocialScore,
     lastSocialAt: p.lastSocialAt ?? null,
-    activityLevel: getActivityLevel(score),
-    activityScore: score,
+    activityLevel: derivedActivity.activityLevel,
+    activityScore: derivedActivity.activityScore,
     thumbnailUrl: p.thumbnailUrl ?? null,
     aerialImageUrl,
     yearBuilt: p.yearBuilt ?? null,
@@ -767,6 +858,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
         setHighlightedCoordinate(coord);
         flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
         schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+          const derivedActivity = derivePreviewActivity({
+            socialScore: group.socialScoreMax,
+            recentSocialScore: group.recentSocialScoreTotal,
+            activityScore: group.socialScoreMax,
+            hasActiveListing: group.hasActiveListing,
+          });
           setSelectedPropertyId(group.primaryPropertyId);
           setPreviewGroup({
             properties: [{
@@ -781,12 +878,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
               countryCode: group.countryCode ?? undefined,
               officialValuation: group.officialValuation ?? null,
               askingPrice: group.askingPrice ?? null,
-              hasActiveListing: group.hasActiveListing ?? false,
+              hasActiveListing: group.hasActiveListing ?? null,
               marketState: group.marketState ?? null,
-              socialScore: group.socialScoreMax,
-              recentSocialScore: group.recentSocialScoreTotal,
-              activityLevel: getActivityLevel(group.socialScoreMax),
-              activityScore: group.socialScoreMax,
+              socialScore: derivedActivity.socialScore,
+              recentSocialScore: derivedActivity.recentSocialScore,
+              activityLevel: derivedActivity.activityLevel,
+              activityScore: derivedActivity.activityScore,
               thumbnailUrl: group.thumbnailUrl ?? null,
               aerialImageUrl: derivePropertyAerialImageUrl({
                 geometry: { type: 'Point', coordinates: coord },
@@ -821,6 +918,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
             geometry: { type: 'Point', coordinates: coord },
             countryCode: result.countryCode ?? undefined,
           });
+          const derivedActivity = derivePreviewActivity({
+            socialScore: result.socialScoreMax,
+            recentSocialScore: result.recentSocialScoreTotal,
+            activityScore: result.socialScoreMax,
+            hasActiveListing: result.hasActiveListing,
+          });
           setSelectedPropertyId(result.primaryPropertyId);
           setPreviewGroup({
             properties: [{
@@ -836,12 +939,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
               officialValuation: result.officialValuation,
               askingPrice: result.askingPrice,
               thumbnailUrl: result.thumbnailUrl,
-              hasActiveListing: result.hasActiveListing ?? false,
+              hasActiveListing: result.hasActiveListing ?? null,
               marketState: result.marketState ?? null,
-              socialScore: result.socialScoreMax,
-              recentSocialScore: result.recentSocialScoreTotal,
-              activityLevel: getActivityLevel(result.socialScoreMax),
-              activityScore: result.socialScoreMax,
+              socialScore: derivedActivity.socialScore,
+              recentSocialScore: derivedActivity.recentSocialScore,
+              activityLevel: derivedActivity.activityLevel,
+              activityScore: derivedActivity.activityScore,
               aerialImageUrl: previewAerialImageUrl,
               yearBuilt: result.yearBuilt ?? null,
               floorAreaM2: result.floorAreaM2 ?? null,
@@ -893,6 +996,54 @@ export function useMapInteraction(): UseMapInteractionReturn {
     [openClusterPreviewAtCoord, schedulePreviewActivation],
   );
 
+  const handleFollowingOverlayPress = useCallback(
+    (
+      item: FollowingViewportItem,
+      currentZoom: number,
+      camera: MapCameraCommands,
+    ) => {
+      const coord = item.coordinate;
+      const derivedActivity = derivePreviewActivity({
+        socialScore: item.actorCount,
+        recentSocialScore: item.actorCount,
+        activityScore: item.actorCount,
+        hasActiveListing: item.hasActiveListing,
+      });
+
+      setHighlightedCoordinate(coord);
+      flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
+      schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+        setSelectedPropertyId(item.id);
+        setPreviewGroup({
+          properties: [{
+            id: item.id,
+            coordinate: coord,
+            address: item.address,
+            city: item.city,
+            postalCode: item.postalCode ?? null,
+            countryCode: item.countryCode ?? undefined,
+            askingPrice: item.askingPrice ?? null,
+            thumbnailUrl: item.thumbnailUrl ?? null,
+            hasActiveListing: item.hasActiveListing ?? null,
+            marketState: item.marketState ?? null,
+            socialScore: derivedActivity.socialScore,
+            recentSocialScore: derivedActivity.recentSocialScore,
+            lastSocialAt: item.lastActivityAt ?? null,
+            activityLevel: derivedActivity.activityLevel,
+            activityScore: derivedActivity.activityScore,
+            aerialImageUrl: derivePropertyAerialImageUrl({
+              geometry: { type: 'Point', coordinates: coord },
+              countryCode: item.countryCode ?? undefined,
+            }),
+          }],
+          coordinate: coord,
+        });
+        setCurrentPreviewIndex(0);
+      });
+    },
+    [schedulePreviewActivation],
+  );
+
   // ── Empty map tap (dismiss logic) ───────────────────────────
   // Only close preview when bottom sheet is NOT expanded (peek or closed).
   // If sheet is expanded, the backdrop handles closing itself — preview persists.
@@ -922,6 +1073,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
       const countryCode = property.countryCode ?? resolvedAddress?.details.countryCode ?? undefined;
+      const derivedActivity = derivePreviewActivity({
+        hasActiveListing: property.hasActiveListing,
+        bootstrapNeutral: true,
+      });
       setHighlightedCoordinate(coord);
       flyToPreviewAnchor(camera, coord, SEARCH_TARGET_ZOOM, SEARCH_PREVIEW_FLY_DURATION_MS);
       schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
@@ -939,12 +1094,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
             countryCode,
             officialValuation: property.officialValuation ?? null,
             askingPrice: null,
-            hasActiveListing: property.hasActiveListing ?? false,
+            hasActiveListing: property.hasActiveListing ?? null,
             marketState: property.marketState ?? null,
-            socialScore: 0,
-            recentSocialScore: 0,
-            activityLevel: 'cold',
-            activityScore: 0,
+            socialScore: derivedActivity.socialScore,
+            recentSocialScore: derivedActivity.recentSocialScore,
+            activityLevel: derivedActivity.activityLevel,
+            activityScore: derivedActivity.activityScore,
             thumbnailUrl: null,
             aerialImageUrl: derivePropertyAerialImageUrl({
               geometry: { type: 'Point', coordinates: coord },
@@ -1028,6 +1183,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Feature press / map tap
     handleFeaturePress,
     handleNearbyResult,
+    handleFollowingOverlayPress,
     handleEmptyMapTap,
     openClusterPreviewAtCoord,
 

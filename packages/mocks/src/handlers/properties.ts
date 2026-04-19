@@ -7,8 +7,8 @@
 
 import { http, HttpResponse } from 'msw';
 import {
+  mockComments,
   mockPropertyDetails,
-  mockPropertySummaries,
   getMockProperty,
   getMockGuesses,
 } from '../data/fixtures.js';
@@ -25,6 +25,123 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
+
+function getCommentBreakdown(propertyId: string) {
+  const comments = mockComments.filter((comment) => comment.propertyId === propertyId);
+  const topLevelCommentCount = comments.length;
+  const replyCount = comments.reduce((count, comment) => count + comment.replies.length, 0);
+  const commentLikeCount = comments.reduce((count, comment) => {
+    const replyLikes = comment.replies.reduce((replyTotal, reply) => replyTotal + reply.likes, 0);
+    return count + comment.likes + replyLikes;
+  }, 0);
+
+  return {
+    topLevelCommentCount,
+    replyCount,
+    commentCount: topLevelCommentCount + replyCount,
+    commentLikeCount,
+  };
+}
+
+function getMockPublicProperty(property: (typeof mockPropertyDetails)[number]) {
+  const { topLevelCommentCount, replyCount, commentLikeCount } = getCommentBreakdown(property.id);
+  const hasListing = Boolean(property.activeListing);
+  const hasActiveListing = hasListing;
+  const propertyLikeCount = property.likeCount;
+  const socialScore = topLevelCommentCount * 2 + replyCount + propertyLikeCount + property.activity.guessCount;
+  const recentSocialScore = Math.min(socialScore, Math.max(1, topLevelCommentCount + replyCount));
+
+  return {
+    id: property.id,
+    nationalId: property.nationalId,
+    countryCode: property.countryCode,
+    region: property.region ?? null,
+    street: property.streetName,
+    houseNumber: Number.parseInt(property.houseNumber, 10) || 0,
+    houseNumberAddition: property.houseNumberAddition ?? null,
+    address: `${property.address}, ${property.postalCode} ${property.city}`,
+    city: property.city,
+    postalCode: property.postalCode ?? null,
+    geometry: {
+      type: 'Point' as const,
+      coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+    },
+    imageryGeometry: {
+      type: 'Point' as const,
+      coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+    },
+    yearBuilt: property.yearBuilt ?? null,
+    floorAreaM2: property.floorAreaM2 ?? null,
+    status: 'active' as const,
+    officialValuation: property.officialValuation ?? null,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-12-01T00:00:00.000Z',
+    hasListing,
+    hasActiveListing,
+    marketState: hasActiveListing ? ('for-sale' as const) : ('not-listed' as const),
+    latestListingStatus: hasActiveListing ? ('active' as const) : null,
+    askingPrice: property.activeListing?.askingPrice ?? null,
+    thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+    socialScore,
+    recentSocialScore,
+    lastSocialAt: property.activity.lastActivityAt ?? null,
+    topLevelCommentCount,
+    replyCount,
+    propertyLikeCount,
+    commentLikeCount,
+    guessCount: property.activity.guessCount,
+    viewCount: property.activity.viewCount,
+    uniqueViewerCount: property.activity.uniqueViewerCount,
+    recentTopLevelCommentCount: Math.min(topLevelCommentCount, 1),
+    recentReplyCount: Math.min(replyCount, 1),
+    recentPropertyLikeCount: Math.min(propertyLikeCount, 3),
+    recentCommentLikeCount: Math.min(commentLikeCount, 2),
+    recentGuessCount: Math.min(property.activity.guessCount, 1),
+    recentViewCount: Math.min(property.activity.viewCount, 12),
+    recentUniqueViewerCount: Math.min(property.activity.uniqueViewerCount, 8),
+  };
+}
+
+function getMockPropertyDetail(property: (typeof mockPropertyDetails)[number]) {
+  const base = getMockPublicProperty(property);
+
+  return {
+    ...base,
+    commentCount: base.topLevelCommentCount + base.replyCount,
+    likeCount: property.likeCount,
+    uniqueViewers: property.activity.uniqueViewerCount,
+    activityLevel:
+      base.recentSocialScore > 0
+        ? ('hot' as const)
+        : base.hasActiveListing
+          ? ('warm' as const)
+          : ('cold' as const),
+    isLiked: property.isLiked,
+    isSaved: property.isSaved,
+    fmv: {
+      fmv: property.fmv?.value ?? null,
+      confidence: property.fmv?.confidence ?? 'none',
+      guessCount: property.fmv?.guessCount ?? 0,
+      distribution: property.fmv
+        ? {
+            p10: property.fmv.distribution.min,
+            p25: property.fmv.distribution.p25,
+            p50: property.fmv.distribution.median,
+            p75: property.fmv.distribution.p75,
+            p90: property.fmv.distribution.max,
+            min: property.fmv.distribution.min,
+            max: property.fmv.distribution.max,
+          }
+        : null,
+      officialValuation: property.officialValuation ?? null,
+      askingPrice: property.activeListing?.askingPrice ?? null,
+      divergence:
+        property.fmv?.value != null && property.activeListing?.askingPrice != null
+          ? property.fmv.value - property.activeListing.askingPrice
+          : null,
+    },
+  };
+}
 
 function buildNearbySingleResponse({
   nodeClass,
@@ -94,15 +211,16 @@ export const propertyHandlers = [
     const page = parseInt(url.searchParams.get('page') || '1', 10);
 
     const start = (page - 1) * limit;
-    const items = mockPropertySummaries.slice(start, start + limit);
+    const allProperties = mockPropertyDetails.map((property) => getMockPublicProperty(property));
+    const data = allProperties.slice(start, start + limit);
 
     return HttpResponse.json({
-      items,
-      pagination: {
+      data,
+      meta: {
         page,
         limit,
-        total: mockPropertySummaries.length,
-        hasMore: start + limit < mockPropertySummaries.length,
+        total: allProperties.length,
+        totalPages: Math.ceil(allProperties.length / limit),
       },
     });
   }),
@@ -294,24 +412,7 @@ export const propertyHandlers = [
     const results = ids
       .map((id) => getMockProperty(id))
       .filter(Boolean)
-      .map((p) => ({
-        id: p!.id,
-        nationalId: p!.nationalId,
-        address: p!.address,
-        city: p!.city,
-        postalCode: p!.postalCode,
-        geometry: { type: 'Point', coordinates: [p!.coordinates.lon, p!.coordinates.lat] },
-        yearBuilt: p!.yearBuilt,
-        floorAreaM2: p!.floorAreaM2,
-        status: 'active',
-        officialValuation: p!.officialValuation,
-        hasListing: !!p!.activeListing,
-        askingPrice: p!.activeListing?.askingPrice ?? null,
-        commentCount: p!.activity.commentCount,
-        guessCount: p!.activity.guessCount,
-        createdAt: '2024-01-01T00:00:00Z',
-        updatedAt: '2024-12-01T00:00:00Z',
-      }));
+      .map((property) => getMockPublicProperty(property!));
 
     return HttpResponse.json(results);
   }),
@@ -330,7 +431,7 @@ export const propertyHandlers = [
       );
     }
 
-    return HttpResponse.json(property);
+    return HttpResponse.json(getMockPropertyDetail(property));
   }),
 
   /**
@@ -398,31 +499,9 @@ export const propertyHandlers = [
     // Return a deterministic saved subset that matches the live envelope shape.
     const saved = mockPropertyDetails.slice(0, 2);
     const paged = saved.slice(offset, offset + limit).map((property, index) => ({
-      id: property.id,
-      nationalId: property.nationalId,
-      countryCode: property.countryCode,
-      region: property.region ?? null,
-      street: property.streetName,
-      houseNumber: Number.parseInt(property.houseNumber, 10) || 0,
-      houseNumberAddition: property.houseNumberAddition ?? null,
-      address: property.address,
-      city: property.city,
-      postalCode: property.postalCode ?? null,
-      geometry: {
-        type: 'Point' as const,
-        coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
-      },
-      yearBuilt: property.yearBuilt ?? null,
-      floorAreaM2: property.floorAreaM2 ?? null,
-      status: 'active' as const,
-      officialValuation: property.officialValuation ?? null,
-      hasListing: Boolean(property.activeListing),
-      askingPrice: property.activeListing?.askingPrice ?? null,
-      commentCount: property.activity.commentCount,
-      guessCount: property.activity.guessCount,
+      ...getMockPublicProperty(property),
       savedAt: new Date(Date.now() - index * 60_000).toISOString(),
-      createdAt: new Date('2024-01-01T00:00:00.000Z').toISOString(),
-      updatedAt: new Date('2024-12-01T00:00:00.000Z').toISOString(),
+      isSaved: true as const,
     }));
     const total = saved.length;
 

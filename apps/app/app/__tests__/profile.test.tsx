@@ -109,6 +109,8 @@ const mockUseHydratedNow = useHydratedNow as jest.MockedFunction<typeof useHydra
 const signOut = jest.fn().mockResolvedValue(undefined);
 const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
+const getRouterPush = () =>
+  (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 
 function seedMocks() {
   mockUseAuthContext.mockReturnValue({
@@ -148,6 +150,8 @@ function seedMocks() {
       guessCount: 5,
       commentCount: 2,
       joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 4,
+      followingCount: 5,
       email: 'test@example.com',
       averageAccuracy: 67,
       savedCount: 3,
@@ -223,5 +227,15 @@ describe('ProfileScreen sign out', () => {
       expect(globalThis.confirm).toHaveBeenCalledTimes(1);
     });
     expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it('keeps self follower and following counts as navigation entrypoints', () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-followers-link'));
+    fireEvent.press(getByTestId('profile-following-link'));
+
+    expect(getRouterPush()).toHaveBeenNthCalledWith(1, '/user/followers');
+    expect(getRouterPush()).toHaveBeenNthCalledWith(2, '/user/following');
   });
 });

@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
 import { fixedTimestamp } from '../data/visual-fixtures.js';
+import { mockPropertyIds, mockUserIds } from '../data/fixtures.js';
 
 type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
 type ActivityEventType = PublicActivityEventType | 'save';
@@ -41,13 +42,13 @@ const mockPublicActivity: ActivityItem<PublicActivityEventType>[] = [
     id: 'a0000000-0000-4000-a000-000000000901',
     eventType: 'comment',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000006',
+      id: mockUserIds.emma,
       displayName: 'Emma van Dijk',
       handle: 'emmavandijk',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000001',
+      id: mockPropertyIds.prinsengracht263,
       address: 'Prinsengracht 263, 1016 GV Amsterdam',
       streetName: 'Prinsengracht',
       houseNumber: 263,
@@ -64,13 +65,13 @@ const mockPublicActivity: ActivityItem<PublicActivityEventType>[] = [
     id: 'a0000000-0000-4000-a000-000000000902',
     eventType: 'price_guess',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000004',
+      id: mockUserIds.sophie,
       displayName: 'Sophie Meijer',
       handle: 'sophiemeijer',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000004',
+      id: mockPropertyIds.langeVoorhout102,
       address: 'Lange Voorhout 102, 2514 EJ Den Haag',
       streetName: 'Lange Voorhout',
       houseNumber: 102,
@@ -87,13 +88,13 @@ const mockPublicActivity: ActivityItem<PublicActivityEventType>[] = [
     id: 'a0000000-0000-4000-a000-000000000903',
     eventType: 'property_like',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000003',
+      id: mockUserIds.pieter,
       displayName: 'Pieter Jansen',
       handle: 'pieterjansen',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000003',
+      id: mockPropertyIds.coolsingel40,
       address: 'Coolsingel 40, 3011 AD Rotterdam',
       streetName: 'Coolsingel',
       houseNumber: 40,
@@ -113,13 +114,13 @@ const mockFollowingActivity: ActivityItem<PublicActivityEventType>[] = [
     id: 'a0000000-0000-4000-a000-000000000904',
     eventType: 'comment',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000002',
+      id: mockUserIds.maria,
       displayName: 'Maria Bakker',
       handle: 'mariabakker',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000002',
+      id: mockPropertyIds.herengracht502,
       address: 'Herengracht 502, 1017 CB Amsterdam',
       streetName: 'Herengracht',
       houseNumber: 502,
@@ -136,19 +137,19 @@ const mockFollowingActivity: ActivityItem<PublicActivityEventType>[] = [
     id: 'a0000000-0000-4000-a000-000000000905',
     eventType: 'price_guess',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000007',
+      id: mockUserIds.lars,
       displayName: 'Lars Hendriks',
       handle: 'larshendriks',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000005',
-      address: 'Vestdijk 14, 5611 CC Eindhoven',
-      streetName: 'Vestdijk',
-      houseNumber: 14,
+      id: mockPropertyIds.oudegracht150,
+      address: 'Oudegracht 150, 3511 AZ Utrecht',
+      streetName: 'Oudegracht',
+      houseNumber: 150,
       houseNumberAddition: null,
-      city: 'Eindhoven',
-      postalCode: '5611 CC',
+      city: 'Utrecht',
+      postalCode: '3511 AZ',
       countryCode: 'NL',
       thumbnailUrl: null,
     },
@@ -162,13 +163,13 @@ const mockPersonalActivity: ActivityItem[] = [
     id: 'a0000000-0000-4000-a000-000000000906',
     eventType: 'save',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000001',
+      id: mockUserIds.jan,
       displayName: 'Jan de Vries',
       handle: 'jandevries',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000004',
+      id: mockPropertyIds.langeVoorhout102,
       address: 'Lange Voorhout 102, 2514 EJ Den Haag',
       streetName: 'Lange Voorhout',
       houseNumber: 102,
@@ -185,13 +186,13 @@ const mockPersonalActivity: ActivityItem[] = [
     id: 'a0000000-0000-4000-a000-000000000907',
     eventType: 'comment',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000001',
+      id: mockUserIds.jan,
       displayName: 'Jan de Vries',
       handle: 'jandevries',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000002',
+      id: mockPropertyIds.herengracht502,
       address: 'Herengracht 502, 1017 CB Amsterdam',
       streetName: 'Herengracht',
       houseNumber: 502,
@@ -208,13 +209,13 @@ const mockPersonalActivity: ActivityItem[] = [
     id: 'a0000000-0000-4000-a000-000000000908',
     eventType: 'property_like',
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000001',
+      id: mockUserIds.jan,
       displayName: 'Jan de Vries',
       handle: 'jandevries',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     },
     property: {
-      id: 'a0000000-0000-4000-a000-000000000003',
+      id: mockPropertyIds.coolsingel40,
       address: 'Coolsingel 40, 3011 AD Rotterdam',
       streetName: 'Coolsingel',
       houseNumber: 40,

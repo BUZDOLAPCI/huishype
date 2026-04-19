@@ -3,6 +3,11 @@ import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import {
+  createIntegrationFollow,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
+import {
   users,
   priceGuesses,
   comments,
@@ -17,7 +22,7 @@ import { eq } from 'drizzle-orm';
 /**
  * Integration tests for user profile routes.
  *
- * Creates test users via the mock auth flow, then exercises:
+ * Creates suite-owned fixture users/properties directly, then exercises:
  *   GET /users/:id/profile   (public)
  *   GET /users/me             (authenticated)
  *   PUT /users/me/profile     (authenticated)
@@ -27,39 +32,21 @@ describe('User profile routes', () => {
   let app: FastifyInstance;
   const cleanupIds: { users: string[]; properties: string[] } = { users: [], properties: [] };
 
-  /** Helper: create a user via mock google auth, return { userId, accessToken } */
   async function createTestUser(label: string) {
-    // Token format: mock-google-{email}-{googleId}
-    // Must avoid extra dashes in email/googleId segments
-    const unique = `${label}${Date.now()}`;
-    const resp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${unique}-gid${unique}` },
-    });
-    expect(resp.statusCode).toBe(200);
-    const body = JSON.parse(resp.body);
-    cleanupIds.users.push(body.session.user.id);
-    return {
-      userId: body.session.user.id as string,
-      accessToken: body.session.accessToken as string,
-    };
+    const user = await createIntegrationUser(app, { label });
+    cleanupIds.users.push(user.userId);
+    return user;
   }
 
-  /** Helper: create a minimal test property, return its id */
   async function createTestProperty() {
-    const [prop] = await db
-      .insert(properties)
-      .values({
-        street: 'Teststraat',
-        houseNumber: Math.floor(Math.random() * 9000) + 1,
-        city: 'Teststad',
-        postalCode: '1234AB',
-        status: 'active',
-      })
-      .returning({ id: properties.id });
-    cleanupIds.properties.push(prop.id);
-    return prop.id;
+    const property = await createIntegrationProperty({
+      street: 'Teststraat',
+      city: 'Teststad',
+      postalCode: '1234AB',
+      status: 'active',
+    });
+    cleanupIds.properties.push(property.id);
+    return property.id;
   }
 
   beforeAll(async () => {
@@ -413,21 +400,24 @@ describe('User profile routes', () => {
       const olderFollower = await createTestUser('olderfollower');
       const newerFollower = await createTestUser('newerfollower');
       const followingUser = await createTestUser('followinguser');
+      const olderFollowedAt = new Date('2026-01-10T08:00:00.000Z');
+      const newerFollowedAt = new Date('2026-01-10T09:00:00.000Z');
+      const outgoingFollowedAt = new Date('2026-01-10T10:00:00.000Z');
 
-      await app.inject({
-        method: 'PUT',
-        url: `/users/${target.userId}/follow`,
-        headers: { authorization: `Bearer ${olderFollower.accessToken}` },
+      await createIntegrationFollow({
+        followerUserId: olderFollower.userId,
+        followedUserId: target.userId,
+        createdAt: olderFollowedAt,
       });
-      await app.inject({
-        method: 'PUT',
-        url: `/users/${target.userId}/follow`,
-        headers: { authorization: `Bearer ${newerFollower.accessToken}` },
+      await createIntegrationFollow({
+        followerUserId: newerFollower.userId,
+        followedUserId: target.userId,
+        createdAt: newerFollowedAt,
       });
-      await app.inject({
-        method: 'PUT',
-        url: `/users/${followingUser.userId}/follow`,
-        headers: { authorization: `Bearer ${target.accessToken}` },
+      await createIntegrationFollow({
+        followerUserId: target.userId,
+        followedUserId: followingUser.userId,
+        createdAt: outgoingFollowedAt,
       });
 
       const unauthorizedFollowersResp = await app.inject({
@@ -438,16 +428,34 @@ describe('User profile routes', () => {
 
       const followersResp = await app.inject({
         method: 'GET',
-        url: '/users/me/followers?limit=10&offset=0',
+        url: '/users/me/followers?limit=1&offset=0',
         headers: { authorization: `Bearer ${target.accessToken}` },
       });
       expect(followersResp.statusCode).toBe(200);
       const followersBody = JSON.parse(followersResp.body);
-      expect(followersBody.items.map((item: { id: string }) => item.id)).toEqual([
-        newerFollower.userId,
+      expect(followersBody.items.map((item: { id: string }) => item.id)).toEqual([newerFollower.userId]);
+      expect(followersBody.items[0].relationship).toBe('followed_by');
+      expect(followersBody.pagination).toEqual({
+        limit: 1,
+        offset: 0,
+        hasMore: true,
+      });
+
+      const secondFollowersResp = await app.inject({
+        method: 'GET',
+        url: '/users/me/followers?limit=1&offset=1',
+        headers: { authorization: `Bearer ${target.accessToken}` },
+      });
+      expect(secondFollowersResp.statusCode).toBe(200);
+      const secondFollowersBody = JSON.parse(secondFollowersResp.body);
+      expect(secondFollowersBody.items.map((item: { id: string }) => item.id)).toEqual([
         olderFollower.userId,
       ]);
-      expect(followersBody.items[0].relationship).toBe('followed_by');
+      expect(secondFollowersBody.pagination).toEqual({
+        limit: 1,
+        offset: 1,
+        hasMore: false,
+      });
 
       const followingResp = await app.inject({
         method: 'GET',
@@ -463,6 +471,11 @@ describe('User profile routes', () => {
           relationship: 'following',
         })
       );
+      expect(followingBody.pagination).toEqual({
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      });
     });
   });
 

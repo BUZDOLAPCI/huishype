@@ -51,6 +51,10 @@ The following decisions are locked for implementation:
 - `Recently Active` is part of this refactor.
 - `Recently Active` is orthogonal to `marketState`; users must be able to apply
   `For Sale` and `Recently Active` together.
+- Public `activity` omission/default means `all`, not `social`.
+- When public `marketState` is `for-sale` or `for-rent` and public `activity`
+  is omitted or `all`, active-listing coverage must stay visible at low zoom
+  even if those properties have no social activity.
 - The DB is disposable, so we should also tighten weak view semantics now
   instead of designing around legacy rows.
 - The DB is disposable, so we should also fix weak address/listing invariants
@@ -231,6 +235,9 @@ This means:
 - social-only => `active`
 - listing + social => `active`
 - quiet sold/rented/not-listed => `ghost` if shown by filters
+- listing-only `ghost` nodes still remain eligible public low-zoom coverage when
+  `marketState` is `for-sale` or `for-rent` and public `activity` is omitted or
+  `all`
 
 The old rule:
 
@@ -538,6 +545,7 @@ Implementation decision:
 Semantics:
 
 - market-state filters AND activity filters together
+- omitted/default public `activity` is the same as `all`
 - `For Sale` + `recent` means active listings with recent social activity
 - `social` means any social activity
 - `recent` means the strict recent-activity subset
@@ -625,6 +633,9 @@ Actions:
 
 - low-zoom visibility must include properties with non-zero social activity even
   if they only have likes or views
+- low-zoom public visibility must also keep listing-backed `for-sale` and
+  `for-rent` coverage when `activity` is omitted or `all`, even with zero
+  social activity
 - stop using comments/guesses-only candidate visibility
 - reinterpret `nodeClass` from the new social activity booleans
 

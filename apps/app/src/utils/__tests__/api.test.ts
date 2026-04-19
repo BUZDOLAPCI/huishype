@@ -1,6 +1,7 @@
 import {
   api,
   fetchBatchProperties,
+  fetchFollowingViewport,
   fetchNearbyGroup,
   normalizeNearbyPropertyGroup,
   normalizeRenderedPropertyGroup,
@@ -156,6 +157,40 @@ describe('fetchNearbyGroup', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=recent');
+  });
+});
+
+describe('fetchFollowingViewport', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+  });
+
+  it('uses only bbox, price bounds, and market state in the authenticated viewport URL', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [] }),
+    });
+
+    await fetchFollowingViewport([5.4, 51.4, 5.5, 51.5], {
+      salePriceFrom: 500000,
+      salePriceTo: 800000,
+      rentPriceFrom: null,
+      rentPriceTo: null,
+      marketState: ['for-sale'],
+      activity: 'recent',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/following-viewport?');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('bbox=5.4%2C51.4%2C5.5%2C51.5');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceFrom=500000');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
+    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('activity=');
+    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('socialScope');
   });
 });
 

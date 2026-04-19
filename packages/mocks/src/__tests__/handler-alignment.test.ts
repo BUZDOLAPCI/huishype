@@ -36,6 +36,8 @@ import {
   mockMapProperties,
   mockPropertyClusters,
   mockFMV,
+  mockPropertyIds,
+  mockUserIds,
   getMockUser,
   getMockProperty,
   getMockComments,
@@ -44,6 +46,7 @@ import {
 
 describe('Mock handler runtime parity', () => {
   const listingPropertyId = '11111111-1111-4111-8111-111111111111';
+  const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
@@ -128,6 +131,16 @@ describe('Mock handler runtime parity', () => {
     if (body.data.length > 0) {
       expect(body.data[0]).toHaveProperty('savedAt');
       expect(body.data[0]).toHaveProperty('countryCode');
+      expect(body.data[0]).toHaveProperty('hasActiveListing');
+      expect(body.data[0]).toHaveProperty('marketState');
+      expect(body.data[0]).toHaveProperty('latestListingStatus');
+      expect(body.data[0]).toHaveProperty('topLevelCommentCount');
+      expect(body.data[0]).toHaveProperty('replyCount');
+      expect(body.data[0]).toHaveProperty('socialScore');
+      expect(body.data[0]).toHaveProperty('recentSocialScore');
+      expect(body.data[0]).toHaveProperty('isSaved', true);
+      expect(body.data[0]).not.toHaveProperty('commentCount');
+      expect(body.data[0].id).toMatch(uuidShape);
     }
   });
 
@@ -336,6 +349,7 @@ describe('Mock handler runtime parity', () => {
     expect(response.status).toBe(200);
     expect(Array.isArray(body.items)).toBe(true);
     expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items[0].id).toMatch(uuidShape);
     expect(body.items[0]).toHaveProperty('coordinate');
     expect(body.items[0]).toHaveProperty('activityTypes');
     expect(body.items[0]).toHaveProperty('actorCount');
@@ -343,19 +357,23 @@ describe('Mock handler runtime parity', () => {
   });
 
   it('matches property view identity requirements and response envelope', async () => {
-    const missingIdentityResponse = await fetch('http://localhost/properties/prop-001/view', {
-      method: 'POST',
-    });
+    const missingIdentityResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/view`,
+      { method: 'POST' }
+    );
     expect(missingIdentityResponse.status).toBe(400);
     expect(await missingIdentityResponse.json()).toEqual({
       error: 'BAD_REQUEST',
       message: 'Authenticated user or x-session-id header is required.',
     });
 
-    const sessionResponse = await fetch('http://localhost/properties/prop-001/view', {
-      method: 'POST',
-      headers: { 'x-session-id': 'mock-session-1' },
-    });
+    const sessionResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/view`,
+      {
+        method: 'POST',
+        headers: { 'x-session-id': 'mock-session-1' },
+      }
+    );
     const sessionBody = await sessionResponse.json();
 
     expect(sessionResponse.status).toBe(200);
@@ -372,18 +390,21 @@ describe('Mock handler runtime parity', () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.session.accessToken as string;
 
-    const publicProfileResponse = await fetch('http://localhost/users/user-002/profile');
+    const publicProfileResponse = await fetch(
+      `http://localhost/users/${mockUserIds.maria}/profile`
+    );
     const publicProfileBody = await publicProfileResponse.json();
     expect(publicProfileResponse.status).toBe(200);
     expect(publicProfileBody.relationship).toBe('none');
     expect(publicProfileBody).toHaveProperty('followerCount');
     expect(publicProfileBody).toHaveProperty('followingCount');
 
-    const followResponse = await fetch('http://localhost/users/user-002/follow', {
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.maria}/follow`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}` },
     });
     const followBody = await followResponse.json();
+    expect(publicProfileBody.id).toMatch(uuidShape);
     expect(followResponse.status).toBe(200);
     expect(followBody.relationship).toBe('following');
     expect(followBody.followerCount).toBeGreaterThan(0);
@@ -395,7 +416,9 @@ describe('Mock handler runtime parity', () => {
     expect(followersResponse.status).toBe(200);
     expect(Array.isArray(followersBody.items)).toBe(true);
 
-    const selfFollowResponse = await fetch('http://localhost/users/user-001/follow', {
+    expect(followersBody.items[0].id).toMatch(uuidShape);
+
+    const selfFollowResponse = await fetch(`http://localhost/users/${mockUserIds.jan}/follow`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -417,6 +440,8 @@ describe('Mock handler runtime parity', () => {
     expect(publicBody.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
       true
     );
+    expect(publicBody.items[0].actor.id).toMatch(uuidShape);
+    expect(publicBody.items[0].property.id).toMatch(uuidShape);
     expect(publicBody.items[0].property).toHaveProperty('streetName');
     expect(publicBody.items[0].property).toHaveProperty('postalCode');
     expect(publicBody.items[0].property).toHaveProperty('countryCode');
@@ -651,9 +676,9 @@ describe('Fixture data integrity', () => {
   });
 
   it('getMockUser returns user for valid ID', () => {
-    const user = getMockUser('user-001');
+    const user = getMockUser(mockUserIds.jan);
     expect(user).toBeDefined();
-    expect(user?.id).toBe('user-001');
+    expect(user?.id).toBe(mockUserIds.jan);
   });
 
   it('getMockUser returns undefined for invalid ID', () => {
@@ -661,18 +686,18 @@ describe('Fixture data integrity', () => {
   });
 
   it('getMockProperty returns property for valid ID', () => {
-    const prop = getMockProperty('prop-001');
+    const prop = getMockProperty(mockPropertyIds.prinsengracht263);
     expect(prop).toBeDefined();
-    expect(prop?.id).toBe('prop-001');
+    expect(prop?.id).toBe(mockPropertyIds.prinsengracht263);
   });
 
   it('getMockComments returns comments for valid property', () => {
-    const comments = getMockComments('prop-001');
+    const comments = getMockComments(mockPropertyIds.prinsengracht263);
     expect(comments.length).toBeGreaterThan(0);
   });
 
   it('getMockGuesses returns guesses for valid property', () => {
-    const guesses = getMockGuesses('prop-001');
+    const guesses = getMockGuesses(mockPropertyIds.prinsengracht263);
     expect(guesses.length).toBeGreaterThan(0);
   });
 });

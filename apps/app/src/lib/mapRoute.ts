@@ -95,6 +95,10 @@ export interface RoutePropertyLike {
   houseNumberAddition?: string | null;
 }
 
+export type MapSocialScope = 'all' | 'following';
+
+const MAP_SOCIAL_SCOPE_QUERY_KEY = 'socialScope';
+
 const localPreviewRouteCache = new Map<string, LocalPreviewResolvedMapRoute>();
 
 function normalizePathname(pathname: string): string {
@@ -563,4 +567,26 @@ export function buildMapPreviewPathname(
   }
 
   return `/map/${trimmedSegments.join('/')}`;
+}
+
+export function parseMapSocialScopeFromSearchParams(
+  params: URLSearchParams,
+): MapSocialScope {
+  return params.get(MAP_SOCIAL_SCOPE_QUERY_KEY) === 'following'
+    ? 'following'
+    : 'all';
+}
+
+export function updateMapSocialScopeSearchParams(
+  params: URLSearchParams,
+  socialScope: MapSocialScope,
+): URLSearchParams {
+  const next = new URLSearchParams(params.toString());
+  next.delete(MAP_SOCIAL_SCOPE_QUERY_KEY);
+
+  if (socialScope === 'following') {
+    next.set(MAP_SOCIAL_SCOPE_QUERY_KEY, socialScope);
+  }
+
+  return next;
 }

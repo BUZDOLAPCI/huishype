@@ -3,9 +3,15 @@
  * Provides user profile data fetching and profile update mutations.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useAuthContext } from '../providers/AuthProvider';
 import { API_URL } from '../utils/api';
+import { activityFeedKeys } from './useActivityFeed';
 import type {
   PublicUserProfile as PublicProfile,
   MyUserProfile as MyProfile,
@@ -30,16 +36,68 @@ export interface GuessHistoryResponse {
   hasMore: boolean;
 }
 
+export type SocialFollowAnalyticsEventName =
+  | 'follow_button_impression'
+  | 'follow_button_click'
+  | 'follow_created'
+  | 'unfollow'
+  | 'following_feed_opened'
+  | 'following_feed_empty_viewed'
+  | 'following_feed_item_clicked';
+
+export interface SocialFollowAnalyticsEvent {
+  name: SocialFollowAnalyticsEventName;
+  properties: Record<string, unknown>;
+  timestamp: string;
+}
+
+interface AnalyticsGlobal {
+  __HUISHYPE_ANALYTICS_EVENTS__?: SocialFollowAnalyticsEvent[];
+  __HUISHYPE_ANALYTICS_LISTENER__?: (event: SocialFollowAnalyticsEvent) => void;
+}
+
+export function emitSocialFollowAnalyticsEvent(
+  name: SocialFollowAnalyticsEventName,
+  properties: Record<string, unknown> = {}
+) {
+  const event: SocialFollowAnalyticsEvent = {
+    name,
+    properties,
+    timestamp: new Date().toISOString(),
+  };
+  const analyticsGlobal = globalThis as typeof globalThis &
+    AnalyticsGlobal & {
+      dispatchEvent?: (event: Event) => boolean;
+      CustomEvent?: typeof CustomEvent;
+    };
+
+  analyticsGlobal.__HUISHYPE_ANALYTICS_LISTENER__?.(event);
+  analyticsGlobal.__HUISHYPE_ANALYTICS_EVENTS__?.push(event);
+
+  if (
+    typeof analyticsGlobal.dispatchEvent === 'function' &&
+    typeof analyticsGlobal.CustomEvent === 'function'
+  ) {
+    analyticsGlobal.dispatchEvent(
+      new analyticsGlobal.CustomEvent('huishype:analytics', {
+        detail: event,
+      })
+    );
+  }
+}
+
+const FOLLOW_LIST_PAGE_SIZE = 20;
+
 // --- Query Keys ---
 
 export const userKeys = {
   all: ['users'] as const,
   publicProfile: (id: string, viewerKey: string) => [...userKeys.all, 'profile', id, viewerKey] as const,
   me: (viewerKey: string) => [...userKeys.all, 'me', viewerKey] as const,
-  followers: (viewerKey: string, limit?: number, offset?: number) =>
-    [...userKeys.all, 'me', 'followers', viewerKey, { limit, offset }] as const,
-  following: (viewerKey: string, limit?: number, offset?: number) =>
-    [...userKeys.all, 'me', 'following', viewerKey, { limit, offset }] as const,
+  followers: (viewerKey: string, pageSize = FOLLOW_LIST_PAGE_SIZE) =>
+    [...userKeys.all, 'me', 'followers', viewerKey, pageSize] as const,
+  following: (viewerKey: string, pageSize = FOLLOW_LIST_PAGE_SIZE) =>
+    [...userKeys.all, 'me', 'following', viewerKey, pageSize] as const,
   myGuesses: (viewerKey: string, limit?: number, offset?: number) =>
     [...userKeys.all, 'me', 'guesses', viewerKey, { limit, offset }] as const,
 };
@@ -201,25 +259,37 @@ export function useUpdateProfile() {
   });
 }
 
-export function useFollowers(limit = 20, offset = 0) {
+export function useFollowers(pageSize = FOLLOW_LIST_PAGE_SIZE) {
   const { accessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
-  return useQuery({
-    queryKey: userKeys.followers(viewerKey, limit, offset),
-    queryFn: () => fetchFollowList(accessToken!, 'followers', limit, offset),
+  return useInfiniteQuery({
+    queryKey: userKeys.followers(viewerKey, pageSize),
+    queryFn: ({ pageParam = 0 }) =>
+      fetchFollowList(accessToken!, 'followers', pageSize, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      if (!lastPage.pagination.hasMore) return undefined;
+      return lastPageParam + lastPage.pagination.limit;
+    },
     enabled: isAuthenticated && !!accessToken,
     staleTime: 15 * 1000,
   });
 }
 
-export function useFollowing(limit = 20, offset = 0) {
+export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE) {
   const { accessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
-  return useQuery({
-    queryKey: userKeys.following(viewerKey, limit, offset),
-    queryFn: () => fetchFollowList(accessToken!, 'following', limit, offset),
+  return useInfiniteQuery({
+    queryKey: userKeys.following(viewerKey, pageSize),
+    queryFn: ({ pageParam = 0 }) =>
+      fetchFollowList(accessToken!, 'following', pageSize, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      if (!lastPage.pagination.hasMore) return undefined;
+      return lastPageParam + lastPage.pagination.limit;
+    },
     enabled: isAuthenticated && !!accessToken,
     staleTime: 15 * 1000,
   });
@@ -235,8 +305,15 @@ export function useFollowUser() {
       if (!token) throw new Error('Not authenticated');
       return updateFollowRelationship(token, userId, 'PUT');
     },
-    onSuccess: () => {
+    onSuccess: (data, userId) => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
+      queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+      emitSocialFollowAnalyticsEvent('follow_created', {
+        targetUserId: userId,
+        relationship: data.relationship,
+        followerCount: data.followerCount,
+        followingCount: data.followingCount,
+      });
     },
   });
 }
@@ -251,8 +328,15 @@ export function useUnfollowUser() {
       if (!token) throw new Error('Not authenticated');
       return updateFollowRelationship(token, userId, 'DELETE');
     },
-    onSuccess: () => {
+    onSuccess: (data, userId) => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
+      queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+      emitSocialFollowAnalyticsEvent('unfollow', {
+        targetUserId: userId,
+        relationship: data.relationship,
+        followerCount: data.followerCount,
+        followingCount: data.followingCount,
+      });
     },
   });
 }

@@ -753,6 +753,64 @@ export async function fetchBatchProperties(
   return normalizeBatchPropertiesResponse(result);
 }
 
+export type FollowingViewportActivityType = 'property_like' | 'comment' | 'price_guess';
+
+export interface FollowingViewportItem {
+  id: string;
+  coordinate: [number, number];
+  address: string;
+  city: string;
+  postalCode: string | null;
+  countryCode: string;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  activityTypes: FollowingViewportActivityType[];
+  actorCount: number;
+  lastActivityAt: string;
+}
+
+interface FollowingViewportResponse {
+  items: FollowingViewportItem[];
+}
+
+function buildFollowingViewportPath(
+  bbox: string,
+  filters: MapFilters,
+): string {
+  const params = new URLSearchParams({ bbox });
+
+  if (filters.salePriceFrom != null) {
+    params.set('salePriceFrom', String(filters.salePriceFrom));
+  }
+  if (filters.salePriceTo != null) {
+    params.set('salePriceTo', String(filters.salePriceTo));
+  }
+  if (filters.rentPriceFrom != null) {
+    params.set('rentPriceFrom', String(filters.rentPriceFrom));
+  }
+  if (filters.rentPriceTo != null) {
+    params.set('rentPriceTo', String(filters.rentPriceTo));
+  }
+  if (filters.marketState.length > 0 && filters.marketState.length < 5) {
+    params.set('marketState', filters.marketState.join(','));
+  }
+
+  return `/properties/following-viewport?${params.toString()}`;
+}
+
+export async function fetchFollowingViewport(
+  bbox: string,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<FollowingViewportItem[]> {
+  const result = await apiFetch<FollowingViewportResponse>(
+    buildFollowingViewportPath(bbox, filters),
+  );
+
+  return Array.isArray(result.items) ? result.items : [];
+}
+
 // Convenience methods
 export const api = {
   get: <T>(endpoint: string, options?: RequestInit) =>

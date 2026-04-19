@@ -12,6 +12,8 @@
  * - Deterministic user/property/comment IDs
  */
 
+import { mockPropertyIds, mockUserIds } from './fixtures.js';
+
 // ============================================
 // Fixed timestamps
 // ============================================
@@ -50,8 +52,8 @@ export const mockNotifications: MockNotification[] = [
     title: 'Maria Bakker replied to your comment',
     body: 'Eens! Maar de historische waarde van dit pand is wel uniek.',
     imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
-    propertyId: 'prop-001',
-    userId: 'user-002',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.maria,
     read: false,
     createdAt: fixedTimestamp(0, 2),
   },
@@ -61,8 +63,8 @@ export const mockNotifications: MockNotification[] = [
     title: 'Sophie Meijer liked your guess',
     body: 'Your price guess on Prinsengracht 263 received a like',
     imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
-    propertyId: 'prop-001',
-    userId: 'user-004',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.sophie,
     read: false,
     createdAt: fixedTimestamp(0, 5),
   },
@@ -71,7 +73,7 @@ export const mockNotifications: MockNotification[] = [
     type: 'property_update',
     title: 'Price changed on Herengracht 502',
     body: 'The asking price was reduced from \u20AC2,200,000 to \u20AC2,100,000',
-    propertyId: 'prop-002',
+    propertyId: mockPropertyIds.herengracht502,
     read: true,
     createdAt: fixedTimestamp(1, 3),
   },
@@ -80,7 +82,7 @@ export const mockNotifications: MockNotification[] = [
     type: 'guess_result',
     title: 'Your guess was close!',
     body: 'Coolsingel 40 sold for \u20AC460,000 \u2014 your guess was within 3%',
-    propertyId: 'prop-003',
+    propertyId: mockPropertyIds.coolsingel40,
     read: true,
     createdAt: fixedTimestamp(2, 0),
   },
@@ -98,8 +100,8 @@ export const mockNotifications: MockNotification[] = [
     title: 'Pieter Jansen replied to your comment',
     body: 'Zou het pand ook voor verhuur geschikt zijn?',
     imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
-    propertyId: 'prop-001',
-    userId: 'user-003',
+    propertyId: mockPropertyIds.prinsengracht263,
+    userId: mockUserIds.pieter,
     read: true,
     createdAt: fixedTimestamp(4, 1),
   },
@@ -124,7 +126,7 @@ export interface MockLeaderboardEntry {
 export const mockLeaderboard: MockLeaderboardEntry[] = [
   {
     rank: 1,
-    userId: 'user-004',
+    userId: mockUserIds.sophie,
     displayName: 'Sophie Meijer',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     karma: 5200,
@@ -135,7 +137,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 2,
-    userId: 'user-001',
+    userId: mockUserIds.jan,
     displayName: 'Jan de Vries',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     karma: 2500,
@@ -146,7 +148,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 3,
-    userId: 'user-006',
+    userId: mockUserIds.emma,
     displayName: 'Emma van Dijk',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
     karma: 1800,
@@ -157,7 +159,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 4,
-    userId: 'user-002',
+    userId: mockUserIds.maria,
     displayName: 'Maria Bakker',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     karma: 850,
@@ -168,7 +170,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 5,
-    userId: 'user-007',
+    userId: mockUserIds.lars,
     displayName: 'Lars Hendriks',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
     karma: 620,
@@ -179,7 +181,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 6,
-    userId: 'user-008',
+    userId: mockUserIds.anna,
     displayName: 'Anna de Groot',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
     karma: 450,
@@ -190,7 +192,7 @@ export const mockLeaderboard: MockLeaderboardEntry[] = [
   },
   {
     rank: 7,
-    userId: 'user-003',
+    userId: mockUserIds.pieter,
     displayName: 'Pieter Jansen',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     karma: 125,
@@ -220,7 +222,7 @@ export const mockProfileActivity: MockActivityItem[] = [
     type: 'guess',
     description: 'Guessed \u20AC2,850,000 on Prinsengracht 263',
     propertyAddress: 'Prinsengracht 263, Amsterdam',
-    propertyId: 'prop-001',
+    propertyId: mockPropertyIds.prinsengracht263,
     createdAt: fixedTimestamp(0, 3),
   },
   {
@@ -228,7 +230,7 @@ export const mockProfileActivity: MockActivityItem[] = [
     type: 'comment',
     description: 'Commented on Herengracht 502',
     propertyAddress: 'Herengracht 502, Amsterdam',
-    propertyId: 'prop-002',
+    propertyId: mockPropertyIds.herengracht502,
     createdAt: fixedTimestamp(1, 1),
   },
   {
@@ -236,7 +238,7 @@ export const mockProfileActivity: MockActivityItem[] = [
     type: 'like',
     description: 'Liked Coolsingel 40',
     propertyAddress: 'Coolsingel 40, Rotterdam',
-    propertyId: 'prop-003',
+    propertyId: mockPropertyIds.coolsingel40,
     createdAt: fixedTimestamp(2, 5),
   },
   {
@@ -244,7 +246,7 @@ export const mockProfileActivity: MockActivityItem[] = [
     type: 'save',
     description: 'Saved Lange Voorhout 102',
     propertyAddress: 'Lange Voorhout 102, Den Haag',
-    propertyId: 'prop-004',
+    propertyId: mockPropertyIds.langeVoorhout102,
     createdAt: fixedTimestamp(3, 2),
   },
   {
@@ -252,7 +254,7 @@ export const mockProfileActivity: MockActivityItem[] = [
     type: 'guess',
     description: 'Guessed \u20AC1,800,000 on Herengracht 502',
     propertyAddress: 'Herengracht 502, Amsterdam',
-    propertyId: 'prop-002',
+    propertyId: mockPropertyIds.herengracht502,
     createdAt: fixedTimestamp(5, 0),
   },
 ];

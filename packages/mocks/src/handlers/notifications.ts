@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
 import { fixedTimestamp } from '../data/visual-fixtures.js';
+import { mockPropertyIds, mockUserIds } from '../data/fixtures.js';
 
 type NotificationEventType =
   | 'property_comment'
@@ -47,7 +48,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     readAt: null,
     createdAt: fixedTimestamp(0, 6),
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000002',
+      id: mockUserIds.maria,
       displayName: 'Maria Bakker',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     },
@@ -55,7 +56,7 @@ const mockNotificationItems: MockNotificationItem[] = [
   {
     id: 'a0000000-0000-4000-a000-000000000102',
     eventType: 'comment_reply',
-    propertyId: 'a0000000-0000-4000-a000-000000000001',
+    propertyId: mockPropertyIds.prinsengracht263,
     commentId: 'a0000000-0000-4000-a000-000000000201',
     guessId: null,
     reactionId: null,
@@ -63,7 +64,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     readAt: null,
     createdAt: fixedTimestamp(0, 4),
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000003',
+      id: mockUserIds.pieter,
       displayName: 'Pieter Jansen',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     },
@@ -79,7 +80,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     readAt: fixedTimestamp(0, 2),
     createdAt: fixedTimestamp(0, 2),
     actor: {
-      id: 'a0000000-0000-4000-a000-000000000004',
+      id: mockUserIds.sophie,
       displayName: 'Sophie Meijer',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     },
@@ -87,7 +88,7 @@ const mockNotificationItems: MockNotificationItem[] = [
   {
     id: 'a0000000-0000-4000-a000-000000000104',
     eventType: 'property_guess',
-    propertyId: 'a0000000-0000-4000-a000-000000000003',
+    propertyId: mockPropertyIds.coolsingel40,
     commentId: null,
     guessId: 'a0000000-0000-4000-a000-000000000301',
     reactionId: null,

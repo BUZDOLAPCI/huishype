@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { db } from '../../../db/index.js';
-import { users } from '../../../db/schema.js';
+import { userFollows, users } from '../../../db/schema.js';
 import { generateAccessToken } from '../../../plugins/auth.js';
 
 // Shared builders for integration suites that create and clean up their own
@@ -65,6 +65,14 @@ interface CreateOsmBuildingRectangleOptions {
   maxLat: number;
 }
 
+interface CreateFollowOptions {
+  followerUserId: string;
+  followedUserId: string;
+  createdAt?: Date;
+}
+
+let fixtureSequence = 0;
+
 function normalizeFixtureIdentifier(label: string, maxLength: number) {
   return label
     .toLowerCase()
@@ -73,15 +81,29 @@ function normalizeFixtureIdentifier(label: string, maxLength: number) {
     .slice(0, maxLength);
 }
 
+function nextFixtureSuffix(label: string) {
+  fixtureSequence += 1;
+  const normalizedLabel = normalizeFixtureIdentifier(label, 24) || 'fixture';
+  return `${normalizedLabel}-${Date.now()}-${process.pid}-${fixtureSequence}`;
+}
+
+function normalizeHouseNumberAddition(value: string | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  return normalized === '' ? null : normalized;
+}
+
 export async function createIntegrationUser(app: FastifyInstance, options: CreateUserOptions) {
   // Integration fixtures only need a persisted user row plus a valid JWT. Do
   // not route this through OAuth, otherwise unrelated auth/profile changes can
   // break suites that are only exercising downstream API behavior.
-  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const normalizedLabel = normalizeFixtureIdentifier(options.label, 24) || 'fixture-user';
-  const username = `${normalizedLabel}-${suffix}`.slice(0, 50);
-  const emailLocalPart = `${normalizedLabel}-${suffix}`.slice(0, 64);
-  const googleId = `fixture-google-${normalizedLabel}-${suffix}`.slice(0, 255);
+  const suffix = nextFixtureSuffix(options.label);
+  const username = suffix.slice(0, 50);
+  const emailLocalPart = suffix.slice(0, 64);
+  const googleId = `fixture-google-${suffix}`.slice(0, 255);
   const displayName = options.label.slice(0, 100) || 'Fixture User';
 
   const [user] = await db
@@ -101,13 +123,14 @@ export async function createIntegrationUser(app: FastifyInstance, options: Creat
 }
 
 export async function createIntegrationProperty(options: CreatePropertyOptions = {}) {
+  const suffix = nextFixtureSuffix(options.street ?? 'fixture-street');
   const property = {
     id: options.id ?? crypto.randomUUID(),
     countryCode: options.countryCode ?? 'NL',
     nationalId: options.nationalId ?? null,
-    street: options.street ?? `Fixture Street ${Date.now()}`,
+    street: options.street ?? `Fixture Street ${suffix}`.slice(0, 255),
     houseNumber: options.houseNumber ?? 1,
-    houseNumberAddition: options.houseNumberAddition ?? null,
+    houseNumberAddition: normalizeHouseNumberAddition(options.houseNumberAddition),
     city: options.city ?? 'Fixture City',
     region: options.region ?? null,
     postalCode: options.postalCode ?? '1234AB',
@@ -261,6 +284,25 @@ export async function createIntegrationOsmBuildingRectangle(
   `);
 
   return { osmId };
+}
+
+export async function createIntegrationFollow(options: CreateFollowOptions) {
+  const createdAt = options.createdAt ?? new Date();
+
+  await db
+    .insert(userFollows)
+    .values({
+      followerUserId: options.followerUserId,
+      followedUserId: options.followedUserId,
+      createdAt,
+    })
+    .onConflictDoNothing();
+
+  return {
+    followerUserId: options.followerUserId,
+    followedUserId: options.followedUserId,
+    createdAt: createdAt.toISOString(),
+  };
 }
 
 export async function refreshLatestActiveListingsView() {

@@ -14,8 +14,6 @@ import type {
   AuthLoginResponse,
   AuthRefreshResponse,
   EmailAuthRequestResponse,
-  PropertyResolveRequest,
-  GetPropertyResponse,
   SubmitGuessResponse,
   UpdateGuessRequest,
   GetCommentsRequest,
@@ -24,7 +22,7 @@ import type {
   CreateCommentResponse,
   GetFeedRequest,
   GetSavedPropertiesRequest,
-  GetSavedPropertiesResponse,
+  GetFollowingViewportRequest,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetFeedResponse,
@@ -57,8 +55,18 @@ type MarkNotificationReadResponse =
   paths['/notifications/{id}/read']['put']['responses'][200]['content']['application/json'];
 type TrackViewResponse =
   paths['/properties/{id}/view']['post']['responses'][200]['content']['application/json'];
+type ResolvePropertyQuery =
+  paths['/properties/resolve']['get']['parameters']['query'];
 type ResolvePropertyResponse =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
+type PropertyResponse =
+  paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
+type SavedPropertiesQuery =
+  NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
+type SavedPropertiesResponse =
+  paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
+type FollowingViewportResponse =
+  paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
 
 /**
  * API client configuration options
@@ -326,24 +334,24 @@ export class HuisHypeApiClient {
 
   async resolveProperty(
     postalCode: string,
-    houseNumber: string,
+    houseNumber: string | number,
     houseNumberAddition?: string,
     countryCode?: string,
     street?: string,
     city?: string
   ): Promise<ResolvePropertyResponse> {
-    const query = {
+    const query: ResolvePropertyQuery = {
       postalCode,
-      houseNumber,
+      houseNumber: Number(houseNumber),
       ...(houseNumberAddition ? { houseNumberAddition } : {}),
       ...(countryCode ? { countryCode } : {}),
       ...(street ? { street } : {}),
       ...(city ? { city } : {}),
-    } satisfies PropertyResolveRequest;
+    };
 
     const serializedQuery: Record<string, string | number | boolean | undefined> = {
       postalCode: query.postalCode,
-      houseNumber: String(query.houseNumber),
+      houseNumber: query.houseNumber,
       houseNumberAddition: query.houseNumberAddition,
       countryCode: query.countryCode,
       street: query.street,
@@ -355,8 +363,27 @@ export class HuisHypeApiClient {
     });
   }
 
-  async getProperty(propertyId: string): Promise<GetPropertyResponse> {
-    return this.request<GetPropertyResponse>('GET', `/properties/${propertyId}`);
+  async getProperty(propertyId: string): Promise<PropertyResponse> {
+    return this.request<PropertyResponse>('GET', `/properties/${propertyId}`);
+  }
+
+  async getFollowingViewport(
+    request: GetFollowingViewportRequest
+  ): Promise<FollowingViewportResponse> {
+    const marketState =
+      Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
+
+    return this.request<FollowingViewportResponse>('GET', '/properties/following-viewport', {
+      query: {
+        bbox: request.bbox,
+        salePriceFrom: request.salePriceFrom,
+        salePriceTo: request.salePriceTo,
+        rentPriceFrom: request.rentPriceFrom,
+        rentPriceTo: request.rentPriceTo,
+        marketState,
+      },
+      requiresAuth: true,
+    });
   }
 
   // ============================================
@@ -434,10 +461,15 @@ export class HuisHypeApiClient {
   // ============================================
 
   async getSavedProperties(
-    request: GetSavedPropertiesRequest
-  ): Promise<GetSavedPropertiesResponse> {
-    return this.request<GetSavedPropertiesResponse>('GET', '/saved-properties', {
-      query: { limit: request.limit, offset: request.offset },
+    request: GetSavedPropertiesRequest = {}
+  ): Promise<SavedPropertiesResponse> {
+    const query = {
+      limit: request.limit,
+      offset: request.offset,
+    } satisfies SavedPropertiesQuery;
+
+    return this.request<SavedPropertiesResponse>('GET', '/saved-properties', {
+      query,
       requiresAuth: true,
     });
   }

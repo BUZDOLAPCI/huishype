@@ -6,7 +6,7 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import { mockUsers, mockUserProfiles } from '../data/fixtures.js';
+import { mockUserIds, mockUsers, mockUserProfiles } from '../data/fixtures.js';
 import type { AuthLoginResponse, AuthRefreshResponse } from '@huishype/shared';
 
 // Simulated token storage for mock sessions
@@ -84,7 +84,7 @@ export const authHandlers = [
     const expiresAt = new Date(Date.now() + 3600000).toISOString();
 
     mockSessions.set(newAccessToken, {
-      userId: 'user-001',
+      userId: mockUserIds.jan,
       expiresAt: new Date(expiresAt),
     });
 

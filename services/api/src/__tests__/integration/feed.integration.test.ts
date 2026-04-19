@@ -547,6 +547,43 @@ describe('Feed routes', () => {
       expect(body.items.every((item: { hasListing: boolean }) => item.hasListing === true)).toBe(true);
     });
 
+    it('uses shared listing facts instead of stale mv_latest_active_listings semantics', async () => {
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Ownership ${runId}`,
+        houseNumber: 21,
+        city: `Feed Ownership City ${runId}`,
+        postalCode: '9811AY',
+        lon: slice.lon + 0.12,
+        lat: slice.lat + 0.12,
+      });
+      cleanupPropertyIds.push(property.id);
+
+      const listing = await createIntegrationListing({
+        propertyId: property.id,
+        askingPrice: 515000,
+        createdAt: atOffset({ hours: 2 }),
+        updatedAt: atOffset({ hours: 2 }),
+      });
+
+      await refreshLatestActiveListingsView();
+
+      await db.execute(sql`
+        UPDATE listings
+        SET status = 'withdrawn', updated_at = NOW()
+        WHERE id = ${listing.id}
+      `);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/feed?filter=latest&lat=${slice.lat + 0.12}&lon=${slice.lon + 0.12}&country=${slice.country}&limit=10`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items.map((item: { id: string }) => item.id)).not.toContain(property.id);
+    });
+
     it('returns 400 for limit > 50', async () => {
       const response = await app.inject({
         method: 'GET',

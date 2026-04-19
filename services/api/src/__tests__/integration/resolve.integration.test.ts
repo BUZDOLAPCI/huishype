@@ -154,6 +154,25 @@ describe('GET /properties/resolve', () => {
     expect(body.officialValuation === null || typeof body.officialValuation === 'number').toBe(true);
   });
 
+  it('keeps /properties/resolve lean for preview bootstrap', async () => {
+    const query = knownHouseNumberAddition
+      ? `postalCode=${knownPostalCode}&houseNumber=${knownHouseNumber}&houseNumberAddition=${knownHouseNumberAddition}`
+      : `postalCode=${knownPostalCode}&houseNumber=${knownHouseNumber}`;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?${query}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).not.toHaveProperty('hasListing');
+    expect(body).not.toHaveProperty('latestListingStatus');
+    expect(body).not.toHaveProperty('socialScore');
+    expect(body).not.toHaveProperty('recentSocialScore');
+    expect(body).not.toHaveProperty('commentCount');
+  });
+
   it('should return null for a non-existent address', async () => {
     const response = await app.inject({
       method: 'GET',
@@ -195,6 +214,47 @@ describe('GET /properties/resolve', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.id).toBe(knownPropertyId);
+  });
+
+  it('canonicalizes blank stored additions as missing during resolve lookups', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const propertyId = crypto.randomUUID();
+    cleanupPropertyIds.push(propertyId);
+
+    await db.execute(sql`
+      INSERT INTO properties (
+        id,
+        country_code,
+        street,
+        house_number,
+        house_number_addition,
+        city,
+        postal_code,
+        status,
+        geometry
+      )
+      VALUES (
+        ${propertyId},
+        'NL',
+        'Resolve Blank Addition Street',
+        ${key.houseNumber},
+        '   ',
+        'Resolve Blank City',
+        ${key.postalCode},
+        'active',
+        ST_SetSRID(ST_MakePoint(5.473, 51.443), 4326)
+      )
+    `);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(propertyId);
+    expect(body.address).toBe(`${'Resolve Blank Addition Street'} ${key.houseNumber}, ${key.postalCode} Resolve Blank City`);
   });
 
   it('should differentiate between null addition and non-null addition', async () => {
