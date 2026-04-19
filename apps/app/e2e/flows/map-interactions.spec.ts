@@ -217,6 +217,43 @@ async function waitForSelectedPreview(
   return { previewCard, selectedMarker };
 }
 
+async function readSettledPreviewText(
+  page: import('@playwright/test').Page,
+  previewCard: import('@playwright/test').Locator,
+  timeout = 5_000,
+  pollMs = 100,
+  settleMs = 300,
+): Promise<string> {
+  const deadline = Date.now() + timeout;
+  let previous = '';
+
+  while (Date.now() < deadline) {
+    const current = ((await previewCard.textContent()) || '').trim();
+
+    if (current.length === 0) {
+      previous = '';
+      await page.waitForTimeout(pollMs);
+      continue;
+    }
+
+    if (current !== previous) {
+      previous = current;
+      await page.waitForTimeout(pollMs);
+      continue;
+    }
+
+    await page.waitForTimeout(settleMs);
+    const confirmed = ((await previewCard.textContent()) || '').trim();
+    if (confirmed === current) {
+      return confirmed;
+    }
+
+    previous = confirmed;
+  }
+
+  throw new Error('Timed out waiting for preview text to settle');
+}
+
 async function waitForSinglePropertyFeature(
   page: import('@playwright/test').Page,
   timeout = 8_000,
@@ -599,7 +636,7 @@ test.describe('Map Interactions', () => {
       throw new Error('Expected clicked marker to provide a propertyId');
     }
     const { previewCard } = await waitForSelectedPreview(page);
-    const initialText = (await previewCard.textContent()) || '';
+    const initialText = await readSettledPreviewText(page, previewCard);
     expect(initialText.length).toBeGreaterThan(5);
 
     const closeButton = page
@@ -611,7 +648,7 @@ test.describe('Map Interactions', () => {
     const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
     expect(reopenResult.success).toBe(true);
     await waitForSelectedPreview(page);
-    const reopenedText = (await previewCard.textContent()) || '';
+    const reopenedText = await readSettledPreviewText(page, previewCard);
     expect(reopenedText).toBe(initialText);
   });
 
