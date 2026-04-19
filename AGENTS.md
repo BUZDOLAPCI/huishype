@@ -344,7 +344,7 @@ The main agent should NOT perform implementation work directly. Instead:
 1. **Analyze** the user's request
 2. **Consult** relevant specs in `agent-rules/`
 3. **Decompose** into discrete tasks
-4. **Spawn subagents** using the Task tool for each piece of work
+4. **Spawn subagents** as separate agent threads for each substantial piece of work
 5. **Synthesize** results, verify the criteria are met with the work, if not restart from step 1 and repeat these steps until work is succesfully done, and report back.
 
 ### Subagent Types
@@ -356,9 +356,9 @@ The main agent should NOT perform implementation work directly. Instead:
 | `general-purpose` | Complex multi-step tasks requiring both exploration and modification |
 | `Bash` | Terminal operations, git, npm, docker commands |
 
-### Task Management
+### Execution Tracking
 
-For complex multi-step work, use task tools: `TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`
+For complex multi-step work, keep a clear plan in the lead thread, delegate bounded subtasks to subagents, wait for the relevant agents when their results are needed, and then either integrate the result or redirect follow-up work. Do not rely on external task-tool state as the source of truth.
 
 ### Parallel Execution
 
@@ -565,11 +565,11 @@ Before marking any expectation complete:
    - Return to Step 2 to re-run and re-verify
 4. Only when ALL tests are green: Mark task complete, move to next expectation
 
-### Task Tracking
+### Expectation Tracking
 
-Use TaskCreate/TaskUpdate for each expectation:
+Track each expectation explicitly in the lead thread:
 ```
-Task: "Reference Expectation: {name}"
+Expectation: "Reference Expectation: {name}"
 Status: pending → in_progress → completed
 ```
 
