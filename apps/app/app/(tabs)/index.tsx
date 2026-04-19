@@ -33,6 +33,7 @@ import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { FollowingMapMarker } from '@/src/components/map/FollowingMapMarker';
 import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
+import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import {
   useAmbientCommentBubbles,
@@ -62,6 +63,7 @@ import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import type { MapViewportBounds } from '@/src/utils/api';
 import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
 // Semantic color constants for inline styles (warm palette)
@@ -84,11 +86,9 @@ const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 
-type ViewportBounds = [number, number, number, number];
-
 function areViewportBoundsEqual(
-  left: ViewportBounds | null,
-  right: ViewportBounds | null,
+  left: MapViewportBounds | null,
+  right: MapViewportBounds | null,
 ): boolean {
   if (left === right) {
     return true;
@@ -98,7 +98,12 @@ function areViewportBoundsEqual(
     return false;
   }
 
-  return left.every((value, index) => value === right[index]);
+  return (
+    left.west === right.west &&
+    left.south === right.south &&
+    left.east === right.east &&
+    left.north === right.north
+  );
 }
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
@@ -179,7 +184,7 @@ export default function MapScreen() {
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
   const [socialScope, setSocialScope] = useState<MapSocialScope>('all');
-  const [followingBounds, setFollowingBounds] = useState<ViewportBounds | null>(null);
+  const [followingBounds, setFollowingBounds] = useState<MapViewportBounds | null>(null);
   const propertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -198,6 +203,7 @@ export default function MapScreen() {
   });
   const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackedFollowingEmptyViewRef = useRef(false);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -268,6 +274,11 @@ export default function MapScreen() {
           subtitle: 'Sign in to see homes with activity from people you follow.',
         });
       }
+
+      emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+        authenticated: isAuthenticated,
+        platform: Platform.OS,
+      });
 
       return 'following';
     });
@@ -346,7 +357,12 @@ export default function MapScreen() {
 
     try {
       const bounds = await mapRef.current.getBounds();
-      const nextBounds: ViewportBounds = [bounds[0], bounds[1], bounds[2], bounds[3]];
+      const nextBounds: MapViewportBounds = {
+        west: bounds[0],
+        south: bounds[1],
+        east: bounds[2],
+        north: bounds[3],
+      };
       setFollowingBounds((currentBounds) =>
         areViewportBoundsEqual(currentBounds, nextBounds) ? currentBounds : nextBounds,
       );
@@ -660,6 +676,35 @@ export default function MapScreen() {
   }, [mapLoaded, refreshFollowingBounds]);
 
   useEffect(() => {
+    const shouldTrackEmpty =
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingViewport.isLoading &&
+      (followingViewport.data?.length ?? 0) === 0;
+
+    if (!shouldTrackEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitMapFollowingAnalyticsEvent('map_following_filter_empty_viewed', {
+      platform: Platform.OS,
+    });
+  }, [
+    followingViewport.data,
+    followingViewport.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
+
+  useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();
   }, [
     ambientBubblesEnabled,
@@ -851,7 +896,7 @@ export default function MapScreen() {
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
       {/* Map View */}
-      <View style={{ flex: 1 }} onLayout={(event) => {
+      <View testID="map-viewport" style={{ flex: 1 }} onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setMapViewportSize((current) => (
           current.width === width && current.height === height
@@ -933,13 +978,22 @@ export default function MapScreen() {
             >
               <FollowingMapMarker
                 item={item}
-                onPress={(pressedItem) =>
+                onPress={(pressedItem) => {
+                  emitMapFollowingAnalyticsEvent(
+                    'map_property_click_through_from_following_filter',
+                    {
+                      actorCount: pressedItem.actorCount,
+                      activityTypes: pressedItem.activityTypes,
+                      platform: Platform.OS,
+                      propertyId: pressedItem.id,
+                    },
+                  );
                   interaction.handleFollowingOverlayPress(
                     pressedItem,
                     currentZoom,
                     cameraCommands,
-                  )
-                }
+                  );
+                }}
                 testID={`map-following-marker-${item.id}`}
               />
             </Marker>

@@ -26,11 +26,13 @@ describe('Feed routes', () => {
   const cleanupPropertyIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const runId = Date.now();
-  const coordinateOffset = (runId % 1000) / 100000;
+  const coordinateSeed = runId + process.pid * 997;
   const slice = {
-    country: 'NL',
-    lat: 0.2345 + coordinateOffset,
-    lon: 0.1234 + coordinateOffset,
+    // Keep the feed suite out of the heavily used NL integration fixture
+    // space so pagination assertions stay hermetic during the full API gate.
+    country: 'FI',
+    lon: -170 + ((coordinateSeed % 100) * 1.5),
+    lat: -70 + ((Math.floor(coordinateSeed / 100) % 80) * 1.5),
   };
 
   type FeedFixtureKey = 'recent' | 'hot' | 'warm' | 'like' | 'cold' | 'outsideRadius';

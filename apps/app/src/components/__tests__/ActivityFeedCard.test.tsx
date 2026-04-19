@@ -34,7 +34,7 @@ describe('ActivityFeedCard', () => {
         {...baseProps}
         property={{
           ...baseProps.property,
-          thumbnailUrl: 'https://cdn.example.com/listing.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/listing.jpg',
         }}
       />
     );

@@ -225,12 +225,13 @@ function derivePreviewActivity(input: {
     };
   }
 
-  if ((activityScore ?? 0) > 0) {
+  if (typeof activityScore === 'number' && activityScore > 0) {
+    const resolvedActivityScore = activityScore;
     return {
       socialScore,
       recentSocialScore,
-      activityScore,
-      activityLevel: getActivityLevel(activityScore),
+      activityScore: resolvedActivityScore,
+      activityLevel: getActivityLevel(resolvedActivityScore),
     };
   }
 

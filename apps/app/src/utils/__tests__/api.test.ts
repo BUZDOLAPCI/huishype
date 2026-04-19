@@ -174,7 +174,12 @@ describe('fetchFollowingViewport', () => {
       json: async () => ({ items: [] }),
     });
 
-    await fetchFollowingViewport([5.4, 51.4, 5.5, 51.5], {
+    await fetchFollowingViewport({
+      west: 5.4,
+      south: 51.4,
+      east: 5.5,
+      north: 51.5,
+    }, {
       salePriceFrom: 500000,
       salePriceTo: 800000,
       rentPriceFrom: null,

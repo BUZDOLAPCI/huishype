@@ -35,7 +35,7 @@ describe('PropertyHeader', () => {
       <PropertyHeader
         property={{
           ...baseProperty,
-          thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
         }}
       />
     );
@@ -50,7 +50,7 @@ describe('PropertyHeader', () => {
       <PropertyHeader
         property={{
           ...baseProperty,
-          aerialImageUrl: 'https://example.com/aerial.jpg',
+          aerialImageUrl: 'https://images.huishype.nl/aerial.jpg',
         }}
       />
     );
@@ -65,7 +65,7 @@ describe('PropertyHeader', () => {
       <PropertyHeader
         property={{
           ...baseProperty,
-          thumbnailUrl: 'https://example.com/broken-listing.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/broken-listing.jpg',
         }}
       />
     );

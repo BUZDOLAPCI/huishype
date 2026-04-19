@@ -410,6 +410,13 @@ export interface NearbyPropertyGroup extends NormalizedPropertyNodeGroup {
   distanceMeters: number;
 }
 
+export interface MapViewportBounds {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
 export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
@@ -776,9 +783,10 @@ interface FollowingViewportResponse {
 }
 
 function buildFollowingViewportPath(
-  bbox: string,
+  bounds: MapViewportBounds,
   filters: MapFilters,
 ): string {
+  const bbox = serializeViewportBounds(bounds);
   const params = new URLSearchParams({ bbox });
 
   if (filters.salePriceFrom != null) {
@@ -800,12 +808,16 @@ function buildFollowingViewportPath(
   return `/properties/following-viewport?${params.toString()}`;
 }
 
+export function serializeViewportBounds(bounds: MapViewportBounds): string {
+  return `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
+}
+
 export async function fetchFollowingViewport(
-  bbox: string,
+  bounds: MapViewportBounds,
   filters: MapFilters = createDefaultMapFilters(),
 ): Promise<FollowingViewportItem[]> {
   const result = await apiFetch<FollowingViewportResponse>(
-    buildFollowingViewportPath(bbox, filters),
+    buildFollowingViewportPath(bounds, filters),
   );
 
   return Array.isArray(result.items) ? result.items : [];

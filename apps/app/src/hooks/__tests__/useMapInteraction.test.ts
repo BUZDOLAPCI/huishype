@@ -8,7 +8,7 @@ import {
   estimateZoomForBbox,
 } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
-import type { NearbyPropertyGroup } from '../../utils/api';
+import type { NearbyPropertyGroup, PropertyResolveResult } from '../../utils/api';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR } from '../../lib/mapCameraAnchor';
 import { fetchBatchProperties } from '../../utils/api';
 import {
@@ -1075,14 +1075,13 @@ describe('useMapInteraction', () => {
       });
 
       const camera = createMockCamera();
-      const property = {
+      const property: PropertyResolveResult = {
         id: 'prop-1',
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
         countryCode: 'NL',
         officialValuation: 250000,
-        hasListing: true,
         hasActiveListing: true,
         marketState: 'for-sale',
         coordinates: { lon: 4.9, lat: 52.37 },

@@ -1,13 +1,16 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import type { QueryObserverSuccessResult } from '@tanstack/react-query';
 
 import FeedScreen from '../(tabs)/feed';
-import { useActivityFeed, useInfiniteFeed } from '@/src/hooks';
+import { useActivityFeed, useInfiniteFeed, useMyProfile } from '@/src/hooks';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import type { MyProfile } from '@/src/hooks/useUserProfile';
 
 const mockUseInfiniteFeed = useInfiniteFeed as jest.MockedFunction<typeof useInfiniteFeed>;
 const mockUseActivityFeed = useActivityFeed as jest.MockedFunction<typeof useActivityFeed>;
+const mockUseMyProfile = useMyProfile as jest.MockedFunction<typeof useMyProfile>;
 const mockUseUnreadNotificationCount =
   useUnreadNotificationCount as jest.MockedFunction<typeof useUnreadNotificationCount>;
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
@@ -21,6 +24,7 @@ jest.mock('expo-router', () => ({
 jest.mock('@/src/hooks', () => ({
   useInfiniteFeed: jest.fn(),
   useActivityFeed: jest.fn(),
+  useMyProfile: jest.fn(),
 }));
 
 jest.mock('@/src/hooks/useNotifications', () => ({
@@ -133,6 +137,85 @@ function createQueryResult<T>(pages: T[]) {
   };
 }
 
+function createMyProfileResult(
+  overrides: Partial<MyProfile> = {}
+): QueryObserverSuccessResult<MyProfile, Error> {
+  return {
+    data: {
+      id: 'viewer-1',
+      handle: 'viewer-1',
+      displayName: 'Viewer',
+      profilePhotoUrl: null,
+      homeCountry: null,
+      karma: 10,
+      karmaRank: {
+        title: 'Contributor',
+        level: 2,
+      },
+      guessCount: 0,
+      commentCount: 0,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 0,
+      followingCount: 0,
+      relationship: 'self',
+      email: 'viewer@example.com',
+      averageAccuracy: null,
+      savedCount: 0,
+      likedCount: 0,
+      lastNameChangeAt: null,
+      ...overrides,
+    },
+    dataUpdatedAt: 0,
+    error: null,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    errorUpdateCount: 0,
+    isError: false,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isLoading: false,
+    isPending: false,
+    isLoadingError: false,
+    isInitialLoading: false,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isRefetching: false,
+    isStale: false,
+    isSuccess: true,
+    isEnabled: true,
+    refetch: jest.fn(),
+    status: 'success',
+    fetchStatus: 'idle',
+    promise: Promise.resolve({
+      id: 'viewer-1',
+      handle: 'viewer-1',
+      displayName: 'Viewer',
+      profilePhotoUrl: null,
+      homeCountry: null,
+      karma: 10,
+      karmaRank: {
+        title: 'Contributor',
+        level: 2,
+      },
+      guessCount: 0,
+      commentCount: 0,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 0,
+      followingCount: 0,
+      relationship: 'self',
+      email: 'viewer@example.com',
+      averageAccuracy: null,
+      savedCount: 0,
+      likedCount: 0,
+      lastNameChangeAt: null,
+      ...overrides,
+    }),
+  };
+}
+
 function seedAuth() {
   mockUseAuthContext.mockReturnValue({
     user: {
@@ -161,6 +244,7 @@ describe('FeedScreen following surface', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     seedAuth();
+    mockUseMyProfile.mockReturnValue(createMyProfileResult());
     mockUseUnreadNotificationCount.mockReturnValue({
       data: 0,
     } as ReturnType<typeof useUnreadNotificationCount>);
@@ -236,6 +320,43 @@ describe('FeedScreen following surface', () => {
           expect.objectContaining({ name: 'following_feed_empty_viewed' }),
         ])
       );
+    });
+  });
+
+  it('scopes the property feed to the default country center', () => {
+    mockUseActivityFeed.mockImplementation((scope) =>
+      createQueryResult([
+        {
+          items: scope === 'following' ? [] : [],
+        },
+      ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', {
+      country: 'NL',
+      lat: 51.4416,
+      lon: 5.4697,
+    });
+  });
+
+  it('scopes the property feed to the signed-in user profile country when available', () => {
+    mockUseActivityFeed.mockImplementation((scope) =>
+      createQueryResult([
+        {
+          items: scope === 'following' ? [] : [],
+        },
+      ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+    mockUseMyProfile.mockReturnValue(createMyProfileResult({ homeCountry: 'DE' }));
+
+    render(<FeedScreen />);
+
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', {
+      country: 'DE',
+      lat: 52.52,
+      lon: 13.405,
     });
   });
 

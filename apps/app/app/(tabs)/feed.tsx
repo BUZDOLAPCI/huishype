@@ -14,6 +14,7 @@ import React, {
 } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
+import { isValidCountryCode } from '@huishype/shared/config';
 
 import {
   ActivityFeedCard,
@@ -28,6 +29,7 @@ import {
 import {
   useInfiniteFeed,
   useActivityFeed,
+  useMyProfile,
   type FeedTab,
   type PropertyFeedFilter,
   type FeedProperty,
@@ -39,6 +41,7 @@ import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { getDefaultCenter } from '@/src/lib/mapDefaults';
 import {
   buildPropertyRoute,
   toInternalAppHref,
@@ -56,11 +59,26 @@ const FILTER_TITLES: Record<FeedTab, string> = {
 
 export default function FeedScreen() {
   const { isAuthenticated } = useAuthContext();
+  const { data: profile } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
   const trackedFollowingEmptyViewRef = useRef(false);
+
+  const feedCountryCode = useMemo(() => {
+    const candidate = profile?.homeCountry?.toUpperCase();
+    return candidate && isValidCountryCode(candidate) ? candidate : 'NL';
+  }, [profile?.homeCountry]);
+
+  const feedScope = useMemo(() => {
+    const [lon, lat] = getDefaultCenter(feedCountryCode);
+    return {
+      country: feedCountryCode,
+      lat,
+      lon,
+    };
+  }, [feedCountryCode]);
 
   const headerRightAction = useMemo(
     () => (
@@ -96,7 +114,8 @@ export default function FeedScreen() {
   const propertyFeedFilter: PropertyFeedFilter =
     activeFilter === 'latest' ? 'latest' : 'trending';
   const feedQuery = useInfiniteFeed(
-    isPropertyFeed ? propertyFeedFilter : 'trending'
+    isPropertyFeed ? propertyFeedFilter : 'trending',
+    feedScope,
   );
 
   // Activity feed

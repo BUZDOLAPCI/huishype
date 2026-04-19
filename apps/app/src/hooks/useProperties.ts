@@ -4,7 +4,9 @@ import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import {
   fetchFollowingViewport,
+  serializeViewportBounds,
   type FollowingViewportItem,
+  type MapViewportBounds,
 } from '../utils/api';
 import {
   createDefaultMapFilters,
@@ -283,19 +285,12 @@ export function useAllProperties(limit = 100) {
 }
 
 export function useFollowingViewport(
-  bounds: {
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-  } | null,
+  bounds: MapViewportBounds | null,
   filters: MapFilters = createDefaultMapFilters(),
   enabled = true,
 ) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
-  const bbox = bounds
-    ? `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
-    : null;
+  const bbox = bounds ? serializeViewportBounds(bounds) : null;
   const viewportFilters = {
     salePriceFrom: filters.salePriceFrom,
     salePriceTo: filters.salePriceTo,
@@ -308,7 +303,7 @@ export function useFollowingViewport(
   return useQuery({
     queryKey: propertyKeys.followingViewport(viewerKey, bbox, viewportFilters),
     queryFn: async () => {
-      if (!bbox) {
+      if (!bounds) {
         return [];
       }
 
@@ -317,7 +312,7 @@ export function useFollowingViewport(
         throw new Error('Not authenticated');
       }
 
-      return fetchFollowingViewport(bbox, filters);
+      return fetchFollowingViewport(bounds, filters);
     },
     enabled: enabled && !!bbox && isAuthenticated,
     staleTime: 15 * 1000,

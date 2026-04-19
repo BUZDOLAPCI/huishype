@@ -13,6 +13,7 @@ import {
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { FollowingMapMarker } from '@/src/components/map/FollowingMapMarker';
 import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
+import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
 import { WebAmbientCommentBubblesPortal } from '@/src/components/WebAmbientCommentBubblesPortal';
 import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
@@ -28,6 +29,7 @@ import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
   normalizeRenderedPropertyGroup,
+  type MapViewportBounds,
   type PropertyResolveResult,
 } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -154,11 +156,9 @@ interface PassiveCameraPathSyncResult {
   skipNextPassiveUrlSync: boolean;
 }
 
-type ViewportBounds = [number, number, number, number];
-
 function areViewportBoundsEqual(
-  left: ViewportBounds | null,
-  right: ViewportBounds | null,
+  left: MapViewportBounds | null,
+  right: MapViewportBounds | null,
 ): boolean {
   if (left === right) {
     return true;
@@ -168,17 +168,22 @@ function areViewportBoundsEqual(
     return false;
   }
 
-  return left.every((value, index) => value === right[index]);
+  return (
+    left.west === right.west &&
+    left.south === right.south &&
+    left.east === right.east &&
+    left.north === right.north
+  );
 }
 
-function getWebMapBounds(map: maplibregl.Map): ViewportBounds {
+function getWebMapBounds(map: maplibregl.Map): MapViewportBounds {
   const bounds = map.getBounds();
-  return [
-    bounds.getWest(),
-    bounds.getSouth(),
-    bounds.getEast(),
-    bounds.getNorth(),
-  ];
+  return {
+    west: bounds.getWest(),
+    south: bounds.getSouth(),
+    east: bounds.getEast(),
+    north: bounds.getNorth(),
+  };
 }
 
 export function syncPassiveCameraPathOnMoveEnd({
@@ -596,7 +601,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [followingBounds, setFollowingBounds] = useState<ViewportBounds | null>(null);
+  const [followingBounds, setFollowingBounds] = useState<MapViewportBounds | null>(null);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
@@ -616,6 +621,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followingMarkerRefs = useRef<Array<{ marker: maplibregl.Marker; root: Root }>>([]);
+  const trackedFollowingEmptyViewRef = useRef(false);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -711,6 +717,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           subtitle: 'Sign in to see homes with activity from people you follow.',
         });
       }
+
+      emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+        authenticated: isAuthenticated,
+        platform: 'web',
+      });
 
       return 'following';
     });
@@ -1797,6 +1808,35 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [selectedMarkerCoordinate]);
 
   useEffect(() => {
+    const shouldTrackEmpty =
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingViewport.isLoading &&
+      (followingViewport.data?.length ?? 0) === 0;
+
+    if (!shouldTrackEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitMapFollowingAnalyticsEvent('map_following_filter_empty_viewed', {
+      platform: 'web',
+    });
+  }, [
+    followingViewport.data,
+    followingViewport.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
+
+  useEffect(() => {
     const map = mapRef.current;
 
     followingMarkerRefs.current.forEach(({ marker, root }) => {
@@ -1821,6 +1861,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         <FollowingMapMarker
           item={item}
           onPress={(pressedItem) => {
+            emitMapFollowingAnalyticsEvent('map_property_click_through_from_following_filter', {
+              actorCount: pressedItem.actorCount,
+              activityTypes: pressedItem.activityTypes,
+              platform: 'web',
+              propertyId: pressedItem.id,
+            });
             interaction.handleFollowingOverlayPress(
               pressedItem,
               currentZoomRef.current,

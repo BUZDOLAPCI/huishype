@@ -24,6 +24,12 @@ jest.mock('../../utils/api', () => ({
     delete: jest.fn(),
   },
   fetchFollowingViewport: jest.fn(),
+  serializeViewportBounds: jest.fn((bounds: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+  }) => `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`),
 }));
 
 const mockApi = api as jest.Mocked<typeof api>;
@@ -148,7 +154,17 @@ describe('useFollowingViewport', () => {
     mockUser = null;
 
     const { result } = renderHook(
-      () => useFollowingViewport([5.4, 51.4, 5.5, 51.5], undefined, true),
+      () =>
+        useFollowingViewport(
+          {
+            west: 5.4,
+            south: 51.4,
+            east: 5.5,
+            north: 51.5,
+          },
+          undefined,
+          true,
+        ),
       { wrapper: createWrapper() },
     );
 
@@ -179,7 +195,12 @@ describe('useFollowingViewport', () => {
     const { result } = renderHook(
       () =>
         useFollowingViewport(
-          [5.4, 51.4, 5.5, 51.5],
+          {
+            west: 5.4,
+            south: 51.4,
+            east: 5.5,
+            north: 51.5,
+          },
           {
             salePriceFrom: 300000,
             salePriceTo: 500000,
@@ -199,7 +220,12 @@ describe('useFollowingViewport', () => {
 
     expect(mockGetAccessToken).toHaveBeenCalled();
     expect(mockFetchFollowingViewport).toHaveBeenCalledWith(
-      [5.4, 51.4, 5.5, 51.5],
+      {
+        west: 5.4,
+        south: 51.4,
+        east: 5.5,
+        north: 51.5,
+      },
       expect.objectContaining({
         salePriceFrom: 300000,
         salePriceTo: 500000,

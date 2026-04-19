@@ -49,6 +49,7 @@ type MockMarkerInstance = {
 };
 
 type MockMapEventHandler = (...args: unknown[]) => void;
+type UseFollowingViewport = typeof import('@/src/hooks/useProperties').useFollowingViewport;
 
 let mockAppliedFilters = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
@@ -70,7 +71,7 @@ let mockFollowingViewportData: Array<{
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
-const mockReplacePassiveBrowserPath = jest.fn(() => true);
+const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
 let capturedMapFilterBarProps:
   | {
       socialScope?: 'all' | 'following';
@@ -220,6 +221,26 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
   },
 }));
 
+jest.mock('@/src/components/map/FollowingMapMarker', () => ({
+  FollowingMapMarker: ({ item, onPress }: { item: { id: string }; onPress: (item: { id: string }) => void }) => {
+    const ReactModule = require('react') as typeof import('react');
+    return ReactModule.createElement('button', {
+      'data-testid': `map-following-marker-${item.id}`,
+      onClick: () => onPress(item),
+      type: 'button',
+    });
+  },
+}));
+
+jest.mock('@/src/components/map/FollowingMapStateCard', () => ({
+  FollowingMapStateCard: ({ mode }: { mode: string }) => {
+    const ReactModule = require('react') as typeof import('react');
+    return ReactModule.createElement('div', {
+      'data-testid': `map-following-state-${mode}`,
+    });
+  },
+}));
+
 jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
   WebPreviewMarkerPortal: () => null,
 }));
@@ -252,14 +273,26 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
   toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
-const mockUseFollowingViewport = jest.fn(() => ({
-  data: mockFollowingViewportData,
-  isLoading: false,
-}));
+const mockUseFollowingViewport = jest.fn(
+  (
+    _bounds: unknown,
+    _filters: unknown,
+    _enabled: unknown,
+  ) => ({
+    data: mockFollowingViewportData,
+    isLoading: false,
+  }),
+);
 
-jest.mock('@/src/hooks/useProperties', () => ({
-  useFollowingViewport: (...args: unknown[]) => mockUseFollowingViewport(...args),
-}));
+jest.mock('@/src/hooks/useProperties', () => {
+  return {
+    useFollowingViewport: jest.fn((
+      bounds: Parameters<UseFollowingViewport>[0],
+      filters: Parameters<UseFollowingViewport>[1],
+      enabled: Parameters<UseFollowingViewport>[2],
+    ) => mockUseFollowingViewport(bounds, filters, enabled)),
+  };
+});
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
@@ -313,7 +346,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
   getCurrentBrowserPathname: jest.fn(() => '/'),
-  replacePassiveBrowserPath: (...args: unknown[]) => mockReplacePassiveBrowserPath(...args),
+  replacePassiveBrowserPath: jest.fn((pathname: string) => mockReplacePassiveBrowserPath(pathname)),
 }));
 
 jest.mock('@/src/lib/useResolvedMapRoute', () => ({
@@ -535,7 +568,7 @@ describe('MapScreen web filter updates', () => {
     expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith('/?socialScope=following');
     expect(map.propertySource.setTiles).not.toHaveBeenCalled();
     expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
-      [4.8, 52.3, 5.0, 52.4],
+      { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
       mockAppliedFilters,
       true,
     );
@@ -576,7 +609,7 @@ describe('MapScreen web filter updates', () => {
 
     expect(capturedMapFilterBarProps?.socialScope).toBe('following');
     expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
-      [4.8, 52.3, 5.0, 52.4],
+      { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
       mockAppliedFilters,
       true,
     );
