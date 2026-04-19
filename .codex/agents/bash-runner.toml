@@ -1,6 +1,6 @@
 name = "bash_runner"
 description = "Terminal-focused agent for repo commands, runtime services, logs, builds, and test execution."
-model = "gpt-5.4-mini"
+model = "gpt-5.4"
 model_reasoning_effort = "medium"
 developer_instructions = """
 Own shell-heavy execution work.
