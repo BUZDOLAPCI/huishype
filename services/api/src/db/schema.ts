@@ -15,6 +15,8 @@ import {
   serial,
   real,
   jsonb,
+  primaryKey,
+  check,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -451,6 +453,10 @@ export const propertyViews = pgTable(
     index('property_views_property_user_idx').on(table.propertyId, table.userId),
     index('property_views_property_session_idx').on(table.propertyId, table.sessionId),
     index('property_views_property_viewed_at_idx').on(table.propertyId, table.viewedAt),
+    check(
+      'property_views_identity_required_chk',
+      sql`${table.userId} IS NOT NULL OR ${table.sessionId} IS NOT NULL`,
+    ),
   ]
 );
 
@@ -473,6 +479,37 @@ export const savedProperties = pgTable(
   ]
 );
 
+// One-way follow graph
+export const userFollows = pgTable(
+  'user_follows',
+  {
+    followerUserId: uuid('follower_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    followedUserId: uuid('followed_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.followerUserId, table.followedUserId] }),
+    index('user_follows_follower_created_idx').on(
+      table.followerUserId,
+      sql`created_at DESC`,
+      table.followedUserId,
+    ),
+    index('user_follows_followed_created_idx').on(
+      table.followedUserId,
+      sql`created_at DESC`,
+      table.followerUserId,
+    ),
+    check(
+      'user_follows_not_self_chk',
+      sql`${table.followerUserId} <> ${table.followedUserId}`,
+    ),
+  ],
+);
+
 // Notification event types
 export const notificationEventTypeEnum = pgEnum('notification_event_type', [
   'property_comment',       // Someone commented on a property you interacted with
@@ -480,6 +517,7 @@ export const notificationEventTypeEnum = pgEnum('notification_event_type', [
   'comment_like',           // Someone liked your comment
   'property_like',          // Someone liked a property you own/listed
   'property_guess',         // Someone guessed on a property you interacted with
+  'new_follower',           // Someone followed you
   'achievement_unlocked',   // You unlocked an achievement
 ]);
 
@@ -578,6 +616,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   notifications: many(notifications, { relationName: 'recipientNotifications' }),
   pushTokens: many(pushTokens),
   achievements: many(userAchievements),
+  followers: many(userFollows, { relationName: 'followedUser' }),
+  following: many(userFollows, { relationName: 'followerUser' }),
 }));
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
@@ -710,6 +750,9 @@ export type NewReaction = typeof reactions.$inferInsert;
 export type SavedProperty = typeof savedProperties.$inferSelect;
 export type NewSavedProperty = typeof savedProperties.$inferInsert;
 
+export type UserFollow = typeof userFollows.$inferSelect;
+export type NewUserFollow = typeof userFollows.$inferInsert;
+
 export type PriceHistory = typeof priceHistory.$inferSelect;
 export type NewPriceHistory = typeof priceHistory.$inferInsert;
 
@@ -751,6 +794,19 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   property: one(properties, {
     fields: [notifications.propertyId],
     references: [properties.id],
+  }),
+}));
+
+export const userFollowsRelations = relations(userFollows, ({ one }) => ({
+  followerUser: one(users, {
+    fields: [userFollows.followerUserId],
+    references: [users.id],
+    relationName: 'followerUser',
+  }),
+  followedUser: one(users, {
+    fields: [userFollows.followedUserId],
+    references: [users.id],
+    relationName: 'followedUser',
   }),
 }));
 

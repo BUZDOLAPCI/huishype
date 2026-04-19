@@ -149,20 +149,19 @@ describe('GET /properties/resolve', () => {
     expect(body.coordinates).toHaveProperty('lat');
     expect(typeof body.coordinates.lon).toBe('number');
     expect(typeof body.coordinates.lat).toBe('number');
-    expect(typeof body.hasListing).toBe('boolean');
+    expect(typeof body.hasActiveListing).toBe('boolean');
+    expect(typeof body.marketState).toBe('string');
     expect(body.officialValuation === null || typeof body.officialValuation === 'number').toBe(true);
   });
 
-  it('should return 404 for a non-existent address', async () => {
+  it('should return null for a non-existent address', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/properties/resolve?postalCode=9999ZZ&houseNumber=99999',
     });
 
-    expect(response.statusCode).toBe(404);
-    const body = JSON.parse(response.body);
-    expect(body.error).toBe('NOT_FOUND');
-    expect(body).toHaveProperty('message');
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toBeNull();
   });
 
   it('should handle postal code with space (e.g. "5658 DP")', async () => {
@@ -199,30 +198,33 @@ describe('GET /properties/resolve', () => {
   });
 
   it('should differentiate between null addition and non-null addition', async () => {
-    // If the known property has no addition, querying with an addition should 404
-    // If the known property has an addition, querying without should 404
+    // If the known property has no addition, querying with an addition should resolve null.
+    // If the known property has an addition, querying without should resolve null unless
+    // another property exists at the same address without the addition.
     if (knownHouseNumberAddition) {
       // Property has addition - query without it should fail
       const response = await app.inject({
         method: 'GET',
         url: `/properties/resolve?postalCode=${knownPostalCode}&houseNumber=${knownHouseNumber}`,
       });
-      // Could be 200 (if a property without addition also exists) or 404
-      // We just check it doesn't return the same property
-      if (response.statusCode === 200) {
-        const body = JSON.parse(response.body);
+      const body = JSON.parse(response.body);
+      // Could resolve to a different property if a no-addition peer exists.
+      // Otherwise the nullable not-found contract returns null with 200.
+      if (body) {
         // It should be a different property (or the same address without addition)
         expect(body.id).not.toBe(knownPropertyId);
       } else {
-        expect(response.statusCode).toBe(404);
+        expect(response.statusCode).toBe(200);
+        expect(body).toBeNull();
       }
     } else {
-      // Property has no addition - query with a fake addition should 404
+      // Property has no addition - query with a fake addition should resolve null
       const response = await app.inject({
         method: 'GET',
         url: `/properties/resolve?postalCode=${knownPostalCode}&houseNumber=${knownHouseNumber}&houseNumberAddition=ZZZ`,
       });
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toBeNull();
     }
   });
 

@@ -6,53 +6,21 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
+import type {
+  ActivityEventType,
+  ActivityActor,
+  ActivityProperty,
+  ActivityItem,
+  ActivityResponse,
+} from '@huishype/shared';
 
-// --- Types ---
-
-export type ActivityEventType = 'property_like' | 'comment' | 'price_guess' | 'save';
-
-export interface ActivityActor {
-  id: string;
-  displayName: string;
-  handle: string;
-  profilePhotoUrl: string | null;
-}
-
-export interface ActivityProperty {
-  id: string;
-  address: string;
-  streetName: string;
-  houseNumber: number;
-  houseNumberAddition: string | null;
-  city: string;
-  postalCode: string;
-  countryCode: string;
-  thumbnailUrl: string | null;
-}
-
-export interface ActivityItem {
-  id: string;
-  eventType: ActivityEventType;
-  actor: ActivityActor;
-  property: ActivityProperty;
-  createdAt: string;
-  meta: Record<string, unknown> | null;
-}
-
-interface ActivityApiResponse {
-  items: ActivityItem[];
-  pagination: {
-    limit: number;
-    offset: number;
-    hasMore: boolean;
-  };
-}
+export type { ActivityEventType, ActivityActor, ActivityProperty, ActivityItem };
 
 // --- Query Keys ---
 
 export const userActivityKeys = {
   all: ['user-activity'] as const,
-  mine: () => [...userActivityKeys.all, 'mine'] as const,
+  mine: (viewerKey: string) => [...userActivityKeys.all, 'mine', viewerKey] as const,
 };
 
 // --- API Function ---
@@ -61,7 +29,7 @@ async function fetchMyActivity(
   accessToken: string,
   limit: number,
   offset: number
-): Promise<ActivityApiResponse> {
+): Promise<ActivityResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
@@ -87,10 +55,11 @@ const PAGE_SIZE = 20;
 
 /** Fetch the authenticated user's personal activity history with infinite scroll. */
 export function useUserActivity() {
-  const { accessToken, isAuthenticated } = useAuthContext();
+  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
 
   return useInfiniteQuery({
-    queryKey: userActivityKeys.mine(),
+    queryKey: userActivityKeys.mine(viewerKey),
     queryFn: ({ pageParam = 0 }) =>
       fetchMyActivity(accessToken!, PAGE_SIZE, pageParam),
     initialPageParam: 0,

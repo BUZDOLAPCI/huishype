@@ -20,6 +20,14 @@ const EXPECTATION_NAME = 'property-bottom-sheet-details';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 const ZOOM_LEVEL = 17;
+const PREVIEWABLE_PROPERTY_LAYERS = [
+  'active-nodes',
+  'ghost-nodes',
+  'property-clusters',
+  'ghost-clusters',
+] as const;
+const PROPERTY_DETAIL_ROUTE =
+  /\/properties\/(?!batch(?:$|[/?#])|nearby(?:$|[/?#])|resolve(?:$|[/?#]))[^/?#]+(?:\?.*)?$/;
 
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
@@ -61,23 +69,17 @@ const MOCK_PROPERTY_DETAILS = {
 };
 
 async function setupPropertyMocking(page: Page): Promise<void> {
-  await page.route('**/properties/*', async (route: Route) => {
-    const url = route.request().url();
+  await page.route(PROPERTY_DETAIL_ROUTE, async (route: Route) => {
+    const propertyId = new URL(route.request().url()).pathname.split('/').pop();
 
-    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
-      const propertyId = url.split('/').pop();
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...MOCK_PROPERTY_DETAILS,
-          id: propertyId,
-        }),
-      });
-      return;
-    }
-
-    await route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...MOCK_PROPERTY_DETAILS,
+        id: propertyId,
+      }),
+    });
   });
 }
 
@@ -129,45 +131,298 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   );
 }
 
+async function waitForPreviewCardVisible(page: Page, timeout = 2000): Promise<boolean> {
+  const previewCard = page.locator('[data-testid="group-preview-card"]');
+  const selectedMarker = page.locator('[data-testid="selected-marker"]');
+
+  try {
+    await expect(selectedMarker).toBeVisible({ timeout });
+    await expect(previewCard).toBeVisible({ timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function collectPreviewOpeningTargets(page: Page): Promise<Array<{
+  screenX: number;
+  screenY: number;
+  propertyId?: string;
+  pointCount: number;
+  distanceToCenter: number;
+}>> {
+  return page.evaluate((layerNames) => {
+    const PREVIEW_MEMBER_LIMIT = 30;
+
+    const toNumber = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+
+      if (typeof value === 'string' && value.trim().length > 0) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      return null;
+    };
+
+    const parsePropertyIds = (value: unknown): string[] => {
+      if (Array.isArray(value)) {
+        return value
+          .map((entry) => (entry == null ? '' : String(entry).trim()))
+          .filter(Boolean);
+      }
+
+      if (typeof value !== 'string') {
+        return [];
+      }
+
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .map((entry) => (entry == null ? '' : String(entry).trim()))
+              .filter(Boolean);
+          }
+        } catch {
+          // Fall through to comma parsing below.
+        }
+      }
+
+      return trimmed
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    };
+
+    const mapInstance = window.__mapInstance;
+    if (!mapInstance || !mapInstance.isStyleLoaded?.()) {
+      return [];
+    }
+
+    const canvas = mapInstance.getCanvas();
+    if (!canvas) {
+      return [];
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const canvasCenterX = canvas.width / 2;
+    const canvasCenterY = canvas.height / 2;
+    const edgeMargin = 40;
+    const targets: Array<{
+      screenX: number;
+      screenY: number;
+      propertyId?: string;
+      pointCount: number;
+      isSingle: boolean;
+      distanceToCenter: number;
+    }> = [];
+
+    for (const layerName of layerNames) {
+      try {
+        if (!mapInstance.getLayer(layerName)) {
+          continue;
+        }
+
+        const features = mapInstance.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: [layerName] }
+        ) || [];
+
+        for (const feature of features) {
+          if (feature.geometry?.type !== 'Point') {
+            continue;
+          }
+
+          const point = mapInstance.project(feature.geometry.coordinates);
+          const pointCount = toNumber(feature.properties?.point_count) ?? 1;
+          const previewPropertyIds = parsePropertyIds(feature.properties?.preview_property_ids);
+          const propertyIds = parsePropertyIds(feature.properties?.property_ids);
+          const isSingle = pointCount <= 1;
+          const isPreviewableCluster =
+            pointCount <= PREVIEW_MEMBER_LIMIT &&
+            (previewPropertyIds.length > 0 || propertyIds.length > 0);
+          const inBounds =
+            point.x >= edgeMargin &&
+            point.x <= canvas.width - edgeMargin &&
+            point.y >= edgeMargin &&
+            point.y <= canvas.height - edgeMargin;
+
+          if (!inBounds || (!isSingle && !isPreviewableCluster)) {
+            continue;
+          }
+
+          targets.push({
+            screenX: rect.left + point.x,
+            screenY: rect.top + point.y,
+            propertyId:
+              feature.properties?.id == null ? undefined : String(feature.properties.id),
+            pointCount,
+            isSingle,
+            distanceToCenter: Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
+          });
+        }
+      } catch {
+        // Keep scanning the remaining layers.
+      }
+    }
+
+    return targets
+      .sort((a, b) => {
+        if (a.isSingle !== b.isSingle) {
+          return a.isSingle ? -1 : 1;
+        }
+
+        if (a.pointCount !== b.pointCount) {
+          return a.pointCount - b.pointCount;
+        }
+
+        return a.distanceToCenter - b.distanceToCenter;
+      })
+      .slice(0, 8)
+      .map(({ isSingle: _isSingle, ...target }) => target);
+  }, [...PREVIEWABLE_PROPERTY_LAYERS]);
+}
+
+async function openPreviewCard(page: Page): Promise<void> {
+  if (await waitForPreviewCardVisible(page, 1500)) {
+    return;
+  }
+
+  const initialClickResult = await clickOnPropertyMarker(page);
+  expect(initialClickResult.success, 'Expected to find a property marker to click').toBe(true);
+
+  if (await waitForPreviewCardVisible(page, 2500)) {
+    return;
+  }
+
+  for (let round = 1; round <= 3; round += 1) {
+    const targets = await collectPreviewOpeningTargets(page);
+    console.log(
+      `Preview-opening targets (round ${round}): ${JSON.stringify(
+        targets.map((target) => ({
+          x: Math.round(target.screenX),
+          y: Math.round(target.screenY),
+          propertyId: target.propertyId,
+          pointCount: target.pointCount,
+          distanceToCenter: Math.round(target.distanceToCenter),
+        }))
+      )}`
+    );
+
+    for (const [index, target] of targets.entries()) {
+      await page.mouse.move(target.screenX, target.screenY);
+      await page.mouse.click(target.screenX, target.screenY);
+      console.log(
+        `Preview click round=${round} target=${index + 1}/${targets.length} ` +
+          `propertyId=${target.propertyId ?? 'unknown'} pointCount=${target.pointCount}`
+      );
+
+      if (await waitForPreviewCardVisible(page, 1800)) {
+        return;
+      }
+    }
+
+    const retryClickResult = await clickOnPropertyMarker(page);
+    console.log(`Fallback marker click round=${round}: ${JSON.stringify(retryClickResult)}`);
+    if (await waitForPreviewCardVisible(page, 2000)) {
+      return;
+    }
+  }
+
+  expect(await waitForPreviewCardVisible(page, 500), 'Preview card should appear after clicking a rendered property feature').toBe(true);
+}
+
+async function waitForPanelOpen(page: Page, timeout = 10000): Promise<boolean> {
+  try {
+    await page.waitForFunction(() => {
+      const panelElement = document.querySelector('[data-testid="web-property-panel"]');
+      const backdropElement = document.querySelector('[data-testid="web-panel-backdrop"]');
+      if (!panelElement || !backdropElement) return false;
+
+      const backdropStyle = window.getComputedStyle(backdropElement);
+      return (
+        (panelElement.className.includes('partial') ||
+          panelElement.className.includes('full') ||
+          panelElement.className.includes('open')) &&
+        backdropElement.classList.contains('open') &&
+        parseFloat(backdropStyle.opacity || '0') > 0.1
+      );
+    }, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openExpandedPanelFromPreview(page: Page): Promise<void> {
+  const previewCard = page.locator('[data-testid="group-preview-card"]');
+  const previewPressable = page.getByTestId('property-preview-card').first();
+  const previewAddress = page.getByTestId('property-preview-address').first();
+
+  await expect(previewCard).toBeVisible({ timeout: 10000 });
+  await expect(previewPressable).toBeVisible({ timeout: 10000 });
+
+  const clickStrategies: Array<() => Promise<void>> = [
+    async () => {
+      const box = await previewPressable.boundingBox();
+      if (!box) {
+        throw new Error('Preview pressable has no bounding box');
+      }
+
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3);
+    },
+    async () => {
+      await previewPressable.click({ force: true });
+    },
+    async () => {
+      await previewAddress.click({ force: true });
+    },
+    async () => {
+      const box = await previewCard.boundingBox();
+      if (!box) {
+        throw new Error('Preview card has no bounding box');
+      }
+
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3);
+    },
+  ];
+
+  for (let attempt = 0; attempt < clickStrategies.length; attempt += 1) {
+    try {
+      await clickStrategies[attempt]();
+      console.log(`Preview-card tap attempt ${attempt + 1}`);
+    } catch (error) {
+      console.log(`Preview-card tap attempt ${attempt + 1} failed: ${String(error)}`);
+      continue;
+    }
+
+    if (await waitForPanelOpen(page, 3500)) {
+      return;
+    }
+  }
+
+  expect(await waitForPanelOpen(page, 500), 'Property panel should open after tapping the preview card').toBe(true);
+}
+
 async function openExpandedPropertyPanel(page: Page): Promise<void> {
   await waitForMapReady(page);
   await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
-
-  const clickResult = await clickOnPropertyMarker(page);
-  expect(clickResult.success, 'Expected to find a property marker to click').toBe(true);
-
-  const previewCard = page.locator('[data-testid="group-preview-card"]');
-  await expect(previewCard).toBeVisible({ timeout: 10000 });
-  await page.waitForTimeout(1500);
-
-  const previewCardBox = await previewCard.boundingBox();
-  if (previewCardBox) {
-    await page.mouse.click(
-      previewCardBox.x + previewCardBox.width / 2,
-      previewCardBox.y + previewCardBox.height / 3
-    );
-  } else {
-    await previewCard.click({ force: true });
-  }
+  await openPreviewCard(page);
+  await page.waitForTimeout(800);
+  await openExpandedPanelFromPreview(page);
 
   const panel = page.locator('[data-testid="web-property-panel"]');
   const backdrop = page.locator('[data-testid="web-panel-backdrop"]');
 
-  await page.waitForFunction(() => {
-    const panelElement = document.querySelector('[data-testid="web-property-panel"]');
-    const backdropElement = document.querySelector('[data-testid="web-panel-backdrop"]');
-    if (!panelElement || !backdropElement) return false;
-
-    const backdropStyle = window.getComputedStyle(backdropElement);
-    return (
-      (panelElement.className.includes('partial') ||
-        panelElement.className.includes('full') ||
-        panelElement.className.includes('open')) &&
-      backdropElement.classList.contains('open') &&
-      parseFloat(backdropStyle.opacity || '0') > 0.1
-    );
-  }, { timeout: 10000 });
-
+  expect(await waitForPanelOpen(page, 10000), 'Expected the property panel to be open').toBe(true);
   await expect(panel).toBeVisible({ timeout: 10000 });
   await expect(backdrop).toHaveClass(/open/, { timeout: 10000 });
   await expect(panel.getByText('Property Details').first()).toBeVisible({ timeout: 10000 });

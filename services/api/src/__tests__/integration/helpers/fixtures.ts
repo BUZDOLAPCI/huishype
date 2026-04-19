@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { db } from '../../../db/index.js';
+import { users } from '../../../db/schema.js';
+import { generateAccessToken } from '../../../plugins/auth.js';
 
 // Shared builders for integration suites that create and clean up their own
 // rows instead of relying on ambient seeded property/listing data.
@@ -63,35 +65,38 @@ interface CreateOsmBuildingRectangleOptions {
   maxLat: number;
 }
 
-function buildMockGoogleToken(label: string) {
-  const payload = Buffer.from(
-    JSON.stringify({
-      email: `${label}@gmail.com`,
-      googleId: `gid${label}`,
-      name: label,
-    }),
-    'utf8',
-  ).toString('base64url');
-
-  return `mock-google:${payload}`;
+function normalizeFixtureIdentifier(label: string, maxLength: number) {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength);
 }
 
 export async function createIntegrationUser(app: FastifyInstance, options: CreateUserOptions) {
-  const suffix = `${options.label}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const response = await app.inject({
-    method: 'POST',
-    url: '/auth/google',
-    payload: { idToken: buildMockGoogleToken(suffix) },
-  });
+  // Integration fixtures only need a persisted user row plus a valid JWT. Do
+  // not route this through OAuth, otherwise unrelated auth/profile changes can
+  // break suites that are only exercising downstream API behavior.
+  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const normalizedLabel = normalizeFixtureIdentifier(options.label, 24) || 'fixture-user';
+  const username = `${normalizedLabel}-${suffix}`.slice(0, 50);
+  const emailLocalPart = `${normalizedLabel}-${suffix}`.slice(0, 64);
+  const googleId = `fixture-google-${normalizedLabel}-${suffix}`.slice(0, 255);
+  const displayName = options.label.slice(0, 100) || 'Fixture User';
 
-  if (response.statusCode !== 200 && response.statusCode !== 201) {
-    throw new Error(`Failed to create integration user for ${options.label}: ${response.body}`);
-  }
+  const [user] = await db
+    .insert(users)
+    .values({
+      googleId,
+      email: `${emailLocalPart}@gmail.com`,
+      username,
+      displayName,
+    })
+    .returning({ id: users.id });
 
-  const body = JSON.parse(response.body);
   return {
-    userId: body.session.user.id as string,
-    accessToken: body.session.accessToken as string,
+    userId: user.id,
+    accessToken: generateAccessToken(app, user.id),
   };
 }
 

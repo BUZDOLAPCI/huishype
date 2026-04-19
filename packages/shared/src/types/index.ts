@@ -11,6 +11,13 @@ export type {
   UserSummary,
   KarmaRank,
   InternalKarmaMetrics,
+  FollowRelationship,
+  KarmaRankSummary,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListUser,
+  FollowListResponse,
+  FollowRelationshipResponse,
 } from './user.js';
 
 // Property types
@@ -110,10 +117,12 @@ export type {
 // Activity types
 export type {
   ActivityEventType,
+  PublicActivityEventType,
   ActivityActor,
   ActivityProperty,
   ActivityItem,
   ActivityResponse,
+  PublicActivityResponse,
 } from './activity.js';
 
 // Leaderboard types
@@ -141,9 +150,15 @@ export type {
   AuthMeResponse,
   // User
   GetUserProfileResponse,
+  GetMyProfileResponse,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetUserGuessHistoryResponse,
+  GetFollowListRequest,
+  GetFollowersResponse,
+  GetFollowingResponse,
+  FollowUserResponse,
+  UnfollowUserResponse,
   // Property
   PropertyResolveRequest,
   PropertyResolveResponse,
@@ -182,6 +197,8 @@ export type {
   // Leaderboard
   GetLeaderboardResponse,
   // Activity
+  GetActivityRequest,
+  GetUserActivityRequest,
   GetActivityResponse,
   GetUserActivityResponse,
   // Achievement

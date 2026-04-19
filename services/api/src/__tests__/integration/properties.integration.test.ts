@@ -483,13 +483,20 @@ describe('Property routes', () => {
       expect(body).toHaveProperty('primaryPropertyId');
       expect(body).toHaveProperty('groupKind');
       expect(body).toHaveProperty('distanceMeters');
-      expect(body).toHaveProperty('hasListing');
-      expect(body).toHaveProperty('activityScore');
+      expect(body).toHaveProperty('activeListingCount');
+      expect(body).toHaveProperty('socialCount');
+      expect(body).toHaveProperty('recentSocialCount');
+      expect(body).toHaveProperty('socialScoreTotal');
+      expect(body).toHaveProperty('socialScoreMax');
+      expect(body).toHaveProperty('recentSocialScoreTotal');
+      expect(body).not.toHaveProperty('hasListing');
+      expect(body).not.toHaveProperty('activityScore');
     });
 
     it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
       const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';
+      const isolatedNearbyFixture = { lon: 0.123456, lat: 0.123456 };
 
       await db.execute(sql`
         INSERT INTO properties (
@@ -510,7 +517,7 @@ describe('Property routes', () => {
           'RemoteCity',
           '9999ZZ',
           'active',
-          ST_SetSRID(ST_MakePoint(6.75, 53.2), 4326)
+          ST_SetSRID(ST_MakePoint(${isolatedNearbyFixture.lon}, ${isolatedNearbyFixture.lat}), 4326)
         )
       `);
 
@@ -554,7 +561,7 @@ describe('Property routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: '/properties/nearby?lon=6.75&lat=53.2&zoom=20',
+          url: `/properties/nearby?lon=${isolatedNearbyFixture.lon}&lat=${isolatedNearbyFixture.lat}&zoom=20`,
         });
 
         expect(response.statusCode).toBe(200);

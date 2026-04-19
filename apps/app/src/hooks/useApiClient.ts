@@ -6,6 +6,7 @@
 import { useMemo, useCallback } from 'react';
 import { createApiClient, type HuisHypeApiClient } from '@huishype/api-client';
 import { useAuthContext } from '../providers/AuthProvider';
+import { getAnonymousSessionId } from '../lib/anonymousSession';
 import { API_URL } from '../utils/api';
 
 const API_BASE_URL = API_URL;
@@ -52,6 +53,7 @@ export function useApiClient(): HuisHypeApiClient {
     const apiClient = createApiClient({
       baseUrl: API_BASE_URL,
       accessToken: accessToken || undefined,
+      sessionIdResolver: getAnonymousSessionId,
       onAuthError: handleAuthError,
       onTokenRefresh: handleTokenRefresh,
     });

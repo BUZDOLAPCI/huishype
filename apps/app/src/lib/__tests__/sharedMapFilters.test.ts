@@ -148,9 +148,48 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: 2000,
           marketState: ['for-rent'],
+          activity: 'all',
         },
       ),
     ).toBe(true);
+  });
+
+  it('applies the public activity facet independently of market state', () => {
+    expect(
+      doesMapFilterCandidateMatch(
+        {
+          marketState: 'for-sale',
+          socialScore: 12,
+          recentSocialScore: 0,
+        },
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale'],
+          activity: 'social',
+        },
+      ),
+    ).toBe(true);
+
+    expect(
+      doesMapFilterCandidateMatch(
+        {
+          marketState: 'for-sale',
+          socialScore: 12,
+          recentSocialScore: 0,
+        },
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale'],
+          activity: 'recent',
+        },
+      ),
+    ).toBe(false);
   });
 
   it('treats the default market-state set as no status pills selected', () => {
@@ -162,6 +201,7 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: null,
           marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+          activity: 'all',
         },
         'for-sale',
       ),
@@ -176,6 +216,7 @@ describe('sharedMapFilters price suggestions', () => {
         rentPriceFrom: null,
         rentPriceTo: null,
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+        activity: 'all',
       },
       'sold',
     );
@@ -189,5 +230,6 @@ describe('sharedMapFilters price suggestions', () => {
       'rented',
       'not-listed',
     ]);
+    expect(reset.activity).toBe('all');
   });
 });

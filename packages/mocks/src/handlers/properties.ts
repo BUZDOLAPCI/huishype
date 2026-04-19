@@ -13,7 +13,6 @@ import {
   getMockGuesses,
 } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
-import type { PropertyResolveResponse } from '@huishype/shared';
 
 const MOCK_NEARBY_CLUSTER_IDS = [
   'a0000000-0000-4000-a000-000000000001',
@@ -31,23 +30,27 @@ function buildNearbySingleResponse({
   nodeClass,
   id,
   property,
-  hasListing,
-  activityScore,
-  activityScoreTotal,
-  likeCount,
+  hasActiveListing,
+  marketState,
+  socialCount,
+  recentSocialCount,
+  socialScoreTotal,
+  socialScoreMax,
+  recentSocialScoreTotal,
   commentCount,
-  guessCount,
   distanceMeters,
 }: {
   nodeClass: 'active' | 'ghost';
   id: string;
   property: (typeof mockPropertyDetails)[number];
-  hasListing: boolean;
-  activityScore: number;
-  activityScoreTotal: number;
-  likeCount: number;
+  hasActiveListing: boolean;
+  marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
   commentCount: number;
-  guessCount: number;
   distanceMeters: number;
 }) {
   return {
@@ -64,16 +67,19 @@ function buildNearbySingleResponse({
     city: property.city,
     postalCode: property.postalCode,
     officialValuation: property.officialValuation ?? null,
-    hasListing,
-    askingPrice: hasListing ? property.activeListing?.askingPrice ?? null : null,
-    activityScore,
-    activityScoreTotal,
-    likeCount,
+    activeListingCount: hasActiveListing ? 1 : 0,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
     commentCount,
-    guessCount,
-    thumbnailUrl: hasListing ? property.activeListing?.thumbnailUrl ?? null : null,
+    askingPrice: hasActiveListing ? property.activeListing?.askingPrice ?? null : null,
+    thumbnailUrl: hasActiveListing ? property.activeListing?.thumbnailUrl ?? null : null,
     yearBuilt: property.yearBuilt ?? null,
     floorAreaM2: property.floorAreaM2 ?? null,
+    hasActiveListing,
+    marketState,
     distanceMeters,
   };
 }
@@ -104,7 +110,7 @@ export const propertyHandlers = [
   /**
    * GET /properties/resolve - Resolve address to property
    */
-  http.get('/properties/resolve', ({ request }) => {
+  http.get('*/properties/resolve', ({ request }) => {
     const url = new URL(request.url);
     const postalCode = url.searchParams.get('postalCode');
     const houseNumber = url.searchParams.get('houseNumber');
@@ -117,13 +123,14 @@ export const propertyHandlers = [
       );
     }
 
-    const response: PropertyResolveResponse = {
+    const response = {
       id: 'a0000000-0000-4000-a000-000000000001',
       address: `Mockstraat ${houseNumber}, ${postalCode} Amsterdam`,
       postalCode: postalCode.replace(/\s/g, '').toUpperCase(),
       city: 'Amsterdam',
       coordinates: { lon: 4.8952, lat: 52.3702 },
-      hasListing: true,
+      hasActiveListing: true,
+      marketState: 'for-sale' as const,
       officialValuation: 450000,
       countryCode,
     };
@@ -134,7 +141,7 @@ export const propertyHandlers = [
   /**
    * GET /properties/nearby - Nearby properties
    */
-  http.get('/properties/nearby', ({ request }) => {
+  http.get('*/properties/nearby', ({ request }) => {
     const url = new URL(request.url);
     const zoom = Number.parseFloat(url.searchParams.get('zoom') || '17');
     const lon = Number.parseFloat(url.searchParams.get('lon') || '0');
@@ -167,16 +174,19 @@ export const propertyHandlers = [
         city: null,
         postalCode: null,
         officialValuation: null,
-        hasListing: true,
-        askingPrice: null,
-        activityScore: 85,
-        activityScoreTotal: 210,
-        likeCount: 12,
+        activeListingCount: 3,
+        socialCount: 4,
+        recentSocialCount: 2,
+        socialScoreTotal: 210,
+        socialScoreMax: 85,
+        recentSocialScoreTotal: 94,
         commentCount: 4,
-        guessCount: 3,
+        askingPrice: null,
         thumbnailUrl: null,
         yearBuilt: null,
         floorAreaM2: null,
+        hasActiveListing: null,
+        marketState: null,
         distanceMeters: 12,
       });
     }
@@ -188,12 +198,14 @@ export const propertyHandlers = [
           nodeClass: 'ghost',
           id: MOCK_NEARBY_GHOST_SINGLE_ID,
           property,
-          hasListing: false,
-          activityScore: 0,
-          activityScoreTotal: 0,
-          likeCount: 0,
+          hasActiveListing: false,
+          marketState: 'not-listed',
+          socialCount: 0,
+          recentSocialCount: 0,
+          socialScoreTotal: 0,
+          socialScoreMax: 0,
+          recentSocialScoreTotal: 0,
           commentCount: 0,
-          guessCount: 0,
           distanceMeters: 9,
         }),
       );
@@ -205,15 +217,71 @@ export const propertyHandlers = [
         nodeClass: 'active',
         id: MOCK_NEARBY_ACTIVE_SINGLE_ID,
         property,
-        hasListing: true,
-        activityScore: 85,
-        activityScoreTotal: 85,
-        likeCount: 12,
+        hasActiveListing: true,
+        marketState: 'for-sale',
+        socialCount: 1,
+        recentSocialCount: 1,
+        socialScoreTotal: 85,
+        socialScoreMax: 85,
+        recentSocialScoreTotal: 28,
         commentCount: 4,
-        guessCount: 3,
         distanceMeters: 12,
       }),
     );
+  }),
+
+  /**
+   * GET /properties/following-viewport - Following-only sparse overlay
+   */
+  http.get('*/properties/following-viewport', ({ request }) => {
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    if (!authUser) {
+      return HttpResponse.json(
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const bbox = url.searchParams.get('bbox');
+    if (!bbox) {
+      return HttpResponse.json(
+        { error: 'BAD_REQUEST', message: 'bbox is required' },
+        { status: 400 },
+      );
+    }
+
+    const [first, second] = mockPropertyDetails;
+    const items = [first, second]
+      .filter((property): property is (typeof mockPropertyDetails)[number] => Boolean(property))
+      .filter((property) => {
+        const marketState = property.activeListing ? 'for-sale' : 'not-listed';
+        const requestedStates = url.searchParams.get('marketState')?.split(',').filter(Boolean) ?? [];
+        if (requestedStates.length === 0) {
+          return true;
+        }
+        return requestedStates.includes(marketState);
+      })
+      .map((property, index) => ({
+        id: property.id,
+        coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+        address: property.address,
+        city: property.city,
+        postalCode: property.postalCode ?? null,
+        countryCode: property.countryCode,
+        askingPrice: property.activeListing?.askingPrice ?? null,
+        thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+        hasActiveListing: Boolean(property.activeListing),
+        marketState: property.activeListing ? 'for-sale' as const : 'not-listed' as const,
+        activityTypes:
+          index === 0
+            ? (['property_like', 'comment'] as const)
+            : (['price_guess'] as const),
+        actorCount: index === 0 ? 2 : 1,
+        lastActivityAt: ['2026-04-18T12:00:00.000Z', '2026-04-17T09:30:00.000Z'][index],
+      }));
+
+    return HttpResponse.json({ items });
   }),
 
   /**
@@ -396,8 +464,31 @@ export const propertyHandlers = [
   /**
    * POST /properties/:id/view - Track property view
    */
-  http.post('/properties/:propertyId/view', () => {
-    return new HttpResponse(null, { status: 204 });
+  http.post('*/properties/:propertyId/view', ({ params, request }) => {
+    const property = getMockProperty(params.propertyId as string);
+    if (!property) {
+      return HttpResponse.json(
+        { error: 'NOT_FOUND', message: 'Property not found' },
+        { status: 404 },
+      );
+    }
+
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    const sessionId = request.headers.get('x-session-id');
+    if (!authUser && !sessionId) {
+      return HttpResponse.json(
+        {
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    return HttpResponse.json({
+      viewCount: property.activity.viewCount + 1,
+      uniqueViewers: property.activity.uniqueViewerCount + (sessionId ? 1 : 0),
+    });
   }),
 
   /**

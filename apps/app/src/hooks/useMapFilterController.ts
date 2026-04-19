@@ -8,7 +8,9 @@ import {
   parseDraftNumber,
   resetMapFilterCategory,
   sanitizeDraftNumber,
+  toggleMapActivityFilter,
   toggleMapStatusPill,
+  type MapActivityFilter,
   type MapFilterCategory,
   type MapFilterDraftState,
   type MapFilters,
@@ -42,6 +44,7 @@ export interface UseMapFilterControllerReturn {
   ) => void;
   commitPriceDraft: () => void;
   toggleStatusPill: (value: MapStatusPillState) => void;
+  toggleActivity: (value: Exclude<MapActivityFilter, 'all'>) => void;
 }
 
 export function useMapFilterController({
@@ -167,6 +170,13 @@ export function useMapFilterController({
     [appliedFilters, applyFilters],
   );
 
+  const toggleActivity = useCallback(
+    (value: Exclude<MapActivityFilter, 'all'>) => {
+      applyFilters(toggleMapActivityFilter(appliedFilters, value));
+    },
+    [appliedFilters, applyFilters],
+  );
+
   return {
     appliedFilters,
     draftFilters,
@@ -180,5 +190,6 @@ export function useMapFilterController({
     selectPriceSuggestion,
     commitPriceDraft,
     toggleStatusPill,
+    toggleActivity,
   };
 }

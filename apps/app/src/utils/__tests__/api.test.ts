@@ -1,6 +1,9 @@
 import {
   api,
+  fetchBatchProperties,
   fetchNearbyGroup,
+  normalizeNearbyPropertyGroup,
+  normalizeRenderedPropertyGroup,
   resolveProperty,
   setApiAccessTokenResolver,
 } from '../api';
@@ -144,6 +147,7 @@ describe('fetchNearbyGroup', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale'],
+      activity: 'recent',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -151,6 +155,135 @@ describe('fetchNearbyGroup', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceFrom=500000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=recent');
+  });
+});
+
+describe('fetchBatchProperties', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+  });
+
+  it('returns the array response unchanged when the batch contract is respected', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          nationalId: null,
+          countryCode: 'NL',
+          address: 'Teststraat 1',
+          city: 'Eindhoven',
+          postalCode: '5611AA',
+          geometry: { type: 'Point', coordinates: [5.4697, 51.4416] },
+          yearBuilt: 1990,
+          floorAreaM2: 100,
+          status: 'active',
+          officialValuation: 400000,
+          hasListing: true,
+          askingPrice: 425000,
+          guessCount: 2,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-02T00:00:00Z',
+        },
+      ]),
+    });
+
+    const result = await fetchBatchProperties([
+      '11111111-1111-4111-8111-111111111111',
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('11111111-1111-4111-8111-111111111111');
+  });
+});
+
+describe('grouped property normalization', () => {
+  it('preserves the shared nearby grouped contract fields', () => {
+    expect(
+      normalizeNearbyPropertyGroup({
+        nodeClass: 'active',
+        groupKind: 'single',
+        primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+        pointCount: 1,
+        propertyIds: ['11111111-1111-4111-8111-111111111111'],
+        previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        coordinate: [5.4697, 51.4416],
+        distanceMeters: 12,
+        bbox: null,
+        activeListingCount: 1,
+        socialCount: 2,
+        recentSocialCount: 1,
+        socialScoreTotal: 14,
+        socialScoreMax: 14,
+        recentSocialScoreTotal: 6,
+        commentCount: 3,
+        streetName: 'Teststraat',
+        houseNumber: 12,
+        houseNumberAddition: null,
+        address: 'Teststraat 12',
+        city: 'Eindhoven',
+        postalCode: '5611AA',
+        countryCode: 'NL',
+        officialValuation: 425000,
+        askingPrice: 450000,
+        thumbnailUrl: null,
+        yearBuilt: 1991,
+        floorAreaM2: 123,
+        hasActiveListing: true,
+        marketState: 'for-sale',
+      }),
+    ).toMatchObject({
+      activeListingCount: 1,
+      socialCount: 2,
+      recentSocialCount: 1,
+      socialScoreTotal: 14,
+      socialScoreMax: 14,
+      recentSocialScoreTotal: 6,
+      hasActiveListing: true,
+      marketState: 'for-sale',
+    });
+  });
+
+  it('accepts the cutover tile fields and preserves separate listing and social axes', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 1,
+        property_ids: '11111111-1111-4111-8111-111111111111',
+        preview_property_ids: '11111111-1111-4111-8111-111111111111',
+        activeListingCount: 1,
+        socialCount: 4,
+        recentSocialCount: 2,
+        socialScoreTotal: 18,
+        socialScoreMax: 18,
+        recentSocialScoreTotal: 8,
+        commentCount: 3,
+        hasActiveListing: true,
+        marketState: 'for-sale',
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      activeListingCount: 1,
+      socialCount: 4,
+      recentSocialCount: 2,
+      socialScoreTotal: 18,
+      socialScoreMax: 18,
+      recentSocialScoreTotal: 8,
+      hasActiveListing: true,
+      marketState: 'for-sale',
+    });
   });
 });
 

@@ -2,7 +2,16 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { users, priceGuesses, comments, properties, savedProperties, reactions } from '../../db/schema.js';
+import {
+  users,
+  priceGuesses,
+  comments,
+  properties,
+  savedProperties,
+  reactions,
+  notifications,
+  userFollows,
+} from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -65,13 +74,20 @@ describe('User profile routes', () => {
         await db.delete(savedProperties).where(eq(savedProperties.userId, uid));
         await db.delete(comments).where(eq(comments.userId, uid));
         await db.delete(priceGuesses).where(eq(priceGuesses.userId, uid));
+        await db.delete(notifications).where(eq(notifications.recipientUserId, uid));
+        await db.delete(userFollows).where(eq(userFollows.followerUserId, uid));
+        await db.delete(userFollows).where(eq(userFollows.followedUserId, uid));
         await db.delete(users).where(eq(users.id, uid));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     for (const pid of cleanupIds.properties) {
       try {
         await db.delete(properties).where(eq(properties.id, pid));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     if (app) {
       await app.close();
@@ -143,18 +159,60 @@ describe('User profile routes', () => {
       expect(body.guessCount).toBe(1);
       expect(body.commentCount).toBe(1);
     });
+
+    it('should resolve anonymous vs viewer-aware follow relationship and counts', async () => {
+      const viewer = await createTestUser('viewer');
+      const target = await createTestUser('target');
+
+      const anonymousResp = await app.inject({
+        method: 'GET',
+        url: `/users/${target.userId}/profile`,
+      });
+
+      expect(anonymousResp.statusCode).toBe(200);
+      const anonymousBody = JSON.parse(anonymousResp.body);
+      expect(anonymousBody.relationship).toBe('none');
+      expect(anonymousBody.followerCount).toBe(0);
+      expect(anonymousBody.followingCount).toBe(0);
+
+      const followResp = await app.inject({
+        method: 'PUT',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(followResp.statusCode).toBe(200);
+
+      const viewerAwareResp = await app.inject({
+        method: 'GET',
+        url: `/users/${target.userId}/profile`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+
+      expect(viewerAwareResp.statusCode).toBe(200);
+      const viewerAwareBody = JSON.parse(viewerAwareResp.body);
+      expect(viewerAwareBody.relationship).toBe('following');
+      expect(viewerAwareBody.followerCount).toBe(1);
+      expect(viewerAwareBody.followingCount).toBe(0);
+    });
   });
 
   // ---------- GET /users/me ----------
 
   describe('GET /users/me', () => {
     it('should return full profile for authenticated user', async () => {
-      const { accessToken } = await createTestUser('me');
+      const me = await createTestUser('me');
+      const follower = await createTestUser('mefollower');
+
+      await app.inject({
+        method: 'PUT',
+        url: `/users/${me.userId}/follow`,
+        headers: { authorization: `Bearer ${follower.accessToken}` },
+      });
 
       const resp = await app.inject({
         method: 'GET',
         url: '/users/me',
-        headers: { authorization: `Bearer ${accessToken}` },
+        headers: { authorization: `Bearer ${me.accessToken}` },
       });
 
       expect(resp.statusCode).toBe(200);
@@ -167,6 +225,9 @@ describe('User profile routes', () => {
       expect(body).toHaveProperty('likedCount');
       expect(body).toHaveProperty('lastNameChangeAt');
       expect(body).toHaveProperty('karmaRank');
+      expect(body.relationship).toBe('self');
+      expect(body.followerCount).toBe(1);
+      expect(body.followingCount).toBe(0);
     });
 
     it('should return 401 without auth', async () => {
@@ -255,6 +316,153 @@ describe('User profile routes', () => {
         payload: { displayName: 'Test' },
       });
       expect(resp.statusCode).toBe(401);
+    });
+  });
+
+  // ---------- Follow graph ----------
+
+  describe('follow graph routes', () => {
+    it('rejects self-follow and self-unfollow', async () => {
+      const viewer = await createTestUser('selffollow');
+
+      const followResp = await app.inject({
+        method: 'PUT',
+        url: `/users/${viewer.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(followResp.statusCode).toBe(400);
+
+      const unfollowResp = await app.inject({
+        method: 'DELETE',
+        url: `/users/${viewer.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(unfollowResp.statusCode).toBe(400);
+    });
+
+    it('supports idempotent follow and unfollow and emits one new_follower notification', async () => {
+      const viewer = await createTestUser('followviewer');
+      const target = await createTestUser('followtarget');
+
+      const firstFollowResp = await app.inject({
+        method: 'PUT',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(firstFollowResp.statusCode).toBe(200);
+      expect(JSON.parse(firstFollowResp.body)).toEqual({
+        relationship: 'following',
+        followerCount: 1,
+        followingCount: 0,
+      });
+
+      const secondFollowResp = await app.inject({
+        method: 'PUT',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(secondFollowResp.statusCode).toBe(200);
+      expect(JSON.parse(secondFollowResp.body)).toEqual({
+        relationship: 'following',
+        followerCount: 1,
+        followingCount: 0,
+      });
+
+      const targetNotificationsResp = await app.inject({
+        method: 'GET',
+        url: '/notifications',
+        headers: { authorization: `Bearer ${target.accessToken}` },
+      });
+      expect(targetNotificationsResp.statusCode).toBe(200);
+
+      const targetNotifications = JSON.parse(targetNotificationsResp.body).items;
+      expect(
+        targetNotifications.filter(
+          (item: { eventType: string; actor: { id: string } | null }) =>
+            item.eventType === 'new_follower' && item.actor?.id === viewer.userId
+        )
+      ).toHaveLength(1);
+
+      const firstUnfollowResp = await app.inject({
+        method: 'DELETE',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(firstUnfollowResp.statusCode).toBe(200);
+      expect(JSON.parse(firstUnfollowResp.body)).toEqual({
+        relationship: 'none',
+        followerCount: 0,
+        followingCount: 0,
+      });
+
+      const secondUnfollowResp = await app.inject({
+        method: 'DELETE',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(secondUnfollowResp.statusCode).toBe(200);
+      expect(JSON.parse(secondUnfollowResp.body)).toEqual({
+        relationship: 'none',
+        followerCount: 0,
+        followingCount: 0,
+      });
+    });
+
+    it('lists followers and following newest-first for the current user only', async () => {
+      const target = await createTestUser('listtarget');
+      const olderFollower = await createTestUser('olderfollower');
+      const newerFollower = await createTestUser('newerfollower');
+      const followingUser = await createTestUser('followinguser');
+
+      await app.inject({
+        method: 'PUT',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${olderFollower.accessToken}` },
+      });
+      await app.inject({
+        method: 'PUT',
+        url: `/users/${target.userId}/follow`,
+        headers: { authorization: `Bearer ${newerFollower.accessToken}` },
+      });
+      await app.inject({
+        method: 'PUT',
+        url: `/users/${followingUser.userId}/follow`,
+        headers: { authorization: `Bearer ${target.accessToken}` },
+      });
+
+      const unauthorizedFollowersResp = await app.inject({
+        method: 'GET',
+        url: '/users/me/followers',
+      });
+      expect(unauthorizedFollowersResp.statusCode).toBe(401);
+
+      const followersResp = await app.inject({
+        method: 'GET',
+        url: '/users/me/followers?limit=10&offset=0',
+        headers: { authorization: `Bearer ${target.accessToken}` },
+      });
+      expect(followersResp.statusCode).toBe(200);
+      const followersBody = JSON.parse(followersResp.body);
+      expect(followersBody.items.map((item: { id: string }) => item.id)).toEqual([
+        newerFollower.userId,
+        olderFollower.userId,
+      ]);
+      expect(followersBody.items[0].relationship).toBe('followed_by');
+
+      const followingResp = await app.inject({
+        method: 'GET',
+        url: '/users/me/following?limit=10&offset=0',
+        headers: { authorization: `Bearer ${target.accessToken}` },
+      });
+      expect(followingResp.statusCode).toBe(200);
+      const followingBody = JSON.parse(followingResp.body);
+      expect(followingBody.items).toHaveLength(1);
+      expect(followingBody.items[0]).toEqual(
+        expect.objectContaining({
+          id: followingUser.userId,
+          relationship: 'following',
+        })
+      );
     });
   });
 

@@ -42,37 +42,30 @@ const MOCK_PROPERTY_WITH_PRICE = {
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
+const PROPERTY_DETAIL_ROUTE =
+  /\/properties\/(?!batch(?:$|[/?#])|nearby(?:$|[/?#])|resolve(?:$|[/?#]))[^/?#]+(?:\?.*)?$/;
 
 /**
  * Setup API route interception to return mock property data with prices
  */
 async function setupPropertyMocking(page: Page): Promise<void> {
   // Intercept property detail API calls and inject mock price data
-  await page.route('**/properties/*', async (route: Route) => {
-    const url = route.request().url();
+  await page.route(PROPERTY_DETAIL_ROUTE, async (route: Route) => {
+    const propertyId = new URL(route.request().url()).pathname.split('/').pop();
 
-    // Only intercept single property GET requests (not /properties/map or similar)
-    if (url.match(/\/properties\/[^/]+$/) && route.request().method() === 'GET') {
-      // Extract the property ID from the URL
-      const propertyId = url.split('/').pop();
+    // Return mock data with the actual requested ID but with WOZ value
+    const mockResponse = {
+      ...MOCK_PROPERTY_WITH_PRICE,
+      id: propertyId,
+    };
 
-      // Return mock data with the actual requested ID but with WOZ value
-      const mockResponse = {
-        ...MOCK_PROPERTY_WITH_PRICE,
-        id: propertyId,
-      };
+    console.log(`Mocking property API response for ID: ${propertyId} with valuation: ${mockResponse.officialValuation}`);
 
-      console.log(`Mocking property API response for ID: ${propertyId} with valuation: ${mockResponse.officialValuation}`);
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mockResponse),
-      });
-    } else {
-      // Let other requests pass through
-      await route.continue();
-    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockResponse),
+    });
   });
 }
 

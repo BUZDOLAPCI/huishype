@@ -6,33 +6,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '../providers/AuthProvider';
 import { API_URL } from '../utils/api';
+import type {
+  PublicUserProfile as PublicProfile,
+  MyUserProfile as MyProfile,
+  FollowListResponse,
+  FollowRelationshipResponse,
+} from '@huishype/shared';
 
-// --- Types ---
-
-export interface KarmaRank {
-  title: string;
-  level: number;
-}
-
-export interface PublicProfile {
-  id: string;
-  displayName: string;
-  handle: string;
-  profilePhotoUrl: string | null;
-  karma: number;
-  karmaRank: KarmaRank;
-  guessCount: number;
-  commentCount: number;
-  joinedAt: string;
-}
-
-export interface MyProfile extends PublicProfile {
-  email: string;
-  averageAccuracy?: number;
-  savedCount: number;
-  likedCount: number;
-  lastNameChangeAt: string | null;
-}
+export type { PublicProfile, MyProfile, FollowListResponse, FollowRelationshipResponse };
 
 export interface GuessHistoryItem {
   propertyId: string;
@@ -53,16 +34,30 @@ export interface GuessHistoryResponse {
 
 export const userKeys = {
   all: ['users'] as const,
-  publicProfile: (id: string) => [...userKeys.all, 'profile', id] as const,
-  me: () => [...userKeys.all, 'me'] as const,
-  myGuesses: (limit?: number, offset?: number) =>
-    [...userKeys.all, 'me', 'guesses', { limit, offset }] as const,
+  publicProfile: (id: string, viewerKey: string) => [...userKeys.all, 'profile', id, viewerKey] as const,
+  me: (viewerKey: string) => [...userKeys.all, 'me', viewerKey] as const,
+  followers: (viewerKey: string, limit?: number, offset?: number) =>
+    [...userKeys.all, 'me', 'followers', viewerKey, { limit, offset }] as const,
+  following: (viewerKey: string, limit?: number, offset?: number) =>
+    [...userKeys.all, 'me', 'following', viewerKey, { limit, offset }] as const,
+  myGuesses: (viewerKey: string, limit?: number, offset?: number) =>
+    [...userKeys.all, 'me', 'guesses', viewerKey, { limit, offset }] as const,
 };
 
 // --- API Functions ---
 
-async function fetchPublicProfile(userId: string): Promise<PublicProfile> {
-  const resp = await fetch(`${API_URL}/users/${userId}/profile`);
+async function fetchPublicProfile(
+  userId: string,
+  accessToken?: string | null
+): Promise<PublicProfile> {
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const resp = await fetch(`${API_URL}/users/${userId}/profile`, {
+    headers,
+  });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ message: 'Failed to fetch profile' }));
     throw new Error(err.message || `HTTP ${resp.status}`);
@@ -83,7 +78,7 @@ async function fetchMyProfile(accessToken: string): Promise<MyProfile> {
 
 async function updateMyProfile(
   accessToken: string,
-  data: { displayName?: string; profilePhotoUrl?: string }
+  data: { displayName?: string; profilePhotoUrl?: string; homeCountry?: string | null }
 ): Promise<{ id: string; displayName: string; profilePhotoUrl: string | null; lastNameChangeAt: string | null }> {
   const resp = await fetch(`${API_URL}/users/me/profile`, {
     method: 'PUT',
@@ -97,6 +92,49 @@ async function updateMyProfile(
     const err = await resp.json().catch(() => ({ message: 'Failed to update profile' }));
     throw new Error(err.message || `HTTP ${resp.status}`);
   }
+  return resp.json();
+}
+
+async function fetchFollowList(
+  accessToken: string,
+  kind: 'followers' | 'following',
+  limit: number,
+  offset: number
+): Promise<FollowListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const resp = await fetch(`${API_URL}/users/me/${kind}?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ message: `Failed to fetch ${kind}` }));
+    throw new Error(err.message || `HTTP ${resp.status}`);
+  }
+
+  return resp.json();
+}
+
+async function updateFollowRelationship(
+  accessToken: string,
+  userId: string,
+  method: 'PUT' | 'DELETE'
+): Promise<FollowRelationshipResponse> {
+  const resp = await fetch(`${API_URL}/users/${userId}/follow`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ message: 'Failed to update follow state' }));
+    throw new Error(err.message || `HTTP ${resp.status}`);
+  }
+
   return resp.json();
 }
 
@@ -120,19 +158,23 @@ async function fetchMyGuesses(
 
 /** Fetch a public user profile by ID */
 export function usePublicProfile(userId: string | null) {
+  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = isAuthenticated && user ? user.id : 'anon';
+
   return useQuery({
-    queryKey: userKeys.publicProfile(userId ?? ''),
-    queryFn: () => fetchPublicProfile(userId!),
+    queryKey: userKeys.publicProfile(userId ?? '', viewerKey),
+    queryFn: () => fetchPublicProfile(userId!, accessToken),
     enabled: !!userId,
   });
 }
 
 /** Fetch the authenticated user's full profile */
 export function useMyProfile() {
-  const { getAccessToken, isAuthenticated, accessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, accessToken, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
 
   return useQuery({
-    queryKey: userKeys.me(),
+    queryKey: userKeys.me(viewerKey),
     queryFn: async () => {
       const token = await getAccessToken();
       if (!token) throw new Error('Not authenticated');
@@ -148,23 +190,80 @@ export function useUpdateProfile() {
   const { getAccessToken } = useAuthContext();
 
   return useMutation({
-    mutationFn: async (data: { displayName?: string; profilePhotoUrl?: string }) => {
+    mutationFn: async (data: { displayName?: string; profilePhotoUrl?: string; homeCountry?: string | null }) => {
       const token = await getAccessToken();
       if (!token) throw new Error('Not authenticated');
       return updateMyProfile(token, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: userKeys.me() });
+      queryClient.invalidateQueries({ queryKey: userKeys.all });
+    },
+  });
+}
+
+export function useFollowers(limit = 20, offset = 0) {
+  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
+
+  return useQuery({
+    queryKey: userKeys.followers(viewerKey, limit, offset),
+    queryFn: () => fetchFollowList(accessToken!, 'followers', limit, offset),
+    enabled: isAuthenticated && !!accessToken,
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useFollowing(limit = 20, offset = 0) {
+  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
+
+  return useQuery({
+    queryKey: userKeys.following(viewerKey, limit, offset),
+    queryFn: () => fetchFollowList(accessToken!, 'following', limit, offset),
+    enabled: isAuthenticated && !!accessToken,
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useFollowUser() {
+  const queryClient = useQueryClient();
+  const { getAccessToken } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return updateFollowRelationship(token, userId, 'PUT');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.all });
+    },
+  });
+}
+
+export function useUnfollowUser() {
+  const queryClient = useQueryClient();
+  const { getAccessToken } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return updateFollowRelationship(token, userId, 'DELETE');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.all });
     },
   });
 }
 
 /** Fetch authenticated user's guess history */
 export function useMyGuesses(limit = 20, offset = 0) {
-  const { getAccessToken, isAuthenticated, accessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, accessToken, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
 
   return useQuery({
-    queryKey: userKeys.myGuesses(limit, offset),
+    queryKey: userKeys.myGuesses(viewerKey, limit, offset),
     queryFn: async () => {
       const token = await getAccessToken();
       if (!token) throw new Error('Not authenticated');

@@ -21,6 +21,7 @@ import { splitHouseNumber, type ResolvedAddress } from '@/src/services/address-r
 import {
   resolveProperty,
   type PropertyResolveResult,
+  type PropertyResolveRequest,
 } from '@/src/utils/api';
 
 const DEFAULT_AREA_ZOOM = 14;
@@ -185,6 +186,19 @@ function matchesPostcodeSuggestion(
     buildCanonicalPostcodeSlug(result.postalCode, route.countryCode) === route.postcodeSlug &&
     (result.countryCode?.toUpperCase() ?? route.countryCode) === route.countryCode
   );
+}
+
+function buildPropertyResolveRequest(
+  routeInput: CanonicalPropertyRouteInput,
+): PropertyResolveRequest {
+  return {
+    postalCode: routeInput.postalCode,
+    houseNumber: String(routeInput.houseNumber).trim(),
+    houseNumberAddition: routeInput.houseNumberAddition,
+    countryCode: routeInput.countryCode,
+    street: routeInput.streetName,
+    city: routeInput.city,
+  };
 }
 
 function buildCanonicalPathForKind(
@@ -465,14 +479,7 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
   }
 
   const routeInput = buildCanonicalInputFromLeafRoute(parsed, parsedHouse);
-  const property = await resolveProperty({
-    postalCode: routeInput.postalCode,
-    houseNumber: routeInput.houseNumber,
-    houseNumberAddition: routeInput.houseNumberAddition,
-    countryCode: routeInput.countryCode,
-    street: routeInput.streetName,
-    city: routeInput.city,
-  });
+  const property = await resolveProperty(buildPropertyResolveRequest(routeInput));
 
   if (!property) {
     return { kind: 'invalid', canonicalPath: '/', reason: 'property-not-found' };

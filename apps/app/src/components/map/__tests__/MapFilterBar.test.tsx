@@ -236,4 +236,21 @@ describe('MapFilterBar', () => {
       '"marketState":["for-sale","for-rent","sold","rented","not-listed"]',
     );
   });
+
+  it('keeps the public activity facet exclusive and serializes it in applied state', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-activity-social'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"activity":"social"');
+
+    fireEvent.press(getByTestId('map-filter-pill-activity-recent'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"activity":"recent"');
+    expect(getByTestId('applied-state').props.children).not.toContain('"activity":"social"');
+
+    fireEvent.press(getByTestId('map-filter-pill-activity-recent'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"activity":"all"');
+  });
 });

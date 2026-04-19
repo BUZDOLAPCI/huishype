@@ -5,25 +5,41 @@
 
 import type { PropertyDetail, PropertySummary } from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
-import type { User, UserProfile, UserSession } from './user.js';
+import type {
+  User,
+  UserProfile,
+  UserSession,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListResponse,
+  FollowRelationshipResponse,
+} from './user.js';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
 import type { CommentThread, Comment } from './comment.js';
 import type { ReactionCounts } from './reaction.js';
 import type { NotificationsResponse, UnreadCountResponse } from './notification.js';
 import type { AchievementsResponse } from './achievement.js';
-import type { ActivityResponse } from './activity.js';
+import type { ActivityResponse, PublicActivityResponse } from './activity.js';
 import type { LeaderboardResponse } from './leaderboard.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary };
 export type { ListingSummary };
-export type { User, UserProfile, UserSession };
+export type {
+  User,
+  UserProfile,
+  UserSession,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListResponse,
+  FollowRelationshipResponse,
+};
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
 export type { ReactionCounts };
 export type { NotificationsResponse, UnreadCountResponse };
 export type { AchievementsResponse };
-export type { ActivityResponse };
+export type { ActivityResponse, PublicActivityResponse };
 export type { LeaderboardResponse };
 
 // ============================================
@@ -104,21 +120,36 @@ export interface AuthMeResponse {
 // User API Types
 // ============================================
 
-export interface GetUserProfileResponse {
-  profile: UserProfile;
-}
+export type GetUserProfileResponse = PublicUserProfile;
+export type GetMyProfileResponse = MyUserProfile;
 
 export interface UpdateUserProfileRequest {
   displayName?: string;
+  profilePhotoUrl?: string;
+  homeCountry?: string | null;
 }
 
 export interface UpdateUserProfileResponse {
-  user: User;
+  id: string;
+  displayName: string;
+  profilePhotoUrl: string | null;
+  homeCountry: string | null;
+  lastNameChangeAt: string | null;
 }
 
 export interface GetUserGuessHistoryResponse {
   history: UserGuessHistory;
 }
+
+export interface GetFollowListRequest {
+  limit?: number;
+  offset?: number;
+}
+
+export type GetFollowersResponse = FollowListResponse;
+export type GetFollowingResponse = FollowListResponse;
+export type FollowUserResponse = FollowRelationshipResponse;
+export type UnfollowUserResponse = FollowRelationshipResponse;
 
 // ============================================
 // Property API Types
@@ -140,7 +171,7 @@ export interface PropertyResolveRequest {
 
 export interface PropertyResolveResponse {
   id: string;
-  address: string;        // formatted: "Street Number, PostalCode City"
+  address: string; // formatted: "Street Number, PostalCode City"
   postalCode: string;
   city: string;
   coordinates: { lon: number; lat: number };
@@ -257,7 +288,7 @@ export interface LikeCommentResponse {
 
 // Feed tabs shown in the app UI.
 // Property feed tabs are derived from the canonical /feed contract.
-export type FeedTab = PropertyFeedFilter | 'recent-activity';
+export type FeedTab = PropertyFeedFilter | 'recent-activity' | 'following';
 
 // Filters accepted by the property-only /feed endpoint.
 export type PropertyFeedFilter = 'trending' | 'latest';
@@ -373,7 +404,18 @@ export type GetLeaderboardResponse = LeaderboardResponse;
 // Activity API Types
 // ============================================
 
-export type GetActivityResponse = ActivityResponse;
+export interface GetActivityRequest {
+  scope?: 'public' | 'following';
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetUserActivityRequest {
+  limit?: number;
+  offset?: number;
+}
+
+export type GetActivityResponse = PublicActivityResponse;
 export type GetUserActivityResponse = ActivityResponse;
 
 // ============================================

@@ -552,11 +552,14 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
           ACTIVE_FOOTPRINT.clusterRadiusStopsPx,
         ),
         'circle-color': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          '#3B82F6',  // blue-500: small clusters (2-9)
-          10, '#F59E0B',  // amber-500: medium clusters (10-49)
-          50, '#EF4444',  // red-500: large clusters (50-99)
-          100, '#DC2626', // red-600: very large (100+)
+          'case',
+          ['>', ['coalesce', ['get', 'recentSocialCount'], 0], 0],
+          '#EF4444',
+          ['>', ['coalesce', ['get', 'socialCount'], 0], 0],
+          '#F97316',
+          ['>', ['coalesce', ['get', 'activeListingCount'], 0], 0],
+          '#3B82F6',
+          '#64748B',
         ],
         'circle-opacity': 0.9,
         'circle-stroke-width': [
@@ -608,16 +611,18 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       paint: {
         'circle-radius': buildInterpolateExpression(
-          ['coalesce', ['get', 'activityScore'], 0],
+          ['coalesce', ['get', 'socialScoreMax'], 0],
           ACTIVE_FOOTPRINT.singleRadiusStopsPx,
         ),
         'circle-color': [
           'case',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
+          ['>', ['coalesce', ['get', 'recentSocialCount'], 0], 0],
           '#EF4444',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 0],
+          ['>', ['coalesce', ['get', 'socialCount'], 0], 0],
           '#F97316',
+          ['>', ['coalesce', ['get', 'activeListingCount'], 0], 0],
           '#3B82F6',
+          '#64748B',
         ],
         'circle-opacity': 0.9,
         'circle-stroke-width': 2,

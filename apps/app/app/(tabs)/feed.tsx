@@ -11,6 +11,7 @@ import { router } from 'expo-router';
 
 import {
   ActivityFeedCard,
+  AuthModal,
   FeedEmptyState,
   FeedErrorState,
   FeedFilterChips,
@@ -30,6 +31,7 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
+import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   buildPropertyRoute,
   toInternalAppHref,
@@ -42,11 +44,14 @@ const FILTER_TITLES: Record<FeedTab, string> = {
   trending: 'Trending Properties',
   latest: 'Latest Properties',
   'recent-activity': 'Recent Activity',
+  following: 'Following',
 };
 
 export default function FeedScreen() {
+  const { isAuthenticated } = useAuthContext();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
 
   const headerRightAction = useMemo(
@@ -78,7 +83,8 @@ export default function FeedScreen() {
   );
 
   // Property feed (trending/latest)
-  const isPropertyFeed = activeFilter !== 'recent-activity';
+  const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
+  const activityScope = activeFilter === 'following' ? 'following' : 'public';
   const propertyFeedFilter: PropertyFeedFilter =
     activeFilter === 'latest' ? 'latest' : 'trending';
   const feedQuery = useInfiniteFeed(
@@ -86,7 +92,7 @@ export default function FeedScreen() {
   );
 
   // Activity feed
-  const activityQuery = useActivityFeed();
+  const activityQuery = useActivityFeed(activityScope);
 
   const properties = useMemo(() => {
     if (!isPropertyFeed) return [];
@@ -109,11 +115,19 @@ export default function FeedScreen() {
   }, [activeQuery]);
 
   const handleFilterChange = useCallback((filter: FeedTab) => {
+    if (filter === 'following' && !isAuthenticated) {
+      setShowAuth(true);
+      return;
+    }
+
     setActiveFilter(filter);
-  }, []);
+  }, [isAuthenticated]);
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
+  }, []);
+  const handleActorPress = useCallback((actorId: string) => {
+    router.push(`/user/${actorId}`);
   }, []);
 
   const handleLoadMore = useCallback(() => {
@@ -160,10 +174,11 @@ export default function FeedScreen() {
         actor={item.actor}
         property={item.property}
         createdAt={item.createdAt}
-        onPress={() => handlePropertyPress(item.property)}
+        onPropertyPress={() => handlePropertyPress(item.property)}
+        onActorPress={() => handleActorPress(item.actor.id)}
       />
     ),
-    [handlePropertyPress]
+    [handleActorPress, handlePropertyPress]
   );
 
   const propertyKeyExtractor = useCallback(
@@ -191,6 +206,18 @@ export default function FeedScreen() {
     />
   );
 
+  const authModal = (
+    <AuthModal
+      visible={showAuth}
+      onClose={() => setShowAuth(false)}
+      message="Sign in to see activity from people you follow"
+      onSuccess={() => {
+        setShowAuth(false);
+        setActiveFilter('following');
+      }}
+    />
+  );
+
   // Loading state
   if (activeQuery.isLoading && !isRefreshing) {
     return (
@@ -201,6 +228,7 @@ export default function FeedScreen() {
           onFilterChange={handleFilterChange}
         />
         <FeedLoadingState />
+        {authModal}
       </View>
     );
   }
@@ -218,6 +246,7 @@ export default function FeedScreen() {
           message={activeQuery.error?.message || 'Failed to load'}
           onRetry={activeQuery.refetch}
         />
+        {authModal}
       </View>
     );
   }
@@ -228,6 +257,7 @@ export default function FeedScreen() {
     : activities.length === 0;
 
   if (isEmpty) {
+    const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
       <View className="flex-1 bg-warm-50">
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
@@ -235,7 +265,23 @@ export default function FeedScreen() {
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
         />
-        <FeedEmptyState filter={activeFilter} />
+        <FeedEmptyState
+          filter={activeFilter}
+          signedIn={signedInFollowing}
+          onPrimaryAction={
+            activeFilter === 'following'
+              ? () => {
+                  if (signedInFollowing) {
+                    setActiveFilter('recent-activity');
+                    return;
+                  }
+
+                  setShowAuth(true);
+                }
+              : undefined
+          }
+        />
+        {authModal}
       </View>
     );
   }
@@ -277,6 +323,7 @@ export default function FeedScreen() {
           />
         )}
       </View>
+      {authModal}
     </View>
   );
 }

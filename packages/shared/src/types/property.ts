@@ -26,6 +26,8 @@ export type PropertyNodeClass = 'active' | 'ghost';
  */
 export type PropertyGroupKind = 'single' | 'cluster';
 
+export type MapActivityFilter = 'all' | 'social' | 'recent';
+
 /**
  * Core property information (multi-country)
  */
@@ -255,12 +257,13 @@ export interface PropertyNodeGroup {
   previewPropertyIds: string[];
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
-  hasListing: boolean;
-  activityScore: number;
-  activityScoreTotal: number;
-  likeCount: number;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
   commentCount: number;
-  guessCount: number;
   streetName: string | null;
   houseNumber: number | null;
   houseNumberAddition: string | null;
@@ -273,6 +276,8 @@ export interface PropertyNodeGroup {
   thumbnailUrl: string | null;
   yearBuilt: number | null;
   floorAreaM2: number | null;
+  hasActiveListing: boolean | null;
+  marketState: MapMarketState | null;
 }
 
 /**
@@ -285,7 +290,7 @@ export interface NearbyPropertyGroup extends PropertyNodeGroup {
 /**
  * Canonical filter categories for map state.
  */
-export type MapFilterCategory = 'price' | 'marketState';
+export type MapFilterCategory = 'price' | 'marketState' | 'activity';
 
 /**
  * Exclusive market-state taxonomy for map filtering.
@@ -306,6 +311,7 @@ export interface MapFilters {
   rentPriceFrom: number | null;
   rentPriceTo: number | null;
   marketState: MapMarketState[];
+  activity: MapActivityFilter;
 }
 
 /**

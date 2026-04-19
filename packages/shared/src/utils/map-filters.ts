@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { formatPropertyPrice } from './formatting.js';
 import type {
+  MapActivityFilter,
   MapFilterCategory,
   MapFilters,
   MapMarketState,
@@ -12,6 +13,7 @@ import type {
 export const MAP_FILTER_CATEGORIES = [
   'price',
   'marketState',
+  'activity',
 ] as const satisfies readonly MapFilterCategory[];
 
 export const MAP_MARKET_STATES = [
@@ -28,6 +30,7 @@ export const MAP_FILTER_QUERY_KEYS = [
   'rentPriceFrom',
   'rentPriceTo',
   'marketState',
+  'activity',
 ] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
@@ -46,6 +49,11 @@ const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   sold: 'Sold',
   rented: 'Rented',
   'not-listed': 'Not Listed',
+};
+const MAP_ACTIVITY_LABELS: Record<MapActivityFilter, string> = {
+  all: 'All Activity',
+  social: 'Social',
+  recent: 'Recently Active',
 };
 
 const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
@@ -128,6 +136,7 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceFrom: null,
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
+    activity: 'all',
   };
 }
 
@@ -195,6 +204,10 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
     rentPriceFrom,
     rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...MAP_MARKET_STATES],
+    activity:
+      filters.activity === 'social' || filters.activity === 'recent'
+        ? filters.activity
+        : defaultFilters.activity,
   };
 }
 
@@ -207,6 +220,7 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.salePriceTo === normalizedRight.salePriceTo &&
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
+    normalizedLeft.activity === normalizedRight.activity &&
     normalizedLeft.marketState.length === normalizedRight.marketState.length &&
     normalizedLeft.marketState.every(
       (value, index) => value === normalizedRight.marketState[index],
@@ -228,6 +242,8 @@ export function isMapFilterCategoryActive(
       });
     case 'marketState':
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
+    case 'activity':
+      return normalized.activity !== 'all';
   }
 }
 
@@ -287,6 +303,9 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
   if (category === 'marketState') {
     return 'Status';
   }
+  if (category === 'activity') {
+    return 'Activity';
+  }
 
   return 'Price';
 }
@@ -322,6 +341,8 @@ export function getMapFilterPillSummary(
       return normalized.marketState.length === MAP_MARKET_STATES.length
         ? null
         : `${normalized.marketState.length} selected`;
+    case 'activity':
+      return normalized.activity === 'all' ? null : MAP_ACTIVITY_LABELS[normalized.activity];
   }
 }
 
@@ -342,6 +363,8 @@ export function resetMapFilterCategory(
       };
     case 'marketState':
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
+    case 'activity':
+      return { ...normalized, activity: 'all' };
   }
 }
 
@@ -369,6 +392,7 @@ export const mapFiltersQuerySchema = z.object({
           ),
       );
     }),
+  activity: z.enum(['all', 'social', 'recent']).optional().default('all'),
 });
 
 export function hasOnlyMapFilterQueryParams(params: URLSearchParams): boolean {
@@ -407,6 +431,10 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
     rentPriceFrom: parseDraftNumber(params.get('rentPriceFrom') ?? ''),
     rentPriceTo: parseDraftNumber(params.get('rentPriceTo') ?? ''),
     marketState,
+    activity:
+      params.get('activity') === 'social' || params.get('activity') === 'recent'
+        ? (params.get('activity') as MapActivityFilter)
+        : 'all',
   });
 }
 
@@ -441,6 +469,9 @@ export function updateMapFilterSearchParams(
   }
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     next.set('marketState', normalized.marketState.join(','));
+  }
+  if (normalized.activity !== 'all') {
+    next.set('activity', normalized.activity);
   }
 
   return next;

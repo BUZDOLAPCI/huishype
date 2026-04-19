@@ -1,5 +1,6 @@
 import { formatPropertyPrice } from '@huishype/shared';
 import type {
+  MapActivityFilter,
   MapFilterCategory,
   MapFilters,
   MapMarketState,
@@ -7,11 +8,17 @@ import type {
   SaleEffectivePriceInput,
 } from '../../../../packages/shared/src/types/property';
 
-export type { MapFilterCategory, MapFilters, MapMarketState };
+export type {
+  MapActivityFilter,
+  MapFilterCategory,
+  MapFilters,
+  MapMarketState,
+};
 
 export const MAP_FILTER_CATEGORIES = [
   'price',
   'marketState',
+  'activity',
 ] as const satisfies readonly MapFilterCategory[];
 
 export const MAP_MARKET_STATES = [
@@ -35,6 +42,7 @@ const MAP_FILTER_QUERY_KEYS = [
   'rentPriceFrom',
   'rentPriceTo',
   'marketState',
+  'activity',
 ] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
@@ -42,12 +50,21 @@ type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
 const MAP_MARKET_STATE_SET = new Set<MapMarketState>(MAP_MARKET_STATES);
 const MAP_STATUS_PILL_STATE_SET = new Set<MapMarketState>(MAP_STATUS_PILL_STATES);
 const MAP_FILTER_QUERY_KEY_SET = new Set<string>(MAP_FILTER_QUERY_KEYS);
+export const MAP_ACTIVITY_FILTERS = ['social', 'recent'] as const satisfies readonly Exclude<
+  MapActivityFilter,
+  'all'
+>[];
 const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   'for-sale': 'For Sale',
   'for-rent': 'For Rent',
   sold: 'Sold',
   rented: 'Rented',
   'not-listed': 'Not Listed',
+};
+const MAP_ACTIVITY_FILTER_LABELS: Record<MapActivityFilter, string> = {
+  all: 'All Activity',
+  social: 'Social',
+  recent: 'Recently Active',
 };
 
 const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
@@ -137,7 +154,9 @@ export interface MapFilterMatchCandidate {
   activeRentAskingPrice?: number | null;
   lastRentedPrice?: number | null;
   marketState?: MapMarketState | null;
-  hasListing?: boolean | null;
+  hasActiveListing?: boolean | null;
+  socialScore?: number | null;
+  recentSocialScore?: number | null;
 }
 
 function getPriceBoundsForMode(
@@ -232,6 +251,7 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceFrom: null,
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
+    activity: 'all',
   };
 }
 
@@ -368,6 +388,10 @@ export function normalizeMapFilters(filters: MapFilters): MapFilters {
     rentPriceFrom,
     rentPriceTo,
     marketState: normalizeMapMarketState(filters.marketState),
+    activity:
+      filters.activity === 'social' || filters.activity === 'recent'
+        ? filters.activity
+        : 'all',
   };
 }
 
@@ -380,6 +404,7 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.salePriceTo === normalizedRight.salePriceTo &&
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
+    normalizedLeft.activity === normalizedRight.activity &&
     normalizedLeft.marketState.length === normalizedRight.marketState.length &&
     normalizedLeft.marketState.every(
       (value, index) => value === normalizedRight.marketState[index],
@@ -401,6 +426,8 @@ export function isMapFilterCategoryActive(
       });
     case 'marketState':
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
+    case 'activity':
+      return normalized.activity !== 'all';
   }
 }
 
@@ -421,6 +448,10 @@ export function getMapMarketStateLabel(state: MapMarketState): string {
   return MAP_MARKET_STATE_LABELS[state];
 }
 
+export function getMapActivityFilterLabel(activity: MapActivityFilter): string {
+  return MAP_ACTIVITY_FILTER_LABELS[activity];
+}
+
 export function isMapStatusPillActive(
   filters: MapFilters,
   state: MapStatusPillState,
@@ -432,6 +463,18 @@ export function isMapStatusPillActive(
   }
 
   return normalized.marketState.includes(state);
+}
+
+export function toggleMapActivityFilter(
+  filters: MapFilters,
+  activity: Exclude<MapActivityFilter, 'all'>,
+): MapFilters {
+  const normalized = normalizeMapFilters(filters);
+
+  return {
+    ...normalized,
+    activity: normalized.activity === activity ? 'all' : activity,
+  };
 }
 
 export function toggleMapStatusPill(
@@ -463,6 +506,9 @@ export function toggleMapStatusPill(
 export function getMapFilterPillLabel(category: MapFilterCategory): string {
   if (category === 'marketState') {
     return 'Status';
+  }
+  if (category === 'activity') {
+    return 'Activity';
   }
 
   return 'Price';
@@ -501,6 +547,10 @@ export function getMapFilterPillSummary(
       }
 
       return `${normalized.marketState.length} selected`;
+    case 'activity':
+      return normalized.activity === 'all'
+        ? null
+        : getMapActivityFilterLabel(normalized.activity);
   }
 }
 
@@ -521,6 +571,8 @@ export function resetMapFilterCategory(
       };
     case 'marketState':
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
+    case 'activity':
+      return { ...normalized, activity: 'all' };
   }
 }
 
@@ -544,6 +596,9 @@ export function serializeMapFiltersToSearchParams(
   }
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     params.set('marketState', normalized.marketState.join(','));
+  }
+  if (normalized.activity !== 'all') {
+    params.set('activity', normalized.activity);
   }
 
   return params;
@@ -595,6 +650,10 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
           marketStateValue.split(',').map((value) => value.trim()),
         )
       : defaults.marketState,
+    activity:
+      params.get('activity') === 'social' || params.get('activity') === 'recent'
+        ? (params.get('activity') as MapActivityFilter)
+        : defaults.activity,
   });
 }
 
@@ -667,10 +726,6 @@ export function inferMapMarketState(
     return candidate.marketState;
   }
 
-  if (candidate.hasListing === false) {
-    return 'not-listed';
-  }
-
   if (candidate.askingPrice != null) {
     return 'for-sale';
   }
@@ -734,6 +789,14 @@ export function doesMapFilterCandidateMatch(
     inferredMarketState != null &&
     !normalized.marketState.includes(inferredMarketState)
   ) {
+    return false;
+  }
+
+  if (normalized.activity === 'social' && (candidate.socialScore ?? 0) <= 0) {
+    return false;
+  }
+
+  if (normalized.activity === 'recent' && (candidate.recentSocialScore ?? 0) <= 0) {
     return false;
   }
 

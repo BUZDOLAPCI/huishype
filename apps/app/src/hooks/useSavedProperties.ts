@@ -9,6 +9,7 @@ import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
+import type { MapMarketState } from '@/src/lib/sharedMapFilters';
 
 interface SavedPropertyApiResponse {
   id: string;
@@ -27,11 +28,30 @@ interface SavedPropertyApiResponse {
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   hasListing: boolean;
+  hasActiveListing?: boolean;
+  marketState?: MapMarketState;
+  latestListingStatus?: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
-  commentCount: number;
+  socialScore?: number;
+  recentSocialScore?: number;
+  lastSocialAt?: string | null;
+  topLevelCommentCount?: number;
+  replyCount?: number;
+  propertyLikeCount?: number;
+  commentLikeCount?: number;
   guessCount: number;
+  viewCount?: number;
+  uniqueViewerCount?: number;
+  recentTopLevelCommentCount?: number;
+  recentReplyCount?: number;
+  recentPropertyLikeCount?: number;
+  recentCommentLikeCount?: number;
+  recentGuessCount?: number;
+  recentViewCount?: number;
+  recentUniqueViewerCount?: number;
   savedAt: string;
+  isSaved?: true;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,21 +70,12 @@ export const savedPropertyKeys = {
 const PAGE_SIZE = 20;
 
 export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
-  const createdDate = new Date(property.createdAt);
-  const now = new Date();
-  const daysSinceCreation = Math.floor(
-    (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  let activityLevel: 'hot' | 'warm' | 'cold' = 'cold';
-  if (daysSinceCreation < 7) {
-    activityLevel = 'hot';
-  } else if (daysSinceCreation < 30) {
-    activityLevel = 'warm';
-  }
-  if (property.hasListing && activityLevel === 'cold') {
-    activityLevel = 'warm';
-  }
+  const activityLevel: 'hot' | 'warm' | 'cold' =
+    (property.recentSocialScore ?? 0) > 0
+      ? 'hot'
+      : (property.socialScore ?? 0) > 0 || property.hasActiveListing
+        ? 'warm'
+        : 'cold';
 
   return withDerivedPropertyImageData({
     id: property.id,
@@ -83,13 +94,30 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     fmv: null,
     fmvValue: undefined,
     thumbnailUrl: property.thumbnailUrl,
-    likeCount: 0,
+    likeCount: property.propertyLikeCount ?? 0,
     activityLevel,
-    lastActivityAt: property.savedAt,
+    lastActivityAt: property.lastSocialAt ?? property.savedAt,
     hasListing: property.hasListing,
-    commentCount: property.commentCount,
+    hasActiveListing: property.hasActiveListing ?? false,
+    marketState: property.marketState ?? null,
+    socialScore: property.socialScore ?? 0,
+    recentSocialScore: property.recentSocialScore ?? 0,
+    topLevelCommentCount: property.topLevelCommentCount ?? 0,
+    replyCount: property.replyCount ?? 0,
+    propertyLikeCount: property.propertyLikeCount ?? 0,
+    commentLikeCount: property.commentLikeCount ?? 0,
+    commentCount: property.topLevelCommentCount ?? 0,
     guessCount: property.guessCount,
-    viewCount: 0,
+    viewCount: property.viewCount ?? 0,
+    uniqueViewerCount: property.uniqueViewerCount ?? 0,
+    recentTopLevelCommentCount: property.recentTopLevelCommentCount ?? 0,
+    recentReplyCount: property.recentReplyCount ?? 0,
+    recentPropertyLikeCount: property.recentPropertyLikeCount ?? 0,
+    recentCommentLikeCount: property.recentCommentLikeCount ?? 0,
+    recentGuessCount: property.recentGuessCount ?? 0,
+    recentViewCount: property.recentViewCount ?? 0,
+    recentUniqueViewerCount: property.recentUniqueViewerCount ?? 0,
+    isSaved: property.isSaved ?? true,
     yearBuilt: property.yearBuilt,
     floorAreaM2: property.floorAreaM2,
   });

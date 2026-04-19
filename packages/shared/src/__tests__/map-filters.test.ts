@@ -29,8 +29,9 @@ describe('map filter normalization', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: [...MAP_MARKET_STATES],
+      activity: 'all',
     });
-    expect(MAP_FILTER_CATEGORIES).toEqual(['price', 'marketState']);
+    expect(MAP_FILTER_CATEGORIES).toEqual(['price', 'marketState', 'activity']);
   });
 
   it('normalizes ranges, invalid numbers, and market-state order', () => {
@@ -48,6 +49,7 @@ describe('map filter normalization', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale', 'sold'],
+      activity: 'all',
     });
   });
 
@@ -68,6 +70,7 @@ describe('map filter activity and reset helpers', () => {
     rentPriceFrom: null,
     rentPriceTo: 1800,
     marketState: ['for-sale', 'not-listed'] as const,
+    activity: 'all' as const,
   };
 
   it('detects default and active categories', () => {
@@ -78,14 +81,25 @@ describe('map filter activity and reset helpers', () => {
   });
 
   it('orders active categories first while keeping stable category order', () => {
-    expect(getOrderedMapFilterCategories(activeFilters)).toEqual(['price', 'marketState']);
+    expect(getOrderedMapFilterCategories(activeFilters)).toEqual([
+      'price',
+      'marketState',
+      'activity',
+    ]);
 
     expect(
       getOrderedMapFilterCategories({
         ...createDefaultMapFilters(),
         rentPriceTo: 1800,
       }),
-    ).toEqual(['price', 'marketState']);
+    ).toEqual(['price', 'marketState', 'activity']);
+
+    expect(
+      getOrderedMapFilterCategories({
+        ...createDefaultMapFilters(),
+        activity: 'recent',
+      }),
+    ).toEqual(['activity', 'price', 'marketState']);
   });
 
   it('resets only the requested category', () => {
@@ -95,6 +109,7 @@ describe('map filter activity and reset helpers', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
+      activity: 'all',
     });
 
     expect(resetMapFilterCategory(activeFilters, 'marketState')).toEqual({
@@ -103,6 +118,24 @@ describe('map filter activity and reset helpers', () => {
       rentPriceFrom: null,
       rentPriceTo: 1800,
       marketState: [...MAP_MARKET_STATES],
+      activity: 'all',
+    });
+
+    expect(
+      resetMapFilterCategory(
+        {
+          ...activeFilters,
+          activity: 'social',
+        },
+        'activity',
+      ),
+    ).toEqual({
+      salePriceFrom: 350000,
+      salePriceTo: null,
+      rentPriceFrom: null,
+      rentPriceTo: 1800,
+      marketState: ['for-sale', 'not-listed'],
+      activity: 'all',
     });
   });
 });
@@ -115,13 +148,16 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: 2200,
       marketState: ['sold'],
+      activity: 'recent',
     });
 
     expect(getMapFilterPillSummary('price', filters)).toBe('Sale € 250K - € 700K');
     expect(getMapFilterPillSummary('marketState', filters)).toBe('1 selected');
+    expect(getMapFilterPillSummary('activity', filters)).toBe('Recently Active');
     expect(getMapFilterPillSummary('marketState', createDefaultMapFilters())).toBe(
       null,
     );
+    expect(getMapFilterPillSummary('activity', createDefaultMapFilters())).toBe(null);
   });
 
   it('builds a canonical signature and equality across equivalent inputs', () => {
@@ -131,6 +167,7 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['not-listed', 'for-sale'] as const,
+      activity: 'social' as const,
     };
     const right = {
       salePriceFrom: 250000,
@@ -138,10 +175,11 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'] as const,
+      activity: 'social' as const,
     };
 
     expect(getCanonicalMapFilterSignature(left)).toBe(
-      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=social',
     );
     expect(areMapFiltersEqual(left, right)).toBe(true);
   });
@@ -155,11 +193,12 @@ describe('map filter query param helpers', () => {
       rentPriceFrom: 1200,
       rentPriceTo: null,
       marketState: ['not-listed', 'for-sale'] as const,
+      activity: 'recent' as const,
     };
 
     const serialized = serializeMapFiltersToSearchParams(filters);
     expect(serialized.toString()).toBe(
-      'salePriceTo=700000&rentPriceFrom=1200&marketState=for-sale%2Cnot-listed',
+      'salePriceTo=700000&rentPriceFrom=1200&marketState=for-sale%2Cnot-listed&activity=recent',
     );
 
     expect(parseMapFiltersFromSearchParams(serialized)).toEqual({
@@ -168,17 +207,18 @@ describe('map filter query param helpers', () => {
       rentPriceFrom: 1200,
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
+      activity: 'recent',
     });
   });
 
   it('normalizes map filter params while rejecting unknown keys at the whitelist layer', () => {
     const params = new URLSearchParams(
-      'marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000',
+      'marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000&activity=social',
     );
 
     expect(hasOnlyAllowedMapFilterQueryParams(params)).toBe(true);
     expect(normalizeMapFilterQueryParams(params).toString()).toBe(
-      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=social',
     );
     expect(
       hasOnlyAllowedMapFilterQueryParams(

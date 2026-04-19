@@ -36,8 +36,10 @@ export interface ActivityFeedCardProps {
   };
   /** ISO timestamp. */
   createdAt: string;
-  /** Called when the card is pressed. */
-  onPress?: () => void;
+  /** Called when the property is pressed. */
+  onPropertyPress?: () => void;
+  /** Called when the actor row is pressed. */
+  onActorPress?: () => void;
 }
 
 // --- Action badge config ---
@@ -103,17 +105,18 @@ export function ActivityFeedCard({
   actor,
   property,
   createdAt,
-  onPress,
+  onPropertyPress,
+  onActorPress,
 }: ActivityFeedCardProps) {
   const config = ACTION_CONFIGS[eventType];
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={styles.pressable}
-      accessibilityRole="button"
-    >
-      <Card shadow="card" testID="activity-feed-card">
+    <Card shadow="card" testID="activity-feed-card" style={styles.pressable}>
+      <Pressable
+        onPress={onPropertyPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${property.address}`}
+      >
         {/* Property image */}
         <View style={styles.imageWrapper}>
           <PropertyImageSurface
@@ -134,9 +137,16 @@ export function ActivityFeedCard({
           <Text style={styles.address} numberOfLines={1}>
             {property.address} · {property.city}
           </Text>
+        </View>
+      </Pressable>
 
-          {/* User row */}
-          <View style={styles.userRow}>
+      <View style={styles.body}>
+        <Pressable
+          onPress={onActorPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${actor.displayName}'s profile`}
+          style={styles.userRow}
+        >
             <UserAvatar
               username={actor.handle}
               displayName={actor.displayName}
@@ -164,20 +174,19 @@ export function ActivityFeedCard({
                 {config.label}
               </Text>
             </View>
-          </View>
+        </Pressable>
 
-          {/* Simple stats row */}
-          <View style={styles.metricsRow}>
-            <View style={styles.metric}>
-              <Icon name="Heart" size={15} color="#C7BFB3" />
-            </View>
-            <View style={styles.metric}>
-              <Icon name="ChatCircle" size={15} color="#42A5F5" />
-            </View>
+        {/* Simple stats row */}
+        <View style={styles.metricsRow}>
+          <View style={styles.metric}>
+            <Icon name="Heart" size={15} color="#C7BFB3" />
+          </View>
+          <View style={styles.metric}>
+            <Icon name="ChatCircle" size={15} color="#42A5F5" />
           </View>
         </View>
-      </Card>
-    </Pressable>
+      </View>
+    </Card>
   );
 }
 

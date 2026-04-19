@@ -13,6 +13,7 @@ import {
   getUnreadCount,
   markAllRead,
   markOneRead,
+  notificationEventTypes,
   registerPushToken,
 } from '../services/notifications.js';
 
@@ -20,7 +21,7 @@ import {
 
 const notificationItemSchema = z.object({
   id: z.string().uuid(),
-  eventType: z.string(),
+  eventType: z.enum(notificationEventTypes),
   propertyId: z.string().uuid().nullable(),
   commentId: z.string().uuid().nullable(),
   guessId: z.string().uuid().nullable(),

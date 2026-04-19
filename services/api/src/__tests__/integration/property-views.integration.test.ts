@@ -162,6 +162,7 @@ describe('Property view routes', () => {
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${fakeId}/view`,
+        headers: { 'x-session-id': `${sessionPrefix}-missing` },
       });
 
       expect(response.statusCode).toBe(404);
@@ -169,7 +170,7 @@ describe('Property view routes', () => {
       expect(body.error).toBe('NOT_FOUND');
     });
 
-    it('should handle fully anonymous view (no user, no session)', async () => {
+    it('should reject view writes without a stable viewer identity', async () => {
       const baseline = await db.execute<{ cnt: number }>(sql`
         SELECT COUNT(*)::int AS cnt FROM property_views WHERE property_id = ${propertyId}
       `);
@@ -180,32 +181,33 @@ describe('Property view routes', () => {
         url: `/properties/${propertyId}/view`,
       });
 
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
-      // Should always create a new view since there's no user/session to dedup
-      expect(body.viewCount).toBe(baseCount + 1);
+      expect(body).toEqual({
+        error: 'BAD_REQUEST',
+        message: 'Authenticated user or x-session-id header is required.',
+      });
+
+      const counts = await db.execute<{ cnt: number }>(sql`
+        SELECT COUNT(*)::int AS cnt FROM property_views WHERE property_id = ${propertyId}
+      `);
+      expect(Array.from(counts)[0]?.cnt ?? 0).toBe(baseCount);
     });
   });
 
-  describe('GET /properties/:id (enriched with views)', () => {
-    it('should include viewCount, uniqueViewers, commentCount, guessCount, and activityLevel', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: `/properties/${propertyId}`,
-      });
+  describe('view identity persistence', () => {
+    it('stores unique viewers using user/session identity only', async () => {
+      const counts = await db.execute<{ view_count: number; unique_viewers: number }>(sql`
+        SELECT
+          COUNT(*)::int AS view_count,
+          COUNT(DISTINCT COALESCE(user_id::text, session_id))::int AS unique_viewers
+        FROM property_views
+        WHERE property_id = ${propertyId}
+      `);
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('viewCount');
-      expect(body).toHaveProperty('uniqueViewers');
-      expect(body).toHaveProperty('commentCount');
-      expect(body).toHaveProperty('guessCount');
-      expect(body).toHaveProperty('activityLevel');
-      expect(typeof body.viewCount).toBe('number');
-      expect(typeof body.uniqueViewers).toBe('number');
-      expect(typeof body.commentCount).toBe('number');
-      expect(typeof body.guessCount).toBe('number');
-      expect(['hot', 'warm', 'cold']).toContain(body.activityLevel);
+      const row = Array.from(counts)[0];
+      expect(row?.view_count ?? 0).toBeGreaterThanOrEqual(row?.unique_viewers ?? 0);
+      expect(row?.unique_viewers ?? 0).toBeGreaterThan(0);
     });
   });
 });

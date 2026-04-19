@@ -393,10 +393,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List properties
-         * @description Get a paginated list of properties with optional filtering by city, price range, or geographic bounds
-         */
+        /** List properties */
         get: {
             parameters: {
                 query?: {
@@ -410,6 +407,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
+                    activity?: "all" | "social" | "recent";
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
                     bbox?: string;
                     lat?: number;
@@ -460,26 +458,39 @@ export interface paths {
                                         number
                                     ];
                                 } | null;
-                                /** @description Year of construction */
                                 yearBuilt: number | null;
-                                /** @description Floor area in m² */
                                 floorAreaM2: number | null;
                                 /** @enum {string} */
                                 status: "active" | "inactive" | "demolished";
-                                /** @description Official government valuation */
                                 officialValuation: number | null;
-                                hasListing: boolean;
-                                askingPrice: number | null;
-                                /** @description Latest available active listing thumbnail URL */
-                                thumbnailUrl: string | null;
-                                /** @description Total number of likes */
-                                likeCount: number;
-                                commentCount: number;
-                                guessCount: number;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
                                 updatedAt: string;
+                                hasListing: boolean;
+                                hasActiveListing: boolean;
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                askingPrice: number | null;
+                                thumbnailUrl: string | null;
+                                socialScore: number;
+                                recentSocialScore: number;
+                                lastSocialAt: string | null;
+                                topLevelCommentCount: number;
+                                replyCount: number;
+                                propertyLikeCount: number;
+                                commentLikeCount: number;
+                                guessCount: number;
+                                viewCount: number;
+                                uniqueViewerCount: number;
+                                recentTopLevelCommentCount: number;
+                                recentReplyCount: number;
+                                recentPropertyLikeCount: number;
+                                recentCommentLikeCount: number;
+                                recentGuessCount: number;
+                                recentViewCount: number;
+                                recentUniqueViewerCount: number;
                             }[];
                             meta: {
                                 page: number;
@@ -507,10 +518,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Resolve address to property
-         * @description Resolve a canonical address to a local property UUID and coordinates. Matches the multi-country uniqueness model on country code, street, postal code, house number, and house number addition.
-         */
+        /** Resolve address to property */
         get: {
             parameters: {
                 query: {
@@ -544,25 +552,15 @@ export interface paths {
                                 lon: number;
                                 lat: number;
                             };
-                            hasListing: boolean;
+                            hasActiveListing: boolean;
+                            /** @enum {string} */
+                            marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
                             officialValuation: number | null;
-                        };
+                        } | null;
                     };
                 };
                 /** @description Default Response */
                 400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            error: string;
-                            message: string;
-                        };
-                    };
-                };
-                /** @description Default Response */
-                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -602,10 +600,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Find nearby properties
-         * @description Resolve the nearest grouped property feature to a coordinate. Used as a fallback for native map taps when queryRenderedFeatures is unreliable. Returns the canonical grouped feature using the same density-aware grouping engine as vector tiles.
-         */
+        /** Find nearby grouped property */
         get: {
             parameters: {
                 query: {
@@ -617,6 +612,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
+                    activity?: "all" | "social" | "recent";
                 };
                 header?: never;
                 path?: never;
@@ -653,12 +649,13 @@ export interface paths {
                                 number,
                                 number
                             ] | null;
-                            activityScore: number;
-                            activityScoreTotal: number;
-                            likeCount: number;
+                            activeListingCount: number;
+                            socialCount: number;
+                            recentSocialCount: number;
+                            socialScoreTotal: number;
+                            socialScoreMax: number;
+                            recentSocialScoreTotal: number;
                             commentCount: number;
-                            guessCount: number;
-                            hasListing: boolean;
                             streetName: string | null;
                             houseNumber: number | null;
                             houseNumberAddition: string | null;
@@ -671,6 +668,8 @@ export interface paths {
                             thumbnailUrl: string | null;
                             yearBuilt: number | null;
                             floorAreaM2: number | null;
+                            hasActiveListing: boolean | null;
+                            marketState: ("for-sale" | "for-rent" | "sold" | "rented" | "not-listed") | null;
                         } | null;
                     };
                 };
@@ -691,10 +690,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Batch fetch properties
-         * @description Fetch multiple properties by their IDs (comma-separated, max 50). Returns properties in the same order as the input IDs.
-         */
+        /** Batch fetch properties */
         get: {
             parameters: {
                 query: {
@@ -742,27 +738,131 @@ export interface paths {
                                     number
                                 ];
                             } | null;
-                            /** @description Year of construction */
                             yearBuilt: number | null;
-                            /** @description Floor area in m² */
                             floorAreaM2: number | null;
                             /** @enum {string} */
                             status: "active" | "inactive" | "demolished";
-                            /** @description Official government valuation */
                             officialValuation: number | null;
-                            hasListing: boolean;
-                            askingPrice: number | null;
-                            /** @description Latest available active listing thumbnail URL */
-                            thumbnailUrl: string | null;
-                            /** @description Total number of likes */
-                            likeCount: number;
-                            commentCount: number;
-                            guessCount: number;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
                             updatedAt: string;
+                            hasListing: boolean;
+                            hasActiveListing: boolean;
+                            /** @enum {string} */
+                            marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                            latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                            askingPrice: number | null;
+                            thumbnailUrl: string | null;
+                            socialScore: number;
+                            recentSocialScore: number;
+                            lastSocialAt: string | null;
+                            topLevelCommentCount: number;
+                            replyCount: number;
+                            propertyLikeCount: number;
+                            commentLikeCount: number;
+                            guessCount: number;
+                            viewCount: number;
+                            uniqueViewerCount: number;
+                            recentTopLevelCommentCount: number;
+                            recentReplyCount: number;
+                            recentPropertyLikeCount: number;
+                            recentCommentLikeCount: number;
+                            recentGuessCount: number;
+                            recentViewCount: number;
+                            recentUniqueViewerCount: number;
                         }[];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/following-viewport": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get followed-user viewport activity overlay */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
+                    bbox: string;
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @description [longitude, latitude] */
+                                coordinate: [
+                                    number,
+                                    number
+                                ];
+                                address: string;
+                                city: string;
+                                postalCode: string | null;
+                                countryCode: string;
+                                askingPrice: number | null;
+                                thumbnailUrl: string | null;
+                                hasActiveListing: boolean;
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                activityTypes: ("property_like" | "comment" | "price_guess")[];
+                                actorCount: number;
+                                /** Format: date-time */
+                                lastActivityAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
                     };
                 };
             };
@@ -782,10 +882,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get property by ID
-         * @description Get detailed information about a specific property
-         */
+        /** Get property by ID */
         get: {
             parameters: {
                 query?: never;
@@ -833,40 +930,46 @@ export interface paths {
                                     number
                                 ];
                             } | null;
-                            /** @description Year of construction */
                             yearBuilt: number | null;
-                            /** @description Floor area in m² */
                             floorAreaM2: number | null;
                             /** @enum {string} */
                             status: "active" | "inactive" | "demolished";
-                            /** @description Official government valuation */
                             officialValuation: number | null;
-                            /** @description Whether property has an active listing */
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
                             hasListing: boolean;
-                            /** @description Active listing asking price */
+                            hasActiveListing: boolean;
+                            /** @enum {string} */
+                            marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                            latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
                             askingPrice: number | null;
-                            /** @description Latest available active listing thumbnail URL */
                             thumbnailUrl: string | null;
-                            /** @description Total number of likes on this property */
-                            likeCount: number;
-                            /** @description Whether the current user has liked this property */
-                            isLiked: boolean;
-                            /** @description Whether the current user has saved this property */
-                            isSaved: boolean;
-                            /** @description Total view count */
-                            viewCount: number;
-                            /** @description Unique viewers count */
-                            uniqueViewers: number;
-                            /** @description Total comments */
-                            commentCount: number;
-                            /** @description Total price guesses */
+                            socialScore: number;
+                            recentSocialScore: number;
+                            lastSocialAt: string | null;
+                            topLevelCommentCount: number;
+                            replyCount: number;
+                            propertyLikeCount: number;
+                            commentLikeCount: number;
                             guessCount: number;
-                            /**
-                             * @description Activity level based on views, comments, and guesses
-                             * @enum {string}
-                             */
+                            viewCount: number;
+                            uniqueViewerCount: number;
+                            recentTopLevelCommentCount: number;
+                            recentReplyCount: number;
+                            recentPropertyLikeCount: number;
+                            recentCommentLikeCount: number;
+                            recentGuessCount: number;
+                            recentViewCount: number;
+                            recentUniqueViewerCount: number;
+                            isLiked: boolean;
+                            isSaved: boolean;
+                            commentCount: number;
+                            likeCount: number;
+                            uniqueViewers: number;
+                            /** @enum {string} */
                             activityLevel: "hot" | "warm" | "cold";
-                            /** @description Fair Market Value calculation */
                             fmv: {
                                 fmv: number | null;
                                 /** @enum {string} */
@@ -885,10 +988,6 @@ export interface paths {
                                 askingPrice: number | null;
                                 divergence: number | null;
                             };
-                            /** Format: date-time */
-                            createdAt: string;
-                            /** Format: date-time */
-                            updatedAt: string;
                         };
                     };
                 };
@@ -923,10 +1022,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Save a property
-         * @description Save a property to the user's saved list. Returns 409 if already saved.
-         */
+        /** Save a property */
         post: {
             parameters: {
                 query?: never;
@@ -987,10 +1083,7 @@ export interface paths {
                 };
             };
         };
-        /**
-         * Unsave a property
-         * @description Remove a property from the user's saved list. Returns 404 if not saved.
-         */
+        /** Unsave a property */
         delete: {
             parameters: {
                 query?: never;
@@ -1051,10 +1144,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List saved properties
-         * @description Get a paginated list of the user's saved properties, ordered by most recently saved.
-         */
+        /** List saved properties */
         get: {
             parameters: {
                 query?: {
@@ -1104,26 +1194,43 @@ export interface paths {
                                         number
                                     ];
                                 } | null;
-                                /** @description Year of construction */
                                 yearBuilt: number | null;
-                                /** @description Floor area in m² */
                                 floorAreaM2: number | null;
                                 /** @enum {string} */
                                 status: "active" | "inactive" | "demolished";
-                                /** @description Official government valuation */
                                 officialValuation: number | null;
-                                hasListing: boolean;
-                                askingPrice: number | null;
-                                /** @description Latest available active listing thumbnail URL */
-                                thumbnailUrl: string | null;
-                                commentCount: number;
-                                guessCount: number;
-                                /** Format: date-time */
-                                savedAt: string;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
                                 updatedAt: string;
+                                hasListing: boolean;
+                                hasActiveListing: boolean;
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                askingPrice: number | null;
+                                thumbnailUrl: string | null;
+                                socialScore: number;
+                                recentSocialScore: number;
+                                lastSocialAt: string | null;
+                                topLevelCommentCount: number;
+                                replyCount: number;
+                                propertyLikeCount: number;
+                                commentLikeCount: number;
+                                guessCount: number;
+                                viewCount: number;
+                                uniqueViewerCount: number;
+                                recentTopLevelCommentCount: number;
+                                recentReplyCount: number;
+                                recentPropertyLikeCount: number;
+                                recentCommentLikeCount: number;
+                                recentGuessCount: number;
+                                recentViewCount: number;
+                                recentUniqueViewerCount: number;
+                                /** Format: date-time */
+                                savedAt: string;
+                                /** @enum {boolean} */
+                                isSaved: true;
                             }[];
                             total: number;
                             hasMore: boolean;
@@ -1992,6 +2099,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string;
+                    activity?: "all" | "social" | "recent";
                 };
                 header?: never;
                 path?: never;
@@ -2035,6 +2143,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string;
+                    activity?: "all" | "social" | "recent";
                 };
                 header?: never;
                 path: {
@@ -2684,6 +2793,18 @@ export interface paths {
                     };
                 };
                 /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2744,6 +2865,10 @@ export interface paths {
                             commentCount: number;
                             /** Format: date-time */
                             joinedAt: string;
+                            followerCount: number;
+                            followingCount: number;
+                            /** @enum {string} */
+                            relationship: "self" | "none" | "following" | "followed_by" | "mutual";
                         };
                     };
                 };
@@ -2808,6 +2933,10 @@ export interface paths {
                             commentCount: number;
                             /** Format: date-time */
                             joinedAt: string;
+                            followerCount: number;
+                            followingCount: number;
+                            /** @enum {string} */
+                            relationship: "self" | "none" | "following" | "followed_by" | "mutual";
                             email: string;
                             averageAccuracy: number | null;
                             savedCount: number;
@@ -2833,6 +2962,284 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/followers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List followers for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                displayName: string;
+                                handle: string;
+                                profilePhotoUrl: string | null;
+                                /** Format: date-time */
+                                followedAt: string;
+                                /** @enum {string} */
+                                relationship: "self" | "none" | "following" | "followed_by" | "mutual";
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/following": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List followed users for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                displayName: string;
+                                handle: string;
+                                profilePhotoUrl: string | null;
+                                /** Format: date-time */
+                                followedAt: string;
+                                /** @enum {string} */
+                                relationship: "self" | "none" | "following" | "followed_by" | "mutual";
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Follow a user */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            relationship: "self" | "none" | "following" | "followed_by" | "mutual";
+                            followerCount: number;
+                            followingCount: number;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        /** Unfollow a user */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            relationship: "self" | "none" | "following" | "followed_by" | "mutual";
+                            followerCount: number;
+                            followingCount: number;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -3209,7 +3616,8 @@ export interface paths {
                             items: {
                                 /** Format: uuid */
                                 id: string;
-                                eventType: string;
+                                /** @enum {string} */
+                                eventType: "property_comment" | "comment_reply" | "comment_like" | "property_like" | "property_guess" | "new_follower" | "achievement_unlocked";
                                 propertyId: string | null;
                                 commentId: string | null;
                                 guessId: string | null;
@@ -3609,12 +4017,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get public activity feed
-         * @description Recent social events: property likes, comments, and price guesses. Excludes saved/bookmark events (private account state).
+         * Get activity feed
+         * @description Returns newest-first ungrouped activity items. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.
          */
         get: {
             parameters: {
                 query?: {
+                    scope?: "public" | "following";
                     limit?: number;
                     offset?: number;
                 };
@@ -3632,9 +4041,10 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: {
+                                /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess" | "save";
+                                eventType: "property_like" | "comment" | "price_guess";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;
@@ -3646,7 +4056,12 @@ export interface paths {
                                     /** Format: uuid */
                                     id: string;
                                     address: string;
+                                    streetName: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
                                     city: string;
+                                    postalCode: string;
+                                    countryCode: string;
                                     thumbnailUrl: string | null;
                                 };
                                 /** Format: date-time */
@@ -3660,6 +4075,18 @@ export interface paths {
                                 offset: number;
                                 hasMore: boolean;
                             };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
                         };
                     };
                 };
@@ -3681,8 +4108,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get personal activity history
-         * @description All activity by the current user including private save events.
+         * Get current user activity history
+         * @description Returns newest-first ungrouped activity items for the signed-in user. This is the only activity route that includes private save events.
          */
         get: {
             parameters: {
@@ -3704,6 +4131,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: {
+                                /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
                                 eventType: "property_like" | "comment" | "price_guess" | "save";
@@ -3718,7 +4146,12 @@ export interface paths {
                                     /** Format: uuid */
                                     id: string;
                                     address: string;
+                                    streetName: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
                                     city: string;
+                                    postalCode: string;
+                                    countryCode: string;
                                     thumbnailUrl: string | null;
                                 };
                                 /** Format: date-time */
@@ -3865,6 +4298,46 @@ export interface paths {
                             }[];
                         };
                     };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/email/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the email magic link template
+         * @description Renders the current magic link email template in a browser preview. Available only in development and test environments.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    email?: string;
+                    token?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };

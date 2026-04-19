@@ -676,6 +676,12 @@ Both plans require the UI to communicate separate listing and social axes. That 
 
 ## Cross-Cutting Risks
 
+## Execution Notes
+
+- 2026-04-19 backend/map semantic alignment: grouped public map payloads are considered correct only when tiles and `/properties/nearby` emit `activeListingCount`, `socialCount`, `recentSocialCount`, `socialScoreTotal`, `socialScoreMax`, `recentSocialScoreTotal`, and `commentCount`, while grouped singles stay thin and only add `hasActiveListing` plus `marketState` alongside preview seed fields. Legacy grouped `hasListing` and `activityScore*` fields are treated as drift and removed from parity checks.
+- 2026-04-19 view identity clarification: `POST /properties/:id/view` requires either an authenticated `user_id` or an anonymous `x-session-id`. Identity-less writes are rejected, and unique-viewer counting uses `COUNT(DISTINCT COALESCE(user_id::text, session_id))` with no row-id fallback.
+- 2026-04-19 mock ownership clarification: the mock property layer owns parity for `/properties/resolve`, `/properties/nearby`, `/properties/following-viewport`, and `POST /properties/:id/view`, so handler-alignment coverage must assert the same auth split and grouped-field contract there too.
+
 - Contract drift between routes, OpenAPI, generated client, mocks, and app adapters.
   Avoidance: every route-shape change repeats the full schema -> OpenAPI -> generated-client -> callers flow immediately.
 - Mixing public `activity` with app-only `socialScope`.

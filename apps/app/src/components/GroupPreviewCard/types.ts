@@ -11,6 +11,11 @@ export interface GroupPreviewProperty {
   officialValuation?: number | null;
   askingPrice?: number | null;
   fmv?: number | null;
+  hasActiveListing?: boolean | null;
+  marketState?: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
+  socialScore?: number;
+  recentSocialScore?: number;
+  lastSocialAt?: string | null;
   activityLevel?: 'hot' | 'warm' | 'cold';
   activityScore?: number;
   thumbnailUrl?: string | null;

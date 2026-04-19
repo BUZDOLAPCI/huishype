@@ -8,6 +8,7 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
+import { PROPERTY_MAP_LAYERS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 import type { MapFeature, WindowWithMapInstance } from '../helpers/map-instance';
@@ -77,74 +78,283 @@ async function setMapView(
   await page.waitForTimeout(3000);
 }
 
-/**
- * Query rendered features at the map center for a specific layer,
- * returning selected properties.
- */
-async function queryFeaturesAtCenter(
-  page: Page,
-  layers: string[]
-): Promise<
-  Array<{
-    point_count?: number | string;
-    property_ids?: string | string[];
-    id?: string | number;
-  }>
-> {
-  return page.evaluate(
-    ({ layers }) => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map) return [];
-      const center = map.getCenter();
-      if (!center) return [];
+type RenderedClusterCandidate = {
+  layerId: string;
+  pointCount: number;
+  propertyIdCount: number;
+  screenX: number;
+  screenY: number;
+  distanceToCenter: number;
+};
 
-      const point = map.project(center);
-      const features = map.queryRenderedFeatures(
-        [point.x, point.y],
-        { layers: layers.filter((l: string) => map.getLayer(l)) }
-      );
-      return features.map((f: MapFeature) => ({
-        point_count: f.properties?.point_count,
-        property_ids: f.properties?.property_ids,
-        id: f.properties?.id,
-      }));
+type RenderedClusterFilters = {
+  layerIds: string[];
+  minPointCount: number;
+  maxPointCount?: number;
+  requireMultipleProperties?: boolean;
+};
+
+async function closeOpenPreview(page: Page): Promise<void> {
+  const closeButtons = page.locator(
+    '[data-testid="property-preview-close-button"]:visible, [data-testid="group-preview-close-button"]:visible'
+  );
+
+  const count = await closeButtons.count();
+  if (count === 0) {
+    return;
+  }
+
+  await closeButtons.first().click();
+  await page.waitForTimeout(500);
+}
+
+async function getRenderedClusterCandidates(
+  page: Page,
+  filters: RenderedClusterFilters
+): Promise<RenderedClusterCandidate[]> {
+  return page.evaluate(
+    ({ layerIds, minPointCount, maxPointCount, requireMultipleProperties }) => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map) {
+        return [];
+      }
+
+      const canvas = map.getCanvas?.();
+      if (!canvas) {
+        return [];
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const edgeMargin = 40;
+      const existingLayerIds = layerIds.filter((layerId) => map.getLayer?.(layerId));
+      const candidates: RenderedClusterCandidate[] = [];
+      const seen = new Set<string>();
+
+      for (const layerId of existingLayerIds) {
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: [layerId] }
+        ) || [];
+
+        for (const feature of features as MapFeature[]) {
+          if (feature.geometry?.type !== 'Point') {
+            continue;
+          }
+
+          const pointCount = Number(feature.properties?.point_count || 0);
+          if (!Number.isFinite(pointCount) || pointCount < minPointCount) {
+            continue;
+          }
+
+          if (typeof maxPointCount === 'number' && pointCount > maxPointCount) {
+            continue;
+          }
+
+          const propertyIds = feature.properties?.property_ids;
+          const propertyIdCount = typeof propertyIds === 'string'
+            ? propertyIds.split(',').filter(Boolean).length
+            : Array.isArray(propertyIds)
+              ? propertyIds.length
+              : 0;
+
+          if (requireMultipleProperties && propertyIdCount <= 1) {
+            continue;
+          }
+
+          const coordinates = feature.geometry.coordinates;
+          if (
+            !Array.isArray(coordinates) ||
+            coordinates.length < 2 ||
+            typeof coordinates[0] !== 'number' ||
+            typeof coordinates[1] !== 'number'
+          ) {
+            continue;
+          }
+
+          const point = map.project([coordinates[0], coordinates[1]]);
+          const inBounds =
+            point.x >= edgeMargin &&
+            point.x <= canvas.width - edgeMargin &&
+            point.y >= edgeMargin &&
+            point.y <= canvas.height - edgeMargin;
+
+          if (!inBounds) {
+            continue;
+          }
+
+          const dedupeKey = [
+            layerId,
+            String(feature.properties?.cluster_id ?? feature.properties?.id ?? `${coordinates[0]}:${coordinates[1]}`),
+          ].join(':');
+
+          if (seen.has(dedupeKey)) {
+            continue;
+          }
+          seen.add(dedupeKey);
+
+          candidates.push({
+            layerId,
+            pointCount,
+            propertyIdCount,
+            screenX: rect.left + point.x,
+            screenY: rect.top + point.y,
+            distanceToCenter: Math.hypot(point.x - centerX, point.y - centerY),
+          });
+        }
+      }
+
+      return candidates.sort((a, b) => a.distanceToCenter - b.distanceToCenter);
     },
-    { layers }
+    filters
   );
 }
 
-/**
- * Try clicking on cluster features at the map center area.
- * Returns true if a cluster was clicked and the preview appeared.
- */
-async function clickClusterAtCenter(page: Page): Promise<boolean> {
-  const canvas = page.locator('canvas').first();
-  const box = await canvas.boundingBox();
-  if (!box) return false;
+async function waitForRenderedClusterCandidate(
+  page: Page,
+  filters: RenderedClusterFilters,
+  timeout = 25000
+): Promise<void> {
+  await page.waitForFunction(
+    ({ layerIds, minPointCount, maxPointCount, requireMultipleProperties }) => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map || !map.isStyleLoaded?.()) {
+        return false;
+      }
 
-  const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+      const canvas = map.getCanvas?.();
+      if (!canvas) {
+        return false;
+      }
 
-  // Grid of positions around center to try (limited for performance)
-  const positions = [
-    { x: 0.5, y: 0.5 },
-    { x: 0.45, y: 0.45 },
-    { x: 0.55, y: 0.55 },
-    { x: 0.4, y: 0.5 },
-    { x: 0.6, y: 0.5 },
-  ];
+      const edgeMargin = 40;
+      const existingLayerIds = layerIds.filter((layerId) => map.getLayer?.(layerId));
+      if (existingLayerIds.length === 0) {
+        return false;
+      }
 
-  for (const pos of positions) {
-    const clickX = box.x + box.width * pos.x;
-    const clickY = box.y + box.height * pos.y;
+      return existingLayerIds.some((layerId) => {
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers: [layerId] }
+        ) || [];
 
-    await page.mouse.click(clickX, clickY);
-    await page.waitForTimeout(1000); // Wait for batch API call + render
+        return features.some((feature: MapFeature) => {
+          if (feature.geometry?.type !== 'Point') {
+            return false;
+          }
 
-    const visible = await clusterPreview.isVisible().catch(() => false);
-    if (visible) return true;
+          const pointCount = Number(feature.properties?.point_count || 0);
+          if (!Number.isFinite(pointCount) || pointCount < minPointCount) {
+            return false;
+          }
+
+          if (typeof maxPointCount === 'number' && pointCount > maxPointCount) {
+            return false;
+          }
+
+          const propertyIds = feature.properties?.property_ids;
+          const propertyIdCount = typeof propertyIds === 'string'
+            ? propertyIds.split(',').filter(Boolean).length
+            : Array.isArray(propertyIds)
+              ? propertyIds.length
+              : 0;
+
+          if (requireMultipleProperties && propertyIdCount <= 1) {
+            return false;
+          }
+
+          const coordinates = feature.geometry.coordinates;
+          if (
+            !Array.isArray(coordinates) ||
+            coordinates.length < 2 ||
+            typeof coordinates[0] !== 'number' ||
+            typeof coordinates[1] !== 'number'
+          ) {
+            return false;
+          }
+
+          const point = map.project([coordinates[0], coordinates[1]]);
+          return (
+            point.x >= edgeMargin &&
+            point.x <= canvas.width - edgeMargin &&
+            point.y >= edgeMargin &&
+            point.y <= canvas.height - edgeMargin
+          );
+        });
+      });
+    },
+    filters,
+    { timeout, polling: 500 }
+  );
+}
+
+async function openPreviewableCluster(page: Page): Promise<{
+  success: boolean;
+  pointCount?: number;
+  candidatesTried?: number;
+}> {
+  const filters: RenderedClusterFilters = {
+    layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+    minPointCount: 2,
+    maxPointCount: PROPERTY_PREVIEW_MEMBER_LIMIT,
+    requireMultipleProperties: true,
+  };
+
+  await waitForRenderedClusterCandidate(page, filters);
+  const candidates = await getRenderedClusterCandidates(page, filters);
+  console.log(`Previewable rendered clusters found: ${candidates.length}`);
+
+  const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+  for (const candidate of candidates.slice(0, 10)) {
+    await page.mouse.move(candidate.screenX, candidate.screenY);
+    await page.mouse.click(candidate.screenX, candidate.screenY);
+
+    const indicatorVisible = await pageIndicator
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (indicatorVisible) {
+      return {
+        success: true,
+        pointCount: candidate.pointCount,
+        candidatesTried: candidates.length,
+      };
+    }
+
+    const propertyPreviewVisible = await page
+      .locator('[data-testid="property-preview-card"]')
+      .isVisible()
+      .catch(() => false);
+    console.log(
+      `Cluster click did not open group preview: layer=${candidate.layerId} pointCount=${candidate.pointCount} propertyIds=${candidate.propertyIdCount} propertyPreviewVisible=${propertyPreviewVisible}`
+    );
+    await closeOpenPreview(page);
   }
 
-  return false;
+  return { success: false, candidatesTried: candidates.length };
+}
+
+async function getLargestRenderedCluster(page: Page): Promise<
+  | ({ success: true } & RenderedClusterCandidate)
+  | { success: false }
+> {
+  const filters: RenderedClusterFilters = {
+    layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+    minPointCount: 2,
+  };
+
+  await waitForRenderedClusterCandidate(page, filters);
+  const [candidate] = (await getRenderedClusterCandidates(page, filters)).sort(
+    (a, b) => b.pointCount - a.pointCount || a.distanceToCenter - b.distanceToCenter
+  );
+  if (!candidate) {
+    return { success: false };
+  }
+
+  return { success: true, ...candidate };
 }
 
 test.describe('Cluster Tap Flow', () => {
@@ -246,41 +456,33 @@ test.describe('Cluster Tap Flow', () => {
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
     await page.waitForTimeout(3000);
 
-    // Query features to see what's rendered
-    const features = await queryFeaturesAtCenter(page, [
-      'property-clusters',
-      'ghost-clusters',
-    ]);
-    console.log(`Features at center: ${JSON.stringify(features.slice(0, 3))}`);
+    const previewResult = await openPreviewableCluster(page);
+    expect(
+      previewResult.success,
+      `Expected to find a rendered previewable cluster. Tried ${previewResult.candidatesTried ?? 0} candidates.`
+    ).toBe(true);
 
-    // Try to click a cluster
-    const foundCluster = await clickClusterAtCenter(page);
+    // Verify batch API was called
+    expect(batchRequests.length).toBeGreaterThan(0);
+    console.log(
+      `Batch API called ${batchRequests.length} time(s) for cluster point_count=${previewResult.pointCount}`
+    );
 
-    if (foundCluster) {
-      // Verify batch API was called
-      expect(batchRequests.length).toBeGreaterThan(0);
-      console.log(`Batch API called ${batchRequests.length} time(s)`);
+    // Verify GroupPreviewCard elements
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    await expect(clusterPreview).toBeVisible();
 
-      // Verify GroupPreviewCard elements
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      await expect(clusterPreview).toBeVisible();
+    const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+    await expect(pageIndicator).toBeVisible();
 
-      const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
-      await expect(pageIndicator).toBeVisible();
+    const pageText = await pageIndicator.textContent();
+    expect(pageText).toMatch(/\d+ of \d+/);
+    console.log(`Cluster preview showing: ${pageText}`);
 
-      const pageText = await pageIndicator.textContent();
-      expect(pageText).toMatch(/\d+ of \d+/);
-      console.log(`Cluster preview showing: ${pageText}`);
-
-      // Verify navigation arrows
-      await expect(page.locator('[data-testid="group-preview-nav-left"]')).toBeVisible();
-      await expect(page.locator('[data-testid="group-preview-nav-right"]')).toBeVisible();
-      await expect(page.locator('[data-testid="group-preview-close-button"]')).toBeVisible();
-    } else {
-      console.log(
-        'No cluster found at z13 center. This may happen if data density is low. Test is informational.'
-      );
-    }
+    // Verify navigation arrows
+    await expect(page.locator('[data-testid="group-preview-nav-left"]')).toBeVisible();
+    await expect(page.locator('[data-testid="group-preview-nav-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="group-preview-close-button"]')).toBeVisible();
   });
 
   test('cluster preview navigation works', async ({ page }) => {
@@ -290,46 +492,45 @@ test.describe('Cluster Tap Flow', () => {
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
     await page.waitForTimeout(3000);
 
-    const foundCluster = await clickClusterAtCenter(page);
+    const previewResult = await openPreviewableCluster(page);
+    expect(previewResult.success, 'Expected to find a rendered cluster for navigation test').toBe(
+      true
+    );
 
-    if (foundCluster) {
-      const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
-      const initialText = await pageIndicator.textContent();
-      console.log(`Initial: ${initialText}`);
+    const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+    const initialText = await pageIndicator.textContent();
+    console.log(`Initial: ${initialText}`);
 
-      // Extract total from "X of Y"
-      const match = initialText?.match(/(\d+) of (\d+)/);
-      if (match && parseInt(match[2]) > 1) {
-        // Click right arrow
-        const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
-        await rightNav.click();
-        await page.waitForTimeout(500);
-
-        const afterRightText = await pageIndicator.textContent();
-        expect(afterRightText).toMatch(/2 of \d+/);
-        console.log(`After right: ${afterRightText}`);
-
-        // Click left arrow to go back
-        const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
-        await leftNav.click();
-        await page.waitForTimeout(500);
-
-        const afterLeftText = await pageIndicator.textContent();
-        expect(afterLeftText).toBe(initialText);
-        console.log(`After left: ${afterLeftText}`);
-      }
-
-      // Close the preview
-      const closeButton = page.locator('[data-testid="group-preview-close-button"]');
-      await closeButton.click();
+    // Extract total from "X of Y"
+    const match = initialText?.match(/(\d+) of (\d+)/);
+    if (match && parseInt(match[2]) > 1) {
+      // Click right arrow
+      const rightNav = page.locator('[data-testid="group-preview-nav-right"]');
+      await rightNav.click();
       await page.waitForTimeout(500);
 
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      const stillVisible = await clusterPreview.isVisible().catch(() => false);
-      expect(stillVisible).toBe(false);
-    } else {
-      console.log('No cluster found for navigation test');
+      const afterRightText = await pageIndicator.textContent();
+      expect(afterRightText).toMatch(/2 of \d+/);
+      console.log(`After right: ${afterRightText}`);
+
+      // Click left arrow to go back
+      const leftNav = page.locator('[data-testid="group-preview-nav-left"]');
+      await leftNav.click();
+      await page.waitForTimeout(500);
+
+      const afterLeftText = await pageIndicator.textContent();
+      expect(afterLeftText).toBe(initialText);
+      console.log(`After left: ${afterLeftText}`);
     }
+
+    // Close the preview
+    const closeButton = page.locator('[data-testid="group-preview-close-button"]');
+    await closeButton.click();
+    await page.waitForTimeout(500);
+
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    const stillVisible = await clusterPreview.isVisible().catch(() => false);
+    expect(stillVisible).toBe(false);
   });
 
   test('cluster property tap opens property details', async ({ page }) => {
@@ -339,31 +540,30 @@ test.describe('Cluster Tap Flow', () => {
     await setMapView(page, EINDHOVEN_CENTER, 13, 0);
     await page.waitForTimeout(3000);
 
-    const foundCluster = await clickClusterAtCenter(page);
+    const previewResult = await openPreviewableCluster(page);
+    expect(previewResult.success, 'Expected to find a rendered cluster for property tap test').toBe(
+      true
+    );
 
-    if (foundCluster) {
-      // Click the property card
-      const propertyCard = page.locator('[data-testid="property-preview-card"]');
-      await expect(propertyCard).toBeVisible();
-      await propertyCard.click();
-      await page.waitForTimeout(1000);
+    // Click the property card
+    const propertyCard = page.locator('[data-testid="property-preview-card"]');
+    await expect(propertyCard).toBeVisible();
+    await propertyCard.click();
+    await page.waitForTimeout(1000);
 
-      // Preview remains visible while the property is selected and the sheet expands.
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      const previewVisible = await clusterPreview.isVisible().catch(() => false);
-      expect(previewVisible).toBe(true);
+    // Preview remains visible while the property is selected and the sheet expands.
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    const previewVisible = await clusterPreview.isVisible().catch(() => false);
+    expect(previewVisible).toBe(true);
 
-      // Property bottom sheet should have a selected property
-      const hasSelectedProperty = await page.evaluate(() => {
-        // Check for selected marker
-        const marker = document.querySelector('[data-testid="selected-marker"]');
-        return !!marker;
-      });
-      // After selecting from cluster, a marker or bottom sheet should appear
-      console.log(`Selected property marker visible: ${hasSelectedProperty}`);
-    } else {
-      console.log('No cluster found for property tap test');
-    }
+    // Property bottom sheet should have a selected property
+    const hasSelectedProperty = await page.evaluate(() => {
+      // Check for selected marker
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      return !!marker;
+    });
+    // After selecting from cluster, a marker or bottom sheet should appear
+    console.log(`Selected property marker visible: ${hasSelectedProperty}`);
   });
 
   test('large cluster zoom works at low zoom level', async ({ page }) => {
@@ -377,31 +577,33 @@ test.describe('Cluster Tap Flow', () => {
     const initialZoom = await getMapZoom(page);
     console.log(`Initial zoom: ${initialZoom}`);
 
-    // Try clicking at center - at z10, clusters should be large
-    const canvas = page.locator('canvas').first();
-    const box = await canvas.boundingBox();
-
-    if (box) {
-      // Click center of map
-      await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
-      await page.waitForTimeout(2000);
-
-      const newZoom = await getMapZoom(page);
-      const clusterPreview = page.locator('[data-testid="group-preview-card"]');
-      const previewVisible = await clusterPreview.isVisible().catch(() => false);
-
-      // At z10 with large clusters: either zoom increased or nothing happened
-      // (if no cluster was clicked). GroupPreviewCard should NOT appear for large clusters.
-      if (newZoom > initialZoom + 0.5) {
-        expect(previewVisible).toBe(false);
-        console.log(`Large cluster zoom: ${initialZoom} -> ${newZoom} (preview not shown)`);
-      } else if (previewVisible) {
-        // This means a small cluster was hit (unlikely at z10, but possible)
-        console.log('Found small cluster even at z10 - preview shown');
-      } else {
-        console.log('No cluster clicked at z10 center');
-      }
+    const largeCluster = await getLargestRenderedCluster(page);
+    expect(largeCluster.success, 'Expected to find a rendered cluster at z10').toBe(
+      true
+    );
+    if (!largeCluster.success) {
+      return;
     }
+
+    test.skip(
+      largeCluster.pointCount <= PROPERTY_PREVIEW_MEMBER_LIMIT,
+      `No rendered cluster larger than preview limit at z10. Largest point_count=${largeCluster.pointCount}.`
+    );
+
+    await page.mouse.move(largeCluster.screenX, largeCluster.screenY);
+    await page.mouse.click(largeCluster.screenX, largeCluster.screenY);
+
+    await page.waitForTimeout(2000);
+
+    const newZoom = await getMapZoom(page);
+    const clusterPreview = page.locator('[data-testid="group-preview-card"]');
+    const previewVisible = await clusterPreview.isVisible().catch(() => false);
+
+    expect(previewVisible).toBe(false);
+    expect(newZoom).toBeGreaterThan(initialZoom + 0.5);
+    console.log(
+      `Large cluster zoom: ${initialZoom} -> ${newZoom} (point_count=${largeCluster.pointCount})`
+    );
   });
 
   test('tiles include property_ids field for clusters', async ({ page }) => {

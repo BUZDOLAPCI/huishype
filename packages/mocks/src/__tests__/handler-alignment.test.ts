@@ -280,6 +280,201 @@ describe('Mock handler runtime parity', () => {
       message: 'Invalid query parameters',
     });
   });
+
+  it('matches public resolve and nearby grouped map contracts', async () => {
+    const resolveResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&countryCode=NL',
+    );
+    const resolveBody = await resolveResponse.json();
+
+    expect(resolveResponse.status).toBe(200);
+    expect(resolveBody).toHaveProperty('hasActiveListing', true);
+    expect(resolveBody).toHaveProperty('marketState', 'for-sale');
+    expect(resolveBody).not.toHaveProperty('hasListing');
+
+    const nearbyResponse = await fetch(
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=17',
+    );
+    const nearbyBody = await nearbyResponse.json();
+
+    expect(nearbyResponse.status).toBe(200);
+    expect(nearbyBody).toHaveProperty('activeListingCount');
+    expect(nearbyBody).toHaveProperty('socialCount');
+    expect(nearbyBody).toHaveProperty('recentSocialCount');
+    expect(nearbyBody).toHaveProperty('socialScoreTotal');
+    expect(nearbyBody).toHaveProperty('socialScoreMax');
+    expect(nearbyBody).toHaveProperty('recentSocialScoreTotal');
+    expect(nearbyBody).toHaveProperty('hasActiveListing');
+    expect(nearbyBody).toHaveProperty('marketState');
+    expect(nearbyBody).not.toHaveProperty('hasListing');
+    expect(nearbyBody).not.toHaveProperty('activityScore');
+    expect(nearbyBody).not.toHaveProperty('activityScoreTotal');
+  });
+
+  it('matches following viewport auth split and sparse overlay payload', async () => {
+    const unauthorizedResponse = await fetch(
+      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4',
+    );
+    expect(unauthorizedResponse.status).toBe(401);
+
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const response = await fetch(
+      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items[0]).toHaveProperty('coordinate');
+    expect(body.items[0]).toHaveProperty('activityTypes');
+    expect(body.items[0]).toHaveProperty('actorCount');
+    expect(body.items[0]).toHaveProperty('lastActivityAt');
+  });
+
+  it('matches property view identity requirements and response envelope', async () => {
+    const missingIdentityResponse = await fetch('http://localhost/properties/prop-001/view', {
+      method: 'POST',
+    });
+    expect(missingIdentityResponse.status).toBe(400);
+    expect(await missingIdentityResponse.json()).toEqual({
+      error: 'BAD_REQUEST',
+      message: 'Authenticated user or x-session-id header is required.',
+    });
+
+    const sessionResponse = await fetch('http://localhost/properties/prop-001/view', {
+      method: 'POST',
+      headers: { 'x-session-id': 'mock-session-1' },
+    });
+    const sessionBody = await sessionResponse.json();
+
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionBody).toHaveProperty('viewCount');
+    expect(sessionBody).toHaveProperty('uniqueViewers');
+  });
+
+  it('matches follow-aware user profile and follow route behavior', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const publicProfileResponse = await fetch('http://localhost/users/user-002/profile');
+    const publicProfileBody = await publicProfileResponse.json();
+    expect(publicProfileResponse.status).toBe(200);
+    expect(publicProfileBody.relationship).toBe('none');
+    expect(publicProfileBody).toHaveProperty('followerCount');
+    expect(publicProfileBody).toHaveProperty('followingCount');
+
+    const followResponse = await fetch('http://localhost/users/user-002/follow', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followBody = await followResponse.json();
+    expect(followResponse.status).toBe(200);
+    expect(followBody.relationship).toBe('following');
+    expect(followBody.followerCount).toBeGreaterThan(0);
+
+    const followersResponse = await fetch('http://localhost/users/me/following', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followersBody = await followersResponse.json();
+    expect(followersResponse.status).toBe(200);
+    expect(Array.isArray(followersBody.items)).toBe(true);
+
+    const selfFollowResponse = await fetch('http://localhost/users/user-001/follow', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(selfFollowResponse.status).toBe(400);
+  });
+
+  it('matches activity scope auth split and excludes save from public/following', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const publicResponse = await fetch('http://localhost/activity?scope=public&limit=20');
+    const publicBody = await publicResponse.json();
+    expect(publicResponse.status).toBe(200);
+    expect(publicBody.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
+      true
+    );
+    expect(publicBody.items[0].property).toHaveProperty('streetName');
+    expect(publicBody.items[0].property).toHaveProperty('postalCode');
+    expect(publicBody.items[0].property).toHaveProperty('countryCode');
+
+    const unauthorizedFollowingResponse = await fetch('http://localhost/activity?scope=following');
+    expect(unauthorizedFollowingResponse.status).toBe(401);
+
+    const followingResponse = await fetch('http://localhost/activity?scope=following&limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followingBody = await followingResponse.json();
+    expect(followingResponse.status).toBe(200);
+    expect(
+      followingBody.items.every((item: { eventType: string }) => item.eventType !== 'save')
+    ).toBe(true);
+
+    const selfResponse = await fetch('http://localhost/users/me/activity?limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const selfBody = await selfResponse.json();
+    expect(selfResponse.status).toBe(200);
+    expect(selfBody.items.some((item: { eventType: string }) => item.eventType === 'save')).toBe(
+      true
+    );
+  });
+
+  it('matches canonical notification event names in mock responses', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const response = await fetch('http://localhost/notifications?limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(
+      body.items.some((item: { eventType: string }) => item.eventType === 'new_follower')
+    ).toBe(true);
+    expect(
+      body.items.every((item: { eventType: string }) =>
+        [
+          'property_comment',
+          'comment_reply',
+          'comment_like',
+          'property_like',
+          'property_guess',
+          'new_follower',
+          'achievement_unlocked',
+        ].includes(item.eventType)
+      )
+    ).toBe(true);
+  });
 });
 
 describe('Handler wiring', () => {

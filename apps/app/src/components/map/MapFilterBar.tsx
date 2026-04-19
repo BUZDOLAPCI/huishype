@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import type { UseMapFilterControllerReturn } from '@/src/hooks/useMapFilterController';
 import {
+  getMapActivityFilterLabel,
   getMapFilterPillLabel,
   getMapFilterPillSummary,
   getMapMarketStateLabel,
@@ -20,6 +21,7 @@ import {
   getMapVisiblePriceModes,
   isMapFilterCategoryActive,
   isMapStatusPillActive,
+  MAP_ACTIVITY_FILTERS,
   MAP_STATUS_PILL_STATES,
   type MapFilterCategory,
   type MapFilterDraftState,
@@ -178,6 +180,7 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
     selectPriceSuggestion,
     commitPriceDraft,
     toggleStatusPill,
+    toggleActivity,
   } = controller;
 
   const topOffset = Platform.OS === 'web' ? 116 : insets.top + 108;
@@ -613,6 +616,18 @@ export function MapFilterBar({ controller }: MapFilterBarProps) {
               onPress={() => toggleStatusPill(state)}
               open={false}
               testID={`map-filter-pill-market-state-${state}`}
+              variant="toggle"
+            />
+          ))}
+
+          {MAP_ACTIVITY_FILTERS.map((activity) => (
+            <MapFilterPill
+              key={activity}
+              active={appliedFilters.activity === activity}
+              label={getMapActivityFilterLabel(activity)}
+              onPress={() => toggleActivity(activity)}
+              open={false}
+              testID={`map-filter-pill-activity-${activity}`}
               variant="toggle"
             />
           ))}

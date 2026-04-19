@@ -47,13 +47,17 @@ function makeCandidate(
   overrides: Partial<GroupingCandidate> = {},
 ): GroupingCandidate {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const hasActiveListing = overrides.hasActiveListing ?? true;
+  const socialScore = overrides.socialScore ?? 10;
+  const recentSocialScore = overrides.recentSocialScore ?? socialScore;
+  const commentCount = overrides.commentCount ?? 0;
   return {
     id,
-    hasListing: true,
-    activityScore: 10,
-    likeCount: 0,
-    commentCount: 0,
-    guessCount: 0,
+    hasActiveListing,
+    socialScore,
+    recentSocialScore,
+    commentCount,
+    marketState: overrides.marketState ?? (hasActiveListing ? 'for-sale' : 'not-listed'),
     lon,
     lat,
     worldX,
@@ -89,15 +93,15 @@ describe('property-grouping', () => {
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
     const denseA = makeCandidate('00000000-0000-0000-0000-000000000001', baseLon, baseLat, zoom, {
-      activityScore: 80,
-      likeCount: 5,
+      socialScore: 80,
+      commentCount: 5,
     });
     const denseB = makeCandidate(
       '00000000-0000-0000-0000-000000000002',
       baseLon + 0.00002,
       baseLat + 0.00001,
       zoom,
-      { activityScore: 20 },
+      { socialScore: 20 },
     );
 
     const groups = groupCandidatesForTile(tile, [denseA, denseB]);
@@ -125,14 +129,14 @@ describe('property-grouping', () => {
       leftLon,
       leftLat,
       zoom,
-      { activityScore: 90, likeCount: 2 },
+      { socialScore: 90, commentCount: 2 },
     );
     const right = makeCandidate(
       '00000000-0000-0000-0000-000000000032',
       rightLon,
       rightLat,
       zoom,
-      { activityScore: 65, likeCount: 1 },
+      { socialScore: 65, commentCount: 1 },
     );
 
     const groups = groupCandidatesForTile(tile, [left, right]);
@@ -161,42 +165,42 @@ describe('property-grouping', () => {
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 10, likeCount: 4 },
+      { socialScore: 10, commentCount: 4 },
     );
     const leftB = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000032',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 9, likeCount: 3 },
+      { socialScore: 9, commentCount: 3 },
     );
     const leftC = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000033',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 8, likeCount: 2 },
+      { socialScore: 8, commentCount: 2 },
     );
     const leftD = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000034',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 7, likeCount: 1 },
+      { socialScore: 7, commentCount: 1 },
     );
     const seed = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000035',
       rightEdgeX + 33,
       centerY,
       zoom,
-      { activityScore: 100 },
+      { socialScore: 100 },
     );
     const extra = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000036',
       rightEdgeX + 66,
       centerY,
       zoom,
-      { activityScore: 1 },
+      { socialScore: 1 },
     );
 
     const candidates = [leftA, leftB, leftC, leftD, seed, extra];
@@ -240,21 +244,21 @@ describe('property-grouping', () => {
       alphaLon,
       alphaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 3 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 3 },
     );
     const beta = makeCandidate(
       '00000000-0000-0000-0000-000000000052',
       betaLon,
       betaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 2 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 2 },
     );
     const gamma = makeCandidate(
       '00000000-0000-0000-0000-000000000053',
       gammaLon,
       gammaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 1 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 1 },
     );
 
     const groups = groupCandidatesForTile(tile, [alpha, beta, gamma]);
@@ -274,7 +278,7 @@ describe('property-grouping', () => {
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
     const active = makeCandidate('00000000-0000-0000-0000-000000000011', baseLon, baseLat, zoom, {
-      activityScore: 95,
+      socialScore: 95,
     });
     const suppressedGhost = makeCandidate(
       '00000000-0000-0000-0000-000000000012',
@@ -282,8 +286,8 @@ describe('property-grouping', () => {
       baseLat + 0.00001,
       zoom,
       {
-        hasListing: false,
-        activityScore: 0,
+        hasActiveListing: false,
+        socialScore: 0,
       },
     );
 
@@ -307,21 +311,21 @@ describe('property-grouping', () => {
       ghostLonA,
       ghostLatA,
       zoom,
-      { hasListing: false, activityScore: 0 },
+      { hasActiveListing: false, socialScore: 0 },
     );
     const ghostB = makeCandidate(
       '00000000-0000-0000-0000-000000000042',
       ghostLonB,
       ghostLatB,
       zoom,
-      { hasListing: false, activityScore: 0 },
+      { hasActiveListing: false, socialScore: 0 },
     );
     const active = makeCandidate(
       '00000000-0000-0000-0000-000000000043',
       activeLon,
       activeLat,
       zoom,
-      { hasListing: true, activityScore: 18, likeCount: 4 },
+      { hasActiveListing: true, socialScore: 18, commentCount: 4 },
     );
 
     const groups = groupCandidatesForTile(tile, [ghostA, ghostB, active]);
@@ -335,9 +339,10 @@ describe('property-grouping', () => {
     expect(ghostGroup?.pointCount).toBe(2);
     expect(ghostGroup?.propertyIds).toEqual([ghostA.id, ghostB.id]);
     expect(ghostGroup?.previewPropertyIds).toEqual([ghostA.id, ghostB.id]);
-    expect(ghostGroup?.hasListing).toBe(false);
-    expect(ghostGroup?.activityScore).toBe(0);
-    expect(ghostGroup?.activityScoreTotal).toBe(0);
+    expect(ghostGroup?.activeListingCount).toBe(0);
+    expect(ghostGroup?.socialCount).toBe(0);
+    expect(ghostGroup?.recentSocialCount).toBe(0);
+    expect(ghostGroup?.socialScoreTotal).toBe(0);
   });
 
   it('orders preview members by grouping priority and caps them to the preview member limit', () => {
@@ -350,14 +355,14 @@ describe('property-grouping', () => {
       { length: PROPERTY_PREVIEW_MEMBER_LIMIT + 5 },
       (_, index) => ({
         id: `00000000-0000-0000-0000-${String(index + 100).padStart(12, '0')}`,
-        activityScore:
+        socialScore:
           index === 0 ? 80 :
           index === 1 ? 80 :
           index === 2 ? 80 :
           index === 3 ? 65 :
           64 - index,
-        hasListing: index !== 2,
-        likeCount:
+        hasActiveListing: index !== 2,
+        commentCount:
           index === 0 ? 2 :
           index === 1 ? 5 :
           index === 2 ? 99 :
@@ -372,18 +377,18 @@ describe('property-grouping', () => {
         zoom,
       );
       return makeCandidate(spec.id, lon, lat, zoom, {
-        activityScore: spec.activityScore,
-        hasListing: spec.hasListing,
-        likeCount: spec.likeCount,
+        socialScore: spec.socialScore,
+        hasActiveListing: spec.hasActiveListing,
+        commentCount: spec.commentCount,
       });
     });
 
     const expectedOrder = [...candidates]
       .sort(
         (a, b) =>
-          b.activityScore - a.activityScore ||
-          Number(b.hasListing) - Number(a.hasListing) ||
-          b.likeCount - a.likeCount ||
+          b.socialScore - a.socialScore ||
+          Number(b.hasActiveListing) - Number(a.hasActiveListing) ||
+          b.commentCount - a.commentCount ||
           a.id.localeCompare(b.id),
       )
       .map((candidate) => candidate.id);
@@ -413,11 +418,11 @@ describe('property-grouping', () => {
     const [neighborLon, neighborLat] = worldUnitsToLngLat(worldXRight, worldY, zoom);
 
     const left = makeCandidate('00000000-0000-0000-0000-000000000021', ownerLon, ownerLat, zoom, {
-      activityScore: 70,
-      likeCount: 2,
+      socialScore: 70,
+      commentCount: 2,
     });
     const right = makeCandidate('00000000-0000-0000-0000-000000000022', neighborLon, neighborLat, zoom, {
-      activityScore: 10,
+      socialScore: 10,
     });
 
     const ownerGroups = groupCandidatesForTile(ownerTile, [left, right]);
@@ -441,11 +446,11 @@ describe('property-grouping', () => {
         [
           {
             id: propertyId,
-            has_listing: true,
-            activity_score: 8,
-            like_count: 3,
+            has_active_listing: true,
+            social_score: 8,
+            recent_social_score: 8,
             comment_count: 2,
-            guess_count: 1,
+            market_state: 'for-sale',
             lon,
             lat,
           },
@@ -495,8 +500,10 @@ describe('property-grouping', () => {
   it('applies map filters before grouping clustered active sale candidates', async () => {
     const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
     const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
-    const baseLon = 6.75;
-    const baseLat = 53.2;
+    // Keep this fixture outside the seeded European dataset so the cluster only
+    // contains the rows created by this test.
+    const baseLon = -40.25;
+    const baseLat = -32.5;
     const zoom = 20;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
 

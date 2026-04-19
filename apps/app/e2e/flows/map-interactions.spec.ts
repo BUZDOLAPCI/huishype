@@ -17,6 +17,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 import { clickRenderedPropertyMarkerById, type MapFeature, type WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
+const PREVIEW_VISIBILITY_TIMEOUT_MS = 15_000;
 
 // Eindhoven center coordinates
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -36,6 +37,7 @@ async function waitForMapReady(page: import('@playwright/test').Page, timeout = 
       const map = (window as WindowWithMapInstance).__mapInstance;
       return map && typeof map.getZoom === 'function';
     },
+    null,
     { timeout, polling: 500 }
   );
   // Then wait for it to be loaded (tiles/style downloaded)
@@ -44,6 +46,7 @@ async function waitForMapReady(page: import('@playwright/test').Page, timeout = 
       const map = (window as WindowWithMapInstance).__mapInstance;
       return map?.loaded?.() ?? false;
     },
+    null,
     { timeout: Math.min(timeout, 30000), polling: 1000 }
   ).catch(() => {
     // loaded() can be slow if tiles are still downloading — don't fail setup
@@ -110,29 +113,231 @@ async function captureMapScreenshot(testInfo: TestInfo, page: import('@playwrigh
   });
 }
 
-async function waitForPointFeatures(page: import('@playwright/test').Page, timeout = 20000) {
-  await page.waitForFunction(() => {
-    const map = (window as WindowWithMapInstance).__mapInstance;
-    if (!map || !map.isStyleLoaded()) return false;
+async function waitForPointFeatures(
+  page: import('@playwright/test').Page,
+  {
+    timeout = 30_000,
+    requireFeatureId = false,
+  }: {
+    timeout?: number;
+    requireFeatureId?: boolean;
+  } = {},
+) {
+  await page.waitForFunction(
+    ({ requireFeatureId }) => {
+      const PREVIEW_MEMBER_LIMIT = 30;
 
-    const canvas = map.getCanvas();
-    if (!canvas) return false;
+      const parsePropertyIds = (value: unknown): string[] => {
+        if (Array.isArray(value)) {
+          return value
+            .map((entry) => (entry == null ? '' : String(entry).trim()))
+            .filter(Boolean);
+        }
 
-    const layers = ['ghost-clusters', 'active-nodes', 'ghost-nodes']
-      .filter((layer) => map.getLayer(layer));
-    if (layers.length === 0) return false;
+        if (typeof value !== 'string') {
+          return [];
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return [];
+        }
+
+        return trimmed
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      };
+
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map || !map.isStyleLoaded()) return false;
+
+      const canvas = map.getCanvas();
+      if (!canvas) return false;
+
+      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+        .filter((layer) => map.getLayer(layer));
+      if (layers.length === 0) return false;
+
+      try {
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers }
+        ) || [];
+
+        return features.some((feature: MapFeature) => {
+          if (feature.geometry?.type !== 'Point') {
+            return false;
+          }
+
+          const rawPointCount = feature.properties?.point_count;
+          const pointCount =
+            typeof rawPointCount === 'number'
+              ? rawPointCount
+              : Number.parseInt(String(rawPointCount ?? '1'), 10) || 1;
+          const previewPropertyIds = parsePropertyIds(feature.properties?.preview_property_ids);
+          const propertyIds = parsePropertyIds(feature.properties?.property_ids);
+          const isSingle = pointCount <= 1;
+          const isPreviewableCluster =
+            pointCount <= PREVIEW_MEMBER_LIMIT &&
+            (previewPropertyIds.length > 0 || propertyIds.length > 0);
+
+          if (!(isSingle || isPreviewableCluster)) {
+            return false;
+          }
+
+          if (!requireFeatureId) {
+            return true;
+          }
+
+          return (
+            feature.properties?.id != null &&
+            String(feature.properties.id).trim().length > 0
+          );
+        });
+      } catch {
+        return false;
+      }
+    },
+    { requireFeatureId },
+    { timeout, polling: 500 }
+  );
+}
+
+async function waitForSelectedPreview(
+  page: import('@playwright/test').Page,
+  timeout = PREVIEW_VISIBILITY_TIMEOUT_MS,
+) {
+  const previewCard = page.getByTestId('group-preview-card');
+  const selectedMarker = page.getByTestId('selected-marker');
+
+  await expect(selectedMarker).toBeVisible({ timeout });
+  await expect(previewCard).toBeVisible({ timeout });
+
+  return { previewCard, selectedMarker };
+}
+
+async function waitForSinglePropertyFeature(
+  page: import('@playwright/test').Page,
+  timeout = 8_000,
+): Promise<{ propertyId: string; zoom: number }> {
+  const handle = await page.waitForFunction(
+    () => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map || !map.isStyleLoaded()) {
+        return null;
+      }
+
+      const canvas = map.getCanvas();
+      if (!canvas) {
+        return null;
+      }
+
+      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+        .filter((layer) => map.getLayer(layer));
+      if (layers.length === 0) {
+        return null;
+      }
+
+      try {
+        const edgeMargin = 40;
+        const canvasCenterX = canvas.width / 2;
+        const canvasCenterY = canvas.height / 2;
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [canvas.width, canvas.height]],
+          { layers }
+        ) || [];
+
+        const candidate = features
+          .filter((feature: MapFeature) => feature.geometry?.type === 'Point')
+          .map((feature: MapFeature) => {
+            const rawPropertyId = feature.properties?.id;
+            const propertyId =
+              rawPropertyId == null ? '' : String(rawPropertyId).trim();
+            const rawPointCount = feature.properties?.point_count;
+            const pointCount =
+              typeof rawPointCount === 'number'
+                ? rawPointCount
+                : Number.parseInt(String(rawPointCount ?? '1'), 10) || 1;
+            const coordinates = feature.geometry?.coordinates;
+
+            if (
+              propertyId.length === 0 ||
+              pointCount > 1 ||
+              !Array.isArray(coordinates) ||
+              coordinates.length < 2 ||
+              typeof coordinates[0] !== 'number' ||
+              typeof coordinates[1] !== 'number'
+            ) {
+              return null;
+            }
+
+            const point = map.project([coordinates[0], coordinates[1]]);
+            const inBounds =
+              point.x >= edgeMargin &&
+              point.x <= canvas.width - edgeMargin &&
+              point.y >= edgeMargin &&
+              point.y <= canvas.height - edgeMargin;
+
+            if (!inBounds) {
+              return null;
+            }
+
+            return {
+              propertyId,
+              zoom: map.getZoom(),
+              distanceToCenter: Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
+            };
+          })
+          .filter((feature): feature is { propertyId: string; zoom: number; distanceToCenter: number } => feature !== null)
+          .sort((a, b) => a.distanceToCenter - b.distanceToCenter)[0];
+
+        if (!candidate) {
+          return null;
+        }
+
+        return {
+          propertyId: candidate.propertyId,
+          zoom: candidate.zoom,
+        };
+      } catch {
+        return null;
+      }
+    },
+    null,
+    { timeout, polling: 500 }
+  );
+
+  return (await handle.jsonValue()) as { propertyId: string; zoom: number };
+}
+
+async function focusMapOnSinglePropertyFeature(
+  page: import('@playwright/test').Page,
+  center: [number, number],
+): Promise<{ propertyId: string; zoom: number }> {
+  const zoomCandidates = [18, 18.5, 19, 19.5, 20];
+
+  for (const zoom of zoomCandidates) {
+    await setMapView(page, center, zoom);
 
     try {
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers }
-      ) || [];
-
-      return features.some((feature: MapFeature) => feature.geometry?.type === 'Point');
+      return await waitForSinglePropertyFeature(page, 8_000);
     } catch {
-      return false;
+      // Keep tightening the camera until a single-property feature with an id is rendered.
     }
-  }, { timeout, polling: 500 });
+  }
+
+  throw new Error(
+    `Expected a rendered single-property feature with an id near ${center[0]},${center[1]} after trying zooms ${zoomCandidates.join(', ')}`
+  );
+}
+
+async function waitForPreviewToClose(
+  page: import('@playwright/test').Page,
+  timeout = PREVIEW_VISIBILITY_TIMEOUT_MS,
+) {
+  await expect(page.getByTestId('group-preview-card')).toHaveCount(0, { timeout });
+  await expect(page.getByTestId('selected-marker')).toHaveCount(0, { timeout });
 }
 
 test.describe('Map Interactions', () => {
@@ -379,13 +584,13 @@ test.describe('Map Interactions', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForMapReady(page);
 
-    await setMapView(page, EINDHOVEN_CENTER, 17);
-    await waitForPointFeatures(page);
-
-    const previewCard = page.getByTestId('group-preview-card');
-    const clickResult = await clickOnPropertyMarker(page);
+    const targetProperty = await focusMapOnSinglePropertyFeature(page, EINDHOVEN_CENTER);
+    const clickResult = await clickRenderedPropertyMarkerById(page, targetProperty.propertyId);
 
     expect(clickResult.success).toBe(true);
+    if (!clickResult.success) {
+      throw new Error(clickResult.reason);
+    }
     expect(clickResult.screenX).toBeDefined();
     expect(clickResult.screenY).toBeDefined();
     expect(clickResult.propertyId).toBeDefined();
@@ -393,7 +598,7 @@ test.describe('Map Interactions', () => {
     if (!propertyId) {
       throw new Error('Expected clicked marker to provide a propertyId');
     }
-    await expect(previewCard).toBeVisible();
+    const { previewCard } = await waitForSelectedPreview(page);
     const initialText = (await previewCard.textContent()) || '';
     expect(initialText.length).toBeGreaterThan(5);
 
@@ -401,11 +606,11 @@ test.describe('Map Interactions', () => {
       .getByTestId('property-preview-close-button')
       .or(page.getByTestId('group-preview-close-button'));
     await closeButton.click();
-    await expect(previewCard).toHaveCount(0);
+    await waitForPreviewToClose(page);
 
     const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
     expect(reopenResult.success).toBe(true);
-    await expect(previewCard).toBeVisible({ timeout: 10000 });
+    await waitForSelectedPreview(page);
     const reopenedText = (await previewCard.textContent()) || '';
     expect(reopenedText).toBe(initialText);
   });
@@ -418,13 +623,27 @@ test.describe('Map Interactions', () => {
     await setMapView(page, EINDHOVEN_CENTER, 17);
     await waitForPointFeatures(page);
 
-    const previewCard = page.getByTestId('group-preview-card');
-    const selectedMarker = page.getByTestId('selected-marker');
     const clickResult = await clickOnPropertyMarker(page);
 
     expect(clickResult.success).toBe(true);
-    await expect(previewCard).toBeVisible();
-    await expect(selectedMarker).toBeVisible();
+    await waitForSelectedPreview(page);
+
+    await page.waitForFunction(() => {
+      const card = document.querySelector('[data-testid="group-preview-card"]');
+      const marker = document.querySelector('[data-testid="selected-marker"]');
+      if (!card || !marker) {
+        return false;
+      }
+
+      const cardBox = card.getBoundingClientRect();
+      const markerBox = marker.getBoundingClientRect();
+      return (
+        cardBox.width > 0 &&
+        cardBox.height > 0 &&
+        markerBox.width > 0 &&
+        markerBox.height > 0
+      );
+    }, null, { timeout: PREVIEW_VISIBILITY_TIMEOUT_MS });
 
     const alignment = await page.evaluate(() => {
       const card = document.querySelector('[data-testid="group-preview-card"]');
@@ -611,6 +830,7 @@ test.describe('Map Interactions', () => {
         const map = (window as WindowWithMapInstance).__mapInstance;
         return map?.loaded?.() ?? false;
       },
+      null,
       { timeout: 30000, polling: 1000 }
     ).catch(() => {
       console.log('Map tiles still loading after pan, continuing');
@@ -638,7 +858,7 @@ test.describe('Map Interactions', () => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) return false;
       return map.getZoom() >= 15.9 && map.getPitch() > 0;
-    }, { timeout: 15000, polling: 250 });
+    }, null, { timeout: 15000, polling: 250 });
     await page.waitForTimeout(5000);
 
     // Check if fill-extrusion layer exists

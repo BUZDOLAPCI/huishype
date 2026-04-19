@@ -149,6 +149,11 @@ export interface ToGroupPropertyInput {
   officialValuation?: number | null;
   askingPrice?: number | null;
   fmv?: number | PropertyFmvData | null;
+  hasActiveListing?: boolean | null;
+  marketState?: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
+  socialScore?: number | null;
+  recentSocialScore?: number | null;
+  lastSocialAt?: string | null;
   activityScore?: number;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
   imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
@@ -224,7 +229,11 @@ function mergeHydratedPreviewProperty(
   currentProperty: GroupPreviewProperty,
   selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
 ): GroupPreviewProperty {
-  const mergedActivityScore = currentProperty.activityScore ?? 0;
+  const mergedSocialScore =
+    selectedProperty.socialScore ?? currentProperty.socialScore ?? currentProperty.activityScore ?? 0;
+  const mergedRecentSocialScore =
+    selectedProperty.recentSocialScore ?? currentProperty.recentSocialScore ?? 0;
+  const mergedActivityScore = currentProperty.activityScore ?? mergedSocialScore;
   const mergedActivityLevel = getActivityLevel(mergedActivityScore);
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
   const mergedOfficialValuation =
@@ -245,11 +254,17 @@ function mergeHydratedPreviewProperty(
     selectedProperty.thumbnailUrl ??
     null;
   const mergedCommentCount =
-    selectedProperty.commentCount ?? currentProperty.commentCount ?? 0;
+    selectedProperty.commentCount ??
+    selectedProperty.topLevelCommentCount ??
+    currentProperty.commentCount ??
+    0;
   const mergedGuessCount =
     selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
   const mergedLikeCount =
-    selectedProperty.likeCount ?? currentProperty.likeCount ?? 0;
+    selectedProperty.likeCount ??
+    selectedProperty.propertyLikeCount ??
+    currentProperty.likeCount ??
+    0;
 
   return {
     ...currentProperty,
@@ -263,6 +278,12 @@ function mergeHydratedPreviewProperty(
     officialValuation: mergedOfficialValuation,
     askingPrice: mergedAskingPrice,
     fmv: mergedFmv,
+    hasActiveListing:
+      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? false,
+    marketState: selectedProperty.marketState ?? currentProperty.marketState ?? null,
+    socialScore: mergedSocialScore,
+    recentSocialScore: mergedRecentSocialScore,
+    lastSocialAt: selectedProperty.lastSocialAt ?? currentProperty.lastSocialAt ?? null,
     activityLevel: mergedActivityLevel,
     activityScore: mergedActivityScore,
     aerialImageUrl: mergedAerialImageUrl,
@@ -280,10 +301,9 @@ function convertToGroupProperty(
   p: ToGroupPropertyInput,
   activityScore?: number,
 ): GroupPreviewProperty {
-  const derivedScore =
-    (p.commentCount ?? 0) +
-    (p.guessCount ?? 0);
-  const score = activityScore ?? p.activityScore ?? derivedScore;
+  const socialScore = p.socialScore ?? p.activityScore ?? 0;
+  const recentSocialScore = p.recentSocialScore ?? 0;
+  const score = activityScore ?? p.activityScore ?? socialScore;
   const countryCode = p.countryCode ?? undefined;
   const aerialImageUrl = derivePropertyAerialImageUrl({
     aerialImageUrl: p.aerialImageUrl,
@@ -305,6 +325,11 @@ function convertToGroupProperty(
     officialValuation: p.officialValuation,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
+    hasActiveListing: p.hasActiveListing ?? false,
+    marketState: p.marketState ?? null,
+    socialScore,
+    recentSocialScore,
+    lastSocialAt: p.lastSocialAt ?? null,
     activityLevel: getActivityLevel(score),
     activityScore: score,
     thumbnailUrl: p.thumbnailUrl ?? null,
@@ -389,6 +414,11 @@ export function useMapInteraction(): UseMapInteractionReturn {
         prevCurrent.officialValuation === mergedProperty.officialValuation &&
         prevCurrent.askingPrice === mergedProperty.askingPrice &&
         prevCurrent.fmv === mergedProperty.fmv &&
+        prevCurrent.hasActiveListing === mergedProperty.hasActiveListing &&
+        prevCurrent.marketState === mergedProperty.marketState &&
+        prevCurrent.socialScore === mergedProperty.socialScore &&
+        prevCurrent.recentSocialScore === mergedProperty.recentSocialScore &&
+        prevCurrent.lastSocialAt === mergedProperty.lastSocialAt &&
         prevCurrent.activityLevel === mergedProperty.activityLevel &&
         prevCurrent.activityScore === mergedProperty.activityScore &&
         prevCurrent.likeCount === mergedProperty.likeCount &&
@@ -751,8 +781,12 @@ export function useMapInteraction(): UseMapInteractionReturn {
               countryCode: group.countryCode ?? undefined,
               officialValuation: group.officialValuation ?? null,
               askingPrice: group.askingPrice ?? null,
-              activityLevel: getActivityLevel(group.activityScore),
-              activityScore: group.activityScore,
+              hasActiveListing: group.hasActiveListing ?? false,
+              marketState: group.marketState ?? null,
+              socialScore: group.socialScoreMax,
+              recentSocialScore: group.recentSocialScoreTotal,
+              activityLevel: getActivityLevel(group.socialScoreMax),
+              activityScore: group.socialScoreMax,
               thumbnailUrl: group.thumbnailUrl ?? null,
               aerialImageUrl: derivePropertyAerialImageUrl({
                 geometry: { type: 'Point', coordinates: coord },
@@ -760,9 +794,9 @@ export function useMapInteraction(): UseMapInteractionReturn {
               }),
               yearBuilt: group.yearBuilt ?? null,
               floorAreaM2: group.floorAreaM2 ?? null,
-              likeCount: group.likeCount ?? 0,
               commentCount: group.commentCount ?? 0,
-              guessCount: group.guessCount ?? 0,
+              guessCount: 0,
+              likeCount: 0,
             }],
             coordinate: coord,
           });
@@ -802,14 +836,18 @@ export function useMapInteraction(): UseMapInteractionReturn {
               officialValuation: result.officialValuation,
               askingPrice: result.askingPrice,
               thumbnailUrl: result.thumbnailUrl,
-              activityLevel: getActivityLevel(result.activityScore ?? 0),
-              activityScore: result.activityScore ?? 0,
+              hasActiveListing: result.hasActiveListing ?? false,
+              marketState: result.marketState ?? null,
+              socialScore: result.socialScoreMax,
+              recentSocialScore: result.recentSocialScoreTotal,
+              activityLevel: getActivityLevel(result.socialScoreMax),
+              activityScore: result.socialScoreMax,
               aerialImageUrl: previewAerialImageUrl,
               yearBuilt: result.yearBuilt ?? null,
               floorAreaM2: result.floorAreaM2 ?? null,
-              likeCount: result.likeCount ?? 0,
               commentCount: result.commentCount ?? 0,
-              guessCount: result.guessCount ?? 0,
+              guessCount: 0,
+              likeCount: 0,
             }],
             coordinate: coord,
           });
@@ -901,6 +939,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
             countryCode,
             officialValuation: property.officialValuation ?? null,
             askingPrice: null,
+            hasActiveListing: property.hasActiveListing ?? false,
+            marketState: property.marketState ?? null,
+            socialScore: 0,
+            recentSocialScore: 0,
             activityLevel: 'cold',
             activityScore: 0,
             thumbnailUrl: null,

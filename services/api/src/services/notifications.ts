@@ -23,13 +23,17 @@ export function setNotificationLogger(logger: Logger): void {
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
-export type NotificationEventType =
-  | 'property_comment'
-  | 'comment_reply'
-  | 'comment_like'
-  | 'property_like'
-  | 'property_guess'
-  | 'achievement_unlocked';
+export const notificationEventTypes = [
+  'property_comment',
+  'comment_reply',
+  'comment_like',
+  'property_like',
+  'property_guess',
+  'new_follower',
+  'achievement_unlocked',
+] as const;
+
+export type NotificationEventType = (typeof notificationEventTypes)[number];
 
 export interface CreateNotificationParams {
   recipientUserId: string;
@@ -44,7 +48,7 @@ export interface CreateNotificationParams {
 
 export interface NotificationRow {
   id: string;
-  eventType: string;
+  eventType: NotificationEventType;
   propertyId: string | null;
   commentId: string | null;
   guessId: string | null;
@@ -107,7 +111,7 @@ export async function getNotifications(
 
   const rows = await db.execute<{
     id: string;
-    event_type: string;
+    event_type: NotificationEventType;
     property_id: string | null;
     comment_id: string | null;
     guess_id: string | null;
@@ -166,12 +170,7 @@ export async function getUnreadCount(userId: string): Promise<number> {
   const result = await db
     .select({ value: sql<number>`count(*)::int` })
     .from(notifications)
-    .where(
-      and(
-        eq(notifications.recipientUserId, userId),
-        isNull(notifications.readAt)
-      )
-    );
+    .where(and(eq(notifications.recipientUserId, userId), isNull(notifications.readAt)));
   return result[0]?.value ?? 0;
 }
 
@@ -179,12 +178,7 @@ export async function markAllRead(userId: string): Promise<number> {
   const result = await db
     .update(notifications)
     .set({ readAt: new Date() })
-    .where(
-      and(
-        eq(notifications.recipientUserId, userId),
-        isNull(notifications.readAt)
-      )
-    )
+    .where(and(eq(notifications.recipientUserId, userId), isNull(notifications.readAt)))
     .returning({ id: notifications.id });
   return result.length;
 }

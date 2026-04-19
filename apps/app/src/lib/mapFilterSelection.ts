@@ -16,10 +16,6 @@ export function doesMapSelectionMatchFilters({
   selectedProperty,
   filters,
 }: SelectionMatchCandidate): boolean {
-  const hasListing =
-    selectedProperty?.hasListing ??
-    (previewProperty?.askingPrice != null ? true : null);
-
   return doesMapFilterCandidateMatch(
     {
       askingPrice: selectedProperty?.askingPrice ?? previewProperty?.askingPrice ?? null,
@@ -29,7 +25,12 @@ export function doesMapSelectionMatchFilters({
         typeof selectedProperty?.fmv === 'number'
           ? selectedProperty.fmv
           : selectedProperty?.fmv?.fmv ?? previewProperty?.fmv ?? null,
-      hasListing,
+      marketState: selectedProperty?.marketState ?? previewProperty?.marketState ?? null,
+      hasActiveListing:
+        selectedProperty?.hasActiveListing ?? previewProperty?.hasActiveListing ?? null,
+      socialScore: selectedProperty?.socialScore ?? previewProperty?.socialScore ?? null,
+      recentSocialScore:
+        selectedProperty?.recentSocialScore ?? previewProperty?.recentSocialScore ?? null,
     },
     filters,
   );

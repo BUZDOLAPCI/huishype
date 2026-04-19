@@ -1,33 +1,47 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { buildApp } from '../../app.js';
+import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
-import { db } from '../../db/index.js';
-import { users, reactions } from '../../db/schema.js';
-import { eq, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
-import { createIntegrationProperty } from './helpers/fixtures.js';
+import { eq, sql } from 'drizzle-orm';
+import { buildApp } from '../../app.js';
+import { db } from '../../db/index.js';
+import {
+  comments,
+  priceGuesses,
+  reactions,
+  savedProperties,
+  userFollows,
+  users,
+} from '../../db/schema.js';
+import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
 describe('Activity routes', () => {
   let app: FastifyInstance;
-  let userId: string;
-  let accessToken: string;
+  let viewerUserId: string;
+  let viewerAccessToken: string;
+  let followedUserId: string;
+  let followedAccessToken: string;
+  let otherUserId: string;
+  let otherAccessToken: string;
   let propertyId: string;
   const testUserIds: string[] = [];
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Create test user
-    const uniqueId = `acttest${Date.now()}`;
-    const loginResp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
-    });
-    const loginBody = JSON.parse(loginResp.body);
-    userId = loginBody.session.user.id;
-    accessToken = loginBody.session.accessToken;
-    testUserIds.push(userId);
+    const viewer = await createIntegrationUser(app, { label: 'activity-viewer' });
+    viewerUserId = viewer.userId;
+    viewerAccessToken = viewer.accessToken;
+    testUserIds.push(viewer.userId);
+
+    const followed = await createIntegrationUser(app, { label: 'activity-followed' });
+    followedUserId = followed.userId;
+    followedAccessToken = followed.accessToken;
+    testUserIds.push(followed.userId);
+
+    const other = await createIntegrationUser(app, { label: 'activity-other' });
+    otherUserId = other.userId;
+    otherAccessToken = other.accessToken;
+    testUserIds.push(other.userId);
 
     const property = await createIntegrationProperty({
       street: 'Activity Fixture Street',
@@ -42,63 +56,72 @@ describe('Activity routes', () => {
     await app.inject({
       method: 'POST',
       url: `/properties/${propertyId}/like`,
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: { authorization: `Bearer ${viewerAccessToken}` },
+    });
+
+    await app.inject({
+      method: 'PUT',
+      url: `/users/${followedUserId}/follow`,
+      headers: { authorization: `Bearer ${viewerAccessToken}` },
+    });
+
+    await db.insert(comments).values([
+      {
+        id: crypto.randomUUID(),
+        userId: followedUserId,
+        propertyId,
+        content: 'Followed user comment',
+      },
+      {
+        id: crypto.randomUUID(),
+        userId: otherUserId,
+        propertyId,
+        content: 'Unfollowed user comment',
+      },
+    ]);
+
+    await db.insert(priceGuesses).values({
+      id: crypto.randomUUID(),
+      userId: followedUserId,
+      propertyId,
+      guessedPrice: 325000,
+      isMemeGuess: false,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/save`,
+      headers: { authorization: `Bearer ${followedAccessToken}` },
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/like`,
+      headers: { authorization: `Bearer ${otherAccessToken}` },
     });
   });
 
   afterAll(async () => {
-    for (const uid of testUserIds) {
+    for (const userId of testUserIds) {
       try {
-        await db.delete(reactions).where(eq(reactions.userId, uid));
-        await db.delete(users).where(eq(users.id, uid));
+        await db.delete(reactions).where(eq(reactions.userId, userId));
+        await db.delete(savedProperties).where(eq(savedProperties.userId, userId));
+        await db.delete(comments).where(eq(comments.userId, userId));
+        await db.delete(priceGuesses).where(eq(priceGuesses.userId, userId));
+        await db.delete(userFollows).where(eq(userFollows.followerUserId, userId));
+        await db.delete(userFollows).where(eq(userFollows.followedUserId, userId));
+        await db.delete(users).where(eq(users.id, userId));
       } catch {
-        // Ignore
+        // Ignore cleanup races from cascading deletes.
       }
     }
+
     await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 
-  describe('GET /activity (public)', () => {
-    it('should return activity items', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/activity',
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(Array.isArray(body.items)).toBe(true);
-      expect(body).toHaveProperty('pagination');
-      expect(body.pagination).toHaveProperty('limit');
-      expect(body.pagination).toHaveProperty('offset');
-      expect(body.pagination).toHaveProperty('hasMore');
-    });
-
-    it('should not include save events in public activity', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/activity?limit=50',
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      const saveEvents = body.items.filter((i: { eventType: string }) => i.eventType === 'save');
-      expect(saveEvents.length).toBe(0);
-    });
-
-    it('should respect limit parameter', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/activity?limit=2',
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.items.length).toBeLessThanOrEqual(2);
-    });
-
-    it('should have proper item structure', async () => {
+  describe('GET /activity', () => {
+    it('returns public activity items with the normalized property payload', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/activity?limit=1',
@@ -106,82 +129,137 @@ describe('Activity routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
+      expect(Array.isArray(body.items)).toBe(true);
+      expect(body.pagination).toEqual(
+        expect.objectContaining({
+          limit: 1,
+          offset: 0,
+          hasMore: expect.any(Boolean),
+        })
+      );
+
       if (body.items.length > 0) {
-        const item = body.items[0];
-        expect(item).toHaveProperty('id');
-        expect(item).toHaveProperty('eventType');
-        expect(item).toHaveProperty('actor');
-        expect(item.actor).toHaveProperty('id');
-        expect(item.actor).toHaveProperty('displayName');
-        expect(item.actor).toHaveProperty('handle');
-        expect(item).toHaveProperty('property');
-        expect(item.property).toHaveProperty('id');
-        expect(item.property).toHaveProperty('address');
-        expect(item).toHaveProperty('createdAt');
+        expect(body.items[0].eventType).not.toBe('save');
+        expect(body.items[0].property).toEqual(
+          expect.objectContaining({
+            id: expect.any(String),
+            address: expect.any(String),
+            streetName: expect.any(String),
+            houseNumber: expect.any(Number),
+            houseNumberAddition: null,
+            city: expect.any(String),
+            postalCode: expect.any(String),
+            countryCode: expect.any(String),
+          })
+        );
       }
+    });
+
+    it('keeps public activity newest-first and excludes save events', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity?limit=50',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
+        true
+      );
+
+      const createdAtValues = body.items.map((item: { createdAt: string }) =>
+        Date.parse(item.createdAt)
+      );
+      expect(createdAtValues).toEqual([...createdAtValues].sort((left, right) => right - left));
+    });
+
+    it('returns 401 for following scope without authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity?scope=following',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('filters following scope to followed-user activity and still excludes saves', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity?scope=following&limit=50',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items.length).toBeGreaterThan(0);
+      expect(
+        body.items.every((item: { actor: { id: string } }) => item.actor.id === followedUserId)
+      ).toBe(true);
+      expect(body.items.some((item: { eventType: string }) => item.eventType === 'comment')).toBe(
+        true
+      );
+      expect(
+        body.items.some((item: { eventType: string }) => item.eventType === 'price_guess')
+      ).toBe(true);
+      expect(body.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
+        true
+      );
     });
   });
 
-  describe('GET /users/me/activity (personal)', () => {
-    it('should return 401 without auth', async () => {
+  describe('GET /users/me/activity', () => {
+    it('returns 401 without auth', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/users/me/activity',
       });
+
       expect(response.statusCode).toBe(401);
     });
 
-    it('should return personal activity', async () => {
+    it('returns personal activity and includes save events only on the self route', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/users/me/activity',
-        headers: { authorization: `Bearer ${accessToken}` },
+        url: '/users/me/activity?limit=50',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(Array.isArray(body.items)).toBe(true);
-      // Should include the like we made
-      if (propertyId) {
-        const likeEvents = body.items.filter(
-          (i: { eventType: string }) => i.eventType === 'property_like'
-        );
-        expect(likeEvents.length).toBeGreaterThanOrEqual(1);
-      }
+      expect(
+        body.items.some((item: { eventType: string }) => item.eventType === 'property_like')
+      ).toBe(true);
+
+      await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/save`,
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      const withSaveResponse = await app.inject({
+        method: 'GET',
+        url: '/users/me/activity?limit=50',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      const withSaveBody = JSON.parse(withSaveResponse.body);
+      expect(
+        withSaveBody.items.some((item: { eventType: string }) => item.eventType === 'save')
+      ).toBe(true);
+
+      await app.inject({
+        method: 'DELETE',
+        url: `/properties/${propertyId}/save`,
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
     });
 
-    it('should include save events in personal activity', async () => {
-      // Save a property first
-      if (propertyId) {
-        await app.inject({
-          method: 'POST',
-          url: `/properties/${propertyId}/save`,
-          headers: { authorization: `Bearer ${accessToken}` },
-        });
-
-        const response = await app.inject({
-          method: 'GET',
-          url: '/users/me/activity',
-          headers: { authorization: `Bearer ${accessToken}` },
-        });
-
-        expect(response.statusCode).toBe(200);
-        const body = JSON.parse(response.body);
-        const saveEvents = body.items.filter(
-          (i: { eventType: string }) => i.eventType === 'save'
-        );
-        expect(saveEvents.length).toBeGreaterThanOrEqual(1);
-
-        // Clean up save
-        await app.inject({
-          method: 'DELETE',
-          url: `/properties/${propertyId}/save`,
-          headers: { authorization: `Bearer ${accessToken}` },
-        });
-      }
-    });
-
-    it('should expose thumbnailUrl using the newest active non-null listing thumbnail fallback', async () => {
+    it('exposes thumbnailUrl using the newest active non-null listing thumbnail fallback', async () => {
       const syntheticPropertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/activity-fallback-thumb.jpg';
 
@@ -248,14 +326,14 @@ describe('Activity routes', () => {
       await app.inject({
         method: 'POST',
         url: `/properties/${syntheticPropertyId}/like`,
-        headers: { authorization: `Bearer ${accessToken}` },
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
       try {
         const response = await app.inject({
           method: 'GET',
           url: '/users/me/activity?limit=50',
-          headers: { authorization: `Bearer ${accessToken}` },
+          headers: { authorization: `Bearer ${viewerAccessToken}` },
         });
 
         expect(response.statusCode).toBe(200);
@@ -271,7 +349,7 @@ describe('Activity routes', () => {
           DELETE FROM reactions
           WHERE target_type = 'property'
             AND target_id = ${syntheticPropertyId}
-            AND user_id = ${userId}
+            AND user_id = ${viewerUserId}
         `);
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${syntheticPropertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${syntheticPropertyId}`);
