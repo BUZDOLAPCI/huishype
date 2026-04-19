@@ -62,6 +62,8 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 
 - `services/api/src/routes/activity.ts`
 - `services/api/src/routes/users.ts`
+- `services/api/src/routes/notifications.ts`
+- `services/api/src/routes/feed.ts`
 - `services/api/src/routes/properties.ts`
 - `services/api/src/routes/tiles.ts`
 - `services/api/openapi.json`
@@ -72,8 +74,11 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 - `packages/shared/src/types/notification.ts`
 - `packages/shared/src/types/api.ts`
 - `packages/shared/src/utils/map-filters.ts`
+- `packages/mocks/src/handlers/activity.ts`
+- `packages/mocks/src/handlers/feed.ts`
 - `packages/mocks/src/handlers/properties.ts`
 - `packages/mocks/src/handlers/notifications.ts`
+- `packages/mocks/src/handlers/users.ts`
 - app hooks/parsers already consuming these routes, especially:
   - `apps/app/src/utils/api.ts`
   - `apps/app/src/hooks/useProperties.ts`
@@ -118,6 +123,10 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
   - no grouping or clustering is allowed in the v1 overlay transport
 - Finalize canonical activity coverage:
   - one canonical payload/schema/mapper/query utility shared by `GET /activity?scope=public`, `GET /activity?scope=following`, and `GET /users/me/activity`
+  - `public`, `following`, and `/users/me/activity` share the same pagination model and envelope/cursor semantics
+  - the canonical activity payload is locked exactly:
+    - actor: `id`, `displayName`, `handle`, `profilePhotoUrl`
+    - property: `id`, `address`, `streetName`, `houseNumber`, `houseNumberAddition`, `city`, `postalCode`, `countryCode`, `thumbnailUrl`
   - `GET /activity?scope=following` backs the `Following` feed; `/feed` remains `filter=trending|latest` only
   - `public` and `following` exclude `save`
   - `/users/me/activity` reuses the same schema and newest-first ordering and only adds private `save`
@@ -127,6 +136,7 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
   - `user_follows` schema is locked to `follower_user_id`, `followed_user_id`, `created_at`, composite primary key on `(follower_user_id, followed_user_id)`, self-follow check, and newest-first indexes on `(follower_user_id, created_at DESC, followed_user_id)` and `(followed_user_id, created_at DESC, follower_user_id)`
   - `PUT /users/:id/follow`, `DELETE /users/:id/follow`
   - both follow endpoints return the updated relationship payload
+  - relationship state is locked to `self | none | following | followed_by | mutual`
   - `GET /users/:id/profile` optional-auth `relationship`, `followerCount`, `followingCount`
   - anonymous `GET /users/:id/profile` returns `relationship='none'`
   - signed-in profile reads must send auth whenever available so optional-auth `relationship` resolves instead of silently degrading to anonymous state
@@ -139,6 +149,7 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 - Finalize notification canonicalization for the contract layer in Phase 1:
   - DB/service/shared notification event names remain the source of truth
   - route schemas, exported OpenAPI, generated client, `packages/api-client/src/client.ts` if touched, shared notification types, app notification rendering/consumers, mocks, and fixtures must conform to that vocabulary before adding `new_follower`
+  - `new_follower` is the only new follow-related notification event in scope; mutual follow remains relationship/list-view state only, never a second notification type or alternate notification copy
   - runtime producer rollout and notification-service changes land in Phase 3 on top of this locked contract
 - Export OpenAPI with `pnpm openapi:export`.
 - Regenerate generated client with `pnpm api-client:generate`.
@@ -146,18 +157,18 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 
 ### Tests Required Before Phase Completion
 
-- Route-schema/OpenAPI/generated-client sanity for every touched route, including activity scopes, profile routes, notification routes, public property/map routes, `/saved-properties`, and the following viewport route.
-- Runtime proof for every touched caller/parser/adapter boundary, not just compile smoke: generated-client consumers, app parsers, local adapters, and mocks must successfully parse/assert representative payloads for property, activity, profile, notification, saved-property, and following viewport routes.
+- Route-schema/OpenAPI/generated-client sanity for every touched route, including `/feed`, activity scopes, profile routes, notification routes, public property/map routes, `/saved-properties`, and the following viewport route.
+- Runtime proof for every touched caller/parser/adapter boundary, not just compile smoke: generated-client consumers, app parsers, local adapters, and mocks must successfully parse/assert representative payloads for property, activity, profile, notification, and saved-property routes. For the following viewport route in Phase 1, lock the contract shape only; runtime proof and integration gating land in Phase 3 after the Phase 2 prerequisite is satisfied.
 - Mock/fixture alignment assertions for property, activity, profile, notification, and saved-property routes, including canonical notification event names and the full notification ownership inventory.
+- Assertions that the canonical activity payload includes the locked actor/property field set, that `public`, `following`, and `/users/me/activity` share one pagination model/envelope, and that follow/profile contracts use only the locked relationship-state union.
 - Assertions proving public `activity` and app-only `socialScope` remain separate contracts, grouped-single seed semantics are replaced by authoritative batch/detail hydration rather than promoted into a second rich property contract, the shared normalized grouped runtime type is the only nearby/grouped runtime shape in shared types, grouped keep/remove field lists are locked exactly, and the explicit property engagement breakdown field set is covered end to end.
-- Assertions that the `Following` viewport contract returns unique properties only, never grouped bundles, includes minimal qualifying-activity summary plus direct-open identity, and never falls through to personalized nearby behavior.
 - Assertions that `/feed` remains `trending|latest` only while `Following` is backed by `GET /activity?scope=following`.
 - Assertions proving anonymous vs authenticated viewer-sensitive cache/query ownership is separated before Phase 4 or Phase 5 integration begins.
 
 ### Exit Criteria
 
-- Route schemas, `services/api/openapi.json`, `packages/api-client/generated/api.ts`, shared runtime types, mocks, and touched callers/parsers/adapters all agree on the locked grouped/property fields, grouped-single seed boundary, canonical activity schema, explicit engagement breakdown fields, profile relationship/count fields, anonymous `relationship='none'`, follow endpoints, following viewport contract, and notification vocabulary.
-- Runtime proof exists for the touched generated-client consumers, callers, parsers, adapters, mocks, and fixtures; Phase 1 is not considered complete on compile smoke alone.
+- Route schemas, `services/api/openapi.json`, `packages/api-client/generated/api.ts`, shared runtime types, mocks, and touched callers/parsers/adapters all agree on the locked grouped/property fields, grouped-single seed boundary, canonical activity schema and actor/property field set, explicit engagement breakdown fields, profile relationship/count fields, the locked relationship-state union with anonymous `relationship='none'`, follow endpoints, following viewport contract, and notification vocabulary.
+- Runtime proof exists for the touched generated-client consumers, callers, parsers, adapters, mocks, and fixtures for the Phase 1-owned routes and adapters; Phase 1 is not considered complete on compile smoke alone, but the following viewport route remains contract-locked only until Phase 3.
 - No touched public route has viewer-specific following behavior, no viewer-sensitive cache/key boundary is still shared with anonymous reads, and no touched caller still depends on stale handwritten shapes, a second nearby/grouped runtime transport type, or non-canonical notification names.
 - Backend and app work can proceed without guessing payloads, serialization boundaries, auth/public separation, or `/saved-properties` ownership.
 
@@ -188,7 +199,7 @@ The public map is the base layer under both the new public activity facet and th
 - `services/api/src/routes/views.ts`
 - `services/api/drizzle/0003_mv_latest_active_listings.sql`
 - `services/api/src/db/schema.ts`
-- `packages/shared/src/config/property-map.ts` if semantic hue proof needs to move earlier than the final visual polish pass
+- `packages/shared/src/config/property-map.ts`
 
 ### Dependencies / Prerequisites
 
@@ -222,14 +233,14 @@ The public map is the base layer under both the new public activity facet and th
 - Rebuild grouping candidates so social activity includes comments, replies, property likes, comment likes, price guesses, and unique viewers.
 - Compute `socialScore`, `recentSocialScore`, `hasSocialActivity`, and `hasRecentSocialActivity` with the locked weights and the strict 7-day recent window, then delete the old comments/guesses-only visibility and ghost logic.
 - Preserve the single-unique-view exception explicitly: one unique view is enough to make a node socially active, but `recentSocialScore` and pulse rules must still be tuned so a view-only node does not pulse by itself.
-- Apply recency consistently across all activity sources, with guesses using `GREATEST(created_at, updated_at)` and no 30-day fallback path anywhere in map semantics or tile payload preparation.
-- Recompute grouped outputs for tiles and `/properties/nearby` from the final composition fields.
+- Apply recency consistently across all activity sources, with guesses using `GREATEST(created_at, updated_at)`, guess counts deduped to one guess per user/property rather than edit history, and no 30-day fallback path anywhere in map semantics or tile payload preparation.
+- Recompute grouped outputs for tiles and `/properties/nearby` from the final composition fields using one shared canonical grouped builder/model rather than parallel shaping logic.
 - Keep grouped-single preview payloads explicitly thin: `hasActiveListing`, `marketState`, snippet/thumbnail fields, and lightweight badges only. Rich listing/social semantics remain batch/detail hydration responsibilities.
 - Update `/properties`, `/properties/batch`, `/properties/:id`, and `/saved-properties` together so consumers stop inferring listing or social state from partial preview fields.
 - Keep `/properties/resolve` lean and neutral. If it carries preview listing signal, keep it to `hasActiveListing` or `marketState`.
 - Add public server-side filter support for `activity='all' | 'social' | 'recent'` as an orthogonal facet to `marketState`, with no save-derived public semantics.
 - Include `lastSocialAt` in public property payloads only if its public value is not save-derived.
-- Land semantic-hue proof as soon as the composition fields exist: the current tile-style/source-of-truth expressions must already key semantic hue off composition fields rather than `point_count`, even if the full ring/fill/pulse polish waits for Phase 6.
+- Land semantic-hue proof as soon as the composition fields exist: Phase 2 may make only the minimal style/source-of-truth changes needed so semantic hue keys off composition fields rather than `point_count`. Full additive ring/fill/pulse topology, broader layer/queryable-layer work, and copy remain Phase 6 work.
 
 ### Tests Required Before Phase Completion
 
@@ -248,20 +259,21 @@ The public map is the base layer under both the new public activity facet and th
 - Add assertions for address-addition normalization and resolve/lookup behavior after canonicalization.
 - Add assertions for rejected view writes without stable identity and exact `uniqueViewerCount` / `recentUniqueViewerCount` behavior.
 - Add assertions proving the shared listing-facts source of truth now drives `map-filters.ts`, `listings-view.ts`, and `feed.ts`, and that duplicate listing-semantics owners were removed rather than left diverged.
-- Add assertions for strict 7-day recency, no 30-day fallback, and guess recency via `GREATEST(created_at, updated_at)`.
+- Add assertions for strict 7-day recency, no 30-day fallback, guess recency via `GREATEST(created_at, updated_at)`, and guess-count dedupe to one guess per user/property.
 - Add assertions for latest-row ordering under in-place listing updates.
 - Build Phase 2 coverage on hermetic fixture builders, not ambient seeded city data, for listing-only, social-only, views-only, recent-only, sold-only, and mixed properties/groups.
 - Hermetic fixtures must explicitly cover replies, property likes, and comment likes in both composition math and emitted grouped/property payload fields.
 - Assert that public property payloads do not leak save-derived counts or timestamps.
+- Add assertions that tiles and `/properties/nearby` emit from one shared canonical grouped model rather than parallel transport-specific shapers.
 - Add automated proof on the current tile-style semantic source that semantic hue no longer depends on `point_count` once composition fields are available, even before the full visual rewrite.
 
 ### Exit Criteria
 
 - One shared listing-facts source of truth drives tiles, nearby, list, batch, detail, and saved-property semantics.
 - Address-addition normalization and view identity invariants are enforced in write paths and fixtures.
-- Public tiles, nearby, batch, and detail expose the locked grouped/property semantics, and `activity='social'` and `activity='recent'` are server-backed and orthogonal to `marketState`.
+- Public tiles, nearby, batch, and detail expose the locked grouped/property semantics, with tiles and nearby driven by one shared canonical grouped model, and `activity='social'` and `activity='recent'` are server-backed and orthogonal to `marketState`.
 - Likes-only and views-only properties are socially active in public semantics when their scores are non-zero.
-- Exact scoring/recency semantics are enforced: strict 7-day recent window, no 30-day fallback, guess recency via `GREATEST(created_at, updated_at)`, and the locked initial weights drive both `socialScore` and `recentSocialScore`.
+- Exact scoring/recency semantics are enforced: strict 7-day recent window, no 30-day fallback, guess recency via `GREATEST(created_at, updated_at)`, guess-count dedupe to one guess per user/property, and the locked initial weights drive both `socialScore` and `recentSocialScore`.
 - Single-view-only nodes count as social without independently tripping pulse semantics.
 - Semantic hue proof is already green on the live composition fields, so map meaning no longer depends on `point_count` before Phase 6 polish begins.
 - `/properties/resolve` remains a lean bootstrap route rather than a second rich property contract.
@@ -288,6 +300,7 @@ Following is personalized and must not contaminate the public tile/property path
 - `services/api/src/routes/users.ts`
 - `services/api/src/routes/activity.ts`
 - `services/api/src/routes/notifications.ts`
+- `services/api/src/routes/properties.ts`
 - `services/api/src/services/notifications.ts`
 - `services/api/src/services/map-filters.ts` for shared filter reuse in viewport SQL
 - `services/api/openapi.json`
@@ -295,10 +308,12 @@ Following is personalized and must not contaminate the public tile/property path
 - `packages/api-client/src/client.ts` if touched during contract cleanup
 - `packages/shared/src/types/activity.ts`
 - `packages/shared/src/types/notification.ts`
+- `packages/shared/src/types/property.ts`
 - `packages/shared/src/types/user.ts`
 - `packages/shared/src/types/api.ts`
 - `packages/mocks/src/handlers/activity.ts`
 - `packages/mocks/src/handlers/notifications.ts`
+- `packages/mocks/src/handlers/properties.ts`
 - `packages/mocks/src/handlers/users.ts`
 - app notification consumers/renderers using the generated notification shapes
 
@@ -312,12 +327,16 @@ Following is personalized and must not contaminate the public tile/property path
 
 - Add `user_follows` table and indexes with the locked schema details: `follower_user_id`, `followed_user_id`, `created_at`, composite primary key on `(follower_user_id, followed_user_id)`, self-follow check, and newest-first indexes on `(follower_user_id, created_at DESC, followed_user_id)` and `(followed_user_id, created_at DESC, follower_user_id)`.
 - Add `PUT /users/:id/follow` and `DELETE /users/:id/follow` with idempotent semantics, and make both return the updated relationship payload.
+  - `new_follower` is emitted only when the follow edge is newly created; repeated idempotent `PUT` requests must not create duplicate follow notifications or duplicate producer work
 - Extend `GET /users/:id/profile` with optional-auth `relationship`, `followerCount`, and `followingCount`.
 - Anonymous viewers must receive `relationship='none'` from `GET /users/:id/profile`.
 - Extend `GET /users/me` with `followerCount` and `followingCount`.
 - Add `GET /users/me/followers` and `GET /users/me/following` as paginated newest-first self-list routes.
 - Roll out notification runtime producers and notification-service usage onto the Phase 1 canonical vocabulary, then add `new_follower`.
+  - repeated idempotent follow requests must remain no-op at the producer layer after the edge already exists
+  - do not add a mutual-follow notification, event type, or alternate copy path; reciprocity stays in `relationship` state and self list views only
 - Clean up activity route internals so `GET /activity?scope=public|following` and `GET /users/me/activity` share one canonical schema, mapper, ordering, and query model, with one explicit scope-to-query mapping.
+  - keep one backend pagination contract, including envelope/cursor semantics, shared across `GET /activity?scope=public`, `GET /activity?scope=following`, and `/users/me/activity`
 - Preserve activity inclusion rules exactly:
   - `public` excludes `save`
   - `following` excludes `save`
@@ -347,6 +366,7 @@ Following is personalized and must not contaminate the public tile/property path
 - API integration tests for:
   - follow/unfollow
   - repeated `PUT /users/:id/follow` and repeated `DELETE /users/:id/follow` preserving idempotent response semantics
+  - repeated `PUT /users/:id/follow` creating one follow edge and one `new_follower` notification/producer side effect only
   - self-follow rejection
   - optional-auth profile relationship/count behavior
   - `GET /activity` public vs following
@@ -356,7 +376,8 @@ Following is personalized and must not contaminate the public tile/property path
   - `GET /users/me/followers` pagination and newest-first ordering
   - `GET /users/me/following` pagination and newest-first ordering
   - notification canonicalization plus `new_follower` creation
-- Assertions that public and following share the same canonical payload and ordering, both exclude `save`, and only `/users/me/activity` includes private `save`.
+  - absence of any mutual-follow notification/event/copy branch
+- Assertions that `GET /activity?scope=public` and `GET /activity?scope=following` share the same backend pagination contract plus canonical payload and ordering, both exclude `save`, and only `/users/me/activity` includes private `save`.
 - Assertions that both follow endpoints return the updated relationship payload.
 - Assertions that anonymous `GET /users/:id/profile` returns `relationship='none'`.
 - Assertions that the follow-list routes remain self-only surfaces and that self-follow is rejected by the schema/route contract rather than tolerated in callers.
@@ -367,7 +388,7 @@ Following is personalized and must not contaminate the public tile/property path
 
 - The follow graph exists with viewer-aware profile state, follower/following counts, and self list routes.
 - `GET /activity?scope=public`, `GET /activity?scope=following`, and `GET /users/me/activity` share one canonical payload/order/query model with newest-first ordering, ungrouped semantics, no extra dedupe layer, and the correct save-inclusion rules.
-- Notification schemas, OpenAPI, generated client usage, `packages/api-client/src/client.ts` if touched, app notification consumers/renderers, mocks, fixtures, and producers use one canonical event vocabulary with `new_follower` added and no drift names remaining.
+- Notification schemas, OpenAPI, generated client usage, `packages/api-client/src/client.ts` if touched, app notification consumers/renderers, mocks, fixtures, and producers use one canonical event vocabulary with `new_follower` added, no drift names remaining, and no mutual-follow notification branch introduced.
 - The following viewport endpoint exists as an authenticated sparse overlay transport, explicitly separate from public tiles, nearby, and public filter serialization, with bbox/property-query input, unique-property existence semantics, authenticated API caching, intentional-render/direct-open payload identity, no personalized nearby fallback, and no grouping/clustering in v1.
 - Personalized behavior exists only on the authenticated following viewport endpoint; public property/tile/nearby routes remain unchanged.
 
@@ -396,6 +417,9 @@ The app currently re-derives stale map semantics from old grouped/property field
 - `apps/app/src/hooks/useMapFilterController.ts`
 - `apps/app/src/lib/mapRoute.ts`
 - `packages/api-client/generated/api.ts`
+- `packages/api-client/src/client.ts`
+- `packages/shared/src/types/property.ts`
+- `packages/shared/src/types/api.ts`
 - shared filter/type owners that define the public property/map contract
 - MSW handlers/fixtures that mirror public property, tile, nearby, and saved-property semantics
 - `apps/app/src/components/GroupPreviewCard/types.ts`
@@ -449,6 +473,7 @@ The app currently re-derives stale map semantics from old grouped/property field
   - shared filter/type owners and generated-client-driven callers staying aligned with the same `activity`/property contract
   - MSW fixtures/handlers matching the stabilized route/OpenAPI/generated-client contract
   - preview-card, bottom-sheet, and normalized runtime models preserving separate listing, social, and recent axes instead of collapsing back to one-axis `activityLevel`/`activityScore` semantics
+- Build Phase 4 semantic parser/filter/hydration coverage on owned deterministic fixtures/builders for grouped, nearby, and tile semantics rather than ambient seeded city data.
 
 ### Exit Criteria
 
@@ -485,6 +510,7 @@ This is the feature-delivery phase for the social-following plan. It must sit on
 - `apps/app/src/hooks/useUserProfile.ts`
 - self follower/following list query hooks if they are split from the profile hook
 - `apps/app/src/hooks/useNotifications.ts` if unread/feed entrypoints need follow-event parity
+- `apps/app/src/components/map/MapFilterBar.tsx`
 - `apps/app/src/hooks/useMapFilterController.ts`
 - `apps/app/src/lib/sharedMapFilters.ts` only where it intersects with public `activity`, not for `socialScope`
 - `apps/app/src/lib/mapRoute.ts`
@@ -492,6 +518,7 @@ This is the feature-delivery phase for the social-following plan. It must sit on
 - `apps/app/app/(tabs)/map/[...address].tsx`
 - `apps/app/app/(tabs)/map/[country]/[city]/[postcode]/[street]/[house].tsx`
 - `apps/app/src/hooks/useProperties.ts` for public base-layer query reuse versus separate following overlay fetches
+- overlay marker/annotation/chrome owners for following-mode rendering
 
 ### Dependencies / Prerequisites
 
@@ -508,15 +535,18 @@ This is the feature-delivery phase for the social-following plan. It must sit on
   - fresh-session default remains `Trending`
   - no feed-chip persistence work is added
   - feed title mapping is updated so `Following` gets its own activity-feed title without changing existing `Trending`, `Latest`, or `Recent Activity` behavior
+- Reuse the existing `ActivityFeedCard` / `Recent Activity` card family for `Following`; extend it with split property-vs-actor press targets rather than introducing a second card family.
 - Add signed-out gating and signed-in empty states for `Following`.
 - Add follow/unfollow affordances and counts on public profiles, but keep follower/following counts tappable only on self surfaces; other-user profiles show counts as static labels.
 - Anonymous public profile reads must still render the follow button in the correct unauthenticated state and gate follow taps through auth instead of hiding the affordance.
 - Signed-in profile reads must send auth whenever available so optional-auth `relationship` resolves correctly on public profiles.
 - Add dedicated own-profile followers/following list screens and navigation from self counts only. Screen ownership is explicit: the self-profile surface owns the count affordances and navigation entrypoints; the dedicated followers/following list screens own rendering, pagination, and self-only access behavior.
 - Split activity card press targets into main-card property navigation and actor-avatar/name profile navigation.
-- Model `socialScope: 'all' | 'following'` as app-level map-view state separate from shared/public `MapFilters`, expose `Following` as a dedicated top-level rail toggle near the existing quick filters, serialize it only in committed app state on web, preserve it across refresh/share/canonical/returnTo flows, keep native parity in in-memory map-view state, and keep it out of shared/public filter serializers, tile URLs, nearby URLs, and public cache keys.
+- Rail ownership is explicit: the top-level `Following` map toggle belongs in the existing quick-filter rail owner (`MapFilterBar` and its immediate map-screen state wiring), not in a secondary filter panel or fake `marketState` bucket.
+- Model `socialScope: 'all' | 'following'` as app-level map-view state separate from shared/public `MapFilters`, expose `Following` as a dedicated top-level rail toggle near the existing quick filters, serialize it only in committed app state on web, preserve it across refresh, share, canonical, and private `returnTo`/app-state flows, keep native parity in in-memory map-view state, and keep it out of shared/public filter serializers, tile URLs, nearby URLs, and public cache keys.
 - Fetch and render the authenticated sparse following overlay separately from the unchanged public map layers; the overlay result set must be the intersection of viewport bounds, social scope, and active market-state/price filters. Do not add clustering, server-side grouping, or personalized public tiles in v1.
-- Ensure overlay taps resolve from overlay payload identity and in-memory overlay data, not viewer-specific nearby or tile behavior, and keep the overlay payload rich enough to render intentionally from the qualifying-activity summary rather than as an anonymous dot-only transport.
+- Preserve public base-layer interaction while `socialScope='following'` is enabled: base-layer taps still use the existing public property + nearby flow, while overlay taps resolve from overlay payload identity and in-memory overlay data only. Keep the overlay payload rich enough to render intentionally from the qualifying-activity summary rather than as an anonymous dot-only transport.
+- Keep v1 follow discovery entry points limited to public profiles and activity cards. Do not add follow affordances on comments, leaderboard, or other surfaces during this sprint.
 - Copy/CTA guidance is part of scope:
   - signed-out `Following` feed gate copy must explain that this feed shows activity from followed users and point users toward public profiles/activity cards as places to discover people to follow after signing in
   - signed-in empty `Following` feed state must point users toward public profiles and activity cards as the initial follow entry points
@@ -534,26 +564,34 @@ This is the feature-delivery phase for the social-following plan. It must sit on
   - signed-in public-profile reads sending auth when available so `relationship` resolves
   - self-only follower/following count navigation on own profile, and non-tappable counts on other-user profiles
   - followers/following list screen rendering, pagination, newest-first ordering, and self-only access
+  - `Following` reusing the existing activity-card family while splitting property-vs-actor press targets
   - split property-vs-actor activity-card taps
   - `Following` tab, query keys, signed-out gate, signed-in empty state, fresh-session default-to-`Trending`, and updated title mapping
+  - `Following` appearing as a dedicated top-level rail control near the existing quick filters rather than as a generic filter-panel category or fake market-state value
   - signed-out map `Following` gating and signed-in map `Following` empty state
-  - `socialScope` web URL/state serialization while proving refresh/share/canonical/returnTo preservation, native parity, overlay-fetch triggering, and unchanged public tile URLs, nearby URLs, shared filter signatures, and public `activity` behavior
+  - `socialScope` private web app-state serialization while proving refresh/share/canonical/private return-flow preservation, native parity, overlay-fetch triggering, unchanged public tile URLs, nearby URLs, shared filter signatures, and unchanged public `activity` behavior
+  - following overlay items rendering the qualifying-activity summary from overlay payloads rather than a dot-only transport
   - analytics emission/assertion coverage for the required Following events
+  - overlay result-count, render-cost, and interaction-latency instrumentation being emitted or captured in an inspectable way
 - Web E2E minimum set:
   - happy path: sign in -> follow a user -> open `Following` -> verify activity appears
   - empty path: sign in -> follow nobody -> open `Following` -> verify empty state
   - own-profile list path: sign in -> open own profile -> open followers/following lists -> verify list rendering, pagination, newest-first ordering, and that the routes are self-only
   - signed-out map path: signed out -> attempt to enable map `Following` -> verify auth gate and unchanged public base map behavior
   - signed-in map empty path: sign in -> follow nobody -> enable map `Following` -> verify signed-in empty overlay state while the public base map still renders
-  - map path: sign in -> follow user with qualifying activity -> enable following mode -> verify the public base map still renders -> verify only overlay items in the intersection of viewport + social scope + active market-state/price filters render -> verify tapping an overlay item opens the correct property via overlay payload identity, not viewer-specific nearby/tile hit testing
+  - map path: sign in -> follow user with qualifying activity -> enable following mode -> verify the public base map still renders -> verify base-layer taps still use the existing public property + nearby flow -> verify only overlay items in the intersection of viewport + social scope + active market-state/price filters render -> verify overlay items expose qualifying-activity summary from overlay payload data -> verify tapping an overlay item opens the correct property via overlay payload identity, not viewer-specific nearby/tile hit testing
 
 ### Exit Criteria
 
 - `Following` feed works as a personalized activity surface, not a property-feed variant.
+- `Following` reuses the existing activity-card family with split property and actor press targets rather than shipping a second card implementation.
 - Public profiles expose follow state and counts correctly for anonymous and authenticated viewers, with self-only count navigation and static counts on other-user profiles.
 - Followers/following list screens render and paginate correctly, stay newest-first, and remain self-only surfaces.
 - Viewer-sensitive profile/activity caches cannot contaminate anonymous reads.
-- `socialScope='following'` works as app-only state driving an authenticated sparse overlay on top of unchanged public tiles, URLs, nearby behavior, and shared cache keys, with signed-out gating, signed-in empty-state proof, refresh/share/canonical/returnTo preservation on web, native parity, overlay-fetch triggering, runtime proof that app-only `socialScope` stays orthogonal to public `activity`, and overlay click-through resolved from overlay payload identity.
+- `socialScope='following'` works as app-only state driving an authenticated sparse overlay on top of unchanged public tiles, nearby behavior, and shared cache keys, with signed-out gating, signed-in empty-state proof, refresh/share/canonical/private return-flow preservation on web, native parity, overlay-fetch triggering, runtime proof that app-only `socialScope` stays orthogonal to public `activity`, public base-layer taps still using existing public property/nearby behavior, and overlay click-through resolved from overlay payload identity.
+- The `Following` map rail remains a dedicated top-level control near the existing quick filters, and the overlay renders qualifying-activity summary intentionally rather than as a dot-only transport.
+- V1 follow discovery remains limited to public profiles and activity cards; extra follow affordances on comments, leaderboard, or other surfaces were not introduced.
+- Overlay result-count, render-cost, and interaction-latency instrumentation exists and is inspectable before any later architecture change is considered.
 
 ### Handoff Notes for the Next Phase
 
@@ -590,6 +628,7 @@ Both plans require the UI to communicate separate listing and social axes. That 
 ### Implementation Tasks
 
 - Remove any semantic hue steps tied to `pointCount`; only radius and count-label sizing may depend on count.
+- If Phase 2 landed the minimal semantic-hue cutover already, Phase 6 finishes the full additive layer/queryable-layer topology on top of that proof rather than re-litigating contract semantics.
 - Use additive map language where outer treatment communicates active listing state, inner fill communicates social state/intensity, and pulse communicates recent social state only.
 - Keep singles and clusters aligned:
   - listing state in the outer treatment
@@ -618,6 +657,9 @@ Both plans require the UI to communicate separate listing and social axes. That 
 - Add automated proof that tile style expressions reference composition fields for semantic color and that no semantic hue expression still keys off `point_count`.
 - Add assertions that preview/header/detail copy and badges consume the expanded engagement breakdown fields rather than one-axis summary labels.
 - Visual verification must prove ring/fill/pulse semantics rather than count-driven hue.
+- If additive layer/queryable-layer topology changes in this phase, add a public base-map interaction regression gate covering queryable-layer IDs, tap hit-testing, selection, and nearby-driven property opening.
+- Build Phase 6 visual verification on owned deterministic fixtures/scenarios rather than ambient seeded map data.
+- If additive layer/queryable-layer topology changes in this phase, rerun the touched map interaction/flow suite (`pnpm test:e2e:flows` or the narrower map-interaction equivalent) in addition to visual proof.
 - Run `pnpm test:e2e:visual` for touched web surfaces, and include `pnpm test:e2e:mobile` if the native UI changed in the same pass.
 
 ### Exit Criteria
@@ -626,6 +668,7 @@ Both plans require the UI to communicate separate listing and social axes. That 
 - Singles and clusters use one coherent ring/fill/pulse system for listing, social, and recent-social semantics.
 - Automated proof exists that semantic style expressions use composition fields and not `point_count` for hue.
 - Property copy and badges separate listing lifecycle, social state, and recent activity without collapsing back into one-axis `Quiet/Active/Hot` language, and they use the expanded engagement breakdown fields where required.
+- Any additive layer/queryable-layer topology change preserves public base-map interaction semantics for queryable-layer IDs, tap hit-testing, selection, and nearby-driven property opening.
 
 ### Handoff Notes for the Next Phase
 
@@ -691,10 +734,13 @@ Sprint completion criteria:
 - API and app tests prove public property/tile/nearby routes and public cache semantics remain unchanged while Following exists
 - public `activity` semantics and app-only `socialScope='following'` remain explicitly separated
 - retained regression evidence includes the `Following` feed happy-path E2E and empty-path E2E
+- retained regression evidence also includes the own-profile followers/following-list E2E path
 - retained regression evidence also includes the signed-out map auth-gate E2E and signed-in map-empty overlay E2E
 - web E2E proves the public base map still renders and overlay click-through opens the correct property without viewer-specific tile hit testing
+- web and component verification prove the following overlay renders qualifying-activity summary intentionally rather than as a dot-only transport
 - automated proof exists that tile style semantics use composition fields rather than `point_count`
 - the visual layer reflects the new semantics without reintroducing transport ambiguity
+- overlay result-count, render-cost, and interaction-latency instrumentation is implemented and inspectable for later density/performance decisions
 - regression-proof artifacts exist for the map-node screenshot set: dense listing-heavy, socially intense, mixed, high-zoom single-node listing-only, high-zoom single-node social-only, high-zoom single-node listing+social, filtered `For Sale` + `Recently Active`, plus artifacts for the signed-out map `Following` gate and signed-in map-empty `Following` overlay state
 
 Broader superset option:
