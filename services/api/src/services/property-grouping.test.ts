@@ -340,6 +340,37 @@ describe('property-grouping', () => {
     expect(groups[0].socialScoreTotal).toBe(0);
   });
 
+  it('treats a single unique view as social activity without collapsing back to ghost semantics', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000015',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.5,
+        recentSocialScore: 0.5,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('single');
+    expect(groups[0].primaryPropertyId).toBe(viewed.id);
+    expect(groups[0].activeListingCount).toBe(0);
+    expect(groups[0].socialCount).toBe(1);
+    expect(groups[0].recentSocialCount).toBe(1);
+    expect(groups[0].socialScoreTotal).toBe(0.5);
+    expect(groups[0].recentSocialScoreTotal).toBe(0.5);
+  });
+
   it('builds ghost clusters from ghost members only once ghosts are revealed', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
@@ -506,6 +537,7 @@ describe('property-grouping', () => {
             country_code: 'NL',
             street: 'Mockstraat',
             house_number: 12,
+            house_number_addition: 'A',
             city: 'Eindhoven',
             postal_code: '5611 AA',
             asking_price: 359000,
@@ -524,7 +556,7 @@ describe('property-grouping', () => {
     expect(result?.groupKind).toBe('single');
     expect(result?.nodeClass).toBe('active');
     expect(result?.primaryPropertyId).toBe(propertyId);
-    expect(result?.address).toEqual(expect.any(String));
+    expect(result?.address).toBe('Mockstraat 12A, 5611 AA Eindhoven');
     expect(result?.city).toBe('Eindhoven');
     expect(result?.askingPrice).toBe(359000);
     expect(result?.thumbnailUrl).toBe('https://cdn.example.com/mock-thumb.jpg');

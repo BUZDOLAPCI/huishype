@@ -524,18 +524,119 @@ function buildInterpolateExpression(
   return ['interpolate', ['linear'], input, ...expressionTail];
 }
 
+const ACTIVE_CLUSTER_FILL_LAYER_ID = 'property-cluster-fill';
+const ACTIVE_CLUSTER_PULSE_LAYER_ID = 'property-cluster-pulse';
+const ACTIVE_NODE_FILL_LAYER_ID = 'active-node-fill';
+const ACTIVE_NODE_PULSE_LAYER_ID = 'active-node-pulse';
+const RECENT_PULSE_SCORE_THRESHOLD = 0.5;
+
+function buildPropertyFieldExpression(field: string, fallback = 0): unknown[] {
+  return ['coalesce', ['get', field], fallback];
+}
+
+function buildListingShareExpression(): unknown[] {
+  const pointCount = buildPropertyFieldExpression('point_count', 1);
+  return [
+    'case',
+    ['>', pointCount, 0],
+    ['/', buildPropertyFieldExpression('activeListingCount'), pointCount],
+    0,
+  ];
+}
+
+function buildSocialIntensityExpression(): unknown[] {
+  const socialCount = buildPropertyFieldExpression('socialCount');
+  return [
+    'max',
+    buildPropertyFieldExpression('socialScoreMax'),
+    [
+      'case',
+      ['>', socialCount, 0],
+      ['/', buildPropertyFieldExpression('socialScoreTotal'), socialCount],
+      0,
+    ],
+  ];
+}
+
+function buildRecentPulseOpacityExpression(): unknown[] {
+  return [
+    'case',
+    [
+      'all',
+      ['>', buildPropertyFieldExpression('recentSocialCount'), 0],
+      ['>', buildPropertyFieldExpression('recentSocialScoreTotal'), RECENT_PULSE_SCORE_THRESHOLD],
+    ],
+    [
+      'interpolate',
+      ['linear'],
+      buildPropertyFieldExpression('recentSocialScoreTotal'),
+      RECENT_PULSE_SCORE_THRESHOLD,
+      0,
+      1,
+      0.16,
+      5,
+      0.28,
+      20,
+      0.4,
+    ],
+    0,
+  ];
+}
+
 /**
  * Build the property layers array for the merged style.
  * These are the canonical layer definitions — both web and native clients
  * consume them from /tiles/style.json.
  *
  * Final layer IDs:
- *   property-clusters, cluster-count, active-nodes,
+ *   property-clusters, property-cluster-fill, property-cluster-pulse, cluster-count,
+ *   active-nodes, active-node-fill, active-node-pulse,
  *   ghost-clusters, ghost-cluster-count, ghost-nodes
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
+  const activeClusterRadius = buildStepExpression(
+    ['coalesce', ['get', 'point_count'], 2],
+    ACTIVE_FOOTPRINT.clusterRadiusStopsPx,
+  );
+  const activeNodeRadius = buildInterpolateExpression(
+    ['coalesce', ['get', 'socialScoreMax'], 0],
+    ACTIVE_FOOTPRINT.singleRadiusStopsPx,
+  );
+  const listingShare = buildListingShareExpression();
+  const socialIntensity = buildSocialIntensityExpression();
+  const recentPulseOpacity = buildRecentPulseOpacityExpression();
+
   return [
-    // Active cluster circles at any zoom.
+    // Recent-social halo for clusters. This stays non-queryable; cluster count and taps
+    // still resolve against the canonical queryable ring layer.
+    {
+      id: ACTIVE_CLUSTER_PULSE_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      paint: {
+        'circle-radius': ['+', activeClusterRadius, 6],
+        'circle-color': [
+          'interpolate',
+          ['linear'],
+          buildPropertyFieldExpression('recentSocialCount'),
+          0,
+          '#FDBA74',
+          1,
+          '#FB7185',
+          10,
+          '#E11D48',
+        ],
+        'circle-opacity': recentPulseOpacity,
+        'circle-stroke-width': 0,
+      },
+    },
+    // Active cluster listing ring. The outer treatment only communicates listing composition.
     {
       id: PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,
       type: 'circle',
@@ -547,27 +648,84 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': buildStepExpression(
-          ['coalesce', ['get', 'point_count'], 2],
-          ACTIVE_FOOTPRINT.clusterRadiusStopsPx,
-        ),
+        'circle-radius': activeClusterRadius,
+        'circle-color': 'rgba(255, 255, 255, 0)',
+        'circle-opacity': 1,
+        'circle-stroke-width': [
+          'interpolate',
+          ['linear'],
+          listingShare,
+          0,
+          0,
+          0.01,
+          2,
+          1,
+          4,
+        ],
+        'circle-stroke-color': [
+          'interpolate',
+          ['linear'],
+          listingShare,
+          0,
+          '#CBD5E1',
+          0.01,
+          '#93C5FD',
+          1,
+          '#2563EB',
+        ],
+        'circle-stroke-opacity': [
+          'interpolate',
+          ['linear'],
+          listingShare,
+          0,
+          0,
+          0.01,
+          0.65,
+          1,
+          0.95,
+        ],
+      },
+    },
+    // Active cluster social core. The fill communicates social composition and intensity.
+    {
+      id: ACTIVE_CLUSTER_FILL_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      paint: {
+        'circle-radius': ['max', ['-', activeClusterRadius, 4], 8],
         'circle-color': [
           'case',
-          ['>', ['coalesce', ['get', 'recentSocialCount'], 0], 0],
-          '#EF4444',
-          ['>', ['coalesce', ['get', 'socialCount'], 0], 0],
-          '#F97316',
-          ['>', ['coalesce', ['get', 'activeListingCount'], 0], 0],
-          '#3B82F6',
-          '#64748B',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          [
+            'interpolate',
+            ['linear'],
+            socialIntensity,
+            0.5,
+            '#FED7AA',
+            2,
+            '#FDBA74',
+            8,
+            '#FB923C',
+            25,
+            '#EA580C',
+            60,
+            '#C2410C',
+          ],
+          '#E2E8F0',
         ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          2,      // default
-          50, 3,  // larger stroke for big clusters
+        'circle-opacity': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          0.94,
+          0.74,
         ],
-        'circle-stroke-color': '#FFFFFF',
+        'circle-stroke-width': 0,
       },
     },
     // Active cluster count labels.
@@ -598,7 +756,36 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'text-halo-width': 1,
       },
     },
-    // Active singles at any zoom.
+    // Recent-social halo for singles. The >0.5 threshold preserves the
+    // single-unique-view exception: one unique view counts as social, but does not pulse.
+    {
+      id: ACTIVE_NODE_PULSE_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': ['+', activeNodeRadius, 4],
+        'circle-color': [
+          'interpolate',
+          ['linear'],
+          buildPropertyFieldExpression('recentSocialCount'),
+          0,
+          '#FDBA74',
+          1,
+          '#FB7185',
+          5,
+          '#E11D48',
+        ],
+        'circle-opacity': recentPulseOpacity,
+        'circle-stroke-width': 0,
+      },
+    },
+    // Active single listing ring.
     {
       id: PROPERTY_MAP_LAYERS.ACTIVE_NODES,
       type: 'circle',
@@ -610,23 +797,78 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': buildInterpolateExpression(
-          ['coalesce', ['get', 'socialScoreMax'], 0],
-          ACTIVE_FOOTPRINT.singleRadiusStopsPx,
-        ),
+        'circle-radius': activeNodeRadius,
+        'circle-color': 'rgba(255, 255, 255, 0)',
+        'circle-opacity': 1,
+        'circle-stroke-width': [
+          'interpolate',
+          ['linear'],
+          buildPropertyFieldExpression('activeListingCount'),
+          0,
+          0,
+          1,
+          2.5,
+        ],
+        'circle-stroke-color': [
+          'interpolate',
+          ['linear'],
+          buildPropertyFieldExpression('activeListingCount'),
+          0,
+          '#CBD5E1',
+          1,
+          '#2563EB',
+        ],
+        'circle-stroke-opacity': [
+          'interpolate',
+          ['linear'],
+          buildPropertyFieldExpression('activeListingCount'),
+          0,
+          0,
+          1,
+          0.95,
+        ],
+      },
+    },
+    // Active single social core.
+    {
+      id: ACTIVE_NODE_FILL_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': ['max', ['-', activeNodeRadius, 2], 4],
         'circle-color': [
           'case',
-          ['>', ['coalesce', ['get', 'recentSocialCount'], 0], 0],
-          '#EF4444',
-          ['>', ['coalesce', ['get', 'socialCount'], 0], 0],
-          '#F97316',
-          ['>', ['coalesce', ['get', 'activeListingCount'], 0], 0],
-          '#3B82F6',
-          '#64748B',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          [
+            'interpolate',
+            ['linear'],
+            socialIntensity,
+            0.5,
+            '#FED7AA',
+            2,
+            '#FDBA74',
+            8,
+            '#FB923C',
+            25,
+            '#EA580C',
+            60,
+            '#C2410C',
+          ],
+          '#E2E8F0',
         ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
+        'circle-opacity': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          0.96,
+          0.76,
+        ],
+        'circle-stroke-width': 0,
       },
     },
     // Ghost-only clusters appear once ghosts are revealed.

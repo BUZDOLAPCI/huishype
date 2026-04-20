@@ -44,8 +44,9 @@ function requireComparableNumber(value: unknown, message: string): number {
   if (typeof value === 'number') {
     return value;
   }
-  if (Array.isArray(value) && typeof value[2] === 'number') {
-    return value[2];
+  const numericValues = collectExpressionNumbers(value);
+  if (numericValues.length > 0) {
+    return Math.max(...numericValues);
   }
   throw new Error(message);
 }
@@ -57,6 +58,18 @@ function collectExpressionStrings(value: unknown): string[] {
 
   if (Array.isArray(value)) {
     return value.flatMap((entry) => collectExpressionStrings(entry));
+  }
+
+  return [];
+}
+
+function collectExpressionNumbers(value: unknown): number[] {
+  if (typeof value === 'number') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectExpressionNumbers(entry));
   }
 
   return [];
@@ -148,14 +161,18 @@ describe('Tile routes', () => {
       const layerIds = style.layers.map((layer) => layer.id);
 
       expect(layerIds).toContain('property-clusters');
+      expect(layerIds).toContain('property-cluster-fill');
+      expect(layerIds).toContain('property-cluster-pulse');
       expect(layerIds).toContain('cluster-count');
       expect(layerIds).toContain('active-nodes');
+      expect(layerIds).toContain('active-node-fill');
+      expect(layerIds).toContain('active-node-pulse');
       expect(layerIds).toContain('ghost-clusters');
       expect(layerIds).toContain('ghost-cluster-count');
       expect(layerIds).toContain('ghost-nodes');
     });
 
-    it('derives semantic hue from composition fields instead of point_count', async () => {
+    it('uses additive ring, fill, and pulse semantics driven by composition fields', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/tiles/style.json',
@@ -164,27 +181,63 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(200);
       const style = JSON.parse(response.body) as StyleJson;
       const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
+      const activeClusterFill = style.layers.find((layer) => layer.id === 'property-cluster-fill');
+      const activeClusterPulse = style.layers.find((layer) => layer.id === 'property-cluster-pulse');
       const activeNodes = style.layers.find((layer) => layer.id === 'active-nodes');
+      const activeNodeFill = style.layers.find((layer) => layer.id === 'active-node-fill');
+      const activeNodePulse = style.layers.find((layer) => layer.id === 'active-node-pulse');
 
-      if (!activeClusters || !activeNodes) {
-        throw new Error('Expected active property layers missing from style.json');
+      if (
+        !activeClusters ||
+        !activeClusterFill ||
+        !activeClusterPulse ||
+        !activeNodes ||
+        !activeNodeFill ||
+        !activeNodePulse
+      ) {
+        throw new Error('Expected additive active property layers missing from style.json');
       }
 
       const activeClusterPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
+      const activeClusterFillPaint = requireValue(activeClusterFill.paint, 'property-cluster-fill paint missing from style.json');
+      const activeClusterPulsePaint = requireValue(activeClusterPulse.paint, 'property-cluster-pulse paint missing from style.json');
       const activeNodePaint = requireValue(activeNodes.paint, 'active-nodes paint missing from style.json');
-      const clusterColorFields = collectExpressionStrings(activeClusterPaint['circle-color']);
-      const nodeColorFields = collectExpressionStrings(activeNodePaint['circle-color']);
+      const activeNodeFillPaint = requireValue(activeNodeFill.paint, 'active-node-fill paint missing from style.json');
+      const activeNodePulsePaint = requireValue(activeNodePulse.paint, 'active-node-pulse paint missing from style.json');
+
+      const clusterRingFields = collectExpressionStrings(activeClusterPaint['circle-stroke-color']);
+      const clusterFillFields = collectExpressionStrings(activeClusterFillPaint['circle-color']);
+      const clusterPulseFields = collectExpressionStrings(activeClusterPulsePaint['circle-opacity']);
       const clusterRadiusFields = collectExpressionStrings(activeClusterPaint['circle-radius']);
+      const nodeRingFields = collectExpressionStrings(activeNodePaint['circle-stroke-color']);
+      const nodeFillFields = collectExpressionStrings(activeNodeFillPaint['circle-color']);
+      const nodePulseFields = collectExpressionStrings(activeNodePulsePaint['circle-opacity']);
 
       expect(clusterRadiusFields).toContain('point_count');
-      expect(clusterColorFields).toEqual(
-        expect.arrayContaining(['recentSocialCount', 'socialCount', 'activeListingCount']),
+      expect(clusterRingFields).toEqual(
+        expect.arrayContaining(['activeListingCount', 'point_count']),
       );
-      expect(nodeColorFields).toEqual(
-        expect.arrayContaining(['recentSocialCount', 'socialCount', 'activeListingCount']),
+      expect(clusterFillFields).toEqual(
+        expect.arrayContaining(['socialCount', 'socialScoreTotal', 'socialScoreMax']),
       );
-      expect(clusterColorFields).not.toContain('point_count');
-      expect(nodeColorFields).not.toContain('point_count');
+      expect(clusterPulseFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+      );
+      expect(nodeRingFields).toEqual(expect.arrayContaining(['activeListingCount']));
+      expect(nodeFillFields).toEqual(
+        expect.arrayContaining(['socialCount', 'socialScoreTotal', 'socialScoreMax']),
+      );
+      expect(nodePulseFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+      );
+
+      expect(clusterFillFields).not.toContain('point_count');
+      expect(clusterPulseFields).not.toContain('point_count');
+      expect(nodeFillFields).not.toContain('point_count');
+      expect(nodePulseFields).not.toContain('point_count');
+
+      expect(collectExpressionNumbers(activeClusterPulsePaint['circle-opacity'])).toContain(0.5);
+      expect(collectExpressionNumbers(activeNodePulsePaint['circle-opacity'])).toContain(0.5);
     });
 
     it('should include 3D buildings layer with OSM source', async () => {

@@ -70,6 +70,7 @@ type SinglePropertyDetailRow = {
   country_code: string;
   street: string;
   house_number: number;
+  house_number_addition: string | null;
   city: string;
   postal_code: string | null;
   asking_price: number | null;
@@ -691,6 +692,7 @@ async function fetchSinglePropertyDetails(
       p.country_code,
       p.street,
       p.house_number,
+      p.house_number_addition,
       p.city,
       p.postal_code,
       lf.asking_price,
@@ -712,7 +714,7 @@ async function fetchSinglePropertyDetails(
             {
               street: row.street,
               houseNumber: row.house_number,
-              houseNumberAddition: null,
+              houseNumberAddition: row.house_number_addition,
               postalCode: row.postal_code ?? '',
               city: row.city,
             },

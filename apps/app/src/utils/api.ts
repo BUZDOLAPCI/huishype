@@ -508,8 +508,20 @@ function normalizeBbox(
 }
 
 export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): NearbyPropertyGroup {
-  const socialScoreTotal = toNumber(result.socialScoreTotal, toNumber(result.activityScore));
-  const socialScoreMax = toNumber(result.socialScoreMax, toNumber(result.activityScore));
+  const activeListingCount = toNumber(
+    result.activeListingCount,
+    result.hasActiveListing ? 1 : 0,
+  );
+  const socialScoreTotal = toNumber(result.socialScoreTotal);
+  const socialScoreMax = toNumber(result.socialScoreMax, socialScoreTotal);
+  const recentSocialScoreTotal = toNumber(result.recentSocialScoreTotal);
+  const socialCount = toNumber(result.socialCount, socialScoreTotal > 0 ? 1 : 0);
+  const recentSocialCount = toNumber(
+    result.recentSocialCount,
+    recentSocialScoreTotal > 0 ? 1 : 0,
+  );
+  const hasActiveListing =
+    result.hasActiveListing ?? (activeListingCount > 0 ? true : false);
 
   return {
     nodeClass: result.nodeClass,
@@ -520,17 +532,14 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     previewPropertyIds: result.previewPropertyIds,
     coordinate: result.coordinate,
     bbox: normalizeBbox(result.bbox),
-    activeListingCount: toNumber(
-      result.activeListingCount,
-      result.hasActiveListing ? 1 : 0,
-    ),
-    socialCount: toNumber(result.socialCount, socialScoreTotal > 0 ? 1 : 0),
-    recentSocialCount: toNumber(result.recentSocialCount),
+    activeListingCount,
+    socialCount,
+    recentSocialCount,
     socialScoreTotal,
     socialScoreMax,
-    recentSocialScoreTotal: toNumber(result.recentSocialScoreTotal),
+    recentSocialScoreTotal,
     commentCount: result.commentCount,
-    hasListing: result.hasListing ?? (result.hasActiveListing ?? false),
+    hasListing: hasActiveListing,
     activityScore: socialScoreMax,
     activityScoreTotal: socialScoreTotal,
     likeCount: 0,
@@ -547,7 +556,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     thumbnailUrl: result.thumbnailUrl,
     yearBuilt: result.yearBuilt ?? null,
     floorAreaM2: result.floorAreaM2 ?? null,
-    hasActiveListing: result.hasActiveListing ?? result.hasListing ?? null,
+    hasActiveListing,
     marketState: result.marketState ?? null,
     distanceMeters: result.distanceMeters,
   };
@@ -589,6 +598,34 @@ export function normalizeRenderedPropertyGroup(
     return null;
   }
 
+  const activeListingCount = toNumber(
+    getTransportValue(properties, 'activeListingCount', 'active_listing_count'),
+    toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing'))
+      ? 1
+      : 0,
+  );
+  const socialScoreTotal = toNumber(
+    getTransportValue(properties, 'socialScoreTotal', 'social_score_total'),
+  );
+  const socialScoreMax = toNumber(
+    getTransportValue(properties, 'socialScoreMax', 'social_score_max'),
+    socialScoreTotal,
+  );
+  const recentSocialScoreTotal = toNumber(
+    getTransportValue(properties, 'recentSocialScoreTotal', 'recent_social_score_total'),
+  );
+  const socialCount = toNumber(
+    getTransportValue(properties, 'socialCount', 'social_count'),
+    socialScoreTotal > 0 ? 1 : 0,
+  );
+  const recentSocialCount = toNumber(
+    getTransportValue(properties, 'recentSocialCount', 'recent_social_count'),
+    recentSocialScoreTotal > 0 ? 1 : 0,
+  );
+  const hasActiveListing =
+    toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing')) ??
+    (activeListingCount > 0 ? true : false);
+
   return {
     nodeClass,
     groupKind,
@@ -609,41 +646,16 @@ export function normalizeRenderedPropertyGroup(
             north: toNumber(getTransportValue(properties, 'bbox_north')),
           }
         : null,
-    activeListingCount: toNumber(
-      getTransportValue(properties, 'activeListingCount', 'active_listing_count'),
-      toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing'))
-        ? 1
-        : toNullableBoolean(getTransportValue(properties, 'hasListing'))
-          ? 1
-          : 0,
-    ),
-    socialCount: toNumber(
-      getTransportValue(properties, 'socialCount', 'social_count'),
-      toNumber(getTransportValue(properties, 'activityScoreTotal', 'activityScore')) > 0 ? 1 : 0,
-    ),
-    recentSocialCount: toNumber(
-      getTransportValue(properties, 'recentSocialCount', 'recent_social_count'),
-    ),
-    socialScoreTotal: toNumber(
-      getTransportValue(properties, 'socialScoreTotal', 'social_score_total', 'activityScoreTotal'),
-      toNumber(getTransportValue(properties, 'activityScore')),
-    ),
-    socialScoreMax: toNumber(
-      getTransportValue(properties, 'socialScoreMax', 'social_score_max', 'activityScore'),
-    ),
-    recentSocialScoreTotal: toNumber(
-      getTransportValue(properties, 'recentSocialScoreTotal', 'recent_social_score_total'),
-    ),
+    activeListingCount,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
     commentCount: toNumber(getTransportValue(properties, 'commentCount', 'comment_count')),
-    hasListing:
-      toNullableBoolean(getTransportValue(properties, 'hasListing')) ??
-      toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing')) ??
-      false,
-    activityScore: toNumber(getTransportValue(properties, 'activityScore')),
-    activityScoreTotal: toNumber(
-      getTransportValue(properties, 'activityScoreTotal'),
-      toNumber(getTransportValue(properties, 'activityScore')),
-    ),
+    hasListing: hasActiveListing,
+    activityScore: socialScoreMax,
+    activityScoreTotal: socialScoreTotal,
     likeCount: toNumber(getTransportValue(properties, 'likeCount', 'like_count')),
     guessCount: toNumber(getTransportValue(properties, 'guessCount', 'guess_count')),
     streetName: toNullableString(getTransportValue(properties, 'streetName', 'street_name')),
@@ -662,9 +674,7 @@ export function normalizeRenderedPropertyGroup(
     thumbnailUrl: toNullableString(getTransportValue(properties, 'thumbnailUrl', 'thumbnail_url')),
     yearBuilt: toNullableNumber(getTransportValue(properties, 'yearBuilt', 'year_built')),
     floorAreaM2: toNullableNumber(getTransportValue(properties, 'floorAreaM2', 'floor_area_m2')),
-    hasActiveListing:
-      toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing')) ??
-      toNullableBoolean(getTransportValue(properties, 'hasListing')),
+    hasActiveListing,
     marketState: toNullableMarketState(
       getTransportValue(properties, 'marketState', 'market_state'),
     ),

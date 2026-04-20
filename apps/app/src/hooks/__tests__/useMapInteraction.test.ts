@@ -1352,6 +1352,24 @@ describe('useMapInteraction', () => {
       expect(gpp.hasActiveListing).toBe(true);
     });
 
+    it('keeps a one-view-only preview socially active without marking it hot', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-view-only',
+        address: 'Kijklaan 5',
+        city: 'Eindhoven',
+        socialScore: 0.5,
+        recentSocialScore: 0.5,
+      });
+
+      expect(gpp.socialScore).toBe(0.5);
+      expect(gpp.recentSocialScore).toBe(0.5);
+      expect(gpp.activityLevel).toBe('warm');
+    });
+
     it('reuses the preview aerial image for the sheet property when available', async () => {
       mockUseProperty.mockReturnValue({
         data: {
@@ -1522,7 +1540,7 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          activityLevel: 'hot',
+          activityLevel: 'warm',
           activityScore: 7,
         });
       });

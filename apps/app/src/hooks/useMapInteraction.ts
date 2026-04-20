@@ -183,6 +183,8 @@ export function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   return 'cold';
 }
 
+const RECENT_HOT_SCORE_THRESHOLD = 0.5;
+
 interface DerivedPreviewActivity {
   socialScore?: number;
   recentSocialScore?: number;
@@ -206,17 +208,9 @@ function derivePreviewActivity(input: {
     typeof input.activityScore === 'number'
       ? input.activityScore
       : socialScore;
+  const isRecentHot = (recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD;
 
-  if (input.activityLevel === 'hot' || input.activityLevel === 'warm' || input.activityLevel === 'cold') {
-    return {
-      socialScore,
-      recentSocialScore,
-      activityScore,
-      activityLevel: input.activityLevel,
-    };
-  }
-
-  if ((recentSocialScore ?? 0) > 0) {
+  if (isRecentHot) {
     return {
       socialScore,
       recentSocialScore,
@@ -241,6 +235,15 @@ function derivePreviewActivity(input: {
       recentSocialScore,
       activityScore: activityScore ?? 0,
       activityLevel: 'warm',
+    };
+  }
+
+  if (input.activityLevel === 'hot' || input.activityLevel === 'warm' || input.activityLevel === 'cold') {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore,
+      activityLevel: input.activityLevel,
     };
   }
 

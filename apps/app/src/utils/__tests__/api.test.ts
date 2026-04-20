@@ -325,6 +325,102 @@ describe('grouped property normalization', () => {
       marketState: 'for-sale',
     });
   });
+
+  it('does not collapse nearby normalization back to legacy activity fields when composition is present', () => {
+    expect(
+      normalizeNearbyPropertyGroup({
+        nodeClass: 'active',
+        groupKind: 'single',
+        primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+        pointCount: 1,
+        propertyIds: ['11111111-1111-4111-8111-111111111111'],
+        previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        coordinate: [5.4697, 51.4416],
+        distanceMeters: 12,
+        bbox: null,
+        activeListingCount: 0,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+        streetName: 'Teststraat',
+        houseNumber: 12,
+        houseNumberAddition: 'A',
+        address: 'Teststraat 12A',
+        city: 'Eindhoven',
+        postalCode: '5611AA',
+        countryCode: 'NL',
+        officialValuation: 425000,
+        askingPrice: null,
+        thumbnailUrl: null,
+        yearBuilt: 1991,
+        floorAreaM2: 123,
+        hasActiveListing: false,
+        marketState: 'not-listed',
+        activityScore: 99,
+        activityScoreTotal: 99,
+        hasListing: true,
+      }),
+    ).toMatchObject({
+      activeListingCount: 0,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      hasActiveListing: false,
+      hasListing: false,
+      activityScore: 0,
+      activityScoreTotal: 0,
+      houseNumberAddition: 'A',
+    });
+  });
+
+  it('ignores legacy tile fallback fields when additive composition fields are authoritative', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 1,
+        property_ids: '11111111-1111-4111-8111-111111111111',
+        preview_property_ids: '11111111-1111-4111-8111-111111111111',
+        activeListingCount: 0,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+        hasActiveListing: false,
+        marketState: 'not-listed',
+        hasListing: true,
+        activityScore: 88,
+        activityScoreTotal: 144,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      activeListingCount: 0,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      hasActiveListing: false,
+      hasListing: false,
+      activityScore: 0,
+      activityScoreTotal: 0,
+      marketState: 'not-listed',
+    });
+  });
 });
 
 describe('API_URL runtime config', () => {
