@@ -10,6 +10,7 @@ import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import type { SavedProperty } from '@huishype/shared';
+import { getViewerCacheKey } from './useProperties';
 
 interface SavedPropertiesApiResponse {
   data: SavedProperty[];
@@ -19,7 +20,7 @@ interface SavedPropertiesApiResponse {
 
 export const savedPropertyKeys = {
   all: ['saved-properties'] as const,
-  list: () => [...savedPropertyKeys.all, 'list'] as const,
+  list: (viewerKey: string) => [...savedPropertyKeys.all, 'list', viewerKey] as const,
 };
 
 const PAGE_SIZE = 20;
@@ -110,11 +111,12 @@ async function fetchSavedProperties(
 }
 
 export function useSavedProperties() {
-  const { user, accessToken } = useAuthContext();
+  const { user, accessToken, isAuthenticated } = useAuthContext();
   const queryClient = useQueryClient();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   const query = useInfiniteQuery({
-    queryKey: savedPropertyKeys.list(),
+    queryKey: savedPropertyKeys.list(viewerKey),
     queryFn: ({ pageParam = 0 }) => fetchSavedProperties(accessToken!, pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {

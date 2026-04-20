@@ -485,6 +485,13 @@ describe('MapScreen web filter updates', () => {
     capturedAmbientBubblePortalProps = null;
     capturedMapFilterBarProps = null;
     (global as { __DEV__?: boolean }).__DEV__ = false;
+    (
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
+      }
+    ).__HUISHYPE_ANALYTICS_EVENTS__ = [];
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
 
     global.fetch = jest.fn().mockResolvedValue({
       json: async () => ({
@@ -508,6 +515,12 @@ describe('MapScreen web filter updates', () => {
     act(() => {
       root.unmount();
     });
+    Reflect.deleteProperty(
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
+      },
+      '__HUISHYPE_ANALYTICS_EVENTS__',
+    );
     container.remove();
     document.body.innerHTML = '';
   });
@@ -565,7 +578,12 @@ describe('MapScreen web filter updates', () => {
     await flushMicrotasks();
 
     expect(capturedMapFilterBarProps?.socialScope).toBe('following');
-    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith('/?socialScope=following');
+    expect(window.location.search).toBe('');
+    expect(window.history.state).toEqual({
+      huishypeMapView: {
+        socialScope: 'following',
+      },
+    });
     expect(map.propertySource.setTiles).not.toHaveBeenCalled();
     expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
       { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
@@ -574,7 +592,7 @@ describe('MapScreen web filter updates', () => {
     );
   });
 
-  it('shows the signed-out following gate and triggers auth copy when toggled', async () => {
+  it('auth-gates signed-out following toggles without switching state or emitting analytics', async () => {
     mockIsAuthenticated = false;
 
     await act(async () => {
@@ -587,14 +605,30 @@ describe('MapScreen web filter updates', () => {
     });
     await flushMicrotasks();
 
-    expect(container.querySelector('[data-testid="map-following-state-signed-out"]')).not.toBeNull();
+    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
+    expect(container.querySelector('[data-testid="map-following-state-signed-out"]')).toBeNull();
     expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
       subtitle: 'Sign in to see homes with activity from people you follow.',
     });
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__,
+    ).toEqual([]);
   });
 
-  it('restores socialScope from the browser search on first render', async () => {
-    window.history.replaceState({}, '', '/?socialScope=following');
+  it('restores socialScope from private browser app state on first render', async () => {
+    window.history.replaceState(
+      {
+        huishypeMapView: {
+          socialScope: 'following',
+        },
+      },
+      '',
+      '/',
+    );
 
     await act(async () => {
       root.render(<MapScreen />);
@@ -613,7 +647,6 @@ describe('MapScreen web filter updates', () => {
       mockAppliedFilters,
       true,
     );
-    window.history.replaceState({}, '', '/');
   });
 
   it('opens comments for the tapped ambient bubble property', async () => {
@@ -783,7 +816,6 @@ describe('MapScreen web filter updates', () => {
         candidatePropertyIds: ['moveend-prop'],
         commentCount: 6,
         likeCount: 4,
-        activityScore: 18,
       }),
     ], {
       appendToExisting: true,
@@ -885,7 +917,6 @@ describe('MapScreen web filter updates', () => {
         candidatePropertyIds: ['moveend-prop'],
         commentCount: 6,
         likeCount: 4,
-        activityScore: 18,
       }),
     ], {
       placementContext: {
@@ -979,7 +1010,6 @@ describe('MapScreen web filter updates', () => {
         candidatePropertyIds: ['member-2', 'member-1'],
         commentCount: 6,
         likeCount: 4,
-        activityScore: 18,
       }),
     ], {
       placementContext: {

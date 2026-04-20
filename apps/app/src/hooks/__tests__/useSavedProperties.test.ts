@@ -1,15 +1,25 @@
-import { describe, expect, it } from '@jest/globals';
+import React from 'react';
+import { describe, expect, it, beforeEach } from '@jest/globals';
+import { renderHook, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { PropsWithChildren } from 'react';
 import type { CountryCode, SavedProperty } from '@huishype/shared';
 import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
+import { savedPropertyKeys, transformSavedProperty, useSavedProperties } from '../useSavedProperties';
+
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+let mockAuthUser: { id: string } | null = null;
+let mockAccessToken: string | null = null;
 
 jest.mock('../../providers/AuthProvider', () => ({
   useAuthContext: () => ({
-    user: null,
-    accessToken: null,
+    user: mockAuthUser,
+    accessToken: mockAccessToken,
+    isAuthenticated: !!mockAuthUser,
   }),
 }));
-
-import { transformSavedProperty } from '../useSavedProperties';
 
 function createSavedProperty(
   overrides: Partial<SavedProperty> = {},
@@ -107,5 +117,96 @@ describe('transformSavedProperty', () => {
     const transformed = transformSavedProperty(property);
 
     expect(transformed.commentCount).toBe(6);
+  });
+});
+
+function createWrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: PropsWithChildren) {
+    return React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    );
+  };
+}
+
+describe('useSavedProperties', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    mockFetch.mockReset();
+    mockAuthUser = { id: 'viewer-1' };
+    mockAccessToken = 'token-viewer-1';
+  });
+
+  it('uses viewer-sensitive saved-property cache keys', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [createSavedProperty()],
+        total: 1,
+        hasMore: false,
+      }),
+    });
+
+    const firstHook = renderHook(() => useSavedProperties(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(firstHook.result.current.isSuccess).toBe(true);
+    });
+
+    expect(
+      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1')),
+    ).toBeDefined();
+
+    mockAuthUser = null;
+    mockAccessToken = null;
+
+    const signedOutHook = renderHook(() => useSavedProperties(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    expect(signedOutHook.result.current.data).toBeUndefined();
+    expect(
+      queryClient.getQueryData(savedPropertyKeys.list('anon')),
+    ).toBeUndefined();
+
+    mockAuthUser = { id: 'viewer-2' };
+    mockAccessToken = 'token-viewer-2';
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          createSavedProperty({
+            id: 'a0000000-0000-4000-a000-000000000099',
+            address: 'Otherstraat 5, 5611 AA Eindhoven',
+          }),
+        ],
+        total: 1,
+        hasMore: false,
+      }),
+    });
+
+    const secondHook = renderHook(() => useSavedProperties(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(secondHook.result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(
+      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1')),
+    ).not.toEqual(
+      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-2')),
+    );
   });
 });

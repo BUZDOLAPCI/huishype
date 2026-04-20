@@ -74,7 +74,7 @@ describe('usePropertyLike', () => {
 
   it('returns isLiked and likeCount from property query cache', () => {
     const propertyId = 'prop-1';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed the cache with a property that has isLiked and likeCount
     queryClient.setQueryData(queryKey, {
@@ -134,7 +134,7 @@ describe('usePropertyLike', () => {
 
   it('toggleLike fires like mutation and optimistically updates cache', async () => {
     const propertyId = 'prop-2';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed cache: not liked
     queryClient.setQueryData(queryKey, {
@@ -180,7 +180,7 @@ describe('usePropertyLike', () => {
 
   it('toggleLike fires unlike mutation when already liked', async () => {
     const propertyId = 'prop-3';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed cache: already liked
     queryClient.setQueryData(queryKey, {
@@ -225,7 +225,7 @@ describe('usePropertyLike', () => {
 
   it('rolls back optimistic update on mutation error', async () => {
     const propertyId = 'prop-4';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed cache: not liked
     queryClient.setQueryData(queryKey, {
@@ -262,7 +262,7 @@ describe('usePropertyLike', () => {
 
   it('keeps the liked state on already-liked conflicts until refetch corrects the count', async () => {
     const propertyId = 'prop-5';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     queryClient.setQueryData(queryKey, {
       id: propertyId,
@@ -299,7 +299,7 @@ describe('usePropertyLike', () => {
 
   it('keeps the unliked state on stale unlike conflicts instead of rolling back', async () => {
     const propertyId = 'prop-6';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     queryClient.setQueryData(queryKey, {
       id: propertyId,

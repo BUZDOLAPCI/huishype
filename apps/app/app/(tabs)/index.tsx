@@ -273,6 +273,7 @@ export default function MapScreen() {
         interaction.handleAuthRequired({
           subtitle: 'Sign in to see homes with activity from people you follow.',
         });
+        return currentScope;
       }
 
       emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
@@ -283,6 +284,12 @@ export default function MapScreen() {
       return 'following';
     });
   }, [interaction, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated && socialScope === 'following') {
+      setSocialScope('all');
+    }
+  }, [isAuthenticated, socialScope]);
 
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();

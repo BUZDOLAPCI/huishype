@@ -368,7 +368,7 @@ describe('MapScreen native following mode', () => {
     );
   });
 
-  it('shows the signed-out gate and routes through auth when following is toggled', async () => {
+  it('auth-gates signed-out following toggles without switching state or emitting analytics', async () => {
     mockIsAuthenticated = false;
 
     const screen = await renderMapScreen();
@@ -381,10 +381,18 @@ describe('MapScreen native following mode', () => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
     });
 
+    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
     expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
       subtitle: 'Sign in to see homes with activity from people you follow.',
     });
-    expect(screen.getByTestId('map-following-state-signed-out')).toBeTruthy();
+    expect(screen.queryByTestId('map-following-state-signed-out')).toBeNull();
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__,
+    ).toEqual([]);
   });
 
   it('emits click-through analytics and opens the overlay property from native following markers', async () => {

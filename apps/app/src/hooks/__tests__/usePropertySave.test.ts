@@ -76,7 +76,7 @@ describe('usePropertySave', () => {
 
   it('returns isSaved from property query cache', () => {
     const propertyId = 'prop-1';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed the cache with a property that has isSaved
     queryClient.setQueryData(queryKey, {
@@ -149,7 +149,7 @@ describe('usePropertySave', () => {
 
   it('toggleSave fires save mutation and optimistically updates cache', async () => {
     const propertyId = 'prop-2';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
     const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries');
     let resolveFetch: ((value: { ok: boolean; json: () => Promise<{ saved: boolean }> }) => void) | undefined;
 
@@ -210,7 +210,7 @@ describe('usePropertySave', () => {
       })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey })
+      expect.objectContaining({ queryKey: propertyKeys.detailBase(propertyId) })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: savedPropertyKeys.all })
@@ -219,7 +219,7 @@ describe('usePropertySave', () => {
 
   it('toggleSave fires unsave mutation when already saved', async () => {
     const propertyId = 'prop-3';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
     const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries');
     let resolveFetch: ((value: { ok: boolean; json: () => Promise<{ saved: boolean }> }) => void) | undefined;
 
@@ -280,7 +280,7 @@ describe('usePropertySave', () => {
       })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey })
+      expect.objectContaining({ queryKey: propertyKeys.detailBase(propertyId) })
     );
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: savedPropertyKeys.all })
@@ -289,7 +289,7 @@ describe('usePropertySave', () => {
 
   it('rolls back optimistic update on mutation error', async () => {
     const propertyId = 'prop-4';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
 
     // Seed cache: not saved
     queryClient.setQueryData(queryKey, {
@@ -324,7 +324,7 @@ describe('usePropertySave', () => {
 
   it('keeps the saved state on already-saved conflicts until refetch reconciles canonical data', async () => {
     const propertyId = 'prop-5';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
     const setQueryDataSpy = jest.spyOn(queryClient, 'setQueryData');
 
     queryClient.setQueryData(queryKey, {
@@ -360,7 +360,7 @@ describe('usePropertySave', () => {
 
   it('keeps the unsaved state on stale unsave conflicts instead of rolling back', async () => {
     const propertyId = 'prop-6';
-    const queryKey = propertyKeys.detail(propertyId);
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
     const setQueryDataSpy = jest.spyOn(queryClient, 'setQueryData');
 
     queryClient.setQueryData(queryKey, {

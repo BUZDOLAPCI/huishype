@@ -20,6 +20,7 @@ import { Linking, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import type { User } from '@huishype/shared';
 import { propertyKeys } from '../hooks/useProperties';
+import { savedPropertyKeys } from '../hooks/useSavedProperties';
 import { API_URL, setApiAccessTokenResolver } from '../utils/api';
 
 // Complete auth session for web
@@ -297,6 +298,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     if (shouldInvalidatePropertyDetails) {
       void queryClient.invalidateQueries({ queryKey: propertyKeys.details() });
+      void queryClient.invalidateQueries({ queryKey: savedPropertyKeys.all });
     }
   }, [
     queryClient,

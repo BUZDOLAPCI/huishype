@@ -37,10 +37,10 @@ import { viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
-  parseMapSocialScopeFromSearchParams,
+  getPersistedMapSocialScope,
+  persistMapSocialScope,
   registerLocalPreviewRoute,
   type ResolvedMapRoute,
-  updateMapSocialScopeSearchParams,
   type MapSocialScope,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
@@ -574,7 +574,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     () =>
       typeof window === 'undefined'
         ? 'all'
-        : parseMapSocialScopeFromSearchParams(
+        : getPersistedMapSocialScope(
             new URLSearchParams(window.location.search),
           ),
     [],
@@ -716,6 +716,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         interaction.handleAuthRequired({
           subtitle: 'Sign in to see homes with activity from people you follow.',
         });
+        return currentScope;
       }
 
       emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
@@ -726,6 +727,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return 'following';
     });
   }, [interaction, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated && socialScope === 'following') {
+      setSocialScope('all');
+    }
+  }, [isAuthenticated, socialScope]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1489,7 +1496,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         ),
       );
       setSocialScope(
-        parseMapSocialScopeFromSearchParams(
+        getPersistedMapSocialScope(
           new URLSearchParams(browserSearchRef.current),
         ),
       );
@@ -1508,12 +1515,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       filterController.appliedFilters,
       browserSearchRef.current,
     );
-    const nextSearchParams = updateMapSocialScopeSearchParams(
-      new URLSearchParams(publicSearch.startsWith('?') ? publicSearch.slice(1) : publicSearch),
-      socialScope,
-    );
-    const nextSearch = nextSearchParams.toString();
-    browserSearchRef.current = nextSearch ? `?${nextSearch}` : '';
+    browserSearchRef.current = publicSearch;
+    persistMapSocialScope(socialScope);
     replaceMapBrowserPath(browserPathRef.current);
   }, [
     appliedFilterSignature,

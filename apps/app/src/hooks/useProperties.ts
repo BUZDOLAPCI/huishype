@@ -105,6 +105,13 @@ export interface PropertyDetails extends Property {
 
 export type { FollowingViewportItem };
 
+export function getViewerCacheKey(
+  user: { id: string } | null | undefined,
+  isAuthenticated: boolean,
+): string {
+  return isAuthenticated && user?.id ? `auth:${user.id}` : 'anon';
+}
+
 // Query params for fetching properties
 export interface PropertyQueryParams {
   page?: number;
@@ -226,7 +233,8 @@ export const propertyKeys = {
   lists: () => [...propertyKeys.all, 'list'] as const,
   list: (params: PropertyQueryParams) => [...propertyKeys.lists(), params] as const,
   details: () => [...propertyKeys.all, 'detail'] as const,
-  detail: (id: string) => [...propertyKeys.details(), id] as const,
+  detailBase: (id: string) => [...propertyKeys.details(), id] as const,
+  detail: (id: string, viewerKey: string) => [...propertyKeys.detailBase(id), viewerKey] as const,
   map: (bounds?: { north: number; south: number; east: number; west: number }) =>
     [...propertyKeys.all, 'map', bounds] as const,
   followingViewport: (
@@ -298,7 +306,7 @@ export function useFollowingViewport(
     rentPriceTo: filters.rentPriceTo,
     marketState: filters.marketState,
   };
-  const viewerKey = isAuthenticated && user ? user.id : 'anon';
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useQuery({
     queryKey: propertyKeys.followingViewport(viewerKey, bbox, viewportFilters),
@@ -322,16 +330,21 @@ export function useFollowingViewport(
 
 // Hook to fetch a single property's details
 export function useProperty(id: string | null) {
-  const { getAccessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useQuery({
-    queryKey: id ? propertyKeys.detail(id) : propertyKeys.details(),
+    queryKey: id ? propertyKeys.detail(id, viewerKey) : propertyKeys.details(),
     queryFn: async () => {
       if (!id) {
         return null;
       }
 
       const accessToken = await getAccessToken();
+      if (viewerKey !== 'anon' && !accessToken) {
+        throw new Error('Authenticated property fetch requires an access token');
+      }
+
       return fetchPropertyById(id, accessToken);
     },
     enabled: !!id,
@@ -345,9 +358,9 @@ export function usePriceGuess() {
   return useMutation({
     mutationFn: submitPriceGuess,
     onSuccess: (_data, variables) => {
-      // Invalidate the property detail to refetch updated FMV
+      // Invalidate every viewer variant for this property detail.
       queryClient.invalidateQueries({
-        queryKey: propertyKeys.detail(variables.propertyId),
+        queryKey: propertyKeys.detailBase(variables.propertyId),
       });
     },
   });
