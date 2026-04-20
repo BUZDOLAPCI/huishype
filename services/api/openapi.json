@@ -8464,6 +8464,14 @@
                           "viewCount": {
                             "type": "number"
                           },
+                          "activityLevel": {
+                            "type": "string",
+                            "enum": [
+                              "hot",
+                              "warm",
+                              "cold"
+                            ]
+                          },
                           "lastActivityAt": {
                             "type": "string",
                             "format": "date-time",
@@ -8488,6 +8496,7 @@
                           "commentCount",
                           "guessCount",
                           "viewCount",
+                          "activityLevel",
                           "lastActivityAt",
                           "hasListing"
                         ],

@@ -387,6 +387,7 @@ export interface FeedItem {
   commentCount: number;
   guessCount: number;
   viewCount: number;
+  activityLevel: 'hot' | 'warm' | 'cold';
   lastActivityAt: string;
   hasListing: boolean;
 }

@@ -3643,6 +3643,8 @@ export interface paths {
                                 commentCount: number;
                                 guessCount: number;
                                 viewCount: number;
+                                /** @enum {string} */
+                                activityLevel: "hot" | "warm" | "cold";
                                 /** Format: date-time */
                                 lastActivityAt: string;
                                 hasListing: boolean;

@@ -3,13 +3,9 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
+import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
-import {
-  buildLatestPublicGuessFactsQuery,
-  buildPropertyListingFactsJoin,
-  buildPropertySocialFactsJoin,
-} from '../services/property-queries.js';
 
 // --- Zod schemas ---
 
@@ -33,6 +29,7 @@ const feedItemSchema = z.object({
   commentCount: z.number(),
   guessCount: z.number(),
   viewCount: z.number(),
+  activityLevel: z.enum(['hot', 'warm', 'cold']),
   lastActivityAt: z.string().datetime(),
   hasListing: z.boolean(),
 });
@@ -67,9 +64,22 @@ interface FeedRow extends Record<string, unknown> {
   like_count: number;
   view_count: number;
   fmv: number | null;
-  guess_stddev: number | null;
   trending_score: number;
   last_activity_at: string;
+}
+
+function buildFeedListingOrderExpression(listingAlias: string) {
+  return sql`COALESCE(${sql.raw(`${listingAlias}.mirror_last_changed_at`)}, ${sql.raw(
+    `${listingAlias}.updated_at`,
+  )}, ${sql.raw(`${listingAlias}.created_at`)}) DESC, ${sql.raw(
+    `${listingAlias}.created_at`,
+  )} DESC, ${sql.raw(`${listingAlias}.id`)} DESC`;
+}
+
+function buildFeedListingDistinctOrderExpression(listingAlias: string) {
+  return sql`${sql.raw(`${listingAlias}.property_id`)}, ${buildFeedListingOrderExpression(
+    listingAlias,
+  )}`;
 }
 
 // --- Route ---
@@ -109,26 +119,219 @@ export async function feedRoutes(app: FastifyInstance) {
         ? sql`AND p.country_code = ${country}`
         : sql``;
 
-      // Filter-specific WHERE for the data query (can reference join aliases)
-      let dataFilterWhere: ReturnType<typeof sql>;
-      // Filter-specific ORDER BY
-      let orderBy: ReturnType<typeof sql>;
+      let feedOrderWindow: ReturnType<typeof sql>;
 
       switch (filter) {
         case 'trending':
-          dataFilterWhere = sql``;
-          orderBy = sql`ORDER BY trending_score DESC, last_activity_at DESC, p.id`;
+          feedOrderWindow = sql`ORDER BY cs.trending_score DESC, cs.last_activity_at DESC, cs.property_id`;
           break;
         case 'latest':
-          dataFilterWhere = sql``;
-          orderBy = sql`ORDER BY last_activity_at DESC, p.id`;
+          feedOrderWindow = sql`ORDER BY cs.last_activity_at DESC, cs.property_id`;
           break;
         default:
-          dataFilterWhere = sql``;
-          orderBy = sql`ORDER BY trending_score DESC, last_activity_at DESC, p.id`;
+          feedOrderWindow = sql`ORDER BY cs.trending_score DESC, cs.last_activity_at DESC, cs.property_id`;
       }
 
       const rows = await db.execute<FeedRow>(sql`
+        WITH active_listing_facts AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.asking_price,
+            COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) AS active_listing_sort_at
+          FROM listings l
+          WHERE l.status = 'active'
+          ORDER BY ${buildFeedListingDistinctOrderExpression('l')}
+        ),
+        candidate_listing_facts AS MATERIALIZED (
+          SELECT
+            p.id AS property_id,
+            alf.asking_price,
+            alf.active_listing_sort_at
+          FROM active_listing_facts alf
+          INNER JOIN properties p ON p.id = alf.property_id
+          WHERE p.status = 'active'
+            AND p.geometry IS NOT NULL
+            ${spatialCondition}
+            ${countryCondition}
+        ),
+        candidate_ids AS MATERIALIZED (
+          SELECT clf.property_id
+          FROM candidate_listing_facts clf
+        ),
+        ordering_guess_rows AS MATERIALIZED (
+          SELECT DISTINCT ON (pg.property_id, pg.user_id)
+            pg.property_id,
+            pg.user_id,
+            GREATEST(pg.created_at, pg.updated_at) AS effective_at
+          FROM price_guesses pg
+          INNER JOIN candidate_ids ci ON ci.property_id = pg.property_id
+          ORDER BY
+            pg.property_id,
+            pg.user_id,
+            GREATEST(pg.created_at, pg.updated_at) DESC,
+            pg.created_at DESC,
+            pg.id DESC
+        ),
+        ordering_guess_facts AS MATERIALIZED (
+          SELECT
+            ogr.property_id,
+            COUNT(*) FILTER (
+              WHERE ogr.effective_at > NOW() - INTERVAL '7 days'
+            )::int AS recent_guess_count,
+            MAX(ogr.effective_at) AS latest_guess_at
+          FROM ordering_guess_rows ogr
+          GROUP BY ogr.property_id
+        ),
+        ordering_comment_facts AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            COUNT(*) FILTER (
+              WHERE c.parent_id IS NULL
+                AND c.created_at > NOW() - INTERVAL '7 days'
+            )::int AS recent_top_level_comment_count,
+            MAX(c.created_at) FILTER (WHERE c.parent_id IS NULL) AS latest_top_level_comment_at,
+            COUNT(*) FILTER (
+              WHERE c.parent_id IS NOT NULL
+                AND c.created_at > NOW() - INTERVAL '7 days'
+            )::int AS recent_reply_count,
+            MAX(c.created_at) FILTER (WHERE c.parent_id IS NOT NULL) AS latest_reply_at
+          FROM comments c
+          INNER JOIN candidate_ids ci ON ci.property_id = c.property_id
+          GROUP BY c.property_id
+        ),
+        ordering_property_like_facts AS MATERIALIZED (
+          SELECT
+            r.target_id AS property_id,
+            COUNT(*) FILTER (
+              WHERE r.created_at > NOW() - INTERVAL '7 days'
+            )::int AS recent_property_like_count,
+            MAX(r.created_at) AS latest_property_like_at
+          FROM reactions r
+          INNER JOIN candidate_ids ci ON ci.property_id = r.target_id
+          WHERE r.target_type = 'property'
+            AND r.reaction_type = 'like'
+          GROUP BY r.target_id
+        ),
+        ordering_comment_like_facts AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            MAX(r.created_at) AS latest_comment_like_at
+          FROM reactions r
+          INNER JOIN comments c ON c.id = r.target_id
+          INNER JOIN candidate_ids ci ON ci.property_id = c.property_id
+          WHERE r.target_type = 'comment'
+            AND r.reaction_type = 'like'
+          GROUP BY c.property_id
+        ),
+        ordering_view_facts AS MATERIALIZED (
+          SELECT
+            pv.property_id,
+            MAX(pv.viewed_at) AS latest_view_at
+          FROM property_views pv
+          INNER JOIN candidate_ids ci ON ci.property_id = pv.property_id
+          GROUP BY pv.property_id
+        ),
+        candidate_scores AS MATERIALIZED (
+          SELECT
+            ci.property_id,
+            (
+              (
+                COALESCE(ocf.recent_top_level_comment_count, 0)
+                + COALESCE(ocf.recent_reply_count, 0)
+              )::numeric * 1.0
+              + COALESCE(ogf.recent_guess_count, 0)::numeric * 2.0
+              + COALESCE(oplf.recent_property_like_count, 0)::numeric * 0.5
+            ) AS trending_score,
+            COALESCE(
+              GREATEST(
+                ocf.latest_top_level_comment_at,
+                ocf.latest_reply_at,
+                oplf.latest_property_like_at,
+                oclf.latest_comment_like_at,
+                ogf.latest_guess_at,
+                ovf.latest_view_at
+              ),
+              clf.active_listing_sort_at
+            ) AS last_activity_at
+          FROM candidate_ids ci
+          INNER JOIN candidate_listing_facts clf ON clf.property_id = ci.property_id
+          LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = ci.property_id
+          LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = ci.property_id
+          LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = ci.property_id
+          LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = ci.property_id
+          LEFT JOIN ordering_view_facts ovf ON ovf.property_id = ci.property_id
+        ),
+        ordered_candidates AS MATERIALIZED (
+          SELECT
+            cs.*,
+            ROW_NUMBER() OVER (${feedOrderWindow}) AS feed_order
+          FROM candidate_scores cs
+        ),
+        paged_candidates AS MATERIALIZED (
+          SELECT *
+          FROM ordered_candidates oc
+          WHERE oc.feed_order > ${offset}
+            AND oc.feed_order <= ${offset + limit + 1}
+        ),
+        paged_thumbnail_facts AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.thumbnail_url
+          FROM listings l
+          INNER JOIN paged_candidates pc ON pc.property_id = l.property_id
+          WHERE l.status = 'active'
+            AND l.thumbnail_url IS NOT NULL
+          ORDER BY ${buildFeedListingDistinctOrderExpression('l')}
+        ),
+        paged_comment_facts AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            COUNT(*) FILTER (WHERE c.parent_id IS NULL)::int AS top_level_comment_count,
+            COUNT(*) FILTER (WHERE c.parent_id IS NOT NULL)::int AS reply_count
+          FROM comments c
+          INNER JOIN paged_candidates pc ON pc.property_id = c.property_id
+          GROUP BY c.property_id
+        ),
+        paged_property_like_facts AS MATERIALIZED (
+          SELECT
+            r.target_id AS property_id,
+            COUNT(*)::int AS property_like_count
+          FROM reactions r
+          INNER JOIN paged_candidates pc ON pc.property_id = r.target_id
+          WHERE r.target_type = 'property'
+            AND r.reaction_type = 'like'
+          GROUP BY r.target_id
+        ),
+        paged_view_facts AS MATERIALIZED (
+          SELECT
+            pv.property_id,
+            COUNT(*)::int AS view_count
+          FROM property_views pv
+          INNER JOIN paged_candidates pc ON pc.property_id = pv.property_id
+          GROUP BY pv.property_id
+        ),
+        paged_guess_rows AS MATERIALIZED (
+          SELECT DISTINCT ON (pg.property_id, pg.user_id)
+            pg.property_id,
+            pg.user_id,
+            pg.guessed_price
+          FROM price_guesses pg
+          INNER JOIN paged_candidates pc ON pc.property_id = pg.property_id
+          ORDER BY
+            pg.property_id,
+            pg.user_id,
+            GREATEST(pg.created_at, pg.updated_at) DESC,
+            pg.created_at DESC,
+            pg.id DESC
+        ),
+        paged_guess_facts AS MATERIALIZED (
+          SELECT
+            pgr.property_id,
+            COUNT(*)::int AS guess_count,
+            CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(pgr.guessed_price))::bigint END AS fmv
+          FROM paged_guess_rows pgr
+          GROUP BY pgr.property_id
+        )
         SELECT
           p.id,
           p.country_code,
@@ -139,47 +342,29 @@ export async function feedRoutes(app: FastifyInstance) {
           p.postal_code AS zip_code,
           ST_X(p.geometry) AS lon,
           ST_Y(p.geometry) AS lat,
-          lf.asking_price,
+          clf.asking_price,
           p.official_valuation,
-          lf.thumbnail_url,
-          lf.has_listing,
+          ptf.thumbnail_url,
+          TRUE AS has_listing,
           (
-            COALESCE(sf.top_level_comment_count, 0)
-            + COALESCE(sf.reply_count, 0)
+            COALESCE(pcf.top_level_comment_count, 0)
+            + COALESCE(pcf.reply_count, 0)
           )::int AS comment_count,
-          COALESCE(sf.guess_count, 0)::int AS guess_count,
-          COALESCE(sf.property_like_count, 0)::int AS like_count,
-          COALESCE(sf.view_count, 0)::int AS view_count,
-          guess_stats.fmv,
-          guess_stats.stddev AS guess_stddev,
-          (
-          (
-            COALESCE(sf.recent_top_level_comment_count, 0)
-            + COALESCE(sf.recent_reply_count, 0)
-          )::numeric * 1.0
-            + COALESCE(sf.recent_guess_count, 0)::numeric * 2.0
-            + COALESCE(sf.recent_property_like_count, 0)::numeric * 0.5
-          ) AS trending_score,
-          COALESCE(sf.last_social_at, lf.active_listing_sort_at) AS last_activity_at
-        FROM properties p
-        ${buildPropertyListingFactsJoin('p', 'lf')}
-        ${buildPropertySocialFactsJoin('p', 'sf')}
-        LEFT JOIN LATERAL (
-          SELECT
-            CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(pg.guessed_price))::bigint END AS fmv,
-            STDDEV(pg.guessed_price) AS stddev
-          FROM (${buildLatestPublicGuessFactsQuery(sql`p.id`)}) pg
-        ) guess_stats ON TRUE
-        WHERE 1=1
-          AND p.status = 'active'
-          AND p.geometry IS NOT NULL
-          ${spatialCondition}
-          ${countryCondition}
-          AND lf.has_active_listing = TRUE
-          ${dataFilterWhere}
-        ${orderBy}
-        LIMIT ${limit + 1}
-        OFFSET ${offset}
+          COALESCE(pgf.guess_count, 0)::int AS guess_count,
+          COALESCE(pplf.property_like_count, 0)::int AS like_count,
+          COALESCE(pvf.view_count, 0)::int AS view_count,
+          pgf.fmv,
+          pc.trending_score,
+          pc.last_activity_at
+        FROM paged_candidates pc
+        INNER JOIN candidate_listing_facts clf ON clf.property_id = pc.property_id
+        INNER JOIN properties p ON p.id = pc.property_id
+        LEFT JOIN paged_thumbnail_facts ptf ON ptf.property_id = pc.property_id
+        LEFT JOIN paged_comment_facts pcf ON pcf.property_id = pc.property_id
+        LEFT JOIN paged_property_like_facts pplf ON pplf.property_id = pc.property_id
+        LEFT JOIN paged_view_facts pvf ON pvf.property_id = pc.property_id
+        LEFT JOIN paged_guess_facts pgf ON pgf.property_id = pc.property_id
+        ORDER BY pc.feed_order
       `);
 
       const allRows = Array.from(rows);
@@ -214,6 +399,10 @@ export async function feedRoutes(app: FastifyInstance) {
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
         viewCount: Number(r.view_count),
+        activityLevel: computeActivityLevel(
+          Number(r.trending_score),
+          new Date(r.last_activity_at),
+        ),
         lastActivityAt: new Date(r.last_activity_at).toISOString(),
         hasListing: r.has_listing,
       }));

@@ -179,6 +179,9 @@ const feedContractAssertions = [
   true as Assert<IsExact<SubmitListingErrorFromOpenApi, CanonicalSubmitListingError>>,
   true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
+  true as Expect<
+    Equal<FeedResponseFromOpenApi['items'][number]['activityLevel'], 'hot' | 'warm' | 'cold'>
+  >,
   true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
   true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,

@@ -95,10 +95,12 @@ describe('Feed routes', () => {
     createdAt: Date,
     content: string,
   ) {
+    const commentId = crypto.randomUUID();
     await db.execute(sql`
       INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
-      VALUES (${crypto.randomUUID()}, ${propertyId}, ${userId}, ${content}, ${createdAt.toISOString()}, ${createdAt.toISOString()})
+      VALUES (${commentId}, ${propertyId}, ${userId}, ${content}, ${createdAt.toISOString()}, ${createdAt.toISOString()})
     `);
+    return commentId;
   }
 
   async function insertGuess(
@@ -133,6 +135,13 @@ describe('Feed routes', () => {
     await db.execute(sql`
       INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
       VALUES (${crypto.randomUUID()}, 'property', ${propertyId}, ${userId}, 'like', ${createdAt.toISOString()})
+    `);
+  }
+
+  async function insertCommentLike(commentId: string, userId: string, createdAt: Date) {
+    await db.execute(sql`
+      INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
+      VALUES (${crypto.randomUUID()}, 'comment', ${commentId}, ${userId}, 'like', ${createdAt.toISOString()})
     `);
   }
 
@@ -457,10 +466,10 @@ describe('Feed routes', () => {
         commentCount: feedFixtures.hot.commentCount,
         guessCount: feedFixtures.hot.guessCount,
         viewCount: feedFixtures.hot.viewCount,
+        activityLevel: 'hot',
         lastActivityAt: feedFixtures.hot.lastActivityAt,
         hasListing: true,
       });
-      expect(item).not.toHaveProperty('activityLevel');
     });
 
     it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
@@ -512,12 +521,71 @@ describe('Feed routes', () => {
           commentCount: 0,
           likeCount: 0,
           viewCount: 0,
+          activityLevel: 'warm',
           lastActivityAt: guessUpdatedAt.toISOString(),
         });
-        expect(item).not.toHaveProperty('activityLevel');
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
         await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
+    });
+
+    it('uses the newest comment-like timestamp for lastActivityAt without changing feed counts', async () => {
+      const author = await createIntegrationUser(app, { label: `feedcommentauthor${runId}` });
+      const liker = await createIntegrationUser(app, { label: `feedcommentliker${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Comment Like ${runId}`,
+        houseNumber: 32,
+        city: `Feed Comment Like City ${runId}`,
+        postalCode: '9811AW',
+        lon: slice.lon + 0.017,
+        lat: slice.lat + 0.017,
+        officialValuation: 450000,
+      });
+
+      try {
+        const listingCreatedAt = atOffset({ days: 15 });
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 455000,
+          createdAt: listingCreatedAt,
+          updatedAt: listingCreatedAt,
+        });
+
+        const commentCreatedAt = atOffset({ days: 1 });
+        const commentId = await insertComment(
+          property.id,
+          author.userId,
+          commentCreatedAt,
+          'Comment that later gets liked',
+        );
+        const commentLikeCreatedAt = atOffset({ minutes: 2 });
+        await insertCommentLike(commentId, liker.userId, commentLikeCreatedAt);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/feed?filter=latest&lat=${slice.lat + 0.017}&lon=${slice.lon + 0.017}&country=${slice.country}&limit=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const item = body.items.find((entry: { id: string }) => entry.id === property.id);
+
+        expect(item).toBeDefined();
+        expect(item).toMatchObject({
+          id: property.id,
+          commentCount: 1,
+          guessCount: 0,
+          likeCount: 0,
+          viewCount: 0,
+          activityLevel: 'warm',
+          lastActivityAt: commentLikeCreatedAt.toISOString(),
+        });
+      } finally {
+        const userIds = sql.join([sql`${author.userId}`, sql`${liker.userId}`], sql`, `);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id IN (${userIds})`);
       }
     });
 

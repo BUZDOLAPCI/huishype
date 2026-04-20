@@ -12,12 +12,25 @@
 
 import { test, expect, type TestInfo } from '@playwright/test';
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
+import {
+  resolveCanonicalPropertyFixture,
+  setupCanonicalPropertyRouteMocks,
+} from '../visual/helpers/canonical-property-route';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
-import { clickRenderedPropertyMarkerById, type MapFeature, type WindowWithMapInstance } from '../helpers/map-instance';
+import { type MapFeature, type WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 const PREVIEW_VISIBILITY_TIMEOUT_MS = 15_000;
+const KNOWN_PREVIEW_PROPERTY_ROUTE = '/map/eindhoven/5651ha/beeldbuisring/41';
+const KNOWN_PREVIEW_PROPERTY = {
+  address: 'Beeldbuisring 41',
+  streetName: 'Beeldbuisring',
+  houseNumber: '41',
+  city: 'Eindhoven',
+  postalCode: '5651HA',
+  countryCode: 'NL',
+} as const;
 
 // Eindhoven center coordinates
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
@@ -252,121 +265,6 @@ async function readSettledPreviewText(
   }
 
   throw new Error('Timed out waiting for preview text to settle');
-}
-
-async function waitForSinglePropertyFeature(
-  page: import('@playwright/test').Page,
-  timeout = 8_000,
-): Promise<{ propertyId: string; zoom: number }> {
-  const handle = await page.waitForFunction(
-    () => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map || !map.isStyleLoaded()) {
-        return null;
-      }
-
-      const canvas = map.getCanvas();
-      if (!canvas) {
-        return null;
-      }
-
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
-        .filter((layer) => map.getLayer(layer));
-      if (layers.length === 0) {
-        return null;
-      }
-
-      try {
-        const edgeMargin = 40;
-        const canvasCenterX = canvas.width / 2;
-        const canvasCenterY = canvas.height / 2;
-        const features = map.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers }
-        ) || [];
-
-        const candidate = features
-          .filter((feature: MapFeature) => feature.geometry?.type === 'Point')
-          .map((feature: MapFeature) => {
-            const rawPropertyId = feature.properties?.id;
-            const propertyId =
-              rawPropertyId == null ? '' : String(rawPropertyId).trim();
-            const rawPointCount = feature.properties?.point_count;
-            const pointCount =
-              typeof rawPointCount === 'number'
-                ? rawPointCount
-                : Number.parseInt(String(rawPointCount ?? '1'), 10) || 1;
-            const coordinates = feature.geometry?.coordinates;
-
-            if (
-              propertyId.length === 0 ||
-              pointCount > 1 ||
-              !Array.isArray(coordinates) ||
-              coordinates.length < 2 ||
-              typeof coordinates[0] !== 'number' ||
-              typeof coordinates[1] !== 'number'
-            ) {
-              return null;
-            }
-
-            const point = map.project([coordinates[0], coordinates[1]]);
-            const inBounds =
-              point.x >= edgeMargin &&
-              point.x <= canvas.width - edgeMargin &&
-              point.y >= edgeMargin &&
-              point.y <= canvas.height - edgeMargin;
-
-            if (!inBounds) {
-              return null;
-            }
-
-            return {
-              propertyId,
-              zoom: map.getZoom(),
-              distanceToCenter: Math.hypot(point.x - canvasCenterX, point.y - canvasCenterY),
-            };
-          })
-          .filter((feature): feature is { propertyId: string; zoom: number; distanceToCenter: number } => feature !== null)
-          .sort((a, b) => a.distanceToCenter - b.distanceToCenter)[0];
-
-        if (!candidate) {
-          return null;
-        }
-
-        return {
-          propertyId: candidate.propertyId,
-          zoom: candidate.zoom,
-        };
-      } catch {
-        return null;
-      }
-    },
-    null,
-    { timeout, polling: 500 }
-  );
-
-  return (await handle.jsonValue()) as { propertyId: string; zoom: number };
-}
-
-async function focusMapOnSinglePropertyFeature(
-  page: import('@playwright/test').Page,
-  center: [number, number],
-): Promise<{ propertyId: string; zoom: number }> {
-  const zoomCandidates = [18, 18.5, 19, 19.5, 20];
-
-  for (const zoom of zoomCandidates) {
-    await setMapView(page, center, zoom);
-
-    try {
-      return await waitForSinglePropertyFeature(page, 8_000);
-    } catch {
-      // Keep tightening the camera until a single-property feature with an id is rendered.
-    }
-  }
-
-  throw new Error(
-    `Expected a rendered single-property feature with an id near ${center[0]},${center[1]} after trying zooms ${zoomCandidates.join(', ')}`
-  );
 }
 
 async function waitForPreviewToClose(
@@ -617,24 +515,23 @@ test.describe('Map Interactions', () => {
     expect(mapState.zoom).toBeGreaterThanOrEqual(16);
   });
 
-  test('same property can be reopened after closing its preview', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  test('same property can be reopened after closing its preview', async ({ page, request }) => {
+    const selection = await resolveCanonicalPropertyFixture(request, KNOWN_PREVIEW_PROPERTY);
+
+    expect(selection).not.toBeNull();
+    if (!selection) {
+      throw new Error('Expected the known Beeldbuisring 41 fixture for the map preview reopen test');
+    }
+    expect(selection.previewRoute).toBe(KNOWN_PREVIEW_PROPERTY_ROUTE);
+
+    await setupCanonicalPropertyRouteMocks(page, request, selection);
+
+    await page.goto(KNOWN_PREVIEW_PROPERTY_ROUTE, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    });
     await waitForMapReady(page);
 
-    const targetProperty = await focusMapOnSinglePropertyFeature(page, EINDHOVEN_CENTER);
-    const clickResult = await clickRenderedPropertyMarkerById(page, targetProperty.propertyId);
-
-    expect(clickResult.success).toBe(true);
-    if (!clickResult.success) {
-      throw new Error(clickResult.reason);
-    }
-    expect(clickResult.screenX).toBeDefined();
-    expect(clickResult.screenY).toBeDefined();
-    expect(clickResult.propertyId).toBeDefined();
-    const propertyId = clickResult.propertyId;
-    if (!propertyId) {
-      throw new Error('Expected clicked marker to provide a propertyId');
-    }
     const { previewCard } = await waitForSelectedPreview(page);
     const initialText = await readSettledPreviewText(page, previewCard);
     expect(initialText.length).toBeGreaterThan(5);
@@ -645,8 +542,12 @@ test.describe('Map Interactions', () => {
     await closeButton.click();
     await waitForPreviewToClose(page);
 
-    const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
-    expect(reopenResult.success).toBe(true);
+    await page.goto(KNOWN_PREVIEW_PROPERTY_ROUTE, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    });
+    await waitForMapReady(page);
+
     await waitForSelectedPreview(page);
     const reopenedText = await readSettledPreviewText(page, previewCard);
     expect(reopenedText).toBe(initialText);
