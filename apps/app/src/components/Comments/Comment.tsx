@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { Pressable, Text, View, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { KarmaBadge } from './KarmaBadge';
 import { UserAvatar } from '../ui/UserAvatar';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
@@ -95,6 +96,10 @@ export function Comment({
     onReply(comment.id, comment.user.username);
   }, [comment.id, comment.user.username, onReply]);
 
+  const handleAuthorPress = useCallback(() => {
+    router.push(`/user/${comment.user.id}`);
+  }, [comment.user.id]);
+
   const displayName = comment.user.displayName || comment.user.username;
 
   return (
@@ -104,22 +109,36 @@ export function Comment({
       >
         {/* Header: Avatar, Username, Badge, Timestamp */}
         <View className="flex-row items-center mb-2">
-          <UserAvatar
-            username={comment.user.username}
-            displayName={comment.user.displayName ?? undefined}
-            profilePhotoUrl={comment.user.profilePhotoUrl}
-            size={isReply ? 'xs' : 'sm'}
-          />
+          <Pressable
+            onPress={handleAuthorPress}
+            testID="comment-author-avatar-button"
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${displayName}'s profile`}
+          >
+            <UserAvatar
+              username={comment.user.username}
+              displayName={comment.user.displayName ?? undefined}
+              profilePhotoUrl={comment.user.profilePhotoUrl}
+              size={isReply ? 'xs' : 'sm'}
+            />
+          </Pressable>
           <View className="ml-2 flex-1">
-            <View className="flex-row items-center flex-wrap">
-              <Text className="font-semibold text-warm-900 mr-1.5">
-                {displayName}
+            <Pressable
+              onPress={handleAuthorPress}
+              testID="comment-author-button"
+              accessibilityRole="link"
+              accessibilityLabel={`Open ${displayName}'s profile`}
+            >
+              <View className="flex-row items-center flex-wrap">
+                <Text className="font-semibold text-warm-900 mr-1.5">
+                  {displayName}
+                </Text>
+                <KarmaBadge karma={comment.user.karma} size="sm" />
+              </View>
+              <Text className="text-xs text-warm-400 mt-0.5">
+                @{comment.user.username}
               </Text>
-              <KarmaBadge karma={comment.user.karma} size="sm" />
-            </View>
-            <Text className="text-xs text-warm-400 mt-0.5">
-              @{comment.user.username}
-            </Text>
+            </Pressable>
           </View>
           <Text className="text-xs text-warm-400">
             {hydratedNow === null ? '\u00A0' : formatRelativeTime(comment.createdAt, hydratedNow)}

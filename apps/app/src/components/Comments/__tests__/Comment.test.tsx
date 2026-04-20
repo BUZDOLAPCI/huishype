@@ -1,10 +1,17 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import { Comment, formatRelativeTime } from '../Comment';
 
 // Mock Ionicons
 jest.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',
+}));
+
+jest.mock('expo-router', () => ({
+  router: {
+    push: jest.fn(),
+  },
 }));
 
 describe('formatRelativeTime', () => {
@@ -206,6 +213,32 @@ describe('Comment', () => {
 
     fireEvent.press(getByTestId('reply-button'));
     expect(mockOnReply).toHaveBeenCalledWith('comment-1', 'testuser');
+  });
+
+  it('navigates to the author profile when the avatar is pressed', () => {
+    const { getByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+      />
+    );
+
+    fireEvent.press(getByTestId('comment-author-avatar-button'));
+    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+  });
+
+  it('navigates to the author profile when the name block is pressed', () => {
+    const { getByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+      />
+    );
+
+    fireEvent.press(getByTestId('comment-author-button'));
+    expect(router.push).toHaveBeenCalledWith('/user/user-1');
   });
 
   it('renders like count when greater than 0', () => {
