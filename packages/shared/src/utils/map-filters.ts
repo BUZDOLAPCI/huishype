@@ -6,6 +6,7 @@ import type {
   MapFilterCategory,
   MapFilters,
   MapMarketState,
+  PropertyMarketFilters,
   RentEffectivePriceInput,
   SaleEffectivePriceInput,
 } from '../types/property.js';
@@ -208,6 +209,23 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
       filters.activity === 'social' || filters.activity === 'recent'
         ? filters.activity
         : defaultFilters.activity,
+  };
+}
+
+export function normalizePropertyMarketFilters(
+  filters: PropertyMarketFilters,
+): Required<PropertyMarketFilters> {
+  const normalized = normalizeMapFilters({
+    ...filters,
+    activity: 'all',
+  });
+
+  return {
+    salePriceFrom: normalized.salePriceFrom,
+    salePriceTo: normalized.salePriceTo,
+    rentPriceFrom: normalized.rentPriceFrom,
+    rentPriceTo: normalized.rentPriceTo,
+    marketState: normalized.marketState,
   };
 }
 
@@ -444,6 +462,45 @@ export function serializeMapFiltersToSearchParams(
   return updateMapFilterSearchParams(new URLSearchParams(), filters);
 }
 
+export function updatePropertyMarketFilterSearchParams(
+  params: URLSearchParams,
+  filters: PropertyMarketFilters,
+): URLSearchParams {
+  const next = new URLSearchParams(params.toString());
+  const normalized = normalizePropertyMarketFilters(filters);
+
+  next.delete('salePriceFrom');
+  next.delete('salePriceTo');
+  next.delete('rentPriceFrom');
+  next.delete('rentPriceTo');
+  next.delete('marketState');
+  next.delete('activity');
+
+  if (normalized.salePriceFrom != null) {
+    next.set('salePriceFrom', String(normalized.salePriceFrom));
+  }
+  if (normalized.salePriceTo != null) {
+    next.set('salePriceTo', String(normalized.salePriceTo));
+  }
+  if (normalized.rentPriceFrom != null) {
+    next.set('rentPriceFrom', String(normalized.rentPriceFrom));
+  }
+  if (normalized.rentPriceTo != null) {
+    next.set('rentPriceTo', String(normalized.rentPriceTo));
+  }
+  if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
+    next.set('marketState', normalized.marketState.join(','));
+  }
+
+  return next;
+}
+
+export function serializePropertyMarketFiltersToSearchParams(
+  filters: PropertyMarketFilters,
+): URLSearchParams {
+  return updatePropertyMarketFilterSearchParams(new URLSearchParams(), filters);
+}
+
 export function updateMapFilterSearchParams(
   params: URLSearchParams,
   filters: MapFilters,
@@ -529,6 +586,27 @@ export function buildPropertyTileTemplateUrl(
   return `${apiUrl}/tiles/properties/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
 }
 
+export function getPropertyMarketFilterSearchString(
+  filters: PropertyMarketFilters,
+  currentSearch = '',
+): string {
+  const params = updatePropertyMarketFilterSearchParams(
+    new URLSearchParams(
+      currentSearch.startsWith('?') ? currentSearch.slice(1) : currentSearch,
+    ),
+    filters,
+  );
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+export function buildFollowingPropertyTileTemplateUrl(
+  apiUrl: string,
+  filters: PropertyMarketFilters,
+): string {
+  return `${apiUrl}/tiles/following/properties/{z}/{x}/{y}.pbf${getPropertyMarketFilterSearchString(filters)}`;
+}
+
 export function buildNearbyGroupPath(
   lon: number,
   lat: number,
@@ -544,6 +622,23 @@ export function buildNearbyGroupPath(
     filters,
   );
   return `/properties/nearby?${params.toString()}`;
+}
+
+export function buildFollowingNearbyGroupPath(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: PropertyMarketFilters,
+): string {
+  const params = updatePropertyMarketFilterSearchParams(
+    new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+    }),
+    filters,
+  );
+  return `/properties/following-nearby?${params.toString()}`;
 }
 
 export function getSaleEffectivePrice(

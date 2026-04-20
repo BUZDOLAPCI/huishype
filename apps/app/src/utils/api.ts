@@ -9,6 +9,7 @@ import { withDerivedPropertyImageData } from './property-image';
 import {
   buildNearbyGroupPath,
   createDefaultMapFilters,
+  updateMapFilterSearchParams,
   type MapFilters,
   type MapMarketState,
 } from '@/src/lib/sharedMapFilters';
@@ -434,13 +435,6 @@ export interface NearbyPropertyGroup extends NormalizedPropertyNodeGroup {
   distanceMeters: number;
 }
 
-export interface MapViewportBounds {
-  west: number;
-  south: number;
-  east: number;
-  north: number;
-}
-
 export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
@@ -727,6 +721,41 @@ export async function fetchNearbyGroup(
   }
 }
 
+function buildFollowingNearbyGroupPath(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: MapFilters,
+): string {
+  const params = updateMapFilterSearchParams(
+    new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+    }),
+    filters,
+  );
+
+  return `/properties/following-nearby?${params.toString()}`;
+}
+
+export async function fetchFollowingNearbyGroup(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<NearbyPropertyGroup | null> {
+  try {
+    const result = await apiFetch<NearbyGroupedResult | null>(
+      buildFollowingNearbyGroupPath(lon, lat, zoom, filters),
+    );
+    return result ? normalizeNearbyPropertyGroup(result) : null;
+  } catch (err) {
+    console.warn('[HuisHype] fetchFollowingNearbyGroup failed:', err);
+    return null;
+  }
+}
+
 // --- Batch property lookup (imperative, not a hook) ---
 
 /** Shape returned by GET /properties/batch */
@@ -792,69 +821,6 @@ export async function fetchBatchProperties(
     `/properties/batch?ids=${ids.join(',')}`,
   );
   return normalizeBatchPropertiesResponse(result);
-}
-
-export type FollowingViewportActivityType = 'property_like' | 'comment' | 'price_guess';
-
-export interface FollowingViewportItem {
-  id: string;
-  coordinate: [number, number];
-  address: string;
-  city: string;
-  postalCode: string | null;
-  countryCode: string;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  hasActiveListing: boolean;
-  marketState: MapMarketState;
-  activityTypes: FollowingViewportActivityType[];
-  actorCount: number;
-  lastActivityAt: string;
-}
-
-interface FollowingViewportResponse {
-  items: FollowingViewportItem[];
-}
-
-function buildFollowingViewportPath(
-  bounds: MapViewportBounds,
-  filters: MapFilters,
-): string {
-  const bbox = serializeViewportBounds(bounds);
-  const params = new URLSearchParams({ bbox });
-
-  if (filters.salePriceFrom != null) {
-    params.set('salePriceFrom', String(filters.salePriceFrom));
-  }
-  if (filters.salePriceTo != null) {
-    params.set('salePriceTo', String(filters.salePriceTo));
-  }
-  if (filters.rentPriceFrom != null) {
-    params.set('rentPriceFrom', String(filters.rentPriceFrom));
-  }
-  if (filters.rentPriceTo != null) {
-    params.set('rentPriceTo', String(filters.rentPriceTo));
-  }
-  if (filters.marketState.length > 0 && filters.marketState.length < 5) {
-    params.set('marketState', filters.marketState.join(','));
-  }
-
-  return `/properties/following-viewport?${params.toString()}`;
-}
-
-export function serializeViewportBounds(bounds: MapViewportBounds): string {
-  return `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
-}
-
-export async function fetchFollowingViewport(
-  bounds: MapViewportBounds,
-  filters: MapFilters = createDefaultMapFilters(),
-): Promise<FollowingViewportItem[]> {
-  const result = await apiFetch<FollowingViewportResponse>(
-    buildFollowingViewportPath(bounds, filters),
-  );
-
-  return Array.isArray(result.items) ? result.items : [];
 }
 
 // Convenience methods

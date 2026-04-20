@@ -4,9 +4,12 @@ import {
   MAP_MARKET_STATES,
   areMapFiltersDefault,
   areMapFiltersEqual,
+  buildFollowingNearbyGroupPath,
+  buildFollowingPropertyTileTemplateUrl,
   createDefaultMapFilters,
   getCanonicalMapFilterSignature,
   getMapFilterPillSummary,
+  getPropertyMarketFilterSearchString,
   getOrderedMapFilterCategories,
   getRentEffectivePrice,
   getSaleEffectivePrice,
@@ -237,6 +240,27 @@ describe('map filter query param helpers', () => {
     );
 
     expect(updated.toString()).toBe('foo=bar&rentPriceTo=2400');
+  });
+
+  it('builds Following tile and nearby URLs without serializing the public activity filter', () => {
+    const filters = {
+      salePriceFrom: 250000,
+      salePriceTo: 700000,
+      rentPriceFrom: null,
+      rentPriceTo: null,
+      marketState: ['not-listed', 'for-sale'] as const,
+      activity: 'recent' as const,
+    };
+
+    expect(getPropertyMarketFilterSearchString(filters)).toBe(
+      '?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
+    expect(buildFollowingPropertyTileTemplateUrl('http://api.test', filters)).toBe(
+      'http://api.test/tiles/following/properties/{z}/{x}/{y}.pbf?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
+    expect(buildFollowingNearbyGroupPath(5.47, 51.44, 14, filters)).toBe(
+      '/properties/following-nearby?lon=5.47&lat=51.44&zoom=14&salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+    );
   });
 });
 

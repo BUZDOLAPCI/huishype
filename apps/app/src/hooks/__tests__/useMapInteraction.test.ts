@@ -1132,54 +1132,6 @@ describe('useMapInteraction', () => {
       );
     });
 
-    it('opens a following overlay item directly from overlay payload identity', () => {
-      jest.useFakeTimers();
-      const { result } = renderHook(() => useMapInteraction(), {
-        wrapper: createWrapper(queryClient),
-      });
-
-      const camera = createMockCamera();
-
-      act(() => {
-        result.current.handleFollowingOverlayPress(
-          {
-            id: 'follow-1',
-            coordinate: [5.47, 51.44],
-            address: 'Stationsplein 1',
-            city: 'Eindhoven',
-            postalCode: '5611AA',
-            countryCode: 'NL',
-            askingPrice: 440000,
-            thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
-            hasActiveListing: true,
-            marketState: 'for-sale',
-            activityTypes: ['comment'],
-            actorCount: 2,
-            lastActivityAt: '2026-04-19T09:00:00.000Z',
-          },
-          14,
-          camera,
-        );
-      });
-
-      act(() => {
-        jest.runOnlyPendingTimers();
-      });
-
-      expect(result.current.selectedPropertyId).toBe('follow-1');
-      expect(result.current.previewGroup?.properties[0]).toMatchObject({
-        id: 'follow-1',
-        address: 'Stationsplein 1',
-        city: 'Eindhoven',
-        askingPrice: 440000,
-        marketState: 'for-sale',
-        thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
-        socialScore: 0,
-        recentSocialScore: 0,
-        activityScore: 0,
-      });
-    });
-
     it('ignores resolved properties that do not have coordinates', () => {
       jest.useFakeTimers();
       const { result } = renderHook(() => useMapInteraction(), {

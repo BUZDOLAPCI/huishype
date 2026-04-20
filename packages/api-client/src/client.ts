@@ -21,8 +21,9 @@ import type {
   CreateCommentRequest,
   CreateCommentResponse,
   GetFeedRequest,
+  GetFollowingNearbyPropertyRequest,
+  GetFollowingPropertyTilesRequest,
   GetSavedPropertiesRequest,
-  GetFollowingViewportRequest,
   PropertyResolveRequest,
   PropertyResolveResponse,
   UpdateUserProfileRequest,
@@ -64,8 +65,10 @@ type SavedPropertiesQuery =
   NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
 type SavedPropertiesResponse =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
-type FollowingViewportResponse =
-  paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
+type FollowingPropertyTilesResponse =
+  paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
+type FollowingNearbyPropertyResponse =
+  paths['/properties/following-nearby']['get']['responses'][200]['content']['application/json'];
 
 /**
  * API client configuration options
@@ -359,19 +362,39 @@ export class HuisHypeApiClient {
     return this.request<PropertyResponse>('GET', `/properties/${propertyId}`);
   }
 
-  async getFollowingViewport(
-    request: GetFollowingViewportRequest
-  ): Promise<FollowingViewportResponse> {
+  async getFollowingPropertyTiles(
+    request: GetFollowingPropertyTilesRequest
+  ): Promise<FollowingPropertyTilesResponse> {
     const marketState =
       Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
 
-    return this.request<FollowingViewportResponse>('GET', '/properties/following-viewport', {
+    return this.request<FollowingPropertyTilesResponse>('GET', '/tiles/following/properties.json', {
       query: {
-        bbox: request.bbox,
-        salePriceFrom: request.salePriceFrom,
-        salePriceTo: request.salePriceTo,
-        rentPriceFrom: request.rentPriceFrom,
-        rentPriceTo: request.rentPriceTo,
+        salePriceFrom: request.salePriceFrom ?? undefined,
+        salePriceTo: request.salePriceTo ?? undefined,
+        rentPriceFrom: request.rentPriceFrom ?? undefined,
+        rentPriceTo: request.rentPriceTo ?? undefined,
+        marketState,
+      },
+      requiresAuth: true,
+    });
+  }
+
+  async getFollowingNearbyProperty(
+    request: GetFollowingNearbyPropertyRequest
+  ): Promise<FollowingNearbyPropertyResponse> {
+    const marketState =
+      Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
+
+    return this.request<FollowingNearbyPropertyResponse>('GET', '/properties/following-nearby', {
+      query: {
+        lon: request.lon,
+        lat: request.lat,
+        zoom: request.zoom,
+        salePriceFrom: request.salePriceFrom ?? undefined,
+        salePriceTo: request.salePriceTo ?? undefined,
+        rentPriceFrom: request.rentPriceFrom ?? undefined,
+        rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
       },
       requiresAuth: true,

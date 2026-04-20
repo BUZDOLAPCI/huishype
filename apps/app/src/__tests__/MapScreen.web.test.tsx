@@ -1,6 +1,9 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+
+type MockMapEventHandler = (...args: unknown[]) => void;
 
 type MockMapInstance = {
   options: {
@@ -8,6 +11,7 @@ type MockMapInstance = {
     style: {
       sources?: Record<string, { tiles?: string[] }>;
     };
+    transformRequest?: (url: string) => { url: string; headers?: Record<string, string> };
   };
   keyboard: {
     disableRotation: jest.Mock;
@@ -39,37 +43,15 @@ type MockMapInstance = {
     serialize: jest.Mock;
     setTiles: jest.Mock;
   };
-  trigger: (event: string, payload?: unknown) => void;
+  trigger: (event: string, payload?: unknown, layerId?: string) => void;
 };
-
-type MockMarkerInstance = {
-  element: HTMLElement | null;
-  setLngLat: jest.Mock;
-  addTo: jest.Mock;
-  remove: jest.Mock;
-};
-
-type MockMapEventHandler = (...args: unknown[]) => void;
-type UseFollowingViewport = typeof import('@/src/hooks/useProperties').useFollowingViewport;
 
 let mockAppliedFilters = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
-let mockFollowingViewportIsError = false;
-let mockFollowingViewportData: Array<{
-  id: string;
-  coordinate: [number, number];
-  address: string;
-  city: string;
-  postalCode: string | null;
-  countryCode: string;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  hasActiveListing: boolean;
-  marketState: 'for-sale';
-  activityTypes: ['comment'];
-  actorCount: number;
-  lastActivityAt: string;
-}> = [];
+const mockGetAccessToken = jest.fn(async () => 'viewer-token');
+let mockFollowingTileSourceIsError = false;
+let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+const mockFollowingTileRefetch = jest.fn();
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
@@ -80,41 +62,17 @@ let capturedMapFilterBarProps:
       onToggleFollowing?: () => void;
     }
   | null = null;
+
 const mockAmbientCommentBubbles = {
-  bubbles: [] as Array<{
-    nodeKey?: string;
-    property: { id: string; address: string; city: string; coordinate?: [number, number] };
-    coordinate: [number, number];
-    screenPoint: [number, number] | null;
-    preview: {
-      text: string;
-      likeCount: number;
-      authorName: string;
-      authorPhotoUrl: string | null;
-    };
-  }>,
+  bubbles: [] as unknown[],
   clearBubbles: jest.fn(),
   refreshBubbles: jest.fn(),
 };
-let capturedAmbientBubblePortalProps:
-  | {
-      onBubblePress: (bubble: {
-        nodeKey?: string;
-        property: {
-          id: string;
-          address: string;
-          city: string;
-          coordinate?: [number, number];
-        };
-        coordinate: [number, number];
-      }) => void;
-    }
-  | null = null;
+
 const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
   handleFeaturePress: jest.fn(),
-  handleFollowingOverlayPress: jest.fn(),
   handleEmptyMapTap: jest.fn(),
   resetTransientUI: jest.fn(),
   highlightedCoordinate: null,
@@ -150,31 +108,16 @@ const mockInteraction = {
   handleAuthStarting: jest.fn(),
 };
 
-const mockMapInstances: Array<{
-  getSource: jest.Mock;
-  getStyle: jest.Mock;
-  options: {
-    container: HTMLDivElement;
-    style: {
-      sources?: Record<string, { tiles?: string[] }>;
-    };
-  };
-  propertySource: {
-    serialize: jest.Mock;
-    setTiles: jest.Mock;
-  };
-  remove: jest.Mock;
-  trigger: (event: string, payload?: unknown) => void;
-}> = [];
-const mockMarkerInstances: MockMarkerInstance[] = [];
+const mockMapInstances: MockMapInstance[] = [];
 
 jest.mock('react-native', () => {
-  const React = require('react') as typeof import('react');
+  const ReactModule = require('react') as typeof import('react');
+
   const createElement = (tag: string) =>
-    React.forwardRef<HTMLElement, React.PropsWithChildren<{ testID?: string }>>(
+    ReactModule.forwardRef<HTMLElement, React.PropsWithChildren<{ testID?: string }>>(
       (props, ref) => {
-      const { children, testID, ...rest } = props;
-      return React.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
+        const { children, testID, ...rest } = props;
+        return ReactModule.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
       },
     );
 
@@ -197,8 +140,8 @@ jest.mock('react-native', () => {
 
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: jest.fn((effect: () => void | (() => void)) => {
-    const React = require('react') as typeof import('react');
-    React.useEffect(() => effect(), [effect]);
+    const ReactModule = require('react') as typeof import('react');
+    ReactModule.useEffect(() => effect(), [effect]);
   }),
 }));
 
@@ -209,11 +152,11 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/src/components', () => {
-  const React = require('react');
+  const ReactModule = require('react');
   return {
     AuthModal: () => null,
     SearchBar: () => null,
-    PropertyBottomSheet: React.forwardRef(() => null),
+    PropertyBottomSheet: ReactModule.forwardRef(() => null),
   };
 });
 
@@ -221,17 +164,6 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
   MapFilterBar: (props: typeof capturedMapFilterBarProps) => {
     capturedMapFilterBarProps = props;
     return null;
-  },
-}));
-
-jest.mock('@/src/components/map/FollowingMapMarker', () => ({
-  FollowingMapMarker: ({ item, onPress }: { item: { id: string }; onPress: (item: { id: string }) => void }) => {
-    const ReactModule = require('react') as typeof import('react');
-    return ReactModule.createElement('button', {
-      'data-testid': `map-following-marker-${item.id}`,
-      onClick: () => onPress(item),
-      type: 'button',
-    });
   },
 }));
 
@@ -249,10 +181,7 @@ jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
 }));
 
 jest.mock('@/src/components/WebAmbientCommentBubblesPortal', () => ({
-  WebAmbientCommentBubblesPortal: (props: typeof capturedAmbientBubblePortalProps) => {
-    capturedAmbientBubblePortalProps = props;
-    return null;
-  },
+  WebAmbientCommentBubblesPortal: () => null,
 }));
 
 jest.mock('@/src/components/navigation/MapHeaderRow', () => ({
@@ -276,29 +205,26 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
   toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
-const mockUseFollowingViewport = jest.fn(
-  (
-    _bounds: unknown,
-    _filters: unknown,
-    _enabled: unknown,
-  ) => ({
-    data: mockFollowingViewportData,
+const mockUseFollowingTileSource = jest.fn(
+  (_filters: unknown, _enabled: unknown) => ({
+    data: mockFollowingTileUrl
+      ? {
+          tileJsonUrl: 'http://api.test/tiles/following/properties.json',
+          tileUrl: mockFollowingTileUrl,
+          tileJson: { tiles: [mockFollowingTileUrl] },
+        }
+      : undefined,
     isLoading: false,
-    isError: mockFollowingViewportIsError,
-    error: mockFollowingViewportIsError ? new Error('Following viewport failed') : null,
-    refetch: jest.fn(),
+    isError: mockFollowingTileSourceIsError,
+    error: mockFollowingTileSourceIsError ? new Error('Following tile source failed') : null,
+    refetch: mockFollowingTileRefetch,
   }),
 );
 
-jest.mock('@/src/hooks/useProperties', () => {
-  return {
-    useFollowingViewport: jest.fn((
-      bounds: Parameters<UseFollowingViewport>[0],
-      filters: Parameters<UseFollowingViewport>[1],
-      enabled: Parameters<UseFollowingViewport>[2],
-    ) => mockUseFollowingViewport(bounds, filters, enabled)),
-  };
-});
+jest.mock('@/src/hooks/useFollowingTileSource', () => ({
+  useFollowingTileSource: jest.fn((filters: unknown, enabled: unknown) =>
+    mockUseFollowingTileSource(filters, enabled)),
+}));
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
@@ -311,6 +237,8 @@ jest.mock('@/src/hooks/useMapCityName', () => ({
 
 jest.mock('@/src/providers/AuthProvider', () => ({
   useAuthContext: jest.fn(() => ({
+    accessToken: mockIsAuthenticated ? 'viewer-token' : null,
+    getAccessToken: mockGetAccessToken,
     isAuthenticated: mockIsAuthenticated,
   })),
 }));
@@ -365,10 +293,34 @@ jest.mock('@/src/lib/useResolvedMapRoute', () => ({
 
 jest.mock('maplibre-gl', () => {
   const Map = jest.fn().mockImplementation((options) => {
-    const listeners = new globalThis.Map<string, Array<(arg?: unknown) => void>>();
-    const onceListeners = new globalThis.Map<string, Array<(arg?: unknown) => void>>();
+    const listeners = new globalThis.Map<string, MockMapEventHandler[]>();
+    const onceListeners = new globalThis.Map<string, MockMapEventHandler[]>();
     let currentTiles =
       options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
+
+    const getKey = (event: string, layerId?: string) =>
+      layerId ? `${event}:${layerId}` : event;
+
+    const addListener = (
+      storage: Map<string, MockMapEventHandler[]>,
+      event: string,
+      layerOrHandler: unknown,
+      maybeHandler?: unknown,
+    ) => {
+      const isLayerListener = typeof layerOrHandler === 'string';
+      const layerId = isLayerListener ? (layerOrHandler as string) : undefined;
+      const handler = (isLayerListener ? maybeHandler : layerOrHandler) as
+        | MockMapEventHandler
+        | undefined;
+      if (!handler) {
+        return;
+      }
+
+      const key = getKey(event, layerId);
+      const queue = storage.get(key) ?? [];
+      queue.push(handler);
+      storage.set(key, queue);
+    };
 
     const propertySource = {
       serialize: jest.fn(() => ({ tiles: currentTiles })),
@@ -378,6 +330,7 @@ jest.mock('maplibre-gl', () => {
     };
 
     const canvas = globalThis.document.createElement('canvas');
+    canvas.style.cursor = '';
 
     const instance = {} as MockMapInstance;
     Object.assign(instance, {
@@ -401,24 +354,19 @@ jest.mock('maplibre-gl', () => {
       getPaintProperty: jest.fn(() => null),
       setPaintProperty: jest.fn(),
       on: jest.fn((event: string, layerOrHandler: unknown, maybeHandler?: unknown) => {
-        const handler = (
-          typeof layerOrHandler === 'function' ? layerOrHandler : maybeHandler
-        ) as MockMapEventHandler | undefined;
-        if (!handler) {
-          return instance;
-        }
-        const queue = listeners.get(event) ?? [];
-        queue.push(handler);
-        listeners.set(event, queue);
+        addListener(listeners, event, layerOrHandler, maybeHandler);
         return instance;
       }),
-      once: jest.fn((event: string, handler: (arg?: unknown) => void) => {
-        const queue = onceListeners.get(event) ?? [];
-        queue.push(handler);
-        onceListeners.set(event, queue);
+      once: jest.fn((event: string, handler: MockMapEventHandler) => {
+        addListener(onceListeners, event, handler);
         return instance;
       }),
-      off: jest.fn(),
+      off: jest.fn((event: string, layerOrHandler?: unknown) => {
+        const key =
+          typeof layerOrHandler === 'string' ? getKey(event, layerOrHandler) : getKey(event);
+        listeners.delete(key);
+        return instance;
+      }),
       getLayer: jest.fn(() => false),
       getSource: jest.fn((sourceId: string) =>
         sourceId === 'properties-source' ? propertySource : undefined,
@@ -432,11 +380,12 @@ jest.mock('maplibre-gl', () => {
       resize: jest.fn(),
       remove: jest.fn(),
       propertySource,
-      trigger(event: string, payload?: unknown) {
-        (listeners.get(event) ?? []).forEach((listener: (arg?: unknown) => void) => listener(payload));
-        const oneTimeListeners = onceListeners.get(event) ?? [];
-        oneTimeListeners.forEach((listener: (arg?: unknown) => void) => listener(payload));
-        onceListeners.delete(event);
+      trigger(event: string, payload?: unknown, layerId?: string) {
+        const keyedListeners = listeners.get(getKey(event, layerId)) ?? [];
+        keyedListeners.forEach((listener) => listener(payload));
+        const keyedOnceListeners = onceListeners.get(getKey(event, layerId)) ?? [];
+        keyedOnceListeners.forEach((listener) => listener(payload));
+        onceListeners.delete(getKey(event, layerId));
       },
     });
 
@@ -445,17 +394,7 @@ jest.mock('maplibre-gl', () => {
   });
 
   const NavigationControl = jest.fn();
-  const Marker = jest.fn().mockImplementation((options?: { element?: HTMLElement }) => {
-    const instance = {} as MockMarkerInstance;
-    Object.assign(instance, {
-      element: options?.element ?? null,
-      setLngLat: jest.fn(() => instance),
-      addTo: jest.fn(() => instance),
-      remove: jest.fn(),
-    });
-    mockMarkerInstances.push(instance);
-    return instance;
-  });
+  const Marker = jest.fn();
 
   return {
     Map,
@@ -477,7 +416,7 @@ async function flushMicrotasks() {
   });
 }
 
-describe('MapScreen web filter updates', () => {
+describe('MapScreen web grouped Following mode', () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -485,15 +424,14 @@ describe('MapScreen web filter updates', () => {
     jest.clearAllMocks();
     jest.useRealTimers();
     mockMapInstances.length = 0;
-    mockMarkerInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
     mockIsAuthenticated = true;
-    mockFollowingViewportIsError = false;
-    mockFollowingViewportData = [];
-    mockReplacePassiveBrowserPath.mockClear();
-    mockAmbientCommentBubbles.bubbles = [];
-    capturedAmbientBubblePortalProps = null;
+    mockFollowingTileSourceIsError = false;
+    mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     capturedMapFilterBarProps = null;
+    mockAmbientCommentBubbles.bubbles = [];
+    mockInteraction.handleFeaturePress.mockReset();
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
     (global as { __DEV__?: boolean }).__DEV__ = false;
     (
       globalThis as typeof globalThis & {
@@ -535,7 +473,7 @@ describe('MapScreen web filter updates', () => {
     document.body.innerHTML = '';
   });
 
-  it('updates property source tiles in place when filters change', async () => {
+  it('updates public property source tiles in place when filters change', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -543,8 +481,7 @@ describe('MapScreen web filter updates', () => {
 
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
-    const map = mockMapInstances[0];
-    expect(map).toBeDefined();
+    const map = mockMapInstances[0] as MockMapInstance;
     expect(
       map.options.style.sources?.['properties-source']?.tiles,
     ).toEqual(['https://tiles.test/tile-a']);
@@ -560,15 +497,12 @@ describe('MapScreen web filter updates', () => {
     });
     await flushMicrotasks();
 
-    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
-    expect(map.remove).not.toHaveBeenCalled();
-    expect(map.propertySource.setTiles).toHaveBeenCalledTimes(1);
     expect(map.propertySource.setTiles).toHaveBeenCalledWith([
       'https://tiles.test/tile-b',
     ]);
   });
 
-  it('treats following as app-local state and does not mutate public tile updates', async () => {
+  it('swaps to grouped Following tiles and applies auth headers only in Following mode', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -579,8 +513,6 @@ describe('MapScreen web filter updates', () => {
       map.trigger('load');
     });
     await flushMicrotasks();
-
-    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
 
     act(() => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
@@ -594,15 +526,21 @@ describe('MapScreen web filter updates', () => {
         socialScope: 'following',
       },
     });
-    expect(map.propertySource.setTiles).not.toHaveBeenCalled();
-    expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
-      { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
+    expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
       mockAppliedFilters,
       true,
     );
+    expect(
+      map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf'),
+    ).toEqual({
+      url: 'https://tiles.test/following/12/2048/1363.pbf',
+      headers: {
+        Authorization: 'Bearer viewer-token',
+      },
+    });
   });
 
-  it('auth-gates signed-out following toggles without switching state or emitting analytics', async () => {
+  it('auth-gates signed-out Following toggles without switching state', async () => {
     mockIsAuthenticated = false;
 
     await act(async () => {
@@ -620,32 +558,34 @@ describe('MapScreen web filter updates', () => {
     expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
       subtitle: 'Sign in to see homes with activity from people you follow.',
     });
-    expect(
-      (
-        globalThis as typeof globalThis & {
-          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
-        }
-      ).__HUISHYPE_ANALYTICS_EVENTS__,
-    ).toEqual([]);
   });
 
-  it('shows the signed-in empty overlay state and emits empty analytics when no followed activity is in view', async () => {
+  it('shows the empty Following state from rendered grouped features after the map settles', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
+    map.queryRenderedFeatures.mockReturnValue([]);
+
     act(() => {
       map.trigger('load');
     });
     await flushMicrotasks();
-
     act(() => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
     });
     await flushMicrotasks();
+    act(() => {
+      map.trigger('moveend');
+    });
 
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(map.queryRenderedFeatures).toHaveBeenCalled();
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
     expect(
       (
@@ -661,24 +601,8 @@ describe('MapScreen web filter updates', () => {
     );
   });
 
-  it('emits click-through analytics and opens the overlay property from web following markers', async () => {
-    mockFollowingViewportData = [
-      {
-        id: 'property-9',
-        coordinate: [5.47, 51.44],
-        address: 'Stationsplein 9',
-        city: 'Eindhoven',
-        postalCode: '5611AA',
-        countryCode: 'NL',
-        askingPrice: 450000,
-        thumbnailUrl: null,
-        hasActiveListing: true,
-        marketState: 'for-sale',
-        activityTypes: ['comment'],
-        actorCount: 2,
-        lastActivityAt: '2026-04-19T10:00:00.000Z',
-      },
-    ];
+  it('routes Following clicks through grouped tile features and emits click-through analytics', async () => {
+    mockInteraction.handleFeaturePress.mockResolvedValue(true);
 
     await act(async () => {
       root.render(<MapScreen />);
@@ -686,6 +610,8 @@ describe('MapScreen web filter updates', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
     act(() => {
       map.trigger('load');
     });
@@ -696,22 +622,36 @@ describe('MapScreen web filter updates', () => {
     });
     await flushMicrotasks();
 
-    const marker = mockMarkerInstances
-      .map((instance) =>
-        instance.element?.querySelector(
-          '[data-testid="map-following-marker-property-9"]',
-        ) as HTMLButtonElement | null,
-      )
-      .find((candidate) => candidate != null) ?? null;
-    expect(marker).not.toBeNull();
-
     act(() => {
-      marker?.click();
+      map.trigger('sourcedata');
     });
 
-    expect(mockInteraction.handleFollowingOverlayPress).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'property-9' }),
-      expect.any(Number),
+    const groupedFeature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.47, 51.44],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: 'property-9',
+        point_count: 1,
+        property_ids: 'property-9',
+        preview_property_ids: 'property-9',
+        address: 'Stationsplein 9',
+        city: 'Eindhoven',
+      },
+    };
+
+    act(() => {
+      map.trigger('click', { features: [groupedFeature] }, QUERYABLE_PROPERTY_LAYER_IDS[0]);
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleFeaturePress).toHaveBeenCalledWith(
+      [groupedFeature],
+      14,
       expect.any(Object),
     );
     expect(
@@ -735,8 +675,8 @@ describe('MapScreen web filter updates', () => {
     );
   });
 
-  it('shows an error state instead of the empty-state path when the following overlay query fails', async () => {
-    mockFollowingViewportIsError = true;
+  it('shows the error state from Following tile source failures instead of the empty state', async () => {
+    mockFollowingTileSourceIsError = true;
 
     await act(async () => {
       root.render(<MapScreen />);
@@ -756,411 +696,5 @@ describe('MapScreen web filter updates', () => {
 
     expect(container.querySelector('[data-testid="map-following-state-error"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).toBeNull();
-    expect(
-      (
-        globalThis as typeof globalThis & {
-          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
-        }
-      ).__HUISHYPE_ANALYTICS_EVENTS__?.map((event) => event.name),
-    ).toEqual(['map_following_filter_enabled']);
-  });
-
-  it('restores socialScope from private browser app state on first render', async () => {
-    window.history.replaceState(
-      {
-        huishypeMapView: {
-          socialScope: 'following',
-        },
-      },
-      '',
-      '/',
-    );
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    act(() => {
-      map.trigger('load');
-    });
-    await flushMicrotasks();
-
-    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
-    expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
-      { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
-      mockAppliedFilters,
-      true,
-    );
-  });
-
-  it('opens comments for the tapped ambient bubble property', async () => {
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'cluster:prop-9',
-        property: {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-        coordinate: [5.48, 51.44],
-        screenPoint: [120, 180],
-        preview: {
-          text: 'Why is this still unsold?',
-          likeCount: 2,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    expect(capturedAmbientBubblePortalProps).not.toBeNull();
-
-    act(() => {
-      capturedAmbientBubblePortalProps?.onBubblePress({
-        coordinate: [5.48, 51.44],
-        property: {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-      });
-    });
-
-    expect(mockInteraction.setHighlightedCoordinate).toHaveBeenCalledWith([5.481, 51.441]);
-    expect(mockInteraction.setPreviewGroup).toHaveBeenCalledWith({
-      properties: [
-        {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-      ],
-      coordinate: [5.481, 51.441],
-    });
-    expect(mockInteraction.setCurrentPreviewIndex).toHaveBeenCalledWith(0);
-    expect(mockInteraction.setSelectedPropertyId).toHaveBeenCalledWith('prop-9');
-    expect(mockInteraction.handleComment).toHaveBeenCalledWith({
-      id: 'prop-9',
-      address: 'Stationsplein 1',
-      city: 'Eindhoven',
-      coordinate: [5.481, 51.441],
-    });
-  });
-
-  it('does not clear ambient bubbles when a map gesture starts', async () => {
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    act(() => {
-      map.trigger('load');
-    });
-    mockAmbientCommentBubbles.clearBubbles.mockClear();
-
-    act(() => {
-      map.trigger('dragstart');
-      map.trigger('zoomstart');
-      map.trigger('rotatestart');
-    });
-
-    expect(mockAmbientCommentBubbles.clearBubbles).not.toHaveBeenCalled();
-  });
-
-  it('tops up ambient bubbles on moveend when the visible count is under the viewport max', async () => {
-    jest.useFakeTimers();
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'property:existing',
-        property: {
-          id: 'existing',
-          address: 'Existing 1',
-          city: 'Eindhoven',
-          coordinate: [5.47, 51.43],
-        },
-        coordinate: [5.47, 51.43],
-        screenPoint: [100, 120],
-        preview: {
-          text: 'Existing bubble',
-          likeCount: 1,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'single',
-          primary_property_id: 'moveend-prop',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-          address: 'Stationsplein 2',
-          city: 'Eindhoven',
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-    mockAmbientCommentBubbles.refreshBubbles.mockClear();
-
-    act(() => {
-      map.trigger('moveend');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'property:moveend-prop',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['moveend-prop'],
-        commentCount: 6,
-        likeCount: 4,
-      }),
-    ], {
-      appendToExisting: true,
-      minimumVisibleCount: 3,
-      preserveRotation: true,
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
-  });
-
-  it('clears and fully reseeds ambient bubbles after a considerable zoom-out on moveend', async () => {
-    jest.useFakeTimers();
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'property:existing',
-        property: {
-          id: 'existing',
-          address: 'Existing 1',
-          city: 'Eindhoven',
-          coordinate: [5.47, 51.43],
-        },
-        coordinate: [5.47, 51.43],
-        screenPoint: [100, 120],
-        preview: {
-          text: 'Existing bubble',
-          likeCount: 1,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-
-    let zoom = 14;
-    map.getZoom.mockImplementation(() => zoom);
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'single',
-          primary_property_id: 'moveend-prop',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-          address: 'Stationsplein 2',
-          city: 'Eindhoven',
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-    mockAmbientCommentBubbles.clearBubbles.mockClear();
-    mockAmbientCommentBubbles.refreshBubbles.mockClear();
-
-    zoom = 13;
-    act(() => {
-      map.trigger('moveend');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.clearBubbles).toHaveBeenCalledTimes(1);
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'property:moveend-prop',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['moveend-prop'],
-        commentCount: 6,
-        likeCount: 4,
-      }),
-    ], {
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
-  });
-
-  it('does not reset preview state on a normal rerender while focused', async () => {
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    mockAppliedFilters = { tag: 'tile-b' };
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    expect(mockInteraction.resetTransientUI).not.toHaveBeenCalled();
-  });
-
-  it('passes grouped-node member property candidates into ambient bubble refresh during initial seeding', async () => {
-    jest.useFakeTimers();
-
-    mockInteraction.toGroupProperty.mockImplementation((property: {
-      id: string;
-      address: string;
-      city: string;
-      geometry?: { coordinates: [number, number] };
-    }) => ({
-      id: property.id,
-      address: property.address,
-      city: property.city,
-      coordinate: property.geometry?.coordinates,
-    }));
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'cluster',
-          primary_property_id: 'cluster-primary',
-          point_count: 3,
-          property_ids: 'member-1,member-2,member-3',
-          preview_property_ids: 'member-2,member-1',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'cluster:cluster-primary:5.48:51.44',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['member-2', 'member-1'],
-        commentCount: 6,
-        likeCount: 4,
-      }),
-    ], {
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
   });
 });

@@ -2,10 +2,16 @@ import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
+const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
+const mockProject = jest.fn(async () => [0, 0]);
+const mockQueryRenderedFeatures = jest.fn(async () => []);
+const mockNetworkManagerAddRequestHeader = jest.fn();
+const mockNetworkManagerRemoveRequestHeader = jest.fn();
+
 const globalWithDev = globalThis as typeof globalThis & { __DEV__?: boolean };
 const originalFetch = globalThis.fetch;
 const originalDev = globalWithDev.__DEV__;
-globalWithDev.__DEV__ = false;
+
 const mockNativeStyleJson: Record<string, unknown> = {
   version: 8,
   sources: {
@@ -16,30 +22,21 @@ const mockNativeStyleJson: Record<string, unknown> = {
   },
   layers: [],
 };
+
 let mockIsAuthenticated = true;
-let mockFollowingViewportIsError = false;
-let mockFollowingViewportData: Array<{
-  id: string;
-  coordinate: [number, number];
-  address: string;
-  city: string;
-  postalCode: string | null;
-  countryCode: string;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  hasActiveListing: boolean;
-  marketState: 'for-sale';
-  activityTypes: ['comment'];
-  actorCount: number;
-  lastActivityAt: string;
-}> = [];
-type UseFollowingViewport = typeof import('@/src/hooks/useProperties').useFollowingViewport;
+let mockFollowingTileSourceIsError = false;
+let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+const mockFollowingTileRefetch = jest.fn();
+const mockFetchNearbyGroup = jest.fn();
+const mockFetchFollowingNearbyGroup = jest.fn();
+
 let capturedMapFilterBarProps:
   | {
       socialScope?: 'all' | 'following';
       onToggleFollowing?: () => void;
     }
   | null = null;
+
 const mockAmbientCommentBubbles = {
   bubbles: [] as unknown[],
   clearBubbles: jest.fn(),
@@ -50,7 +47,6 @@ const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
   handleFeaturePress: jest.fn(),
-  handleFollowingOverlayPress: jest.fn(),
   handleEmptyMapTap: jest.fn(),
   resetTransientUI: jest.fn(),
   highlightedCoordinate: null,
@@ -95,7 +91,7 @@ const mockInteraction = {
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: jest.fn((effect: () => void | (() => void)) => {
     const ReactModule = require('react') as typeof import('react');
-    ReactModule.useEffect(() => effect(), []);
+    ReactModule.useEffect(() => effect(), [effect]);
   }),
 }));
 
@@ -105,6 +101,8 @@ jest.mock('react-native-safe-area-context', () => ({
 
 jest.mock('@/src/providers/AuthProvider', () => ({
   useAuthContext: jest.fn(() => ({
+    accessToken: mockIsAuthenticated ? 'viewer-token' : null,
+    getAccessToken: jest.fn(async () => (mockIsAuthenticated ? 'viewer-token' : null)),
     isAuthenticated: mockIsAuthenticated,
   })),
 }));
@@ -112,6 +110,7 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 jest.mock('@/src/components', () => {
   const ReactModule = require('react') as typeof import('react');
   const { View } = require('react-native') as typeof import('react-native');
+
   return {
     PropertyBottomSheet: ReactModule.forwardRef(() => null),
     AuthModal: () => null,
@@ -155,6 +154,14 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
   },
 }));
 
+jest.mock('@/src/components/map/FollowingMapStateCard', () => ({
+  FollowingMapStateCard: ({ mode }: { mode: string }) => {
+    const ReactModule = require('react') as typeof import('react');
+    const { View } = require('react-native') as typeof import('react-native');
+    return ReactModule.createElement(View, { testID: `map-following-state-${mode}` });
+  },
+}));
+
 jest.mock('@/src/hooks/useMapInteraction', () => ({
   useMapInteraction: jest.fn(() => mockInteraction),
 }));
@@ -164,25 +171,26 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
   toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
-const mockUseFollowingViewport = jest.fn(
-  (_bounds: unknown, _filters: unknown, _enabled: unknown) => ({
-    data: mockFollowingViewportData,
+const mockUseFollowingTileSource = jest.fn(
+  (_filters: unknown, _enabled: unknown) => ({
+    data: mockFollowingTileUrl
+      ? {
+          tileJsonUrl: 'http://api.test/tiles/following/properties.json',
+          tileUrl: mockFollowingTileUrl,
+          tileJson: { tiles: [mockFollowingTileUrl] },
+        }
+      : undefined,
     isLoading: false,
-    isError: mockFollowingViewportIsError,
-    error: mockFollowingViewportIsError ? new Error('Following viewport failed') : null,
-    refetch: jest.fn(),
+    isError: mockFollowingTileSourceIsError,
+    error: mockFollowingTileSourceIsError ? new Error('Following tile source failed') : null,
+    refetch: mockFollowingTileRefetch,
   }),
 );
 
-jest.mock('@/src/hooks/useProperties', () => {
-  return {
-    useFollowingViewport: jest.fn((
-      bounds: Parameters<UseFollowingViewport>[0],
-      filters: Parameters<UseFollowingViewport>[1],
-      enabled: Parameters<UseFollowingViewport>[2],
-    ) => mockUseFollowingViewport(bounds, filters, enabled)),
-  };
-});
+jest.mock('@/src/hooks/useFollowingTileSource', () => ({
+  useFollowingTileSource: jest.fn((filters: unknown, enabled: unknown) =>
+    mockUseFollowingTileSource(filters, enabled)),
+}));
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
@@ -209,6 +217,9 @@ jest.mock('@/src/hooks/useMapFilterController', () => ({
 jest.mock('@/src/utils/api', () => ({
   ...jest.requireActual('@/src/utils/api'),
   API_URL: 'http://api.test',
+  fetchNearbyGroup: jest.fn((...args: unknown[]) => mockFetchNearbyGroup(...args)),
+  fetchFollowingNearbyGroup: jest.fn((...args: unknown[]) =>
+    mockFetchFollowingNearbyGroup(...args)),
 }));
 
 jest.mock('@/src/lib/sharedMapFilters', () => ({
@@ -222,31 +233,31 @@ jest.mock('@/src/lib/currentLocation', () => ({
 
 jest.mock('@maplibre/maplibre-react-native', () => {
   const ReactModule = require('react') as typeof import('react');
-  const { View } = require('react-native') as typeof import('react-native');
+  const { Pressable, View } = require('react-native') as typeof import('react-native');
+
   type MockMapProps = {
     children?: React.ReactNode;
     onDidFinishLoadingMap?: () => void;
-  };
-  type MockMapRef = {
-    queryRenderedFeatures: jest.Mock;
-    project: jest.Mock;
-    getBounds: typeof mockGetBounds;
-    getCenter: jest.Mock;
+    onPress?: (event: unknown) => void;
   };
 
-  const Map = ReactModule.forwardRef<MockMapRef, MockMapProps>((props, ref) => {
+  const Map = ReactModule.forwardRef<unknown, MockMapProps>((props, ref) => {
     ReactModule.useImperativeHandle(ref, () => ({
-      queryRenderedFeatures: jest.fn(),
-      project: jest.fn(async () => [0, 0]),
+      queryRenderedFeatures: mockQueryRenderedFeatures,
+      project: mockProject,
       getBounds: mockGetBounds,
-      getCenter: jest.fn(async () => [4.9, 52.37]),
+      getCenter: mockGetCenter,
     }));
 
     ReactModule.useEffect(() => {
       props.onDidFinishLoadingMap?.();
     }, [props]);
 
-    return ReactModule.createElement(View, { testID: 'native-map' }, props.children);
+    return ReactModule.createElement(
+      Pressable,
+      { testID: 'native-map', onPress: props.onPress },
+      props.children,
+    );
   });
 
   const Camera = ReactModule.forwardRef(() => null);
@@ -259,12 +270,16 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     Marker,
     UserLocation: () => null,
     LogManager: { setLogLevel: jest.fn() },
+    NetworkManager: {
+      addRequestHeader: (...args: unknown[]) => mockNetworkManagerAddRequestHeader(...args),
+      removeRequestHeader: (...args: unknown[]) => mockNetworkManagerRemoveRequestHeader(...args),
+    },
   };
 });
 
 const MapScreen = require('@/app/(tabs)/index').default as typeof import('@/app/(tabs)/index').default;
 
-describe('MapScreen native following mode', () => {
+describe('MapScreen native grouped Following mode', () => {
   async function renderMapScreen() {
     const screen = render(<MapScreen />);
 
@@ -272,7 +287,7 @@ describe('MapScreen native following mode', () => {
       fireEvent(screen.getByTestId('map-viewport'), 'layout', {
         nativeEvent: { layout: { width: 390, height: 844 } },
       });
-
+      await Promise.resolve();
       await Promise.resolve();
     });
 
@@ -281,11 +296,23 @@ describe('MapScreen native following mode', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
     mockIsAuthenticated = true;
-    mockFollowingViewportIsError = false;
-    mockFollowingViewportData = [];
+    mockFollowingTileSourceIsError = false;
+    mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
+    mockQueryRenderedFeatures.mockReset();
+    mockQueryRenderedFeatures.mockResolvedValue([]);
+    mockProject.mockReset();
+    mockProject.mockResolvedValue([0, 0]);
+    mockGetBounds.mockClear();
+    mockGetCenter.mockClear();
+    mockFetchNearbyGroup.mockReset();
+    mockFetchFollowingNearbyGroup.mockReset();
+    mockInteraction.handleFeaturePress.mockReset();
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
+
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       writable: true,
@@ -293,11 +320,13 @@ describe('MapScreen native following mode', () => {
         json: async () => mockNativeStyleJson,
       })),
     });
+
     (
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
       }
     ).__HUISHYPE_ANALYTICS_EVENTS__ = [];
+
     Object.defineProperty(globalThis, '__DEV__', {
       configurable: true,
       writable: true,
@@ -306,6 +335,7 @@ describe('MapScreen native following mode', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     if (originalFetch) {
       Object.defineProperty(globalThis, 'fetch', {
         configurable: true,
@@ -318,12 +348,14 @@ describe('MapScreen native following mode', () => {
         'fetch',
       );
     }
+
     Reflect.deleteProperty(
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
       },
       '__HUISHYPE_ANALYTICS_EVENTS__',
     );
+
     if (typeof originalDev === 'boolean') {
       globalWithDev.__DEV__ = originalDev;
     } else {
@@ -331,23 +363,20 @@ describe('MapScreen native following mode', () => {
     }
   });
 
-  it('keeps following as app-local native state and emits enabled plus empty analytics', async () => {
+  it('enables grouped Following tiles and configures native tile auth headers', async () => {
     await renderMapScreen();
-
-    await waitFor(() => {
-      expect(mockGetBounds).toHaveBeenCalled();
-    });
 
     act(() => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
     });
 
-    await waitFor(() => {
-      expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    expect(mockUseFollowingViewport).toHaveBeenLastCalledWith(
-      { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
       {
         salePriceFrom: null,
         salePriceTo: null,
@@ -358,14 +387,54 @@ describe('MapScreen native following mode', () => {
       },
       true,
     );
+    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
+      'Authorization',
+      'Bearer viewer-token',
+      expect.any(RegExp),
+    );
+  });
 
-    const analyticsEvents = (
-      globalThis as typeof globalThis & {
-        __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
-      }
-    ).__HUISHYPE_ANALYTICS_EVENTS__;
+  it('shows the empty Following state after rendered grouped feature refresh settles', async () => {
+    const screen = await renderMapScreen();
 
-    expect(analyticsEvents).toEqual(
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+          activity: 'all',
+        },
+        true,
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 950));
+    });
+
+    await waitFor(() => {
+      expect(mockQueryRenderedFeatures).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('map-following-state-empty')).toBeTruthy();
+    });
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__,
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'map_following_filter_enabled' }),
         expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
@@ -373,117 +442,112 @@ describe('MapScreen native following mode', () => {
     );
   });
 
-  it('auth-gates signed-out following toggles without switching state or emitting analytics', async () => {
-    mockIsAuthenticated = false;
+  it('shows the error state when the Following tile source fails', async () => {
+    mockFollowingTileSourceIsError = true;
 
     const screen = await renderMapScreen();
-
-    await waitFor(() => {
-      expect(capturedMapFilterBarProps).not.toBeNull();
-    });
 
     act(() => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
     });
 
-    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
-    expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
-      subtitle: 'Sign in to see homes with activity from people you follow.',
-    });
-    expect(screen.queryByTestId('map-following-state-signed-out')).toBeNull();
-    expect(
-      (
-        globalThis as typeof globalThis & {
-          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
-        }
-      ).__HUISHYPE_ANALYTICS_EVENTS__,
-    ).toEqual([]);
-  });
-
-  it('shows an error state instead of the empty-state path when the following overlay query fails', async () => {
-    mockFollowingViewportIsError = true;
-
-    const screen = await renderMapScreen();
-
-    await waitFor(() => {
-      expect(mockGetBounds).toHaveBeenCalled();
-    });
-
-    act(() => {
-      capturedMapFilterBarProps?.onToggleFollowing?.();
-    });
-
-    await waitFor(() => {
-      expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(screen.getByTestId('map-following-state-error')).toBeTruthy();
     expect(screen.queryByTestId('map-following-state-empty')).toBeNull();
-    expect(
-      (
-        globalThis as typeof globalThis & {
-          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
-        }
-      ).__HUISHYPE_ANALYTICS_EVENTS__?.map((event) => event.name),
-    ).toEqual(['map_following_filter_enabled']);
   });
 
-  it('emits click-through analytics and opens the overlay property from native following markers', async () => {
-    mockFollowingViewportData = [
-      {
-        id: 'property-9',
-        coordinate: [5.47, 51.44],
-        address: 'Stationsplein 9',
-        city: 'Eindhoven',
-        postalCode: '5611AA',
-        countryCode: 'NL',
-        askingPrice: 450000,
-        thumbnailUrl: null,
-        hasActiveListing: true,
-        marketState: 'for-sale',
-        activityTypes: ['comment'],
-        actorCount: 2,
-        lastActivityAt: '2026-04-19T10:00:00.000Z',
-      },
-    ];
+  it('falls back to /properties/following-nearby after local Following hit-testing misses', async () => {
+    mockQueryRenderedFeatures
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    mockFetchFollowingNearbyGroup.mockResolvedValue({
+      nodeClass: 'active',
+      groupKind: 'single',
+      primaryPropertyId: 'property-9',
+      pointCount: 1,
+      propertyIds: ['property-9'],
+      previewPropertyIds: ['property-9'],
+      coordinate: [5.47, 51.44],
+      distanceMeters: 12,
+      bbox: null,
+      activeListingCount: 1,
+      socialCount: 2,
+      recentSocialCount: 1,
+      socialScoreTotal: 14,
+      socialScoreMax: 14,
+      recentSocialScoreTotal: 6,
+      commentCount: 3,
+      streetName: 'Stationsplein',
+      houseNumber: 9,
+      houseNumberAddition: null,
+      address: 'Stationsplein 9',
+      city: 'Eindhoven',
+      postalCode: '5611AA',
+      countryCode: 'NL',
+      officialValuation: 425000,
+      askingPrice: 450000,
+      thumbnailUrl: null,
+      yearBuilt: 1991,
+      floorAreaM2: 123,
+      hasActiveListing: true,
+      marketState: 'for-sale',
+      hasListing: true,
+      activityScore: 14,
+      activityScoreTotal: 14,
+      likeCount: 0,
+      guessCount: 0,
+    });
 
     const screen = await renderMapScreen();
-
-    await waitFor(() => {
-      expect(mockGetBounds).toHaveBeenCalled();
-    });
 
     act(() => {
       capturedMapFilterBarProps?.onToggleFollowing?.();
     });
 
-    const marker = await screen.findByTestId('map-following-marker-property-9');
-    fireEvent.press(marker);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
-    expect(mockInteraction.handleFollowingOverlayPress).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'property-9' }),
+    fireEvent(screen.getByTestId('native-map'), 'press', {
+      nativeEvent: {
+        point: [100, 200],
+        lngLat: [5.47, 51.44],
+      },
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockQueryRenderedFeatures).toHaveBeenNthCalledWith(
+      1,
+      [100, 200],
+      expect.objectContaining({ layers: expect.any(Array) }),
+    );
+    expect(mockQueryRenderedFeatures).toHaveBeenNthCalledWith(
+      2,
+      [[72, 172], [128, 228]],
+      expect.objectContaining({ layers: expect.any(Array) }),
+    );
+    expect(mockFetchFollowingNearbyGroup).toHaveBeenCalledWith(
+      5.47,
+      51.44,
+      expect.any(Number),
+      expect.objectContaining({
+        marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+      }),
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      expect.objectContaining({ primaryPropertyId: 'property-9' }),
       expect.any(Number),
       expect.any(Object),
     );
-
-    const analyticsEvents = (
-      globalThis as typeof globalThis & {
-        __HUISHYPE_ANALYTICS_EVENTS__?: Array<{
-          name: string;
-          properties: Record<string, unknown>;
-        }>;
-      }
-    ).__HUISHYPE_ANALYTICS_EVENTS__;
-
-    expect(analyticsEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: 'map_property_click_through_from_following_filter',
-          properties: expect.objectContaining({
-            propertyId: 'property-9',
-          }),
-        }),
-      ]),
-    );
+    expect(mockInteraction.handleEmptyMapTap).not.toHaveBeenCalled();
   });
 });

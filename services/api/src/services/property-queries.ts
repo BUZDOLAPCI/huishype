@@ -324,6 +324,114 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
   `;
 }
 
+export function buildPropertyFollowingSocialFactsJoin(
+  viewerId: string,
+  propertyAlias = 'p',
+  alias = 'fsf',
+): SQL {
+  const idColumn = propertyIdColumn(propertyAlias);
+
+  return sql`
+    LEFT JOIN LATERAL (
+      WITH top_level_comments AS (
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE c.created_at > NOW() - INTERVAL '7 days'
+          )::int AS recent_count,
+          MAX(c.created_at) AS latest
+        FROM comments c
+        WHERE c.property_id = ${idColumn}
+          AND c.parent_id IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM user_follows uf
+            WHERE uf.follower_user_id = ${viewerId}
+              AND uf.followed_user_id = c.user_id
+          )
+      ),
+      replies AS (
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE c.created_at > NOW() - INTERVAL '7 days'
+          )::int AS recent_count,
+          MAX(c.created_at) AS latest
+        FROM comments c
+        WHERE c.property_id = ${idColumn}
+          AND c.parent_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM user_follows uf
+            WHERE uf.follower_user_id = ${viewerId}
+              AND uf.followed_user_id = c.user_id
+          )
+      ),
+      property_likes AS (
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE r.created_at > NOW() - INTERVAL '7 days'
+          )::int AS recent_count,
+          MAX(r.created_at) AS latest
+        FROM reactions r
+        WHERE r.target_type = 'property'
+          AND r.reaction_type = 'like'
+          AND r.target_id = ${idColumn}
+          AND EXISTS (
+            SELECT 1
+            FROM user_follows uf
+            WHERE uf.follower_user_id = ${viewerId}
+              AND uf.followed_user_id = r.user_id
+          )
+      ),
+      guesses AS (
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE pg.effective_at > NOW() - INTERVAL '7 days'
+          )::int AS recent_count,
+          MAX(pg.effective_at) AS latest
+        FROM (${buildLatestPublicGuessFactsQuery(idColumn)}) pg
+        WHERE EXISTS (
+          SELECT 1
+          FROM user_follows uf
+          WHERE uf.follower_user_id = ${viewerId}
+            AND uf.followed_user_id = pg.user_id
+        )
+      )
+      SELECT
+        COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
+        COALESCE(replies.count, 0)::int AS reply_count,
+        COALESCE(property_likes.count, 0)::int AS property_like_count,
+        COALESCE(guesses.count, 0)::int AS guess_count,
+        COALESCE(top_level_comments.recent_count, 0)::int AS recent_top_level_comment_count,
+        COALESCE(replies.recent_count, 0)::int AS recent_reply_count,
+        COALESCE(property_likes.recent_count, 0)::int AS recent_property_like_count,
+        COALESCE(guesses.recent_count, 0)::int AS recent_guess_count,
+        (
+          COALESCE(top_level_comments.count, 0)::double precision * ${TOP_LEVEL_COMMENT_WEIGHT}
+          + COALESCE(replies.count, 0)::double precision * ${REPLY_WEIGHT}
+          + COALESCE(property_likes.count, 0)::double precision * ${PROPERTY_LIKE_WEIGHT}
+          + COALESCE(guesses.count, 0)::double precision * ${GUESS_WEIGHT}
+        )::double precision AS social_score,
+        (
+          COALESCE(top_level_comments.recent_count, 0)::double precision * ${TOP_LEVEL_COMMENT_WEIGHT}
+          + COALESCE(replies.recent_count, 0)::double precision * ${REPLY_WEIGHT}
+          + COALESCE(property_likes.recent_count, 0)::double precision * ${PROPERTY_LIKE_WEIGHT}
+          + COALESCE(guesses.recent_count, 0)::double precision * ${GUESS_WEIGHT}
+        )::double precision AS recent_social_score,
+        GREATEST(
+          top_level_comments.latest,
+          replies.latest,
+          property_likes.latest,
+          guesses.latest
+        ) AS last_social_at
+      FROM top_level_comments, replies, property_likes, guesses
+    ) ${sql.raw(alias)} ON TRUE
+  `;
+}
+
 export function buildActivityFilterPredicate(activity: MapActivityFilter, alias = 'sf'): SQL {
   if (activity === 'social') {
     return sql`${sql.raw(`${alias}.social_score`)} > 0`;

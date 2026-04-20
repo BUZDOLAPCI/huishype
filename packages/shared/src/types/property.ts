@@ -28,6 +28,14 @@ export type PropertyGroupKind = 'single' | 'cluster';
 
 export type MapActivityFilter = 'all' | 'social' | 'recent';
 
+export interface PropertyMarketFilters {
+  salePriceFrom?: number | null;
+  salePriceTo?: number | null;
+  rentPriceFrom?: number | null;
+  rentPriceTo?: number | null;
+  marketState?: MapMarketState[];
+}
+
 /**
  * Core property information (multi-country)
  */

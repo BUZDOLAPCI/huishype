@@ -4,7 +4,12 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
-import { createIntegrationProperty } from './helpers/fixtures.js';
+import {
+  createIntegrationFollow,
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
 
 /**
  * Integration tests for property routes.
@@ -579,6 +584,97 @@ describe('Property routes', () => {
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+  });
+
+  describe('GET /properties/following-nearby', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns the canonical grouped shape for followed-user qualifying activity only', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-nearby-viewer' });
+      const actor = await createIntegrationUser(app, { label: 'following-nearby-actor' });
+      const property = await createIntegrationProperty({
+        street: 'Following Nearby Street',
+        houseNumber: 1,
+        city: 'Nearbyville',
+        postalCode: '9201AB',
+        lon: 4.8952,
+        lat: 52.3702,
+      });
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 615000,
+          thumbnailUrl: 'https://cdn.example.com/following-nearby.jpg',
+        });
+        await createIntegrationFollow({
+          followerUserId: viewer.userId,
+          followedUserId: actor.userId,
+        });
+        await db.execute(sql`
+          INSERT INTO comments (id, property_id, user_id, content, created_at)
+          VALUES (
+            ${crypto.randomUUID()},
+            ${property.id},
+            ${actor.userId},
+            'Followed-user nearby comment',
+            NOW()
+          )
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).not.toBeNull();
+        expect(body.primaryPropertyId).toBe(property.id);
+        expect(body.groupKind).toBe('single');
+        expect(body.nodeClass).toBe('active');
+        expect(body.hasActiveListing).toBe(true);
+        expect(body.marketState).toBe('for-sale');
+        expect(body).not.toHaveProperty('actorCount');
+        expect(body).not.toHaveProperty('activityTypes');
+
+        const filteredResponse = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&salePriceTo=500000&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(filteredResponse.statusCode).toBe(200);
+        expect(JSON.parse(filteredResponse.body)).toBeNull();
+      } finally {
+        await db.execute(sql`DELETE FROM comments WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM user_follows WHERE follower_user_id = ${viewer.userId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(
+          sql`DELETE FROM users WHERE id IN (${sql.join(
+            [sql`${viewer.userId}`, sql`${actor.userId}`],
+            sql`, `,
+          )})`,
+        );
       }
     });
   });

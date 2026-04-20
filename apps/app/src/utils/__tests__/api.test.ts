@@ -1,7 +1,7 @@
 import {
   api,
   fetchBatchProperties,
-  fetchFollowingViewport,
+  fetchFollowingNearbyGroup,
   fetchNearbyGroup,
   normalizeNearbyPropertyGroup,
   normalizeRenderedPropertyGroup,
@@ -161,7 +161,7 @@ describe('fetchNearbyGroup', () => {
   });
 });
 
-describe('fetchFollowingViewport', () => {
+describe('fetchFollowingNearbyGroup', () => {
   const mockFetch = jest.fn();
 
   beforeEach(() => {
@@ -169,19 +169,14 @@ describe('fetchFollowingViewport', () => {
     global.fetch = mockFetch as unknown as typeof fetch;
   });
 
-  it('uses only bbox, price bounds, and market state in the authenticated viewport URL', async () => {
+  it('threads committed map filters into the authenticated Following nearby request URL', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ items: [] }),
+      json: async () => null,
     });
 
-    await fetchFollowingViewport({
-      west: 5.4,
-      south: 51.4,
-      east: 5.5,
-      north: 51.5,
-    }, {
-      salePriceFrom: 500000,
+    await fetchFollowingNearbyGroup(5.4697, 51.4416, 15, {
+      salePriceFrom: null,
       salePriceTo: 800000,
       rentPriceFrom: null,
       rentPriceTo: null,
@@ -190,13 +185,10 @@ describe('fetchFollowingViewport', () => {
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/following-viewport?');
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('bbox=5.4%2C51.4%2C5.5%2C51.5');
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceFrom=500000');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/following-nearby?');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
-    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('activity=');
-    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('socialScope');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=recent');
   });
 });
 

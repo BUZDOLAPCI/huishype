@@ -30,7 +30,6 @@ import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
 import {
   fetchBatchProperties,
-  type FollowingViewportItem,
   normalizeRenderedPropertyGroup,
   type PropertyResolveResult,
   type NearbyPropertyGroup,
@@ -133,12 +132,6 @@ export interface UseMapInteractionReturn {
   handleFeaturePress: (features: GeoJSON.Feature[], currentZoom: number, camera: MapCameraCommands) => Promise<boolean>;
   /** Process a nearby grouped API result (native fallback). Returns true if handled. */
   handleNearbyResult: (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => void;
-  /** Open a preview directly from the authenticated following overlay payload. */
-  handleFollowingOverlayPress: (
-    item: FollowingViewportItem,
-    currentZoom: number,
-    camera: MapCameraCommands,
-  ) => void;
   /** Decide whether to dismiss the preview (empty background tap). */
   handleEmptyMapTap: () => void;
   /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
@@ -1006,52 +999,6 @@ export function useMapInteraction(): UseMapInteractionReturn {
     [openClusterPreviewAtCoord, schedulePreviewActivation],
   );
 
-  const handleFollowingOverlayPress = useCallback(
-    (
-      item: FollowingViewportItem,
-      currentZoom: number,
-      camera: MapCameraCommands,
-    ) => {
-      const coord = item.coordinate;
-      const derivedActivity = derivePreviewActivity({
-        hasActiveListing: item.hasActiveListing,
-        bootstrapNeutral: true,
-      });
-
-      setHighlightedCoordinate(coord);
-      flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
-      schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-        setSelectedPropertyId(item.id);
-        setPreviewGroup({
-          properties: [{
-            id: item.id,
-            coordinate: coord,
-            address: item.address,
-            city: item.city,
-            postalCode: item.postalCode ?? null,
-            countryCode: item.countryCode ?? undefined,
-            askingPrice: item.askingPrice ?? null,
-            thumbnailUrl: item.thumbnailUrl ?? null,
-            hasActiveListing: item.hasActiveListing ?? null,
-            marketState: item.marketState ?? null,
-            socialScore: derivedActivity.socialScore,
-            recentSocialScore: derivedActivity.recentSocialScore,
-            lastSocialAt: item.lastActivityAt ?? null,
-            activityLevel: derivedActivity.activityLevel,
-            activityScore: derivedActivity.activityScore,
-            aerialImageUrl: derivePropertyAerialImageUrl({
-              geometry: { type: 'Point', coordinates: coord },
-              countryCode: item.countryCode ?? undefined,
-            }),
-          }],
-          coordinate: coord,
-        });
-        setCurrentPreviewIndex(0);
-      });
-    },
-    [schedulePreviewActivation],
-  );
-
   // ── Empty map tap (dismiss logic) ───────────────────────────
   // Only close preview when bottom sheet is NOT expanded (peek or closed).
   // If sheet is expanded, the backdrop handles closing itself — preview persists.
@@ -1195,7 +1142,6 @@ export function useMapInteraction(): UseMapInteractionReturn {
     // Feature press / map tap
     handleFeaturePress,
     handleNearbyResult,
-    handleFollowingOverlayPress,
     handleEmptyMapTap,
     openClusterPreviewAtCoord,
 

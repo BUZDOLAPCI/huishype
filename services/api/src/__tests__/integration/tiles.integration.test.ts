@@ -6,6 +6,13 @@ import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
+import {
+  createIntegrationFollow,
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+  tileCoordinatesForPoint,
+} from './helpers/fixtures.js';
 
 type StyleSource = {
   type: string;
@@ -372,6 +379,45 @@ describe('Tile routes', () => {
     });
   });
 
+  describe('GET /tiles/following/properties.json', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/following/properties.json',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns private TileJSON metadata for authenticated Following tiles', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-tilejson-viewer' });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/following/properties.json?marketState=sold,for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty('tilejson', '2.1.0');
+        expect(body.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+        expect(body.tiles[0]).toContain('marketState=for-sale%2Csold');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+      } finally {
+        await db.execute(sql`DELETE FROM users WHERE id = ${viewer.userId}`);
+      }
+    });
+  });
+
   describe('GET /tiles/properties/:z/:x/:y.pbf', () => {
     // Eindhoven area tile coordinates at various zoom levels
     // Eindhoven center ≈ 51.44, 5.47
@@ -592,6 +638,82 @@ describe('Tile routes', () => {
       }
 
       expect(foundCluster).toBe(true);
+    });
+  });
+
+  describe('GET /tiles/following/properties/:z/:x/:y.pbf', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/following/properties/14/8434/5443.pbf',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns personalized grouped tiles with private cache semantics', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-tile-viewer' });
+      const actor = await createIntegrationUser(app, { label: 'following-tile-actor' });
+      const property = await createIntegrationProperty({
+        street: 'Following Tile Street',
+        houseNumber: 1,
+        city: 'Tileview',
+        postalCode: '9202AB',
+        lon: 4.8952,
+        lat: 52.3702,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 16);
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 625000,
+          thumbnailUrl: 'https://cdn.example.com/following-tile.jpg',
+        });
+        await createIntegrationFollow({
+          followerUserId: viewer.userId,
+          followedUserId: actor.userId,
+        });
+        await db.execute(sql`
+          INSERT INTO comments (id, property_id, user_id, content, created_at)
+          VALUES (
+            ${crypto.randomUUID()},
+            ${property.id},
+            ${actor.userId},
+            'Followed-user tile comment',
+            NOW()
+          )
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/following/properties/${tile.z}/${tile.x}/${tile.y}.pbf?marketState=for-sale`,
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-type']).toBe('application/x-protobuf');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+        expect(response.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM comments WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM user_follows WHERE follower_user_id = ${viewer.userId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(
+          sql`DELETE FROM users WHERE id IN (${sql.join(
+            [sql`${viewer.userId}`, sql`${actor.userId}`],
+            sql`, `,
+          )})`,
+        );
+      }
     });
   });
 

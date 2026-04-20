@@ -6,7 +6,10 @@ import { sql, eq, and, type SQL } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
 import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
-import { resolveNearbyGroupedFeature } from '../services/property-grouping.js';
+import {
+  resolveNearbyFollowingGroupedFeature,
+  resolveNearbyGroupedFeature,
+} from '../services/property-grouping.js';
 import {
   areMapFiltersDefault,
   buildPropertyMarketFilterQuery,
@@ -242,29 +245,11 @@ const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
 
 const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
 
-const followingViewportQuerySchema = z.object({
-  bbox: z.string().describe('Bounding box as "minLon,minLat,maxLon,maxLat"'),
+const followingNearbyQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  zoom: z.coerce.number().min(0).max(22).default(17),
   ...propertyMarketFiltersQuerySchema.shape,
-});
-
-const followingViewportItemSchema = z.object({
-  id: z.string().uuid(),
-  coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
-  address: z.string(),
-  city: z.string(),
-  postalCode: z.string().nullable(),
-  countryCode: z.string(),
-  askingPrice: z.number().nullable(),
-  thumbnailUrl: z.string().nullable(),
-  hasActiveListing: z.boolean(),
-  marketState: marketStateSchema,
-  activityTypes: z.array(z.enum(['property_like', 'comment', 'price_guess'])),
-  actorCount: z.number(),
-  lastActivityAt: z.string().datetime(),
-});
-
-const followingViewportResponseSchema = z.object({
-  items: z.array(followingViewportItemSchema),
 });
 
 type PropertyRow = {
@@ -899,177 +884,32 @@ export async function propertyRoutes(app: FastifyInstance) {
   );
 
   typedApp.get(
-    '/properties/following-viewport',
+    '/properties/following-nearby',
     {
       onRequest: [app.authenticate],
       schema: {
         tags: ['properties'],
-        summary: 'Get followed-user viewport activity overlay',
-        querystring: followingViewportQuerySchema,
+        summary: 'Find nearby grouped property in Following mode',
+        description:
+          'Returns the personalized grouped-property hit for the signed-in viewer when Following is active.',
+        querystring: followingNearbyQuerySchema,
         response: {
-          200: followingViewportResponseSchema,
+          200: nearbyGroupedResponseSchema,
           401: errorResponseSchema,
-          400: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const viewerId = request.userId!;
-      const { bbox } = request.query;
-      const parsedBbox = parseBboxString(bbox);
-      if (!parsedBbox) {
-        return reply.status(400).send({
-          error: 'BAD_REQUEST',
-          message: 'Invalid bbox parameter.',
-        });
-      }
-
-      const marketFilters = parsePropertyMarketFiltersQuery(request.query);
-      const marketFilterQuery = buildPropertyMarketFilterQuery(marketFilters, 'p');
-
-      const rows = await db.execute<{
-        id: string;
-        lon: number;
-        lat: number;
-        country_code: string;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string | null;
-        asking_price: number | null;
-        thumbnail_url: string | null;
-        has_active_listing: boolean;
-        market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
-        actor_count: number;
-        last_activity_at: string;
-        has_property_like: boolean;
-        has_comment: boolean;
-        has_price_guess: boolean;
-      }>(sql`
-        WITH viewport_properties AS (
-          SELECT p.id
-          FROM properties p
-          ${marketFilterQuery.join}
-          WHERE p.status = 'active'
-            AND p.geometry IS NOT NULL
-            AND p.geometry && ST_MakeEnvelope(
-              ${parsedBbox.minLon},
-              ${parsedBbox.minLat},
-              ${parsedBbox.maxLon},
-              ${parsedBbox.maxLat},
-              4326
-            )
-            AND ${marketFilterQuery.predicate}
-        ),
-        qualifying_activity AS (
-          SELECT
-            event_rows.property_id,
-            COUNT(DISTINCT event_rows.actor_user_id)::int AS actor_count,
-            MAX(event_rows.created_at) AS last_activity_at,
-            BOOL_OR(event_rows.event_type = 'property_like') AS has_property_like,
-            BOOL_OR(event_rows.event_type = 'comment') AS has_comment,
-            BOOL_OR(event_rows.event_type = 'price_guess') AS has_price_guess
-          FROM (
-            SELECT
-              r.target_id AS property_id,
-              r.user_id AS actor_user_id,
-              r.created_at,
-              'property_like'::text AS event_type
-            FROM reactions r
-            WHERE r.target_type = 'property'
-              AND r.reaction_type = 'like'
-              AND EXISTS (
-                SELECT 1
-                FROM user_follows uf
-                WHERE uf.follower_user_id = ${viewerId}
-                  AND uf.followed_user_id = r.user_id
-              )
-            UNION ALL
-            SELECT
-              c.property_id,
-              c.user_id,
-              c.created_at,
-              'comment'::text AS event_type
-            FROM comments c
-            WHERE EXISTS (
-              SELECT 1
-              FROM user_follows uf
-              WHERE uf.follower_user_id = ${viewerId}
-                AND uf.followed_user_id = c.user_id
-            )
-            UNION ALL
-            SELECT
-              pg.property_id,
-              pg.user_id,
-              GREATEST(pg.created_at, pg.updated_at) AS created_at,
-              'price_guess'::text AS event_type
-            FROM price_guesses pg
-            WHERE EXISTS (
-              SELECT 1
-              FROM user_follows uf
-              WHERE uf.follower_user_id = ${viewerId}
-                AND uf.followed_user_id = pg.user_id
-            )
-          ) event_rows
-          GROUP BY event_rows.property_id
-        )
-        SELECT
-          p.id,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          p.country_code,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          lf.asking_price,
-          lf.thumbnail_url,
-          lf.has_active_listing,
-          lf.market_state,
-          qa.actor_count,
-          qa.last_activity_at,
-          qa.has_property_like,
-          qa.has_comment,
-          qa.has_price_guess
-        FROM viewport_properties vp
-        INNER JOIN properties p ON p.id = vp.id
-        INNER JOIN qualifying_activity qa ON qa.property_id = p.id
-        ${buildPropertyListingFactsJoin('p', 'lf')}
-        ORDER BY qa.last_activity_at DESC, p.id
-      `);
-
-      return reply.send({
-        items: Array.from(rows).map((row) => ({
-          id: row.id,
-          coordinate: [row.lon, row.lat] as [number, number],
-          address: formatDisplayAddress(
-            {
-              street: row.street,
-              houseNumber: row.house_number,
-              houseNumberAddition: row.house_number_addition,
-              postalCode: row.postal_code ?? '',
-              city: row.city,
-            },
-            isValidCountryCode(row.country_code) ? row.country_code : undefined,
-          ),
-          city: row.city,
-          postalCode: row.postal_code,
-          countryCode: row.country_code,
-          askingPrice: row.asking_price != null ? Number(row.asking_price) : null,
-          thumbnailUrl: row.thumbnail_url,
-          hasActiveListing: row.has_active_listing,
-          marketState: row.market_state,
-          activityTypes: [
-            ...(row.has_property_like ? (['property_like'] as const) : []),
-            ...(row.has_comment ? (['comment'] as const) : []),
-            ...(row.has_price_guess ? (['price_guess'] as const) : []),
-          ],
-          actorCount: row.actor_count,
-          lastActivityAt: new Date(row.last_activity_at).toISOString(),
-        })),
-      });
+      const { lon, lat, zoom } = request.query;
+      const filters = parsePropertyMarketFiltersQuery(request.query);
+      const result = await resolveNearbyFollowingGroupedFeature(
+        lon,
+        lat,
+        zoom,
+        request.userId!,
+        filters,
+      );
+      return reply.send(mapNearbyGroupedResult(result));
     },
   );
 

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
+  buildFollowingPropertyTileTemplateUrl,
   buildPropertyTileTemplateUrl,
   createDefaultMapFilters,
   getMapFilterSignature,
@@ -19,10 +20,15 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
 import {
+  buildFollowingMvtForTile,
   buildMvtForTile,
   tileToBBox,
 } from '../services/property-grouping.js';
-import { parseMapFiltersQuery } from '../services/map-filters.js';
+import {
+  parseMapFiltersQuery,
+  parsePropertyMarketFiltersQuery,
+  propertyMarketFiltersQuerySchema,
+} from '../services/map-filters.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -90,6 +96,21 @@ const SPRITES_DIR = join(__dirname, '..', '..', 'sprites');
 // Sprite file params schema
 const spriteParamsSchema = z.object({
   filename: z.string().regex(/^ofm(@2x)?\.(json|png)$/),
+});
+
+const errorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+const tileJsonResponseSchema = z.object({
+  tilejson: z.string(),
+  name: z.string(),
+  description: z.string(),
+  tiles: z.array(z.string()),
+  minzoom: z.number(),
+  maxzoom: z.number(),
+  bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
 });
 
 const PROPERTY_TILE_CACHE_TTL_MS = 30_000;
@@ -1351,6 +1372,9 @@ export async function tileRoutes(app: FastifyInstance) {
         summary: 'Get property tile metadata (TileJSON)',
         description: 'Returns TileJSON 2.1.0 metadata for property vector tiles.',
         querystring: mapFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -1370,6 +1394,43 @@ export async function tileRoutes(app: FastifyInstance) {
         bounds: [-180, -85, 180, 85],
       });
     }
+  );
+
+  typedApp.get(
+    '/tiles/following/properties.json',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get Following property tile metadata (TileJSON)',
+        description:
+          'Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.',
+        querystring: propertyMarketFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const protocol = request.protocol;
+      const host = request.host;
+      const filters = parsePropertyMarketFiltersQuery(request.query);
+      const tileUrl = buildFollowingPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
+
+      return reply
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization')
+        .send({
+          tilejson: '2.1.0',
+          name: 'HuisHype Following Properties',
+          description: 'Personalized grouped property data from followed-user qualifying activity',
+          tiles: [tileUrl],
+          minzoom: 0,
+          maxzoom: 22,
+          bounds: [-180, -85, 180, 85],
+        });
+    },
   );
 
   /**
@@ -1472,6 +1533,52 @@ export async function tileRoutes(app: FastifyInstance) {
         .header('X-Tile-Cache', 'miss')
         .send(mvtBuffer);
     }
+  );
+
+  typedApp.get(
+    '/tiles/following/properties/:z/:x/:y.pbf',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get Following property vector tile',
+        description:
+          'Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.',
+        params: tileParamsSchema,
+        querystring: propertyMarketFiltersQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+      const filters = parsePropertyMarketFiltersQuery(request.query);
+
+      const startTime = Date.now();
+      const mvtBuffer = await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters);
+      const queryTime = Date.now() - startTime;
+
+      if (queryTime > 100) {
+        app.log.warn(
+          { z, x, y, queryTime, viewerId: request.userId },
+          `Slow following tile generation: ${queryTime}ms`,
+        );
+      }
+
+      if (!mvtBuffer || mvtBuffer.length === 0) {
+        return reply
+          .header('Cache-Control', 'private, no-store')
+          .header('Vary', 'Authorization')
+          .header('X-Tile-Generation-Time', `${queryTime}ms`)
+          .status(204)
+          .send();
+      }
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization')
+        .header('X-Tile-Generation-Time', `${queryTime}ms`)
+        .send(mvtBuffer);
+    },
   );
 
   // --- Tree scatter tiles ---

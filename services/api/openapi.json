@@ -2129,21 +2129,44 @@
         }
       }
     },
-    "/properties/following-viewport": {
+    "/properties/following-nearby": {
       "get": {
-        "summary": "Get followed-user viewport activity overlay",
+        "summary": "Find nearby grouped property in Following mode",
         "tags": [
           "properties"
         ],
+        "description": "Returns the personalized grouped-property hit for the signed-in viewer when Following is active.",
         "parameters": [
           {
             "schema": {
-              "type": "string"
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
             },
             "in": "query",
-            "name": "bbox",
-            "required": true,
-            "description": "Bounding box as \"minLon,minLat,maxLon,maxLat\""
+            "name": "lon",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "in": "query",
+            "name": "lat",
+            "required": true
+          },
+          {
+            "schema": {
+              "default": 17,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 22
+            },
+            "in": "query",
+            "name": "zoom",
+            "required": false
           },
           {
             "schema": {
@@ -2202,148 +2225,304 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "coordinate": {
-                            "type": "array",
-                            "prefixItems": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "number"
-                              }
-                            ],
-                            "description": "[longitude, latitude]"
-                          },
-                          "address": {
-                            "type": "string"
-                          },
-                          "city": {
-                            "type": "string"
-                          },
-                          "postalCode": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "countryCode": {
-                            "type": "string"
-                          },
-                          "askingPrice": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "thumbnailUrl": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "hasActiveListing": {
-                            "type": "boolean"
-                          },
-                          "marketState": {
-                            "type": "string",
-                            "enum": [
-                              "for-sale",
-                              "for-rent",
-                              "sold",
-                              "rented",
-                              "not-listed"
-                            ]
-                          },
-                          "activityTypes": {
-                            "type": "array",
-                            "items": {
+                  "anyOf": [
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "nodeClass": {
                               "type": "string",
                               "enum": [
-                                "property_like",
-                                "comment",
-                                "price_guess"
+                                "active",
+                                "ghost"
+                              ]
+                            },
+                            "primaryPropertyId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "pointCount": {
+                              "type": "number"
+                            },
+                            "propertyIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            "previewPropertyIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            "coordinate": {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "description": "[longitude, latitude]"
+                            },
+                            "distanceMeters": {
+                              "type": "number"
+                            },
+                            "bbox": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "prefixItems": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "[west, south, east, north]"
+                            },
+                            "activeListingCount": {
+                              "type": "number"
+                            },
+                            "socialCount": {
+                              "type": "number"
+                            },
+                            "recentSocialCount": {
+                              "type": "number"
+                            },
+                            "socialScoreTotal": {
+                              "type": "number"
+                            },
+                            "socialScoreMax": {
+                              "type": "number"
+                            },
+                            "recentSocialScoreTotal": {
+                              "type": "number"
+                            },
+                            "commentCount": {
+                              "type": "number"
+                            },
+                            "groupKind": {
+                              "type": "string",
+                              "enum": [
+                                "single"
+                              ]
+                            },
+                            "address": {
+                              "type": "string"
+                            },
+                            "city": {
+                              "type": "string"
+                            },
+                            "askingPrice": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "thumbnailUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "hasActiveListing": {
+                              "type": "boolean"
+                            },
+                            "marketState": {
+                              "type": "string",
+                              "enum": [
+                                "for-sale",
+                                "for-rent",
+                                "sold",
+                                "rented",
+                                "not-listed"
                               ]
                             }
                           },
-                          "actorCount": {
-                            "type": "number"
-                          },
-                          "lastActivityAt": {
-                            "type": "string",
-                            "format": "date-time",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                          }
+                          "required": [
+                            "nodeClass",
+                            "primaryPropertyId",
+                            "pointCount",
+                            "propertyIds",
+                            "previewPropertyIds",
+                            "coordinate",
+                            "distanceMeters",
+                            "bbox",
+                            "activeListingCount",
+                            "socialCount",
+                            "recentSocialCount",
+                            "socialScoreTotal",
+                            "socialScoreMax",
+                            "recentSocialScoreTotal",
+                            "commentCount",
+                            "groupKind",
+                            "address",
+                            "city",
+                            "askingPrice",
+                            "thumbnailUrl",
+                            "hasActiveListing",
+                            "marketState"
+                          ],
+                          "additionalProperties": false
                         },
-                        "required": [
-                          "id",
-                          "coordinate",
-                          "address",
-                          "city",
-                          "postalCode",
-                          "countryCode",
-                          "askingPrice",
-                          "thumbnailUrl",
-                          "hasActiveListing",
-                          "marketState",
-                          "activityTypes",
-                          "actorCount",
-                          "lastActivityAt"
-                        ],
-                        "additionalProperties": false
-                      }
-                    }
-                  },
-                  "required": [
-                    "items"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                        {
+                          "type": "object",
+                          "properties": {
+                            "nodeClass": {
+                              "type": "string",
+                              "enum": [
+                                "active",
+                                "ghost"
+                              ]
+                            },
+                            "primaryPropertyId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "pointCount": {
+                              "type": "number"
+                            },
+                            "propertyIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            "previewPropertyIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            "coordinate": {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "description": "[longitude, latitude]"
+                            },
+                            "distanceMeters": {
+                              "type": "number"
+                            },
+                            "bbox": {
+                              "anyOf": [
+                                {
+                                  "type": "array",
+                                  "prefixItems": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "[west, south, east, north]"
+                            },
+                            "activeListingCount": {
+                              "type": "number"
+                            },
+                            "socialCount": {
+                              "type": "number"
+                            },
+                            "recentSocialCount": {
+                              "type": "number"
+                            },
+                            "socialScoreTotal": {
+                              "type": "number"
+                            },
+                            "socialScoreMax": {
+                              "type": "number"
+                            },
+                            "recentSocialScoreTotal": {
+                              "type": "number"
+                            },
+                            "commentCount": {
+                              "type": "number"
+                            },
+                            "groupKind": {
+                              "type": "string",
+                              "enum": [
+                                "cluster"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "nodeClass",
+                            "primaryPropertyId",
+                            "pointCount",
+                            "propertyIds",
+                            "previewPropertyIds",
+                            "coordinate",
+                            "distanceMeters",
+                            "bbox",
+                            "activeListingCount",
+                            "socialCount",
+                            "recentSocialCount",
+                            "socialScoreTotal",
+                            "socialScoreMax",
+                            "recentSocialScoreTotal",
+                            "commentCount",
+                            "groupKind"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
                     },
-                    "message": {
-                      "type": "string"
+                    {
+                      "type": "null"
                     }
-                  },
-                  "required": [
-                    "error",
-                    "message"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               }
             }
@@ -5236,7 +5415,210 @@
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tilejson": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tiles/following/properties.json": {
+      "get": {
+        "summary": "Get Following property tile metadata (TileJSON)",
+        "tags": [
+          "tiles"
+        ],
+        "description": "Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "salePriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "salePriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "rentPriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "rentPriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "in": "query",
+            "name": "marketState",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tilejson": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -5309,6 +5691,102 @@
             },
             "in": "query",
             "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 22
+            },
+            "in": "path",
+            "name": "z",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "x",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "y",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/following/properties/{z}/{x}/{y}.pbf": {
+      "get": {
+        "summary": "Get Following property vector tile",
+        "tags": [
+          "tiles"
+        ],
+        "description": "Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "salePriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "salePriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "rentPriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number"
+            },
+            "in": "query",
+            "name": "rentPriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "in": "query",
+            "name": "marketState",
             "required": false
           },
           {

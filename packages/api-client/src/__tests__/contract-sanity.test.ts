@@ -15,9 +15,11 @@ import type { paths } from '../../generated/api.js';
 import type {
   GetFeedRequest,
   GetFeedResponse,
+  GetFollowingNearbyPropertyRequest,
+  GetFollowingNearbyPropertyResponse,
   GetFollowersResponse,
-  GetFollowingViewportRequest,
-  GetFollowingViewportResponse,
+  GetFollowingPropertyTilesRequest,
+  GetFollowingPropertyTilesResponse,
   GetFollowingResponse,
   GetMyProfileResponse,
   GetPropertyResponse,
@@ -89,10 +91,14 @@ type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
 type ResolvePropertyBodyFromOpenApi = Expand<Exclude<ResolvePropertyResponseFromOpenApi, null>>;
 type CanonicalResolvePropertyBody = Expand<Exclude<PropertyResolveResponse, null>>;
-type FollowingViewportQueryFromOpenApi =
-  paths['/properties/following-viewport']['get']['parameters']['query'];
-type FollowingViewportResponseFromOpenApi =
-  paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
+type FollowingPropertyTilesQueryFromOpenApi = NonNullable<
+  paths['/tiles/following/properties.json']['get']['parameters']['query']
+>;
+type FollowingPropertyTilesResponseFromOpenApi =
+  paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
+type FollowingNearbyQueryFromOpenApi = NonNullable<
+  paths['/properties/following-nearby']['get']['parameters']['query']
+>;
 type NearbyGroupedResponseFromOpenApi =
   paths['/properties/nearby']['get']['responses'][200]['content']['application/json'];
 type NearbySingleFromOpenApi = Extract<
@@ -101,6 +107,14 @@ type NearbySingleFromOpenApi = Extract<
 >;
 type NearbyClusterFromOpenApi = Extract<
   Exclude<NearbyGroupedResponseFromOpenApi, null>,
+  { groupKind: 'cluster' }
+>;
+type FollowingNearbySharedSingle = Extract<
+  Exclude<GetFollowingNearbyPropertyResponse, null>,
+  { groupKind: 'single' }
+>;
+type FollowingNearbySharedCluster = Extract<
+  Exclude<GetFollowingNearbyPropertyResponse, null>,
   { groupKind: 'cluster' }
 >;
 type CanonicalNearbySingle = {
@@ -254,33 +268,36 @@ const feedContractAssertions = [
   >,
   true as Expect<
     Equal<
-      keyof FollowingViewportQueryFromOpenApi,
-      keyof GetFollowingViewportRequest
+      keyof FollowingPropertyTilesQueryFromOpenApi,
+      keyof GetFollowingPropertyTilesRequest
     >
   >,
-  true as Expect<Equal<Extract<keyof FollowingViewportQueryFromOpenApi, 'activity' | 'socialScope'>, never>>,
   true as Expect<
     Equal<
-      keyof FollowingViewportResponseFromOpenApi['items'][number],
-      | 'id'
-      | 'coordinate'
-      | 'address'
-      | 'city'
-      | 'postalCode'
-      | 'countryCode'
-      | 'askingPrice'
-      | 'thumbnailUrl'
-      | 'hasActiveListing'
-      | 'marketState'
-      | 'activityTypes'
-      | 'actorCount'
-      | 'lastActivityAt'
+      Extract<keyof FollowingPropertyTilesQueryFromOpenApi, 'activity' | 'bbox' | 'socialScope'>,
+      never
     >
   >,
-  true as Assert<IsExact<FollowingViewportResponseFromOpenApi, GetFollowingViewportResponse>>,
+  true as Assert<IsExact<FollowingPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>>,
+  true as Expect<
+    Equal<
+      keyof FollowingNearbyQueryFromOpenApi,
+      keyof GetFollowingNearbyPropertyRequest
+    >
+  >,
+  true as Expect<
+    Equal<Extract<keyof FollowingNearbyQueryFromOpenApi, 'activity' | 'bbox' | 'socialScope'>, never>
+  >,
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
   true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
+  true as Expect<Equal<keyof FollowingNearbySharedSingle, keyof CanonicalNearbySingle>>,
+  true as Expect<Equal<keyof FollowingNearbySharedCluster, keyof CanonicalNearbyCluster>>,
+  true as Expect<Equal<FollowingNearbySharedSingle['bbox'], CanonicalNearbySingle['bbox']>>,
+  true as Expect<Equal<FollowingNearbySharedCluster['bbox'], CanonicalNearbyCluster['bbox']>>,
+  true as Expect<
+    Equal<FollowingNearbySharedSingle['marketState'], CanonicalNearbySingle['marketState']>
+  >,
   true as Expect<Equal<HasStaleMapMethod, false>>,
 ] as const;
 
@@ -303,7 +320,7 @@ describe('Generated OpenAPI types', () => {
       '/properties',
       '/properties/resolve',
       '/properties/nearby',
-      '/properties/following-viewport',
+      '/properties/following-nearby',
       '/properties/batch',
       '/properties/{id}',
       '/properties/{id}/save',
@@ -333,6 +350,7 @@ describe('Generated OpenAPI types', () => {
       '/push-tokens',
       '/listings/preview',
       '/listings/submit',
+      '/tiles/following/properties.json',
     ];
 
     // Runtime: verify each path key is valid
@@ -340,7 +358,7 @@ describe('Generated OpenAPI types', () => {
       expect(path).toBeTruthy();
     }
     // Verify we have a meaningful number of paths
-    expect(expectedPaths.length).toBeGreaterThanOrEqual(37);
+    expect(expectedPaths.length).toBeGreaterThanOrEqual(38);
   });
 
   it('generated paths do not use /api/v1 prefix', () => {
@@ -383,7 +401,8 @@ describe('HuisHypeApiClient', () => {
     // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
-    expect(typeof client.getFollowingViewport).toBe('function');
+    expect(typeof client.getFollowingPropertyTiles).toBe('function');
+    expect(typeof client.getFollowingNearbyProperty).toBe('function');
     expect('getMapProperties' in client).toBe(false);
 
     // Guesses
@@ -461,28 +480,101 @@ describe('HuisHypeApiClient', () => {
     }
   });
 
-  it('serializes following viewport market state arrays against the canonical route', async () => {
+  it('serializes Following TileJSON market filters against the canonical authenticated route', async () => {
     const client = createApiClient({
       baseUrl: 'http://localhost:3100',
       accessToken: 'mock-token',
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      new Response(
+        JSON.stringify({
+          tilejson: '2.1.0',
+          name: 'HuisHype Following Properties',
+          description: 'Personalized grouped property data from followed-user qualifying activity',
+          tiles: ['http://localhost:3100/tiles/following/properties/{z}/{x}/{y}.pbf?marketState=for-sale%2Csold'],
+          minzoom: 0,
+          maxzoom: 22,
+          bounds: [-180, -85, 180, 85],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
     );
 
     try {
       await expect(
-        client.getFollowingViewport({
-          bbox: '4.8,52.3,4.9,52.4',
+        client.getFollowingPropertyTiles({
           marketState: ['for-sale', 'sold'],
         })
-      ).resolves.toEqual({ items: [] });
+      ).resolves.toHaveProperty('tilejson', '2.1.0');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/properties/following-viewport?bbox=4.8%2C52.3%2C4.9%2C52.4&marketState=for-sale%2Csold',
+        'http://localhost:3100/tiles/following/properties.json?marketState=for-sale%2Csold',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer mock-token',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes Following nearby requests against the canonical authenticated route', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'mock-token',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          nodeClass: 'active',
+          groupKind: 'single',
+          primaryPropertyId: 'a0000000-0000-4000-a000-000000000001',
+          pointCount: 1,
+          propertyIds: ['a0000000-0000-4000-a000-000000000001'],
+          previewPropertyIds: ['a0000000-0000-4000-a000-000000000001'],
+          coordinate: [4.89, 52.37],
+          distanceMeters: 12,
+          bbox: null,
+          activeListingCount: 1,
+          socialCount: 1,
+          recentSocialCount: 1,
+          socialScoreTotal: 10,
+          socialScoreMax: 10,
+          recentSocialScoreTotal: 4,
+          commentCount: 2,
+          address: 'Fixture Street 1, 1234 AB Amsterdam',
+          city: 'Amsterdam',
+          askingPrice: 550000,
+          thumbnailUrl: null,
+          hasActiveListing: true,
+          marketState: 'for-sale',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    try {
+      await expect(
+        client.getFollowingNearbyProperty({
+          lon: 4.8952,
+          lat: 52.3702,
+          zoom: 16,
+          marketState: ['for-sale', 'sold'],
+        })
+      ).resolves.toHaveProperty('groupKind', 'single');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&marketState=for-sale%2Csold',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

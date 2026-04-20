@@ -3,13 +3,6 @@ import { api } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import {
-  fetchFollowingViewport,
-  serializeViewportBounds,
-  type FollowingViewportItem,
-  type MapViewportBounds,
-} from '../utils/api';
-import {
-  createDefaultMapFilters,
   type MapFilters,
   type MapMarketState,
 } from '@/src/lib/sharedMapFilters';
@@ -102,8 +95,6 @@ export interface PropertyDetails extends Property {
   isLiked?: boolean;
   isSaved?: boolean;
 }
-
-export type { FollowingViewportItem };
 
 const RECENT_HOT_SCORE_THRESHOLD = 0.5;
 const HOT_ACTIVITY_SCORE_THRESHOLD = 50;
@@ -336,42 +327,6 @@ export function useAllProperties(limit = 100) {
     queryFn: () => fetchProperties({ limit, city: 'Eindhoven' }),
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 2,
-  });
-}
-
-export function useFollowingViewport(
-  bounds: MapViewportBounds | null,
-  filters: MapFilters = createDefaultMapFilters(),
-  enabled = true,
-) {
-  const { getAccessToken, isAuthenticated, user } = useAuthContext();
-  const bbox = bounds ? serializeViewportBounds(bounds) : null;
-  const viewportFilters = {
-    salePriceFrom: filters.salePriceFrom,
-    salePriceTo: filters.salePriceTo,
-    rentPriceFrom: filters.rentPriceFrom,
-    rentPriceTo: filters.rentPriceTo,
-    marketState: filters.marketState,
-  };
-  const viewerKey = getViewerCacheKey(user, isAuthenticated);
-
-  return useQuery({
-    queryKey: propertyKeys.followingViewport(viewerKey, bbox, viewportFilters),
-    queryFn: async () => {
-      if (!bounds) {
-        return [];
-      }
-
-      const accessToken = await getAccessToken();
-      if (!accessToken) {
-        throw new Error('Not authenticated');
-      }
-
-      return fetchFollowingViewport(bounds, filters);
-    },
-    enabled: enabled && !!bbox && isAuthenticated,
-    staleTime: 15 * 1000,
-    retry: false,
   });
 }
 

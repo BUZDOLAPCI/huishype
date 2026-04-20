@@ -388,9 +388,9 @@ describe('Mock handler runtime parity', () => {
     expect(await mismatchedAdditionResponse.json()).toBeNull();
   });
 
-  it('matches following viewport auth split and sparse overlay payload', async () => {
+  it('matches Following TileJSON auth split and personalized nearby grouped payloads', async () => {
     const unauthorizedResponse = await fetch(
-      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4',
+      'http://localhost/tiles/following/properties.json',
     );
     expect(unauthorizedResponse.status).toBe(401);
 
@@ -402,40 +402,35 @@ describe('Mock handler runtime parity', () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.session.accessToken as string;
 
-    const response = await fetch(
-      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale',
+    const tileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json?marketState=for-sale,sold',
       {
         headers: { Authorization: `Bearer ${token}` },
       },
     );
-    const body = await response.json();
+    const tileJsonBody = await tileJsonResponse.json();
 
-    expect(response.status).toBe(200);
-    expect(Array.isArray(body.items)).toBe(true);
-    expect(body.items.length).toBeGreaterThan(0);
-    expect(body.items[0].id).toMatch(uuidShape);
-    expect(body.items[0]).toHaveProperty('coordinate');
-    expect(body.items[0]).toHaveProperty('activityTypes');
-    expect(body.items[0]).toHaveProperty('actorCount');
-    expect(body.items[0]).toHaveProperty('lastActivityAt');
-    expect(body.items[0]).not.toHaveProperty('groupKind');
-    expect(body.items[0]).not.toHaveProperty('pointCount');
-    expect(body.items.every((item: { marketState: string }) => item.marketState === 'for-sale')).toBe(
-      true,
-    );
+    expect(tileJsonResponse.status).toBe(200);
+    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
+    expect(tileJsonBody).toHaveProperty('tiles');
+    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
+    expect(tileJsonBody.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
 
-    const filteredResponse = await fetch(
-      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale&salePriceTo=2500000',
+    const nearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale',
       {
         headers: { Authorization: `Bearer ${token}` },
       },
     );
-    const filteredBody = await filteredResponse.json();
+    const nearbyBody = await nearbyResponse.json();
 
-    expect(filteredResponse.status).toBe(200);
-    expect(filteredBody.items.map((item: { id: string }) => item.id)).toEqual([
-      mockPropertyIds.herengracht502,
-    ]);
+    expect(nearbyResponse.status).toBe(200);
+    expect(nearbyBody).toHaveProperty('groupKind', 'single');
+    expect(nearbyBody).toHaveProperty('primaryPropertyId');
+    expect(nearbyBody).toHaveProperty('hasActiveListing');
+    expect(nearbyBody).toHaveProperty('marketState', 'for-sale');
+    expect(Object.keys(nearbyBody).sort()).toEqual(nearbySingleKeys);
 
     const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
       method: 'PUT',
@@ -444,22 +439,18 @@ describe('Mock handler runtime parity', () => {
     expect(followResponse.status).toBe(200);
 
     const afterFollowResponse = await fetch(
-      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale',
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=13&marketState=for-sale',
       {
         headers: { Authorization: `Bearer ${token}` },
       },
     );
     const afterFollowBody = await afterFollowResponse.json();
-    const prinsengrachtOverlay = afterFollowBody.items.find(
-      (item: { id: string }) => item.id === mockPropertyIds.prinsengracht263,
-    );
 
     expect(afterFollowResponse.status).toBe(200);
-    expect(prinsengrachtOverlay).toEqual(
-      expect.objectContaining({
-        actorCount: 2,
-        activityTypes: expect.arrayContaining(['comment', 'price_guess']),
-      }),
+    expect(afterFollowBody).toHaveProperty('groupKind', 'cluster');
+    expect(Object.keys(afterFollowBody).sort()).toEqual(nearbyClusterKeys);
+    expect(afterFollowBody.propertyIds).toEqual(
+      expect.arrayContaining([mockPropertyIds.herengracht502, mockPropertyIds.prinsengracht263]),
     );
   });
 

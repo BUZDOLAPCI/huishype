@@ -3,7 +3,12 @@
  * These types define the contract between frontend and backend
  */
 
-import type { PropertyDetail, PropertySummary, MapMarketState } from './property.js';
+import type {
+  PropertyDetail,
+  PropertySummary,
+  MapMarketState,
+  PropertyMarketFilters,
+} from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
 import type {
   User,
@@ -465,36 +470,99 @@ export interface GetSavedPropertiesResponse {
   hasMore: boolean;
 }
 
-export type FollowingViewportActivityType = 'property_like' | 'comment' | 'price_guess';
+export interface PropertyTileJson {
+  tilejson: string;
+  name: string;
+  description: string;
+  tiles: string[];
+  minzoom: number;
+  maxzoom: number;
+  bounds: [number, number, number, number];
+}
 
-export interface GetFollowingViewportRequest {
-  bbox: string;
-  salePriceFrom?: number;
-  salePriceTo?: number;
-  rentPriceFrom?: number;
-  rentPriceTo?: number;
+export interface FollowingPropertyTileRequest
+  extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
 }
 
-export interface FollowingViewportProperty {
-  id: string;
+export type GetFollowingPropertyTilesRequest = FollowingPropertyTileRequest;
+
+export type GetFollowingPropertyTilesResponse = PropertyTileJson;
+
+export interface GetFollowingNearbyPropertyRequest extends FollowingPropertyTileRequest {
+  lon: number;
+  lat: number;
+  zoom?: number;
+}
+
+export type FollowingNearbyPropertyGroupBase = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
   coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+};
+
+export type FollowingNearbySinglePropertyResponse = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  groupKind: 'single';
   address: string;
   city: string;
-  postalCode: string | null;
-  countryCode: string;
   askingPrice: number | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean;
   marketState: MapMarketState;
-  activityTypes: FollowingViewportActivityType[];
-  actorCount: number;
-  lastActivityAt: string;
-}
+};
 
-export interface GetFollowingViewportResponse {
-  items: FollowingViewportProperty[];
-}
+export type FollowingNearbyClusterPropertyResponse = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  groupKind: 'cluster';
+};
+
+export type FollowingNearbyPropertyResponse =
+  | FollowingNearbySinglePropertyResponse
+  | FollowingNearbyClusterPropertyResponse
+  | null;
+
+export type GetFollowingNearbyPropertyResponse = FollowingNearbyPropertyResponse;
 
 // ============================================
 // Notification API Types

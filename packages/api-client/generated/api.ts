@@ -807,19 +807,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/properties/following-viewport": {
+    "/properties/following-nearby": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get followed-user viewport activity overlay */
+        /**
+         * Find nearby grouped property in Following mode
+         * @description Returns the personalized grouped-property hit for the signed-in viewer when Following is active.
+         */
         get: {
             parameters: {
                 query: {
-                    /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
-                    bbox: string;
+                    lon: number;
+                    lat: number;
+                    zoom?: number;
                     salePriceFrom?: number;
                     salePriceTo?: number;
                     rentPriceFrom?: number;
@@ -838,42 +842,74 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            items: {
-                                /** Format: uuid */
-                                id: string;
-                                /** @description [longitude, latitude] */
-                                coordinate: [
-                                    number,
-                                    number
-                                ];
-                                address: string;
-                                city: string;
-                                postalCode: string | null;
-                                countryCode: string;
-                                askingPrice: number | null;
-                                thumbnailUrl: string | null;
-                                hasActiveListing: boolean;
-                                /** @enum {string} */
-                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
-                                activityTypes: ("property_like" | "comment" | "price_guess")[];
-                                actorCount: number;
-                                /** Format: date-time */
-                                lastActivityAt: string;
-                            }[];
-                        };
-                    };
-                };
-                /** @description Default Response */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            error: string;
-                            message: string;
-                        };
+                        "application/json": ({
+                            /** @enum {string} */
+                            nodeClass: "active" | "ghost";
+                            /** Format: uuid */
+                            primaryPropertyId: string;
+                            pointCount: number;
+                            propertyIds: string[];
+                            previewPropertyIds: string[];
+                            /** @description [longitude, latitude] */
+                            coordinate: [
+                                number,
+                                number
+                            ];
+                            distanceMeters: number;
+                            /** @description [west, south, east, north] */
+                            bbox: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ] | null;
+                            activeListingCount: number;
+                            socialCount: number;
+                            recentSocialCount: number;
+                            socialScoreTotal: number;
+                            socialScoreMax: number;
+                            recentSocialScoreTotal: number;
+                            commentCount: number;
+                            /** @enum {string} */
+                            groupKind: "single";
+                            address: string;
+                            city: string;
+                            askingPrice: number | null;
+                            thumbnailUrl: string | null;
+                            hasActiveListing: boolean;
+                            /** @enum {string} */
+                            marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                        } | {
+                            /** @enum {string} */
+                            nodeClass: "active" | "ghost";
+                            /** Format: uuid */
+                            primaryPropertyId: string;
+                            pointCount: number;
+                            propertyIds: string[];
+                            previewPropertyIds: string[];
+                            /** @description [longitude, latitude] */
+                            coordinate: [
+                                number,
+                                number
+                            ];
+                            distanceMeters: number;
+                            /** @description [west, south, east, north] */
+                            bbox: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ] | null;
+                            activeListingCount: number;
+                            socialCount: number;
+                            recentSocialCount: number;
+                            socialScoreTotal: number;
+                            socialScoreMax: number;
+                            recentSocialScoreTotal: number;
+                            commentCount: number;
+                            /** @enum {string} */
+                            groupKind: "cluster";
+                        }) | null;
                     };
                 };
                 /** @description Default Response */
@@ -2133,7 +2169,92 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/following/properties.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Following property tile metadata (TileJSON)
+         * @description Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
                 };
             };
         };
@@ -2165,6 +2286,53 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "social" | "recent";
+                };
+                header?: never;
+                path: {
+                    z: number;
+                    x: number;
+                    y: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/following/properties/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Following property vector tile
+         * @description Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
                 };
                 header?: never;
                 path: {

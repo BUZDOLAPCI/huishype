@@ -9,6 +9,7 @@ import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import {
   buildActivityFilterPredicate,
+  buildPropertyFollowingSocialFactsJoin,
   buildPropertyListingFactsJoin,
   buildPropertySocialFactsJoin,
 } from './property-queries.js';
@@ -144,6 +145,12 @@ type ClusterBuilderConfig = {
 type NearbyResolution = CanonicalPropertyGroup & {
   distanceMeters: number;
 };
+
+type GroupingCandidateFetcher = (
+  boundsList: TileBBox[],
+  zoom: number,
+  filters: MapFilters,
+) => Promise<GroupingCandidate[]>;
 
 type RadiusStop = readonly [threshold: number, radiusPx: number];
 
@@ -482,6 +489,7 @@ async function fetchNearbyEmittedGroups(
   lat: number,
   zoom: number,
   filters: MapFilters,
+  fetchCandidates: GroupingCandidateFetcher,
 ): Promise<CanonicalPropertyGroup[]> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const tapTile = worldToOwnerTile(worldX, worldY, zoom);
@@ -491,10 +499,9 @@ async function fetchNearbyEmittedGroups(
     tile,
     worldBounds: getBufferedTileWorldBounds(tile, bufferUnits),
   }));
-  const candidates = await fetchGroupingCandidatesInBBoxes(
+  const candidates = await fetchCandidates(
     tiles.map((tile) => getBufferedTileBBox(tile, bufferUnits)),
     zoom,
-    shouldFetchGhostCandidates(zoom),
     filters,
   );
   const candidatesByTile = new Map<string, GroupingCandidate[]>();
@@ -664,6 +671,55 @@ async function fetchGroupingCandidatesInBBoxes(
   return Array.from(rows).map((row) => toCandidate(row, zoom));
 }
 
+async function fetchFollowingGroupingCandidatesInBBoxes(
+  viewerId: string,
+  boundsList: TileBBox[],
+  zoom: number,
+  filters: MapFilters,
+): Promise<GroupingCandidate[]> {
+  const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
+  const listingFactsJoin = areMapFiltersDefault(marketFilterQuery.filters)
+    ? buildPropertyListingFactsJoin('p', 'lf')
+    : marketFilterQuery.join;
+  const bboxFilter = sql.join(
+    boundsList.map(
+      (bounds) => sql`p.geometry && ST_MakeEnvelope(
+          ${bounds.minLon},
+          ${bounds.minLat},
+          ${bounds.maxLon},
+          ${bounds.maxLat},
+          4326
+        )`,
+    ),
+    sql` OR `,
+  );
+
+  const rows = await db.execute<GroupingCandidateRow>(sql`
+    SELECT
+      p.id,
+      ST_X(p.geometry) AS lon,
+      ST_Y(p.geometry) AS lat,
+      COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
+      COALESCE(fsf.social_score, 0)::double precision AS social_score,
+      COALESCE(fsf.recent_social_score, 0)::double precision AS recent_social_score,
+      (
+        COALESCE(fsf.top_level_comment_count, 0)
+        + COALESCE(fsf.reply_count, 0)
+      )::int AS comment_count,
+      lf.market_state
+    FROM properties p
+    ${listingFactsJoin}
+    ${buildPropertyFollowingSocialFactsJoin(viewerId, 'p', 'fsf')}
+    WHERE p.geometry IS NOT NULL
+      AND p.status = 'active'
+      AND (${bboxFilter})
+      AND ${marketFilterQuery.predicate}
+      AND COALESCE(fsf.social_score, 0) > 0
+  `);
+
+  return Array.from(rows).map((row) => toCandidate(row, zoom));
+}
+
 async function fetchGroupingCandidates(
   tile: TileId,
   filters: MapFilters,
@@ -673,6 +729,20 @@ async function fetchGroupingCandidates(
     bufferedBounds,
     tile.z,
     shouldFetchGhostCandidates(tile.z),
+    filters,
+  );
+}
+
+async function fetchFollowingGroupingCandidates(
+  tile: TileId,
+  viewerId: string,
+  filters: MapFilters,
+): Promise<GroupingCandidate[]> {
+  const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
+  return fetchFollowingGroupingCandidatesInBBoxes(
+    viewerId,
+    [bufferedBounds],
+    tile.z,
     filters,
   );
 }
@@ -825,6 +895,16 @@ export async function buildCanonicalGroupsForTile(
   return hydrateSinglePropertyDetails(groups);
 }
 
+export async function buildFollowingCanonicalGroupsForTile(
+  tile: TileId,
+  viewerId: string,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<CanonicalPropertyGroup[]> {
+  const candidates = await fetchFollowingGroupingCandidates(tile, viewerId, filters);
+  const groups = groupCandidatesForTile(tile, candidates);
+  return hydrateSinglePropertyDetails(groups);
+}
+
 function haversineMeters(a: [number, number], b: [number, number]): number {
   const earthRadiusM = 6371000;
   const dLat = ((b[1] - a[1]) * Math.PI) / 180;
@@ -847,7 +927,62 @@ export async function resolveNearbyGroupedFeature(
   filters: MapFilters = createDefaultMapFilters(),
 ): Promise<NearbyResolution | null> {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  const emittedGroups = await fetchNearbyEmittedGroups(lon, lat, zoom, filters);
+  const emittedGroups = await fetchNearbyEmittedGroups(
+    lon,
+    lat,
+    zoom,
+    filters,
+    (boundsList, candidateZoom, candidateFilters) =>
+      fetchGroupingCandidatesInBBoxes(
+        boundsList,
+        candidateZoom,
+        shouldFetchGhostCandidates(candidateZoom),
+        candidateFilters,
+      ),
+  );
+
+  const tapCoordinate: [number, number] = [lon, lat];
+  let bestMatch: NearbyResolution | null = null;
+  let bestDistanceUnits = Number.POSITIVE_INFINITY;
+
+  for (const group of emittedGroups) {
+    const dx = group.anchorWorldX - worldX;
+    const dy = group.anchorWorldY - worldY;
+    const distanceUnits = Math.hypot(dx, dy);
+    if (distanceUnits > getNearbyHitRadiusUnits(group)) continue;
+    if (distanceUnits >= bestDistanceUnits) continue;
+
+    bestDistanceUnits = distanceUnits;
+    bestMatch = {
+      ...group,
+      distanceMeters: haversineMeters(tapCoordinate, group.coordinate),
+    };
+  }
+
+  return bestMatch;
+}
+
+export async function resolveNearbyFollowingGroupedFeature(
+  lon: number,
+  lat: number,
+  zoom: number,
+  viewerId: string,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<NearbyResolution | null> {
+  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const emittedGroups = await fetchNearbyEmittedGroups(
+    lon,
+    lat,
+    zoom,
+    filters,
+    (boundsList, candidateZoom, candidateFilters) =>
+      fetchFollowingGroupingCandidatesInBBoxes(
+        viewerId,
+        boundsList,
+        candidateZoom,
+        candidateFilters,
+      ),
+  );
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;
@@ -902,11 +1037,10 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
   };
 }
 
-export async function buildMvtForTile(
+async function buildMvtForGroups(
   tile: TileId,
-  filters: MapFilters = createDefaultMapFilters(),
+  groups: CanonicalPropertyGroup[],
 ): Promise<Buffer> {
-  const groups = await buildCanonicalGroupsForTile(tile, filters);
   if (groups.length === 0) {
     return Buffer.alloc(0);
   }
@@ -995,4 +1129,22 @@ export async function buildMvtForTile(
   }
 
   return Buffer.isBuffer(row.mvt) ? row.mvt : Buffer.from(row.mvt);
+}
+
+export async function buildMvtForTile(
+  tile: TileId,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<Buffer> {
+  return buildMvtForGroups(tile, await buildCanonicalGroupsForTile(tile, filters));
+}
+
+export async function buildFollowingMvtForTile(
+  tile: TileId,
+  viewerId: string,
+  filters: MapFilters = createDefaultMapFilters(),
+): Promise<Buffer> {
+  return buildMvtForGroups(
+    tile,
+    await buildFollowingCanonicalGroupsForTile(tile, viewerId, filters),
+  );
 }
