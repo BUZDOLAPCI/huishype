@@ -17,6 +17,7 @@ const mockNativeStyleJson: Record<string, unknown> = {
   layers: [],
 };
 let mockIsAuthenticated = true;
+let mockFollowingViewportIsError = false;
 let mockFollowingViewportData: Array<{
   id: string;
   coordinate: [number, number];
@@ -167,6 +168,9 @@ const mockUseFollowingViewport = jest.fn(
   (_bounds: unknown, _filters: unknown, _enabled: unknown) => ({
     data: mockFollowingViewportData,
     isLoading: false,
+    isError: mockFollowingViewportIsError,
+    error: mockFollowingViewportIsError ? new Error('Following viewport failed') : null,
+    refetch: jest.fn(),
   }),
 );
 
@@ -278,6 +282,7 @@ describe('MapScreen native following mode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsAuthenticated = true;
+    mockFollowingViewportIsError = false;
     mockFollowingViewportData = [];
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
@@ -393,6 +398,34 @@ describe('MapScreen native following mode', () => {
         }
       ).__HUISHYPE_ANALYTICS_EVENTS__,
     ).toEqual([]);
+  });
+
+  it('shows an error state instead of the empty-state path when the following overlay query fails', async () => {
+    mockFollowingViewportIsError = true;
+
+    const screen = await renderMapScreen();
+
+    await waitFor(() => {
+      expect(mockGetBounds).toHaveBeenCalled();
+    });
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+
+    await waitFor(() => {
+      expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    });
+
+    expect(screen.getByTestId('map-following-state-error')).toBeTruthy();
+    expect(screen.queryByTestId('map-following-state-empty')).toBeNull();
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__?.map((event) => event.name),
+    ).toEqual(['map_following_filter_enabled']);
   });
 
   it('emits click-through analytics and opens the overlay property from native following markers', async () => {

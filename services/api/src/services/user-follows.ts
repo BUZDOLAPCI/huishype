@@ -221,25 +221,30 @@ export async function followUser(
     throw new Error('SELF_FOLLOW');
   }
 
-  const inserted = await db
-    .insert(userFollows)
-    .values({
-      followerUserId,
-      followedUserId,
-    })
-    .onConflictDoNothing()
-    .returning({
-      followerUserId: userFollows.followerUserId,
-    });
+  await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(userFollows)
+      .values({
+        followerUserId,
+        followedUserId,
+      })
+      .onConflictDoNothing()
+      .returning({
+        followerUserId: userFollows.followerUserId,
+      });
 
-  if (inserted.length > 0) {
-    await createNotification({
-      recipientUserId: followedUserId,
-      actorUserId: followerUserId,
-      eventType: 'new_follower',
-      payload: {},
-    });
-  }
+    if (inserted.length > 0) {
+      await createNotification(
+        {
+          recipientUserId: followedUserId,
+          actorUserId: followerUserId,
+          eventType: 'new_follower',
+          payload: {},
+        },
+        tx,
+      );
+    }
+  });
 
   return getFollowRelationshipPayload(followedUserId, followerUserId);
 }

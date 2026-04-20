@@ -5,7 +5,7 @@
  * never persisted as localized text.
  */
 
-import { db } from '../db/index.js';
+import { db, type DbTransaction } from '../db/index.js';
 import { notifications, pushTokens } from '../db/schema.js';
 import { eq, and, sql, isNull } from 'drizzle-orm';
 
@@ -63,19 +63,24 @@ export interface NotificationRow {
   } | null;
 }
 
+type NotificationExecutor = typeof db | DbTransaction;
+
 // ─── Create ────────────────────────────────────────────────────────────
 
 /**
  * Create a notification. Does NOT send push — call sendPush separately.
  * Skips creation if recipient === actor (no self-notifications).
  */
-export async function createNotification(params: CreateNotificationParams): Promise<string | null> {
+export async function createNotification(
+  params: CreateNotificationParams,
+  executor: NotificationExecutor = db,
+): Promise<string | null> {
   // Don't notify yourself
   if (params.actorUserId && params.recipientUserId === params.actorUserId) {
     return null;
   }
 
-  const [row] = await db
+  const [row] = await executor
     .insert(notifications)
     .values({
       recipientUserId: params.recipientUserId,

@@ -173,6 +173,47 @@ describe('GET /properties/resolve', () => {
     expect(body).not.toHaveProperty('commentCount');
   });
 
+  it('returns null coordinates instead of fabricating 0,0 when the property has no geometry', async () => {
+    const key = await findUnusedAddressKey('NL');
+    const propertyId = crypto.randomUUID();
+    cleanupPropertyIds.push(propertyId);
+
+    await db.execute(sql`
+      INSERT INTO properties (
+        id,
+        country_code,
+        street,
+        house_number,
+        house_number_addition,
+        city,
+        postal_code,
+        status,
+        geometry
+      )
+      VALUES (
+        ${propertyId},
+        'NL',
+        'Resolve Geometryless Street',
+        ${key.houseNumber},
+        NULL,
+        'Resolve Geometryless City',
+        ${key.postalCode},
+        'active',
+        NULL
+      )
+    `);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/properties/resolve?postalCode=${key.postalCode}&houseNumber=${key.houseNumber}&countryCode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.id).toBe(propertyId);
+    expect(body.coordinates).toBeNull();
+  });
+
   it('should return null for a non-existent address', async () => {
     const response = await app.inject({
       method: 'GET',

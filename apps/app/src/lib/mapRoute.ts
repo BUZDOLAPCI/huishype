@@ -279,6 +279,10 @@ function buildSyntheticResolvedAddress(
   property: PropertyResolveResult,
   routeInput: CanonicalPropertyRouteInput,
 ): ResolvedAddress {
+  if (!property.coordinates) {
+    throw new Error('Cannot build a resolved address without property coordinates');
+  }
+
   const houseNumber = String(routeInput.houseNumber).trim();
   const addition = routeInput.houseNumberAddition?.trim() || null;
   const number = addition ? `${houseNumber} ${addition}` : houseNumber;
@@ -318,6 +322,10 @@ export function registerLocalPreviewRoute(
   property: PropertyResolveResult,
   routeInput: CanonicalPropertyRouteInput,
 ): void {
+  if (!property.coordinates) {
+    return;
+  }
+
   const canonicalPath = normalizePathname(pathname);
   localPreviewRouteCache.set(canonicalPath, {
     kind: 'preview',
@@ -530,6 +538,9 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
     parsedHouse,
     property,
   );
+  if (!property.coordinates) {
+    return { kind: 'invalid', canonicalPath: '/', reason: 'property-missing-coordinates' };
+  }
   const resolvedAddress = buildSyntheticResolvedAddress(property, canonicalRouteInput);
 
   return {

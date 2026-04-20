@@ -43,6 +43,7 @@ type MockMapInstance = {
 };
 
 type MockMarkerInstance = {
+  element: HTMLElement | null;
   setLngLat: jest.Mock;
   addTo: jest.Mock;
   remove: jest.Mock;
@@ -53,6 +54,7 @@ type UseFollowingViewport = typeof import('@/src/hooks/useProperties').useFollow
 
 let mockAppliedFilters = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
+let mockFollowingViewportIsError = false;
 let mockFollowingViewportData: Array<{
   id: string;
   coordinate: [number, number];
@@ -164,6 +166,7 @@ const mockMapInstances: Array<{
   remove: jest.Mock;
   trigger: (event: string, payload?: unknown) => void;
 }> = [];
+const mockMarkerInstances: MockMarkerInstance[] = [];
 
 jest.mock('react-native', () => {
   const React = require('react') as typeof import('react');
@@ -281,6 +284,9 @@ const mockUseFollowingViewport = jest.fn(
   ) => ({
     data: mockFollowingViewportData,
     isLoading: false,
+    isError: mockFollowingViewportIsError,
+    error: mockFollowingViewportIsError ? new Error('Following viewport failed') : null,
+    refetch: jest.fn(),
   }),
 );
 
@@ -439,13 +445,15 @@ jest.mock('maplibre-gl', () => {
   });
 
   const NavigationControl = jest.fn();
-  const Marker = jest.fn().mockImplementation(() => {
+  const Marker = jest.fn().mockImplementation((options?: { element?: HTMLElement }) => {
     const instance = {} as MockMarkerInstance;
     Object.assign(instance, {
+      element: options?.element ?? null,
       setLngLat: jest.fn(() => instance),
       addTo: jest.fn(() => instance),
       remove: jest.fn(),
     });
+    mockMarkerInstances.push(instance);
     return instance;
   });
 
@@ -477,8 +485,10 @@ describe('MapScreen web filter updates', () => {
     jest.clearAllMocks();
     jest.useRealTimers();
     mockMapInstances.length = 0;
+    mockMarkerInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
     mockIsAuthenticated = true;
+    mockFollowingViewportIsError = false;
     mockFollowingViewportData = [];
     mockReplacePassiveBrowserPath.mockClear();
     mockAmbientCommentBubbles.bubbles = [];
@@ -617,6 +627,142 @@ describe('MapScreen web filter updates', () => {
         }
       ).__HUISHYPE_ANALYTICS_EVENTS__,
     ).toEqual([]);
+  });
+
+  it('shows the signed-in empty overlay state and emits empty analytics when no followed activity is in view', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'map_following_filter_enabled' }),
+        expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
+      ]),
+    );
+  });
+
+  it('emits click-through analytics and opens the overlay property from web following markers', async () => {
+    mockFollowingViewportData = [
+      {
+        id: 'property-9',
+        coordinate: [5.47, 51.44],
+        address: 'Stationsplein 9',
+        city: 'Eindhoven',
+        postalCode: '5611AA',
+        countryCode: 'NL',
+        askingPrice: 450000,
+        thumbnailUrl: null,
+        hasActiveListing: true,
+        marketState: 'for-sale',
+        activityTypes: ['comment'],
+        actorCount: 2,
+        lastActivityAt: '2026-04-19T10:00:00.000Z',
+      },
+    ];
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    const marker = mockMarkerInstances
+      .map((instance) =>
+        instance.element?.querySelector(
+          '[data-testid="map-following-marker-property-9"]',
+        ) as HTMLButtonElement | null,
+      )
+      .find((candidate) => candidate != null) ?? null;
+    expect(marker).not.toBeNull();
+
+    act(() => {
+      marker?.click();
+    });
+
+    expect(mockInteraction.handleFollowingOverlayPress).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'property-9' }),
+      expect.any(Number),
+      expect.any(Object),
+    );
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{
+            name: string;
+            properties: Record<string, unknown>;
+          }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'map_property_click_through_from_following_filter',
+          properties: expect.objectContaining({
+            propertyId: 'property-9',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('shows an error state instead of the empty-state path when the following overlay query fails', async () => {
+    mockFollowingViewportIsError = true;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="map-following-state-error"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).toBeNull();
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__?.map((event) => event.name),
+    ).toEqual(['map_following_filter_enabled']);
   });
 
   it('restores socialScope from private browser app state on first render', async () => {

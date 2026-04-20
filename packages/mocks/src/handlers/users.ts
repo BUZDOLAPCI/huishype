@@ -9,7 +9,7 @@ import { http, HttpResponse } from 'msw';
 import { mockComments, mockGuesses, mockUserIds, mockUserProfiles } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 
-type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
+export type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
 
 const karmaRankLevels: Record<string, number> = {
   Newcomer: 1,
@@ -67,6 +67,17 @@ function getRelationship(viewerId: string | null, targetUserId: string): FollowR
   }
 
   return 'none';
+}
+
+export function getFollowedUserIds(userId: string): string[] {
+  return Array.from(followEdges)
+    .map((edge) => edge.split(':'))
+    .filter(([followerUserId]) => followerUserId === userId)
+    .map(([, followedUserId]) => followedUserId);
+}
+
+export function isFollowingUser(followerUserId: string, followedUserId: string): boolean {
+  return followEdges.has(followEdgeKey(followerUserId, followedUserId));
 }
 
 function mapKarmaRank(title: string) {

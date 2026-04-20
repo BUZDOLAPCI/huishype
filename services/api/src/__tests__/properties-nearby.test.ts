@@ -328,10 +328,10 @@ describe('GET /properties/nearby', () => {
           expect(typeof body.marketState).toBe('string');
         } else {
           expect(body.bbox).not.toBeNull();
-          expect(body.address).toBeNull();
-          expect(body.city).toBeNull();
-          expect(body.hasActiveListing).toBeNull();
-          expect(body.marketState).toBeNull();
+          expect(body).not.toHaveProperty('address');
+          expect(body).not.toHaveProperty('city');
+          expect(body).not.toHaveProperty('hasActiveListing');
+          expect(body).not.toHaveProperty('marketState');
         }
       }
     });
@@ -533,8 +533,8 @@ describe('GET /properties/nearby', () => {
       expect(body.socialScoreTotal).toBe(0);
       expect(body.socialScoreMax).toBe(0);
       expect(body.recentSocialScoreTotal).toBe(0);
-      expect(body.address).toBeNull();
-      expect(body.city).toBeNull();
+      expect(body).not.toHaveProperty('address');
+      expect(body).not.toHaveProperty('city');
     });
 
     it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {

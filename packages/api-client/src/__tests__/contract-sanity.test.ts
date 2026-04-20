@@ -15,10 +15,14 @@ import type { paths } from '../../generated/api.js';
 import type {
   GetFeedRequest,
   GetFeedResponse,
+  GetFollowersResponse,
   GetFollowingViewportRequest,
   GetFollowingViewportResponse,
+  GetFollowingResponse,
+  GetMyProfileResponse,
   GetPropertyResponse,
   GetSavedPropertiesResponse,
+  GetUserProfileResponse,
   PropertyResolveRequest,
   PropertyResolveResponse,
   SubmitListingRequest,
@@ -63,6 +67,14 @@ type ActivityResponseFromOpenApi =
   paths['/activity']['get']['responses'][200]['content']['application/json'];
 type SelfActivityResponseFromOpenApi =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
+type PublicProfileResponseFromOpenApi =
+  paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
+type MyProfileResponseFromOpenApi =
+  paths['/users/me']['get']['responses'][200]['content']['application/json'];
+type FollowersResponseFromOpenApi =
+  paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
+type FollowingResponseFromOpenApi =
+  paths['/users/me/following']['get']['responses'][200]['content']['application/json'];
 type NotificationsResponseFromOpenApi =
   paths['/notifications']['get']['responses'][200]['content']['application/json'];
 type NotificationEventTypeFromOpenApi =
@@ -75,6 +87,8 @@ type ResolvePropertyQueryFromOpenApi =
   paths['/properties/resolve']['get']['parameters']['query'];
 type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
+type ResolvePropertyBodyFromOpenApi = Expand<Exclude<ResolvePropertyResponseFromOpenApi, null>>;
+type CanonicalResolvePropertyBody = Expand<Exclude<PropertyResolveResponse, null>>;
 type FollowingViewportQueryFromOpenApi =
   paths['/properties/following-viewport']['get']['parameters']['query'];
 type FollowingViewportResponseFromOpenApi =
@@ -102,6 +116,10 @@ const feedContractAssertions = [
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
   true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,
   true as Assert<IsExact<PropertyResponseFromOpenApi, GetPropertyResponse>>,
+  true as Assert<IsExact<PublicProfileResponseFromOpenApi, GetUserProfileResponse>>,
+  true as Assert<IsExact<MyProfileResponseFromOpenApi, GetMyProfileResponse>>,
+  true as Assert<IsExact<FollowersResponseFromOpenApi, GetFollowersResponse>>,
+  true as Assert<IsExact<FollowingResponseFromOpenApi, GetFollowingResponse>>,
   true as Expect<
     Equal<
       ActivityResponseFromOpenApi['items'][number]['eventType'],
@@ -133,6 +151,21 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<Equal<ActivityQueryFromOpenApi['scope'], 'public' | 'following' | undefined>>,
+  true as Expect<Equal<keyof ActivityResponseFromOpenApi['pagination'], 'limit' | 'offset' | 'hasMore'>>,
+  true as Expect<
+    Equal<
+      keyof ActivityResponseFromOpenApi['items'][number]['property'],
+      | 'id'
+      | 'address'
+      | 'streetName'
+      | 'houseNumber'
+      | 'houseNumberAddition'
+      | 'city'
+      | 'postalCode'
+      | 'countryCode'
+      | 'thumbnailUrl'
+    >
+  >,
   true as Expect<
     Equal<
       FollowRouteResponseFromOpenApi['relationship'],
@@ -146,15 +179,49 @@ const feedContractAssertions = [
     Equal<ResolvePropertyMethodRequest, PropertyResolveRequest>
   >,
   true as Expect<
-    Equal<
-      ResolvePropertyResponseFromOpenApi,
-      PropertyResolveResponse
-    >
+    Equal<keyof ResolvePropertyBodyFromOpenApi, keyof CanonicalResolvePropertyBody>
+  >,
+  true as Expect<
+    Equal<Exclude<ResolvePropertyBodyFromOpenApi['coordinates'], null>['lon'], number>
+  >,
+  true as Expect<
+    Equal<Exclude<ResolvePropertyBodyFromOpenApi['coordinates'], null>['lat'], number>
+  >,
+  true as Expect<
+    Equal<Extract<ResolvePropertyBodyFromOpenApi['coordinates'], null>, null>
+  >,
+  true as Expect<
+    Equal<ResolvePropertyBodyFromOpenApi['hasActiveListing'], CanonicalResolvePropertyBody['hasActiveListing']>
+  >,
+  true as Expect<
+    Equal<ResolvePropertyBodyFromOpenApi['marketState'], CanonicalResolvePropertyBody['marketState']>
+  >,
+  true as Expect<
+    Equal<ResolvePropertyBodyFromOpenApi['officialValuation'], CanonicalResolvePropertyBody['officialValuation']>
   >,
   true as Expect<
     Equal<
       keyof FollowingViewportQueryFromOpenApi,
       keyof GetFollowingViewportRequest
+    >
+  >,
+  true as Expect<Equal<Extract<keyof FollowingViewportQueryFromOpenApi, 'activity' | 'socialScope'>, never>>,
+  true as Expect<
+    Equal<
+      keyof FollowingViewportResponseFromOpenApi['items'][number],
+      | 'id'
+      | 'coordinate'
+      | 'address'
+      | 'city'
+      | 'postalCode'
+      | 'countryCode'
+      | 'askingPrice'
+      | 'thumbnailUrl'
+      | 'hasActiveListing'
+      | 'marketState'
+      | 'activityTypes'
+      | 'actorCount'
+      | 'lastActivityAt'
     >
   >,
   true as Assert<IsExact<FollowingViewportResponseFromOpenApi, GetFollowingViewportResponse>>,

@@ -64,19 +64,27 @@ const PAGE_SIZE = 20;
 
 /** Fetch the public or following social activity feed with infinite scroll. */
 export function useActivityFeed(scope: 'public' | 'following' = 'public') {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = scope === 'following' ? (user?.id ?? 'anon') : 'public';
 
   return useInfiniteQuery({
     queryKey: activityFeedKeys.infinite(scope, viewerKey),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchActivityFeed(scope, PAGE_SIZE, pageParam, accessToken),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken =
+        scope === 'following' ? await getAccessToken() : null;
+
+      if (scope === 'following' && !accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchActivityFeed(scope, PAGE_SIZE, pageParam, accessToken);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: scope === 'public' || (isAuthenticated && !!accessToken),
+    enabled: scope === 'public' || (isAuthenticated && !!user),
     staleTime: 30 * 1000,
   });
 }

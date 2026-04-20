@@ -106,32 +106,45 @@ const PAGE_SIZE = 20;
 
 /** Fetch paginated notifications with infinite scroll. */
 export function useNotifications() {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useInfiniteQuery({
     queryKey: notificationKeys.infinite(viewerKey),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchNotifications(accessToken!, PAGE_SIZE, pageParam),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchNotifications(accessToken, PAGE_SIZE, pageParam);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 15 * 1000,
   });
 }
 
 /** Fetch unread notification count. Polls frequently for badge updates. */
 export function useUnreadNotificationCount() {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useQuery({
     queryKey: notificationKeys.unreadCount(viewerKey),
-    queryFn: () => fetchUnreadCount(accessToken!),
-    enabled: isAuthenticated && !!accessToken,
+    queryFn: async () => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchUnreadCount(accessToken);
+    },
+    enabled: isAuthenticated && !!user,
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000, // Poll every minute
   });
@@ -140,10 +153,17 @@ export function useUnreadNotificationCount() {
 /** Mark all notifications as read. */
 export function useMarkAllRead() {
   const queryClient = useQueryClient();
-  const { accessToken } = useAuthContext();
+  const { getAccessToken } = useAuthContext();
 
   return useMutation({
-    mutationFn: () => markAllNotificationsRead(accessToken!),
+    mutationFn: async () => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return markAllNotificationsRead(accessToken);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },
@@ -153,11 +173,17 @@ export function useMarkAllRead() {
 /** Mark a single notification as read. */
 export function useMarkNotificationRead() {
   const queryClient = useQueryClient();
-  const { accessToken } = useAuthContext();
+  const { getAccessToken } = useAuthContext();
 
   return useMutation({
-    mutationFn: (notificationId: string) =>
-      markNotificationRead(accessToken!, notificationId),
+    mutationFn: async (notificationId: string) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return markNotificationRead(accessToken, notificationId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     },

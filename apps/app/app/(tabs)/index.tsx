@@ -687,6 +687,7 @@ export default function MapScreen() {
       socialScope === 'following' &&
       isAuthenticated &&
       mapLoaded &&
+      !followingViewport.isError &&
       !followingViewport.isLoading &&
       (followingViewport.data?.length ?? 0) === 0;
 
@@ -705,6 +706,7 @@ export default function MapScreen() {
     });
   }, [
     followingViewport.data,
+    followingViewport.isError,
     followingViewport.isLoading,
     isAuthenticated,
     mapLoaded,
@@ -795,6 +797,10 @@ export default function MapScreen() {
       property: Parameters<typeof handleMapPropertyResolved>[0],
       resolvedAddress?: ResolvedAddress,
     ) => {
+      if (!property.coordinates) {
+        return;
+      }
+
       handleMapPropertyResolved(property, cameraCommands, resolvedAddress);
       // Set the search city from the resolved property
       const city = property.city || resolvedAddress?.details.city;
@@ -1179,6 +1185,19 @@ export default function MapScreen() {
         {socialScope === 'following' &&
         isAuthenticated &&
         mapLoaded &&
+        followingViewport.isError ? (
+          <FollowingMapStateCard
+            mode="error"
+            onPrimaryPress={() => {
+              void followingViewport.refetch();
+            }}
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        !followingViewport.isError &&
         !followingViewport.isLoading &&
         (followingViewport.data?.length ?? 0) === 0 ? (
           <FollowingMapStateCard

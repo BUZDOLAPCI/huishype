@@ -175,7 +175,7 @@ export interface ResolvedProperty {
   address: string;
   postalCode: string;
   city: string;
-  coordinates: { lon: number; lat: number };
+  coordinates: { lon: number; lat: number } | null;
   hasActiveListing: boolean;
   marketState: MapMarketState;
   officialValuation: number | null;

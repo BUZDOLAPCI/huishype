@@ -13,6 +13,8 @@ import {
   getMockGuesses,
 } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
+import { getMockActivityEvents } from './activity.js';
+import { getFollowedUserIds } from './users.js';
 
 const MOCK_NEARBY_CLUSTER_IDS = [
   'a0000000-0000-4000-a000-000000000001',
@@ -51,6 +53,86 @@ function validationErrorResponse() {
     },
     { status: 400 }
   );
+}
+
+function getMockMarketState(
+  property: (typeof mockPropertyDetails)[number]
+): 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' {
+  return property.activeListing ? ('for-sale' as const) : ('not-listed' as const);
+}
+
+function parseMockBbox(value: string) {
+  const parts = value.split(',').map((part) => Number(part));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isFinite(part)) ||
+    parts[0] >= parts[2] ||
+    parts[1] >= parts[3]
+  ) {
+    return null;
+  }
+
+  return {
+    west: parts[0]!,
+    south: parts[1]!,
+    east: parts[2]!,
+    north: parts[3]!,
+  };
+}
+
+function propertyWithinBbox(
+  property: (typeof mockPropertyDetails)[number],
+  bbox: NonNullable<ReturnType<typeof parseMockBbox>>,
+) {
+  return (
+    property.coordinates.lon >= bbox.west &&
+    property.coordinates.lon <= bbox.east &&
+    property.coordinates.lat >= bbox.south &&
+    property.coordinates.lat <= bbox.north
+  );
+}
+
+function propertyMatchesFollowingViewportFilters(
+  property: (typeof mockPropertyDetails)[number],
+  searchParams: URLSearchParams,
+) {
+  const marketState = getMockMarketState(property);
+  const requestedStates = searchParams.get('marketState')?.split(',').filter(Boolean) ?? [];
+  if (requestedStates.length > 0 && !requestedStates.includes(marketState)) {
+    return false;
+  }
+
+  const askingPrice = property.activeListing?.askingPrice ?? null;
+  const salePriceFrom = searchParams.get('salePriceFrom');
+  const salePriceTo = searchParams.get('salePriceTo');
+  const rentPriceFrom = searchParams.get('rentPriceFrom');
+  const rentPriceTo = searchParams.get('rentPriceTo');
+
+  if ((salePriceFrom || salePriceTo) && marketState !== 'for-sale') {
+    return false;
+  }
+
+  if ((rentPriceFrom || rentPriceTo) && marketState !== 'for-rent') {
+    return false;
+  }
+
+  if (salePriceFrom && (askingPrice == null || askingPrice < Number(salePriceFrom))) {
+    return false;
+  }
+
+  if (salePriceTo && (askingPrice == null || askingPrice > Number(salePriceTo))) {
+    return false;
+  }
+
+  if (rentPriceFrom && (askingPrice == null || askingPrice < Number(rentPriceFrom))) {
+    return false;
+  }
+
+  if (rentPriceTo && (askingPrice == null || askingPrice > Number(rentPriceTo))) {
+    return false;
+  }
+
+  return true;
 }
 
 function getCommentBreakdown(propertyId: string) {
@@ -448,42 +530,85 @@ export const propertyHandlers = [
 
     const url = new URL(request.url);
     const bbox = url.searchParams.get('bbox');
-    if (!bbox) {
+    const parsedBbox = bbox ? parseMockBbox(bbox) : null;
+    if (!parsedBbox) {
       return HttpResponse.json(
-        { error: 'BAD_REQUEST', message: 'bbox is required' },
+        { error: 'BAD_REQUEST', message: 'Invalid bbox parameter.' },
         { status: 400 },
       );
     }
 
-    const [first, second] = mockPropertyDetails;
-    const items = [first, second]
-      .filter((property): property is (typeof mockPropertyDetails)[number] => Boolean(property))
-      .filter((property) => {
-        const marketState = property.activeListing ? 'for-sale' : 'not-listed';
-        const requestedStates = url.searchParams.get('marketState')?.split(',').filter(Boolean) ?? [];
-        if (requestedStates.length === 0) {
-          return true;
+    const followedUserIds = new Set(getFollowedUserIds(authUser.id));
+    const activityByProperty = new Map<
+      string,
+      {
+        activityTypes: Set<'property_like' | 'comment' | 'price_guess'>;
+        actorIds: Set<string>;
+        lastActivityAt: string;
+      }
+    >();
+
+    for (const event of getMockActivityEvents()) {
+      if (event.eventType === 'save' || !followedUserIds.has(event.actorUserId)) {
+        continue;
+      }
+
+      const property = getMockProperty(event.propertyId);
+      if (
+        !property ||
+        !propertyWithinBbox(property, parsedBbox) ||
+        !propertyMatchesFollowingViewportFilters(property, url.searchParams)
+      ) {
+        continue;
+      }
+
+      const aggregate = activityByProperty.get(property.id) ?? {
+        activityTypes: new Set<'property_like' | 'comment' | 'price_guess'>(),
+        actorIds: new Set<string>(),
+        lastActivityAt: event.createdAt,
+      };
+
+      aggregate.activityTypes.add(event.eventType);
+      aggregate.actorIds.add(event.actorUserId);
+      if (Date.parse(event.createdAt) > Date.parse(aggregate.lastActivityAt)) {
+        aggregate.lastActivityAt = event.createdAt;
+      }
+
+      activityByProperty.set(property.id, aggregate);
+    }
+
+    const items = Array.from(activityByProperty.entries())
+      .map(([propertyId, aggregate]) => {
+        const property = getMockProperty(propertyId);
+        if (!property) {
+          return null;
         }
-        return requestedStates.includes(marketState);
+
+        return {
+          id: property.id,
+          coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+          address: `${property.address}, ${property.postalCode} ${property.city}`,
+          city: property.city,
+          postalCode: property.postalCode ?? null,
+          countryCode: property.countryCode,
+          askingPrice: property.activeListing?.askingPrice ?? null,
+          thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+          hasActiveListing: Boolean(property.activeListing),
+          marketState: getMockMarketState(property),
+          activityTypes: [
+            ...(aggregate.activityTypes.has('property_like') ? (['property_like'] as const) : []),
+            ...(aggregate.activityTypes.has('comment') ? (['comment'] as const) : []),
+            ...(aggregate.activityTypes.has('price_guess') ? (['price_guess'] as const) : []),
+          ],
+          actorCount: aggregate.actorIds.size,
+          lastActivityAt: new Date(aggregate.lastActivityAt).toISOString(),
+        };
       })
-      .map((property, index) => ({
-        id: property.id,
-        coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
-        address: property.address,
-        city: property.city,
-        postalCode: property.postalCode ?? null,
-        countryCode: property.countryCode,
-        askingPrice: property.activeListing?.askingPrice ?? null,
-        thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
-        hasActiveListing: Boolean(property.activeListing),
-        marketState: property.activeListing ? 'for-sale' as const : 'not-listed' as const,
-        activityTypes:
-          index === 0
-            ? (['property_like', 'comment'] as const)
-            : (['price_guess'] as const),
-        actorCount: index === 0 ? 2 : 1,
-        lastActivityAt: ['2026-04-18T12:00:00.000Z', '2026-04-17T09:30:00.000Z'][index],
-      }));
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((left, right) => {
+        const byTime = Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt);
+        return byTime !== 0 ? byTime : left.id.localeCompare(right.id);
+      });
 
     return HttpResponse.json({ items });
   }),

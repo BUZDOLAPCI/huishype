@@ -181,10 +181,12 @@ const resolveFoundResponseSchema = z.object({
   address: z.string(),
   postalCode: z.string(),
   city: z.string(),
-  coordinates: z.object({
-    lon: z.number(),
-    lat: z.number(),
-  }),
+  coordinates: z
+    .object({
+      lon: z.number(),
+      lat: z.number(),
+    })
+    .nullable(),
   hasActiveListing: z.boolean(),
   marketState: marketStateSchema,
   officialValuation: z.number().nullable(),
@@ -199,9 +201,8 @@ const nearbyQuerySchema = z.object({
   ...mapFiltersQuerySchema.shape,
 });
 
-const nearbyGroupedResultSchema = z.object({
+const nearbyGroupedBaseSchema = z.object({
   nodeClass: z.enum(['active', 'ghost']),
-  groupKind: z.enum(['single', 'cluster']),
   primaryPropertyId: z.string().uuid(),
   pointCount: z.number(),
   propertyIds: z.array(z.string().uuid()),
@@ -219,13 +220,26 @@ const nearbyGroupedResultSchema = z.object({
   socialScoreMax: z.number(),
   recentSocialScoreTotal: z.number(),
   commentCount: z.number(),
-  address: z.string().nullable(),
-  city: z.string().nullable(),
+});
+
+const nearbySingleResultSchema = nearbyGroupedBaseSchema.extend({
+  groupKind: z.literal('single'),
+  address: z.string(),
+  city: z.string(),
   askingPrice: z.number().nullable(),
   thumbnailUrl: z.string().nullable(),
-  hasActiveListing: z.boolean().nullable(),
-  marketState: marketStateSchema.nullable(),
+  hasActiveListing: z.boolean(),
+  marketState: marketStateSchema,
 });
+
+const nearbyClusterResultSchema = nearbyGroupedBaseSchema.extend({
+  groupKind: z.literal('cluster'),
+});
+
+const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
+  nearbySingleResultSchema,
+  nearbyClusterResultSchema,
+]);
 
 const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
 
@@ -492,9 +506,8 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
     return null;
   }
 
-  return {
+  const baseResult = {
     nodeClass: result.nodeClass,
-    groupKind: result.groupKind,
     primaryPropertyId: result.primaryPropertyId,
     pointCount: result.pointCount,
     propertyIds: result.propertyIds,
@@ -509,12 +522,35 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
     socialScoreMax: result.socialScoreMax,
     recentSocialScoreTotal: result.recentSocialScoreTotal,
     commentCount: result.commentCount,
-    address: result.groupKind === 'single' ? result.address : null,
-    city: result.groupKind === 'single' ? result.city : null,
-    askingPrice: result.groupKind === 'single' ? result.askingPrice : null,
-    thumbnailUrl: result.groupKind === 'single' ? result.thumbnailUrl : null,
-    hasActiveListing: result.groupKind === 'single' ? result.hasActiveListing : null,
-    marketState: result.groupKind === 'single' ? result.marketState : null,
+  };
+
+  if (result.groupKind === 'single') {
+    if (
+      result.address == null ||
+      result.city == null ||
+      result.hasActiveListing == null ||
+      result.marketState == null
+    ) {
+      throw new Error(
+        `Grouped nearby single ${result.primaryPropertyId} is missing required preview fields`,
+      );
+    }
+
+    return {
+      ...baseResult,
+      groupKind: 'single' as const,
+      address: result.address,
+      city: result.city,
+      askingPrice: result.askingPrice,
+      thumbnailUrl: result.thumbnailUrl,
+      hasActiveListing: result.hasActiveListing,
+      marketState: result.marketState,
+    };
+  }
+
+  return {
+    ...baseResult,
+    groupKind: 'cluster' as const,
   };
 }
 
@@ -812,10 +848,13 @@ export async function propertyRoutes(app: FastifyInstance) {
         ),
         postalCode: row.postal_code,
         city: row.city,
-        coordinates: {
-          lon: row.lon ?? 0,
-          lat: row.lat ?? 0,
-        },
+        coordinates:
+          row.lon != null && row.lat != null
+            ? {
+                lon: row.lon,
+                lat: row.lat,
+              }
+            : null,
         hasActiveListing: row.has_active_listing,
         marketState: row.market_state,
         officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,

@@ -130,16 +130,6 @@ export async function feedRoutes(app: FastifyInstance) {
       }
 
       const rows = await db.execute<FeedRow>(sql`
-        WITH candidate_property_ids AS (
-          SELECT DISTINCT l.property_id
-          FROM listings l
-          INNER JOIN properties p ON p.id = l.property_id
-          WHERE l.status = 'active'
-            AND p.status = 'active'
-            AND p.geometry IS NOT NULL
-            ${spatialCondition}
-            ${countryCondition}
-        )
         SELECT
           p.id,
           p.country_code,
@@ -164,16 +154,15 @@ export async function feedRoutes(app: FastifyInstance) {
           guess_stats.fmv,
           guess_stats.stddev AS guess_stddev,
           (
-            (
-              COALESCE(sf.recent_top_level_comment_count, 0)
-              + COALESCE(sf.recent_reply_count, 0)
-            )::numeric * 1.0
+          (
+            COALESCE(sf.recent_top_level_comment_count, 0)
+            + COALESCE(sf.recent_reply_count, 0)
+          )::numeric * 1.0
             + COALESCE(sf.recent_guess_count, 0)::numeric * 2.0
             + COALESCE(sf.recent_property_like_count, 0)::numeric * 0.5
           ) AS trending_score,
           COALESCE(sf.last_social_at, lf.active_listing_sort_at) AS last_activity_at
-        FROM candidate_property_ids candidate
-        INNER JOIN properties p ON p.id = candidate.property_id
+        FROM properties p
         ${buildPropertyListingFactsJoin('p', 'lf')}
         ${buildPropertySocialFactsJoin('p', 'sf')}
         LEFT JOIN LATERAL (
@@ -184,6 +173,10 @@ export async function feedRoutes(app: FastifyInstance) {
           WHERE pg.property_id = p.id
         ) guess_stats ON TRUE
         WHERE 1=1
+          AND p.status = 'active'
+          AND p.geometry IS NOT NULL
+          ${spatialCondition}
+          ${countryCondition}
           AND lf.has_active_listing = TRUE
           ${dataFilterWhere}
         ${orderBy}

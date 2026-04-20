@@ -38,7 +38,7 @@ function StatItem({ label, value, iconName }: { label: string; value: number; ic
 }
 
 export default function PublicProfileScreen() {
-  const { user } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [showAuth, setShowAuth] = React.useState(false);
   const { data: profile, isLoading, isError } = usePublicProfile(id ?? null);
@@ -64,18 +64,19 @@ export default function PublicProfileScreen() {
       return;
     }
 
+    emitSocialFollowAnalyticsEvent('follow_button_click', {
+      action: isFollowing ? 'unfollow' : 'follow',
+      authenticated: isAuthenticated,
+      targetUserId: profile.id,
+      relationship: profile.relationship,
+    });
+
     if (!user) {
       setShowAuth(true);
       return;
     }
 
     try {
-      emitSocialFollowAnalyticsEvent('follow_button_click', {
-        action: isFollowing ? 'unfollow' : 'follow',
-        targetUserId: profile.id,
-        relationship: profile.relationship,
-      });
-
       if (isFollowing) {
         await unfollowMutation.mutateAsync(profile.id);
       } else {
@@ -87,7 +88,7 @@ export default function PublicProfileScreen() {
         error instanceof Error ? error.message : 'Please try again.',
       );
     }
-  }, [followMutation, isFollowing, profile, unfollowMutation, user]);
+  }, [followMutation, isAuthenticated, isFollowing, profile, unfollowMutation, user]);
 
   if (isLoading) {
     return (

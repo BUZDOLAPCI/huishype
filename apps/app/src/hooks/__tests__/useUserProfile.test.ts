@@ -12,6 +12,7 @@ import {
   userKeys,
 } from '../useUserProfile';
 import { activityFeedKeys } from '../useActivityFeed';
+import { propertyKeys } from '../useProperties';
 
 const mockFetch = jest.fn();
 const mockGetAccessToken = jest.fn();
@@ -83,7 +84,7 @@ describe('useUserProfile follow surfaces', () => {
   beforeEach(() => {
     queryClient = createQueryClient();
     mockAuthUser = mockUser;
-    mockAccessToken = 'viewer-token';
+    mockAccessToken = null;
     mockGetAccessToken.mockResolvedValue('viewer-token');
     mockFetch.mockReset();
     (globalThis as typeof globalThis & { __HUISHYPE_ANALYTICS_EVENTS__?: unknown[] })
@@ -286,6 +287,9 @@ describe('useUserProfile follow surfaces', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: activityFeedKeys.all,
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: propertyKeys.followingViewportRoot('auth:viewer-1'),
+    });
 
     const analyticsEvents = (
       globalThis as typeof globalThis & {
@@ -343,6 +347,9 @@ describe('useUserProfile follow surfaces', () => {
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: activityFeedKeys.all,
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: propertyKeys.followingViewportRoot('auth:viewer-1'),
     });
 
     const analyticsEvents = (

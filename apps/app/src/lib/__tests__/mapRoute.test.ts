@@ -80,6 +80,28 @@ describe('resolveMapRoute', () => {
       city: 'eindhoven',
     });
   });
+
+  it('collapses address routes when the resolved property has no coordinates', async () => {
+    mockResolveProperty.mockResolvedValueOnce({
+      id: '11111111-1111-4111-8111-111111111111',
+      countryCode: 'NL',
+      address: 'Teststraat 42 A, 1234AB Eindhoven',
+      postalCode: '1234AB',
+      city: 'Eindhoven',
+      coordinates: null,
+      hasActiveListing: false,
+      marketState: 'not-listed',
+      officialValuation: null,
+    });
+
+    await expect(
+      resolveMapRoute('/eindhoven/1234ab/teststraat/42-a'),
+    ).resolves.toEqual({
+      kind: 'invalid',
+      canonicalPath: '/',
+      reason: 'property-missing-coordinates',
+    });
+  });
 });
 
 describe('map social scope search params', () => {

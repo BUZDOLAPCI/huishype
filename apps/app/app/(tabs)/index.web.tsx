@@ -1442,6 +1442,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   // Search bar callbacks (adapting shared hook to local camera commands)
   const handlePropertyResolved = useCallback(
     (property: PropertyResolveResult, resolvedAddress?: ResolvedAddress) => {
+      if (!property.coordinates) {
+        return;
+      }
+
       // On web, single-property search also uses the deferred pattern
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
@@ -1670,18 +1674,24 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         return;
       }
 
+      const resolvedCoordinates = resolvedRoute.property.coordinates;
+      if (!resolvedCoordinates) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
       skipNextPassiveUrlSyncRef.current = true;
       if (lastCameraPathRef.current === '/') {
         lastCameraPathRef.current = serializeCanonicalCameraPath({
-          lat: resolvedRoute.property.coordinates.lat,
-          lng: resolvedRoute.property.coordinates.lon,
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
           zoom: SEARCH_TARGET_ZOOM,
         });
       }
       handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
       setSearchCity(resolvedRoute.property.city, [
-        resolvedRoute.property.coordinates.lon,
-        resolvedRoute.property.coordinates.lat,
+        resolvedCoordinates.lon,
+        resolvedCoordinates.lat,
       ]);
       appliedRoutePathRef.current = routeState.pathname;
     }
@@ -1815,6 +1825,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       socialScope === 'following' &&
       isAuthenticated &&
       mapLoaded &&
+      !followingViewport.isError &&
       !followingViewport.isLoading &&
       (followingViewport.data?.length ?? 0) === 0;
 
@@ -1833,6 +1844,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     });
   }, [
     followingViewport.data,
+    followingViewport.isError,
     followingViewport.isLoading,
     isAuthenticated,
     mapLoaded,
@@ -1852,6 +1864,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       !map ||
       socialScope !== 'following' ||
       !isAuthenticated ||
+      followingViewport.isError ||
       !followingViewport.data?.length
     ) {
       return;
@@ -1902,6 +1915,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     cameraCommands,
     followingViewport.data,
+    followingViewport.isError,
     interaction,
     isAuthenticated,
     socialScope,
@@ -1983,6 +1997,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         {socialScope === 'following' &&
         isAuthenticated &&
         mapLoaded &&
+        followingViewport.isError ? (
+          <FollowingMapStateCard
+            mode="error"
+            onPrimaryPress={() => {
+              void followingViewport.refetch();
+            }}
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        !followingViewport.isError &&
         !followingViewport.isLoading &&
         (followingViewport.data?.length ?? 0) === 0 ? (
           <FollowingMapStateCard

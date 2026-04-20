@@ -42,7 +42,24 @@ jest.mock('@/src/hooks/useUserProfile', () => ({
 }));
 
 jest.mock('@/src/components', () => ({
-  AuthModal: () => null,
+  AuthModal: ({
+    visible,
+    message,
+  }: {
+    visible: boolean;
+    message: string;
+  }) => {
+    if (!visible) {
+      return null;
+    }
+
+    const ReactNative = require('react-native');
+    return (
+      <ReactNative.Text testID="public-profile-auth-modal">
+        {message}
+      </ReactNative.Text>
+    );
+  },
 }));
 
 jest.mock('@/src/components/ui/Button', () => ({
@@ -84,6 +101,23 @@ function seedViewer() {
     isAuthenticated: true,
     isLoading: false,
     accessToken: 'viewer-token',
+    authError: null,
+    signInWithGoogle: jest.fn(),
+    signInWithMockToken: jest.fn(),
+    requestEmailLink: jest.fn(),
+    verifyEmailToken: jest.fn(),
+    signOut: jest.fn(),
+    refreshAuth: jest.fn(),
+    getAccessToken: jest.fn(),
+  });
+}
+
+function seedSignedOutViewer() {
+  mockUseAuthContext.mockReturnValue({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    accessToken: null,
     authError: null,
     signInWithGoogle: jest.fn(),
     signInWithMockToken: jest.fn(),
@@ -189,6 +223,42 @@ describe('PublicProfileScreen', () => {
           }),
         }),
       ])
+    );
+  });
+
+  it('emits follow-click analytics and opens auth gating when a signed-out viewer taps follow', async () => {
+    seedSignedOutViewer();
+
+    const { getByTestId, findByTestId } = render(<PublicProfileScreen />);
+
+    fireEvent.press(getByTestId('public-profile-follow-button'));
+
+    expect(followMutateAsync).not.toHaveBeenCalled();
+    expect(unfollowMutateAsync).not.toHaveBeenCalled();
+    expect(await findByTestId('public-profile-auth-modal')).toHaveTextContent(
+      'Sign in to follow people',
+    );
+
+    const analyticsEvents = (
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: Array<{
+          name: string;
+          properties: Record<string, unknown>;
+        }>;
+      }
+    ).__HUISHYPE_ANALYTICS_EVENTS__;
+
+    expect(analyticsEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'follow_button_click',
+          properties: expect.objectContaining({
+            action: 'follow',
+            authenticated: false,
+            targetUserId: 'target-user',
+          }),
+        }),
+      ]),
     );
   });
 });

@@ -244,6 +244,8 @@ export const propertyKeys = {
   detail: (id: string, viewerKey: string) => [...propertyKeys.detailBase(id), viewerKey] as const,
   map: (bounds?: { north: number; south: number; east: number; west: number }) =>
     [...propertyKeys.all, 'map', bounds] as const,
+  followingViewportRoot: (viewerKey: string) =>
+    [...propertyKeys.all, 'following-viewport', viewerKey] as const,
   followingViewport: (
     viewerKey: string,
     bbox: string | null,
@@ -251,7 +253,7 @@ export const propertyKeys = {
       MapFilters,
       'salePriceFrom' | 'salePriceTo' | 'rentPriceFrom' | 'rentPriceTo' | 'marketState'
     >,
-  ) => [...propertyKeys.all, 'following-viewport', viewerKey, bbox, filters] as const,
+  ) => [...propertyKeys.followingViewportRoot(viewerKey), bbox, filters] as const,
 };
 
 // Hook to fetch properties with optional filters

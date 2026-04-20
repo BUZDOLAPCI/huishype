@@ -382,6 +382,49 @@ describe('Mock handler runtime parity', () => {
     expect(body.items[0]).toHaveProperty('activityTypes');
     expect(body.items[0]).toHaveProperty('actorCount');
     expect(body.items[0]).toHaveProperty('lastActivityAt');
+    expect(body.items[0]).not.toHaveProperty('groupKind');
+    expect(body.items[0]).not.toHaveProperty('pointCount');
+    expect(body.items.every((item: { marketState: string }) => item.marketState === 'for-sale')).toBe(
+      true,
+    );
+
+    const filteredResponse = await fetch(
+      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale&salePriceTo=2500000',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const filteredBody = await filteredResponse.json();
+
+    expect(filteredResponse.status).toBe(200);
+    expect(filteredBody.items.map((item: { id: string }) => item.id)).toEqual([
+      mockPropertyIds.herengracht502,
+    ]);
+
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(followResponse.status).toBe(200);
+
+    const afterFollowResponse = await fetch(
+      'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4&marketState=for-sale',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const afterFollowBody = await afterFollowResponse.json();
+    const prinsengrachtOverlay = afterFollowBody.items.find(
+      (item: { id: string }) => item.id === mockPropertyIds.prinsengracht263,
+    );
+
+    expect(afterFollowResponse.status).toBe(200);
+    expect(prinsengrachtOverlay).toEqual(
+      expect.objectContaining({
+        actorCount: 2,
+        activityTypes: expect.arrayContaining(['comment', 'price_guess']),
+      }),
+    );
   });
 
   it('matches property view identity requirements and response envelope', async () => {
@@ -437,6 +480,18 @@ describe('Mock handler runtime parity', () => {
     expect(followBody.relationship).toBe('following');
     expect(followBody.followerCount).toBeGreaterThan(0);
 
+    const viewerAwareProfileResponse = await fetch(
+      `http://localhost/users/${mockUserIds.sophie}/profile`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const viewerAwareProfileBody = await viewerAwareProfileResponse.json();
+    expect(viewerAwareProfileResponse.status).toBe(200);
+    expect(viewerAwareProfileBody.relationship).toBe('following');
+    expect(viewerAwareProfileBody.followerCount).toBe(followBody.followerCount);
+    expect(viewerAwareProfileBody.followingCount).toBe(followBody.followingCount);
+
     const followersResponse = await fetch('http://localhost/users/me/following', {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -486,6 +541,13 @@ describe('Mock handler runtime parity', () => {
     expect(publicBody.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
       true
     );
+    expect(publicBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 20,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      }),
+    );
     expect(publicBody.items[0].actor.id).toMatch(uuidShape);
     expect(publicBody.items[0].property.id).toMatch(uuidShape);
     expect(publicBody.items[0].property).toHaveProperty('streetName');
@@ -503,6 +565,33 @@ describe('Mock handler runtime parity', () => {
     expect(
       followingBody.items.every((item: { eventType: string }) => item.eventType !== 'save')
     ).toBe(true);
+    expect(
+      followingBody.items.map((item: { actor: { id: string } }) => item.actor.id)
+    ).toEqual(expect.arrayContaining([mockUserIds.maria, mockUserIds.lars]));
+    expect(
+      followingBody.items.some((item: { actor: { id: string } }) => item.actor.id === mockUserIds.sophie)
+    ).toBe(false);
+
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(followResponse.status).toBe(200);
+
+    const followingAfterFollowResponse = await fetch(
+      'http://localhost/activity?scope=following&limit=20',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const followingAfterFollowBody = await followingAfterFollowResponse.json();
+    expect(followingAfterFollowResponse.status).toBe(200);
+    expect(
+      followingAfterFollowBody.items.some(
+        (item: { actor: { id: string }; eventType: string }) =>
+          item.actor.id === mockUserIds.sophie && item.eventType === 'comment',
+      ),
+    ).toBe(true);
 
     const selfResponse = await fetch('http://localhost/users/me/activity?limit=20', {
       headers: { Authorization: `Bearer ${token}` },
@@ -511,6 +600,13 @@ describe('Mock handler runtime parity', () => {
     expect(selfResponse.status).toBe(200);
     expect(selfBody.items.some((item: { eventType: string }) => item.eventType === 'save')).toBe(
       true
+    );
+    expect(selfBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 20,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      }),
     );
   });
 

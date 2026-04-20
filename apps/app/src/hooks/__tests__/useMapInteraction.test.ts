@@ -1174,7 +1174,39 @@ describe('useMapInteraction', () => {
         askingPrice: 440000,
         marketState: 'for-sale',
         thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+        socialScore: undefined,
+        recentSocialScore: undefined,
+        activityScore: 0,
       });
+    });
+
+    it('ignores resolved properties that do not have coordinates', () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+
+      act(() => {
+        result.current.handlePropertyResolved(
+          {
+            id: 'prop-missing-coords',
+            address: 'Unknown',
+            city: 'Eindhoven',
+            postalCode: '5611AA',
+            coordinates: null,
+            hasActiveListing: false,
+            marketState: 'not-listed',
+          } as PropertyResolveResult,
+          camera,
+        );
+      });
+
+      expect(camera.flyTo).not.toHaveBeenCalled();
+      expect(result.current.highlightedCoordinate).toBeNull();
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
     });
 
     it('handleLocationResolved flies to coordinate without setting preview', () => {

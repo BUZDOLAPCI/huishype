@@ -55,19 +55,25 @@ const PAGE_SIZE = 20;
 
 /** Fetch the authenticated user's personal activity history with infinite scroll. */
 export function useUserActivity() {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useInfiniteQuery({
     queryKey: userActivityKeys.mine(viewerKey),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchMyActivity(accessToken!, PAGE_SIZE, pageParam),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchMyActivity(accessToken, PAGE_SIZE, pageParam);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 30 * 1000,
   });
 }

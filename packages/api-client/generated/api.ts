@@ -551,7 +551,7 @@ export interface paths {
                             coordinates: {
                                 lon: number;
                                 lat: number;
-                            };
+                            } | null;
                             hasActiveListing: boolean;
                             /** @enum {string} */
                             marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
@@ -626,11 +626,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
+                        "application/json": ({
                             /** @enum {string} */
                             nodeClass: "active" | "ghost";
-                            /** @enum {string} */
-                            groupKind: "single" | "cluster";
                             /** Format: uuid */
                             primaryPropertyId: string;
                             pointCount: number;
@@ -656,21 +654,46 @@ export interface paths {
                             socialScoreMax: number;
                             recentSocialScoreTotal: number;
                             commentCount: number;
-                            streetName: string | null;
-                            houseNumber: number | null;
-                            houseNumberAddition: string | null;
-                            address: string | null;
-                            city: string | null;
-                            postalCode: string | null;
-                            countryCode: string | null;
-                            officialValuation: number | null;
+                            /** @enum {string} */
+                            groupKind: "single";
+                            address: string;
+                            city: string;
                             askingPrice: number | null;
                             thumbnailUrl: string | null;
-                            yearBuilt: number | null;
-                            floorAreaM2: number | null;
-                            hasActiveListing: boolean | null;
-                            marketState: ("for-sale" | "for-rent" | "sold" | "rented" | "not-listed") | null;
-                        } | null;
+                            hasActiveListing: boolean;
+                            /** @enum {string} */
+                            marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                        } | {
+                            /** @enum {string} */
+                            nodeClass: "active" | "ghost";
+                            /** Format: uuid */
+                            primaryPropertyId: string;
+                            pointCount: number;
+                            propertyIds: string[];
+                            previewPropertyIds: string[];
+                            /** @description [longitude, latitude] */
+                            coordinate: [
+                                number,
+                                number
+                            ];
+                            distanceMeters: number;
+                            /** @description [west, south, east, north] */
+                            bbox: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ] | null;
+                            activeListingCount: number;
+                            socialCount: number;
+                            recentSocialCount: number;
+                            socialScoreTotal: number;
+                            socialScoreMax: number;
+                            recentSocialScoreTotal: number;
+                            commentCount: number;
+                            /** @enum {string} */
+                            groupKind: "cluster";
+                        }) | null;
                     };
                 };
             };

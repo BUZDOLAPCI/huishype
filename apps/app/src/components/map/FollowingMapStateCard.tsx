@@ -16,7 +16,7 @@ const COLORS = {
 } as const;
 
 export interface FollowingMapStateCardProps {
-  mode: 'signed-out' | 'empty';
+  mode: 'signed-out' | 'empty' | 'error';
   onPrimaryPress?: () => void;
 }
 
@@ -25,6 +25,7 @@ export function FollowingMapStateCard({
   onPrimaryPress,
 }: FollowingMapStateCardProps) {
   const isSignedOut = mode === 'signed-out';
+  const isError = mode === 'error';
 
   return (
     <View pointerEvents="box-none" style={styles.wrapper}>
@@ -33,18 +34,24 @@ export function FollowingMapStateCard({
           <View style={styles.iconBadge}>
             <Icon
               color={COLORS.gold600}
-              name={isSignedOut ? 'Users' : 'MapPin'}
+              name={isSignedOut ? 'Users' : isError ? 'WarningCircle' : 'MapPin'}
               size="sm"
             />
           </View>
           <Text style={styles.title}>
-            {isSignedOut ? 'Following needs sign-in' : 'Nothing from your circle here yet'}
+            {isSignedOut
+              ? 'Following needs sign-in'
+              : isError
+                ? 'Could not load following activity'
+                : 'Nothing from your circle here yet'}
           </Text>
         </View>
         <Text style={styles.body}>
           {isSignedOut
             ? 'This mode shows homes with activity from people you follow.'
-            : 'Try another area, or follow people whose activity you want to see on the map.'}
+            : isError
+              ? 'We could not load homes from people you follow. Try again in a moment.'
+              : 'Try another area, or follow people whose activity you want to see on the map.'}
         </Text>
         {onPrimaryPress ? (
           <Pressable
@@ -57,7 +64,7 @@ export function FollowingMapStateCard({
             testID={`map-following-state-${mode}-action`}
           >
             <Text style={styles.primaryButtonText}>
-              {isSignedOut ? 'Sign in' : 'Back to all'}
+              {isSignedOut ? 'Sign in' : isError ? 'Try again' : 'Back to all'}
             </Text>
           </Pressable>
         ) : null}

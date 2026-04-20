@@ -1008,10 +1008,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
     ) => {
       const coord = item.coordinate;
       const derivedActivity = derivePreviewActivity({
-        socialScore: item.actorCount,
-        recentSocialScore: item.actorCount,
-        activityScore: item.actorCount,
         hasActiveListing: item.hasActiveListing,
+        bootstrapNeutral: true,
       });
 
       setHighlightedCoordinate(coord);
@@ -1074,6 +1072,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
       camera: MapCameraCommands,
       resolvedAddress?: ResolvedAddress,
     ) => {
+      if (!property.coordinates) {
+        return;
+      }
+
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
       const countryCode = property.countryCode ?? resolvedAddress?.details.countryCode ?? undefined;

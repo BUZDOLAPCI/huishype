@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, comments, reactions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { createIntegrationProperty } from './helpers/fixtures.js';
+import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
 describe('Leaderboard routes', () => {
   let app: FastifyInstance;
@@ -17,16 +17,11 @@ describe('Leaderboard routes', () => {
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Create test user
-    const uniqueId = `lbtest${Date.now()}`;
-    const loginResp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+    const user = await createIntegrationUser(app, {
+      label: `leaderboard-${Date.now()}`,
     });
-    const loginBody = JSON.parse(loginResp.body);
-    userId = loginBody.session.user.id;
-    accessToken = loginBody.session.accessToken;
+    userId = user.userId;
+    accessToken = user.accessToken;
     testUserIds.push(userId);
 
     const property = await createIntegrationProperty({
@@ -82,7 +77,9 @@ describe('Leaderboard routes', () => {
         // Ignore
       }
     }
-    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+    if (propertyId) {
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+    }
     await app.close();
   });
 

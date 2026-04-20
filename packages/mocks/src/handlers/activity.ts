@@ -7,10 +7,17 @@
 
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
-import { fixedTimestamp } from '../data/visual-fixtures.js';
-import { mockPropertyIds, mockUserIds } from '../data/fixtures.js';
+import {
+  getMockProperty,
+  getMockUser,
+  mockComments,
+  mockGuesses,
+  mockPropertyIds,
+  mockUserIds,
+} from '../data/fixtures.js';
+import { getFollowedUserIds } from './users.js';
 
-type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
+export type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
 type ActivityEventType = PublicActivityEventType | 'save';
 
 interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType> {
@@ -37,210 +44,165 @@ interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType>
   meta: Record<string, unknown> | null;
 }
 
-const mockPublicActivity: ActivityItem<PublicActivityEventType>[] = [
+export interface MockActivityEvent {
+  id: string;
+  eventType: ActivityEventType;
+  actorUserId: string;
+  propertyId: string;
+  createdAt: string;
+  meta: Record<string, unknown> | null;
+}
+
+const mockPropertyLikeEvents: MockActivityEvent[] = [
   {
     id: 'a0000000-0000-4000-a000-000000000901',
-    eventType: 'comment',
-    actor: {
-      id: mockUserIds.emma,
-      displayName: 'Emma van Dijk',
-      handle: 'emmavandijk',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
-    },
-    property: {
-      id: mockPropertyIds.prinsengracht263,
-      address: 'Prinsengracht 263, 1016 GV Amsterdam',
-      streetName: 'Prinsengracht',
-      houseNumber: 263,
-      houseNumberAddition: null,
-      city: 'Amsterdam',
-      postalCode: '1016 GV',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 6),
-    meta: { contentPreview: 'Wat een locatie.' },
+    eventType: 'property_like',
+    actorUserId: mockUserIds.lars,
+    propertyId: mockPropertyIds.herengracht502,
+    createdAt: '2026-04-18T12:00:00.000Z',
+    meta: null,
   },
   {
     id: 'a0000000-0000-4000-a000-000000000902',
-    eventType: 'price_guess',
-    actor: {
-      id: mockUserIds.sophie,
-      displayName: 'Sophie Meijer',
-      handle: 'sophiemeijer',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
-    },
-    property: {
-      id: mockPropertyIds.langeVoorhout102,
-      address: 'Lange Voorhout 102, 2514 EJ Den Haag',
-      streetName: 'Lange Voorhout',
-      houseNumber: 102,
-      houseNumberAddition: null,
-      city: 'Den Haag',
-      postalCode: '2514 EJ',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 4),
-    meta: { isMemeGuess: false },
-  },
-  {
-    id: 'a0000000-0000-4000-a000-000000000903',
     eventType: 'property_like',
-    actor: {
-      id: mockUserIds.pieter,
-      displayName: 'Pieter Jansen',
-      handle: 'pieterjansen',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
-    },
-    property: {
-      id: mockPropertyIds.coolsingel40,
-      address: 'Coolsingel 40, 3011 AD Rotterdam',
-      streetName: 'Coolsingel',
-      houseNumber: 40,
-      houseNumberAddition: null,
-      city: 'Rotterdam',
-      postalCode: '3011 AD',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 2),
+    actorUserId: mockUserIds.emma,
+    propertyId: mockPropertyIds.coolsingel40,
+    createdAt: '2026-04-16T08:30:00.000Z',
     meta: null,
   },
 ];
 
-const mockFollowingActivity: ActivityItem<PublicActivityEventType>[] = [
+const mockSavedActivityEvents: MockActivityEvent[] = [
   {
-    id: 'a0000000-0000-4000-a000-000000000904',
-    eventType: 'comment',
-    actor: {
-      id: mockUserIds.maria,
-      displayName: 'Maria Bakker',
-      handle: 'mariabakker',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
-    },
-    property: {
-      id: mockPropertyIds.herengracht502,
-      address: 'Herengracht 502, 1017 CB Amsterdam',
-      streetName: 'Herengracht',
-      houseNumber: 502,
-      houseNumberAddition: null,
-      city: 'Amsterdam',
-      postalCode: '1017 CB',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 5),
-    meta: { contentPreview: 'Dit voelt als een slimme aankoop.' },
-  },
-  {
-    id: 'a0000000-0000-4000-a000-000000000905',
-    eventType: 'price_guess',
-    actor: {
-      id: mockUserIds.lars,
-      displayName: 'Lars Hendriks',
-      handle: 'larshendriks',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
-    },
-    property: {
-      id: mockPropertyIds.oudegracht150,
-      address: 'Oudegracht 150, 3511 AZ Utrecht',
-      streetName: 'Oudegracht',
-      houseNumber: 150,
-      houseNumberAddition: null,
-      city: 'Utrecht',
-      postalCode: '3511 AZ',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 1),
-    meta: { isMemeGuess: false },
-  },
-];
-
-const mockPersonalActivity: ActivityItem[] = [
-  {
-    id: 'a0000000-0000-4000-a000-000000000906',
+    id: 'a0000000-0000-4000-a000-000000000951',
     eventType: 'save',
-    actor: {
-      id: mockUserIds.jan,
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: mockPropertyIds.langeVoorhout102,
-      address: 'Lange Voorhout 102, 2514 EJ Den Haag',
-      streetName: 'Lange Voorhout',
-      houseNumber: 102,
-      houseNumberAddition: null,
-      city: 'Den Haag',
-      postalCode: '2514 EJ',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 7),
+    actorUserId: mockUserIds.jan,
+    propertyId: mockPropertyIds.herengracht502,
+    createdAt: '2026-04-19T09:15:00.000Z',
     meta: null,
   },
   {
-    id: 'a0000000-0000-4000-a000-000000000907',
-    eventType: 'comment',
-    actor: {
-      id: mockUserIds.jan,
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: mockPropertyIds.herengracht502,
-      address: 'Herengracht 502, 1017 CB Amsterdam',
-      streetName: 'Herengracht',
-      houseNumber: 502,
-      houseNumberAddition: null,
-      city: 'Amsterdam',
-      postalCode: '1017 CB',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 3),
-    meta: { contentPreview: 'Prachtig grachtenpand.' },
-  },
-  {
-    id: 'a0000000-0000-4000-a000-000000000908',
-    eventType: 'property_like',
-    actor: {
-      id: mockUserIds.jan,
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: mockPropertyIds.coolsingel40,
-      address: 'Coolsingel 40, 3011 AD Rotterdam',
-      streetName: 'Coolsingel',
-      houseNumber: 40,
-      houseNumberAddition: null,
-      city: 'Rotterdam',
-      postalCode: '3011 AD',
-      countryCode: 'NL',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 0),
+    id: 'a0000000-0000-4000-a000-000000000952',
+    eventType: 'save',
+    actorUserId: mockUserIds.jan,
+    propertyId: mockPropertyIds.prinsengracht263,
+    createdAt: '2026-04-17T11:45:00.000Z',
     meta: null,
   },
 ];
+
+function toActivityAddress(propertyId: string) {
+  const property = getMockProperty(propertyId);
+  if (!property) {
+    return null;
+  }
+
+  return {
+    id: property.id,
+    address: `${property.address}, ${property.postalCode} ${property.city}`,
+    streetName: property.streetName,
+    houseNumber: Number.parseInt(property.houseNumber, 10) || 0,
+    houseNumberAddition: property.houseNumberAddition ?? null,
+    city: property.city,
+    postalCode: property.postalCode ?? '',
+    countryCode: property.countryCode,
+    thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+  };
+}
+
+export function getMockActivityEvents(): MockActivityEvent[] {
+  const commentEvents = mockComments.map<MockActivityEvent>((comment) => ({
+    id: comment.id,
+    eventType: 'comment',
+    actorUserId: comment.userId,
+    propertyId: comment.propertyId,
+    createdAt: comment.editedAt ?? comment.createdAt,
+    meta: { contentPreview: comment.content.slice(0, 100) },
+  }));
+
+  const guessEvents = mockGuesses.map<MockActivityEvent>((guess) => ({
+    id: guess.id,
+    eventType: 'price_guess',
+    actorUserId: guess.userId,
+    propertyId: guess.propertyId,
+    createdAt: guess.createdAt,
+    meta: { isMemeGuess: false },
+  }));
+
+  return [...mockPropertyLikeEvents, ...commentEvents, ...guessEvents, ...mockSavedActivityEvents]
+    .slice()
+    .sort((left, right) => {
+      const byTime = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      return byTime !== 0 ? byTime : right.id.localeCompare(left.id);
+    });
+}
+
+function getScopedActivityEvents(
+  scope: 'public' | 'following' | 'self',
+  viewerId: string | null,
+): MockActivityEvent[] {
+  const events = getMockActivityEvents();
+
+  if (scope === 'self') {
+    return events.filter((event) => event.actorUserId === viewerId);
+  }
+
+  if (scope === 'following') {
+    if (!viewerId) {
+      return [];
+    }
+
+    const followedUserIds = new Set(getFollowedUserIds(viewerId));
+    return events.filter(
+      (event) => event.eventType !== 'save' && followedUserIds.has(event.actorUserId),
+    );
+  }
+
+  return events.filter((event) => event.eventType !== 'save');
+}
+
+function mapActivityEvent<TEventType extends ActivityEventType>(
+  event: MockActivityEvent & { eventType: TEventType },
+): ActivityItem<TEventType> | null {
+  const actor = getMockUser(event.actorUserId);
+  const property = toActivityAddress(event.propertyId);
+
+  if (!actor || !property) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    actor: {
+      id: actor.id,
+      displayName: actor.displayName,
+      handle: actor.username,
+      profilePhotoUrl: actor.profilePhotoUrl ?? null,
+    },
+    property,
+    createdAt: new Date(event.createdAt).toISOString(),
+    meta: event.meta,
+  };
+}
 
 function sliceActivity<TEventType extends ActivityEventType>(
-  items: ActivityItem<TEventType>[],
+  events: Array<MockActivityEvent & { eventType: TEventType }>,
   limit: number,
-  offset: number
+  offset: number,
 ) {
+  const pagedEvents = events.slice(offset, offset + limit + 1);
+  const hasMore = pagedEvents.length > limit;
+  const pageItems = (hasMore ? pagedEvents.slice(0, limit) : pagedEvents)
+    .map((event) => mapActivityEvent(event))
+    .filter((item): item is ActivityItem<TEventType> => item !== null);
+
   return {
-    items: items.slice(offset, offset + limit),
+    items: pageItems,
     pagination: {
       limit,
       offset,
-      hasMore: offset + limit < items.length,
+      hasMore,
     },
   };
 }
@@ -251,20 +213,23 @@ export const activityHandlers = [
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const items = getScopedActivityEvents('self', authUser.id).filter(
+      (event): event is MockActivityEvent & { eventType: ActivityEventType } => event.actorUserId === authUser.id,
+    );
 
-    return HttpResponse.json(sliceActivity(mockPersonalActivity, limit, offset));
+    return HttpResponse.json(sliceActivity(items, limit, offset));
   }),
 
   http.get('*/activity', ({ request }) => {
     const url = new URL(request.url);
-    const scope = url.searchParams.get('scope') ?? 'public';
+    const scope = (url.searchParams.get('scope') ?? 'public') as 'public' | 'following';
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
@@ -273,13 +238,23 @@ export const activityHandlers = [
       if (!authUser) {
         return HttpResponse.json(
           { error: 'UNAUTHORIZED', message: 'Authentication required' },
-          { status: 401 }
+          { status: 401 },
         );
       }
 
-      return HttpResponse.json(sliceActivity(mockFollowingActivity, limit, offset));
+      const items = getScopedActivityEvents('following', authUser.id).filter(
+        (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+          event.eventType !== 'save',
+      );
+
+      return HttpResponse.json(sliceActivity(items, limit, offset));
     }
 
-    return HttpResponse.json(sliceActivity(mockPublicActivity, limit, offset));
+    const items = getScopedActivityEvents('public', null).filter(
+      (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+        event.eventType !== 'save',
+    );
+
+    return HttpResponse.json(sliceActivity(items, limit, offset));
   }),
 ];

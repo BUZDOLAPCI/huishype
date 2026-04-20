@@ -245,12 +245,8 @@ export interface PropertyGroupBounds {
   north: number;
 }
 
-/**
- * Canonical grouped map node model shared across tile features and nearby JSON.
- */
-export interface PropertyNodeGroup {
+interface PropertyNodeGroupBase {
   nodeClass: PropertyNodeClass;
-  groupKind: PropertyGroupKind;
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];
@@ -264,28 +260,31 @@ export interface PropertyNodeGroup {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
-  streetName: string | null;
-  houseNumber: number | null;
-  houseNumberAddition: string | null;
-  address: string | null;
-  city: string | null;
-  postalCode: string | null;
-  countryCode: string | null;
-  officialValuation: number | null;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
-  hasActiveListing: boolean | null;
-  marketState: MapMarketState | null;
 }
+
+/**
+ * Canonical grouped map node model shared across tile features and nearby JSON.
+ */
+export type PropertyNodeGroup =
+  | (PropertyNodeGroupBase & {
+      groupKind: 'single';
+      address: string;
+      city: string;
+      askingPrice: number | null;
+      thumbnailUrl: string | null;
+      hasActiveListing: boolean;
+      marketState: MapMarketState;
+    })
+  | (PropertyNodeGroupBase & {
+      groupKind: 'cluster';
+    });
 
 /**
  * Nearby grouped node response adds the tap distance to the canonical grouped model.
  */
-export interface NearbyPropertyGroup extends PropertyNodeGroup {
+export type NearbyPropertyGroup = PropertyNodeGroup & {
   distanceMeters: number;
-}
+};
 
 /**
  * Canonical filter categories for map state.

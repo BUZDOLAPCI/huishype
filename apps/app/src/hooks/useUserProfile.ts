@@ -12,6 +12,7 @@ import {
 import { useAuthContext } from '../providers/AuthProvider';
 import { API_URL } from '../utils/api';
 import { activityFeedKeys } from './useActivityFeed';
+import { getViewerCacheKey, propertyKeys } from './useProperties';
 import type {
   PublicUserProfile as PublicProfile,
   MyUserProfile as MyProfile,
@@ -216,19 +217,34 @@ async function fetchMyGuesses(
 
 /** Fetch a public user profile by ID */
 export function usePublicProfile(userId: string | null) {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
-  const viewerKey = isAuthenticated && user ? user.id : 'anon';
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useQuery({
     queryKey: userKeys.publicProfile(userId ?? '', viewerKey),
-    queryFn: () => fetchPublicProfile(userId!, accessToken),
+    queryFn: async () => {
+      if (!userId) {
+        throw new Error('User ID is required');
+      }
+
+      if (viewerKey === 'anon') {
+        return fetchPublicProfile(userId);
+      }
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Authenticated profile fetch requires an access token');
+      }
+
+      return fetchPublicProfile(userId, accessToken);
+    },
     enabled: !!userId,
   });
 }
 
 /** Fetch the authenticated user's full profile */
 export function useMyProfile() {
-  const { getAccessToken, isAuthenticated, accessToken, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useQuery({
@@ -238,7 +254,7 @@ export function useMyProfile() {
       if (!token) throw new Error('Not authenticated');
       return fetchMyProfile(token);
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
   });
 }
 
@@ -260,44 +276,57 @@ export function useUpdateProfile() {
 }
 
 export function useFollowers(pageSize = FOLLOW_LIST_PAGE_SIZE) {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useInfiniteQuery({
     queryKey: userKeys.followers(viewerKey, pageSize),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchFollowList(accessToken!, 'followers', pageSize, pageParam),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchFollowList(accessToken, 'followers', pageSize, pageParam);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + lastPage.pagination.limit;
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 15 * 1000,
   });
 }
 
 export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE) {
-  const { accessToken, isAuthenticated, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useInfiniteQuery({
     queryKey: userKeys.following(viewerKey, pageSize),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchFollowList(accessToken!, 'following', pageSize, pageParam),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchFollowList(accessToken, 'following', pageSize, pageParam);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + lastPage.pagination.limit;
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 15 * 1000,
   });
 }
 
 export function useFollowUser() {
   const queryClient = useQueryClient();
-  const { getAccessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useMutation({
     mutationFn: async (userId: string) => {
@@ -308,6 +337,9 @@ export function useFollowUser() {
     onSuccess: (data, userId) => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
       queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: propertyKeys.followingViewportRoot(viewerKey),
+      });
       emitSocialFollowAnalyticsEvent('follow_created', {
         targetUserId: userId,
         relationship: data.relationship,
@@ -320,7 +352,8 @@ export function useFollowUser() {
 
 export function useUnfollowUser() {
   const queryClient = useQueryClient();
-  const { getAccessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useMutation({
     mutationFn: async (userId: string) => {
@@ -331,6 +364,9 @@ export function useUnfollowUser() {
     onSuccess: (data, userId) => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
       queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: propertyKeys.followingViewportRoot(viewerKey),
+      });
       emitSocialFollowAnalyticsEvent('unfollow', {
         targetUserId: userId,
         relationship: data.relationship,
@@ -343,7 +379,7 @@ export function useUnfollowUser() {
 
 /** Fetch authenticated user's guess history */
 export function useMyGuesses(limit = 20, offset = 0) {
-  const { getAccessToken, isAuthenticated, accessToken, user } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
   return useQuery({
@@ -353,6 +389,6 @@ export function useMyGuesses(limit = 20, offset = 0) {
       if (!token) throw new Error('Not authenticated');
       return fetchMyGuesses(token, limit, offset);
     },
-    enabled: isAuthenticated && !!accessToken,
+    enabled: isAuthenticated && !!user,
   });
 }
