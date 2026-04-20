@@ -52,7 +52,7 @@ describe('resolveMapRoute', () => {
 
     expect(mockResolveProperty).toHaveBeenCalledWith({
       postalCode: '1234 AB',
-      houseNumber: '42',
+      houseNumber: 42,
       houseNumberAddition: 'a',
       countryCode: 'NL',
       street: 'teststraat',
@@ -73,7 +73,7 @@ describe('resolveMapRoute', () => {
 
     expect(mockResolveProperty).toHaveBeenCalledWith({
       postalCode: '9999 XX',
-      houseNumber: '999',
+      houseNumber: 999,
       houseNumberAddition: null,
       countryCode: 'NL',
       street: 'fakestraat',
@@ -88,12 +88,12 @@ describe('map social scope search params', () => {
     window.sessionStorage.clear();
   });
 
-  it('parses following as app-local map state', () => {
+  it('ignores deprecated socialScope query params', () => {
     expect(
       parseMapSocialScopeFromSearchParams(
         new URLSearchParams('socialScope=following'),
       ),
-    ).toBe('following');
+    ).toBe('all');
   });
 
   it('defaults unknown values back to all', () => {
@@ -135,10 +135,8 @@ describe('map social scope search params', () => {
     ).toBe('following');
   });
 
-  it('falls back to the legacy query param when no private app state exists', () => {
-    expect(
-      getPersistedMapSocialScope(new URLSearchParams('socialScope=following')),
-    ).toBe('following');
+  it('does not fall back to deprecated socialScope query params without private app state', () => {
+    expect(getPersistedMapSocialScope(new URLSearchParams('socialScope=following'))).toBe('all');
   });
 
   it('clears persisted app state when returning to all', () => {

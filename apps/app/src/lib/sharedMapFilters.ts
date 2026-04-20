@@ -44,6 +44,7 @@ const MAP_FILTER_QUERY_KEYS = [
   'marketState',
   'activity',
 ] as const;
+const PRIVATE_MAP_STATE_QUERY_KEYS = ['socialScope'] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
 
@@ -611,6 +612,9 @@ export function updateMapFilterSearchParams(
   const next = new URLSearchParams(params.toString());
 
   for (const key of MAP_FILTER_QUERY_KEYS) {
+    next.delete(key);
+  }
+  for (const key of PRIVATE_MAP_STATE_QUERY_KEYS) {
     next.delete(key);
   }
 

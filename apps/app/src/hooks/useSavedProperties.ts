@@ -10,7 +10,7 @@ import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import type { SavedProperty } from '@huishype/shared';
-import { getViewerCacheKey } from './useProperties';
+import { deriveCompatibilityActivityLevel, getViewerCacheKey } from './useProperties';
 
 interface SavedPropertiesApiResponse {
   data: SavedProperty[];
@@ -27,13 +27,6 @@ const PAGE_SIZE = 20;
 
 export function transformSavedProperty(property: SavedProperty): FeedProperty {
   const commentCount = property.topLevelCommentCount + property.replyCount;
-
-  const activityLevel: 'hot' | 'warm' | 'cold' =
-    (property.recentSocialScore ?? 0) > 0
-      ? 'hot'
-      : (property.socialScore ?? 0) > 0 || property.hasActiveListing
-        ? 'warm'
-        : 'cold';
 
   return withDerivedPropertyImageData({
     id: property.id,
@@ -53,7 +46,7 @@ export function transformSavedProperty(property: SavedProperty): FeedProperty {
     fmvValue: undefined,
     thumbnailUrl: property.thumbnailUrl,
     likeCount: property.propertyLikeCount ?? 0,
-    activityLevel,
+    activityLevel: deriveCompatibilityActivityLevel(property),
     lastActivityAt: property.lastSocialAt ?? property.savedAt,
     hasListing: property.hasListing,
     hasActiveListing: property.hasActiveListing ?? false,

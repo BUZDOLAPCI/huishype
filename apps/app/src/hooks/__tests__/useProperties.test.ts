@@ -144,6 +144,47 @@ describe('useProperty', () => {
     expect(result.current.data?.isLiked).toBe(false);
   });
 
+  it('keeps one-view recent activity warm when deriving compatibility activity state', async () => {
+    mockUser = null;
+    mockGetAccessToken.mockResolvedValueOnce(null);
+    mockApi.get.mockResolvedValueOnce({
+      id: 'property-123',
+      nationalId: null,
+      countryCode: 'NL',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      geometry: null,
+      imageryGeometry: null,
+      yearBuilt: 1999,
+      floorAreaM2: 120,
+      status: 'active',
+      officialValuation: 410000,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      socialScore: 0.5,
+      recentSocialScore: 0.5,
+      hasActiveListing: false,
+      commentCount: 0,
+      guessCount: 0,
+      viewCount: 1,
+      uniqueViewers: 1,
+      likeCount: 0,
+      isLiked: false,
+      isSaved: false,
+    });
+
+    const { result } = renderHook(() => useProperty('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.activityLevel).toBe('warm');
+  });
+
   it('keeps anonymous and authenticated property detail cache entries separate', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

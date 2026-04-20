@@ -118,6 +118,18 @@ describe('transformSavedProperty', () => {
 
     expect(transformed.commentCount).toBe(6);
   });
+
+  it('does not mark one-view recent activity as hot', () => {
+    const property = createSavedProperty({
+      hasActiveListing: false,
+      socialScore: 0.5,
+      recentSocialScore: 0.5,
+    });
+
+    const transformed = transformSavedProperty(property);
+
+    expect(transformed.activityLevel).toBe('warm');
+  });
 });
 
 function createWrapper(queryClient: QueryClient) {

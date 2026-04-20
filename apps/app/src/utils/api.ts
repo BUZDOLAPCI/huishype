@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import type {
+  PropertyResolveRequest as SharedPropertyResolveRequest,
   PropertyGroupBounds,
   PropertyResolveResponse,
 } from '@huishype/shared';
@@ -185,14 +186,19 @@ export type PropertyResolveResult = PropertyResolveResponse & {
   marketState?: MapMarketState | null;
 };
 
-export interface PropertyResolveRequest {
-  postalCode: string;
-  houseNumber: string | number;
+export type PropertyResolveRequest = Omit<
+  SharedPropertyResolveRequest,
+  'houseNumberAddition' | 'countryCode' | 'street' | 'city'
+> & {
   houseNumberAddition?: string | null;
   countryCode?: string | null;
   street?: string | null;
   city?: string | null;
-}
+};
+
+type PropertyResolveRequestInput = Omit<PropertyResolveRequest, 'houseNumber'> & {
+  houseNumber: number | string;
+};
 
 function normalizePostalCodeForCompare(value: string): string {
   return value.replace(/\s/g, '').toUpperCase();
@@ -282,9 +288,27 @@ function resolvedPropertyMatchesRequest(
  * result tap handlers.
  */
 export async function resolveProperty(
-  request: PropertyResolveRequest,
+  requestInput: PropertyResolveRequestInput,
 ): Promise<PropertyResolveResult | null> {
   try {
+    const normalizedHouseNumber = Number.parseInt(
+      String(requestInput.houseNumber).trim(),
+      10,
+    );
+
+    if (!Number.isSafeInteger(normalizedHouseNumber) || normalizedHouseNumber <= 0) {
+      return null;
+    }
+
+    const request: PropertyResolveRequest = {
+      ...requestInput,
+      houseNumber: normalizedHouseNumber,
+      houseNumberAddition: requestInput.houseNumberAddition ?? undefined,
+      countryCode: requestInput.countryCode ?? undefined,
+      street: requestInput.street ?? undefined,
+      city: requestInput.city ?? undefined,
+    };
+
     const params = new URLSearchParams({
       postalCode: request.postalCode,
       houseNumber: String(request.houseNumber),

@@ -105,6 +105,9 @@ export interface PropertyDetails extends Property {
 
 export type { FollowingViewportItem };
 
+const RECENT_HOT_SCORE_THRESHOLD = 0.5;
+const HOT_ACTIVITY_SCORE_THRESHOLD = 50;
+
 export function getViewerCacheKey(
   user: { id: string } | null | undefined,
   isAuthenticated: boolean,
@@ -129,11 +132,15 @@ function withDerivedPropertyImages<T extends Property>(property: T): T {
   return withDerivedPropertyImageData(property);
 }
 
-function deriveCompatibilityActivityLevel(property: Pick<
+export function deriveCompatibilityActivityLevel(property: Pick<
   Property,
   'socialScore' | 'recentSocialScore' | 'hasActiveListing'
 >): 'hot' | 'warm' | 'cold' {
-  if ((property.recentSocialScore ?? 0) > 0) {
+  if ((property.recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD) {
+    return 'hot';
+  }
+
+  if ((property.socialScore ?? 0) >= HOT_ACTIVITY_SCORE_THRESHOLD) {
     return 'hot';
   }
 

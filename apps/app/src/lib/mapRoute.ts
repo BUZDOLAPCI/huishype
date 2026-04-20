@@ -97,7 +97,6 @@ export interface RoutePropertyLike {
 
 export type MapSocialScope = 'all' | 'following';
 
-const MAP_SOCIAL_SCOPE_QUERY_KEY = 'socialScope';
 const MAP_VIEW_STATE_HISTORY_KEY = 'huishypeMapView';
 const MAP_SOCIAL_SCOPE_SESSION_KEY = 'huishype.map.socialScope';
 
@@ -230,11 +229,13 @@ function matchesPostcodeSuggestion(
 function buildPropertyResolveRequest(
   routeInput: CanonicalPropertyRouteInput,
 ): PropertyResolveRequest {
+  const houseNumber = Number.parseInt(String(routeInput.houseNumber).trim(), 10);
+
   return {
     postalCode: routeInput.postalCode,
-    houseNumber: String(routeInput.houseNumber).trim(),
-    houseNumberAddition: routeInput.houseNumberAddition,
-    countryCode: routeInput.countryCode,
+    houseNumber,
+    houseNumberAddition: routeInput.houseNumberAddition ?? null,
+    countryCode: routeInput.countryCode ?? null,
     street: routeInput.streetName,
     city: routeInput.city,
   };
@@ -605,11 +606,9 @@ export function buildMapPreviewPathname(
 }
 
 export function parseMapSocialScopeFromSearchParams(
-  params: URLSearchParams,
+  _params: URLSearchParams,
 ): MapSocialScope {
-  return params.get(MAP_SOCIAL_SCOPE_QUERY_KEY) === 'following'
-    ? 'following'
-    : 'all';
+  return 'all';
 }
 
 export function getPersistedMapSocialScope(
@@ -622,7 +621,7 @@ export function getPersistedMapSocialScope(
   return (
     readMapSocialScopeFromHistoryState(window.history.state) ??
     readMapSocialScopeFromSessionStorage() ??
-    (params ? parseMapSocialScopeFromSearchParams(params) : 'all')
+    'all'
   );
 }
 

@@ -60,7 +60,7 @@ describe('resolveProperty', () => {
 
     const result = await resolveProperty({
       postalCode: '1234AB',
-      houseNumber: '42',
+      houseNumber: 42,
       countryCode: 'DE',
       street: 'Teststraat',
       city: 'Amsterdam',
@@ -71,6 +71,7 @@ describe('resolveProperty', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/resolve?');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('countryCode=DE');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('postalCode=1234AB');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('houseNumber=42');
   });
 });
 
