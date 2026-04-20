@@ -104,7 +104,7 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 - Finalize the public property/map transport contract:
   - grouped tile/nearby payloads keep exactly: `nodeClass`, `groupKind`, `primaryPropertyId`, `pointCount`, `propertyIds`, `previewPropertyIds`, `coordinate`, `bbox`, `activeListingCount`, `socialCount`, `recentSocialCount`, `socialScoreTotal`, `socialScoreMax`, `recentSocialScoreTotal`, `commentCount`
   - grouped tile/nearby payloads explicitly do not ship: `listingShare`, `activeListingShare`, `socialShare`, legacy `hasListing`, legacy `activityScore`, or legacy `activityScoreTotal`
-  - `nodeClass` stays temporarily, but only as reveal-tier compatibility: `active` means socially/emphatically revealed, `ghost` means low-emphasis/no-social reveal; listing-only nodes remain `ghost`, and any social activity makes the node `active`
+  - `nodeClass` stays temporarily, but only as reveal-tier compatibility: `active` means the node has active listing state and/or social activity and should render as a normal visible map node; `ghost` means low-emphasis/no-listing/no-social reveal. Listing-backed nodes must not be demoted to `ghost` solely because social counts are zero.
   - grouped single payloads stay thin and seed-only: identity/location, address/title snippet, price snippet, thumbnail, `hasActiveListing`, `marketState`, and lightweight badges only: `nodeClass`, `commentCount`, `socialCount`, `recentSocialCount`
   - property fields for `hasListing`, `hasActiveListing`, `marketState`, `latestListingStatus`, `socialScore`, `recentSocialScore`, `lastSocialAt` only if its public value is not save-derived, plus the exact public engagement breakdowns:
     `topLevelCommentCount`, `replyCount`, `propertyLikeCount`, `commentLikeCount`, `guessCount`, `viewCount`, `uniqueViewerCount`, `recentTopLevelCommentCount`, `recentReplyCount`, `recentPropertyLikeCount`, `recentCommentLikeCount`, `recentGuessCount`, `recentViewCount`, `recentUniqueViewerCount`
@@ -691,7 +691,7 @@ Both plans require the UI to communicate separate listing and social axes. That 
   only considered correct when omitted/default `activity` is treated as `all`
   and low-zoom `for-sale` / `for-rent` views continue to show listing-backed
   coverage without requiring social activity. Regressions that hide
-  listing-backed ghosts below reveal zoom are treated as contract drift, not UI
+  listing-backed properties below reveal zoom are treated as contract drift, not UI
   polish.
 - 2026-04-19 view identity clarification: `POST /properties/:id/view` requires either an authenticated `user_id` or an anonymous `x-session-id`. Identity-less writes are rejected, and unique-viewer counting uses `COUNT(DISTINCT COALESCE(user_id::text, session_id))` with no row-id fallback.
 - 2026-04-19 mock ownership clarification: the mock property layer owns parity for `/properties/resolve`, `/properties/nearby`, `/properties/following-viewport`, and `POST /properties/:id/view`, so handler-alignment coverage must assert the same auth split and grouped-field contract there too.

@@ -24,14 +24,15 @@ nearby, batch, detail, and app parsing in one coordinated cutover.
 The following decisions are locked for implementation:
 
 - Listing lifecycle and social/platform activity are separate axes.
-- The old `active|ghost` model may stay temporarily as a reveal-tier hint, but
-  it is no longer the semantic source of truth.
+- The old `active|ghost` model may stay temporarily as a compatibility field,
+  but it is no longer the semantic source of truth and must not demote
+  active-listing properties into a ghost state.
 - Likes, comment likes, replies, guesses, and views all count as social
   activity for map semantics.
 - Saves remain user-private state and do not count toward public map semantics,
   public social scoring, or public cluster composition.
-- Likes and views must no longer leave a property in the ghost bucket just
-  because comments and guesses are zero.
+- Likes and views must count as social activity even when comments and guesses
+  are zero.
 - Cluster size may depend on `pointCount`.
 - Cluster color may not depend on `pointCount`.
 - Cluster visuals must be additive:
@@ -223,21 +224,23 @@ reflect actual platform attention, not only comments and guesses.
 
 ### 3. Reveal tier
 
-Keep `nodeClass` temporarily, but reinterpret it strictly as a reveal/emphasis
-tier:
+Keep `nodeClass` temporarily, but reinterpret it only as a compatibility field
+for low-emphasis quiet nodes versus normally visible nodes:
 
-- `active`: node has social/platform activity worth emphasis
-- `ghost`: node has no social/platform activity and stays low-emphasis
+- `active`: node has an active listing and/or social/platform activity and
+  should render as a normal visible node
+- `ghost`: node has no active listing and no social/platform activity and stays
+  low-emphasis
 
 This means:
 
-- listing-only => `ghost`
+- listing-only => `active`
 - social-only => `active`
 - listing + social => `active`
 - quiet sold/rented/not-listed => `ghost` if shown by filters
-- listing-only `ghost` nodes still remain eligible public low-zoom coverage when
-  `marketState` is `for-sale` or `for-rent` and public `activity` is omitted or
-  `all`
+- low-zoom public `for-sale` / `for-rent` coverage must keep listing-backed
+  properties visible when `activity` is omitted or `all`, even with zero social
+  activity
 
 The old rule:
 
@@ -374,7 +377,8 @@ Activity booleans:
 - `hasSocialActivity = socialScore > 0`
 - `hasRecentSocialActivity = recentSocialScore > 0`
 
-That change is the direct fix for likes/views incorrectly remaining ghost-only.
+That change is the direct fix for likes/views being ignored by the old
+comments/guesses-only emphasis model.
 
 ## Transport Contract
 
@@ -848,7 +852,7 @@ Assert exact composition math, not vague activity labels:
 
 - likes-only property becomes socially active
 - views-only property contributes social score through unique viewers
-- listing-only property remains low-emphasis but not socially active
+- listing-only property remains visibly listing-backed but not socially active
 - mixed groups report exact `activeListingCount`, `socialCount`,
   `recentSocialCount`, `socialScoreTotal`, `socialScoreMax`, and
   `recentSocialScoreTotal`
