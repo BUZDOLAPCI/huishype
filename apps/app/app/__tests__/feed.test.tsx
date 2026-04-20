@@ -301,10 +301,22 @@ describe('FeedScreen following surface', () => {
 
     const { getByTestId } = render(<FeedScreen />);
 
+    expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith('trending', {
+      country: 'NL',
+      lat: 51.4416,
+      lon: 5.4697,
+    }, true);
+    expect(mockUseActivityFeed).toHaveBeenLastCalledWith('public', false);
+
     fireEvent.press(getByTestId('chip-following'));
 
     await waitFor(() => {
-      expect(mockUseActivityFeed).toHaveBeenLastCalledWith('following');
+      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith('trending', {
+        country: 'NL',
+        lat: 51.4416,
+        lon: 5.4697,
+      }, false);
+      expect(mockUseActivityFeed).toHaveBeenLastCalledWith('following', true);
     });
 
     const analyticsEvents = (
@@ -338,7 +350,7 @@ describe('FeedScreen following surface', () => {
       country: 'NL',
       lat: 51.4416,
       lon: 5.4697,
-    });
+    }, true);
   });
 
   it('scopes the property feed to the signed-in user profile country when available', () => {
@@ -357,7 +369,7 @@ describe('FeedScreen following surface', () => {
       country: 'DE',
       lat: 52.52,
       lon: 13.405,
-    });
+    }, true);
   });
 
   it('emits following-feed item click analytics for both property and actor targets', async () => {

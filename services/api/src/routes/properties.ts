@@ -110,7 +110,6 @@ const propertyDetailSchema = propertySchema.extend({
   commentCount: z.number(),
   likeCount: z.number(),
   uniqueViewers: z.number(),
-  activityLevel: z.enum(['hot', 'warm', 'cold']),
   fmv: fmvSchema,
 });
 
@@ -483,22 +482,6 @@ function mapPublicPropertyRow(row: PropertyRow) {
     recentViewCount: Number(row.recent_view_count),
     recentUniqueViewerCount: Number(row.recent_unique_viewer_count),
   };
-}
-
-function calculateCompatibilityActivityLevel(
-  recentViews: number,
-  commentCount: number,
-  guessCount: number,
-): 'hot' | 'warm' | 'cold' {
-  if (recentViews > 50 || commentCount > 10 || guessCount > 5) {
-    return 'hot';
-  }
-
-  if (recentViews > 10 || commentCount > 3 || guessCount > 1) {
-    return 'warm';
-  }
-
-  return 'cold';
 }
 
 function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>) {
@@ -1156,11 +1139,6 @@ export async function propertyRoutes(app: FastifyInstance) {
         commentCount,
         likeCount: Number(row.property_like_count),
         uniqueViewers: Number(row.unique_viewer_count),
-        activityLevel: calculateCompatibilityActivityLevel(
-          Number(row.recent_view_count),
-          commentCount,
-          Number(row.guess_count),
-        ),
         isLiked: row.is_liked,
         isSaved: row.is_saved,
         fmv: fmvResult,

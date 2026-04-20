@@ -1,4 +1,10 @@
-import type { Property, PropertyDetails, PropertyFmvData } from '../../hooks/useProperties';
+import {
+  resolvePropertyActivityLevel,
+  resolvePropertyCommentCount,
+  type Property,
+  type PropertyDetails,
+  type PropertyFmvData,
+} from '../../hooks/useProperties';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
 export type PropertyContentData = Property | PropertyDetails | PropertyDetailsData;
@@ -89,14 +95,15 @@ export function toPropertyDetails(
   overrides?: { isLiked?: boolean; isSaved?: boolean }
 ): PropertyDetailsData {
   const details = property as Partial<PropertyDetailsData>;
-  const activityLevel =
-    isActivityLevel(details.activityLevel)
-      ? details.activityLevel
-      : (details.recentSocialScore ?? 0) > 0
-        ? 'hot'
-        : (details.socialScore ?? 0) > 0 || details.hasActiveListing
-          ? 'warm'
-          : 'cold';
+  const activityLevel = resolvePropertyActivityLevel(details);
+  const replyCount = details.replyCount ?? 0;
+  const commentCount = resolvePropertyCommentCount(details);
+  const topLevelCommentCount =
+    typeof details.topLevelCommentCount === 'number'
+      ? details.topLevelCommentCount
+      : typeof details.commentCount === 'number'
+        ? Math.max(details.commentCount - replyCount, 0)
+        : 0;
 
   return {
     ...property,
@@ -108,9 +115,9 @@ export function toPropertyDetails(
     recentSocialScore: details.recentSocialScore ?? 0,
     lastSocialAt: details.lastSocialAt ?? null,
     activityLevel,
-    commentCount: details.commentCount ?? details.topLevelCommentCount ?? 0,
-    topLevelCommentCount: details.topLevelCommentCount ?? details.commentCount ?? 0,
-    replyCount: details.replyCount ?? 0,
+    commentCount,
+    topLevelCommentCount,
+    replyCount,
     guessCount: details.guessCount ?? 0,
     viewCount: details.viewCount ?? 0,
     uniqueViewerCount: details.uniqueViewerCount ?? 0,

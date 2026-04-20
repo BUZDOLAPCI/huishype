@@ -63,7 +63,10 @@ async function fetchActivityFeed(
 const PAGE_SIZE = 20;
 
 /** Fetch the public or following social activity feed with infinite scroll. */
-export function useActivityFeed(scope: 'public' | 'following' = 'public') {
+export function useActivityFeed(
+  scope: 'public' | 'following' = 'public',
+  enabled = true,
+) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = scope === 'following' ? (user?.id ?? 'anon') : 'public';
 
@@ -84,7 +87,7 @@ export function useActivityFeed(scope: 'public' | 'following' = 'public') {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: scope === 'public' || (isAuthenticated && !!user),
+    enabled: enabled && (scope === 'public' || (isAuthenticated && !!user)),
     staleTime: 30 * 1000,
   });
 }

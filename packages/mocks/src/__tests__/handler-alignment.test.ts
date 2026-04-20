@@ -49,6 +49,34 @@ import {
 describe('Mock handler runtime parity', () => {
   const listingPropertyId = '11111111-1111-4111-8111-111111111111';
   const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const nearbyGroupedBaseKeys = [
+    'nodeClass',
+    'groupKind',
+    'primaryPropertyId',
+    'pointCount',
+    'propertyIds',
+    'previewPropertyIds',
+    'coordinate',
+    'bbox',
+    'activeListingCount',
+    'socialCount',
+    'recentSocialCount',
+    'socialScoreTotal',
+    'socialScoreMax',
+    'recentSocialScoreTotal',
+    'commentCount',
+    'distanceMeters',
+  ] as const;
+  const nearbySingleKeys = [
+    ...nearbyGroupedBaseKeys,
+    'address',
+    'city',
+    'askingPrice',
+    'thumbnailUrl',
+    'hasActiveListing',
+    'marketState',
+  ].sort();
+  const nearbyClusterKeys = [...nearbyGroupedBaseKeys].sort();
 
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
@@ -309,23 +337,31 @@ describe('Mock handler runtime parity', () => {
     expect(resolveBody).toHaveProperty('marketState', 'for-sale');
     expect(resolveBody).not.toHaveProperty('hasListing');
 
-    const nearbyResponse = await fetch(
+    const nearbySingleResponse = await fetch(
       'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=17',
     );
-    const nearbyBody = await nearbyResponse.json();
+    const nearbySingleBody = await nearbySingleResponse.json();
 
-    expect(nearbyResponse.status).toBe(200);
-    expect(nearbyBody).toHaveProperty('activeListingCount');
-    expect(nearbyBody).toHaveProperty('socialCount');
-    expect(nearbyBody).toHaveProperty('recentSocialCount');
-    expect(nearbyBody).toHaveProperty('socialScoreTotal');
-    expect(nearbyBody).toHaveProperty('socialScoreMax');
-    expect(nearbyBody).toHaveProperty('recentSocialScoreTotal');
-    expect(nearbyBody).toHaveProperty('hasActiveListing');
-    expect(nearbyBody).toHaveProperty('marketState');
-    expect(nearbyBody).not.toHaveProperty('hasListing');
-    expect(nearbyBody).not.toHaveProperty('activityScore');
-    expect(nearbyBody).not.toHaveProperty('activityScoreTotal');
+    expect(nearbySingleResponse.status).toBe(200);
+    expect(nearbySingleBody).toHaveProperty('groupKind', 'single');
+    expect(nearbySingleBody).toHaveProperty('hasActiveListing');
+    expect(nearbySingleBody).toHaveProperty('marketState');
+    expect(Object.keys(nearbySingleBody).sort()).toEqual(nearbySingleKeys);
+
+    const nearbyClusterResponse = await fetch(
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=13',
+    );
+    const nearbyClusterBody = await nearbyClusterResponse.json();
+
+    expect(nearbyClusterResponse.status).toBe(200);
+    expect(nearbyClusterBody).toHaveProperty('groupKind', 'cluster');
+    expect(Object.keys(nearbyClusterBody).sort()).toEqual(nearbyClusterKeys);
+
+    const nearbyNullResponse = await fetch(
+      'http://localhost/properties/nearby?lon=3.5&lat=55.1&zoom=17',
+    );
+    expect(nearbyNullResponse.status).toBe(200);
+    expect(await nearbyNullResponse.json()).toBeNull();
   });
 
   it('matches resolve validation and null lookup semantics', async () => {

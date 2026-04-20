@@ -146,10 +146,15 @@ async function fetchFeed(
 /**
  * Hook to fetch feed properties with pagination
  */
-export function useFeed(filter: PropertyFeedFilter = 'trending', scope?: FeedScope) {
+export function useFeed(
+  filter: PropertyFeedFilter = 'trending',
+  scope?: FeedScope,
+  enabled = true,
+) {
   return useQuery({
     queryKey: feedKeys.list(filter, scope),
     queryFn: () => fetchFeed(1, 20, filter, scope),
+    enabled,
     staleTime: 30 * 1000, // 30 seconds
   });
 }
@@ -157,7 +162,11 @@ export function useFeed(filter: PropertyFeedFilter = 'trending', scope?: FeedSco
 /**
  * Hook to fetch feed properties with infinite scrolling
  */
-export function useInfiniteFeed(filter: PropertyFeedFilter = 'trending', scope?: FeedScope) {
+export function useInfiniteFeed(
+  filter: PropertyFeedFilter = 'trending',
+  scope?: FeedScope,
+  enabled = true,
+) {
   return useInfiniteQuery({
     queryKey: feedKeys.infinite(filter, scope),
     queryFn: ({ pageParam = 1 }) => fetchFeed(pageParam, 20, filter, scope),
@@ -165,6 +174,7 @@ export function useInfiniteFeed(filter: PropertyFeedFilter = 'trending', scope?:
     getNextPageParam: (lastPage) => {
       return lastPage.meta.hasMore ? lastPage.meta.page + 1 : undefined;
     },
+    enabled,
     staleTime: 30 * 1000, // 30 seconds
   });
 }

@@ -1174,8 +1174,8 @@ describe('useMapInteraction', () => {
         askingPrice: 440000,
         marketState: 'for-sale',
         thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
-        socialScore: undefined,
-        recentSocialScore: undefined,
+        socialScore: 0,
+        recentSocialScore: 0,
         activityScore: 0,
       });
     });
@@ -1527,7 +1527,9 @@ describe('useMapInteraction', () => {
             divergence: -4,
           },
           likeCount: 7,
-          commentCount: 3,
+          commentCount: 2,
+          topLevelCommentCount: 2,
+          replyCount: 1,
           guessCount: 12,
           thumbnailUrl: null,
           createdAt: '2024-01-01T00:00:00Z',
@@ -1572,7 +1574,7 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          activityLevel: 'warm',
+          activityLevel: 'hot',
           activityScore: 7,
         });
       });

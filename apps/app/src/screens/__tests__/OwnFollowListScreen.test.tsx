@@ -149,6 +149,8 @@ describe('OwnFollowListScreen', () => {
       <OwnFollowListScreen kind="following" title="Following" />
     );
 
+    expect(mockUseFollowers).toHaveBeenCalledWith(undefined, false);
+    expect(mockUseFollowing).toHaveBeenCalledWith(undefined, true);
     expect(getByTestId('follow-list-item-followed-1')).toBeTruthy();
     expect(getByTestId('follow-list-item-followed-2')).toBeTruthy();
   });
@@ -168,6 +170,8 @@ describe('OwnFollowListScreen', () => {
       <OwnFollowListScreen kind="followers" title="Followers" />
     );
 
+    expect(mockUseFollowers).toHaveBeenCalledWith(undefined, true);
+    expect(mockUseFollowing).toHaveBeenCalledWith(undefined, false);
     fireEvent.press(getByTestId('follow-list-item-follower-1'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/user/follower-1');

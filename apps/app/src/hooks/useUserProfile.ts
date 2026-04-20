@@ -275,7 +275,7 @@ export function useUpdateProfile() {
   });
 }
 
-export function useFollowers(pageSize = FOLLOW_LIST_PAGE_SIZE) {
+export function useFollowers(pageSize = FOLLOW_LIST_PAGE_SIZE, enabled = true) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
@@ -294,12 +294,12 @@ export function useFollowers(pageSize = FOLLOW_LIST_PAGE_SIZE) {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + lastPage.pagination.limit;
     },
-    enabled: isAuthenticated && !!user,
+    enabled: enabled && isAuthenticated && !!user,
     staleTime: 15 * 1000,
   });
 }
 
-export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE) {
+export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE, enabled = true) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anon';
 
@@ -318,7 +318,7 @@ export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE) {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + lastPage.pagination.limit;
     },
-    enabled: isAuthenticated && !!user,
+    enabled: enabled && isAuthenticated && !!user,
     staleTime: 15 * 1000,
   });
 }

@@ -116,10 +116,11 @@ export default function FeedScreen() {
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
     feedScope,
+    isPropertyFeed,
   );
 
   // Activity feed
-  const activityQuery = useActivityFeed(activityScope);
+  const activityQuery = useActivityFeed(activityScope, !isPropertyFeed);
 
   const properties = useMemo(() => {
     if (!isPropertyFeed) return [];

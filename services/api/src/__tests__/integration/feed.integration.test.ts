@@ -51,7 +51,6 @@ describe('Feed routes', () => {
     likeCount: number;
     viewCount: number;
     fmv: number | null;
-    activityLevel: 'hot' | 'warm' | 'cold';
   };
   const feedFixtures = {} as Record<FeedFixtureKey, FeedFixture>;
   let noListingPropertyId: string;
@@ -186,7 +185,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'hot' as const,
@@ -206,7 +204,6 @@ describe('Feed routes', () => {
         likeCount: 1,
         viewCount: 2,
         fmv: 550000,
-        activityLevel: 'hot' as const,
       },
       {
         key: 'warm' as const,
@@ -226,7 +223,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 1,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'like' as const,
@@ -246,7 +242,6 @@ describe('Feed routes', () => {
         likeCount: 1,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'cold' as const,
@@ -266,7 +261,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'cold' as const,
       },
       {
         key: 'outsideRadius' as const,
@@ -286,7 +280,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
     ];
 
@@ -334,7 +327,6 @@ describe('Feed routes', () => {
         likeCount: definition.likeCount,
         viewCount: definition.viewCount,
         fmv: definition.fmv,
-        activityLevel: definition.activityLevel,
       };
     }
 
@@ -465,10 +457,68 @@ describe('Feed routes', () => {
         commentCount: feedFixtures.hot.commentCount,
         guessCount: feedFixtures.hot.guessCount,
         viewCount: feedFixtures.hot.viewCount,
-        activityLevel: feedFixtures.hot.activityLevel,
         lastActivityAt: feedFixtures.hot.lastActivityAt,
         hasListing: true,
       });
+      expect(item).not.toHaveProperty('activityLevel');
+    });
+
+    it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
+      const user = await createIntegrationUser(app, { label: `feedguessupdate${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Guess Edit ${runId}`,
+        houseNumber: 31,
+        city: `Feed Edit City ${runId}`,
+        postalCode: '9811AX',
+        lon: slice.lon + 0.015,
+        lat: slice.lat + 0.015,
+        officialValuation: 430000,
+      });
+
+      try {
+        const listingCreatedAt = atOffset({ days: 20 });
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 440000,
+          createdAt: listingCreatedAt,
+          updatedAt: listingCreatedAt,
+        });
+
+        const guessCreatedAt = atOffset({ days: 20, hours: 1 });
+        const guessUpdatedAt = atOffset({ minutes: 3 });
+        await insertGuess(property.id, user.userId, 410000, guessCreatedAt);
+        await db.execute(sql`
+          UPDATE price_guesses
+          SET guessed_price = 445000,
+              updated_at = ${guessUpdatedAt.toISOString()}
+          WHERE property_id = ${property.id}
+            AND user_id = ${user.userId}
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/feed?filter=latest&lat=${slice.lat + 0.015}&lon=${slice.lon + 0.015}&country=${slice.country}&limit=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const item = body.items.find((entry: { id: string }) => entry.id === property.id);
+
+        expect(item).toBeDefined();
+        expect(item).toMatchObject({
+          id: property.id,
+          guessCount: 1,
+          commentCount: 0,
+          likeCount: 0,
+          viewCount: 0,
+          lastActivityAt: guessUpdatedAt.toISOString(),
+        });
+        expect(item).not.toHaveProperty('activityLevel');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
     });
 
     it('applies latest ordering and deterministic pagination without overlap', async () => {

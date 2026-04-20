@@ -194,6 +194,15 @@ describe('useUserProfile follow surfaces', () => {
     expect(result.current.hasNextPage).toBe(false);
   });
 
+  it('does not fetch followers when the surface is disabled', () => {
+    const { result } = renderHook(() => useFollowers(undefined, false), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('paginates following with increasing offsets', async () => {
     mockFetch
       .mockResolvedValueOnce({
@@ -252,6 +261,15 @@ describe('useUserProfile follow surfaces', () => {
       })
     );
     expect(result.current.hasNextPage).toBe(false);
+  });
+
+  it('does not fetch following when the surface is disabled', () => {
+    const { result } = renderHook(() => useFollowing(undefined, false), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('invalidates user and activity-feed queries and emits follow-created analytics', async () => {

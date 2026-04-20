@@ -2706,14 +2706,6 @@
                     "uniqueViewers": {
                       "type": "number"
                     },
-                    "activityLevel": {
-                      "type": "string",
-                      "enum": [
-                        "hot",
-                        "warm",
-                        "cold"
-                      ]
-                    },
                     "fmv": {
                       "type": "object",
                       "properties": {
@@ -2871,7 +2863,6 @@
                     "commentCount",
                     "likeCount",
                     "uniqueViewers",
-                    "activityLevel",
                     "fmv"
                   ],
                   "additionalProperties": false
@@ -7995,14 +7986,6 @@
                           "viewCount": {
                             "type": "number"
                           },
-                          "activityLevel": {
-                            "type": "string",
-                            "enum": [
-                              "hot",
-                              "warm",
-                              "cold"
-                            ]
-                          },
                           "lastActivityAt": {
                             "type": "string",
                             "format": "date-time",
@@ -8027,7 +8010,6 @@
                           "commentCount",
                           "guessCount",
                           "viewCount",
-                          "activityLevel",
                           "lastActivityAt",
                           "hasListing"
                         ],

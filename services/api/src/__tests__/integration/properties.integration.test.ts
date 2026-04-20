@@ -851,10 +851,10 @@ describe('Property routes', () => {
       expect(body.uniqueViewers).toBe(1); // All 4 views from the same user
       expect(body.likeCount).toBe(1);
       expect(body.isLiked).toBe(true); // Requesting user made the like
-
-      // Activity level: recentViews=4, commentCount=2, guessCount=3
-      // guessCount(3) > 1 → 'warm'
-      expect(body.activityLevel).toBe('warm');
+      expect(body.recentGuessCount).toBe(3);
+      expect(body.socialScore).toBeCloseTo(6.05, 5);
+      expect(body.recentSocialScore).toBeCloseTo(6.05, 5);
+      expect(body).not.toHaveProperty('activityLevel');
 
       // FMV assertions
       expect(body.fmv).toBeDefined();
@@ -893,6 +893,55 @@ describe('Property routes', () => {
 
       // But isLiked should be false for unauthenticated
       expect(body.isLiked).toBe(false);
+    });
+
+    it('counts an edited guess once and treats updated_at as the public recency timestamp', async () => {
+      const propertyId = crypto.randomUUID();
+      const listingId = crypto.randomUUID();
+      const uniqueId = `editguess${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      const userId = loginBody.session.user.id;
+
+      const createdAt = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+      const updatedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+      try {
+        await db.execute(sql`
+          INSERT INTO properties (id, country_code, street, house_number, city, postal_code, status, geometry)
+          VALUES (${propertyId}, 'NL', 'Edited Guess Street', 123, 'Update City', '1234ZZ', 'active', ST_SetSRID(ST_MakePoint(5.48, 51.45), 4326))
+        `);
+        await db.execute(sql`
+          INSERT INTO listings (id, property_id, source_name, source_url, status, asking_price, created_at, updated_at)
+          VALUES (${listingId}, ${propertyId}, 'test', ${`https://test.example.com/edited-guess-${propertyId}`}, 'active', 455000, ${createdAt}, ${createdAt})
+        `);
+        await db.execute(sql`
+          INSERT INTO price_guesses (id, property_id, user_id, guessed_price, is_meme_guess, created_at, updated_at)
+          VALUES (${crypto.randomUUID()}, ${propertyId}, ${userId}, 440000, false, ${createdAt}, ${updatedAt})
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/${propertyId}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.guessCount).toBe(1);
+        expect(body.recentGuessCount).toBe(1);
+        expect(body.socialScore).toBeCloseTo(0.85, 5);
+        expect(body.recentSocialScore).toBeCloseTo(0.85, 5);
+        expect(body.lastSocialAt).toBe(updatedAt);
+        expect(body).not.toHaveProperty('activityLevel');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+      }
     });
   });
 });

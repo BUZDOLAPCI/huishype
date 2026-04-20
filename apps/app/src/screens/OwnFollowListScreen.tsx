@@ -21,8 +21,8 @@ type FollowListItem = FollowListResponse['items'][number];
 export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
   const { user } = useAuthContext();
   const [showAuth, setShowAuth] = React.useState(false);
-  const followersQuery = useFollowers();
-  const followingQuery = useFollowing();
+  const followersQuery = useFollowers(undefined, kind === 'followers');
+  const followingQuery = useFollowing(undefined, kind === 'following');
   const query = kind === 'followers' ? followersQuery : followingQuery;
   const items = React.useMemo(
     () => query.data?.pages.flatMap((page) => page.items) ?? [],

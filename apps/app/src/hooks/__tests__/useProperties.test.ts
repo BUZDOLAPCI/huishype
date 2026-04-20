@@ -185,6 +185,88 @@ describe('useProperty', () => {
     expect(result.current.data?.activityLevel).toBe('warm');
   });
 
+  it('uses reply-inclusive comment totals when detail payloads expose threaded counts', async () => {
+    mockUser = null;
+    mockGetAccessToken.mockResolvedValueOnce(null);
+    mockApi.get.mockResolvedValueOnce({
+      id: 'property-123',
+      nationalId: null,
+      countryCode: 'NL',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      geometry: null,
+      imageryGeometry: null,
+      yearBuilt: 1999,
+      floorAreaM2: 120,
+      status: 'active',
+      officialValuation: 410000,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      topLevelCommentCount: 2,
+      replyCount: 3,
+      commentCount: 2,
+      guessCount: 0,
+      viewCount: 0,
+      uniqueViewers: 0,
+      likeCount: 0,
+      isLiked: false,
+      isSaved: false,
+    });
+
+    const { result } = renderHook(() => useProperty('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.commentCount).toBe(5);
+  });
+
+  it('derives activity from current social fields instead of stale legacy activity levels', async () => {
+    mockUser = null;
+    mockGetAccessToken.mockResolvedValueOnce(null);
+    mockApi.get.mockResolvedValueOnce({
+      id: 'property-123',
+      nationalId: null,
+      countryCode: 'NL',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      geometry: null,
+      imageryGeometry: null,
+      yearBuilt: 1999,
+      floorAreaM2: 120,
+      status: 'active',
+      officialValuation: 410000,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      socialScore: 3,
+      recentSocialScore: 0,
+      hasActiveListing: false,
+      activityLevel: 'hot',
+      commentCount: 0,
+      guessCount: 0,
+      viewCount: 0,
+      uniqueViewers: 0,
+      likeCount: 0,
+      isLiked: false,
+      isSaved: false,
+    });
+
+    const { result } = renderHook(() => useProperty('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.activityLevel).toBe('warm');
+  });
+
   it('keeps anonymous and authenticated property detail cache entries separate', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

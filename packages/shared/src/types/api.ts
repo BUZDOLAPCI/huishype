@@ -257,7 +257,6 @@ export interface GetPropertyResponse extends PropertyContractBase {
   commentCount: number;
   likeCount: number;
   uniqueViewers: number;
-  activityLevel: 'hot' | 'warm' | 'cold';
   fmv: PropertyFmvResponse;
 }
 
@@ -383,7 +382,6 @@ export interface FeedItem {
   commentCount: number;
   guessCount: number;
   viewCount: number;
-  activityLevel: 'hot' | 'warm' | 'cold';
   lastActivityAt: string;
   hasListing: boolean;
 }

@@ -30,6 +30,23 @@ function listingOrderExpression(listingAlias: string): SQL {
   )} DESC, ${sql.raw(`${listingAlias}.id`)} DESC`;
 }
 
+export function buildLatestPublicGuessFactsQuery(propertyId: SQL): SQL {
+  return sql`
+    SELECT DISTINCT ON (pg.user_id)
+      pg.user_id,
+      pg.guessed_price,
+      pg.is_meme_guess,
+      GREATEST(pg.created_at, pg.updated_at) AS effective_at
+    FROM price_guesses pg
+    WHERE pg.property_id = ${propertyId}
+    ORDER BY
+      pg.user_id,
+      GREATEST(pg.created_at, pg.updated_at) DESC,
+      pg.created_at DESC,
+      pg.id DESC
+  `;
+}
+
 export function buildPropertyListingFactsJoin(
   propertyAlias = 'p',
   alias = 'lf',
@@ -105,10 +122,9 @@ export function buildPropertyListingFactsJoin(
                 / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
               )::bigint
             END AS canonical_fmv
-          FROM price_guesses pg
+          FROM (${buildLatestPublicGuessFactsQuery(idColumn)}) pg
           INNER JOIN users u ON u.id = pg.user_id
-          WHERE pg.property_id = ${idColumn}
-            AND pg.is_meme_guess = FALSE
+          WHERE pg.is_meme_guess = FALSE
         ) guess_facts ON TRUE
       `
     : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS canonical_fmv) guess_facts ON TRUE`;
@@ -245,11 +261,10 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         SELECT
           COUNT(*)::int AS count,
           COUNT(*) FILTER (
-            WHERE GREATEST(pg.created_at, pg.updated_at) > NOW() - INTERVAL '7 days'
+            WHERE pg.effective_at > NOW() - INTERVAL '7 days'
           )::int AS recent_count,
-          MAX(GREATEST(pg.created_at, pg.updated_at)) AS latest
-        FROM price_guesses pg
-        WHERE pg.property_id = ${idColumn}
+          MAX(pg.effective_at) AS latest
+        FROM (${buildLatestPublicGuessFactsQuery(idColumn)}) pg
       ),
       views AS (
         SELECT

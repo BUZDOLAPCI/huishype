@@ -10,7 +10,11 @@ import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import type { SavedProperty } from '@huishype/shared';
-import { deriveCompatibilityActivityLevel, getViewerCacheKey } from './useProperties';
+import {
+  getViewerCacheKey,
+  resolvePropertyActivityLevel,
+  resolvePropertyCommentCount,
+} from './useProperties';
 
 interface SavedPropertiesApiResponse {
   data: SavedProperty[];
@@ -26,7 +30,7 @@ export const savedPropertyKeys = {
 const PAGE_SIZE = 20;
 
 export function transformSavedProperty(property: SavedProperty): FeedProperty {
-  const commentCount = property.topLevelCommentCount + property.replyCount;
+  const commentCount = resolvePropertyCommentCount(property);
 
   return withDerivedPropertyImageData({
     id: property.id,
@@ -46,7 +50,7 @@ export function transformSavedProperty(property: SavedProperty): FeedProperty {
     fmvValue: undefined,
     thumbnailUrl: property.thumbnailUrl,
     likeCount: property.propertyLikeCount ?? 0,
-    activityLevel: deriveCompatibilityActivityLevel(property),
+    activityLevel: resolvePropertyActivityLevel(property),
     lastActivityAt: property.lastSocialAt ?? property.savedAt,
     hasListing: property.hasListing,
     hasActiveListing: property.hasActiveListing ?? false,
@@ -104,19 +108,26 @@ async function fetchSavedProperties(
 }
 
 export function useSavedProperties() {
-  const { user, accessToken, isAuthenticated } = useAuthContext();
+  const { user, getAccessToken, isAuthenticated } = useAuthContext();
   const queryClient = useQueryClient();
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   const query = useInfiniteQuery({
     queryKey: savedPropertyKeys.list(viewerKey),
-    queryFn: ({ pageParam = 0 }) => fetchSavedProperties(accessToken!, pageParam, PAGE_SIZE),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchSavedProperties(accessToken, pageParam, PAGE_SIZE);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: !!user && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 10 * 1000, // 10 seconds — saves change frequently
   });
 

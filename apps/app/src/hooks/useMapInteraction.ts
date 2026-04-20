@@ -11,7 +11,12 @@ import { useRef, useCallback, useState, useEffect, useMemo, startTransition } fr
 import { router } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
-import { useProperty, type PropertyFmvData } from '@/src/hooks/useProperties';
+import {
+  resolvePropertyActivityLevel,
+  resolvePropertyCommentCount,
+  useProperty,
+  type PropertyFmvData,
+} from '@/src/hooks/useProperties';
 import { usePropertyLike } from '@/src/hooks/usePropertyLike';
 import { usePropertySave } from '@/src/hooks/usePropertySave';
 import {
@@ -171,6 +176,8 @@ export interface ToGroupPropertyInput {
   floorAreaM2?: number | null;
   likeCount?: number | null;
   commentCount?: number | null;
+  topLevelCommentCount?: number | null;
+  replyCount?: number | null;
   guessCount?: number | null;
 }
 
@@ -182,8 +189,6 @@ export function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   if (score > 0) return 'warm';
   return 'cold';
 }
-
-const RECENT_HOT_SCORE_THRESHOLD = 0.5;
 
 interface DerivedPreviewActivity {
   socialScore?: number;
@@ -208,42 +213,22 @@ function derivePreviewActivity(input: {
     typeof input.activityScore === 'number'
       ? input.activityScore
       : socialScore;
-  const isRecentHot = (recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD;
+  const hasModernSignals =
+    typeof socialScore === 'number' ||
+    typeof recentSocialScore === 'number' ||
+    input.hasActiveListing === true;
 
-  if (isRecentHot) {
+  if (hasModernSignals) {
     return {
-      socialScore,
-      recentSocialScore,
-      activityScore: activityScore ?? recentSocialScore,
-      activityLevel: 'hot',
-    };
-  }
-
-  if (typeof activityScore === 'number' && activityScore > 0) {
-    const resolvedActivityScore = activityScore;
-    return {
-      socialScore,
-      recentSocialScore,
-      activityScore: resolvedActivityScore,
-      activityLevel: getActivityLevel(resolvedActivityScore),
-    };
-  }
-
-  if (input.hasActiveListing) {
-    return {
-      socialScore,
-      recentSocialScore,
-      activityScore: activityScore ?? 0,
-      activityLevel: 'warm',
-    };
-  }
-
-  if (input.activityLevel === 'hot' || input.activityLevel === 'warm' || input.activityLevel === 'cold') {
-    return {
-      socialScore,
-      recentSocialScore,
-      activityScore,
-      activityLevel: input.activityLevel,
+      socialScore: socialScore ?? 0,
+      recentSocialScore: recentSocialScore ?? 0,
+      activityScore: activityScore ?? socialScore ?? 0,
+      activityLevel: resolvePropertyActivityLevel({
+        socialScore,
+        recentSocialScore,
+        hasActiveListing: input.hasActiveListing,
+        activityLevel: input.activityLevel,
+      }),
     };
   }
 
@@ -252,6 +237,28 @@ function derivePreviewActivity(input: {
       socialScore,
       recentSocialScore,
       activityScore,
+    };
+  }
+
+  if (
+    input.activityLevel === 'hot' ||
+    input.activityLevel === 'warm' ||
+    input.activityLevel === 'cold'
+  ) {
+    return {
+      socialScore,
+      recentSocialScore,
+      activityScore,
+      activityLevel: input.activityLevel,
+    };
+  }
+
+  if (typeof activityScore === 'number' && activityScore > 0) {
+    return {
+      socialScore: socialScore ?? 0,
+      recentSocialScore: recentSocialScore ?? 0,
+      activityScore,
+      activityLevel: getActivityLevel(activityScore),
     };
   }
 
@@ -345,8 +352,7 @@ function mergeHydratedPreviewProperty(
     selectedProperty.thumbnailUrl ??
     null;
   const mergedCommentCount =
-    selectedProperty.commentCount ??
-    selectedProperty.topLevelCommentCount ??
+    resolvePropertyCommentCount(selectedProperty) ??
     currentProperty.commentCount ??
     0;
   const mergedGuessCount =
@@ -432,7 +438,7 @@ function convertToGroupProperty(
     yearBuilt: p.yearBuilt ?? null,
     floorAreaM2: p.floorAreaM2 ?? null,
     likeCount: p.likeCount ?? 0,
-    commentCount: p.commentCount ?? 0,
+    commentCount: resolvePropertyCommentCount(p),
     guessCount: p.guessCount ?? 0,
   };
 }

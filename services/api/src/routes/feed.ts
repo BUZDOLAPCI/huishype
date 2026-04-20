@@ -3,10 +3,10 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
-import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
 import {
+  buildLatestPublicGuessFactsQuery,
   buildPropertyListingFactsJoin,
   buildPropertySocialFactsJoin,
 } from '../services/property-queries.js';
@@ -33,7 +33,6 @@ const feedItemSchema = z.object({
   commentCount: z.number(),
   guessCount: z.number(),
   viewCount: z.number(),
-  activityLevel: z.enum(['hot', 'warm', 'cold']),
   lastActivityAt: z.string().datetime(),
   hasListing: z.boolean(),
 });
@@ -169,8 +168,7 @@ export async function feedRoutes(app: FastifyInstance) {
           SELECT
             CASE WHEN COUNT(*) >= 3 THEN ROUND(AVG(pg.guessed_price))::bigint END AS fmv,
             STDDEV(pg.guessed_price) AS stddev
-          FROM price_guesses pg
-          WHERE pg.property_id = p.id
+          FROM (${buildLatestPublicGuessFactsQuery(sql`p.id`)}) pg
         ) guess_stats ON TRUE
         WHERE 1=1
           AND p.status = 'active'
@@ -216,10 +214,6 @@ export async function feedRoutes(app: FastifyInstance) {
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
         viewCount: Number(r.view_count),
-        activityLevel: computeActivityLevel(
-          Number(r.trending_score),
-          new Date(r.last_activity_at)
-        ),
         lastActivityAt: new Date(r.last_activity_at).toISOString(),
         hasListing: r.has_listing,
       }));

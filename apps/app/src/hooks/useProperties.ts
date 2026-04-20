@@ -134,8 +134,10 @@ function withDerivedPropertyImages<T extends Property>(property: T): T {
 
 export function deriveCompatibilityActivityLevel(property: Pick<
   Property,
-  'socialScore' | 'recentSocialScore' | 'hasActiveListing'
->): 'hot' | 'warm' | 'cold' {
+  'socialScore' | 'recentSocialScore'
+> & {
+  hasActiveListing?: boolean | null;
+}): 'hot' | 'warm' | 'cold' {
   if ((property.recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD) {
     return 'hot';
   }
@@ -151,6 +153,51 @@ export function deriveCompatibilityActivityLevel(property: Pick<
   return 'cold';
 }
 
+function isActivityLevel(
+  value: unknown,
+): value is NonNullable<PropertyDetails['activityLevel']> {
+  return value === 'hot' || value === 'warm' || value === 'cold';
+}
+
+export function resolvePropertyCommentCount(
+  property: {
+    commentCount?: number | null;
+    topLevelCommentCount?: number | null;
+    replyCount?: number | null;
+  },
+): number {
+  if (
+    typeof property.topLevelCommentCount === 'number' ||
+    typeof property.replyCount === 'number'
+  ) {
+    return (property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0);
+  }
+
+  return property.commentCount ?? 0;
+}
+
+export function resolvePropertyActivityLevel(
+  property: Pick<Property, 'socialScore' | 'recentSocialScore'> & {
+    hasActiveListing?: boolean | null;
+    activityLevel?: PropertyDetails['activityLevel'] | null;
+  },
+): 'hot' | 'warm' | 'cold' {
+  const hasModernSignals =
+    typeof property.socialScore === 'number' ||
+    typeof property.recentSocialScore === 'number' ||
+    property.hasActiveListing === true;
+
+  if (hasModernSignals) {
+    return deriveCompatibilityActivityLevel(property);
+  }
+
+  if (isActivityLevel(property.activityLevel)) {
+    return property.activityLevel;
+  }
+
+  return 'cold';
+}
+
 type PropertyResponseLike = Property &
   Partial<PropertyDetails> & {
     commentCount?: number;
@@ -161,10 +208,7 @@ type PropertyResponseLike = Property &
 function normalizePropertyResponse<T extends PropertyResponseLike>(property: T): T {
   const normalized = {
     ...property,
-    commentCount:
-      'commentCount' in property && typeof property.commentCount === 'number'
-        ? property.commentCount
-        : property.topLevelCommentCount ?? 0,
+    commentCount: resolvePropertyCommentCount(property),
     guessCount: property.guessCount ?? 0,
     viewCount: property.viewCount ?? 0,
     uniqueViewers:
@@ -175,13 +219,7 @@ function normalizePropertyResponse<T extends PropertyResponseLike>(property: T):
       'likeCount' in property && typeof property.likeCount === 'number'
         ? property.likeCount
         : property.propertyLikeCount ?? 0,
-    activityLevel:
-      'activityLevel' in property &&
-      (property.activityLevel === 'hot' ||
-        property.activityLevel === 'warm' ||
-        property.activityLevel === 'cold')
-        ? property.activityLevel
-        : deriveCompatibilityActivityLevel(property),
+    activityLevel: resolvePropertyActivityLevel(property),
   };
 
   return withDerivedPropertyImages(normalized as T);

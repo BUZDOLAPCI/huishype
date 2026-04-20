@@ -93,6 +93,59 @@ type FollowingViewportQueryFromOpenApi =
   paths['/properties/following-viewport']['get']['parameters']['query'];
 type FollowingViewportResponseFromOpenApi =
   paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
+type NearbyGroupedResponseFromOpenApi =
+  paths['/properties/nearby']['get']['responses'][200]['content']['application/json'];
+type NearbySingleFromOpenApi = Extract<
+  Exclude<NearbyGroupedResponseFromOpenApi, null>,
+  { groupKind: 'single' }
+>;
+type NearbyClusterFromOpenApi = Extract<
+  Exclude<NearbyGroupedResponseFromOpenApi, null>,
+  { groupKind: 'cluster' }
+>;
+type CanonicalNearbySingle = {
+  nodeClass: 'active' | 'ghost';
+  groupKind: 'single';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  address: string;
+  city: string;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  hasActiveListing: boolean;
+  marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
+};
+type CanonicalNearbyCluster = {
+  nodeClass: 'active' | 'ghost';
+  groupKind: 'cluster';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+};
+type CanonicalNearbyGroupedResponse = CanonicalNearbySingle | CanonicalNearbyCluster | null;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
 type ResolvePropertyMethodRequest = Parameters<HuisHypeApiClient['resolveProperty']>[0];
 type Expect<T extends true> = T;
@@ -225,6 +278,9 @@ const feedContractAssertions = [
     >
   >,
   true as Assert<IsExact<FollowingViewportResponseFromOpenApi, GetFollowingViewportResponse>>,
+  true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
+  true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
+  true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
   true as Expect<Equal<HasStaleMapMethod, false>>,
 ] as const;
 

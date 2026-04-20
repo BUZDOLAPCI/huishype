@@ -12,12 +12,14 @@ global.fetch = mockFetch;
 
 let mockAuthUser: { id: string } | null = null;
 let mockAccessToken: string | null = null;
+const mockGetAccessToken = jest.fn();
 
 jest.mock('../../providers/AuthProvider', () => ({
   useAuthContext: () => ({
     user: mockAuthUser,
     accessToken: mockAccessToken,
     isAuthenticated: !!mockAuthUser,
+    getAccessToken: mockGetAccessToken,
   }),
 }));
 
@@ -154,6 +156,8 @@ describe('useSavedProperties', () => {
     mockFetch.mockReset();
     mockAuthUser = { id: 'viewer-1' };
     mockAccessToken = 'token-viewer-1';
+    mockGetAccessToken.mockReset();
+    mockGetAccessToken.mockResolvedValue('token-viewer-1');
   });
 
   it('uses viewer-sensitive saved-property cache keys', async () => {
@@ -219,6 +223,36 @@ describe('useSavedProperties', () => {
       queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1')),
     ).not.toEqual(
       queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-2')),
+    );
+  });
+
+  it('uses a fresh token even when the auth snapshot token is empty', async () => {
+    mockAccessToken = null;
+    mockGetAccessToken.mockResolvedValueOnce('fresh-viewer-token');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [createSavedProperty()],
+        total: 1,
+        hasMore: false,
+      }),
+    });
+
+    const { result } = renderHook(() => useSavedProperties(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/saved-properties?limit=20&offset=0',
+      expect.objectContaining({
+        headers: {
+          Authorization: 'Bearer fresh-viewer-token',
+        },
+      }),
     );
   });
 });
