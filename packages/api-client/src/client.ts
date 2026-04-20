@@ -23,6 +23,8 @@ import type {
   GetFeedRequest,
   GetSavedPropertiesRequest,
   GetFollowingViewportRequest,
+  PropertyResolveRequest,
+  PropertyResolveResponse,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetFeedResponse,
@@ -55,10 +57,7 @@ type MarkNotificationReadResponse =
   paths['/notifications/{id}/read']['put']['responses'][200]['content']['application/json'];
 type TrackViewResponse =
   paths['/properties/{id}/view']['post']['responses'][200]['content']['application/json'];
-type ResolvePropertyQuery =
-  paths['/properties/resolve']['get']['parameters']['query'];
-type ResolvePropertyResponse =
-  paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
+type ResolvePropertyQuery = paths['/properties/resolve']['get']['parameters']['query'];
 type PropertyResponse =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
 type SavedPropertiesQuery =
@@ -332,21 +331,14 @@ export class HuisHypeApiClient {
   // Property Endpoints  (paths: /properties, /properties/resolve, /properties/nearby, /properties/batch, /properties/:id)
   // ============================================
 
-  async resolveProperty(
-    postalCode: string,
-    houseNumber: string | number,
-    houseNumberAddition?: string,
-    countryCode?: string,
-    street?: string,
-    city?: string
-  ): Promise<ResolvePropertyResponse> {
+  async resolveProperty(request: PropertyResolveRequest): Promise<PropertyResolveResponse> {
     const query: ResolvePropertyQuery = {
-      postalCode,
-      houseNumber: Number(houseNumber),
-      ...(houseNumberAddition ? { houseNumberAddition } : {}),
-      ...(countryCode ? { countryCode } : {}),
-      ...(street ? { street } : {}),
-      ...(city ? { city } : {}),
+      postalCode: request.postalCode,
+      houseNumber: request.houseNumber,
+      ...(request.houseNumberAddition ? { houseNumberAddition: request.houseNumberAddition } : {}),
+      ...(request.countryCode ? { countryCode: request.countryCode } : {}),
+      ...(request.street ? { street: request.street } : {}),
+      ...(request.city ? { city: request.city } : {}),
     };
 
     const serializedQuery: Record<string, string | number | boolean | undefined> = {
@@ -358,7 +350,7 @@ export class HuisHypeApiClient {
       city: query.city,
     };
 
-    return this.request<ResolvePropertyResponse>('GET', '/properties/resolve', {
+    return this.request<PropertyResolveResponse>('GET', '/properties/resolve', {
       query: serializedQuery,
     });
   }

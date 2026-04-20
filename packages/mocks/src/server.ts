@@ -13,11 +13,20 @@
 
 import { setupServer } from 'msw/node';
 import { handlers } from './handlers';
+import { resetMockSessions } from './handlers/auth.js';
+import { resetMockFollowState } from './handlers/users.js';
 
 /**
  * MSW server instance for Node.js
  */
 export const server = setupServer(...handlers);
+const nativeResetHandlers = server.resetHandlers.bind(server);
+
+server.resetHandlers = (...nextHandlers) => {
+  nativeResetHandlers(...nextHandlers);
+  resetMockSessions();
+  resetMockFollowState();
+};
 
 /**
  * Start the mock server for testing

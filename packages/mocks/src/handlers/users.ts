@@ -21,12 +21,14 @@ const karmaRankLevels: Record<string, number> = {
   Master: 7,
 };
 
-const followEdges = new Set<string>([
+const initialFollowEdges = [
   `${mockUserIds.jan}:${mockUserIds.maria}`,
   `${mockUserIds.pieter}:${mockUserIds.jan}`,
   `${mockUserIds.jan}:${mockUserIds.lars}`,
   `${mockUserIds.lars}:${mockUserIds.jan}`,
-]);
+];
+
+let followEdges = new Set<string>(initialFollowEdges);
 
 function followEdgeKey(followerUserId: string, followedUserId: string) {
   return `${followerUserId}:${followedUserId}`;
@@ -350,3 +352,7 @@ export const userHandlers = [
     });
   }),
 ];
+
+export function resetMockFollowState() {
+  followEdges = new Set(initialFollowEdges);
+}

@@ -26,6 +26,33 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
 
+function normalizePostalCode(postalCode: string) {
+  return postalCode.replace(/\s/g, '').toUpperCase();
+}
+
+function normalizeAddressPart(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .trim()
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function validationErrorResponse() {
+  return HttpResponse.json(
+    {
+      error: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+    },
+    { status: 400 }
+  );
+}
+
 function getCommentBreakdown(propertyId: string) {
   const comments = mockComments.filter((comment) => comment.propertyId === propertyId);
   const topLevelCommentCount = comments.length;
@@ -231,25 +258,84 @@ export const propertyHandlers = [
   http.get('*/properties/resolve', ({ request }) => {
     const url = new URL(request.url);
     const postalCode = url.searchParams.get('postalCode');
-    const houseNumber = url.searchParams.get('houseNumber');
+    const houseNumberRaw = url.searchParams.get('houseNumber');
+    const houseNumber = Number(houseNumberRaw);
+    const houseNumberAddition = url.searchParams.get('houseNumberAddition')?.trim().toUpperCase() || null;
     const countryCode = (url.searchParams.get('countryCode') || 'NL').toUpperCase();
+    const street = url.searchParams.get('street');
+    const city = url.searchParams.get('city');
 
-    if (!postalCode || !houseNumber) {
+    if (!postalCode || !houseNumberRaw) {
+      return validationErrorResponse();
+    }
+
+    if (!Number.isInteger(houseNumber) || houseNumber <= 0) {
+      return validationErrorResponse();
+    }
+
+    const normalizedPostalCode = normalizePostalCode(postalCode);
+    const normalizedStreet = normalizeAddressPart(street);
+    const normalizedCity = normalizeAddressPart(city);
+
+    const matches = mockPropertyDetails.filter((property) => {
+      if (property.countryCode !== countryCode) {
+        return false;
+      }
+
+      if (normalizePostalCode(property.postalCode ?? '') !== normalizedPostalCode) {
+        return false;
+      }
+
+      if (Number(property.houseNumber) !== houseNumber) {
+        return false;
+      }
+
+      if ((property.houseNumberAddition?.trim().toUpperCase() || null) !== houseNumberAddition) {
+        return false;
+      }
+
+      if (
+        normalizedStreet &&
+        normalizeAddressPart(property.streetName) !== normalizedStreet
+      ) {
+        return false;
+      }
+
+      if (normalizedCity && normalizeAddressPart(property.city) !== normalizedCity) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (matches.length === 0) {
+      return HttpResponse.json(null);
+    }
+
+    if (matches.length > 1) {
       return HttpResponse.json(
-        { error: 'BAD_REQUEST', message: 'postalCode and houseNumber are required' },
-        { status: 400 }
+        {
+          error: 'AMBIGUOUS_ADDRESS',
+          message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
+        },
+        { status: 409 }
       );
     }
 
+    const property = matches[0];
+    const publicProperty = getMockPublicProperty(property);
     const response = {
-      id: 'a0000000-0000-4000-a000-000000000001',
-      address: `Mockstraat ${houseNumber}, ${postalCode} Amsterdam`,
-      postalCode: postalCode.replace(/\s/g, '').toUpperCase(),
-      city: 'Amsterdam',
-      coordinates: { lon: 4.8952, lat: 52.3702 },
-      hasActiveListing: true,
-      marketState: 'for-sale' as const,
-      officialValuation: 450000,
+      id: property.id,
+      address: `${property.address}, ${normalizedPostalCode} ${property.city}`,
+      postalCode: normalizedPostalCode,
+      city: property.city,
+      coordinates: {
+        lon: property.coordinates.lon,
+        lat: property.coordinates.lat,
+      },
+      hasActiveListing: publicProperty.hasActiveListing,
+      marketState: publicProperty.marketState,
+      officialValuation: property.officialValuation ?? null,
       countryCode,
     };
 

@@ -19,6 +19,8 @@ import type {
   GetFollowingViewportResponse,
   GetPropertyResponse,
   GetSavedPropertiesResponse,
+  PropertyResolveRequest,
+  PropertyResolveResponse,
   SubmitListingRequest,
   SubmitListingResponse,
 } from '@huishype/shared';
@@ -69,6 +71,8 @@ type FollowRouteResponseFromOpenApi =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
 type PropertyResponseFromOpenApi =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
+type ResolvePropertyQueryFromOpenApi =
+  paths['/properties/resolve']['get']['parameters']['query'];
 type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
 type FollowingViewportQueryFromOpenApi =
@@ -76,6 +80,7 @@ type FollowingViewportQueryFromOpenApi =
 type FollowingViewportResponseFromOpenApi =
   paths['/properties/following-viewport']['get']['responses'][200]['content']['application/json'];
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
+type ResolvePropertyMethodRequest = Parameters<HuisHypeApiClient['resolveProperty']>[0];
 type Expect<T extends true> = T;
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -135,23 +140,15 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<
+    Equal<ResolvePropertyQueryFromOpenApi, PropertyResolveRequest>
+  >,
+  true as Expect<
+    Equal<ResolvePropertyMethodRequest, PropertyResolveRequest>
+  >,
+  true as Expect<
     Equal<
       ResolvePropertyResponseFromOpenApi,
-      | {
-          id: string;
-          countryCode: string;
-          address: string;
-          postalCode: string;
-          city: string;
-          coordinates: {
-            lon: number;
-            lat: number;
-          };
-          hasActiveListing: boolean;
-          marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
-          officialValuation: number | null;
-        }
-      | null
+      PropertyResolveResponse
     >
   >,
   true as Expect<
@@ -368,6 +365,42 @@ describe('HuisHypeApiClient', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             Authorization: 'Bearer mock-token',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes resolveProperty against the canonical query contract without coercion', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(null), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(
+        client.resolveProperty({
+          postalCode: '1016 GV',
+          houseNumber: 263,
+          countryCode: 'NL',
+          street: 'Prinsengracht',
+          city: 'Amsterdam',
+        })
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/resolve?postalCode=1016+GV&houseNumber=263&countryCode=NL&street=Prinsengracht&city=Amsterdam',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
           }),
         })
       );

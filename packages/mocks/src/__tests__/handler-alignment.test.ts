@@ -23,6 +23,8 @@ import {
   activityHandlers,
   achievementHandlers,
   emailAuthHandlers,
+  resetMockFollowState,
+  resetMockSessions,
 } from '../handlers/index.js';
 import {
   mockUsers,
@@ -54,6 +56,8 @@ describe('Mock handler runtime parity', () => {
 
   afterEach(() => {
     server.resetHandlers();
+    resetMockSessions();
+    resetMockFollowState();
   });
 
   afterAll(() => {
@@ -324,6 +328,30 @@ describe('Mock handler runtime parity', () => {
     expect(nearbyBody).not.toHaveProperty('activityScoreTotal');
   });
 
+  it('matches resolve validation and null lookup semantics', async () => {
+    const missingRequiredResponse = await fetch('http://localhost/properties/resolve?postalCode=1016GV');
+    expect(missingRequiredResponse.status).toBe(400);
+    expect(await missingRequiredResponse.json()).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+    });
+
+    const invalidHouseNumberResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=abc&countryCode=NL',
+    );
+    expect(invalidHouseNumberResponse.status).toBe(400);
+    expect(await invalidHouseNumberResponse.json()).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+    });
+
+    const mismatchedAdditionResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&houseNumberAddition=A&countryCode=NL',
+    );
+    expect(mismatchedAdditionResponse.status).toBe(200);
+    expect(await mismatchedAdditionResponse.json()).toBeNull();
+  });
+
   it('matches following viewport auth split and sparse overlay payload', async () => {
     const unauthorizedResponse = await fetch(
       'http://localhost/properties/following-viewport?bbox=4.8,52.3,4.9,52.4',
@@ -391,7 +419,7 @@ describe('Mock handler runtime parity', () => {
     const token = loginBody.session.accessToken as string;
 
     const publicProfileResponse = await fetch(
-      `http://localhost/users/${mockUserIds.maria}/profile`
+      `http://localhost/users/${mockUserIds.sophie}/profile`
     );
     const publicProfileBody = await publicProfileResponse.json();
     expect(publicProfileResponse.status).toBe(200);
@@ -399,7 +427,7 @@ describe('Mock handler runtime parity', () => {
     expect(publicProfileBody).toHaveProperty('followerCount');
     expect(publicProfileBody).toHaveProperty('followingCount');
 
-    const followResponse = await fetch(`http://localhost/users/${mockUserIds.maria}/follow`, {
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -423,6 +451,24 @@ describe('Mock handler runtime parity', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(selfFollowResponse.status).toBe(400);
+  });
+
+  it('resets follow-state mutations between tests', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const profileResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/profile`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const profileBody = await profileResponse.json();
+
+    expect(profileResponse.status).toBe(200);
+    expect(profileBody.relationship).toBe('none');
   });
 
   it('matches activity scope auth split and excludes save from public/following', async () => {

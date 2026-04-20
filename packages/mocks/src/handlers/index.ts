@@ -49,7 +49,7 @@ export { guessHandlers } from './guesses.js';
 export { commentHandlers } from './comments.js';
 export { geocodeHandlers, mockGeocodeSuggestions, addMockGeocodeSuggestion, clearMockGeocodeSuggestions } from './geocode.js';
 export { feedHandlers } from './feed.js';
-export { userHandlers } from './users.js';
+export { userHandlers, resetMockFollowState } from './users.js';
 export { listingHandlers } from './listings.js';
 export { notificationHandlers } from './notifications.js';
 export { leaderboardHandlers } from './leaderboard.js';

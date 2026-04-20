@@ -162,7 +162,7 @@ export type UnfollowUserResponse = FollowRelationshipResponse;
  */
 export interface PropertyResolveRequest {
   postalCode: string;
-  houseNumber: string | number;
+  houseNumber: number;
   houseNumberAddition?: string;
   countryCode?: string;
   street?: string;
