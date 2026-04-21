@@ -1,22 +1,22 @@
 const ACTIVE_SINGLE_RADIUS_STOPS_PX = [
-  [0, 6],
+  [0, 10],
   [50, 10],
-  [100, 14],
+  [100, 10],
 ] as const;
 
 const ACTIVE_CLUSTER_RADIUS_STOPS_PX = [
-  [2, 16],
-  [10, 22],
-  [50, 28],
-  [100, 36],
+  [2, 12],
+  [10, 12],
+  [50, 12],
+  [100, 12],
 ] as const;
 const ACTIVE_CLUSTERING_RADIUS_PX = 34;
 const ACTIVE_GROUPING_GAP_PX = 2;
 
 const GHOST_CLUSTER_RADIUS_STOPS_PX = [
   [2, 10],
-  [10, 12],
-  [30, 14],
+  [10, 11],
+  [30, 12],
 ] as const;
 const GHOST_CLUSTERING_RADIUS_PX = 21;
 const GHOST_GROUPING_GAP_PX = 1;

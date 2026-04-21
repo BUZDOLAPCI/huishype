@@ -323,9 +323,8 @@ describe('Tile routes', () => {
       expect(requireComparableNumber(ghostClustersPaint['circle-opacity'], 'ghost-clusters circle-opacity missing')).toBeLessThan(
         requireComparableNumber(activeClustersPaint['circle-opacity'], 'property-clusters circle-opacity missing'),
       );
-      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeLessThan(
-        requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing'),
-      );
+      expect(requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing')).toBe(0);
+      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeGreaterThan(0);
       expect(requireComparableNumber(ghostClustersPaint['circle-radius'], 'ghost-clusters circle-radius missing')).toBeLessThan(
         requireComparableNumber(activeClustersPaint['circle-radius'], 'property-clusters circle-radius missing'),
       );

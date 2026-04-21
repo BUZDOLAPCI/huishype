@@ -12,6 +12,28 @@ import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_MAP_LAYERS,
+  MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+  MAP_NODE_SOCIAL_CORE_COLOR_STOPS,
+  MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+  MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+  MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+  MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+  MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+  MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
+  MAP_NODE_RECENT_PULSE_SINGLE_COLOR_STOPS,
+  MAP_NODE_RECENT_PULSE_CLUSTER_COLOR_STOPS,
+  MAP_NODE_RECENT_PULSE_OPACITY_STOPS,
+  MAP_NODE_RECENT_PULSE_SINGLE_RADIUS_DELTA_STOPS,
+  MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS,
+  MAP_NODE_GHOST_CLUSTER_VISUAL,
+  MAP_NODE_GHOST_SINGLE_VISUAL,
+  type NumericStop,
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
@@ -526,7 +548,7 @@ function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknow
   }
 }
 
-type StepStop = readonly [threshold: number, value: number];
+type StepStop = NumericStop;
 
 function buildStepExpression(
   input: unknown,
@@ -537,9 +559,9 @@ function buildStepExpression(
   return ['step', input, firstStop[1], ...expressionTail];
 }
 
-function buildInterpolateExpression(
+function buildInterpolateExpression<TValue extends number | string>(
   input: unknown,
-  stops: readonly StepStop[],
+  stops: ReadonlyArray<readonly [threshold: number, value: TValue]>,
 ): [string, string[], unknown, ...(number | string)[]] {
   const expressionTail = stops.flatMap(([threshold, value]) => [threshold, value]);
   return ['interpolate', ['linear'], input, ...expressionTail];
@@ -549,7 +571,6 @@ const ACTIVE_CLUSTER_FILL_LAYER_ID = 'property-cluster-fill';
 const ACTIVE_CLUSTER_PULSE_LAYER_ID = 'property-cluster-pulse';
 const ACTIVE_NODE_FILL_LAYER_ID = 'active-node-fill';
 const ACTIVE_NODE_PULSE_LAYER_ID = 'active-node-pulse';
-const RECENT_PULSE_SCORE_THRESHOLD = 0.5;
 
 function buildPropertyFieldExpression(field: string, fallback = 0): unknown[] {
   return ['coalesce', ['get', field], fallback];
@@ -585,22 +606,33 @@ function buildRecentPulseOpacityExpression(): unknown[] {
     [
       'all',
       ['>', buildPropertyFieldExpression('recentSocialCount'), 0],
-      ['>', buildPropertyFieldExpression('recentSocialScoreTotal'), RECENT_PULSE_SCORE_THRESHOLD],
+      [
+        '>',
+        buildPropertyFieldExpression('recentSocialScoreTotal'),
+        MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
+      ],
     ],
     [
-      'interpolate',
-      ['linear'],
-      buildPropertyFieldExpression('recentSocialScoreTotal'),
-      RECENT_PULSE_SCORE_THRESHOLD,
-      0,
-      1,
-      0.16,
-      5,
-      0.28,
-      20,
-      0.4,
+      ...buildInterpolateExpression(
+        buildPropertyFieldExpression('recentSocialScoreTotal'),
+        MAP_NODE_RECENT_PULSE_OPACITY_STOPS,
+      ),
     ],
     0,
+  ];
+}
+
+function buildRecentPulseRadiusExpression(
+  baseRadius: unknown,
+  deltaStops: readonly NumericStop[],
+): unknown[] {
+  return [
+    '+',
+    baseRadius,
+    buildInterpolateExpression(
+      buildPropertyFieldExpression('recentSocialScoreTotal'),
+      deltaStops,
+    ),
   ];
 }
 
@@ -623,7 +655,25 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
     ['coalesce', ['get', 'socialScoreMax'], 0],
     ACTIVE_FOOTPRINT.singleRadiusStopsPx,
   );
+  const activeListingCount = buildPropertyFieldExpression('activeListingCount');
+  const hasActiveListings = ['>', activeListingCount, 0];
   const listingShare = buildListingShareExpression();
+  const activeClusterRingWidth = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
+  );
+  const activeClusterRingColor = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
+  );
+  const activeClusterRingOpacity = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
+  );
+  const activeNodeRingWidth = buildInterpolateExpression(
+    buildPropertyFieldExpression('activeListingCount'),
+    MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
+  );
   const socialIntensity = buildSocialIntensityExpression();
   const recentPulseOpacity = buildRecentPulseOpacityExpression();
 
@@ -641,18 +691,14 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': ['+', activeClusterRadius, 6],
-        'circle-color': [
-          'interpolate',
-          ['linear'],
+        'circle-radius': buildRecentPulseRadiusExpression(
+          activeClusterRadius,
+          MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS,
+        ),
+        'circle-color': buildInterpolateExpression(
           buildPropertyFieldExpression('recentSocialCount'),
-          0,
-          '#FDBA74',
-          1,
-          '#FB7185',
-          10,
-          '#E11D48',
-        ],
+          MAP_NODE_RECENT_PULSE_CLUSTER_COLOR_STOPS,
+        ),
         'circle-opacity': recentPulseOpacity,
         'circle-stroke-width': 0,
       },
@@ -670,41 +716,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       paint: {
         'circle-radius': activeClusterRadius,
-        'circle-color': 'rgba(255, 255, 255, 0)',
-        'circle-opacity': 1,
-        'circle-stroke-width': [
-          'interpolate',
-          ['linear'],
-          listingShare,
-          0,
-          0,
-          0.01,
-          2,
-          1,
-          4,
-        ],
-        'circle-stroke-color': [
-          'interpolate',
-          ['linear'],
-          listingShare,
-          0,
-          '#CBD5E1',
-          0.01,
-          '#93C5FD',
-          1,
-          '#2563EB',
-        ],
-        'circle-stroke-opacity': [
-          'interpolate',
-          ['linear'],
-          listingShare,
-          0,
-          0,
-          0.01,
-          0.65,
-          1,
-          0.95,
-        ],
+        'circle-color': activeClusterRingColor,
+        'circle-opacity': activeClusterRingOpacity,
+        'circle-stroke-width': 0,
+        'circle-stroke-color': activeClusterRingColor,
+        'circle-stroke-opacity': activeClusterRingOpacity,
       },
     },
     // Active cluster social core. The fill communicates social composition and intensity.
@@ -719,34 +735,22 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': ['max', ['-', activeClusterRadius, 4], 8],
+        'circle-radius': ['max', ['-', activeClusterRadius, activeClusterRingWidth], 8],
         'circle-color': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          [
-            'interpolate',
-            ['linear'],
-            socialIntensity,
-            0.5,
-            '#FED7AA',
-            2,
-            '#FDBA74',
-            8,
-            '#FB923C',
-            25,
-            '#EA580C',
-            60,
-            '#C2410C',
-          ],
-          '#E2E8F0',
+          buildInterpolateExpression(socialIntensity, MAP_NODE_SOCIAL_CORE_COLOR_STOPS),
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          0.94,
-          0.74,
+          MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+          MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
         ],
-        'circle-stroke-width': 0,
+        'circle-stroke-width': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_OPACITY],
       },
     },
     // Active cluster count labels.
@@ -765,10 +769,10 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'text-font': ['Noto Sans Regular'],
         'text-size': [
           'step', ['coalesce', ['get', 'point_count'], 2],
-          12,      // default (2-9)
-          10, 13,  // 10-49
-          50, 14,  // 50-99
-          100, 16, // 100+
+          11,      // default (2-9)
+          10, 11,  // 10-49
+          50, 12,  // 50-99
+          100, 13, // 100+
         ],
       },
       paint: {
@@ -790,18 +794,14 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': ['+', activeNodeRadius, 4],
-        'circle-color': [
-          'interpolate',
-          ['linear'],
+        'circle-radius': buildRecentPulseRadiusExpression(
+          activeNodeRadius,
+          MAP_NODE_RECENT_PULSE_SINGLE_RADIUS_DELTA_STOPS,
+        ),
+        'circle-color': buildInterpolateExpression(
           buildPropertyFieldExpression('recentSocialCount'),
-          0,
-          '#FDBA74',
-          1,
-          '#FB7185',
-          5,
-          '#E11D48',
-        ],
+          MAP_NODE_RECENT_PULSE_SINGLE_COLOR_STOPS,
+        ),
         'circle-opacity': recentPulseOpacity,
         'circle-stroke-width': 0,
       },
@@ -819,35 +819,23 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       paint: {
         'circle-radius': activeNodeRadius,
-        'circle-color': 'rgba(255, 255, 255, 0)',
-        'circle-opacity': 1,
-        'circle-stroke-width': [
-          'interpolate',
-          ['linear'],
-          buildPropertyFieldExpression('activeListingCount'),
-          0,
-          0,
-          1,
-          2.5,
-        ],
-        'circle-stroke-color': [
-          'interpolate',
-          ['linear'],
-          buildPropertyFieldExpression('activeListingCount'),
-          0,
-          '#CBD5E1',
-          1,
-          '#2563EB',
-        ],
-        'circle-stroke-opacity': [
-          'interpolate',
-          ['linear'],
-          buildPropertyFieldExpression('activeListingCount'),
-          0,
-          0,
-          1,
-          0.95,
-        ],
+        'circle-color': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+        ),
+        'circle-opacity': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+        ),
+        'circle-stroke-width': 0,
+        'circle-stroke-color': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+        ),
+        'circle-stroke-opacity': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+        ),
       },
     },
     // Active single social core.
@@ -862,34 +850,22 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': ['max', ['-', activeNodeRadius, 2], 4],
+        'circle-radius': ['max', ['-', activeNodeRadius, activeNodeRingWidth], 4],
         'circle-color': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          [
-            'interpolate',
-            ['linear'],
-            socialIntensity,
-            0.5,
-            '#FED7AA',
-            2,
-            '#FDBA74',
-            8,
-            '#FB923C',
-            25,
-            '#EA580C',
-            60,
-            '#C2410C',
-          ],
-          '#E2E8F0',
+          buildInterpolateExpression(socialIntensity, MAP_NODE_SOCIAL_CORE_COLOR_STOPS),
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          0.96,
-          0.76,
+          MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+          MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
         ],
-        'circle-stroke-width': 0,
+        'circle-stroke-width': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_OPACITY],
       },
     },
     // Ghost-only clusters appear once ghosts are revealed.
@@ -909,11 +885,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
           ['coalesce', ['get', 'point_count'], 2],
           GHOST_FOOTPRINT.clusterRadiusStopsPx,
         ),
-        'circle-color': '#CBD5E1',
-        'circle-opacity': 0.5,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-opacity': 0.7,
+        'circle-color': MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
+        'circle-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.opacity,
+        'circle-stroke-width': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
+        'circle-stroke-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeOpacity,
       },
     },
     {
@@ -930,11 +906,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
         'text-font': ['Noto Sans Regular'],
-        'text-size': 11,
+        'text-size': MAP_NODE_GHOST_CLUSTER_VISUAL.labelSize,
       },
       paint: {
-        'text-color': '#475569',
-        'text-halo-color': 'rgba(255, 255, 255, 0.85)',
+        'text-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
+        'text-halo-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
         'text-halo-width': 1,
       },
     },
@@ -952,11 +928,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       paint: {
         'circle-radius': GHOST_FOOTPRINT.singleRadiusPx,
-        'circle-color': '#94A3B8',
-        'circle-opacity': 0.4,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-opacity': 0.5,
+        'circle-color': MAP_NODE_GHOST_SINGLE_VISUAL.fill,
+        'circle-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.opacity,
+        'circle-stroke-width': MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
+        'circle-stroke-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.strokeOpacity,
       },
     },
   ];
