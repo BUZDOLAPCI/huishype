@@ -7,11 +7,18 @@ import { type WindowWithMapInstance } from '../helpers/map-instance';
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const READ_LAYER_IDS = [
   'read-active-nodes',
+  'read-active-node-fill',
   'read-ghost-nodes',
   'read-property-clusters',
+  'read-property-cluster-fill',
   'read-ghost-clusters',
 ] as const;
 const PUBLIC_SINGLE_LAYER_IDS = ['active-nodes', 'ghost-nodes'] as const;
+const PUBLIC_READ_STATE_LAYER_IDS = [
+  'active-nodes',
+  'active-node-fill',
+  'ghost-nodes',
+] as const;
 
 test.use({ trace: 'off' });
 
@@ -157,6 +164,7 @@ async function waitForReadOverlayFeature(page: Page, propertyId: string) {
           return {
             layerId,
             color: layerId ? map.getPaintProperty(layerId, 'circle-color') : null,
+            opacity: layerId ? map.getPaintProperty(layerId, 'circle-opacity') : null,
           };
         }
       }
@@ -164,6 +172,71 @@ async function waitForReadOverlayFeature(page: Page, propertyId: string) {
       return null;
     },
     { readLayerIds: [...READ_LAYER_IDS], targetPropertyId: propertyId },
+    { timeout: 30_000, polling: 500 },
+  );
+}
+
+async function waitForPublicReadStateFeature(page: Page, propertyId: string) {
+  return page.waitForFunction(
+    ({ publicLayerIds, targetPropertyId }) => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map || !map.isStyleLoaded()) {
+        return null;
+      }
+
+      const canvas = map.getCanvas();
+      if (!canvas) {
+        return null;
+      }
+
+      const availablePublicLayers = publicLayerIds.filter((layerId) => map.getLayer(layerId));
+      const features = map.queryRenderedFeatures(
+        [[0, 0], [canvas.width, canvas.height]],
+        { layers: availablePublicLayers },
+      ) ?? [];
+
+      for (const feature of features) {
+        const properties = feature.properties ?? {};
+        const rawPropertyIds = properties.property_ids as unknown;
+        const ids =
+          typeof rawPropertyIds === 'string'
+            ? rawPropertyIds.split(',').filter(Boolean)
+            : Array.isArray(rawPropertyIds)
+              ? rawPropertyIds.filter((value: unknown): value is string => typeof value === 'string')
+              : [];
+        const primaryId =
+          typeof properties.primary_property_id === 'string'
+            ? properties.primary_property_id
+            : null;
+        const id = typeof properties.id === 'string' ? properties.id : null;
+        if (id === targetPropertyId || primaryId === targetPropertyId || ids.includes(targetPropertyId)) {
+          const mapWithFeatureState = map as typeof map & {
+            getFeatureState: (feature: {
+              id: string;
+              source: string;
+              sourceLayer: string;
+            }) => Record<string, unknown>;
+          };
+          const state = mapWithFeatureState.getFeatureState({
+            source: 'properties-source',
+            sourceLayer: 'properties',
+            id: primaryId ?? id ?? targetPropertyId,
+          });
+          if (state.read !== true) {
+            continue;
+          }
+          const layerId = (feature as typeof feature & { layer: { id: string } }).layer.id;
+          return {
+            layerId,
+            opacity: map.getPaintProperty(layerId, 'circle-opacity'),
+            state,
+          };
+        }
+      }
+
+      return null;
+    },
+    { publicLayerIds: [...PUBLIC_READ_STATE_LAYER_IDS], targetPropertyId: propertyId },
     { timeout: 30_000, polling: 500 },
   );
 }
@@ -188,7 +261,7 @@ test.describe('Viewed property read-state visuals', () => {
     expect(consoleErrors, `Expected zero console errors, got ${consoleErrors.join('\n')}`).toHaveLength(0);
   });
 
-  test('opening a map preview marks the property read and renders its grey overlay node', async ({ page }, testInfo) => {
+  test('opening a map preview marks the property read and renders its node at 60 percent opacity', async ({ page }, testInfo) => {
     await focusReadableSingleNodeArea(page);
 
     const handle = await findPublicSingleNode(page);
@@ -212,13 +285,27 @@ test.describe('Viewed property read-state visuals', () => {
     await viewResponsePromise;
 
     const readFeatureHandle = await waitForReadOverlayFeature(page, target.propertyId);
-    const readFeature = await readFeatureHandle.jsonValue() as {
+    const readProbe = await readFeatureHandle.jsonValue() as {
       layerId: string;
       color: unknown;
+      opacity: unknown;
     };
 
-    expect(readFeature.layerId).toMatch(/^read-/);
-    expect(readFeature.color).toBe('#8A8F98');
+    expect(readProbe.layerId).toMatch(/^read-/);
+    expect(JSON.stringify(readProbe.color)).not.toContain('#8A8F98');
+    expect(readProbe.opacity).toBe(0);
+
+    const publicFeatureHandle = await waitForPublicReadStateFeature(page, target.propertyId);
+    const publicFeature = await publicFeatureHandle.jsonValue() as {
+      layerId: string;
+      opacity: unknown;
+      state: Record<string, unknown>;
+    };
+
+    expect(publicFeature.layerId).toMatch(/^(active|ghost)-/);
+    expect(publicFeature.state.read).toBe(true);
+    expect(JSON.stringify(publicFeature.opacity)).toContain('feature-state');
+    expect(JSON.stringify(publicFeature.opacity)).toContain('0.6');
 
     await page.screenshot({
       path: testInfo.outputPath('viewed-property-read-overlay.png'),

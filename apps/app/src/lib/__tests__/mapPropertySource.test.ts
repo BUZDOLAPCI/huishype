@@ -1,12 +1,16 @@
 import {
+  applyReadPropertyFeatureStateStyles,
   buildReadTileJsonUrl,
   buildReadTileRequestMatchPattern,
   buildFollowingTileJsonCandidateUrls,
   buildFollowingTileRequestMatchPattern,
   fetchReadTileSource,
   FOLLOWING_TILEJSON_PATH,
+  getReadPropertyOverlayLayers,
   injectReadPropertyOverlay,
   PROPERTY_VECTOR_SOURCE_ID,
+  PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+  READ_PROPERTY_FEATURE_STATE_KEY,
   READ_PROPERTY_VECTOR_SOURCE_ID,
   READ_TILEJSON_PATH,
   replacePropertySourceTiles,
@@ -38,9 +42,35 @@ describe('replacePropertySourceTiles', () => {
     expect(nextStyle?.sources?.[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
       'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf?salePriceFrom=500000',
     ]);
+    const sources = nextStyle?.sources as Record<string, { promoteId?: string; tiles?: string[] }>;
+    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
+      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+    );
     expect(nextStyle?.sources?.other?.tiles).toEqual([
       'http://example.com/other/{z}/{x}/{y}.pbf',
     ]);
+  });
+
+  it('adds the promoted feature id even when property vector tiles are unchanged', () => {
+    const tileUrl = 'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf';
+    const style = {
+      version: 8,
+      sources: {
+        [PROPERTY_VECTOR_SOURCE_ID]: {
+          type: 'vector',
+          tiles: [tileUrl],
+        },
+      },
+    };
+
+    const nextStyle = replacePropertySourceTiles(style, tileUrl);
+    const sources = nextStyle?.sources as Record<string, { promoteId?: string; tiles?: string[] }>;
+
+    expect(nextStyle).not.toBe(style);
+    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([tileUrl]);
+    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
+      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+    );
   });
 });
 
@@ -112,7 +142,7 @@ describe('Read tile source helpers', () => {
     expect(pattern.test('https://tiles.test/tiles/properties/12/2048/1363.pbf')).toBe(false);
   });
 
-  it('injects read overlay source and low-emphasis layers without changing the public source', () => {
+  it('injects read overlay source and 60 percent opacity layers without changing the public source', () => {
     const style = {
       version: 8,
       sources: {
@@ -139,13 +169,107 @@ describe('Read tile source helpers', () => {
     expect(nextStyle?.sources?.[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
       'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf',
     ]);
-    const sources = nextStyle?.sources as Record<string, { tiles?: string[] }>;
+    const sources = nextStyle?.sources as Record<string, { promoteId?: string; tiles?: string[] }>;
     expect(sources[READ_PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
       'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
     ]);
-    expect(nextStyle?.layers?.map((layer) => layer.id)).toEqual(
-      expect.arrayContaining(['active-nodes', 'read-active-nodes', 'read-property-clusters']),
+    expect(sources[READ_PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
+      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
     );
+    expect(nextStyle?.layers?.map((layer) => layer.id)).toEqual(
+      expect.arrayContaining([
+        'active-nodes',
+        'read-active-nodes',
+        'read-active-node-fill',
+        'read-property-clusters',
+        'read-property-cluster-fill',
+      ]),
+    );
+  });
+
+  it('styles read layers with node colors instead of the retired grey overlay', () => {
+    const readLayers = getReadPropertyOverlayLayers();
+    const circlePaintValues = readLayers
+      .filter((layer) => layer.type === 'circle')
+      .map((layer) => layer.paint);
+
+    expect(JSON.stringify(circlePaintValues)).not.toContain('#8A8F98');
+    expect(JSON.stringify(circlePaintValues)).toContain('0.6');
+  });
+
+  it('can make read overlay layers invisible for web feature-state probing', () => {
+    const readLayers = getReadPropertyOverlayLayers({ mode: 'probe' });
+    const paintValues = readLayers.map((layer) => layer.paint);
+
+    expect(JSON.stringify(paintValues)).not.toContain('#8A8F98');
+    expect(JSON.stringify(paintValues)).toContain('"circle-opacity":0');
+    expect(JSON.stringify(paintValues)).toContain('"text-opacity":0');
+  });
+
+  it('wraps public property layer opacity with read feature-state multiplier', () => {
+    const style = {
+      version: 8,
+      sources: {
+        [PROPERTY_VECTOR_SOURCE_ID]: {
+          type: 'vector',
+          tiles: ['http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf'],
+        },
+      },
+      layers: [
+        {
+          id: 'active-nodes',
+          type: 'circle',
+          source: PROPERTY_VECTOR_SOURCE_ID,
+          'source-layer': 'properties',
+          paint: {
+            'circle-opacity': ['interpolate', ['linear'], ['get', 'activeListingCount'], 0, 0, 1, 0.96],
+            'circle-stroke-opacity': ['interpolate', ['linear'], ['get', 'activeListingCount'], 0, 0, 1, 0.96],
+          },
+        },
+        {
+          id: 'active-node-fill',
+          type: 'circle',
+          source: PROPERTY_VECTOR_SOURCE_ID,
+          'source-layer': 'properties',
+          paint: {
+            'circle-opacity': ['case', ['>', ['get', 'socialCount'], 0], 0.96, 0.8],
+            'circle-stroke-opacity': 0.9,
+          },
+        },
+        {
+          id: 'cluster-count',
+          type: 'symbol',
+          source: PROPERTY_VECTOR_SOURCE_ID,
+          'source-layer': 'properties',
+          paint: {
+            'text-color': '#FFFFFF',
+          },
+        },
+      ],
+    };
+
+    const nextStyle = applyReadPropertyFeatureStateStyles(style);
+    const activeRingPaint = nextStyle?.layers?.find((layer) => layer.id === 'active-nodes')
+      ?.paint as Record<string, unknown> | undefined;
+    const activeFillPaint = nextStyle?.layers?.find((layer) => layer.id === 'active-node-fill')
+      ?.paint as Record<string, unknown> | undefined;
+    const clusterPaint = nextStyle?.layers?.find((layer) => layer.id === 'cluster-count')
+      ?.paint;
+
+    expect(JSON.stringify(activeRingPaint?.['circle-opacity'])).toContain(
+      READ_PROPERTY_FEATURE_STATE_KEY,
+    );
+    expect(activeRingPaint?.['circle-opacity']).toEqual(
+      expect.arrayContaining([0]),
+    );
+    expect(JSON.stringify(activeFillPaint)).toContain(READ_PROPERTY_FEATURE_STATE_KEY);
+    expect(JSON.stringify(activeFillPaint)).toContain('0.6');
+    expect(JSON.stringify(activeFillPaint?.['circle-stroke-width'])).toContain(
+      'activeListingCount',
+    );
+    expect(JSON.stringify(activeFillPaint?.['circle-stroke-color'])).toContain('#2563EB');
+    expect(JSON.stringify(clusterPaint)).toContain(READ_PROPERTY_FEATURE_STATE_KEY);
+    expect(JSON.stringify(clusterPaint)).toContain('"text-opacity"');
   });
 
   it('fetches read TileJSON with the supplied private credential and versions tile templates', async () => {

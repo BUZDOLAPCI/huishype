@@ -9,7 +9,7 @@ type MockMapInstance = {
   options: {
     container: HTMLDivElement;
     style: {
-      sources?: Record<string, { tiles?: string[] }>;
+      sources?: Record<string, { promoteId?: string; tiles?: string[] }>;
     };
     transformRequest?: (url: string) => { url: string; headers?: Record<string, string> };
   };
@@ -30,6 +30,7 @@ type MockMapInstance = {
   getStyle: jest.Mock;
   getPaintProperty: jest.Mock;
   setPaintProperty: jest.Mock;
+  setFeatureState: jest.Mock;
   on: jest.Mock;
   once: jest.Mock;
   off: jest.Mock;
@@ -409,6 +410,7 @@ jest.mock('maplibre-gl', () => {
       getStyle: jest.fn(() => ({ layers: [] })),
       getPaintProperty: jest.fn(() => null),
       setPaintProperty: jest.fn(),
+      setFeatureState: jest.fn(),
       on: jest.fn((event: string, layerOrHandler: unknown, maybeHandler?: unknown) => {
         addListener(listeners, event, layerOrHandler, maybeHandler);
         return instance;
@@ -420,7 +422,15 @@ jest.mock('maplibre-gl', () => {
       off: jest.fn((event: string, layerOrHandler?: unknown) => {
         const key =
           typeof layerOrHandler === 'string' ? getKey(event, layerOrHandler) : getKey(event);
-        listeners.delete(key);
+        if (typeof layerOrHandler === 'function') {
+          const currentListeners = listeners.get(key) ?? [];
+          listeners.set(
+            key,
+            currentListeners.filter((listener) => listener !== layerOrHandler),
+          );
+        } else {
+          listeners.delete(key);
+        }
         return instance;
       }),
       getLayer: jest.fn(() => false),
@@ -522,6 +532,17 @@ describe('MapScreen web grouped Following mode', () => {
             tiles: ['https://tiles.test/original'],
           },
         },
+        layers: [
+          {
+            id: 'active-node-fill',
+            type: 'circle',
+            source: 'properties-source',
+            'source-layer': 'properties',
+            paint: {
+              'circle-opacity': 0.96,
+            },
+          },
+        ],
       }),
     }) as jest.Mock;
 
@@ -632,6 +653,14 @@ describe('MapScreen web grouped Following mode', () => {
     expect(map.options.style.sources?.['read-properties-source']?.tiles).toEqual([
       'https://tiles.test/properties/read/{z}/{x}/{y}.pbf',
     ]);
+    const activeNodeFillLayer = (map.options.style as {
+      layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
+    }).layers?.find((layer) => layer.id === 'active-node-fill');
+    const readActiveNodeFillLayer = (map.options.style as {
+      layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
+    }).layers?.find((layer) => layer.id === 'read-active-node-fill');
+    expect(JSON.stringify(activeNodeFillLayer?.paint?.['circle-opacity'])).toContain('feature-state');
+    expect(readActiveNodeFillLayer?.paint?.['circle-opacity']).toBe(0);
     expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
       {
         url: 'https://tiles.test/properties/read/12/2048/1363.pbf',

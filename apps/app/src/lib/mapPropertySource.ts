@@ -3,25 +3,52 @@ import {
   type MapActivityFilter,
   type MapFilters,
 } from './sharedMapFilters';
+import {
+  MAP_NODE_GHOST_CLUSTER_VISUAL,
+  MAP_NODE_GHOST_SINGLE_VISUAL,
+  MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
+  MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+  MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+  MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+  PROPERTY_MAP_FOOTPRINTS,
+  type NumericStop,
+} from '@huishype/shared/config';
 
 export const PROPERTY_VECTOR_SOURCE_ID = 'properties-source';
 export const READ_PROPERTY_VECTOR_SOURCE_ID = 'read-properties-source';
+export const PROPERTY_VECTOR_SOURCE_PROMOTE_ID = 'primary_property_id';
+export const READ_PROPERTY_FEATURE_STATE_KEY = 'read';
 export const FOLLOWING_TILEJSON_PATH = '/tiles/following/properties.json';
 export const READ_TILEJSON_PATH = '/tiles/properties/read.json';
 
-const READ_OVERLAY_LAYER_IDS = [
+export const READ_OVERLAY_LAYER_IDS = [
   'read-property-clusters',
+  'read-property-cluster-fill',
   'read-cluster-count',
   'read-active-nodes',
+  'read-active-node-fill',
   'read-ghost-clusters',
   'read-ghost-cluster-count',
   'read-ghost-nodes',
 ] as const;
 
-const READ_NODE_COLOR = '#8A8F98';
+const READ_NODE_OPACITY = 0.6;
+const READ_PROBE_OPACITY = 0;
 const READ_NODE_STROKE_COLOR = '#FFFFFF';
-const READ_LABEL_COLOR = '#F8FAFC';
-const READ_LABEL_HALO_COLOR = 'rgba(71, 85, 105, 0.45)';
+const READ_LABEL_OPACITY = 0.6;
+const READ_ACTIVE_CLUSTER_LABEL_COLOR = '#FFFFFF';
+const READ_ACTIVE_CLUSTER_LABEL_HALO_COLOR = 'rgba(0, 0, 0, 0.25)';
+const PROPERTY_VECTOR_SOURCE_LAYER = 'properties';
+const ACTIVE_CLUSTER_RING_LAYER_ID = 'property-clusters';
+const ACTIVE_CLUSTER_FILL_LAYER_ID = 'property-cluster-fill';
+const ACTIVE_NODE_RING_LAYER_ID = 'active-nodes';
+const ACTIVE_NODE_FILL_LAYER_ID = 'active-node-fill';
 
 export interface TileJsonLike {
   tiles?: unknown;
@@ -68,6 +95,119 @@ type SymbolLayerLike = Record<string, unknown> & {
   type: 'symbol';
   source: string;
 };
+
+interface ReadPropertyOverlayLayerOptions {
+  mode?: 'visible' | 'probe';
+}
+
+function buildStepExpression(
+  input: unknown,
+  stops: readonly NumericStop[]
+): [string, unknown, number, ...(number | string)[]] {
+  const [firstStop, ...restStops] = stops;
+  return ['step', input, firstStop[1], ...restStops.flatMap(([threshold, value]) => [threshold, value])];
+}
+
+function buildInterpolateExpression<TValue extends number | string>(
+  input: unknown,
+  stops: ReadonlyArray<readonly [threshold: number, value: TValue]>
+): [string, string[], unknown, ...(number | string)[]] {
+  return ['interpolate', ['linear'], input, ...stops.flatMap(([threshold, value]) => [threshold, value])];
+}
+
+function buildPropertyFieldExpression(field: string, fallback = 0): unknown[] {
+  return ['coalesce', ['get', field], fallback];
+}
+
+function buildListingShareExpression(): unknown[] {
+  const pointCount = buildPropertyFieldExpression('point_count', 1);
+  return [
+    'case',
+    ['>', pointCount, 0],
+    ['/', buildPropertyFieldExpression('activeListingCount'), pointCount],
+    0,
+  ];
+}
+
+function buildReadStateExpression(): unknown[] {
+  return ['boolean', ['feature-state', READ_PROPERTY_FEATURE_STATE_KEY], false];
+}
+
+function buildReadFeatureStateOpacityExpression(baseOpacity: unknown): unknown[] {
+  return [
+    'case',
+    buildReadStateExpression(),
+    ['*', baseOpacity, READ_NODE_OPACITY],
+    baseOpacity,
+  ];
+}
+
+function buildReadListingCondition(listingMetric: unknown): unknown[] {
+  return ['all', buildReadStateExpression(), ['>', listingMetric, 0]];
+}
+
+function buildReadListingRingUnderlayOpacityExpression(
+  baseOpacity: unknown,
+  listingMetric: unknown
+): unknown[] {
+  return [
+    'case',
+    buildReadListingCondition(listingMetric),
+    0,
+    buildReadFeatureStateOpacityExpression(baseOpacity),
+  ];
+}
+
+function applyReadListingStrokeStyle(
+  paint: Record<string, unknown>,
+  listingMetric: unknown,
+  ringWidth: unknown,
+  ringColor: unknown,
+  ringOpacity: unknown
+): Record<string, unknown> {
+  return {
+    ...paint,
+    'circle-stroke-width': [
+      'case',
+      buildReadListingCondition(listingMetric),
+      ringWidth,
+      paint['circle-stroke-width'] ?? 0,
+    ],
+    'circle-stroke-color': [
+      'case',
+      buildReadListingCondition(listingMetric),
+      ringColor,
+      paint['circle-stroke-color'] ?? READ_NODE_STROKE_COLOR,
+    ],
+    'circle-stroke-opacity': [
+      'case',
+      buildReadListingCondition(listingMetric),
+      ['*', ringOpacity, READ_NODE_OPACITY],
+      buildReadFeatureStateOpacityExpression(paint['circle-stroke-opacity'] ?? 1),
+    ],
+  };
+}
+
+function applyProbeOpacity(layer: CircleLayerLike | SymbolLayerLike): CircleLayerLike | SymbolLayerLike {
+  if (layer.type === 'circle') {
+    return {
+      ...layer,
+      paint: {
+        ...(layer.paint as Record<string, unknown> | undefined),
+        'circle-opacity': READ_PROBE_OPACITY,
+        'circle-stroke-opacity': READ_PROBE_OPACITY,
+      },
+    };
+  }
+
+  return {
+    ...layer,
+    paint: {
+      ...(layer.paint as Record<string, unknown> | undefined),
+      'text-opacity': READ_PROBE_OPACITY,
+    },
+  };
+}
 
 function buildFollowingTileSearchParams(
   filters: MapFilters,
@@ -229,8 +369,29 @@ export function buildReadTileRequestMatchPattern(tileUrl: string): RegExp {
   return buildFollowingTileRequestMatchPattern(tileUrl);
 }
 
-export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLayerLike> {
-  return [
+export function getReadPropertyOverlayLayers(
+  options: ReadPropertyOverlayLayerOptions = {}
+): Array<CircleLayerLike | SymbolLayerLike> {
+  const activeClusterRadius = buildStepExpression(
+    ['coalesce', ['get', 'point_count'], 2],
+    PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusStopsPx
+  );
+  const activeNodeRadius = buildInterpolateExpression(
+    ['coalesce', ['get', 'socialScoreMax'], 0],
+    PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx
+  );
+  const activeListingCount = buildPropertyFieldExpression('activeListingCount');
+  const listingShare = buildListingShareExpression();
+  const activeClusterRingWidth = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS
+  );
+  const activeNodeRingWidth = buildInterpolateExpression(
+    activeListingCount,
+    MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS
+  );
+
+  const layers: Array<CircleLayerLike | SymbolLayerLike> = [
     {
       id: READ_OVERLAY_LAYER_IDS[0],
       type: 'circle',
@@ -242,16 +403,43 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': ['step', ['coalesce', ['get', 'point_count'], 2], 16, 10, 18, 50, 21],
-        'circle-color': READ_NODE_COLOR,
-        'circle-opacity': 0.78,
-        'circle-stroke-width': 1.5,
+        'circle-radius': ['+', activeClusterRadius, activeClusterRingWidth],
+        'circle-color': buildInterpolateExpression(
+          listingShare,
+          MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS
+        ),
+        'circle-opacity': ['case', ['>', listingShare, 0], READ_NODE_OPACITY, 0],
+        'circle-stroke-width': 0,
         'circle-stroke-color': READ_NODE_STROKE_COLOR,
-        'circle-stroke-opacity': 0.86,
+        'circle-stroke-opacity': ['case', ['>', listingShare, 0], READ_NODE_OPACITY, 0],
       },
     },
     {
       id: READ_OVERLAY_LAYER_IDS[1],
+      type: 'circle',
+      source: READ_PROPERTY_VECTOR_SOURCE_ID,
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      paint: {
+        'circle-radius': activeClusterRadius,
+        'circle-color': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+        ],
+        'circle-opacity': READ_NODE_OPACITY,
+        'circle-stroke-width': ['case', ['>', listingShare, 0], 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': ['case', ['>', listingShare, 0], 0, READ_NODE_OPACITY],
+      },
+    },
+    {
+      id: READ_OVERLAY_LAYER_IDS[2],
       type: 'symbol',
       source: READ_PROPERTY_VECTOR_SOURCE_ID,
       'source-layer': 'properties',
@@ -266,13 +454,14 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         'text-size': 11,
       },
       paint: {
-        'text-color': READ_LABEL_COLOR,
-        'text-halo-color': READ_LABEL_HALO_COLOR,
+        'text-color': READ_ACTIVE_CLUSTER_LABEL_COLOR,
+        'text-halo-color': READ_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
         'text-halo-width': 1,
+        'text-opacity': READ_LABEL_OPACITY,
       },
     },
     {
-      id: READ_OVERLAY_LAYER_IDS[2],
+      id: READ_OVERLAY_LAYER_IDS[3],
       type: 'circle',
       source: READ_PROPERTY_VECTOR_SOURCE_ID,
       'source-layer': 'properties',
@@ -282,16 +471,43 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 5, 14, 7, 18, 9],
-        'circle-color': READ_NODE_COLOR,
-        'circle-opacity': 0.78,
-        'circle-stroke-width': 1.25,
-        'circle-stroke-color': READ_NODE_STROKE_COLOR,
-        'circle-stroke-opacity': 0.82,
+        'circle-radius': ['+', activeNodeRadius, activeNodeRingWidth],
+        'circle-color': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
+        ),
+        'circle-opacity': ['case', ['>', activeListingCount, 0], READ_NODE_OPACITY, 0],
+        'circle-stroke-width': 0,
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': ['case', ['>', activeListingCount, 0], READ_NODE_OPACITY, 0],
       },
     },
     {
-      id: READ_OVERLAY_LAYER_IDS[3],
+      id: READ_OVERLAY_LAYER_IDS[4],
+      type: 'circle',
+      source: READ_PROPERTY_VECTOR_SOURCE_ID,
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': activeNodeRadius,
+        'circle-color': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+        ],
+        'circle-opacity': READ_NODE_OPACITY,
+        'circle-stroke-width': ['case', ['>', activeListingCount, 0], 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': ['case', ['>', activeListingCount, 0], 0, READ_NODE_OPACITY],
+      },
+    },
+    {
+      id: READ_OVERLAY_LAYER_IDS[5],
       type: 'circle',
       source: READ_PROPERTY_VECTOR_SOURCE_ID,
       'source-layer': 'properties',
@@ -302,16 +518,19 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': ['step', ['coalesce', ['get', 'point_count'], 2], 10, 10, 12, 50, 14],
-        'circle-color': READ_NODE_COLOR,
-        'circle-opacity': 0.56,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': READ_NODE_STROKE_COLOR,
-        'circle-stroke-opacity': 0.72,
+        'circle-radius': buildStepExpression(
+          ['coalesce', ['get', 'point_count'], 2],
+          PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx
+        ),
+        'circle-color': MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
+        'circle-opacity': READ_NODE_OPACITY,
+        'circle-stroke-width': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
+        'circle-stroke-opacity': READ_NODE_OPACITY,
       },
     },
     {
-      id: READ_OVERLAY_LAYER_IDS[4],
+      id: READ_OVERLAY_LAYER_IDS[6],
       type: 'symbol',
       source: READ_PROPERTY_VECTOR_SOURCE_ID,
       'source-layer': 'properties',
@@ -327,13 +546,14 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         'text-size': 9,
       },
       paint: {
-        'text-color': READ_LABEL_COLOR,
-        'text-halo-color': READ_LABEL_HALO_COLOR,
+        'text-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
+        'text-halo-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
         'text-halo-width': 1,
+        'text-opacity': READ_LABEL_OPACITY,
       },
     },
     {
-      id: READ_OVERLAY_LAYER_IDS[5],
+      id: READ_OVERLAY_LAYER_IDS[7],
       type: 'circle',
       source: READ_PROPERTY_VECTOR_SOURCE_ID,
       'source-layer': 'properties',
@@ -344,20 +564,135 @@ export function getReadPropertyOverlayLayers(): Array<CircleLayerLike | SymbolLa
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': 4,
-        'circle-color': READ_NODE_COLOR,
-        'circle-opacity': 0.55,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': READ_NODE_STROKE_COLOR,
-        'circle-stroke-opacity': 0.7,
+        'circle-radius': PROPERTY_MAP_FOOTPRINTS.ghost.singleRadiusPx,
+        'circle-color': MAP_NODE_GHOST_SINGLE_VISUAL.fill,
+        'circle-opacity': READ_NODE_OPACITY,
+        'circle-stroke-width': MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
+        'circle-stroke-opacity': READ_NODE_OPACITY,
       },
     },
   ];
+
+  return options.mode === 'probe' ? layers.map(applyProbeOpacity) : layers;
+}
+
+export function applyReadPropertyFeatureStateStyles<T extends StyleLike | null>(style: T): T {
+  if (!style?.layers) {
+    return style;
+  }
+
+  return {
+    ...style,
+    layers: style.layers.map((layer) => {
+      if (
+        layer.source !== PROPERTY_VECTOR_SOURCE_ID ||
+        layer['source-layer'] !== PROPERTY_VECTOR_SOURCE_LAYER ||
+        READ_OVERLAY_LAYER_IDS.includes(String(layer.id) as (typeof READ_OVERLAY_LAYER_IDS)[number])
+      ) {
+        return layer;
+      }
+
+      if (layer.type === 'circle') {
+        const paint = { ...((layer.paint as Record<string, unknown> | undefined) ?? {}) };
+        const activeListingCount = buildPropertyFieldExpression('activeListingCount');
+        const listingShare = buildListingShareExpression();
+
+        if (layer.id === ACTIVE_CLUSTER_RING_LAYER_ID) {
+          paint['circle-opacity'] = buildReadListingRingUnderlayOpacityExpression(
+            paint['circle-opacity'] ?? 1,
+            listingShare
+          );
+          paint['circle-stroke-opacity'] = buildReadListingRingUnderlayOpacityExpression(
+            paint['circle-stroke-opacity'] ?? 1,
+            listingShare
+          );
+          return { ...layer, paint };
+        }
+
+        if (layer.id === ACTIVE_NODE_RING_LAYER_ID) {
+          paint['circle-opacity'] = buildReadListingRingUnderlayOpacityExpression(
+            paint['circle-opacity'] ?? 1,
+            activeListingCount
+          );
+          paint['circle-stroke-opacity'] = buildReadListingRingUnderlayOpacityExpression(
+            paint['circle-stroke-opacity'] ?? 1,
+            activeListingCount
+          );
+          return { ...layer, paint };
+        }
+
+        paint['circle-opacity'] = buildReadFeatureStateOpacityExpression(
+          paint['circle-opacity'] ?? 1
+        );
+
+        if (layer.id === ACTIVE_CLUSTER_FILL_LAYER_ID) {
+          return {
+            ...layer,
+            paint: applyReadListingStrokeStyle(
+              paint,
+              listingShare,
+              buildInterpolateExpression(
+                listingShare,
+                MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS
+              ),
+              buildInterpolateExpression(
+                listingShare,
+                MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS
+              ),
+              buildInterpolateExpression(
+                listingShare,
+                MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS
+              )
+            ),
+          };
+        }
+
+        if (layer.id === ACTIVE_NODE_FILL_LAYER_ID) {
+          return {
+            ...layer,
+            paint: applyReadListingStrokeStyle(
+              paint,
+              activeListingCount,
+              buildInterpolateExpression(
+                activeListingCount,
+                MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS
+              ),
+              buildInterpolateExpression(
+                activeListingCount,
+                MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
+              ),
+              buildInterpolateExpression(
+                activeListingCount,
+                MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS
+              )
+            ),
+          };
+        }
+
+        paint['circle-stroke-opacity'] = buildReadFeatureStateOpacityExpression(
+          paint['circle-stroke-opacity'] ?? 1
+        );
+        return { ...layer, paint };
+      }
+
+      if (layer.type === 'symbol') {
+        const paint = { ...((layer.paint as Record<string, unknown> | undefined) ?? {}) };
+        paint['text-opacity'] = buildReadFeatureStateOpacityExpression(
+          paint['text-opacity'] ?? 1
+        );
+        return { ...layer, paint };
+      }
+
+      return layer;
+    }),
+  };
 }
 
 export function injectReadPropertyOverlay<T extends StyleLike | null>(
   style: T,
-  tileUrl: string | string[] | null | undefined
+  tileUrl: string | string[] | null | undefined,
+  options: ReadPropertyOverlayLayerOptions = {}
 ): T {
   if (!style?.sources) {
     return style;
@@ -387,9 +722,10 @@ export function injectReadPropertyOverlay<T extends StyleLike | null>(
         tiles: nextTiles,
         minzoom: 0,
         maxzoom: 22,
+        promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
       },
     },
-    layers: [...nonReadLayers, ...getReadPropertyOverlayLayers()],
+    layers: [...nonReadLayers, ...getReadPropertyOverlayLayers(options)],
   };
 }
 
@@ -411,7 +747,8 @@ export function replacePropertySourceTiles<T extends StyleLike | null>(
   if (
     Array.isArray(currentSource.tiles) &&
     currentSource.tiles.length === nextTiles.length &&
-    currentSource.tiles.every((value, index) => value === nextTiles[index])
+    currentSource.tiles.every((value, index) => value === nextTiles[index]) &&
+    currentSource.promoteId === PROPERTY_VECTOR_SOURCE_PROMOTE_ID
   ) {
     return style;
   }
@@ -423,6 +760,7 @@ export function replacePropertySourceTiles<T extends StyleLike | null>(
       [PROPERTY_VECTOR_SOURCE_ID]: {
         ...currentSource,
         tiles: nextTiles,
+        promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
       },
     },
   };

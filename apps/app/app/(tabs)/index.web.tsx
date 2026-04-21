@@ -45,12 +45,16 @@ import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import {
+  applyReadPropertyFeatureStateStyles,
   buildFollowingTileRequestMatchPattern,
   buildReadTileRequestMatchPattern,
+  READ_OVERLAY_LAYER_IDS,
+  READ_PROPERTY_FEATURE_STATE_KEY,
   getReadPropertyOverlayLayers,
   injectReadPropertyOverlay,
   replacePropertySourceTiles,
   PROPERTY_VECTOR_SOURCE_ID,
+  PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
   READ_PROPERTY_VECTOR_SOURCE_ID,
 } from '@/src/lib/mapPropertySource';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
@@ -134,6 +138,60 @@ function countRenderedGroupedFeatures(features: GeoJSON.Feature[]): number {
   }
 
   return dedupedKeys.size;
+}
+
+function getRenderedReadFeatureId(feature: GeoJSON.Feature): string | null {
+  const properties = feature.properties ?? {};
+  const primaryPropertyId = properties.primary_property_id;
+  if (typeof primaryPropertyId === 'string' && primaryPropertyId.length > 0) {
+    return primaryPropertyId;
+  }
+
+  const id = properties.id;
+  if (typeof id === 'string' && id.length > 0) {
+    return id;
+  }
+
+  const propertyIds = properties.property_ids;
+  if (typeof propertyIds === 'string') {
+    return propertyIds.split(',').find((value) => value.length > 0) ?? null;
+  }
+
+  return null;
+}
+
+function collectVisibleReadFeatureIds(map: maplibregl.Map): Set<string> {
+  const readLayerIds = READ_OVERLAY_LAYER_IDS.filter((layerId) => map.getLayer(layerId));
+  if (readLayerIds.length === 0) {
+    return new Set();
+  }
+
+  const canvas = map.getCanvas();
+  const features = map.queryRenderedFeatures(
+    [[0, 0], [canvas.width, canvas.height]],
+    { layers: [...readLayerIds] },
+  ) ?? [];
+  const ids = new Set<string>();
+
+  for (const feature of features) {
+    const id = getRenderedReadFeatureId(feature);
+    if (id) {
+      ids.add(id);
+    }
+  }
+
+  return ids;
+}
+
+function setReadFeatureState(map: maplibregl.Map, id: string, read: boolean): void {
+  map.setFeatureState(
+    {
+      source: PROPERTY_VECTOR_SOURCE_ID,
+      sourceLayer: 'properties',
+      id,
+    },
+    { [READ_PROPERTY_FEATURE_STATE_KEY]: read },
+  );
 }
 
 function emitFollowingFeatureClickAnalytics(
@@ -754,6 +812,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   activePropertyTilesRef.current = activePropertyTiles;
   const activeReadPropertyTilesRef = useRef(activeReadPropertyTiles);
   activeReadPropertyTilesRef.current = activeReadPropertyTiles;
+  const activeReadFeatureIdsRef = useRef<Set<string>>(new Set());
   const appliedFilterSignature = useMemo(
     () => getCanonicalMapFilterSignature(filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -1424,9 +1483,13 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           await res.json(),
           activePropertyTilesRef.current,
         );
+        style = applyReadPropertyFeatureStateStyles(
+          style as maplibregl.StyleSpecification,
+        );
         style = injectReadPropertyOverlay(
           style as maplibregl.StyleSpecification,
           activeReadPropertyTilesRef.current,
+          { mode: 'probe' },
         );
       } catch {
         style = STYLE_URL;
@@ -2320,9 +2383,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         tiles: activeReadPropertyTiles,
         minzoom: 0,
         maxzoom: 22,
+        promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
       });
 
-      for (const layer of getReadPropertyOverlayLayers()) {
+      for (const layer of getReadPropertyOverlayLayers({ mode: 'probe' })) {
         if (!map.getLayer(layer.id)) {
           map.addLayer(layer as maplibregl.LayerSpecification);
         }
@@ -2348,6 +2412,75 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
 
     source.setTiles(activeReadPropertyTiles);
+  }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) {
+      return;
+    }
+
+    const clearReadFeatureStates = () => {
+      for (const id of activeReadFeatureIdsRef.current) {
+        try {
+          setReadFeatureState(map, id, false);
+        } catch {
+          // Source tiles can disappear while filters or read tiles are changing.
+        }
+      }
+      activeReadFeatureIdsRef.current = new Set();
+    };
+
+    if (activeReadPropertyTiles.length === 0) {
+      clearReadFeatureStates();
+      return;
+    }
+
+    const syncReadFeatureStates = () => {
+      if (!map.isStyleLoaded() || !map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID)) {
+        return;
+      }
+
+      let nextReadIds: Set<string>;
+      try {
+        nextReadIds = collectVisibleReadFeatureIds(map);
+      } catch {
+        return;
+      }
+
+      for (const id of activeReadFeatureIdsRef.current) {
+        if (!nextReadIds.has(id)) {
+          try {
+            setReadFeatureState(map, id, false);
+          } catch {
+            // Ignore stale tile ids while the vector source is refreshing.
+          }
+        }
+      }
+
+      for (const id of nextReadIds) {
+        if (!activeReadFeatureIdsRef.current.has(id)) {
+          try {
+            setReadFeatureState(map, id, true);
+          } catch {
+            // Ignore stale tile ids while the vector source is refreshing.
+          }
+        }
+      }
+
+      activeReadFeatureIdsRef.current = nextReadIds;
+    };
+
+    syncReadFeatureStates();
+    map.on('idle', syncReadFeatureStates);
+    map.on('moveend', syncReadFeatureStates);
+    map.on('sourcedata', syncReadFeatureStates);
+
+    return () => {
+      map.off('idle', syncReadFeatureStates);
+      map.off('moveend', syncReadFeatureStates);
+      map.off('sourcedata', syncReadFeatureStates);
+    };
   }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
 
   useEffect(() => {
