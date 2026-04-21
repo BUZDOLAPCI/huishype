@@ -311,6 +311,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
   appendSearchToPath: jest.fn((pathname, search) => `${pathname}${search}`),
   buildPropertyTileTemplateUrl: jest.fn((_apiUrl, filters) => `https://tiles.test/${filters.tag}`),
   createDefaultMapFilters: jest.fn(() => ({ tag: 'default' })),
+  doesMapFilterCandidateMatch: jest.fn(() => true),
   getCanonicalMapFilterSignature: jest.fn((filters) => filters.tag),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
   parseMapFiltersFromSearchParams: jest.fn(() => ({ tag: 'default' })),
@@ -495,6 +496,12 @@ describe('MapScreen web grouped Following mode', () => {
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+      currentPreviewIndex: 0,
+      selectedPropertyForSheet: null,
+      selectedProperty: null,
+    });
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
     (global as { __DEV__?: boolean }).__DEV__ = false;
@@ -636,6 +643,50 @@ describe('MapScreen web grouped Following mode', () => {
     expect(map.options.transformRequest?.('https://tiles.test/properties/12/2048/1363.pbf')).toEqual({
       url: 'https://tiles.test/properties/12/2048/1363.pbf',
     });
+  });
+
+  it('records active preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'active-property',
+          nodeClass: 'active',
+          address: 'Active Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
+  });
+
+  it('does not record ghost preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'ghost-property',
+          nodeClass: 'ghost',
+          address: 'Ghost Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockRecordPropertyView).not.toHaveBeenCalled();
   });
 
   it('auth-gates signed-out Following toggles without switching state', async () => {

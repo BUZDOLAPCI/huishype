@@ -401,6 +401,20 @@ describe('PropertyContent', () => {
     expect(mockRecordPropertyView).toHaveBeenCalledWith(detailedProperty.id);
   });
 
+  it('does not record a property view for ghost map nodes', () => {
+    renderWithProviders(
+      <PropertyContent
+        property={{
+          ...detailedProperty,
+          nodeClass: 'ghost',
+        }}
+        isVisible
+      />
+    );
+
+    expect(mockRecordPropertyView).not.toHaveBeenCalled();
+  });
+
   it('fetches details only for summary properties', () => {
     renderWithProviders(<PropertyContent property={summaryProperty} />);
 

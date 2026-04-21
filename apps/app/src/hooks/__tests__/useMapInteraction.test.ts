@@ -755,6 +755,7 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
+      expect(result.current.previewGroup!.properties[0]?.nodeClass).toBe('active');
     });
 
     it('returns false for empty features array', async () => {
@@ -838,6 +839,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'p1',
+        nodeClass: 'active',
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -916,6 +918,7 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
+      expect(result.current.previewGroup!.properties[0]?.nodeClass).toBe('active');
     });
 
     it('opens preview for dense nearby clusters', async () => {
@@ -1006,6 +1009,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'p1',
+        nodeClass: 'active',
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -1056,6 +1060,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'prop-1',
+        nodeClass: undefined,
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -1063,6 +1068,44 @@ describe('useMapInteraction', () => {
         guessCount: 2,
         activityScore: 7,
         activityLevel: 'warm',
+      });
+    });
+
+    it('preserves ghost class for grouped previews opened from ghost clusters', async () => {
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'ghost-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: 'Quiet Lane 1',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: false,
+          hasActiveListing: false,
+          marketState: 'not-listed',
+          socialScore: 0,
+          recentSocialScore: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.openClusterPreviewAtCoord(['ghost-1'], [4.9, 52.37], 'ghost');
+      });
+
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'ghost-1',
+        nodeClass: 'ghost',
       });
     });
   });

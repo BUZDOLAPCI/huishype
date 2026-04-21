@@ -344,6 +344,12 @@ describe('MapScreen native grouped Following mode', () => {
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+      currentPreviewIndex: 0,
+      selectedPropertyForSheet: null,
+      selectedProperty: null,
+    });
     mockQueryRenderedFeatures.mockReset();
     mockQueryRenderedFeatures.mockResolvedValue([]);
     mockProject.mockReset();
@@ -465,6 +471,44 @@ describe('MapScreen native grouped Following mode', () => {
     const pattern = addCall?.[2] as RegExp;
     expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
     expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
+  });
+
+  it('records active preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'active-property',
+          nodeClass: 'active',
+          address: 'Active Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await renderMapScreen();
+
+    expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
+  });
+
+  it('does not record ghost preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'ghost-property',
+          nodeClass: 'ghost',
+          address: 'Ghost Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await renderMapScreen();
+
+    expect(mockRecordPropertyView).not.toHaveBeenCalled();
   });
 
   it('shows the empty Following state after rendered grouped feature refresh settles', async () => {

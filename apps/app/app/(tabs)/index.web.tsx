@@ -1066,10 +1066,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
-    if (currentPreviewProperty?.id) {
+    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
       recordPreviewPropertyView(currentPreviewProperty.id);
     }
-  }, [currentPreviewProperty?.id, recordPreviewPropertyView]);
+  }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
   const previewRouteInput = useMemo(
     () =>
       extractCanonicalRouteInput(

@@ -135,7 +135,11 @@ export interface UseMapInteractionReturn {
   /** Decide whether to dismiss the preview (empty background tap). */
   handleEmptyMapTap: () => void;
   /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
-  openClusterPreviewAtCoord: (propertyIds: string[], coordinate: [number, number]) => Promise<void>;
+  openClusterPreviewAtCoord: (
+    propertyIds: string[],
+    coordinate: [number, number],
+    nodeClass?: 'active' | 'ghost',
+  ) => Promise<void>;
 
   // ── Conversion helpers ──────────────────────────────────────
   toGroupProperty: (p: ToGroupPropertyInput, activityScore?: number) => GroupPreviewProperty;
@@ -144,6 +148,7 @@ export interface UseMapInteractionReturn {
 /** Minimal shape accepted by the toGroupProperty converter. */
 export interface ToGroupPropertyInput {
   id: string;
+  nodeClass?: 'active' | 'ghost';
   address: string;
   streetName?: string | null;
   houseNumber?: string | number | null;
@@ -358,6 +363,7 @@ function mergeHydratedPreviewProperty(
 
   return {
     ...currentProperty,
+    nodeClass: currentProperty.nodeClass,
     coordinate:
       currentProperty.coordinate ??
       (selectedProperty.geometry?.type === 'Point' ? selectedProperty.geometry.coordinates : undefined),
@@ -408,6 +414,7 @@ function convertToGroupProperty(
 
   return {
     id: p.id,
+    nodeClass: p.nodeClass,
     address: p.address,
     coordinate: p.geometry?.coordinates,
     streetName: p.streetName ?? null,
@@ -459,6 +466,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       return null;
     }
 
+    const previewNodeClass = currentPreviewProperty?.nodeClass;
     const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
     const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
     const derivedAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
@@ -466,13 +474,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
     const thumbnailUrl = selectedProperty.thumbnailUrl ?? previewThumbnailUrl ?? null;
     if (
       selectedProperty.aerialImageUrl === aerialImageUrl &&
-      selectedProperty.thumbnailUrl === thumbnailUrl
+      selectedProperty.thumbnailUrl === thumbnailUrl &&
+      selectedProperty.nodeClass === previewNodeClass
     ) {
       return selectedProperty;
     }
 
     return {
       ...selectedProperty,
+      nodeClass: previewNodeClass,
       aerialImageUrl,
       thumbnailUrl,
     };
@@ -786,14 +796,18 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Cluster preview ─────────────────────────────────────────
   const openClusterPreviewAtCoord = useCallback(
-    async (propertyIds: string[], coordinate: [number, number]) => {
+    async (
+      propertyIds: string[],
+      coordinate: [number, number],
+      nodeClass?: 'active' | 'ghost',
+    ) => {
       try {
         const batch = await fetchBatchProperties(
           propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
         );
         if (batch.length > 0) {
           setPreviewGroup({
-            properties: batch.map(b => toGroupProperty(b)),
+            properties: batch.map(b => toGroupProperty({ ...b, nodeClass })),
             coordinate,
           });
           setCurrentPreviewIndex(0);
@@ -840,7 +854,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setHighlightedCoordinate(coord);
           flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-            void openClusterPreviewAtCoord(previewPropertyIds, coord);
+            void openClusterPreviewAtCoord(previewPropertyIds, coord, group.nodeClass);
           });
         } else if (group.bbox) {
           camera.fitBounds(
@@ -871,6 +885,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setPreviewGroup({
             properties: [{
               id: group.primaryPropertyId,
+              nodeClass: group.nodeClass,
               coordinate: coord,
               address: group.address ?? '',
               streetName: group.streetName ?? null,
@@ -931,6 +946,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setPreviewGroup({
             properties: [{
               id: result.primaryPropertyId,
+              nodeClass: result.nodeClass,
               coordinate: coord,
               address: result.address ?? '',
               streetName: result.streetName ?? null,
@@ -980,7 +996,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setHighlightedCoordinate(result.coordinate);
           flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
-            void openClusterPreviewAtCoord(previewIds, result.coordinate);
+            void openClusterPreviewAtCoord(previewIds, result.coordinate, result.nodeClass);
           });
         } else if (result.bbox) {
           camera.fitBounds(

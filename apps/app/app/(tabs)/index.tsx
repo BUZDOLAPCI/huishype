@@ -501,10 +501,10 @@ export default function MapScreen() {
   );
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
-    if (currentPreviewProperty?.id) {
+    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
       recordPreviewPropertyView(currentPreviewProperty.id);
     }
-  }, [currentPreviewProperty?.id, recordPreviewPropertyView]);
+  }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
 
   useFocusEffect(
     useCallback(() => {

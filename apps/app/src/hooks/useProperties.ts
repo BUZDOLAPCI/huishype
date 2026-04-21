@@ -15,6 +15,11 @@ export interface PropertyGeometry {
 
 export interface Property {
   id: string;
+  /**
+   * Map-node class for properties opened from the map preview surface.
+   * API property detail responses do not currently provide this.
+   */
+  nodeClass?: 'active' | 'ghost';
   nationalId: string | null;
   /** ISO 3166-1 alpha-2 country code */
   countryCode: string;

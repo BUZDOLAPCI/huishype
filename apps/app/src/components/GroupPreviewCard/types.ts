@@ -1,5 +1,6 @@
 export interface GroupPreviewProperty {
   id: string;
+  nodeClass?: 'active' | 'ghost';
   address: string;
   coordinate?: [number, number];
   streetName?: string | null;
