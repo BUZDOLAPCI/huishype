@@ -981,8 +981,8 @@ describe('Property routes', () => {
       expect(body.likeCount).toBe(1);
       expect(body.isLiked).toBe(true); // Requesting user made the like
       expect(body.recentGuessCount).toBe(3);
-      expect(body.socialScore).toBeCloseTo(6.05, 5);
-      expect(body.recentSocialScore).toBeCloseTo(6.05, 5);
+      expect(body.socialScore).toBeCloseTo(5.65, 5);
+      expect(body.recentSocialScore).toBeCloseTo(5.65, 5);
       expect(body).not.toHaveProperty('activityLevel');
 
       // FMV assertions

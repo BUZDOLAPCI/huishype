@@ -8,7 +8,8 @@ const REPLY_WEIGHT = 1.0;
 const PROPERTY_LIKE_WEIGHT = 1.0;
 const COMMENT_LIKE_WEIGHT = 0.8;
 const GUESS_WEIGHT = 0.85;
-const UNIQUE_VIEWER_WEIGHT = 0.5;
+const UNIQUE_VIEWER_WEIGHT = 0.1;
+export const ACTIVE_SOCIAL_SCORE_THRESHOLD = 0.75;
 
 function propertyIdColumn(propertyAlias: string): SQL {
   return sql.raw(`${propertyAlias}.id`);
@@ -434,21 +435,27 @@ export function buildPropertyFollowingSocialFactsJoin(
 
 export function buildActivityFilterPredicate(activity: MapActivityFilter, alias = 'sf'): SQL {
   const lastSocialAt = sql.raw(`${alias}.last_social_at`);
+  const socialScore = sql.raw(`${alias}.social_score`);
+  const recentSocialScore = sql.raw(`${alias}.recent_social_score`);
+  const activeThreshold = ACTIVE_SOCIAL_SCORE_THRESHOLD;
 
   if (activity === 'all-time') {
-    return sql`COALESCE(${sql.raw(`${alias}.social_score`)}, 0) > 0`;
+    return sql`COALESCE(${socialScore}, 0) >= ${activeThreshold}`;
   }
 
   if (activity === 'today') {
-    return sql`${lastSocialAt} >= NOW() - INTERVAL '24 hours'`;
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '24 hours'
+      AND COALESCE(${recentSocialScore}, 0) >= ${activeThreshold}`;
   }
 
   if (activity === '10d') {
-    return sql`${lastSocialAt} >= NOW() - INTERVAL '10 days'`;
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '10 days'
+      AND COALESCE(${recentSocialScore}, 0) >= ${activeThreshold}`;
   }
 
   if (activity === '30d') {
-    return sql`${lastSocialAt} >= NOW() - INTERVAL '30 days'`;
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '30 days'
+      AND COALESCE(${recentSocialScore}, 0) >= ${activeThreshold}`;
   }
 
   return sql`TRUE`;

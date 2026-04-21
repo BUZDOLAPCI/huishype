@@ -8,6 +8,7 @@ import {
 import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import {
+  ACTIVE_SOCIAL_SCORE_THRESHOLD,
   buildActivityFilterPredicate,
   buildPropertyFollowingSocialFactsJoin,
   buildPropertyListingFactsJoin,
@@ -357,7 +358,18 @@ function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): n
 }
 
 function isGhostCandidate(candidate: GroupingCandidate): boolean {
-  return !candidate.hasActiveListing && candidate.socialScore === 0;
+  return (
+    !candidate.hasActiveListing &&
+    candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD
+  );
+}
+
+function hasActiveSocialSignal(candidate: GroupingCandidate): boolean {
+  return candidate.socialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD;
+}
+
+function hasRecentActiveSocialSignal(candidate: GroupingCandidate): boolean {
+  return candidate.recentSocialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD;
 }
 
 function serializeBbox(candidates: GroupingCandidate[]): SerializedBbox {
@@ -556,8 +568,8 @@ function buildCanonicalGroup(
     coordinate: [anchor.lon, anchor.lat],
     bbox,
     activeListingCount: members.filter((member) => member.hasActiveListing).length,
-    socialCount: members.filter((member) => member.socialScore > 0).length,
-    recentSocialCount: members.filter((member) => member.recentSocialScore > 0).length,
+    socialCount: members.filter(hasActiveSocialSignal).length,
+    recentSocialCount: members.filter(hasRecentActiveSocialSignal).length,
     socialScoreTotal: members.reduce((sum, member) => sum + member.socialScore, 0),
     socialScoreMax: Math.max(...members.map((member) => member.socialScore)),
     recentSocialScoreTotal: members.reduce((sum, member) => sum + member.recentSocialScore, 0),
@@ -633,7 +645,10 @@ async function fetchGroupingCandidatesInBBoxes(
     : marketFilterQuery.join;
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
-    : sql`(COALESCE(lf.has_active_listing, FALSE) OR COALESCE(sf.social_score, 0) > 0)`;
+    : sql`(
+        COALESCE(lf.has_active_listing, FALSE)
+        OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
+      )`;
 
   const bboxFilter = sql.join(
     boundsList.map(

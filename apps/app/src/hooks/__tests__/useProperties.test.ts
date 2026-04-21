@@ -134,7 +134,7 @@ describe('useProperty', () => {
     expect(result.current.data?.isLiked).toBe(false);
   });
 
-  it('keeps one-view recent activity warm when deriving compatibility activity state', async () => {
+  it('keeps one-view recent activity quiet when deriving compatibility activity state', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValueOnce(null);
     mockApi.get.mockResolvedValueOnce({
@@ -152,8 +152,8 @@ describe('useProperty', () => {
       officialValuation: 410000,
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z',
-      socialScore: 0.5,
-      recentSocialScore: 0.5,
+      socialScore: 0.1,
+      recentSocialScore: 0.1,
       hasActiveListing: false,
       commentCount: 0,
       guessCount: 0,
@@ -172,7 +172,7 @@ describe('useProperty', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(result.current.data?.activityLevel).toBe('warm');
+    expect(result.current.data?.activityLevel).toBe('cold');
   });
 
   it('uses reply-inclusive comment totals when detail payloads expose threaded counts', async () => {

@@ -826,8 +826,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'text-halo-width': 1,
       },
     },
-    // Recent-social halo for singles. The >0.5 threshold preserves the
-    // single-unique-view exception: one unique view counts as social, but does not pulse.
+    // Recent-social halo for singles. Low passive-view scores stay quiet.
     {
       id: ACTIVE_NODE_PULSE_LAYER_ID,
       type: 'circle',

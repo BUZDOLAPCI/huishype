@@ -121,13 +121,15 @@ describe('getActivityLevel', () => {
     expect(getActivityLevel(100)).toBe('hot');
   });
 
-  it('returns "warm" for scores > 0 and < 50', () => {
+  it('returns "warm" for active scores below hot', () => {
+    expect(getActivityLevel(0.75)).toBe('warm');
     expect(getActivityLevel(1)).toBe('warm');
     expect(getActivityLevel(49)).toBe('warm');
   });
 
-  it('returns "cold" for score 0', () => {
+  it('returns "cold" for scores below the active threshold', () => {
     expect(getActivityLevel(0)).toBe('cold');
+    expect(getActivityLevel(0.1)).toBe('cold');
   });
 
   it('returns "cold" for negative scores', () => {
@@ -1379,7 +1381,7 @@ describe('useMapInteraction', () => {
       expect(gpp.hasActiveListing).toBe(true);
     });
 
-    it('keeps a one-view-only preview socially active without marking it hot', () => {
+    it('keeps a one-view-only preview quiet', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -1388,13 +1390,13 @@ describe('useMapInteraction', () => {
         id: 'prop-view-only',
         address: 'Kijklaan 5',
         city: 'Eindhoven',
-        socialScore: 0.5,
-        recentSocialScore: 0.5,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
       });
 
-      expect(gpp.socialScore).toBe(0.5);
-      expect(gpp.recentSocialScore).toBe(0.5);
-      expect(gpp.activityLevel).toBe('warm');
+      expect(gpp.socialScore).toBe(0.1);
+      expect(gpp.recentSocialScore).toBe(0.1);
+      expect(gpp.activityLevel).toBe('cold');
     });
 
     it('reuses the preview aerial image for the sheet property when available', async () => {

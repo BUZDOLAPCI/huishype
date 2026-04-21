@@ -340,7 +340,7 @@ describe('property-grouping', () => {
     expect(groups[0].socialScoreTotal).toBe(0);
   });
 
-  it('treats a single unique view as social activity without collapsing back to ghost semantics', () => {
+  it('keeps a single unique view below active-node semantics', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
@@ -352,8 +352,31 @@ describe('property-grouping', () => {
       zoom,
       {
         hasActiveListing: false,
-        socialScore: 0.5,
-        recentSocialScore: 0.5,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(0);
+  });
+
+  it('allows enough unique-view interest to promote a non-listing node', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000016',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.8,
+        recentSocialScore: 0.8,
         marketState: 'not-listed',
       },
     );
@@ -367,8 +390,36 @@ describe('property-grouping', () => {
     expect(groups[0].activeListingCount).toBe(0);
     expect(groups[0].socialCount).toBe(1);
     expect(groups[0].recentSocialCount).toBe(1);
-    expect(groups[0].socialScoreTotal).toBe(0.5);
-    expect(groups[0].recentSocialScoreTotal).toBe(0.5);
+    expect(groups[0].socialScoreTotal).toBe(0.8);
+    expect(groups[0].recentSocialScoreTotal).toBe(0.8);
+  });
+
+  it('keeps revealed one-view non-listing nodes in the ghost layer', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000017',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('ghost');
+    expect(groups[0].primaryPropertyId).toBe(viewed.id);
+    expect(groups[0].socialCount).toBe(0);
+    expect(groups[0].recentSocialCount).toBe(0);
+    expect(groups[0].socialScoreTotal).toBe(0.1);
   });
 
   it('builds ghost clusters from ghost members only once ghosts are revealed', () => {

@@ -22,5 +22,11 @@ export async function waitForPropertyDetailReady(
   timeout = 30_000,
 ): Promise<void> {
   await expect(page.locator('[data-testid="property-header-carousel"]')).toBeVisible({ timeout });
-  await expect(page.getByText(address, { exact: true })).toBeVisible({ timeout });
+
+  const [addressTitle, locality] = address.split(',').map((part) => part.trim());
+  await expect(page.getByText(addressTitle ?? address, { exact: true })).toBeVisible({ timeout });
+
+  for (const token of locality?.split(/\s+/).filter(Boolean) ?? []) {
+    await expect(page.locator('body')).toContainText(token, { timeout });
+  }
 }

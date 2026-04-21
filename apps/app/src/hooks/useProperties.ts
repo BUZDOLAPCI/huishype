@@ -101,6 +101,7 @@ export interface PropertyDetails extends Property {
   isSaved?: boolean;
 }
 
+export const ACTIVE_SOCIAL_SCORE_THRESHOLD = 0.75;
 const RECENT_HOT_SCORE_THRESHOLD = 0.5;
 const HOT_ACTIVITY_SCORE_THRESHOLD = 50;
 
@@ -142,7 +143,10 @@ export function deriveCompatibilityActivityLevel(property: Pick<
     return 'hot';
   }
 
-  if ((property.socialScore ?? 0) > 0 || property.hasActiveListing) {
+  if (
+    (property.socialScore ?? 0) >= ACTIVE_SOCIAL_SCORE_THRESHOLD ||
+    property.hasActiveListing
+  ) {
     return 'warm';
   }
 

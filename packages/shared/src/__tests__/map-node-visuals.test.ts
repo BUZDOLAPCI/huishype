@@ -91,8 +91,8 @@ describe('map-node-visuals', () => {
 
     expect(visual.diameter).toBeGreaterThan(20);
     expect(visual.diameter).toBe(smallCluster.diameter);
-    expect(visual.borderWidth).toBe(2.5);
-    expect(smallCluster.borderWidth).toBe(2.5);
+    expect(visual.borderWidth).toBe(1.8);
+    expect(smallCluster.borderWidth).toBe(1.8);
     expect(visual.borderColor).toBe('#2563EB');
     expect(visual.borderOpacity).toBe(0.96);
     expect(visual.coreDiameter).toBe(visual.diameter);

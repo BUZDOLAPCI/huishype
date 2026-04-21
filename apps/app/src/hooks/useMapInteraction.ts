@@ -12,6 +12,7 @@ import { router } from 'expo-router';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import type { PropertyBottomSheetRef } from '@/src/components/PropertyBottomSheet';
 import {
+  ACTIVE_SOCIAL_SCORE_THRESHOLD,
   resolvePropertyActivityLevel,
   resolvePropertyCommentCount,
   useProperty,
@@ -184,7 +185,7 @@ export interface ToGroupPropertyInput {
 /** Derive activity level from a numeric score. */
 export function getActivityLevel(score: number): 'hot' | 'warm' | 'cold' {
   if (score >= 50) return 'hot';
-  if (score > 0) return 'warm';
+  if (score >= ACTIVE_SOCIAL_SCORE_THRESHOLD) return 'warm';
   return 'cold';
 }
 

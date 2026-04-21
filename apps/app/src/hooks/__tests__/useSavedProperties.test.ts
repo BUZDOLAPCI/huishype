@@ -121,16 +121,16 @@ describe('transformSavedProperty', () => {
     expect(transformed.commentCount).toBe(6);
   });
 
-  it('does not mark one-view recent activity as hot', () => {
+  it('keeps one-view recent activity quiet', () => {
     const property = createSavedProperty({
       hasActiveListing: false,
-      socialScore: 0.5,
-      recentSocialScore: 0.5,
+      socialScore: 0.1,
+      recentSocialScore: 0.1,
     });
 
     const transformed = transformSavedProperty(property);
 
-    expect(transformed.activityLevel).toBe('warm');
+    expect(transformed.activityLevel).toBe('cold');
   });
 });
 
