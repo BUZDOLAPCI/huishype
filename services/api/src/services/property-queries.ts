@@ -24,9 +24,9 @@ export function buildCanonicalHouseNumberAdditionExpression(column: string): SQL
 
 function listingOrderExpression(listingAlias: string): SQL {
   return sql`COALESCE(${sql.raw(`${listingAlias}.mirror_last_changed_at`)}, ${sql.raw(
-    `${listingAlias}.updated_at`,
+    `${listingAlias}.updated_at`
   )}, ${sql.raw(`${listingAlias}.created_at`)}) DESC, ${sql.raw(
-    `${listingAlias}.created_at`,
+    `${listingAlias}.created_at`
   )} DESC, ${sql.raw(`${listingAlias}.id`)} DESC`;
 }
 
@@ -50,7 +50,7 @@ export function buildLatestPublicGuessFactsQuery(propertyId: SQL): SQL {
 export function buildPropertyListingFactsJoin(
   propertyAlias = 'p',
   alias = 'lf',
-  options: { includeEffectivePrices?: boolean } = {},
+  options: { includeEffectivePrices?: boolean } = {}
 ): SQL {
   const includeEffectivePrices = options.includeEffectivePrices ?? false;
   const idColumn = propertyIdColumn(propertyAlias);
@@ -327,7 +327,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
 export function buildPropertyFollowingSocialFactsJoin(
   viewerId: string,
   propertyAlias = 'p',
-  alias = 'fsf',
+  alias = 'fsf'
 ): SQL {
   const idColumn = propertyIdColumn(propertyAlias);
 
@@ -433,12 +433,22 @@ export function buildPropertyFollowingSocialFactsJoin(
 }
 
 export function buildActivityFilterPredicate(activity: MapActivityFilter, alias = 'sf'): SQL {
-  if (activity === 'social') {
-    return sql`${sql.raw(`${alias}.social_score`)} > 0`;
+  const lastSocialAt = sql.raw(`${alias}.last_social_at`);
+
+  if (activity === 'all-time') {
+    return sql`COALESCE(${sql.raw(`${alias}.social_score`)}, 0) > 0`;
   }
 
-  if (activity === 'recent') {
-    return sql`${sql.raw(`${alias}.recent_social_score`)} > 0`;
+  if (activity === 'today') {
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '24 hours'`;
+  }
+
+  if (activity === '10d') {
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '10 days'`;
+  }
+
+  if (activity === '30d') {
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '30 days'`;
   }
 
   return sql`TRUE`;

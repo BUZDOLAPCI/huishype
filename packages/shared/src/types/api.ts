@@ -8,6 +8,7 @@ import type {
   PropertySummary,
   MapMarketState,
   PropertyMarketFilters,
+  MapActivityFilter,
 } from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
 import type {
@@ -484,6 +485,7 @@ export interface PropertyTileJson {
 export interface FollowingPropertyTileRequest
   extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
+  activity?: MapActivityFilter;
 }
 
 export type GetFollowingPropertyTilesRequest = FollowingPropertyTileRequest;

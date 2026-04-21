@@ -402,8 +402,31 @@ describe('Mock handler runtime parity', () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.session.accessToken as string;
 
+    const omittedActivityTileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const omittedActivityTileJsonBody = await omittedActivityTileJsonResponse.json();
+
+    expect(omittedActivityTileJsonResponse.status).toBe(200);
+    expect(omittedActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
+
+    const legacyAllActivityTileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json?activity=all',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const legacyAllActivityTileJsonBody = await legacyAllActivityTileJsonResponse.json();
+
+    expect(legacyAllActivityTileJsonResponse.status).toBe(200);
+    expect(legacyAllActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
+    expect(legacyAllActivityTileJsonBody.tiles[0]).not.toContain('activity=all&');
+
     const tileJsonResponse = await fetch(
-      'http://localhost/tiles/following/properties.json?marketState=for-sale,sold',
+      'http://localhost/tiles/following/properties.json?marketState=for-sale,sold&activity=10d',
       {
         headers: { Authorization: `Bearer ${token}` },
       },
@@ -416,6 +439,7 @@ describe('Mock handler runtime parity', () => {
     expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
     expect(tileJsonBody.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
     expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
+    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
 
     const nearbyResponse = await fetch(
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale',
@@ -431,6 +455,28 @@ describe('Mock handler runtime parity', () => {
     expect(nearbyBody).toHaveProperty('hasActiveListing');
     expect(nearbyBody).toHaveProperty('marketState', 'for-sale');
     expect(Object.keys(nearbyBody).sort()).toEqual(nearbySingleKeys);
+
+    const tenDayNearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=10d',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const tenDayNearbyBody = await tenDayNearbyResponse.json();
+
+    expect(tenDayNearbyResponse.status).toBe(200);
+    expect(tenDayNearbyBody).toHaveProperty('groupKind', 'single');
+    expect(tenDayNearbyBody).toHaveProperty('primaryPropertyId', mockPropertyIds.herengracht502);
+
+    const todayNearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=today',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+
+    expect(todayNearbyResponse.status).toBe(200);
+    expect(await todayNearbyResponse.json()).toBeNull();
 
     const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
       method: 'PUT',

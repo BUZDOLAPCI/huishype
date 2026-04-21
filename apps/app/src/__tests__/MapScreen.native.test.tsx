@@ -30,12 +30,12 @@ const mockFollowingTileRefetch = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
 const mockFetchFollowingNearbyGroup = jest.fn();
 
-let capturedMapFilterBarProps:
-  | {
-      socialScope?: 'all' | 'following';
-      onToggleFollowing?: () => void;
-    }
-  | null = null;
+let capturedMapFilterBarProps: {
+  socialScope?: 'all' | 'following';
+  followingActivity?: 'today' | '10d' | '30d' | 'all-time';
+  onToggleFollowing?: () => void;
+  onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
+} | null = null;
 
 const mockAmbientCommentBubbles = {
   bubbles: [] as unknown[],
@@ -172,7 +172,7 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
 }));
 
 const mockUseFollowingTileSource = jest.fn(
-  (_filters: unknown, _enabled: unknown) => ({
+  (_filters: unknown, _followingActivity: unknown, _enabled: unknown) => ({
     data: mockFollowingTileUrl
       ? {
           tileJsonUrl: 'http://api.test/tiles/following/properties.json',
@@ -184,12 +184,14 @@ const mockUseFollowingTileSource = jest.fn(
     isError: mockFollowingTileSourceIsError,
     error: mockFollowingTileSourceIsError ? new Error('Following tile source failed') : null,
     refetch: mockFollowingTileRefetch,
-  }),
+  })
 );
 
 jest.mock('@/src/hooks/useFollowingTileSource', () => ({
-  useFollowingTileSource: jest.fn((filters: unknown, enabled: unknown) =>
-    mockUseFollowingTileSource(filters, enabled)),
+  useFollowingTileSource: jest.fn(
+    (filters: unknown, followingActivity: unknown, enabled: unknown) =>
+      mockUseFollowingTileSource(filters, followingActivity, enabled)
+  ),
 }));
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
@@ -219,7 +221,8 @@ jest.mock('@/src/utils/api', () => ({
   API_URL: 'http://api.test',
   fetchNearbyGroup: jest.fn((...args: unknown[]) => mockFetchNearbyGroup(...args)),
   fetchFollowingNearbyGroup: jest.fn((...args: unknown[]) =>
-    mockFetchFollowingNearbyGroup(...args)),
+    mockFetchFollowingNearbyGroup(...args)
+  ),
 }));
 
 jest.mock('@/src/lib/sharedMapFilters', () => ({
@@ -256,7 +259,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     return ReactModule.createElement(
       Pressable,
       { testID: 'native-map', onPress: props.onPress },
-      props.children,
+      props.children
     );
   });
 
@@ -277,7 +280,8 @@ jest.mock('@maplibre/maplibre-react-native', () => {
   };
 });
 
-const MapScreen = require('@/app/(tabs)/index').default as typeof import('@/app/(tabs)/index').default;
+const MapScreen = require('@/app/(tabs)/index')
+  .default as typeof import('@/app/(tabs)/index').default;
 
 describe('MapScreen native grouped Following mode', () => {
   async function renderMapScreen() {
@@ -343,17 +347,14 @@ describe('MapScreen native grouped Following mode', () => {
         value: originalFetch,
       });
     } else {
-      Reflect.deleteProperty(
-        globalThis as typeof globalThis & { fetch?: typeof fetch },
-        'fetch',
-      );
+      Reflect.deleteProperty(globalThis as typeof globalThis & { fetch?: typeof fetch }, 'fetch');
     }
 
     Reflect.deleteProperty(
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
       },
-      '__HUISHYPE_ANALYTICS_EVENTS__',
+      '__HUISHYPE_ANALYTICS_EVENTS__'
     );
 
     if (typeof originalDev === 'boolean') {
@@ -385,12 +386,13 @@ describe('MapScreen native grouped Following mode', () => {
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
         activity: 'all',
       },
-      true,
+      'all-time',
+      true
     );
     expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
       'Authorization',
       'Bearer viewer-token',
-      expect.any(RegExp),
+      expect.any(RegExp)
     );
   });
 
@@ -414,7 +416,8 @@ describe('MapScreen native grouped Following mode', () => {
           marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
           activity: 'all',
         },
-        true,
+        'all-time',
+        true
       );
     });
 
@@ -433,12 +436,12 @@ describe('MapScreen native grouped Following mode', () => {
         globalThis as typeof globalThis & {
           __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
         }
-      ).__HUISHYPE_ANALYTICS_EVENTS__,
+      ).__HUISHYPE_ANALYTICS_EVENTS__
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'map_following_filter_enabled' }),
         expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
-      ]),
+      ])
     );
   });
 
@@ -461,9 +464,7 @@ describe('MapScreen native grouped Following mode', () => {
   });
 
   it('falls back to /properties/following-nearby after local Following hit-testing misses', async () => {
-    mockQueryRenderedFeatures
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    mockQueryRenderedFeatures.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     mockFetchFollowingNearbyGroup.mockResolvedValue({
       nodeClass: 'active',
       groupKind: 'single',
@@ -528,12 +529,15 @@ describe('MapScreen native grouped Following mode', () => {
     expect(mockQueryRenderedFeatures).toHaveBeenNthCalledWith(
       1,
       [100, 200],
-      expect.objectContaining({ layers: expect.any(Array) }),
+      expect.objectContaining({ layers: expect.any(Array) })
     );
     expect(mockQueryRenderedFeatures).toHaveBeenNthCalledWith(
       2,
-      [[72, 172], [128, 228]],
-      expect.objectContaining({ layers: expect.any(Array) }),
+      [
+        [72, 172],
+        [128, 228],
+      ],
+      expect.objectContaining({ layers: expect.any(Array) })
     );
     expect(mockFetchFollowingNearbyGroup).toHaveBeenCalledWith(
       5.47,
@@ -542,11 +546,12 @@ describe('MapScreen native grouped Following mode', () => {
       expect.objectContaining({
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
       }),
+      'all-time'
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       expect.objectContaining({ primaryPropertyId: 'property-9' }),
       expect.any(Number),
-      expect.any(Object),
+      expect.any(Object)
     );
     expect(mockInteraction.handleEmptyMapTap).not.toHaveBeenCalled();
   });

@@ -103,7 +103,7 @@ describe('api auth attachment', () => {
       expect.objectContaining({
         method: 'GET',
         headers: expect.any(Headers),
-      }),
+      })
     );
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
@@ -149,7 +149,7 @@ describe('fetchNearbyGroup', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale'],
-      activity: 'recent',
+      activity: 'today',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -157,7 +157,7 @@ describe('fetchNearbyGroup', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceFrom=500000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=recent');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=today');
   });
 });
 
@@ -175,20 +175,27 @@ describe('fetchFollowingNearbyGroup', () => {
       json: async () => null,
     });
 
-    await fetchFollowingNearbyGroup(5.4697, 51.4416, 15, {
-      salePriceFrom: null,
-      salePriceTo: 800000,
-      rentPriceFrom: null,
-      rentPriceTo: null,
-      marketState: ['for-sale'],
-      activity: 'recent',
-    });
+    await fetchFollowingNearbyGroup(
+      5.4697,
+      51.4416,
+      15,
+      {
+        salePriceFrom: null,
+        salePriceTo: 800000,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+        marketState: ['for-sale'],
+        activity: '30d',
+      },
+      '10d'
+    );
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/following-nearby?');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('salePriceTo=800000');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=recent');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=10d');
+    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('activity=30d');
   });
 });
 
@@ -203,7 +210,7 @@ describe('fetchBatchProperties', () => {
   it('returns the array response unchanged when the batch contract is respected', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ([
+      json: async () => [
         {
           id: '11111111-1111-4111-8111-111111111111',
           nationalId: null,
@@ -222,12 +229,10 @@ describe('fetchBatchProperties', () => {
           createdAt: '2024-01-01T00:00:00Z',
           updatedAt: '2024-01-02T00:00:00Z',
         },
-      ]),
+      ],
     });
 
-    const result = await fetchBatchProperties([
-      '11111111-1111-4111-8111-111111111111',
-    ]);
+    const result = await fetchBatchProperties(['11111111-1111-4111-8111-111111111111']);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('11111111-1111-4111-8111-111111111111');
@@ -268,7 +273,7 @@ describe('grouped property normalization', () => {
         floorAreaM2: 123,
         hasActiveListing: true,
         marketState: 'for-sale',
-      }),
+      })
     ).toMatchObject({
       activeListingCount: 1,
       socialCount: 2,
@@ -355,7 +360,7 @@ describe('grouped property normalization', () => {
         activityScore: 99,
         activityScoreTotal: 99,
         hasListing: true,
-      }),
+      })
     ).toMatchObject({
       activeListingCount: 0,
       socialCount: 0,

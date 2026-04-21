@@ -10,6 +10,7 @@ import {
   buildNearbyGroupPath,
   createDefaultMapFilters,
   updateMapFilterSearchParams,
+  type MapActivityFilter,
   type MapFilters,
   type MapMarketState,
 } from '@/src/lib/sharedMapFilters';
@@ -726,6 +727,7 @@ function buildFollowingNearbyGroupPath(
   lat: number,
   zoom: number,
   filters: MapFilters,
+  followingActivity: MapActivityFilter,
 ): string {
   const params = updateMapFilterSearchParams(
     new URLSearchParams({
@@ -736,6 +738,11 @@ function buildFollowingNearbyGroupPath(
     filters,
   );
 
+  params.delete('activity');
+  if (followingActivity !== 'all') {
+    params.set('activity', followingActivity);
+  }
+
   return `/properties/following-nearby?${params.toString()}`;
 }
 
@@ -744,10 +751,11 @@ export async function fetchFollowingNearbyGroup(
   lat: number,
   zoom: number,
   filters: MapFilters = createDefaultMapFilters(),
+  followingActivity: MapActivityFilter = 'all-time',
 ): Promise<NearbyPropertyGroup | null> {
   try {
     const result = await apiFetch<NearbyGroupedResult | null>(
-      buildFollowingNearbyGroupPath(lon, lat, zoom, filters),
+      buildFollowingNearbyGroupPath(lon, lat, zoom, filters, followingActivity),
     );
     return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {

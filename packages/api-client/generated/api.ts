@@ -407,7 +407,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
-                    activity?: "all" | "social" | "recent";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
                     bbox?: string;
                     lat?: number;
@@ -612,7 +612,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
-                    activity?: "all" | "social" | "recent";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path?: never;
@@ -829,6 +829,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path?: never;
@@ -2156,7 +2157,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string;
-                    activity?: "all" | "social" | "recent";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path?: never;
@@ -2215,6 +2216,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path?: never;
@@ -2285,7 +2287,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string;
-                    activity?: "all" | "social" | "recent";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path: {
@@ -2333,6 +2335,7 @@ export interface paths {
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
                     marketState?: string | string[];
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
                 };
                 header?: never;
                 path: {

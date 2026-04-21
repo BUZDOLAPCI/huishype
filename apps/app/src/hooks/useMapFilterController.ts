@@ -45,6 +45,7 @@ export interface UseMapFilterControllerReturn {
   commitPriceDraft: () => void;
   toggleStatusPill: (value: MapStatusPillState) => void;
   toggleActivity: (value: Exclude<MapActivityFilter, 'all'>) => void;
+  setActivity: (value: MapActivityFilter) => void;
 }
 
 export function useMapFilterController({
@@ -177,6 +178,16 @@ export function useMapFilterController({
     [appliedFilters, applyFilters],
   );
 
+  const setActivity = useCallback(
+    (value: MapActivityFilter) => {
+      applyFilters({
+        ...appliedFilters,
+        activity: value,
+      });
+    },
+    [appliedFilters, applyFilters],
+  );
+
   return {
     appliedFilters,
     draftFilters,
@@ -191,5 +202,6 @@ export function useMapFilterController({
     commitPriceDraft,
     toggleStatusPill,
     toggleActivity,
+    setActivity,
   };
 }

@@ -61,8 +61,11 @@ import {
   replacePropertySourceTiles,
 } from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
-import { buildPropertyTileTemplateUrl } from '@/src/lib/sharedMapFilters';
-import { getCanonicalMapFilterSignature } from '@/src/lib/sharedMapFilters';
+import {
+  buildPropertyTileTemplateUrl,
+  getCanonicalMapFilterSignature,
+  type MapActivityTimeFilter,
+} from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
@@ -209,6 +212,8 @@ export default function MapScreen() {
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
   const [socialScope, setSocialScope] = useState<MapSocialScope>('all');
+  const [followingActivity, setFollowingActivity] =
+    useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
   const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
@@ -220,6 +225,7 @@ export default function MapScreen() {
   );
   const followingTileSource = useFollowingTileSource(
     filterController.appliedFilters,
+    followingActivity,
     socialScope === 'following' && mapLoaded,
   );
   const activePropertyTiles = useMemo(
@@ -957,6 +963,7 @@ export default function MapScreen() {
             lat,
             currentZoom,
             filterController.appliedFilters,
+            followingActivity,
           );
           if (nearby) {
             handleNearbyResult(nearby, currentZoom, cameraCommands);
@@ -999,6 +1006,7 @@ export default function MapScreen() {
       currentZoom,
       cameraCommands,
       filterController.appliedFilters,
+      followingActivity,
       socialScope,
     ]
   );
@@ -1348,6 +1356,8 @@ export default function MapScreen() {
 
         <MapFilterBar
           controller={filterController}
+          followingActivity={followingActivity}
+          onFollowingActivityChange={setFollowingActivity}
           onToggleFollowing={handleToggleFollowing}
           socialScope={socialScope}
         />

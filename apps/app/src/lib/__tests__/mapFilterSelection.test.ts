@@ -73,7 +73,7 @@ describe('doesMapSelectionMatchFilters', () => {
           city: 'Eindhoven',
           marketState: 'for-sale',
           socialScore: 10,
-          recentSocialScore: 0,
+          lastSocialAt: '2025-01-01T00:00:00.000Z',
         },
         selectedProperty: null,
         filters: {
@@ -82,7 +82,7 @@ describe('doesMapSelectionMatchFilters', () => {
           rentPriceFrom: null,
           rentPriceTo: null,
           marketState: ['for-sale'],
-          activity: 'recent',
+          activity: 'today',
         },
       }),
     ).toBe(false);

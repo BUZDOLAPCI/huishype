@@ -45,7 +45,7 @@ describe('map filter normalization', () => {
         rentPriceFrom: Number.NaN,
         rentPriceTo: -200,
         marketState: ['sold', 'for-sale', 'sold'],
-      }),
+      })
     ).toEqual({
       salePriceFrom: 250000,
       salePriceTo: 700000,
@@ -61,7 +61,7 @@ describe('map filter normalization', () => {
       normalizeMapFilters({
         ...createDefaultMapFilters(),
         marketState: [],
-      }),
+      })
     ).toEqual(createDefaultMapFilters());
   });
 });
@@ -94,14 +94,14 @@ describe('map filter activity and reset helpers', () => {
       getOrderedMapFilterCategories({
         ...createDefaultMapFilters(),
         rentPriceTo: 1800,
-      }),
+      })
     ).toEqual(['price', 'marketState', 'activity']);
 
     expect(
       getOrderedMapFilterCategories({
         ...createDefaultMapFilters(),
-        activity: 'recent',
-      }),
+        activity: 'today',
+      })
     ).toEqual(['activity', 'price', 'marketState']);
   });
 
@@ -128,10 +128,10 @@ describe('map filter activity and reset helpers', () => {
       resetMapFilterCategory(
         {
           ...activeFilters,
-          activity: 'social',
+          activity: 'all-time',
         },
-        'activity',
-      ),
+        'activity'
+      )
     ).toEqual({
       salePriceFrom: 350000,
       salePriceTo: null,
@@ -151,15 +151,13 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: 2200,
       marketState: ['sold'],
-      activity: 'recent',
+      activity: '10d',
     });
 
     expect(getMapFilterPillSummary('price', filters)).toBe('Sale € 250K - € 700K');
     expect(getMapFilterPillSummary('marketState', filters)).toBe('1 selected');
-    expect(getMapFilterPillSummary('activity', filters)).toBe('Recently Active');
-    expect(getMapFilterPillSummary('marketState', createDefaultMapFilters())).toBe(
-      null,
-    );
+    expect(getMapFilterPillSummary('activity', filters)).toBe('10 Days');
+    expect(getMapFilterPillSummary('marketState', createDefaultMapFilters())).toBe(null);
     expect(getMapFilterPillSummary('activity', createDefaultMapFilters())).toBe(null);
   });
 
@@ -170,7 +168,7 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['not-listed', 'for-sale'] as const,
-      activity: 'social' as const,
+      activity: 'all-time' as const,
     };
     const right = {
       salePriceFrom: 250000,
@@ -178,11 +176,11 @@ describe('map filter summaries and signatures', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'] as const,
-      activity: 'social' as const,
+      activity: 'all-time' as const,
     };
 
     expect(getCanonicalMapFilterSignature(left)).toBe(
-      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=social',
+      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=all-time'
     );
     expect(areMapFiltersEqual(left, right)).toBe(true);
   });
@@ -196,12 +194,12 @@ describe('map filter query param helpers', () => {
       rentPriceFrom: 1200,
       rentPriceTo: null,
       marketState: ['not-listed', 'for-sale'] as const,
-      activity: 'recent' as const,
+      activity: 'today' as const,
     };
 
     const serialized = serializeMapFiltersToSearchParams(filters);
     expect(serialized.toString()).toBe(
-      'salePriceTo=700000&rentPriceFrom=1200&marketState=for-sale%2Cnot-listed&activity=recent',
+      'salePriceTo=700000&rentPriceFrom=1200&marketState=for-sale%2Cnot-listed&activity=today'
     );
 
     expect(parseMapFiltersFromSearchParams(serialized)).toEqual({
@@ -210,34 +208,29 @@ describe('map filter query param helpers', () => {
       rentPriceFrom: 1200,
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
-      activity: 'recent',
+      activity: 'today',
     });
   });
 
   it('normalizes map filter params while rejecting unknown keys at the whitelist layer', () => {
     const params = new URLSearchParams(
-      'marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000&activity=social',
+      'marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000&activity=30d'
     );
 
     expect(hasOnlyAllowedMapFilterQueryParams(params)).toBe(true);
     expect(normalizeMapFilterQueryParams(params).toString()).toBe(
-      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=social',
+      'salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=30d'
     );
     expect(
-      hasOnlyAllowedMapFilterQueryParams(
-        new URLSearchParams('salePriceTo=700000&foo=bar'),
-      ),
+      hasOnlyAllowedMapFilterQueryParams(new URLSearchParams('salePriceTo=700000&foo=bar'))
     ).toBe(false);
   });
 
   it('updates existing search params without disturbing non-filter keys', () => {
-    const updated = updateMapFilterSearchParams(
-      new URLSearchParams('foo=bar&marketState=sold'),
-      {
-        ...createDefaultMapFilters(),
-        rentPriceTo: 2400,
-      },
-    );
+    const updated = updateMapFilterSearchParams(new URLSearchParams('foo=bar&marketState=sold'), {
+      ...createDefaultMapFilters(),
+      rentPriceTo: 2400,
+    });
 
     expect(updated.toString()).toBe('foo=bar&rentPriceTo=2400');
   });
@@ -249,17 +242,17 @@ describe('map filter query param helpers', () => {
       rentPriceFrom: null,
       rentPriceTo: null,
       marketState: ['not-listed', 'for-sale'] as const,
-      activity: 'recent' as const,
+      activity: 'today' as const,
     };
 
     expect(getPropertyMarketFilterSearchString(filters)).toBe(
-      '?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+      '?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed'
     );
     expect(buildFollowingPropertyTileTemplateUrl('http://api.test', filters)).toBe(
-      'http://api.test/tiles/following/properties/{z}/{x}/{y}.pbf?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+      'http://api.test/tiles/following/properties/{z}/{x}/{y}.pbf?salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=today'
     );
     expect(buildFollowingNearbyGroupPath(5.47, 51.44, 14, filters)).toBe(
-      '/properties/following-nearby?lon=5.47&lat=51.44&zoom=14&salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed',
+      '/properties/following-nearby?lon=5.47&lat=51.44&zoom=14&salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=today'
     );
   });
 });
@@ -272,7 +265,7 @@ describe('effective price helpers', () => {
         lastSoldPrice: 550000,
         canonicalFmv: 500000,
         officialValuation: 450000,
-      }),
+      })
     ).toBe(600000);
 
     expect(
@@ -281,7 +274,7 @@ describe('effective price helpers', () => {
         lastSoldPrice: 550000,
         canonicalFmv: 500000,
         officialValuation: 450000,
-      }),
+      })
     ).toBe(550000);
 
     expect(
@@ -290,7 +283,7 @@ describe('effective price helpers', () => {
         lastSoldPrice: null,
         canonicalFmv: 500000,
         officialValuation: 450000,
-      }),
+      })
     ).toBe(500000);
   });
 
@@ -299,7 +292,7 @@ describe('effective price helpers', () => {
       getRentEffectivePrice({
         activeRentAskingPrice: null,
         lastRentedPrice: 1800,
-      }),
+      })
     ).toBe(1800);
     expect(getRentEffectivePrice({})).toBeNull();
   });

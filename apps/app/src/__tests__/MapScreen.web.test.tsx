@@ -56,12 +56,12 @@ const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
-let capturedMapFilterBarProps:
-  | {
-      socialScope?: 'all' | 'following';
-      onToggleFollowing?: () => void;
-    }
-  | null = null;
+let capturedMapFilterBarProps: {
+  socialScope?: 'all' | 'following';
+  followingActivity?: 'today' | '10d' | '30d' | 'all-time';
+  onToggleFollowing?: () => void;
+  onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
+} | null = null;
 
 const mockAmbientCommentBubbles = {
   bubbles: [] as unknown[],
@@ -118,7 +118,7 @@ jest.mock('react-native', () => {
       (props, ref) => {
         const { children, testID, ...rest } = props;
         return ReactModule.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
-      },
+      }
     );
 
   return {
@@ -206,7 +206,7 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
 }));
 
 const mockUseFollowingTileSource = jest.fn(
-  (_filters: unknown, _enabled: unknown) => ({
+  (_filters: unknown, _followingActivity: unknown, _enabled: unknown) => ({
     data: mockFollowingTileUrl
       ? {
           tileJsonUrl: 'http://api.test/tiles/following/properties.json',
@@ -218,12 +218,14 @@ const mockUseFollowingTileSource = jest.fn(
     isError: mockFollowingTileSourceIsError,
     error: mockFollowingTileSourceIsError ? new Error('Following tile source failed') : null,
     refetch: mockFollowingTileRefetch,
-  }),
+  })
 );
 
 jest.mock('@/src/hooks/useFollowingTileSource', () => ({
-  useFollowingTileSource: jest.fn((filters: unknown, enabled: unknown) =>
-    mockUseFollowingTileSource(filters, enabled)),
+  useFollowingTileSource: jest.fn(
+    (filters: unknown, followingActivity: unknown, enabled: unknown) =>
+      mockUseFollowingTileSource(filters, followingActivity, enabled)
+  ),
 }));
 
 jest.mock('@/src/hooks/useMapCityName', () => ({
@@ -269,9 +271,7 @@ jest.mock('@/src/lib/mapRoute', () => ({
 
 jest.mock('@/src/lib/sharedMapFilters', () => ({
   appendSearchToPath: jest.fn((pathname, search) => `${pathname}${search}`),
-  buildPropertyTileTemplateUrl: jest.fn(
-    (_apiUrl, filters) => `https://tiles.test/${filters.tag}`,
-  ),
+  buildPropertyTileTemplateUrl: jest.fn((_apiUrl, filters) => `https://tiles.test/${filters.tag}`),
   createDefaultMapFilters: jest.fn(() => ({ tag: 'default' })),
   getCanonicalMapFilterSignature: jest.fn((filters) => filters.tag),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
@@ -295,17 +295,15 @@ jest.mock('maplibre-gl', () => {
   const Map = jest.fn().mockImplementation((options) => {
     const listeners = new globalThis.Map<string, MockMapEventHandler[]>();
     const onceListeners = new globalThis.Map<string, MockMapEventHandler[]>();
-    let currentTiles =
-      options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
+    let currentTiles = options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
 
-    const getKey = (event: string, layerId?: string) =>
-      layerId ? `${event}:${layerId}` : event;
+    const getKey = (event: string, layerId?: string) => (layerId ? `${event}:${layerId}` : event);
 
     const addListener = (
       storage: Map<string, MockMapEventHandler[]>,
       event: string,
       layerOrHandler: unknown,
-      maybeHandler?: unknown,
+      maybeHandler?: unknown
     ) => {
       const isLayerListener = typeof layerOrHandler === 'string';
       const layerId = isLayerListener ? (layerOrHandler as string) : undefined;
@@ -369,7 +367,7 @@ jest.mock('maplibre-gl', () => {
       }),
       getLayer: jest.fn(() => false),
       getSource: jest.fn((sourceId: string) =>
-        sourceId === 'properties-source' ? propertySource : undefined,
+        sourceId === 'properties-source' ? propertySource : undefined
       ),
       isStyleLoaded: jest.fn(() => true),
       fitBounds: jest.fn(),
@@ -467,7 +465,7 @@ describe('MapScreen web grouped Following mode', () => {
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
       },
-      '__HUISHYPE_ANALYTICS_EVENTS__',
+      '__HUISHYPE_ANALYTICS_EVENTS__'
     );
     container.remove();
     document.body.innerHTML = '';
@@ -482,9 +480,9 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
     const map = mockMapInstances[0] as MockMapInstance;
-    expect(
-      map.options.style.sources?.['properties-source']?.tiles,
-    ).toEqual(['https://tiles.test/tile-a']);
+    expect(map.options.style.sources?.['properties-source']?.tiles).toEqual([
+      'https://tiles.test/tile-a',
+    ]);
 
     act(() => {
       map.trigger('load');
@@ -497,9 +495,7 @@ describe('MapScreen web grouped Following mode', () => {
     });
     await flushMicrotasks();
 
-    expect(map.propertySource.setTiles).toHaveBeenCalledWith([
-      'https://tiles.test/tile-b',
-    ]);
+    expect(map.propertySource.setTiles).toHaveBeenCalledWith(['https://tiles.test/tile-b']);
   });
 
   it('swaps to grouped Following tiles and applies auth headers only in Following mode', async () => {
@@ -528,16 +524,17 @@ describe('MapScreen web grouped Following mode', () => {
     });
     expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
       mockAppliedFilters,
-      true,
+      'all-time',
+      true
     );
-    expect(
-      map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf'),
-    ).toEqual({
-      url: 'https://tiles.test/following/12/2048/1363.pbf',
-      headers: {
-        Authorization: 'Bearer viewer-token',
-      },
-    });
+    expect(map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf')).toEqual(
+      {
+        url: 'https://tiles.test/following/12/2048/1363.pbf',
+        headers: {
+          Authorization: 'Bearer viewer-token',
+        },
+      }
+    );
   });
 
   it('auth-gates signed-out Following toggles without switching state', async () => {
@@ -592,12 +589,12 @@ describe('MapScreen web grouped Following mode', () => {
         globalThis as typeof globalThis & {
           __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
         }
-      ).__HUISHYPE_ANALYTICS_EVENTS__,
+      ).__HUISHYPE_ANALYTICS_EVENTS__
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'map_following_filter_enabled' }),
         expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
-      ]),
+      ])
     );
   });
 
@@ -652,7 +649,7 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockInteraction.handleFeaturePress).toHaveBeenCalledWith(
       [groupedFeature],
       14,
-      expect.any(Object),
+      expect.any(Object)
     );
     expect(
       (
@@ -662,7 +659,7 @@ describe('MapScreen web grouped Following mode', () => {
             properties: Record<string, unknown>;
           }>;
         }
-      ).__HUISHYPE_ANALYTICS_EVENTS__,
+      ).__HUISHYPE_ANALYTICS_EVENTS__
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -671,7 +668,7 @@ describe('MapScreen web grouped Following mode', () => {
             propertyId: 'property-9',
           }),
         }),
-      ]),
+      ])
     );
   });
 

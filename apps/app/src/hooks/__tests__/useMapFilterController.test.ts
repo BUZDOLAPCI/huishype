@@ -44,13 +44,13 @@ describe('useMapFilterController', () => {
     });
 
     act(() => {
-      result.current.toggleActivity('recent');
+      result.current.toggleActivity('today');
     });
 
     expect(result.current.orderedCategories[0]).toBe('marketState');
     expect(result.current.orderedCategories[1]).toBe('activity');
     expect(result.current.appliedFilters.marketState).toEqual(['sold']);
-    expect(result.current.appliedFilters.activity).toBe('recent');
+    expect(result.current.appliedFilters.activity).toBe('today');
 
     act(() => {
       result.current.dismissCategory('marketState');
@@ -63,7 +63,7 @@ describe('useMapFilterController', () => {
       'rented',
       'not-listed',
     ]);
-    expect(result.current.appliedFilters.activity).toBe('recent');
+    expect(result.current.appliedFilters.activity).toBe('today');
     expect(result.current.openCategory).toBeNull();
     expect(result.current.orderedCategories).toEqual([
       'activity',
@@ -98,19 +98,19 @@ describe('useMapFilterController', () => {
     const { result } = renderHook(() => useMapFilterController());
 
     act(() => {
-      result.current.toggleActivity('social');
+      result.current.toggleActivity('all-time');
     });
 
-    expect(result.current.appliedFilters.activity).toBe('social');
+    expect(result.current.appliedFilters.activity).toBe('all-time');
 
     act(() => {
-      result.current.toggleActivity('recent');
+      result.current.toggleActivity('10d');
     });
 
-    expect(result.current.appliedFilters.activity).toBe('recent');
+    expect(result.current.appliedFilters.activity).toBe('10d');
 
     act(() => {
-      result.current.toggleActivity('recent');
+      result.current.toggleActivity('10d');
     });
 
     expect(result.current.appliedFilters.activity).toBe('all');

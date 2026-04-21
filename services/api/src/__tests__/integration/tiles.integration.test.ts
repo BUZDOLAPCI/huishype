@@ -409,8 +409,21 @@ describe('Tile routes', () => {
         expect(body).toHaveProperty('tilejson', '2.1.0');
         expect(body.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
         expect(body.tiles[0]).toContain('marketState=for-sale%2Csold');
+        expect(body.tiles[0]).toContain('activity=all-time');
         expect(response.headers['cache-control']).toBe('private, no-store');
         expect(response.headers.vary).toContain('Authorization');
+
+        const legacyAllResponse = await app.inject({
+          method: 'GET',
+          url: '/tiles/following/properties.json?activity=all',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(legacyAllResponse.statusCode).toBe(200);
+        const legacyAllBody = JSON.parse(legacyAllResponse.body);
+        expect(legacyAllBody.tiles[0]).toContain('activity=all-time');
       } finally {
         await db.execute(sql`DELETE FROM users WHERE id = ${viewer.userId}`);
       }

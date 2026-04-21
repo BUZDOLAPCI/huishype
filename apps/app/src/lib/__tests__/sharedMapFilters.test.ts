@@ -164,7 +164,7 @@ describe('sharedMapFilters price suggestions', () => {
         {
           marketState: 'for-sale',
           socialScore: 12,
-          recentSocialScore: 0,
+          lastSocialAt: new Date().toISOString(),
         },
         {
           salePriceFrom: null,
@@ -172,7 +172,7 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: null,
           marketState: ['for-sale'],
-          activity: 'social',
+          activity: 'all-time',
         },
       ),
     ).toBe(true);
@@ -182,7 +182,7 @@ describe('sharedMapFilters price suggestions', () => {
         {
           marketState: 'for-sale',
           socialScore: 12,
-          recentSocialScore: 0,
+          lastSocialAt: '2025-01-01T00:00:00.000Z',
         },
         {
           salePriceFrom: null,
@@ -190,7 +190,7 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: null,
           marketState: ['for-sale'],
-          activity: 'recent',
+          activity: 'today',
         },
       ),
     ).toBe(false);

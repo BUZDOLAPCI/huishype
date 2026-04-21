@@ -8,8 +8,10 @@
 import { http, HttpResponse } from 'msw';
 import {
   buildFollowingPropertyTileTemplateUrl,
+  isMapActivityFilter,
   parseMapFiltersFromSearchParams,
 } from '@huishype/shared';
+import type { FollowingPropertyFilters, MapActivityFilter } from '@huishype/shared';
 import {
   mockComments,
   mockPropertyDetails,
@@ -31,6 +33,7 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
+const MOCK_FOLLOWING_ACTIVITY_NOW_MS = Date.parse('2026-04-21T12:00:00.000Z');
 
 function normalizePostalCode(postalCode: string) {
   return postalCode.replace(/\s/g, '').toUpperCase();
@@ -108,8 +111,45 @@ function propertyMatchesFollowingFilters(
   return true;
 }
 
+function parseFollowingMapFiltersFromSearchParams(
+  searchParams: URLSearchParams,
+): FollowingPropertyFilters {
+  const filters = parseMapFiltersFromSearchParams(searchParams);
+  const requestedActivity = searchParams.get('activity');
+  const activity: MapActivityFilter =
+    isMapActivityFilter(requestedActivity) && requestedActivity !== 'all'
+      ? requestedActivity
+      : 'all-time';
+
+  return {
+    ...filters,
+    activity,
+  };
+}
+
+function followingActivityMatches(createdAt: string, activity: MapActivityFilter) {
+  if (activity === 'all' || activity === 'all-time') {
+    return true;
+  }
+
+  const createdAtMs = Date.parse(createdAt);
+  if (!Number.isFinite(createdAtMs)) {
+    return false;
+  }
+
+  const activityWindowMs =
+    activity === 'today'
+      ? 24 * 60 * 60 * 1000
+      : activity === '10d'
+        ? 10 * 24 * 60 * 60 * 1000
+        : 30 * 24 * 60 * 60 * 1000;
+
+  return createdAtMs >= MOCK_FOLLOWING_ACTIVITY_NOW_MS - activityWindowMs;
+}
+
 function getFollowingActivityByProperty(authUserId: string, searchParams: URLSearchParams) {
   const followedUserIds = new Set(getFollowedUserIds(authUserId));
+  const filters = parseFollowingMapFiltersFromSearchParams(searchParams);
   const activityByProperty = new Map<
     string,
     {
@@ -123,6 +163,10 @@ function getFollowingActivityByProperty(authUserId: string, searchParams: URLSea
 
   for (const event of getMockActivityEvents()) {
     if (event.eventType === 'save' || !followedUserIds.has(event.actorUserId)) {
+      continue;
+    }
+
+    if (!followingActivityMatches(event.createdAt, filters.activity ?? 'all-time')) {
       continue;
     }
 
@@ -553,7 +597,7 @@ export const propertyHandlers = [
     }
 
     const url = new URL(request.url);
-    const filters = parseMapFiltersFromSearchParams(url.searchParams);
+    const filters = parseFollowingMapFiltersFromSearchParams(url.searchParams);
     return HttpResponse.json({
       tilejson: '2.1.0',
       name: 'HuisHype Following Properties',

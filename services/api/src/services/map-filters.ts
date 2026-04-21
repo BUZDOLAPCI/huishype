@@ -2,13 +2,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { buildPropertyListingFactsJoin } from './property-queries.js';
 
-export const MAP_MARKET_STATES = [
-  'for-sale',
-  'for-rent',
-  'sold',
-  'rented',
-  'not-listed',
-] as const;
+export const MAP_MARKET_STATES = ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'] as const;
 
 const MAP_MARKET_STATE_SET = new Set<string>(MAP_MARKET_STATES);
 const DEFAULT_MARKET_STATE_ORDER = [...MAP_MARKET_STATES];
@@ -23,8 +17,10 @@ export interface MapFilters {
   rentPriceFrom: number | null;
   rentPriceTo: number | null;
   marketState: MapMarketState[];
-  activity: 'all' | 'social' | 'recent';
+  activity: MapActivityFilter;
 }
+
+export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
 
 type MapFilterQueryInput = {
   salePriceFrom?: number;
@@ -32,7 +28,7 @@ type MapFilterQueryInput = {
   rentPriceFrom?: number;
   rentPriceTo?: number;
   marketState?: string | string[];
-  activity?: 'all' | 'social' | 'recent';
+  activity?: MapActivityFilter;
 };
 
 export const mapFiltersQuerySchema = z.object({
@@ -41,11 +37,15 @@ export const mapFiltersQuerySchema = z.object({
   rentPriceFrom: z.coerce.number().optional(),
   rentPriceTo: z.coerce.number().optional(),
   marketState: z.union([z.string(), z.array(z.string())]).optional(),
-  activity: z.enum(['all', 'social', 'recent']).optional().default('all'),
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
 });
 
 export const propertyMarketFiltersQuerySchema = mapFiltersQuerySchema.omit({
   activity: true,
+});
+
+export const followingMapFiltersQuerySchema = mapFiltersQuerySchema.extend({
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all-time'),
 });
 
 export type PropertyMarketFilterQuery = {
@@ -117,11 +117,18 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
         ? rentPriceFrom
         : rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...DEFAULT_MARKET_STATE_ORDER],
-    activity:
-      filters.activity === 'social' || filters.activity === 'recent'
-        ? filters.activity
-        : 'all',
+    activity: isMapActivityFilter(filters.activity) ? filters.activity : 'all',
   };
+}
+
+function isMapActivityFilter(value: string | null | undefined): value is MapActivityFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '10d' ||
+    value === '30d' ||
+    value === 'all-time'
+  );
 }
 
 export function parseMapFiltersQuery(query: unknown): MapFilters {
@@ -153,6 +160,20 @@ export function parsePropertyMarketFiltersQuery(query: unknown): MapFilters {
   });
 }
 
+export function parseFollowingMapFiltersQuery(query: unknown): MapFilters {
+  const parsed = followingMapFiltersQuerySchema.parse(query) as MapFilterQueryInput;
+  const activity = parsed.activity === 'all' ? 'all-time' : (parsed.activity ?? 'all-time');
+
+  return normalizeMapFilters({
+    salePriceFrom: parsed.salePriceFrom ?? null,
+    salePriceTo: parsed.salePriceTo ?? null,
+    rentPriceFrom: parsed.rentPriceFrom ?? null,
+    rentPriceTo: parsed.rentPriceTo ?? null,
+    marketState: parseMarketStateInput(parsed.marketState),
+    activity,
+  });
+}
+
 export function areMapFiltersDefault(filters: MapFilters): boolean {
   return (
     filters.salePriceFrom == null &&
@@ -165,7 +186,10 @@ export function areMapFiltersDefault(filters: MapFilters): boolean {
   );
 }
 
-function applyMapFiltersToSearchParams(params: URLSearchParams, filters: MapFilters): URLSearchParams {
+function applyMapFiltersToSearchParams(
+  params: URLSearchParams,
+  filters: MapFilters
+): URLSearchParams {
   const normalized = normalizeMapFilters(filters);
   const next = new URLSearchParams(params.toString());
 
@@ -213,7 +237,10 @@ export function buildPropertyTileTemplateUrl(baseUrl: string, filters: MapFilter
 }
 
 function buildStateList(states: readonly MapMarketState[]): SQL {
-  return sql`(${sql.join(states.map((state) => sql`${state}`), sql`, `)})`;
+  return sql`(${sql.join(
+    states.map((state) => sql`${state}`),
+    sql`, `
+  )})`;
 }
 
 function buildScopedPricePredicate(
@@ -222,7 +249,7 @@ function buildScopedPricePredicate(
   impactedStates: readonly MapMarketState[],
   unaffectedStates: readonly MapMarketState[],
   operator: '>=' | '<=',
-  value: number,
+  value: number
 ): SQL {
   return sql`(
     ${marketStateColumn} IN ${buildStateList(unaffectedStates)}
@@ -235,7 +262,7 @@ function buildScopedPricePredicate(
 
 export function buildPropertyMarketFilterQuery(
   filters: MapFilters,
-  propertyAlias = 'p',
+  propertyAlias = 'p'
 ): PropertyMarketFilterQuery {
   const normalized = normalizeMapFilters(filters);
 
@@ -266,8 +293,8 @@ export function buildPropertyMarketFilterQuery(
         SALE_MARKET_STATES,
         RENT_MARKET_STATES,
         '>=',
-        normalized.salePriceFrom,
-      ),
+        normalized.salePriceFrom
+      )
     );
   }
 
@@ -279,8 +306,8 @@ export function buildPropertyMarketFilterQuery(
         SALE_MARKET_STATES,
         RENT_MARKET_STATES,
         '<=',
-        normalized.salePriceTo,
-      ),
+        normalized.salePriceTo
+      )
     );
   }
 
@@ -292,8 +319,8 @@ export function buildPropertyMarketFilterQuery(
         RENT_MARKET_STATES,
         SALE_MARKET_STATES,
         '>=',
-        normalized.rentPriceFrom,
-      ),
+        normalized.rentPriceFrom
+      )
     );
   }
 
@@ -305,8 +332,8 @@ export function buildPropertyMarketFilterQuery(
         RENT_MARKET_STATES,
         SALE_MARKET_STATES,
         '<=',
-        normalized.rentPriceTo,
-      ),
+        normalized.rentPriceTo
+      )
     );
   }
 

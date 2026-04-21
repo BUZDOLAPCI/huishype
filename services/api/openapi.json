@@ -701,8 +701,10 @@
               "type": "string",
               "enum": [
                 "all",
-                "social",
-                "recent"
+                "today",
+                "10d",
+                "30d",
+                "all-time"
               ]
             },
             "in": "query",
@@ -1440,8 +1442,10 @@
               "type": "string",
               "enum": [
                 "all",
-                "social",
-                "recent"
+                "today",
+                "10d",
+                "30d",
+                "all-time"
               ]
             },
             "in": "query",
@@ -2216,6 +2220,22 @@
             },
             "in": "query",
             "name": "marketState",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all-time",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
             "required": false
           }
         ],
@@ -5404,8 +5424,10 @@
               "type": "string",
               "enum": [
                 "all",
-                "social",
-                "recent"
+                "today",
+                "10d",
+                "30d",
+                "all-time"
               ]
             },
             "in": "query",
@@ -5533,6 +5555,22 @@
             },
             "in": "query",
             "name": "marketState",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all-time",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
             "required": false
           }
         ],
@@ -5685,8 +5723,10 @@
               "type": "string",
               "enum": [
                 "all",
-                "social",
-                "recent"
+                "today",
+                "10d",
+                "30d",
+                "all-time"
               ]
             },
             "in": "query",
@@ -5787,6 +5827,22 @@
             },
             "in": "query",
             "name": "marketState",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all-time",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
             "required": false
           },
           {

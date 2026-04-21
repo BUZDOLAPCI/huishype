@@ -613,12 +613,25 @@ describe('Property routes', () => {
         lon: 4.8952,
         lat: 52.3702,
       });
+      const noActivityProperty = await createIntegrationProperty({
+        street: 'Following Nearby Quiet Street',
+        houseNumber: 2,
+        city: 'Nearbyville',
+        postalCode: '9201AC',
+        lon: 4.9152,
+        lat: 52.3702,
+      });
 
       try {
         await createIntegrationListing({
           propertyId: property.id,
           askingPrice: 615000,
           thumbnailUrl: 'https://cdn.example.com/following-nearby.jpg',
+        });
+        await createIntegrationListing({
+          propertyId: noActivityProperty.id,
+          askingPrice: 610000,
+          thumbnailUrl: 'https://cdn.example.com/following-nearby-quiet.jpg',
         });
         await createIntegrationFollow({
           followerUserId: viewer.userId,
@@ -664,11 +677,31 @@ describe('Property routes', () => {
 
         expect(filteredResponse.statusCode).toBe(200);
         expect(JSON.parse(filteredResponse.body)).toBeNull();
+
+        const allActivityResponse = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.9152&lat=52.3702&zoom=16&activity=all&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(allActivityResponse.statusCode).toBe(200);
+        expect(JSON.parse(allActivityResponse.body)).toBeNull();
       } finally {
-        await db.execute(sql`DELETE FROM comments WHERE property_id = ${property.id}`);
-        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`
+          DELETE FROM comments
+          WHERE property_id IN (${property.id}, ${noActivityProperty.id})
+        `);
+        await db.execute(sql`
+          DELETE FROM listings
+          WHERE property_id IN (${property.id}, ${noActivityProperty.id})
+        `);
         await db.execute(sql`DELETE FROM user_follows WHERE follower_user_id = ${viewer.userId}`);
-        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`
+          DELETE FROM properties
+          WHERE id IN (${property.id}, ${noActivityProperty.id})
+        `);
         await db.execute(
           sql`DELETE FROM users WHERE id IN (${sql.join(
             [sql`${viewer.userId}`, sql`${actor.userId}`],

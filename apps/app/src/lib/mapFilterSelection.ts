@@ -31,6 +31,8 @@ export function doesMapSelectionMatchFilters({
       socialScore: selectedProperty?.socialScore ?? previewProperty?.socialScore ?? null,
       recentSocialScore:
         selectedProperty?.recentSocialScore ?? previewProperty?.recentSocialScore ?? null,
+      lastSocialAt:
+        selectedProperty?.lastSocialAt ?? previewProperty?.lastSocialAt ?? null,
     },
     filters,
   );

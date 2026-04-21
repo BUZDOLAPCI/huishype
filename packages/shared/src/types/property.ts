@@ -26,7 +26,8 @@ export type PropertyNodeClass = 'active' | 'ghost';
  */
 export type PropertyGroupKind = 'single' | 'cluster';
 
-export type MapActivityFilter = 'all' | 'social' | 'recent';
+export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
+export type MapActivityTimeFilter = Exclude<MapActivityFilter, 'all'>;
 
 export interface PropertyMarketFilters {
   salePriceFrom?: number | null;
@@ -34,6 +35,10 @@ export interface PropertyMarketFilters {
   rentPriceFrom?: number | null;
   rentPriceTo?: number | null;
   marketState?: MapMarketState[];
+}
+
+export interface FollowingPropertyFilters extends PropertyMarketFilters {
+  activity?: MapActivityFilter;
 }
 
 /**

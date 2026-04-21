@@ -15,9 +15,9 @@ import {
   buildPropertyMarketFilterQuery,
   mapFiltersQuerySchema,
   normalizeMapFilters,
+  parseFollowingMapFiltersQuery,
   parseMapFiltersQuery,
-  parsePropertyMarketFiltersQuery,
-  propertyMarketFiltersQuerySchema,
+  followingMapFiltersQuerySchema,
 } from '../services/map-filters.js';
 import {
   buildActivityFilterPredicate,
@@ -32,7 +32,7 @@ const coordinateSchema = z.object({
 });
 
 const imageryCoordinateSchema = coordinateSchema.describe(
-  'Geometry used for imagery framing. May snap to a nearby building surface point.',
+  'Geometry used for imagery framing. May snap to a nearby building surface point.'
 );
 
 const marketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
@@ -249,7 +249,7 @@ const followingNearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
-  ...propertyMarketFiltersQuerySchema.shape,
+  ...followingMapFiltersQuerySchema.shape,
 });
 
 type PropertyRow = {
@@ -416,7 +416,7 @@ function mapPropertyBaseRow(row: {
         postalCode: row.postal_code ?? '',
         city: row.city,
       },
-      isValidCountryCode(row.country_code) ? row.country_code : undefined,
+      isValidCountryCode(row.country_code) ? row.country_code : undefined
     ),
     city: row.city,
     postalCode: row.postal_code,
@@ -500,7 +500,7 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
       result.marketState == null
     ) {
       throw new Error(
-        `Grouped nearby single ${result.primaryPropertyId} is missing required preview fields`,
+        `Grouped nearby single ${result.primaryPropertyId} is missing required preview fields`
       );
     }
 
@@ -524,9 +524,7 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
 
 function parseBboxString(bbox: string) {
   const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
-  if (
-    [minLon, minLat, maxLon, maxLat].some((value) => value == null || Number.isNaN(value))
-  ) {
+  if ([minLon, minLat, maxLon, maxLat].some((value) => value == null || Number.isNaN(value))) {
     return null;
   }
 
@@ -550,7 +548,7 @@ function buildPropertyWhereConditions(params: {
     const parsed = parseBboxString(params.bbox);
     if (parsed) {
       conditions.push(
-        sql`p.geometry && ST_MakeEnvelope(${parsed.minLon}, ${parsed.minLat}, ${parsed.maxLon}, ${parsed.maxLat}, 4326)`,
+        sql`p.geometry && ST_MakeEnvelope(${parsed.minLon}, ${parsed.minLat}, ${parsed.maxLon}, ${parsed.maxLat}, 4326)`
       );
     }
   }
@@ -682,7 +680,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           totalPages: Math.ceil(total / limit),
         },
       });
-    },
+    }
   );
 
   typedApp.get(
@@ -796,7 +794,8 @@ export async function propertyRoutes(app: FastifyInstance) {
       if (matches.length > 1) {
         return reply.status(409).send({
           error: 'AMBIGUOUS_ADDRESS',
-          message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
+          message:
+            'Multiple properties matched this address. Provide street and city to disambiguate.',
         });
       }
 
@@ -812,7 +811,7 @@ export async function propertyRoutes(app: FastifyInstance) {
             postalCode: row.postal_code,
             city: row.city,
           },
-          isValidCountryCode(row.country_code) ? row.country_code : undefined,
+          isValidCountryCode(row.country_code) ? row.country_code : undefined
         ),
         postalCode: row.postal_code,
         city: row.city,
@@ -827,7 +826,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         marketState: row.market_state,
         officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
       });
-    },
+    }
   );
 
   typedApp.get(
@@ -847,11 +846,14 @@ export async function propertyRoutes(app: FastifyInstance) {
       const filters = parseMapFiltersQuery(request.query);
       const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
       return reply.send(mapNearbyGroupedResult(result));
-    },
+    }
   );
 
   const batchQuerySchema = z.object({
-    ids: z.string().transform((value) => value.split(',')).pipe(z.array(z.string().uuid()).min(1).max(50)),
+    ids: z
+      .string()
+      .transform((value) => value.split(','))
+      .pipe(z.array(z.string().uuid()).min(1).max(50)),
   });
 
   typedApp.get(
@@ -875,12 +877,19 @@ export async function propertyRoutes(app: FastifyInstance) {
         ${buildPropertyListingFactsJoin('p', 'lf')}
         ${buildPropertySocialFactsJoin('p', 'sf')}
         ${imageryJoin}
-        WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+        WHERE p.id IN (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})
       `);
 
       const byId = new Map(Array.from(rows).map((row) => [row.id, mapPublicPropertyRow(row)]));
-      return reply.send(ids.map((id) => byId.get(id)).filter((item): item is NonNullable<typeof item> => item != null));
-    },
+      return reply.send(
+        ids
+          .map((id) => byId.get(id))
+          .filter((item): item is NonNullable<typeof item> => item != null)
+      );
+    }
   );
 
   typedApp.get(
@@ -901,16 +910,16 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
-      const filters = parsePropertyMarketFiltersQuery(request.query);
+      const filters = parseFollowingMapFiltersQuery(request.query);
       const result = await resolveNearbyFollowingGroupedFeature(
         lon,
         lat,
         zoom,
         request.userId!,
-        filters,
+        filters
       );
       return reply.send(mapNearbyGroupedResult(result));
-    },
+    }
   );
 
   typedApp.get(
@@ -969,10 +978,9 @@ export async function propertyRoutes(app: FastifyInstance) {
       const fmvResult = calculateFmv(
         guesses,
         row.official_valuation != null ? Number(row.official_valuation) : null,
-        row.asking_price != null ? Number(row.asking_price) : null,
+        row.asking_price != null ? Number(row.asking_price) : null
       );
-      const commentCount =
-        Number(row.top_level_comment_count) + Number(row.reply_count);
+      const commentCount = Number(row.top_level_comment_count) + Number(row.reply_count);
 
       return reply.send({
         ...publicRow,
@@ -983,7 +991,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         isSaved: row.is_saved,
         fmv: fmvResult,
       });
-    },
+    }
   );
 
   typedApp.post(
@@ -1055,7 +1063,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       }
 
       return reply.status(201).send({ saved: true });
-    },
+    }
   );
 
   typedApp.delete(
@@ -1093,7 +1101,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       await db.delete(savedProperties).where(eq(savedProperties.id, existing[0].id));
 
       return reply.send({ saved: false });
-    },
+    }
   );
 
   typedApp.get(
@@ -1145,7 +1153,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         total,
         hasMore: offset + limit < total,
       });
-    },
+    }
   );
 }
 

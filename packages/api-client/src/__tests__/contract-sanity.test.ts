@@ -85,8 +85,7 @@ type FollowRouteResponseFromOpenApi =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
 type PropertyResponseFromOpenApi =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
-type ResolvePropertyQueryFromOpenApi =
-  paths['/properties/resolve']['get']['parameters']['query'];
+type ResolvePropertyQueryFromOpenApi = paths['/properties/resolve']['get']['parameters']['query'];
 type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
 type ResolvePropertyBodyFromOpenApi = Expand<Exclude<ResolvePropertyResponseFromOpenApi, null>>;
@@ -221,7 +220,9 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<Equal<ActivityQueryFromOpenApi['scope'], 'public' | 'following' | undefined>>,
-  true as Expect<Equal<keyof ActivityResponseFromOpenApi['pagination'], 'limit' | 'offset' | 'hasMore'>>,
+  true as Expect<
+    Equal<keyof ActivityResponseFromOpenApi['pagination'], 'limit' | 'offset' | 'hasMore'>
+  >,
   true as Expect<
     Equal<
       keyof ActivityResponseFromOpenApi['items'][number]['property'],
@@ -242,54 +243,60 @@ const feedContractAssertions = [
       'self' | 'none' | 'following' | 'followed_by' | 'mutual'
     >
   >,
-  true as Expect<
-    Equal<ResolvePropertyQueryFromOpenApi, PropertyResolveRequest>
-  >,
-  true as Expect<
-    Equal<ResolvePropertyMethodRequest, PropertyResolveRequest>
-  >,
-  true as Expect<
-    Equal<keyof ResolvePropertyBodyFromOpenApi, keyof CanonicalResolvePropertyBody>
-  >,
+  true as Expect<Equal<ResolvePropertyQueryFromOpenApi, PropertyResolveRequest>>,
+  true as Expect<Equal<ResolvePropertyMethodRequest, PropertyResolveRequest>>,
+  true as Expect<Equal<keyof ResolvePropertyBodyFromOpenApi, keyof CanonicalResolvePropertyBody>>,
   true as Expect<
     Equal<Exclude<ResolvePropertyBodyFromOpenApi['coordinates'], null>['lon'], number>
   >,
   true as Expect<
     Equal<Exclude<ResolvePropertyBodyFromOpenApi['coordinates'], null>['lat'], number>
   >,
-  true as Expect<
-    Equal<Extract<ResolvePropertyBodyFromOpenApi['coordinates'], null>, null>
-  >,
-  true as Expect<
-    Equal<ResolvePropertyBodyFromOpenApi['hasActiveListing'], CanonicalResolvePropertyBody['hasActiveListing']>
-  >,
-  true as Expect<
-    Equal<ResolvePropertyBodyFromOpenApi['marketState'], CanonicalResolvePropertyBody['marketState']>
-  >,
-  true as Expect<
-    Equal<ResolvePropertyBodyFromOpenApi['officialValuation'], CanonicalResolvePropertyBody['officialValuation']>
-  >,
+  true as Expect<Equal<Extract<ResolvePropertyBodyFromOpenApi['coordinates'], null>, null>>,
   true as Expect<
     Equal<
-      keyof FollowingPropertyTilesQueryFromOpenApi,
-      keyof GetFollowingPropertyTilesRequest
+      ResolvePropertyBodyFromOpenApi['hasActiveListing'],
+      CanonicalResolvePropertyBody['hasActiveListing']
     >
   >,
   true as Expect<
     Equal<
-      Extract<keyof FollowingPropertyTilesQueryFromOpenApi, 'activity' | 'bbox' | 'socialScope'>,
-      never
+      ResolvePropertyBodyFromOpenApi['marketState'],
+      CanonicalResolvePropertyBody['marketState']
     >
   >,
-  true as Assert<IsExact<FollowingPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>>,
   true as Expect<
     Equal<
-      keyof FollowingNearbyQueryFromOpenApi,
-      keyof GetFollowingNearbyPropertyRequest
+      ResolvePropertyBodyFromOpenApi['officialValuation'],
+      CanonicalResolvePropertyBody['officialValuation']
     >
   >,
   true as Expect<
-    Equal<Extract<keyof FollowingNearbyQueryFromOpenApi, 'activity' | 'bbox' | 'socialScope'>, never>
+    Equal<keyof FollowingPropertyTilesQueryFromOpenApi, keyof GetFollowingPropertyTilesRequest>
+  >,
+  true as Expect<
+    Equal<Extract<keyof FollowingPropertyTilesQueryFromOpenApi, 'bbox' | 'socialScope'>, never>
+  >,
+  true as Expect<
+    Equal<
+      FollowingPropertyTilesQueryFromOpenApi['activity'],
+      GetFollowingPropertyTilesRequest['activity']
+    >
+  >,
+  true as Assert<
+    IsExact<FollowingPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>
+  >,
+  true as Expect<
+    Equal<keyof FollowingNearbyQueryFromOpenApi, keyof GetFollowingNearbyPropertyRequest>
+  >,
+  true as Expect<
+    Equal<Extract<keyof FollowingNearbyQueryFromOpenApi, 'bbox' | 'socialScope'>, never>
+  >,
+  true as Expect<
+    Equal<
+      FollowingNearbyQueryFromOpenApi['activity'],
+      GetFollowingNearbyPropertyRequest['activity']
+    >
   >,
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
@@ -494,7 +501,9 @@ describe('HuisHypeApiClient', () => {
           tilejson: '2.1.0',
           name: 'HuisHype Following Properties',
           description: 'Personalized grouped property data from followed-user qualifying activity',
-          tiles: ['http://localhost:3100/tiles/following/properties/{z}/{x}/{y}.pbf?marketState=for-sale%2Csold'],
+          tiles: [
+            'http://localhost:3100/tiles/following/properties/{z}/{x}/{y}.pbf?marketState=for-sale%2Csold',
+          ],
           minzoom: 0,
           maxzoom: 22,
           bounds: [-180, -85, 180, 85],
@@ -510,11 +519,12 @@ describe('HuisHypeApiClient', () => {
       await expect(
         client.getFollowingPropertyTiles({
           marketState: ['for-sale', 'sold'],
+          activity: '30d',
         })
       ).resolves.toHaveProperty('tilejson', '2.1.0');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/tiles/following/properties.json?marketState=for-sale%2Csold',
+        'http://localhost:3100/tiles/following/properties.json?marketState=for-sale%2Csold&activity=30d',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -573,11 +583,12 @@ describe('HuisHypeApiClient', () => {
           lat: 52.3702,
           zoom: 16,
           marketState: ['for-sale', 'sold'],
+          activity: '10d',
         })
       ).resolves.toHaveProperty('groupKind', 'single');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&marketState=for-sale%2Csold',
+        'http://localhost:3100/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&marketState=for-sale%2Csold&activity=10d',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

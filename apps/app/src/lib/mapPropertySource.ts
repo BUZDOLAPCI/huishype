@@ -1,4 +1,4 @@
-import type { MapFilters } from './sharedMapFilters';
+import type { MapActivityFilter, MapFilters } from './sharedMapFilters';
 
 export const PROPERTY_VECTOR_SOURCE_ID = 'properties-source';
 export const FOLLOWING_TILEJSON_PATH = '/tiles/following/properties.json';
@@ -24,7 +24,10 @@ type StyleLike = {
   [key: string]: unknown;
 };
 
-function buildFollowingTileSearchParams(filters: MapFilters): URLSearchParams {
+function buildFollowingTileSearchParams(
+  filters: MapFilters,
+  followingActivity: MapActivityFilter
+): URLSearchParams {
   const params = new URLSearchParams();
 
   if (filters.salePriceFrom != null) {
@@ -42,6 +45,9 @@ function buildFollowingTileSearchParams(filters: MapFilters): URLSearchParams {
   if (filters.marketState.length > 0 && filters.marketState.length < 5) {
     params.set('marketState', filters.marketState.join(','));
   }
+  if (followingActivity !== 'all') {
+    params.set('activity', followingActivity);
+  }
 
   return params;
 }
@@ -49,9 +55,10 @@ function buildFollowingTileSearchParams(filters: MapFilters): URLSearchParams {
 export function buildFollowingTileJsonCandidateUrls(
   apiUrl: string,
   filters: MapFilters,
+  followingActivity: MapActivityFilter = 'all-time'
 ): string[] {
   const normalizedApiUrl = apiUrl.replace(/\/$/, '');
-  const search = buildFollowingTileSearchParams(filters).toString();
+  const search = buildFollowingTileSearchParams(filters, followingActivity).toString();
   const suffix = search.length > 0 ? `?${search}` : '';
 
   return [`${normalizedApiUrl}${FOLLOWING_TILEJSON_PATH}${suffix}`];
@@ -59,24 +66,22 @@ export function buildFollowingTileJsonCandidateUrls(
 
 async function createApiError(response: Response) {
   const fallback = `HTTP error! status: ${response.status}`;
-  const payload = (await response.json().catch(() => null)) as
-    | { message?: string; error?: string }
-    | null;
+  const payload = (await response.json().catch(() => null)) as {
+    message?: string;
+    error?: string;
+  } | null;
   const { ApiError: ApiErrorClass } = await import('@/src/utils/api');
 
-  return new ApiErrorClass(
-    response.status,
-    payload?.message || fallback,
-    payload?.error,
-  );
+  return new ApiErrorClass(response.status, payload?.message || fallback, payload?.error);
 }
 
 export async function fetchFollowingTileSource(
   apiUrl: string,
   filters: MapFilters,
-  accessToken: string,
+  followingActivity: MapActivityFilter,
+  accessToken: string
 ): Promise<ResolvedFollowingTileSource> {
-  const candidateUrls = buildFollowingTileJsonCandidateUrls(apiUrl, filters);
+  const candidateUrls = buildFollowingTileJsonCandidateUrls(apiUrl, filters, followingActivity);
 
   for (const candidateUrl of candidateUrls) {
     const response = await fetch(candidateUrl, {
@@ -95,14 +100,14 @@ export async function fetchFollowingTileSource(
 
     const tileJson = (await response.json()) as TileJsonLike;
     const tileUrl = Array.isArray(tileJson.tiles)
-      ? tileJson.tiles.find(
-          (value): value is string => typeof value === 'string' && value.length > 0,
-        ) ?? null
+      ? (tileJson.tiles.find(
+          (value): value is string => typeof value === 'string' && value.length > 0
+        ) ?? null)
       : null;
 
     if (!tileUrl) {
       throw new Error(
-        `Following TileJSON at ${candidateUrl} did not include a usable tile template.`,
+        `Following TileJSON at ${candidateUrl} did not include a usable tile template.`
       );
     }
 
@@ -113,9 +118,7 @@ export async function fetchFollowingTileSource(
     };
   }
 
-  throw new Error(
-    `Following TileJSON route unavailable. Tried ${candidateUrls.join(', ')}`,
-  );
+  throw new Error(`Following TileJSON route unavailable. Tried ${candidateUrls.join(', ')}`);
 }
 
 export function buildFollowingTileRequestMatchPattern(tileUrl: string): RegExp {
@@ -126,7 +129,7 @@ export function buildFollowingTileRequestMatchPattern(tileUrl: string): RegExp {
 
 export function replacePropertySourceTiles<T extends StyleLike | null>(
   style: T,
-  tileUrl: string | string[],
+  tileUrl: string | string[]
 ): T {
   if (!style?.sources) {
     return style;

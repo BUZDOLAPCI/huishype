@@ -2,12 +2,18 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
-import { clickRenderedPropertyMarkerById, type WindowWithMapInstance } from '../helpers/map-instance';
+import {
+  clickRenderedPropertyMarkerById,
+  type WindowWithMapInstance,
+} from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 const FOLLOWING_AREA_BBOX = '5.47,51.48,5.49,51.50';
 const FOLLOWING_ZOOM = 16;
+const FOLLOWING_TIME_WINDOW = '10d';
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+const AUTH_SETUP_RETRIES = 3;
+const AUTH_SETUP_RETRY_DELAY_MS = 500;
 
 type AuthSession = {
   accessToken: string;
@@ -34,25 +40,37 @@ type SeedProperty = {
   };
 };
 
-async function createTestSession(
-  request: APIRequestContext,
-  suffix: string,
-): Promise<AuthSession> {
-  const unique = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
-  const response = await request.post(`${API_BASE_URL}/auth/google`, {
-    data: { idToken: `mock-google-e2e${suffix}${unique}-gid${unique}` },
-    timeout: 45_000,
-  });
+async function createTestSession(request: APIRequestContext, suffix: string): Promise<AuthSession> {
+  let lastError: Error | null = null;
 
-  expect(response.ok()).toBe(true);
-  const body = await response.json();
+  for (let attempt = 1; attempt <= AUTH_SETUP_RETRIES; attempt += 1) {
+    const unique = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+    const response = await request.post(`${API_BASE_URL}/auth/google`, {
+      data: { idToken: `mock-google-e2e${suffix}${unique}-gid${unique}` },
+      timeout: 45_000,
+    });
 
-  return {
-    accessToken: body.session.accessToken as string,
-    refreshToken: body.session.refreshToken as string,
-    expiresAt: body.session.expiresAt as string,
-    user: body.session.user as AuthSession['user'],
-  };
+    if (response.ok()) {
+      const body = await response.json();
+      return {
+        accessToken: body.session.accessToken as string,
+        refreshToken: body.session.refreshToken as string,
+        expiresAt: body.session.expiresAt as string,
+        user: body.session.user as AuthSession['user'],
+      };
+    }
+
+    const failureBody = await response.text().catch(() => 'unreadable response body');
+    lastError = new Error(
+      `createTestSession(${suffix}) attempt ${attempt}/${AUTH_SETUP_RETRIES} failed: ${response.status()} ${failureBody}`
+    );
+
+    if (attempt < AUTH_SETUP_RETRIES) {
+      await new Promise((resolve) => setTimeout(resolve, AUTH_SETUP_RETRY_DELAY_MS));
+    }
+  }
+
+  throw lastError ?? new Error(`createTestSession(${suffix}) failed`);
 }
 
 async function seedBrowserSession(page: Page, session: AuthSession) {
@@ -73,7 +91,7 @@ async function waitForMapReady(page: Page, timeout = 60_000) {
       return Boolean(map && typeof map.getZoom === 'function' && map.isStyleLoaded?.());
     },
     null,
-    { timeout, polling: 500 },
+    { timeout, polling: 500 }
   );
 }
 
@@ -83,7 +101,7 @@ async function setMapView(page: Page, center: [number, number], zoom = FOLLOWING
       const map = (window as WindowWithMapInstance).__mapInstance;
       map?.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
     },
-    { center, zoom },
+    { center, zoom }
   );
 
   await page.waitForFunction(
@@ -101,7 +119,7 @@ async function setMapView(page: Page, center: [number, number], zoom = FOLLOWING
       );
     },
     { center, zoom },
-    { timeout: 15_000, polling: 250 },
+    { timeout: 15_000, polling: 250 }
   );
 
   await page.waitForTimeout(1_500);
@@ -116,7 +134,7 @@ async function getPropertySourceTileUrl(page: Page) {
       | undefined;
     const serialized = source?.serialize?.();
     const tiles = serialized?.tiles;
-    return Array.isArray(tiles) ? tiles[0] ?? null : null;
+    return Array.isArray(tiles) ? (tiles[0] ?? null) : null;
   });
 }
 
@@ -132,22 +150,22 @@ async function waitForPropertySourceTileUrl(page: Page) {
 }
 
 async function toggleFollowing(page: Page) {
-  await page.getByTestId('map-filter-pill-social-following').click();
+  await page.getByTestId('map-filter-pill-following').click();
 }
 
 async function readFollowingPersistence(page: Page) {
   return page.evaluate(() => ({
     search: window.location.search,
     historySocialScope:
-      (window.history.state as { huishypeMapView?: { socialScope?: string } } | null)?.huishypeMapView
-        ?.socialScope ?? null,
+      (window.history.state as { huishypeMapView?: { socialScope?: string } } | null)
+        ?.huishypeMapView?.socialScope ?? null,
     sessionSocialScope: window.sessionStorage.getItem('huishype.map.socialScope'),
   }));
 }
 
 async function fetchFollowingSeedProperty(request: APIRequestContext) {
   const response = await request.get(
-    `${API_BASE_URL}/properties?limit=1&bbox=${FOLLOWING_AREA_BBOX}&marketState=for-sale`,
+    `${API_BASE_URL}/properties?limit=1&bbox=${FOLLOWING_AREA_BBOX}&marketState=for-sale`
   );
   expect(response.ok()).toBe(true);
 
@@ -162,16 +180,17 @@ async function waitForFollowingNearby(
   request: APIRequestContext,
   accessToken: string,
   coordinate: [number, number],
+  activity = 'all-time'
 ): Promise<FollowingNearbyResult> {
   const deadline = Date.now() + 20_000;
 
   while (Date.now() < deadline) {
     const response = await request.get(
-      `${API_BASE_URL}/properties/following-nearby?lon=${coordinate[0]}&lat=${coordinate[1]}&zoom=${FOLLOWING_ZOOM}&marketState=for-sale`,
+      `${API_BASE_URL}/properties/following-nearby?lon=${coordinate[0]}&lat=${coordinate[1]}&zoom=${FOLLOWING_ZOOM}&marketState=for-sale&activity=${activity}`,
       {
         headers: { authorization: `Bearer ${accessToken}` },
         timeout: 15_000,
-      },
+      }
     );
 
     expect(response.ok()).toBe(true);
@@ -190,7 +209,7 @@ async function seedFollowingActivity(
   request: APIRequestContext,
   viewer: AuthSession,
   actor: AuthSession,
-  propertyId: string,
+  propertyId: string
 ) {
   const followResponse = await request.put(`${API_BASE_URL}/users/${actor.user.id}/follow`, {
     headers: { authorization: `Bearer ${viewer.accessToken}` },
@@ -243,7 +262,7 @@ test.describe('Following grouped tiles', () => {
 
     expect(
       consoleErrors,
-      `Expected zero console errors but found ${consoleErrors.length}`,
+      `Expected zero console errors but found ${consoleErrors.length}`
     ).toHaveLength(0);
   });
 
@@ -253,6 +272,11 @@ test.describe('Following grouped tiles', () => {
 
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
     expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+    await expect(page.getByTestId('map-filter-pill-following')).toHaveText('Following');
+    await page.getByTestId('map-filter-pill-following-arrow').click();
+    await expect(page.getByTestId('map-filter-panel-following')).toBeVisible();
+    await expect(page.getByTestId('map-filter-option-following-all-time')).toBeVisible();
+    await page.getByTestId('map-filter-panel-following-close').click();
 
     await toggleFollowing(page);
 
@@ -279,7 +303,12 @@ test.describe('Following grouped tiles', () => {
     const propertyCoordinate = property.geometry.coordinates;
 
     await seedFollowingActivity(request, viewer, actor, property.id);
-    const nearby = await waitForFollowingNearby(request, viewer.accessToken, propertyCoordinate);
+    const nearby = await waitForFollowingNearby(
+      request,
+      viewer.accessToken,
+      propertyCoordinate,
+      FOLLOWING_TIME_WINDOW
+    );
 
     expect(nearby.primaryPropertyId).toBe(property.id);
     expect(nearby.nodeClass).toBe('active');
@@ -287,13 +316,17 @@ test.describe('Following grouped tiles', () => {
 
     await seedBrowserSession(page, viewer);
 
-    const followingTileJsonResponse = page.waitForResponse((response) =>
-      response.url().includes('/tiles/following/properties.json') &&
-      response.request().method() === 'GET',
+    const followingTileJsonResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/tiles/following/properties.json') &&
+        response.request().method() === 'GET' &&
+        new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW
     );
     const followingTileResponse = page.waitForResponse(
-      (response) => /\/tiles\/following\/properties\/\d+\/\d+\/\d+\.pbf(?:\?|$)/.test(response.url()),
-      { timeout: 30_000 },
+      (response) =>
+        /\/tiles\/following\/properties\/\d+\/\d+\/\d+\.pbf(?:\?|$)/.test(response.url()) &&
+        new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW,
+      { timeout: 30_000 }
     );
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -302,26 +335,42 @@ test.describe('Following grouped tiles', () => {
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
     expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
 
-    await toggleFollowing(page);
+    await page.getByTestId('map-filter-pill-following-arrow').click();
+    await expect(page.getByTestId('map-filter-panel-following')).toBeVisible();
+    await page.getByTestId(`map-filter-option-following-${FOLLOWING_TIME_WINDOW}`).click();
 
     const tileJsonResponse = await followingTileJsonResponse;
     expect(tileJsonResponse.ok()).toBe(true);
+    expect(new URL(tileJsonResponse.url()).searchParams.get('activity')).toBe(
+      FOLLOWING_TIME_WINDOW
+    );
 
     await expect
       .poll(() => getPropertySourceTileUrl(page), {
         timeout: 30_000,
       })
       .toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+    await expect
+      .poll(() => getPropertySourceTileUrl(page), {
+        timeout: 30_000,
+      })
+      .toContain(`activity=${FOLLOWING_TIME_WINDOW}`);
 
     const persistence = await readFollowingPersistence(page);
     expect(persistence.search).not.toContain('socialScope');
+    expect(persistence.search).not.toContain('activity');
     expect(persistence.historySocialScope).toBe('following');
     expect(persistence.sessionSocialScope).toBe('following');
 
     await setMapView(page, propertyCoordinate, FOLLOWING_ZOOM);
-    await expect(followingTileResponse).resolves.toBeTruthy();
+    const tileResponse = await followingTileResponse;
+    expect(new URL(tileResponse.url()).searchParams.get('activity')).toBe(FOLLOWING_TIME_WINDOW);
 
-    const clickResult = await clickRenderedPropertyMarkerById(page, nearby.primaryPropertyId, 30_000);
+    const clickResult = await clickRenderedPropertyMarkerById(
+      page,
+      nearby.primaryPropertyId,
+      30_000
+    );
     expect(clickResult.success, clickResult.success ? '' : clickResult.reason).toBe(true);
 
     const previewCard = page.getByTestId('group-preview-card');
@@ -370,7 +419,7 @@ test.describe('Following grouped tiles', () => {
     const viewer = await createTestSession(request, 'followingerror');
     await seedBrowserSession(page, viewer);
     allowedConsoleErrorPatterns.push(
-      /Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)/,
+      /Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)/
     );
 
     await page.route(/\/tiles\/following\/properties\.json(?:\?|$)/, async (route) => {
@@ -387,9 +436,10 @@ test.describe('Following grouped tiles', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
 
-    const followingTileJsonResponse = page.waitForResponse((response) =>
-      response.url().includes('/tiles/following/properties.json') &&
-      response.request().method() === 'GET',
+    const followingTileJsonResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/tiles/following/properties.json') &&
+        response.request().method() === 'GET'
     );
 
     await toggleFollowing(page);

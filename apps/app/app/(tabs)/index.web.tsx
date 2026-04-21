@@ -55,6 +55,7 @@ import {
   getCanonicalMapFilterSignature,
   getMapFilterSearchString,
   parseMapFiltersFromSearchParams,
+  type MapActivityTimeFilter,
 } from '@/src/lib/sharedMapFilters';
 import {
   getCurrentBrowserPathname,
@@ -718,6 +719,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   });
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [socialScope, setSocialScope] = useState<MapSocialScope>(initialSocialScope);
+  const [followingActivity, setFollowingActivity] =
+    useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
   const { replaceAppliedFilters } = filterController;
   const publicPropertyTileUrl = useMemo(
@@ -726,6 +729,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   const followingTileSource = useFollowingTileSource(
     filterController.appliedFilters,
+    followingActivity,
     socialScope === 'following' && mapLoaded,
   );
   const activePropertyTiles = useMemo(
@@ -2365,6 +2369,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
         <MapFilterBar
           controller={filterController}
+          followingActivity={followingActivity}
+          onFollowingActivityChange={setFollowingActivity}
           onToggleFollowing={handleToggleFollowing}
           socialScope={socialScope}
         />

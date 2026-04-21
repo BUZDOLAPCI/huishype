@@ -1,13 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
@@ -22,8 +14,9 @@ import {
   getMapVisiblePriceModes,
   isMapFilterCategoryActive,
   isMapStatusPillActive,
-  MAP_ACTIVITY_FILTERS,
+  MAP_ACTIVITY_TIME_FILTERS,
   MAP_STATUS_PILL_STATES,
+  type MapActivityTimeFilter,
   type MapFilterCategory,
   type MapFilterDraftState,
   type MapPriceMode,
@@ -51,6 +44,8 @@ interface MapFilterBarProps {
   controller: UseMapFilterControllerReturn;
   socialScope?: MapSocialScope;
   onToggleFollowing?: () => void;
+  followingActivity?: MapActivityTimeFilter;
+  onFollowingActivityChange?: (activity: MapActivityTimeFilter) => void;
 }
 
 type PriceBound = 'from' | 'to';
@@ -70,6 +65,15 @@ interface MapFilterPillProps {
   onDismiss?: () => void;
   testID: string;
   variant?: 'panel' | 'toggle';
+}
+
+interface OptionedFilterPillProps {
+  label: string;
+  active: boolean;
+  open: boolean;
+  onBodyPress: () => void;
+  onArrowPress: () => void;
+  testID: string;
 }
 
 function MapFilterPill({
@@ -108,7 +112,9 @@ function MapFilterPill({
           {label}
         </Text>
         {variant === 'toggle' ? (
-          active ? <Icon name="Check" size="sm" color={COLORS.white} /> : null
+          active ? (
+            <Icon name="Check" size="sm" color={COLORS.white} />
+          ) : null
         ) : active ? (
           <View style={styles.pillActiveBadge}>
             <Text style={styles.pillActiveBadgeText}>On</Text>
@@ -133,6 +139,53 @@ function MapFilterPill({
   );
 }
 
+function OptionedFilterPill({
+  label,
+  active,
+  open,
+  onBodyPress,
+  onArrowPress,
+  testID,
+}: OptionedFilterPillProps) {
+  return (
+    <View style={styles.pillShell}>
+      <View
+        style={[
+          styles.optionedPill,
+          active ? styles.pillActive : styles.pillInactive,
+          open && styles.pillOpen,
+        ]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ selected: active }}
+          onPress={onBodyPress}
+          style={({ pressed }) => [styles.optionedPillBody, pressed && styles.pillPressed]}
+          testID={testID}
+        >
+          <Text
+            numberOfLines={1}
+            style={[styles.pillLabel, active ? styles.pillLabelActive : styles.pillLabelInactive]}
+          >
+            {label}
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${label} options`}
+          accessibilityState={{ expanded: open }}
+          onPress={onArrowPress}
+          style={({ pressed }) => [styles.optionedPillArrow, pressed && styles.pillPressed]}
+          testID={`${testID}-arrow`}
+        >
+          <Icon name="CaretDown" size="sm" color={active ? COLORS.white : COLORS.warm700} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 const PRICE_MODE_META: Record<MapPriceMode, { title: string; testId: string }> = {
   sale: { title: 'Sale Price', testId: 'sale' },
   rent: { title: 'Rent Price', testId: 'rent' },
@@ -148,15 +201,12 @@ function parseDraftInputValue(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getPriceFieldError(
-  draftFilters: MapFilterDraftState,
-  mode: MapPriceMode,
-): string | null {
+function getPriceFieldError(draftFilters: MapFilterDraftState, mode: MapPriceMode): string | null {
   const fromValue = parseDraftInputValue(
-    mode === 'sale' ? draftFilters.salePriceFrom : draftFilters.rentPriceFrom,
+    mode === 'sale' ? draftFilters.salePriceFrom : draftFilters.rentPriceFrom
   );
   const toValue = parseDraftInputValue(
-    mode === 'sale' ? draftFilters.salePriceTo : draftFilters.rentPriceTo,
+    mode === 'sale' ? draftFilters.salePriceTo : draftFilters.rentPriceTo
   );
 
   if (fromValue != null && toValue != null && fromValue > toValue) {
@@ -170,9 +220,12 @@ export function MapFilterBar({
   controller,
   socialScope = 'all',
   onToggleFollowing,
+  followingActivity = 'all-time',
+  onFollowingActivityChange,
 }: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
   const [activePriceInput, setActivePriceInput] = useState<ActivePriceInputState | null>(null);
+  const [openOptionsPanel, setOpenOptionsPanel] = useState<'activity' | 'following' | null>(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webSuggestionPressKeyRef = useRef<string | null>(null);
   const {
@@ -188,10 +241,14 @@ export function MapFilterBar({
     commitPriceDraft,
     toggleStatusPill,
     toggleActivity,
+    setActivity,
   } = controller;
 
   const topOffset = Platform.OS === 'web' ? 116 : insets.top + 108;
   const isPricePanelOpen = openCategory === 'price';
+  const isActivityPanelOpen = openOptionsPanel === 'activity';
+  const isFollowingPanelOpen = openOptionsPanel === 'following';
+  const isAnyPanelOpen = isPricePanelOpen || openOptionsPanel != null;
 
   const cancelScheduledPriceInputBlur = useCallback(() => {
     if (priceInputBlurTimeoutRef.current != null) {
@@ -212,14 +269,14 @@ export function MapFilterBar({
 
   const visiblePriceModes = useMemo(
     () => (isPricePanelOpen ? getMapVisiblePriceModes(appliedFilters.marketState) : []),
-    [appliedFilters.marketState, isPricePanelOpen],
+    [appliedFilters.marketState, isPricePanelOpen]
   );
   const priceErrors = useMemo(
     () => ({
       sale: getPriceFieldError(draftFilters, 'sale'),
       rent: getPriceFieldError(draftFilters, 'rent'),
     }),
-    [draftFilters],
+    [draftFilters]
   );
   const hasPriceRangeError = visiblePriceModes.some((mode) => priceErrors[mode] != null);
 
@@ -231,19 +288,15 @@ export function MapFilterBar({
 
       return bound === 'from' ? draftFilters.rentPriceFrom : draftFilters.rentPriceTo;
     },
-    [draftFilters],
+    [draftFilters]
   );
 
   const getSuggestionsForInput = useCallback(
-    (
-      mode: MapPriceMode,
-      bound: PriceBound,
-      typedSinceOpen: boolean,
-    ): MapPriceSuggestion[] =>
+    (mode: MapPriceMode, bound: PriceBound, typedSinceOpen: boolean): MapPriceSuggestion[] =>
       getMapPriceSuggestions(mode, bound, getDraftValue(mode, bound), {
         filterByPrefix: typedSinceOpen,
       }),
-    [getDraftValue],
+    [getDraftValue]
   );
 
   const getHighlightedSuggestionIndex = useCallback(
@@ -251,7 +304,7 @@ export function MapFilterBar({
       suggestions: MapPriceSuggestion[],
       mode: MapPriceMode,
       bound: PriceBound,
-      currentValueOverride?: string,
+      currentValueOverride?: string
     ): number => {
       if (suggestions.length === 0) {
         return -1;
@@ -259,19 +312,15 @@ export function MapFilterBar({
 
       const currentValue = currentValueOverride ?? getDraftValue(mode, bound);
       const selectedIndex = suggestions.findIndex(
-        (suggestion) => suggestion.value === currentValue,
+        (suggestion) => suggestion.value === currentValue
       );
       return selectedIndex >= 0 ? selectedIndex : 0;
     },
-    [getDraftValue],
+    [getDraftValue]
   );
 
   const openPriceSuggestions = useCallback(
-    (
-      mode: MapPriceMode,
-      bound: PriceBound,
-      typedSinceOpen = false,
-    ) => {
+    (mode: MapPriceMode, bound: PriceBound, typedSinceOpen = false) => {
       cancelScheduledPriceInputBlur();
       const suggestions = getSuggestionsForInput(mode, bound, typedSinceOpen);
       setActivePriceInput({
@@ -281,7 +330,7 @@ export function MapFilterBar({
         typedSinceOpen,
       });
     },
-    [cancelScheduledPriceInputBlur, getHighlightedSuggestionIndex, getSuggestionsForInput],
+    [cancelScheduledPriceInputBlur, getHighlightedSuggestionIndex, getSuggestionsForInput]
   );
 
   const commitAndClosePricePanel = useCallback(() => {
@@ -294,16 +343,12 @@ export function MapFilterBar({
     setActivePriceInput(null);
     commitPriceDraft();
     closeCategoryPanel();
-  }, [
-    cancelScheduledPriceInputBlur,
-    closeCategoryPanel,
-    commitPriceDraft,
-    hasPriceRangeError,
-  ]);
+  }, [cancelScheduledPriceInputBlur, closeCategoryPanel, commitPriceDraft, hasPriceRangeError]);
 
   const handlePanelBackdropPress = useCallback(() => {
     cancelScheduledPriceInputBlur();
     setActivePriceInput(null);
+    setOpenOptionsPanel(null);
     if (openCategory === 'price' && !hasPriceRangeError) {
       commitPriceDraft();
     }
@@ -318,6 +363,7 @@ export function MapFilterBar({
 
   const handleCategoryPress = useCallback(
     (nextCategory: MapFilterCategory) => {
+      setOpenOptionsPanel(null);
       if (openCategory === 'price' && openCategory !== nextCategory) {
         commitPriceDraft();
       }
@@ -334,13 +380,59 @@ export function MapFilterBar({
 
       toggleCategory(nextCategory);
     },
-    [
-      closeCategoryPanel,
-      commitAndClosePricePanel,
-      commitPriceDraft,
-      openCategory,
-      toggleCategory,
-    ],
+    [closeCategoryPanel, commitAndClosePricePanel, commitPriceDraft, openCategory, toggleCategory]
+  );
+
+  const openActivityPanel = useCallback(() => {
+    if (openCategory === 'price' && !hasPriceRangeError) {
+      commitPriceDraft();
+    }
+    closeCategoryPanel();
+    setOpenOptionsPanel((current) => (current === 'activity' ? null : 'activity'));
+  }, [closeCategoryPanel, commitPriceDraft, hasPriceRangeError, openCategory]);
+
+  const openFollowingPanel = useCallback(() => {
+    if (openCategory === 'price' && !hasPriceRangeError) {
+      commitPriceDraft();
+    }
+    closeCategoryPanel();
+    setOpenOptionsPanel((current) => (current === 'following' ? null : 'following'));
+  }, [closeCategoryPanel, commitPriceDraft, hasPriceRangeError, openCategory]);
+
+  const handleActivityBodyPress = useCallback(() => {
+    setOpenOptionsPanel(null);
+    toggleActivity('all-time');
+  }, [toggleActivity]);
+
+  const handleActivityOptionPress = useCallback(
+    (activity: MapActivityTimeFilter) => {
+      setActivity(activity);
+      setOpenOptionsPanel(null);
+    },
+    [setActivity]
+  );
+
+  const handleFollowingBodyPress = useCallback(() => {
+    setOpenOptionsPanel(null);
+    if (socialScope === 'following' && followingActivity === 'all-time') {
+      onToggleFollowing?.();
+      return;
+    }
+    onFollowingActivityChange?.('all-time');
+    if (socialScope !== 'following') {
+      onToggleFollowing?.();
+    }
+  }, [followingActivity, onFollowingActivityChange, onToggleFollowing, socialScope]);
+
+  const handleFollowingOptionPress = useCallback(
+    (activity: MapActivityTimeFilter) => {
+      onFollowingActivityChange?.(activity);
+      if (socialScope !== 'following') {
+        onToggleFollowing?.();
+      }
+      setOpenOptionsPanel(null);
+    },
+    [onFollowingActivityChange, onToggleFollowing, socialScope]
   );
 
   const panelTitle = isPricePanelOpen ? getMapFilterPillLabel('price') : null;
@@ -352,7 +444,7 @@ export function MapFilterBar({
     return getSuggestionsForInput(
       activePriceInput.mode,
       activePriceInput.bound,
-      activePriceInput.typedSinceOpen,
+      activePriceInput.typedSinceOpen
     );
   }, [activePriceInput, getSuggestionsForInput, isPricePanelOpen]);
 
@@ -375,7 +467,7 @@ export function MapFilterBar({
           ? -1
           : Math.min(
               current.highlightIndex < 0 ? 0 : current.highlightIndex,
-              priceSuggestions.length - 1,
+              priceSuggestions.length - 1
             );
 
       if (nextHighlightIndex === current.highlightIndex) {
@@ -387,10 +479,7 @@ export function MapFilterBar({
         highlightIndex: nextHighlightIndex,
       };
     });
-  }, [
-    activePriceInput,
-    priceSuggestions,
-  ]);
+  }, [activePriceInput, priceSuggestions]);
 
   const handleSuggestionSelect = useCallback(
     (mode: MapPriceMode, bound: PriceBound, value: string) => {
@@ -398,11 +487,16 @@ export function MapFilterBar({
       selectPriceSuggestion(mode, bound, value);
       setActivePriceInput(null);
     },
-    [cancelScheduledPriceInputBlur, selectPriceSuggestion],
+    [cancelScheduledPriceInputBlur, selectPriceSuggestion]
   );
 
   const handleSuggestionPointerDown = useCallback(
-    (mode: MapPriceMode, bound: PriceBound, value: string, event?: { preventDefault?: () => void }) => {
+    (
+      mode: MapPriceMode,
+      bound: PriceBound,
+      value: string,
+      event?: { preventDefault?: () => void }
+    ) => {
       if (Platform.OS !== 'web') {
         return;
       }
@@ -411,7 +505,7 @@ export function MapFilterBar({
       webSuggestionPressKeyRef.current = `${mode}:${bound}:${value}`;
       handleSuggestionSelect(mode, bound, value);
     },
-    [handleSuggestionSelect],
+    [handleSuggestionSelect]
   );
 
   const handleSuggestionPress = useCallback(
@@ -425,7 +519,7 @@ export function MapFilterBar({
       webSuggestionPressKeyRef.current = null;
       handleSuggestionSelect(mode, bound, value);
     },
-    [handleSuggestionSelect],
+    [handleSuggestionSelect]
   );
 
   const handlePriceDraftChange = useCallback(
@@ -454,7 +548,7 @@ export function MapFilterBar({
         };
       });
     },
-    [getHighlightedSuggestionIndex, updatePriceDraft],
+    [getHighlightedSuggestionIndex, updatePriceDraft]
   );
 
   const moveHighlightedSuggestion = useCallback(
@@ -478,7 +572,7 @@ export function MapFilterBar({
         };
       });
     },
-    [priceSuggestions.length],
+    [priceSuggestions.length]
   );
 
   const selectHighlightedSuggestion = useCallback(() => {
@@ -494,7 +588,7 @@ export function MapFilterBar({
     handleSuggestionSelect(
       activePriceInput.mode,
       activePriceInput.bound,
-      highlightedSuggestion.value,
+      highlightedSuggestion.value
     );
     return true;
   }, [activePriceInput, handleSuggestionSelect, priceSuggestions]);
@@ -503,7 +597,7 @@ export function MapFilterBar({
     (
       mode: MapPriceMode,
       bound: PriceBound,
-      event: { nativeEvent?: { key?: string }; preventDefault?: () => void },
+      event: { nativeEvent?: { key?: string }; preventDefault?: () => void }
     ) => {
       const key = event.nativeEvent?.key;
       if (key == null) {
@@ -559,26 +653,16 @@ export function MapFilterBar({
         return;
       }
 
-      if (
-        key.length === 1 &&
-        key !== 'Backspace' &&
-        key !== 'Delete' &&
-        key !== 'Tab'
-      ) {
+      if (key.length === 1 && key !== 'Backspace' && key !== 'Delete' && key !== 'Tab') {
         event.preventDefault?.();
       }
     },
-    [
-      activePriceInput,
-      moveHighlightedSuggestion,
-      openPriceSuggestions,
-      selectHighlightedSuggestion,
-    ],
+    [activePriceInput, moveHighlightedSuggestion, openPriceSuggestions, selectHighlightedSuggestion]
   );
 
   return (
     <>
-      {isPricePanelOpen ? (
+      {isAnyPanelOpen ? (
         <Pressable
           onPress={handlePanelBackdropPress}
           style={styles.panelBackdrop}
@@ -594,17 +678,6 @@ export function MapFilterBar({
           style={styles.rail}
           testID="map-filter-rail"
         >
-          {onToggleFollowing ? (
-            <MapFilterPill
-              active={socialScope === 'following'}
-              label="Following"
-              onPress={onToggleFollowing}
-              open={false}
-              testID="map-filter-pill-social-following"
-              variant="toggle"
-            />
-          ) : null}
-
           {orderedCategories
             .filter((category) => category === 'price')
             .map((category) => {
@@ -638,17 +711,33 @@ export function MapFilterBar({
             />
           ))}
 
-          {MAP_ACTIVITY_FILTERS.map((activity) => (
-            <MapFilterPill
-              key={activity}
-              active={appliedFilters.activity === activity}
-              label={getMapActivityFilterLabel(activity)}
-              onPress={() => toggleActivity(activity)}
-              open={false}
-              testID={`map-filter-pill-activity-${activity}`}
-              variant="toggle"
+          <OptionedFilterPill
+            active={appliedFilters.activity !== 'all'}
+            label={
+              appliedFilters.activity === 'all'
+                ? 'Activity'
+                : `Activity: ${getMapActivityFilterLabel(appliedFilters.activity)}`
+            }
+            onArrowPress={openActivityPanel}
+            onBodyPress={handleActivityBodyPress}
+            open={isActivityPanelOpen}
+            testID="map-filter-pill-activity"
+          />
+
+          {onToggleFollowing ? (
+            <OptionedFilterPill
+              active={socialScope === 'following'}
+              label={
+                socialScope === 'following'
+                  ? `Following: ${getMapActivityFilterLabel(followingActivity)}`
+                  : 'Following'
+              }
+              onArrowPress={openFollowingPanel}
+              onBodyPress={handleFollowingBodyPress}
+              open={isFollowingPanelOpen}
+              testID="map-filter-pill-following"
             />
-          ))}
+          ) : null}
         </ScrollView>
 
         {isPricePanelOpen ? (
@@ -690,9 +779,7 @@ export function MapFilterBar({
                             onBlur={schedulePriceInputBlur}
                             onChangeText={(value) => handlePriceDraftChange(mode, 'from', value)}
                             onFocus={() => openPriceSuggestions(mode, 'from', false)}
-                            onKeyPress={(event) =>
-                              handlePriceInputKeyPress(mode, 'from', event)
-                            }
+                            onKeyPress={(event) => handlePriceInputKeyPress(mode, 'from', event)}
                             onPressIn={() => openPriceSuggestions(mode, 'from', false)}
                             onSubmitEditing={commitAndClosePricePanel}
                             placeholder="0"
@@ -726,7 +813,7 @@ export function MapFilterBar({
                                         mode,
                                         'from',
                                         suggestion.value,
-                                        event,
+                                        event
                                       )
                                     }
                                     onPress={() =>
@@ -767,9 +854,7 @@ export function MapFilterBar({
                             onBlur={schedulePriceInputBlur}
                             onChangeText={(value) => handlePriceDraftChange(mode, 'to', value)}
                             onFocus={() => openPriceSuggestions(mode, 'to', false)}
-                            onKeyPress={(event) =>
-                              handlePriceInputKeyPress(mode, 'to', event)
-                            }
+                            onKeyPress={(event) => handlePriceInputKeyPress(mode, 'to', event)}
                             onPressIn={() => openPriceSuggestions(mode, 'to', false)}
                             onSubmitEditing={commitAndClosePricePanel}
                             placeholder="No max"
@@ -803,7 +888,7 @@ export function MapFilterBar({
                                         mode,
                                         'to',
                                         suggestion.value,
-                                        event,
+                                        event
                                       )
                                     }
                                     onPress={() =>
@@ -879,6 +964,90 @@ export function MapFilterBar({
             ) : null}
           </View>
         ) : null}
+
+        {isActivityPanelOpen ? (
+          <View style={styles.panel} testID="map-filter-panel-activity">
+            <View style={styles.panelHeader}>
+              <Text style={styles.panelTitle}>Activity</Text>
+              <Pressable
+                accessibilityLabel="Close activity options"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={handlePanelBackdropPress}
+                testID="map-filter-panel-activity-close"
+              >
+                <Icon name="X" size="sm" color={COLORS.warm700} />
+              </Pressable>
+            </View>
+
+            <View style={styles.optionList}>
+              {MAP_ACTIVITY_TIME_FILTERS.map((activity) => {
+                const selected = appliedFilters.activity === activity;
+                return (
+                  <Pressable
+                    key={activity}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => handleActivityOptionPress(activity)}
+                    style={({ pressed }) => [
+                      styles.optionRow,
+                      selected && styles.optionRowSelected,
+                      pressed && styles.optionRowPressed,
+                    ]}
+                    testID={`map-filter-option-activity-${activity}`}
+                  >
+                    <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
+                      {getMapActivityFilterLabel(activity)}
+                    </Text>
+                    {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        {isFollowingPanelOpen ? (
+          <View style={styles.panel} testID="map-filter-panel-following">
+            <View style={styles.panelHeader}>
+              <Text style={styles.panelTitle}>Following</Text>
+              <Pressable
+                accessibilityLabel="Close following options"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={handlePanelBackdropPress}
+                testID="map-filter-panel-following-close"
+              >
+                <Icon name="X" size="sm" color={COLORS.warm700} />
+              </Pressable>
+            </View>
+
+            <View style={styles.optionList}>
+              {MAP_ACTIVITY_TIME_FILTERS.map((activity) => {
+                const selected = socialScope === 'following' && followingActivity === activity;
+                return (
+                  <Pressable
+                    key={activity}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => handleFollowingOptionPress(activity)}
+                    style={({ pressed }) => [
+                      styles.optionRow,
+                      selected && styles.optionRowSelected,
+                      pressed && styles.optionRowPressed,
+                    ]}
+                    testID={`map-filter-option-following-${activity}`}
+                  >
+                    <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
+                      {getMapActivityFilterLabel(activity)}
+                    </Text>
+                    {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
       </View>
     </>
   );
@@ -917,6 +1086,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     maxWidth: 240,
+  },
+  optionedPill: {
+    minHeight: 34,
+    borderRadius: 17,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+    maxWidth: 260,
+  },
+  optionedPillBody: {
+    minHeight: 34,
+    paddingLeft: 12,
+    paddingRight: 8,
+    justifyContent: 'center',
+    flexShrink: 1,
+  },
+  optionedPillArrow: {
+    minHeight: 34,
+    width: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(80, 74, 66, 0.18)',
   },
   pillInactive: {
     backgroundColor: COLORS.whiteOverlay,
@@ -1099,6 +1291,36 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
     marginTop: 16,
+  },
+  optionList: {
+    gap: 8,
+  },
+  optionRow: {
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.warm100,
+    borderWidth: 1,
+    borderColor: COLORS.warm300,
+  },
+  optionRowSelected: {
+    backgroundColor: COLORS.goldTint,
+    borderColor: COLORS.gold400,
+  },
+  optionRowPressed: {
+    opacity: 0.92,
+  },
+  optionRowText: {
+    color: COLORS.warm700,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  optionRowTextSelected: {
+    color: COLORS.gold600,
   },
   secondaryAction: {
     flex: 1,

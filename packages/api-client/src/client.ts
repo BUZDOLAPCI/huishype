@@ -375,6 +375,7 @@ export class HuisHypeApiClient {
         rentPriceFrom: request.rentPriceFrom ?? undefined,
         rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
+        activity: request.activity,
       },
       requiresAuth: true,
     });
@@ -396,6 +397,7 @@ export class HuisHypeApiClient {
         rentPriceFrom: request.rentPriceFrom ?? undefined,
         rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
+        activity: request.activity,
       },
       requiresAuth: true,
     });

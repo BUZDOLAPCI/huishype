@@ -46,11 +46,28 @@ describe('Following tile source helpers', () => {
         rentPriceFrom: null,
         rentPriceTo: null,
         marketState: ['for-sale'],
-        activity: 'all',
+        activity: '30d',
       }),
     ).toEqual([
-      `http://localhost:3100${FOLLOWING_TILEJSON_PATH}?salePriceFrom=500000&salePriceTo=800000&marketState=for-sale`,
+      `http://localhost:3100${FOLLOWING_TILEJSON_PATH}?salePriceFrom=500000&salePriceTo=800000&marketState=for-sale&activity=all-time`,
     ]);
+  });
+
+  it('uses independent Following activity instead of the public activity filter', () => {
+    expect(
+      buildFollowingTileJsonCandidateUrls(
+        'http://localhost:3100/',
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+          activity: '30d',
+        },
+        'today',
+      ),
+    ).toEqual([`http://localhost:3100${FOLLOWING_TILEJSON_PATH}?activity=today`]);
   });
 
   it('matches Following tile requests using the tile template prefix', () => {
