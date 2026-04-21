@@ -7,7 +7,7 @@ import {
 import { getPlaywrightApiUrl } from '../../helpers/runtime';
 
 const API_BASE_URL = getPlaywrightApiUrl();
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface CanonicalPropertyFixture extends PropertyRouteAddressLike {
   id: string;
@@ -89,6 +89,16 @@ export async function resolveCanonicalPropertyFixture(
     houseNumber: String(property.houseNumber),
     countryCode: property.countryCode ?? 'NL',
   });
+
+  const street = (property.streetName ?? property.street)?.trim();
+  if (street) {
+    params.set('street', street);
+  }
+
+  const city = property.city?.trim();
+  if (city) {
+    params.set('city', city);
+  }
 
   const houseNumberAddition = property.houseNumberAddition?.trim();
   if (houseNumberAddition) {

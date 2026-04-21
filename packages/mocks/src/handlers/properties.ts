@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import {
   buildFollowingPropertyTileTemplateUrl,
+  getMapFilterSearchString,
   isMapActivityFilter,
   parseMapFiltersFromSearchParams,
 } from '@huishype/shared';
@@ -34,6 +35,11 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
 const MOCK_FOLLOWING_ACTIVITY_NOW_MS = Date.parse('2026-04-21T12:00:00.000Z');
+const mockReadPropertyIdsByViewer = new Map<string, Set<string>>();
+
+export function resetMockReadState(): void {
+  mockReadPropertyIdsByViewer.clear();
+}
 
 function normalizePostalCode(postalCode: string) {
   return postalCode.replace(/\s/g, '').toUpperCase();
@@ -60,6 +66,38 @@ function validationErrorResponse() {
     },
     { status: 400 }
   );
+}
+
+function getMockReadViewerKey(request: Request): string | null {
+  const authUser = getMockAuthUser(request.headers.get('Authorization'));
+  if (authUser) {
+    return `user:${authUser.id}`;
+  }
+
+  const sessionId = request.headers.get('x-session-id')?.trim();
+  return sessionId ? `session:${sessionId}` : null;
+}
+
+function markMockPropertyRead(propertyId: string, viewerKey: string): void {
+  const readIds = mockReadPropertyIdsByViewer.get(viewerKey) ?? new Set<string>();
+  readIds.add(propertyId);
+  mockReadPropertyIdsByViewer.set(viewerKey, readIds);
+}
+
+function isMockPropertyRead(propertyId: string, viewerKey: string | null): boolean {
+  return viewerKey ? mockReadPropertyIdsByViewer.get(viewerKey)?.has(propertyId) === true : false;
+}
+
+function areAllMockPropertiesRead(propertyIds: string[], viewerKey: string | null): boolean {
+  return (
+    propertyIds.length > 0 &&
+    propertyIds.every((propertyId) => isMockPropertyRead(propertyId, viewerKey))
+  );
+}
+
+function buildReadPropertyTileTemplateUrl(baseUrl: string, searchParams: URLSearchParams): string {
+  const filters = parseMapFiltersFromSearchParams(searchParams);
+  return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
 }
 
 function getMockMarketState(
@@ -236,7 +274,10 @@ function getCommentBreakdown(propertyId: string) {
   };
 }
 
-function getMockPublicProperty(property: (typeof mockPropertyDetails)[number]) {
+function getMockPublicProperty(
+  property: (typeof mockPropertyDetails)[number],
+  viewerKey: string | null = null,
+) {
   const { topLevelCommentCount, replyCount, commentLikeCount } = getCommentBreakdown(property.id);
   const hasListing = Boolean(property.activeListing);
   const hasActiveListing = hasListing;
@@ -292,11 +333,15 @@ function getMockPublicProperty(property: (typeof mockPropertyDetails)[number]) {
     recentGuessCount: Math.min(property.activity.guessCount, 1),
     recentViewCount: Math.min(property.activity.viewCount, 12),
     recentUniqueViewerCount: Math.min(property.activity.uniqueViewerCount, 8),
+    isRead: isMockPropertyRead(property.id, viewerKey),
   };
 }
 
-function getMockPropertyDetail(property: (typeof mockPropertyDetails)[number]) {
-  const base = getMockPublicProperty(property);
+function getMockPropertyDetail(
+  property: (typeof mockPropertyDetails)[number],
+  viewerKey: string | null = null,
+) {
+  const base = getMockPublicProperty(property, viewerKey);
 
   return {
     ...base,
@@ -349,6 +394,7 @@ function buildNearbySingleResponse({
   recentSocialScoreTotal,
   commentCount,
   distanceMeters,
+  isRead = false,
 }: {
   nodeClass: 'active' | 'ghost';
   id: string;
@@ -362,6 +408,7 @@ function buildNearbySingleResponse({
   recentSocialScoreTotal: number;
   commentCount: number;
   distanceMeters: number;
+  isRead?: boolean;
 }) {
   return {
     nodeClass,
@@ -386,6 +433,7 @@ function buildNearbySingleResponse({
     hasActiveListing,
     marketState,
     distanceMeters,
+    isRead,
   };
 }
 
@@ -511,6 +559,7 @@ export const propertyHandlers = [
     const zoom = Number.parseFloat(url.searchParams.get('zoom') || '17');
     const lon = Number.parseFloat(url.searchParams.get('lon') || '0');
     const lat = Number.parseFloat(url.searchParams.get('lat') || '0');
+    const viewerKey = getMockReadViewerKey(request);
 
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
       return HttpResponse.json(
@@ -542,6 +591,7 @@ export const propertyHandlers = [
         recentSocialScoreTotal: 94,
         commentCount: 4,
         distanceMeters: 12,
+        isRead: areAllMockPropertiesRead(MOCK_NEARBY_CLUSTER_IDS, viewerKey),
       });
     }
 
@@ -561,6 +611,7 @@ export const propertyHandlers = [
           recentSocialScoreTotal: 0,
           commentCount: 0,
           distanceMeters: 9,
+          isRead: areAllMockPropertiesRead([MOCK_NEARBY_GHOST_SINGLE_ID], viewerKey),
         }),
       );
     }
@@ -580,8 +631,54 @@ export const propertyHandlers = [
         recentSocialScoreTotal: 28,
         commentCount: 4,
         distanceMeters: 12,
+        isRead: areAllMockPropertiesRead([MOCK_NEARBY_ACTIVE_SINGLE_ID], viewerKey),
       }),
     );
+  }),
+
+  /**
+   * GET /tiles/properties/read.json - Viewer-specific read-state TileJSON
+   */
+  http.get('*/tiles/properties/read.json', ({ request }) => {
+    const viewerKey = getMockReadViewerKey(request);
+    if (!viewerKey) {
+      return HttpResponse.json(
+        {
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const url = new URL(request.url);
+    return HttpResponse.json({
+      tilejson: '2.1.0',
+      name: 'HuisHype Read Properties',
+      description: 'Viewer-specific read property overlay data with clustering',
+      tiles: [buildReadPropertyTileTemplateUrl(url.origin, url.searchParams)],
+      minzoom: 0,
+      maxzoom: 22,
+      bounds: [-180, -85, 180, 85] as [number, number, number, number],
+    });
+  }),
+
+  /**
+   * GET /tiles/properties/read/:z/:x/:y.pbf - Viewer-specific read-state vector tile
+   */
+  http.get('*/tiles/properties/read/:z/:x/:y.pbf', ({ request }) => {
+    const viewerKey = getMockReadViewerKey(request);
+    if (!viewerKey) {
+      return HttpResponse.json(
+        {
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    return new HttpResponse(null, { status: 204 });
   }),
 
   /**
@@ -645,12 +742,14 @@ export const propertyHandlers = [
     if (zoom < 14) {
       const clustered = matching.slice(0, 6);
       const primary = clustered[0]!.property;
+      const viewerKey = `user:${authUser.id}`;
+      const propertyIds = clustered.map(({ property }) => property.id);
       return HttpResponse.json({
         nodeClass: 'active' as const,
         groupKind: 'cluster' as const,
         primaryPropertyId: primary.id,
         pointCount: clustered.length,
-        propertyIds: clustered.map(({ property }) => property.id),
+        propertyIds,
         previewPropertyIds: clustered.slice(0, 3).map(({ property }) => property.id),
         coordinate: [primary.coordinates.lon, primary.coordinates.lat] as [number, number],
         bbox: [
@@ -679,11 +778,13 @@ export const propertyHandlers = [
         ),
         commentCount: clustered.reduce((sum, { aggregate }) => sum + aggregate.commentCount, 0),
         distanceMeters: 12,
+        isRead: areAllMockPropertiesRead(propertyIds, viewerKey),
       });
     }
 
     const { property, aggregate } = matching[0]!;
     const hasActiveListing = Boolean(property.activeListing);
+    const viewerKey = `user:${authUser.id}`;
     return HttpResponse.json(
       buildNearbySingleResponse({
         nodeClass: 'active',
@@ -700,6 +801,7 @@ export const propertyHandlers = [
         recentSocialScoreTotal: aggregate.commentCount + aggregate.guessCount,
         commentCount: aggregate.commentCount,
         distanceMeters: 12,
+        isRead: isMockPropertyRead(property.id, viewerKey),
       }),
     );
   }),
@@ -710,11 +812,12 @@ export const propertyHandlers = [
   http.get('/properties/batch', ({ request }) => {
     const url = new URL(request.url);
     const ids = url.searchParams.get('ids')?.split(',') || [];
+    const viewerKey = getMockReadViewerKey(request);
 
     const results = ids
       .map((id) => getMockProperty(id))
       .filter(Boolean)
-      .map((property) => getMockPublicProperty(property!));
+      .map((property) => getMockPublicProperty(property!, viewerKey));
 
     return HttpResponse.json(results);
   }),
@@ -722,7 +825,7 @@ export const propertyHandlers = [
   /**
    * GET /properties/:id - Get property details
    */
-  http.get('/properties/:propertyId', ({ params }) => {
+  http.get('*/properties/:propertyId', ({ params, request }) => {
     const { propertyId } = params;
     const property = getMockProperty(propertyId as string);
 
@@ -733,7 +836,7 @@ export const propertyHandlers = [
       );
     }
 
-    return HttpResponse.json(getMockPropertyDetail(property));
+    return HttpResponse.json(getMockPropertyDetail(property, getMockReadViewerKey(request)));
   }),
 
   /**
@@ -800,8 +903,9 @@ export const propertyHandlers = [
 
     // Return a deterministic saved subset that matches the live envelope shape.
     const saved = mockPropertyDetails.slice(0, 2);
+    const viewerKey = `user:${authUser.id}`;
     const paged = saved.slice(offset, offset + limit).map((property, index) => ({
-      ...getMockPublicProperty(property),
+      ...getMockPublicProperty(property, viewerKey),
       savedAt: new Date(Date.now() - index * 60_000).toISOString(),
       isSaved: true as const,
     }));
@@ -865,6 +969,8 @@ export const propertyHandlers = [
         { status: 400 },
       );
     }
+
+    markMockPropertyRead(property.id, authUser ? `user:${authUser.id}` : `session:${sessionId}`);
 
     return HttpResponse.json({
       viewCount: property.activity.viewCount + 1,

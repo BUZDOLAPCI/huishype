@@ -44,7 +44,7 @@ export const handlers = [
 
 // Export individual handler groups for selective use
 export { authHandlers } from './auth.js';
-export { propertyHandlers } from './properties.js';
+export { propertyHandlers, resetMockReadState } from './properties.js';
 export { guessHandlers } from './guesses.js';
 export { commentHandlers } from './comments.js';
 export { geocodeHandlers, mockGeocodeSuggestions, addMockGeocodeSuggestion, clearMockGeocodeSuggestions } from './geocode.js';

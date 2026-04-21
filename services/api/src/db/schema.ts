@@ -224,6 +224,12 @@ export const properties = pgTable(
     uniqueIndex('properties_national_id_idx').on(table.countryCode, table.nationalId),
     index('properties_city_idx').on(table.city),
     index('properties_postal_code_idx').on(table.postalCode),
+    index('properties_resolve_address_idx').on(
+      table.countryCode,
+      table.postalCode,
+      table.houseNumber,
+      table.houseNumberAddition
+    ),
     uniqueIndex('properties_address_unique_idx').on(table.countryCode, table.street, table.postalCode, table.houseNumber, table.houseNumberAddition),
     index('properties_created_at_idx').on(table.createdAt),
     index('properties_country_code_idx').on(table.countryCode),
@@ -456,6 +462,55 @@ export const propertyViews = pgTable(
     check(
       'property_views_identity_required_chk',
       sql`${table.userId} IS NOT NULL OR ${table.sessionId} IS NOT NULL`,
+    ),
+  ]
+);
+
+// Canonical per-property user-visible change marker.
+// Kept separate from properties so imports do not rewrite the wide address table.
+export const propertyChangeState = pgTable(
+  'property_change_state',
+  {
+    propertyId: uuid('property_id')
+      .primaryKey()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    changeVersion: bigint('change_version', { mode: 'number' }).notNull().default(0),
+    lastChangedAt: timestamp('last_changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('property_change_state_last_changed_at_idx').on(table.lastChangedAt),
+  ]
+);
+
+// Per-viewer read state for authenticated users and anonymous sessions.
+export const propertyReadState = pgTable(
+  'property_read_state',
+  {
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id'),
+    seenChangeVersion: bigint('seen_change_version', { mode: 'number' }).notNull(),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_read_state_user_property_idx')
+      .on(table.userId, table.propertyId)
+      .where(sql`user_id IS NOT NULL AND session_id IS NULL`),
+    uniqueIndex('property_read_state_session_property_idx')
+      .on(table.sessionId, table.propertyId)
+      .where(sql`session_id IS NOT NULL AND user_id IS NULL`),
+    index('property_read_state_anonymous_seen_at_idx')
+      .on(table.seenAt)
+      .where(sql`session_id IS NOT NULL AND user_id IS NULL`),
+    check(
+      'property_read_state_exactly_one_identity_chk',
+      sql`(${table.userId} IS NULL) <> (${table.sessionId} IS NULL)`,
+    ),
+    check(
+      'property_read_state_session_not_blank_chk',
+      sql`${table.sessionId} IS NULL OR BTRIM(${table.sessionId}) <> ''`,
     ),
   ]
 );

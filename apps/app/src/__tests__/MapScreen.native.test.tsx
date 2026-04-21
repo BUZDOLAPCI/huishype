@@ -27,6 +27,11 @@ let mockIsAuthenticated = true;
 let mockFollowingTileSourceIsError = false;
 let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
 const mockFollowingTileRefetch = jest.fn();
+let mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
+let mockReadHeaderValue = 'session-123';
+const mockReadTileRefetch = jest.fn();
+const mockRecordPropertyView = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
 const mockFetchFollowingNearbyGroup = jest.fn();
 
@@ -194,6 +199,35 @@ jest.mock('@/src/hooks/useFollowingTileSource', () => ({
   ),
 }));
 
+const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => ({
+  data: mockReadTileUrl
+    ? {
+        tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+        tileUrl: mockReadTileUrl,
+        tileJson: { tiles: [mockReadTileUrl] },
+        headerName: mockReadHeaderName,
+        headerValue: mockReadHeaderValue,
+        version: 0,
+      }
+    : undefined,
+  isLoading: false,
+  isError: false,
+  error: null,
+  refetch: mockReadTileRefetch,
+}));
+
+jest.mock('@/src/hooks/useReadTileSource', () => ({
+  useReadTileSource: jest.fn((filters: unknown, enabled: unknown) =>
+    mockUseReadTileSource(filters, enabled)
+  ),
+}));
+
+jest.mock('@/src/hooks/usePropertyView', () => ({
+  usePropertyView: jest.fn(() => ({
+    recordPropertyView: mockRecordPropertyView,
+  })),
+}));
+
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
@@ -304,6 +338,10 @@ describe('MapScreen native grouped Following mode', () => {
     mockIsAuthenticated = true;
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+    mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadHeaderName = 'x-session-id';
+    mockReadHeaderValue = 'session-123';
+    mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
     mockQueryRenderedFeatures.mockReset();
@@ -394,6 +432,39 @@ describe('MapScreen native grouped Following mode', () => {
       'Bearer viewer-token',
       expect.any(RegExp)
     );
+  });
+
+  it('configures native read overlay session headers only for the read tile pattern', async () => {
+    mockIsAuthenticated = false;
+
+    await renderMapScreen();
+
+    await waitFor(() => {
+      expect(mockUseReadTileSource).toHaveBeenLastCalledWith(
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+          activity: 'all',
+        },
+        true
+      );
+    });
+
+    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
+      'x-session-id',
+      'session-123',
+      expect.any(RegExp)
+    );
+
+    const addCall = mockNetworkManagerAddRequestHeader.mock.calls.find(
+      ([headerName]) => headerName === 'x-session-id',
+    );
+    const pattern = addCall?.[2] as RegExp;
+    expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
+    expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
   });
 
   it('shows the empty Following state after rendered grouped feature refresh settles', async () => {

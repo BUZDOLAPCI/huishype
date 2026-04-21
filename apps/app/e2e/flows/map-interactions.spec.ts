@@ -762,24 +762,12 @@ test.describe('Map Interactions', () => {
       expect(center.lat).toBeCloseTo(EINDHOVEN_CENTER[1], 0);
     }
 
-    // Wait for map to finish loading tiles
-    await page.waitForFunction(
-      () => {
-        const map = (window as WindowWithMapInstance).__mapInstance;
-        return map?.loaded?.() ?? false;
-      },
-      null,
-      { timeout: 30000, polling: 1000 }
-    ).catch(() => {
-      console.log('Map tiles still loading after pan, continuing');
-    });
+    await waitForPointFeatures(page, { timeout: 30_000 });
 
-    // Map should be loaded
-    const isLoaded = await page.evaluate(() => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      return map?.loaded?.() ?? false;
-    });
-    expect(isLoaded).toBe(true);
+    expect(
+      tileRequests.some((url) => url.includes('/tiles/properties/')),
+      `Expected property tile requests after panning, saw: ${tileRequests.join(', ')}`
+    ).toBe(true);
   });
 
   test('3D buildings render at high zoom with pitch', async ({ page }) => {

@@ -187,6 +187,7 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
   // Built as a plain string and executed via sql.unsafe() because the entire
   // query is raw SQL (DISTINCT ON, casts, PostGIS functions, ON CONFLICT).
   const upsertQuery = `
+    WITH changed_properties AS (
     INSERT INTO properties (
       national_id, street, house_number, house_number_addition,
       postal_code, city, geometry, year_built, floor_area_m2, status
@@ -260,6 +261,19 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
       floor_area_m2 = EXCLUDED.floor_area_m2,
       status = EXCLUDED.status,
       updated_at = NOW()
+      WHERE properties.national_id IS DISTINCT FROM EXCLUDED.national_id
+        OR properties.geometry IS DISTINCT FROM EXCLUDED.geometry
+        OR properties.year_built IS DISTINCT FROM EXCLUDED.year_built
+        OR properties.floor_area_m2 IS DISTINCT FROM EXCLUDED.floor_area_m2
+        OR properties.status IS DISTINCT FROM EXCLUDED.status
+      RETURNING id
+    )
+    INSERT INTO property_change_state (property_id, change_version, last_changed_at)
+    SELECT id, 1, NOW()
+    FROM changed_properties
+    ON CONFLICT (property_id) DO UPDATE SET
+      change_version = property_change_state.change_version + 1,
+      last_changed_at = EXCLUDED.last_changed_at
   `;
 
   await sql.unsafe(upsertQuery);

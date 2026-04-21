@@ -24,6 +24,7 @@ import {
   achievementHandlers,
   emailAuthHandlers,
   resetMockFollowState,
+  resetMockReadState,
   resetMockSessions,
 } from '../handlers/index.js';
 import {
@@ -65,6 +66,7 @@ describe('Mock handler runtime parity', () => {
     'socialScoreMax',
     'recentSocialScoreTotal',
     'commentCount',
+    'isRead',
     'distanceMeters',
   ] as const;
   const nearbySingleKeys = [
@@ -86,6 +88,7 @@ describe('Mock handler runtime parity', () => {
     server.resetHandlers();
     resetMockSessions();
     resetMockFollowState();
+    resetMockReadState();
   });
 
   afterAll(() => {
@@ -346,6 +349,7 @@ describe('Mock handler runtime parity', () => {
     expect(nearbySingleBody).toHaveProperty('groupKind', 'single');
     expect(nearbySingleBody).toHaveProperty('hasActiveListing');
     expect(nearbySingleBody).toHaveProperty('marketState');
+    expect(nearbySingleBody).toHaveProperty('isRead', false);
     expect(Object.keys(nearbySingleBody).sort()).toEqual(nearbySingleKeys);
 
     const nearbyClusterResponse = await fetch(
@@ -355,6 +359,7 @@ describe('Mock handler runtime parity', () => {
 
     expect(nearbyClusterResponse.status).toBe(200);
     expect(nearbyClusterBody).toHaveProperty('groupKind', 'cluster');
+    expect(nearbyClusterBody).toHaveProperty('isRead', false);
     expect(Object.keys(nearbyClusterBody).sort()).toEqual(nearbyClusterKeys);
 
     const nearbyNullResponse = await fetch(
@@ -467,6 +472,7 @@ describe('Mock handler runtime parity', () => {
     expect(tenDayNearbyResponse.status).toBe(200);
     expect(tenDayNearbyBody).toHaveProperty('groupKind', 'single');
     expect(tenDayNearbyBody).toHaveProperty('primaryPropertyId', mockPropertyIds.herengracht502);
+    expect(tenDayNearbyBody).toHaveProperty('isRead', false);
 
     const todayNearbyResponse = await fetch(
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=today',
@@ -494,6 +500,7 @@ describe('Mock handler runtime parity', () => {
 
     expect(afterFollowResponse.status).toBe(200);
     expect(afterFollowBody).toHaveProperty('groupKind', 'cluster');
+    expect(afterFollowBody).toHaveProperty('isRead', false);
     expect(Object.keys(afterFollowBody).sort()).toEqual(nearbyClusterKeys);
     expect(afterFollowBody.propertyIds).toEqual(
       expect.arrayContaining([mockPropertyIds.herengracht502, mockPropertyIds.prinsengracht263]),
@@ -523,6 +530,51 @@ describe('Mock handler runtime parity', () => {
     expect(sessionResponse.status).toBe(200);
     expect(sessionBody).toHaveProperty('viewCount');
     expect(sessionBody).toHaveProperty('uniqueViewers');
+
+    const sessionDetailResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+      {
+        headers: { 'x-session-id': 'mock-session-1' },
+      },
+    );
+    expect(sessionDetailResponse.status).toBe(200);
+    expect(await sessionDetailResponse.json()).toHaveProperty('isRead', true);
+  });
+
+  it('matches read-state TileJSON identity requirements and envelope', async () => {
+    const missingIdentityResponse = await fetch('http://localhost/tiles/properties/read.json');
+    expect(missingIdentityResponse.status).toBe(400);
+    expect(await missingIdentityResponse.json()).toEqual({
+      error: 'BAD_REQUEST',
+      message: 'Authenticated user or x-session-id header is required.',
+    });
+
+    const tileJsonResponse = await fetch(
+      'http://localhost/tiles/properties/read.json?marketState=for-sale,sold&activity=10d',
+      {
+        headers: { 'x-session-id': 'mock-session-tiles' },
+      },
+    );
+    const tileJsonBody = await tileJsonResponse.json();
+
+    expect(tileJsonResponse.status).toBe(200);
+    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
+    expect(tileJsonBody).toHaveProperty('name', 'HuisHype Read Properties');
+    expect(tileJsonBody).toHaveProperty('tiles');
+    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
+    expect(tileJsonBody.tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
+    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
+
+    const missingIdentityTileResponse = await fetch(
+      'http://localhost/tiles/properties/read/12/2048/1363.pbf',
+    );
+    expect(missingIdentityTileResponse.status).toBe(400);
+
+    const tileResponse = await fetch('http://localhost/tiles/properties/read/12/2048/1363.pbf', {
+      headers: { 'x-session-id': 'mock-session-tiles' },
+    });
+    expect(tileResponse.status).toBe(204);
   });
 
   it('matches follow-aware user profile and follow route behavior', async () => {

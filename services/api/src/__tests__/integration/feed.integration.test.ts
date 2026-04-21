@@ -26,6 +26,8 @@ describe('Feed routes', () => {
   const cleanupPropertyIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const runId = Date.now();
+  const fixtureBaseTime = new Date(runId);
+  fixtureBaseTime.setMilliseconds(0);
   const coordinateSeed = runId + process.pid * 997;
   const slice = {
     // Keep the feed suite out of the heavily used NL integration fixture
@@ -64,8 +66,9 @@ describe('Feed routes', () => {
     hours?: number;
     minutes?: number;
   }) {
-    const date = new Date(Date.now() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000));
-    date.setMilliseconds(0);
+    const date = new Date(
+      fixtureBaseTime.getTime() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000)
+    );
     return date;
   }
 

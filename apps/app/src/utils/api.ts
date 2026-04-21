@@ -386,6 +386,7 @@ export interface NearbyGroupedResult {
   floorAreaM2?: number | null;
   hasActiveListing?: boolean | null;
   marketState?: MapMarketState | null;
+  isRead?: boolean | null;
 
   // Temporary compatibility while backend tile payloads finish the cutover.
   activityScore?: number;
@@ -423,6 +424,7 @@ export interface NormalizedPropertyNodeGroup {
   floorAreaM2: number | null;
   hasActiveListing: boolean | null;
   marketState: MapMarketState | null;
+  isRead?: boolean | null;
 
   // Legacy compatibility while downstream consumers finish the cutover.
   hasListing: boolean;
@@ -577,6 +579,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     floorAreaM2: result.floorAreaM2 ?? null,
     hasActiveListing,
     marketState: result.marketState ?? null,
+    isRead: result.isRead ?? null,
     distanceMeters: result.distanceMeters,
   };
 }
@@ -697,6 +700,7 @@ export function normalizeRenderedPropertyGroup(
     marketState: toNullableMarketState(
       getTransportValue(properties, 'marketState', 'market_state'),
     ),
+    isRead: toNullableBoolean(getTransportValue(properties, 'isRead', 'is_read')),
   };
 }
 
@@ -805,6 +809,7 @@ export interface BatchProperty {
   likeCount?: number;
   commentCount?: number;
   activityScore?: number;
+  isRead?: boolean | null;
   aerialImageUrl?: string | null;
   thumbnailUrl?: string | null;
   createdAt: string;

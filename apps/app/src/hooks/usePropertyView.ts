@@ -1,7 +1,8 @@
-import { useMutation } from '@tanstack/react-query';
-import { useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
 import { getAnonymousSessionId } from '../lib/anonymousSession';
 import { api } from '../utils/api';
+import { bumpReadTileSourceVersion } from './readTileSourceInvalidation';
 
 interface ViewResponse {
   viewCount: number;
@@ -24,17 +25,21 @@ const recordView = async (propertyId: string): Promise<ViewResponse> => {
 };
 
 export function usePropertyView() {
+  const queryClient = useQueryClient();
   const viewedSet = useRef(new Set<string>());
 
   const mutation = useMutation({
     mutationFn: recordView,
+    onSuccess: () => {
+      bumpReadTileSourceVersion(queryClient);
+    },
   });
 
-  const recordPropertyView = (propertyId: string) => {
+  const recordPropertyView = useCallback((propertyId: string) => {
     if (viewedSet.current.has(propertyId)) return;
     viewedSet.current.add(propertyId);
     mutation.mutate(propertyId);
-  };
+  }, [mutation]);
 
   return { recordPropertyView };
 }

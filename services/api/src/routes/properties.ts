@@ -25,6 +25,11 @@ import {
   buildPropertyListingFactsJoin,
   buildPropertySocialFactsJoin,
 } from '../services/property-queries.js';
+import {
+  getReadPropertyIdSet,
+  isPropertyReadForViewer,
+  resolvePropertyReadViewer,
+} from '../services/property-read-state.js';
 
 const coordinateSchema = z.object({
   type: z.literal('Point'),
@@ -62,6 +67,7 @@ const propertyContractFields = {
   recentGuessCount: z.number(),
   recentViewCount: z.number(),
   recentUniqueViewerCount: z.number(),
+  isRead: z.boolean(),
 };
 
 const propertyBaseSchema = z.object({
@@ -222,6 +228,7 @@ const nearbyGroupedBaseSchema = z.object({
   socialScoreMax: z.number(),
   recentSocialScoreTotal: z.number(),
   commentCount: z.number(),
+  isRead: z.boolean(),
 });
 
 const nearbySingleResultSchema = nearbyGroupedBaseSchema.extend({
@@ -295,6 +302,7 @@ type PropertyRow = {
   recent_guess_count: number;
   recent_view_count: number;
   recent_unique_viewer_count: number;
+  is_read?: boolean;
 };
 
 type PropertyDetailRow = PropertyRow & {
@@ -466,10 +474,14 @@ function mapPublicPropertyRow(row: PropertyRow) {
     recentGuessCount: Number(row.recent_guess_count),
     recentViewCount: Number(row.recent_view_count),
     recentUniqueViewerCount: Number(row.recent_unique_viewer_count),
+    isRead: Boolean(row.is_read),
   };
 }
 
-function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>) {
+function mapNearbyGroupedResult(
+  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
+  isRead = false,
+) {
   if (!result) {
     return null;
   }
@@ -490,6 +502,7 @@ function mapNearbyGroupedResult(result: Awaited<ReturnType<typeof resolveNearbyG
     socialScoreMax: result.socialScoreMax,
     recentSocialScoreTotal: result.recentSocialScoreTotal,
     commentCount: result.commentCount,
+    isRead,
   };
 
   if (result.groupKind === 'single') {
@@ -760,6 +773,22 @@ export async function propertyRoutes(app: FastifyInstance) {
         lon: number | null;
         lat: number | null;
       }>(sql`
+        WITH matched_properties AS (
+          SELECT
+            p.id,
+            p.country_code,
+            p.street,
+            p.house_number,
+            p.house_number_addition,
+            p.city,
+            p.postal_code,
+            p.official_valuation,
+            ST_X(p.geometry) AS lon,
+            ST_Y(p.geometry) AS lat
+          FROM properties p
+          WHERE ${sql.join(conditions, sql` AND `)}
+          LIMIT 2
+        )
         SELECT
           p.id,
           p.country_code,
@@ -771,12 +800,10 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.official_valuation,
           lf.has_active_listing,
           lf.market_state,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat
-        FROM properties p
+          p.lon,
+          p.lat
+        FROM matched_properties p
         ${buildPropertyListingFactsJoin('p', 'lf')}
-        WHERE ${sql.join(conditions, sql` AND `)}
-        LIMIT 2
       `);
 
       const matches = Array.from(rows).filter((row) => {
@@ -832,6 +859,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.get(
     '/properties/nearby',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['properties'],
         summary: 'Find nearby grouped property',
@@ -845,7 +873,18 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { lon, lat, zoom } = request.query;
       const filters = parseMapFiltersQuery(request.query);
       const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
-      return reply.send(mapNearbyGroupedResult(result));
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+      const readIds = result
+        ? await getReadPropertyIdSet(result.propertyIds, viewer)
+        : new Set<string>();
+      const isRead =
+        result != null &&
+        result.propertyIds.length > 0 &&
+        result.propertyIds.every((propertyId) => readIds.has(propertyId));
+      return reply.send(mapNearbyGroupedResult(result, isRead));
     }
   );
 
@@ -859,6 +898,7 @@ export async function propertyRoutes(app: FastifyInstance) {
   typedApp.get(
     '/properties/batch',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['properties'],
         summary: 'Batch fetch properties',
@@ -870,6 +910,10 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { ids } = request.query;
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
       const rows = await db.execute<PropertyRow>(sql`
         SELECT
           ${PUBLIC_PROPERTY_SELECT}
@@ -883,7 +927,16 @@ export async function propertyRoutes(app: FastifyInstance) {
         )})
       `);
 
-      const byId = new Map(Array.from(rows).map((row) => [row.id, mapPublicPropertyRow(row)]));
+      const readIds = await getReadPropertyIdSet(ids, viewer);
+      const byId = new Map(
+        Array.from(rows).map((row) => [
+          row.id,
+          {
+            ...mapPublicPropertyRow(row),
+            isRead: readIds.has(row.id),
+          },
+        ])
+      );
       return reply.send(
         ids
           .map((id) => byId.get(id))
@@ -918,7 +971,14 @@ export async function propertyRoutes(app: FastifyInstance) {
         request.userId!,
         filters
       );
-      return reply.send(mapNearbyGroupedResult(result));
+      const readIds = result
+        ? await getReadPropertyIdSet(result.propertyIds, { userId: request.userId! })
+        : new Set<string>();
+      const isRead =
+        result != null &&
+        result.propertyIds.length > 0 &&
+        result.propertyIds.every((propertyId) => readIds.has(propertyId));
+      return reply.send(mapNearbyGroupedResult(result, isRead));
     }
   );
 
@@ -939,6 +999,10 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params;
       const effectiveUserId = request.userId ?? '00000000-0000-4000-a000-000000000000';
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
 
       const rows = await db.execute<PropertyDetailRow>(sql`
         SELECT
@@ -981,9 +1045,11 @@ export async function propertyRoutes(app: FastifyInstance) {
         row.asking_price != null ? Number(row.asking_price) : null
       );
       const commentCount = Number(row.top_level_comment_count) + Number(row.reply_count);
+      const isRead = await isPropertyReadForViewer(id, viewer);
 
       return reply.send({
         ...publicRow,
+        isRead,
         commentCount,
         likeCount: Number(row.property_like_count),
         uniqueViewers: Number(row.unique_viewer_count),

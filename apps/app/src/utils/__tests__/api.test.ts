@@ -273,6 +273,7 @@ describe('grouped property normalization', () => {
         floorAreaM2: 123,
         hasActiveListing: true,
         marketState: 'for-sale',
+        isRead: true,
       })
     ).toMatchObject({
       activeListingCount: 1,
@@ -283,6 +284,7 @@ describe('grouped property normalization', () => {
       recentSocialScoreTotal: 6,
       hasActiveListing: true,
       marketState: 'for-sale',
+      isRead: true,
     });
   });
 
@@ -309,6 +311,7 @@ describe('grouped property normalization', () => {
         commentCount: 3,
         hasActiveListing: true,
         marketState: 'for-sale',
+        is_read: 'true',
       },
     } as const satisfies GeoJSON.Feature;
 
@@ -321,6 +324,7 @@ describe('grouped property normalization', () => {
       recentSocialScoreTotal: 8,
       hasActiveListing: true,
       marketState: 'for-sale',
+      isRead: true,
     });
   });
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
+import { readTileSourceKeys } from '../readTileSourceInvalidation';
 import { usePropertyView } from '../usePropertyView';
 
 const mockPost = jest.fn<Promise<{ viewCount: number; uniqueViewers: number }>, [string, unknown, RequestInit?]>();
@@ -84,5 +85,6 @@ describe('usePropertyView', () => {
     expect(secondHeaders).toBeInstanceOf(Headers);
     expect((firstHeaders as Headers).get('x-session-id')).toBe('session-123');
     expect((secondHeaders as Headers).get('x-session-id')).toBe('session-123');
+    expect(queryClient.getQueryData(readTileSourceKeys.version)).toBe(2);
   });
 });

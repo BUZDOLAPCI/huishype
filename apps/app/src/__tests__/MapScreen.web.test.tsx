@@ -17,6 +17,10 @@ type MockMapInstance = {
     disableRotation: jest.Mock;
   };
   addControl: jest.Mock;
+  addSource: jest.Mock;
+  addLayer: jest.Mock;
+  removeLayer: jest.Mock;
+  removeSource: jest.Mock;
   getContainer: jest.Mock;
   getCanvas: jest.Mock;
   getCenter: jest.Mock;
@@ -52,6 +56,11 @@ const mockGetAccessToken = jest.fn(async () => 'viewer-token');
 let mockFollowingTileSourceIsError = false;
 let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
 const mockFollowingTileRefetch = jest.fn();
+let mockReadTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
+let mockReadHeaderValue = 'session-123';
+const mockReadTileRefetch = jest.fn();
+const mockRecordPropertyView = jest.fn();
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
@@ -228,6 +237,35 @@ jest.mock('@/src/hooks/useFollowingTileSource', () => ({
   ),
 }));
 
+const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => ({
+  data: mockReadTileUrl
+    ? {
+        tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+        tileUrl: mockReadTileUrl,
+        tileJson: { tiles: [mockReadTileUrl] },
+        headerName: mockReadHeaderName,
+        headerValue: mockReadHeaderValue,
+        version: 0,
+      }
+    : undefined,
+  isLoading: false,
+  isError: false,
+  error: null,
+  refetch: mockReadTileRefetch,
+}));
+
+jest.mock('@/src/hooks/useReadTileSource', () => ({
+  useReadTileSource: jest.fn((filters: unknown, enabled: unknown) =>
+    mockUseReadTileSource(filters, enabled)
+  ),
+}));
+
+jest.mock('@/src/hooks/usePropertyView', () => ({
+  usePropertyView: jest.fn(() => ({
+    recordPropertyView: mockRecordPropertyView,
+  })),
+}));
+
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
@@ -296,6 +334,7 @@ jest.mock('maplibre-gl', () => {
     const listeners = new globalThis.Map<string, MockMapEventHandler[]>();
     const onceListeners = new globalThis.Map<string, MockMapEventHandler[]>();
     let currentTiles = options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
+    let currentReadTiles = options.style?.sources?.['read-properties-source']?.tiles?.slice() ?? [];
 
     const getKey = (event: string, layerId?: string) => (layerId ? `${event}:${layerId}` : event);
 
@@ -326,6 +365,12 @@ jest.mock('maplibre-gl', () => {
         currentTiles = tiles.slice();
       }),
     };
+    const readPropertySource = {
+      serialize: jest.fn(() => ({ tiles: currentReadTiles })),
+      setTiles: jest.fn((tiles: string[]) => {
+        currentReadTiles = tiles.slice();
+      }),
+    };
 
     const canvas = globalThis.document.createElement('canvas');
     canvas.style.cursor = '';
@@ -337,6 +382,18 @@ jest.mock('maplibre-gl', () => {
         disableRotation: jest.fn(),
       },
       addControl: jest.fn(),
+      addSource: jest.fn((sourceId: string, source: { tiles?: string[] }) => {
+        if (sourceId === 'read-properties-source') {
+          currentReadTiles = source.tiles?.slice() ?? [];
+        }
+      }),
+      addLayer: jest.fn(),
+      removeLayer: jest.fn(),
+      removeSource: jest.fn((sourceId: string) => {
+        if (sourceId === 'read-properties-source') {
+          currentReadTiles = [];
+        }
+      }),
       getContainer: jest.fn(() => options.container),
       getCanvas: jest.fn(() => canvas),
       getCenter: jest.fn(() => ({ lng: 4.9, lat: 52.37 })),
@@ -366,9 +423,15 @@ jest.mock('maplibre-gl', () => {
         return instance;
       }),
       getLayer: jest.fn(() => false),
-      getSource: jest.fn((sourceId: string) =>
-        sourceId === 'properties-source' ? propertySource : undefined
-      ),
+      getSource: jest.fn((sourceId: string) => {
+        if (sourceId === 'properties-source') {
+          return propertySource;
+        }
+        if (sourceId === 'read-properties-source' && currentReadTiles.length > 0) {
+          return readPropertySource;
+        }
+        return undefined;
+      }),
       isStyleLoaded: jest.fn(() => true),
       fitBounds: jest.fn(),
       flyTo: jest.fn(),
@@ -426,6 +489,10 @@ describe('MapScreen web grouped Following mode', () => {
     mockIsAuthenticated = true;
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+    mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadHeaderName = 'x-session-id';
+    mockReadHeaderValue = 'session-123';
+    mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
     mockInteraction.handleFeaturePress.mockReset();
@@ -537,6 +604,40 @@ describe('MapScreen web grouped Following mode', () => {
     );
   });
 
+  it('adds private read overlay tiles and scopes signed-out session headers to read requests', async () => {
+    mockIsAuthenticated = false;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(mockUseReadTileSource).toHaveBeenLastCalledWith(mockAppliedFilters, true);
+    expect(map.options.style.sources?.['properties-source']?.tiles).toEqual([
+      'https://tiles.test/tile-a',
+    ]);
+    expect(map.options.style.sources?.['read-properties-source']?.tiles).toEqual([
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf',
+    ]);
+    expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
+      {
+        url: 'https://tiles.test/properties/read/12/2048/1363.pbf',
+        headers: {
+          'x-session-id': 'session-123',
+        },
+      }
+    );
+    expect(map.options.transformRequest?.('https://tiles.test/properties/12/2048/1363.pbf')).toEqual({
+      url: 'https://tiles.test/properties/12/2048/1363.pbf',
+    });
+  });
+
   it('auth-gates signed-out Following toggles without switching state', async () => {
     mockIsAuthenticated = false;
 
@@ -579,7 +680,7 @@ describe('MapScreen web grouped Following mode', () => {
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      await new Promise((resolve) => setTimeout(resolve, 1700));
     });
 
     expect(map.queryRenderedFeatures).toHaveBeenCalled();

@@ -44,13 +44,19 @@ import { generateTreeCandidates } from '../services/tree-scatter.js';
 import {
   buildFollowingMvtForTile,
   buildMvtForTile,
+  buildReadMvtForTile,
   tileToBBox,
 } from '../services/property-grouping.js';
 import {
   followingMapFiltersQuerySchema,
   parseFollowingMapFiltersQuery,
   parseMapFiltersQuery,
+  serializeMapFilterQuery,
 } from '../services/map-filters.js';
+import {
+  hasCurrentReadStateForViewer,
+  resolvePropertyReadViewer,
+} from '../services/property-read-state.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -177,6 +183,11 @@ function setPropertyTileCache(
   }
 
   propertyTileCache.set(cacheKey, entry);
+}
+
+function buildReadPropertyTileTemplateUrl(baseUrl: string, filters: ReturnType<typeof parseMapFiltersQuery>): string {
+  const query = serializeMapFilterQuery(filters);
+  return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
 }
 
 // --- Sprite manifest + layer filtering ---
@@ -1453,6 +1464,56 @@ export async function tileRoutes(app: FastifyInstance) {
     }
   );
 
+  typedApp.get(
+    '/tiles/properties/read.json',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get read property tile metadata (TileJSON)',
+        description:
+          'Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.',
+        querystring: mapFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+
+      if (!viewer) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        });
+      }
+
+      const protocol = request.protocol;
+      const host = request.host;
+      const filters = parseMapFiltersQuery(request.query);
+      const tileUrl = buildReadPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
+      const tiles = (await hasCurrentReadStateForViewer(viewer)) ? [tileUrl] : [];
+
+      return reply
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization, x-session-id')
+        .send({
+          tilejson: '2.1.0',
+          name: 'HuisHype Read Properties',
+          description: 'Viewer-specific read property overlay data with clustering',
+          tiles,
+          minzoom: 0,
+          maxzoom: 22,
+          bounds: [-180, -85, 180, 85],
+        });
+    }
+  );
+
   /**
    * GET /tiles/properties/:z/:x/:y.pbf
    *
@@ -1545,6 +1606,60 @@ export async function tileRoutes(app: FastifyInstance) {
         .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
         .header('X-Tile-Generation-Time', `${queryTime}ms`)
         .header('X-Tile-Cache', 'miss')
+        .send(mvtBuffer);
+    }
+  );
+
+  typedApp.get(
+    '/tiles/properties/read/:z/:x/:y.pbf',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get read property vector tile',
+        description:
+          'Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.',
+        params: tileParamsSchema,
+        querystring: mapFiltersQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+
+      if (!viewer) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        });
+      }
+
+      const filters = parseMapFiltersQuery(request.query);
+      const startTime = Date.now();
+      const mvtBuffer = await buildReadMvtForTile({ z, x, y }, viewer, filters);
+      const queryTime = Date.now() - startTime;
+
+      if (queryTime > 100) {
+        app.log.warn({ z, x, y, queryTime }, `Slow read tile generation: ${queryTime}ms`);
+      }
+
+      if (!mvtBuffer || mvtBuffer.length === 0) {
+        return reply
+          .header('Cache-Control', 'private, no-store')
+          .header('Vary', 'Authorization, x-session-id')
+          .header('X-Tile-Generation-Time', `${queryTime}ms`)
+          .status(204)
+          .send();
+      }
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization, x-session-id')
+        .header('X-Tile-Generation-Time', `${queryTime}ms`)
         .send(mvtBuffer);
     }
   );

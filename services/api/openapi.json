@@ -1055,6 +1055,9 @@
                           },
                           "recentUniqueViewerCount": {
                             "type": "number"
+                          },
+                          "isRead": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -1097,7 +1100,8 @@
                           "recentCommentLikeCount",
                           "recentGuessCount",
                           "recentViewCount",
-                          "recentUniqueViewerCount"
+                          "recentUniqueViewerCount",
+                          "isRead"
                         ],
                         "additionalProperties": false
                       }
@@ -1557,6 +1561,9 @@
                             "commentCount": {
                               "type": "number"
                             },
+                            "isRead": {
+                              "type": "boolean"
+                            },
                             "groupKind": {
                               "type": "string",
                               "enum": [
@@ -1619,6 +1626,7 @@
                             "socialScoreMax",
                             "recentSocialScoreTotal",
                             "commentCount",
+                            "isRead",
                             "groupKind",
                             "address",
                             "city",
@@ -1724,6 +1732,9 @@
                             "commentCount": {
                               "type": "number"
                             },
+                            "isRead": {
+                              "type": "boolean"
+                            },
                             "groupKind": {
                               "type": "string",
                               "enum": [
@@ -1747,6 +1758,7 @@
                             "socialScoreMax",
                             "recentSocialScoreTotal",
                             "commentCount",
+                            "isRead",
                             "groupKind"
                           ],
                           "additionalProperties": false
@@ -2080,6 +2092,9 @@
                       },
                       "recentUniqueViewerCount": {
                         "type": "number"
+                      },
+                      "isRead": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -2122,7 +2137,8 @@
                       "recentCommentLikeCount",
                       "recentGuessCount",
                       "recentViewCount",
-                      "recentUniqueViewerCount"
+                      "recentUniqueViewerCount",
+                      "isRead"
                     ],
                     "additionalProperties": false
                   }
@@ -2343,6 +2359,9 @@
                             "commentCount": {
                               "type": "number"
                             },
+                            "isRead": {
+                              "type": "boolean"
+                            },
                             "groupKind": {
                               "type": "string",
                               "enum": [
@@ -2405,6 +2424,7 @@
                             "socialScoreMax",
                             "recentSocialScoreTotal",
                             "commentCount",
+                            "isRead",
                             "groupKind",
                             "address",
                             "city",
@@ -2510,6 +2530,9 @@
                             "commentCount": {
                               "type": "number"
                             },
+                            "isRead": {
+                              "type": "boolean"
+                            },
                             "groupKind": {
                               "type": "string",
                               "enum": [
@@ -2533,6 +2556,7 @@
                             "socialScoreMax",
                             "recentSocialScoreTotal",
                             "commentCount",
+                            "isRead",
                             "groupKind"
                           ],
                           "additionalProperties": false
@@ -2890,6 +2914,9 @@
                     "recentUniqueViewerCount": {
                       "type": "number"
                     },
+                    "isRead": {
+                      "type": "boolean"
+                    },
                     "isLiked": {
                       "type": "boolean"
                     },
@@ -3057,6 +3084,7 @@
                     "recentGuessCount",
                     "recentViewCount",
                     "recentUniqueViewerCount",
+                    "isRead",
                     "isLiked",
                     "isSaved",
                     "commentCount",
@@ -3624,6 +3652,9 @@
                           "recentUniqueViewerCount": {
                             "type": "number"
                           },
+                          "isRead": {
+                            "type": "boolean"
+                          },
                           "savedAt": {
                             "type": "string",
                             "format": "date-time",
@@ -3677,6 +3708,7 @@
                           "recentGuessCount",
                           "recentViewCount",
                           "recentUniqueViewerCount",
+                          "isRead",
                           "savedAt",
                           "isSaved"
                         ],
@@ -5661,6 +5693,166 @@
         }
       }
     },
+    "/tiles/properties/read.json": {
+      "get": {
+        "summary": "Get read property tile metadata (TileJSON)",
+        "tags": [
+          "tiles"
+        ],
+        "description": "Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "salePriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "salePriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "rentPriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "rentPriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "marketState",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tilejson": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tiles/properties/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Get property vector tile",
@@ -5668,6 +5860,116 @@
           "tiles"
         ],
         "description": "Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "salePriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "salePriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "rentPriceFrom",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "rentPriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "marketState",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 22
+            },
+            "in": "path",
+            "name": "z",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "x",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "y",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/properties/read/{z}/{x}/{y}.pbf": {
+      "get": {
+        "summary": "Get read property vector tile",
+        "tags": [
+          "tiles"
+        ],
+        "description": "Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.",
         "parameters": [
           {
             "schema": {

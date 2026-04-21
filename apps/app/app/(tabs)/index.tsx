@@ -45,6 +45,8 @@ import {
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
+import { useReadTileSource } from '@/src/hooks/useReadTileSource';
+import { usePropertyView } from '@/src/hooks/usePropertyView';
 import {
   fetchNearbyGroup,
   fetchFollowingNearbyGroup,
@@ -58,6 +60,8 @@ import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import {
   buildFollowingTileRequestMatchPattern,
+  buildReadTileRequestMatchPattern,
+  injectReadPropertyOverlay,
   replacePropertySourceTiles,
 } from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -153,7 +157,10 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
  * alpha on Android only reliably renders custom vector sources when passed
  * as inline style objects.
  */
-function useMergedMapStyle(propertyTiles: string[]): InlineMapStyle | null {
+function useMergedMapStyle(
+  propertyTiles: string[],
+  readPropertyTiles: string[],
+): InlineMapStyle | null {
   const [mergedStyle, setMergedStyle] = useState<InlineMapStyle | null>(null);
 
   useEffect(() => {
@@ -165,12 +172,13 @@ function useMergedMapStyle(propertyTiles: string[]): InlineMapStyle | null {
         if (cancelled) return;
         if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
           (styleJson.layers as Array<unknown>)?.length);
-        setMergedStyle(replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTiles));
+        const propertyStyle = replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTiles);
+        setMergedStyle(injectReadPropertyOverlay(propertyStyle, readPropertyTiles));
       })
       .catch(e => {
         console.error('[HuisHype] Failed to fetch merged style:', e.message);
         // Fallback: minimal style with just our tiles (no base map)
-        setMergedStyle({
+        setMergedStyle(injectReadPropertyOverlay({
           version: 8,
           sources: {
             'properties-source': {
@@ -190,14 +198,19 @@ function useMergedMapStyle(propertyTiles: string[]): InlineMapStyle | null {
               paint: { 'circle-radius': 10, 'circle-color': '#FF5A5F', 'circle-opacity': 0.9 },
             },
           ],
-        });
+        } as InlineMapStyle, readPropertyTiles));
       });
     return () => { cancelled = true; };
-  }, [propertyTiles]);
+  }, [propertyTiles, readPropertyTiles]);
 
   useEffect(() => {
-    setMergedStyle((current) => replacePropertySourceTiles(current, propertyTiles));
-  }, [propertyTiles]);
+    setMergedStyle((current) => (
+      injectReadPropertyOverlay(
+        replacePropertySourceTiles(current, propertyTiles),
+        readPropertyTiles,
+      )
+    ));
+  }, [propertyTiles, readPropertyTiles]);
 
   return mergedStyle;
 }
@@ -228,6 +241,10 @@ export default function MapScreen() {
     followingActivity,
     socialScope === 'following' && mapLoaded,
   );
+  const readTileSource = useReadTileSource(
+    filterController.appliedFilters,
+    socialScope !== 'following' && mapLoaded,
+  );
   const activePropertyTiles = useMemo(
     () => (
       socialScope === 'following'
@@ -236,8 +253,16 @@ export default function MapScreen() {
     ),
     [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
   );
+  const activeReadPropertyTiles = useMemo(
+    () => (
+      socialScope === 'following' || !readTileSource.data?.tileUrl
+        ? []
+        : [readTileSource.data.tileUrl]
+    ),
+    [readTileSource.data?.tileUrl, socialScope],
+  );
   // Merged style as JS object (base map + property vector tiles)
-  const mergedStyle = useMergedMapStyle(activePropertyTiles);
+  const mergedStyle = useMergedMapStyle(activePropertyTiles, activeReadPropertyTiles);
   const mapRef = useRef<MapRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
@@ -429,27 +454,42 @@ export default function MapScreen() {
 
   useEffect(() => {
     NetworkManager.removeRequestHeader('Authorization');
+    NetworkManager.removeRequestHeader('x-session-id');
 
     if (
-      socialScope !== 'following' ||
-      !followingTileAuthToken ||
-      !followingTileSource.data?.tileUrl
+      socialScope === 'following' &&
+      followingTileAuthToken &&
+      followingTileSource.data?.tileUrl
     ) {
-      return;
+      NetworkManager.addRequestHeader(
+        'Authorization',
+        `Bearer ${followingTileAuthToken}`,
+        buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl),
+      );
     }
 
-    NetworkManager.addRequestHeader(
-      'Authorization',
-      `Bearer ${followingTileAuthToken}`,
-      buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl),
-    );
+    if (
+      socialScope !== 'following' &&
+      readTileSource.data?.tileUrl &&
+      readTileSource.data.headerValue
+    ) {
+      NetworkManager.addRequestHeader(
+        readTileSource.data.headerName,
+        readTileSource.data.headerValue,
+        buildReadTileRequestMatchPattern(readTileSource.data.tileUrl),
+      );
+    }
 
     return () => {
       NetworkManager.removeRequestHeader('Authorization');
+      NetworkManager.removeRequestHeader('x-session-id');
     };
   }, [
     followingTileAuthToken,
     followingTileSource.data?.tileUrl,
+    readTileSource.data?.headerName,
+    readTileSource.data?.headerValue,
+    readTileSource.data?.tileUrl,
     socialScope,
   ]);
 
@@ -459,6 +499,12 @@ export default function MapScreen() {
     () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
     [interaction.currentPreviewIndex, interaction.previewGroup],
   );
+  const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
+  useEffect(() => {
+    if (currentPreviewProperty?.id) {
+      recordPreviewPropertyView(currentPreviewProperty.id);
+    }
+  }, [currentPreviewProperty?.id, recordPreviewPropertyView]);
 
   useFocusEffect(
     useCallback(() => {

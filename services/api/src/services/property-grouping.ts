@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import {
   isValidCountryCode,
   PROPERTY_MAP_FOOTPRINTS,
@@ -19,6 +19,10 @@ import {
   createDefaultMapFilters,
   type MapFilters,
 } from './map-filters.js';
+import {
+  filterReadCanonicalGroups,
+  type PropertyReadViewer,
+} from './property-read-state.js';
 
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
@@ -744,6 +748,43 @@ async function fetchFollowingGroupingCandidates(
   return fetchFollowingGroupingCandidatesInBBoxes(viewerId, [bufferedBounds], tile.z, filters);
 }
 
+function readStateIdentityPredicate(viewer: PropertyReadViewer): SQL {
+  if ('userId' in viewer) {
+    return sql`prs.user_id = ${viewer.userId} AND prs.session_id IS NULL`;
+  }
+
+  return sql`prs.session_id = ${viewer.sessionId} AND prs.user_id IS NULL`;
+}
+
+async function hasCurrentReadStateInTileBounds(
+  tile: TileId,
+  viewer: PropertyReadViewer
+): Promise<boolean> {
+  const bounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
+  const rows = await db.execute<{ has_read_state: boolean }>(sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM property_read_state prs
+      INNER JOIN properties p ON p.id = prs.property_id
+      LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
+      WHERE ${readStateIdentityPredicate(viewer)}
+        AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+        AND p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ST_MakeEnvelope(
+          ${bounds.minLon},
+          ${bounds.minLat},
+          ${bounds.maxLon},
+          ${bounds.maxLat},
+          4326
+        )
+      LIMIT 1
+    ) AS has_read_state
+  `);
+
+  return Array.from(rows)[0]?.has_read_state === true;
+}
+
 async function fetchSinglePropertyDetails(
   propertyIds: string[]
 ): Promise<Map<string, SinglePropertyDetail>> {
@@ -903,6 +944,19 @@ export async function buildFollowingCanonicalGroupsForTile(
   const candidates = await fetchFollowingGroupingCandidates(tile, viewerId, filters);
   const groups = groupCandidatesForTile(tile, candidates);
   return hydrateSinglePropertyDetails(groups);
+}
+
+export async function buildReadCanonicalGroupsForTile(
+  tile: TileId,
+  viewer: PropertyReadViewer,
+  filters: MapFilters = createDefaultMapFilters()
+): Promise<CanonicalPropertyGroup[]> {
+  if (!(await hasCurrentReadStateInTileBounds(tile, viewer))) {
+    return [];
+  }
+
+  const groups = await buildCanonicalGroupsForTile(tile, filters);
+  return filterReadCanonicalGroups(groups, viewer);
 }
 
 function haversineMeters(a: [number, number], b: [number, number]): number {
@@ -1130,6 +1184,14 @@ export async function buildMvtForTile(
   filters: MapFilters = createDefaultMapFilters()
 ): Promise<Buffer> {
   return buildMvtForGroups(tile, await buildCanonicalGroupsForTile(tile, filters));
+}
+
+export async function buildReadMvtForTile(
+  tile: TileId,
+  viewer: PropertyReadViewer,
+  filters: MapFilters = createDefaultMapFilters()
+): Promise<Buffer> {
+  return buildMvtForGroups(tile, await buildReadCanonicalGroupsForTile(tile, viewer, filters));
 }
 
 export async function buildFollowingMvtForTile(

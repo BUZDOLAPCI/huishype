@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, comments, properties, reactions, users } from '../db/index.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 
 // Type for comment rows from raw SQL
 type CommentRow = {
@@ -401,16 +402,20 @@ export async function commentRoutes(app: FastifyInstance) {
 
       const user = userResult[0];
 
-      // Create the comment
-      const newComment = await db
-        .insert(comments)
-        .values({
-          propertyId,
-          userId,
-          parentId: parentId ?? null,
-          content,
-        })
-        .returning();
+      const newComment = await db.transaction(async (tx) => {
+        const inserted = await tx
+          .insert(comments)
+          .values({
+            propertyId,
+            userId,
+            parentId: parentId ?? null,
+            content,
+          })
+          .returning();
+
+        await advancePropertyChangeVersion(propertyId, tx);
+        return inserted;
+      });
 
       const created = newComment[0];
 

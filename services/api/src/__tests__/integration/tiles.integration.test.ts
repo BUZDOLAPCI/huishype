@@ -378,6 +378,75 @@ describe('Tile routes', () => {
     });
   });
 
+  describe('GET /tiles/properties/read.json', () => {
+    it('requires a stable viewer identity', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read.json',
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'BAD_REQUEST',
+        message: 'Authenticated user or x-session-id header is required.',
+      });
+    });
+
+    it('returns private TileJSON metadata without tile templates before anything is read', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+        headers: { 'x-session-id': `read-tilejson-empty-${Date.now()}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toHaveProperty('tilejson', '2.1.0');
+      expect(body.tiles).toEqual([]);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      expect(response.headers.vary).toContain('Authorization');
+      expect(response.headers.vary).toContain('x-session-id');
+    });
+
+    it('returns private TileJSON metadata with filter params after a property is read', async () => {
+      const sessionId = `read-tilejson-session-${Date.now()}`;
+      const property = await createIntegrationProperty({
+        street: 'Read TileJSON Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9300AA',
+        lon: 6.2,
+        lat: 52.2,
+      });
+
+      try {
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty('tilejson', '2.1.0');
+        expect(body.tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+        expect(body.tiles[0]).toContain('marketState=for-sale%2Cnot-listed');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+        expect(response.headers.vary).toContain('x-session-id');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+  });
+
   describe('GET /tiles/following/properties.json', () => {
     it('requires authentication', async () => {
       const response = await app.inject({
@@ -650,6 +719,140 @@ describe('Tile routes', () => {
       }
 
       expect(foundCluster).toBe(true);
+    });
+  });
+
+  describe('GET /tiles/properties/read/:z/:x/:y.pbf', () => {
+    it('requires a stable viewer identity', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read/16/33841/21594.pbf',
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'BAD_REQUEST',
+        message: 'Authenticated user or x-session-id header is required.',
+      });
+    });
+
+    it('returns 204 when matching properties are unread and 200 after viewing', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Read Overlay Tile Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9301AA',
+        lon: 6.201,
+        lat: 52.201,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+      const sessionId = `read-overlay-${Date.now()}`;
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 475000,
+          sourceUrl: `https://example.com/read-overlay-${property.id}`,
+        });
+
+        const unreadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(unreadResponse.statusCode).toBe(204);
+        expect(unreadResponse.headers['cache-control']).toBe('private, no-store');
+        expect(unreadResponse.headers.vary).toContain('Authorization');
+        expect(unreadResponse.headers.vary).toContain('x-session-id');
+
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const readResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(readResponse.statusCode).toBe(200);
+        expect(readResponse.headers['content-type']).toBe('application/x-protobuf');
+        expect(readResponse.headers['cache-control']).toBe('private, no-store');
+        expect(readResponse.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
+    it('only emits a clustered read overlay when every member has been read', async () => {
+      const sessionId = `read-cluster-${Date.now()}`;
+      const first = await createIntegrationProperty({
+        street: 'Read Overlay Cluster A',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9302AA',
+        lon: 6.202,
+        lat: 52.202,
+      });
+      const second = await createIntegrationProperty({
+        street: 'Read Overlay Cluster B',
+        houseNumber: 2,
+        city: 'Readtile',
+        postalCode: '9302AB',
+        lon: 6.20201,
+        lat: 52.20201,
+      });
+      const tile = tileCoordinatesForPoint(first.lon, first.lat, 14);
+
+      try {
+        await createIntegrationListing({
+          propertyId: first.id,
+          askingPrice: 475000,
+          sourceUrl: `https://example.com/read-cluster-${first.id}`,
+        });
+        await createIntegrationListing({
+          propertyId: second.id,
+          askingPrice: 476000,
+          sourceUrl: `https://example.com/read-cluster-${second.id}`,
+        });
+
+        const firstView = await app.inject({
+          method: 'POST',
+          url: `/properties/${first.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(firstView.statusCode).toBe(200);
+
+        const partiallyReadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(partiallyReadResponse.statusCode).toBe(204);
+
+        const secondView = await app.inject({
+          method: 'POST',
+          url: `/properties/${second.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(secondView.statusCode).toBe(200);
+
+        const fullyReadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(fullyReadResponse.statusCode).toBe(200);
+        expect(fullyReadResponse.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id IN (${first.id}, ${second.id})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${first.id}, ${second.id})`);
+      }
     });
   });
 

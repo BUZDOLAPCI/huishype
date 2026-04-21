@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, propertyViews } from '../db/index.js';
 import { sql, eq } from 'drizzle-orm';
+import { markPropertyRead, resolvePropertyReadViewer } from '../services/property-read-state.js';
 
 // Schema definitions
 const propertyParamsSchema = z.object({
@@ -81,9 +82,13 @@ export async function viewRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id: propertyId } = request.params;
       const userId = request.userId;
-      const sessionId = (request.headers['x-session-id'] as string | undefined) || null;
+      const viewer = resolvePropertyReadViewer(
+        userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+      const sessionId = viewer && 'sessionId' in viewer ? viewer.sessionId : null;
 
-      if (!userId && !sessionId) {
+      if (!viewer) {
         return reply.status(400).send({
           error: 'BAD_REQUEST',
           message: 'Authenticated user or x-session-id header is required.',
@@ -136,6 +141,8 @@ export async function viewRoutes(app: FastifyInstance) {
           sessionId,
         });
       }
+
+      await markPropertyRead(propertyId, viewer);
 
       // Get current counts
       const counts = await db.execute<{ view_count: number; unique_viewers: number }>(sql`

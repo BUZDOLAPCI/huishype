@@ -20,6 +20,7 @@ import {
   markBatchQueued,
   requestLatestListingsRefresh,
 } from '../services/ingest/index.js';
+import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -432,6 +433,8 @@ export async function listingRoutes(app: FastifyInstance) {
           if (!createdListing) {
             throw new Error('Failed to create listing');
           }
+
+          await advancePropertyChangeVersion(propertyId, tx);
 
           const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName,

@@ -22,6 +22,8 @@ import {
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
+import { useReadTileSource } from '@/src/hooks/useReadTileSource';
+import { usePropertyView } from '@/src/hooks/usePropertyView';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
@@ -44,8 +46,12 @@ import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import {
   buildFollowingTileRequestMatchPattern,
+  buildReadTileRequestMatchPattern,
+  getReadPropertyOverlayLayers,
+  injectReadPropertyOverlay,
   replacePropertySourceTiles,
   PROPERTY_VECTOR_SOURCE_ID,
+  READ_PROPERTY_VECTOR_SOURCE_ID,
 } from '@/src/lib/mapPropertySource';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import {
@@ -99,7 +105,7 @@ const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
-const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 300;
+const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -732,6 +738,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     followingActivity,
     socialScope === 'following' && mapLoaded,
   );
+  const readTileSource = useReadTileSource(
+    filterController.appliedFilters,
+    socialScope !== 'following' && mapLoaded,
+  );
   const activePropertyTiles = useMemo(
     () => (
       socialScope === 'following'
@@ -740,10 +750,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     ),
     [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
   );
+  const activeReadPropertyTiles = useMemo(
+    () => (
+      socialScope === 'following' || !readTileSource.data?.tileUrl
+        ? []
+        : [readTileSource.data.tileUrl]
+    ),
+    [readTileSource.data?.tileUrl, socialScope],
+  );
   // Keep map construction stable; later filter changes should update the
   // vector source tiles in place instead of remounting the whole map.
   const activePropertyTilesRef = useRef(activePropertyTiles);
   activePropertyTilesRef.current = activePropertyTiles;
+  const activeReadPropertyTilesRef = useRef(activeReadPropertyTiles);
+  activeReadPropertyTilesRef.current = activeReadPropertyTiles;
   const appliedFilterSignature = useMemo(
     () => getCanonicalMapFilterSignature(filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -815,6 +835,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const maxVisibleAmbientCommentBubbles = webViewportSize.width < 560 ? 2 : 3;
   const ambientBubblesEnabled =
     mapLoaded &&
+    socialScope !== 'following' &&
     !interaction.previewGroup &&
     interaction.sheetIndex < 0;
   const ambientCommentBubbles = useAmbientCommentBubbles({
@@ -926,6 +947,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   followingTileAuthTokenRef.current = followingTileAuthToken;
   const followingTileRequestPatternRef = useRef<RegExp | null>(followingTileRequestPattern);
   followingTileRequestPatternRef.current = followingTileRequestPattern;
+  const readTileRequestPattern = useMemo(
+    () => (
+      readTileSource.data?.tileUrl
+        ? buildReadTileRequestMatchPattern(readTileSource.data.tileUrl)
+        : null
+    ),
+    [readTileSource.data?.tileUrl],
+  );
+  const readTileSourceRef = useRef(readTileSource.data);
+  readTileSourceRef.current = readTileSource.data;
+  const readTileRequestPatternRef = useRef<RegExp | null>(readTileRequestPattern);
+  readTileRequestPatternRef.current = readTileRequestPattern;
   const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const bottomSheetRefBridge = useRef(bottomSheetRef);
   bottomSheetRefBridge.current = bottomSheetRef;
@@ -951,6 +984,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     ) {
       setFollowingRenderedFeatureCount(null);
       setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    const source = map.getSource(PROPERTY_VECTOR_SOURCE_ID) as
+      | { serialize?: () => { tiles?: string[] } }
+      | undefined;
+    const currentTiles = source?.serialize?.().tiles;
+    const currentTileUrl = Array.isArray(currentTiles) ? currentTiles[0] : null;
+    if (currentTileUrl !== followingTileSource.data.tileUrl) {
+      setFollowingRenderCheckComplete(false);
+      followingRenderedFeatureTimeoutRef.current = setTimeout(() => {
+        followingRenderedFeatureTimeoutRef.current = null;
+        refreshFollowingRenderedFeatureCount();
+      }, FOLLOWING_RENDERED_FEATURE_SETTLE_MS);
       return;
     }
 
@@ -1027,6 +1074,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     return interaction.previewGroup.properties[interaction.currentPreviewIndex] ?? null;
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
+  const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
+  useEffect(() => {
+    if (currentPreviewProperty?.id) {
+      recordPreviewPropertyView(currentPreviewProperty.id);
+    }
+  }, [currentPreviewProperty?.id, recordPreviewPropertyView]);
   const previewRouteInput = useMemo(
     () =>
       extractCanonicalRouteInput(
@@ -1381,6 +1434,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           await res.json(),
           activePropertyTilesRef.current,
         );
+        style = injectReadPropertyOverlay(
+          style as maplibregl.StyleSpecification,
+          activeReadPropertyTilesRef.current,
+        );
       } catch {
         style = STYLE_URL;
       }
@@ -1400,6 +1457,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         transformRequest: (url: string) => {
           const token = followingTileAuthTokenRef.current;
           const pattern = followingTileRequestPatternRef.current;
+          const readSource = readTileSourceRef.current;
+          const readPattern = readTileRequestPatternRef.current;
 
           if (
             socialScopeRef.current === 'following' &&
@@ -1410,6 +1469,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
               url,
               headers: {
                 Authorization: `Bearer ${token}`,
+              },
+            };
+          }
+
+          if (
+            socialScopeRef.current !== 'following' &&
+            readSource &&
+            readPattern?.test(url)
+          ) {
+            return {
+              url,
+              headers: {
+                [readSource.headerName]: readSource.headerValue,
               },
             };
           }
@@ -2224,6 +2296,69 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     source.setTiles(activePropertyTiles);
   }, [activePropertyTiles, appliedFilterSignature, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) {
+      return;
+    }
+
+    const source = map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID) as
+      | (maplibregl.Source & {
+          setTiles?: (tiles: string[]) => void;
+          serialize?: () => { tiles?: string[] };
+        })
+      | undefined;
+
+    if (source && activeReadPropertyTiles.length === 0) {
+      for (const layer of getReadPropertyOverlayLayers()) {
+        if (map.getLayer(layer.id)) {
+          map.removeLayer(layer.id);
+        }
+      }
+      map.removeSource(READ_PROPERTY_VECTOR_SOURCE_ID);
+      return;
+    }
+
+    if (!source) {
+      if (activeReadPropertyTiles.length === 0 || !map.addSource || !map.addLayer) {
+        return;
+      }
+
+      map.addSource(READ_PROPERTY_VECTOR_SOURCE_ID, {
+        type: 'vector',
+        tiles: activeReadPropertyTiles,
+        minzoom: 0,
+        maxzoom: 22,
+      });
+
+      for (const layer of getReadPropertyOverlayLayers()) {
+        if (!map.getLayer(layer.id)) {
+          map.addLayer(layer as maplibregl.LayerSpecification);
+        }
+      }
+      return;
+    }
+
+    if (!source.setTiles) {
+      return;
+    }
+
+    const serializedTiles = source.serialize?.().tiles;
+    const currentTiles = Array.isArray(serializedTiles)
+      ? serializedTiles.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (
+      currentTiles.length === activeReadPropertyTiles.length &&
+      currentTiles.every(
+        (value: string, index: number) => value === activeReadPropertyTiles[index],
+      )
+    ) {
+      return;
+    }
+
+    source.setTiles(activeReadPropertyTiles);
+  }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
 
   useEffect(() => {
     if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {

@@ -412,6 +412,7 @@ async function phase3Upsert(sql: postgres.Sql): Promise<number> {
 
 export function buildOvertureUpsertQuery(): string {
   return `
+    WITH changed_properties AS (
     INSERT INTO properties (
       country_code, national_id, street, house_number, house_number_addition,
       postal_code, city, region, geometry
@@ -480,6 +481,24 @@ export function buildOvertureUpsertQuery(): string {
         ELSE EXCLUDED.geometry
       END,
       updated_at = NOW()
+      WHERE properties.national_id IS DISTINCT FROM CASE
+          WHEN ${NL_BAG_ROW_PRESERVE_CONDITION} THEN properties.national_id
+          ELSE EXCLUDED.national_id
+        END
+        OR properties.city IS DISTINCT FROM EXCLUDED.city
+        OR properties.region IS DISTINCT FROM EXCLUDED.region
+        OR properties.geometry IS DISTINCT FROM CASE
+          WHEN ${NL_BAG_ROW_PRESERVE_CONDITION} THEN properties.geometry
+          ELSE EXCLUDED.geometry
+        END
+      RETURNING id
+    )
+    INSERT INTO property_change_state (property_id, change_version, last_changed_at)
+    SELECT id, 1, NOW()
+    FROM changed_properties
+    ON CONFLICT (property_id) DO UPDATE SET
+      change_version = property_change_state.change_version + 1,
+      last_changed_at = EXCLUDED.last_changed_at
   `;
 }
 

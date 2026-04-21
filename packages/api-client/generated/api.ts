@@ -491,6 +491,7 @@ export interface paths {
                                 recentGuessCount: number;
                                 recentViewCount: number;
                                 recentUniqueViewerCount: number;
+                                isRead: boolean;
                             }[];
                             meta: {
                                 page: number;
@@ -654,6 +655,7 @@ export interface paths {
                             socialScoreMax: number;
                             recentSocialScoreTotal: number;
                             commentCount: number;
+                            isRead: boolean;
                             /** @enum {string} */
                             groupKind: "single";
                             address: string;
@@ -691,6 +693,7 @@ export interface paths {
                             socialScoreMax: number;
                             recentSocialScoreTotal: number;
                             commentCount: number;
+                            isRead: boolean;
                             /** @enum {string} */
                             groupKind: "cluster";
                         }) | null;
@@ -794,6 +797,7 @@ export interface paths {
                             recentGuessCount: number;
                             recentViewCount: number;
                             recentUniqueViewerCount: number;
+                            isRead: boolean;
                         }[];
                     };
                 };
@@ -871,6 +875,7 @@ export interface paths {
                             socialScoreMax: number;
                             recentSocialScoreTotal: number;
                             commentCount: number;
+                            isRead: boolean;
                             /** @enum {string} */
                             groupKind: "single";
                             address: string;
@@ -908,6 +913,7 @@ export interface paths {
                             socialScoreMax: number;
                             recentSocialScoreTotal: number;
                             commentCount: number;
+                            isRead: boolean;
                             /** @enum {string} */
                             groupKind: "cluster";
                         }) | null;
@@ -1023,6 +1029,7 @@ export interface paths {
                             recentGuessCount: number;
                             recentViewCount: number;
                             recentUniqueViewerCount: number;
+                            isRead: boolean;
                             isLiked: boolean;
                             isSaved: boolean;
                             commentCount: number;
@@ -1285,6 +1292,7 @@ export interface paths {
                                 recentGuessCount: number;
                                 recentViewCount: number;
                                 recentUniqueViewerCount: number;
+                                isRead: boolean;
                                 /** Format: date-time */
                                 savedAt: string;
                                 /** @enum {boolean} */
@@ -2268,6 +2276,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tiles/properties/read.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get read property tile metadata (TileJSON)
+         * @description Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string;
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tiles/properties/{z}/{x}/{y}.pbf": {
         parameters: {
             query?: never;
@@ -2278,6 +2357,54 @@ export interface paths {
         /**
          * Get property vector tile
          * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string;
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                };
+                header?: never;
+                path: {
+                    z: number;
+                    x: number;
+                    y: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/properties/read/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get read property vector tile
+         * @description Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.
          */
         get: {
             parameters: {

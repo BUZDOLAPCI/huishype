@@ -64,6 +64,12 @@ type SavedPropertiesQueryFromOpenApi = NonNullable<
 >;
 type SavedPropertiesResponseFromOpenApi =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
+type CanonicalSavedProperty = Expand<
+  GetSavedPropertiesResponse['data'][number] & { isRead: boolean }
+>;
+type CanonicalSavedPropertiesResponse = Expand<
+  Omit<GetSavedPropertiesResponse, 'data'> & { data: CanonicalSavedProperty[] }
+>;
 type ActivityQueryFromOpenApi = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponseFromOpenApi =
   paths['/activity']['get']['responses'][200]['content']['application/json'];
@@ -85,6 +91,7 @@ type FollowRouteResponseFromOpenApi =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
 type PropertyResponseFromOpenApi =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
+type CanonicalPropertyResponse = Expand<GetPropertyResponse & { isRead: boolean }>;
 type ResolvePropertyQueryFromOpenApi = paths['/properties/resolve']['get']['parameters']['query'];
 type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
@@ -95,6 +102,11 @@ type FollowingPropertyTilesQueryFromOpenApi = NonNullable<
 >;
 type FollowingPropertyTilesResponseFromOpenApi =
   paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
+type ReadPropertyTilesQueryFromOpenApi = NonNullable<
+  paths['/tiles/properties/read.json']['get']['parameters']['query']
+>;
+type ReadPropertyTilesResponseFromOpenApi =
+  paths['/tiles/properties/read.json']['get']['responses'][200]['content']['application/json'];
 type FollowingNearbyQueryFromOpenApi = NonNullable<
   paths['/properties/following-nearby']['get']['parameters']['query']
 >;
@@ -133,6 +145,7 @@ type CanonicalNearbySingle = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   address: string;
   city: string;
   askingPrice: number | null;
@@ -157,6 +170,7 @@ type CanonicalNearbyCluster = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
 };
 type CanonicalNearbyGroupedResponse = CanonicalNearbySingle | CanonicalNearbyCluster | null;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
@@ -183,8 +197,8 @@ const feedContractAssertions = [
   >,
   true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
-  true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, GetSavedPropertiesResponse>>,
-  true as Assert<IsExact<PropertyResponseFromOpenApi, GetPropertyResponse>>,
+  true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, CanonicalSavedPropertiesResponse>>,
+  true as Assert<IsExact<PropertyResponseFromOpenApi, CanonicalPropertyResponse>>,
   true as Assert<IsExact<PublicProfileResponseFromOpenApi, GetUserProfileResponse>>,
   true as Assert<IsExact<MyProfileResponseFromOpenApi, GetMyProfileResponse>>,
   true as Assert<IsExact<FollowersResponseFromOpenApi, GetFollowersResponse>>,
@@ -287,6 +301,16 @@ const feedContractAssertions = [
     IsExact<FollowingPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>
   >,
   true as Expect<
+    Equal<keyof ReadPropertyTilesQueryFromOpenApi, keyof FollowingPropertyTilesQueryFromOpenApi>
+  >,
+  true as Expect<
+    Equal<
+      ReadPropertyTilesQueryFromOpenApi['activity'],
+      FollowingPropertyTilesQueryFromOpenApi['activity']
+    >
+  >,
+  true as Assert<IsExact<ReadPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>>,
+  true as Expect<
     Equal<keyof FollowingNearbyQueryFromOpenApi, keyof GetFollowingNearbyPropertyRequest>
   >,
   true as Expect<
@@ -301,8 +325,12 @@ const feedContractAssertions = [
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
   true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
-  true as Expect<Equal<keyof FollowingNearbySharedSingle, keyof CanonicalNearbySingle>>,
-  true as Expect<Equal<keyof FollowingNearbySharedCluster, keyof CanonicalNearbyCluster>>,
+  true as Expect<
+    Equal<keyof FollowingNearbySharedSingle, Exclude<keyof CanonicalNearbySingle, 'isRead'>>
+  >,
+  true as Expect<
+    Equal<keyof FollowingNearbySharedCluster, Exclude<keyof CanonicalNearbyCluster, 'isRead'>>
+  >,
   true as Expect<Equal<FollowingNearbySharedSingle['bbox'], CanonicalNearbySingle['bbox']>>,
   true as Expect<Equal<FollowingNearbySharedCluster['bbox'], CanonicalNearbyCluster['bbox']>>,
   true as Expect<
@@ -361,6 +389,8 @@ describe('Generated OpenAPI types', () => {
       '/listings/preview',
       '/listings/submit',
       '/tiles/following/properties.json',
+      '/tiles/properties/read.json',
+      '/tiles/properties/read/{z}/{x}/{y}.pbf',
     ];
 
     // Runtime: verify each path key is valid
