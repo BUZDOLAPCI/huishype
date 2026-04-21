@@ -1,8 +1,9 @@
 import React from 'react';
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { useReadTileSource } from '../useReadTileSource';
+import { readTileSourceKeys } from '../readTileSourceInvalidation';
 import type { MapFilters } from '../../lib/sharedMapFilters';
 
 const mockGetAccessToken = jest.fn<Promise<string | null>, []>();
@@ -117,5 +118,70 @@ describe('useReadTileSource', () => {
       0,
     );
     expect(mockGetAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous read tile source while a bumped version is loading', async () => {
+    const queryClient = createQueryClient();
+    const initialTileSource = {
+      tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+      tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
+      tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf'] },
+      headerName: 'Authorization',
+      headerValue: 'Bearer fresh-token',
+      version: 0,
+    };
+    const refreshedTileSource = {
+      ...initialTileSource,
+      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=1',
+      tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      tileJson: {
+        tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1'],
+      },
+      version: 1,
+    };
+    let resolveRefresh!: (value: typeof refreshedTileSource) => void;
+
+    mockFetchReadTileSource
+      .mockResolvedValueOnce(initialTileSource)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      );
+
+    const { result } = renderHook(() => useReadTileSource(filters, true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.tileUrl).toBe(initialTileSource.tileUrl);
+    });
+
+    act(() => {
+      queryClient.setQueryData(readTileSourceKeys.version, 1);
+    });
+
+    await waitFor(() => {
+      expect(mockFetchReadTileSource).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockFetchReadTileSource).toHaveBeenLastCalledWith(
+      'http://api.test',
+      filters,
+      {
+        headerName: 'Authorization',
+        headerValue: 'Bearer fresh-token',
+      },
+      1,
+    );
+    expect(result.current.data?.tileUrl).toBe(initialTileSource.tileUrl);
+
+    act(() => {
+      resolveRefresh(refreshedTileSource);
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.tileUrl).toBe(refreshedTileSource.tileUrl);
+    });
   });
 });

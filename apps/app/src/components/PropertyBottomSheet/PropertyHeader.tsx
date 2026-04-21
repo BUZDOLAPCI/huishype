@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   Image,
+  Linking,
+  Pressable,
   Text,
   View,
   StyleSheet,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
 import {
@@ -78,12 +81,67 @@ interface PropertyHeaderProps {
   containerWidth?: number;
 }
 
+function formatGoogleMapsAddressPart(
+  part: string | null | undefined,
+  countryCode: string
+): string | undefined {
+  const trimmed = part?.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (countryCode.toUpperCase() !== 'NL') {
+    return trimmed;
+  }
+
+  return trimmed.replace(
+    /\b([1-9]\d{3})\s+([A-Za-z]{2})\b/g,
+    (_match: string, digits: string, letters: string) =>
+      `${digits}${letters.toUpperCase()}`
+  );
+}
+
+function getGoogleMapsUrl(property: PropertyDetailsData): string {
+  const countryCode = property.countryCode.trim();
+  const addressQuery = [
+    formatGoogleMapsAddressPart(property.address, countryCode),
+    formatGoogleMapsAddressPart(property.postalCode, countryCode),
+    property.city.trim(),
+    countryCode,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  if (addressQuery) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressQuery)}`;
+  }
+
+  if (property.geometry?.type === 'Point') {
+    const [longitude, latitude] = property.geometry.coordinates;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      `${latitude},${longitude}`
+    )}`;
+  }
+
+  return 'https://www.google.com/maps';
+}
+
 export function PropertyHeader({
   property,
   containerWidth: _containerWidth,
 }: PropertyHeaderProps) {
   const activity = ACTIVITY_CONFIG[property.activityLevel];
   const hasSecondaryLocation = Boolean(property.city || property.postalCode);
+  const googleMapsUrl = getGoogleMapsUrl(property);
+
+  const handleOpenGoogleMaps = async () => {
+    try {
+      await Linking.openURL(googleMapsUrl);
+    } catch (error) {
+      console.error('Error opening Google Maps:', error);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -128,6 +186,22 @@ export function PropertyHeader({
             }}
             variant="info"
           />
+        </View>
+
+        <View style={styles.mapLinkRow}>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Open property in Google Maps"
+            onPress={handleOpenGoogleMaps}
+            style={({ pressed }) => [
+              styles.mapLinkButton,
+              pressed && styles.mapLinkButtonPressed,
+            ]}
+          >
+            <Ionicons name="map-outline" size={14} color="#8C8479" />
+            <Text style={styles.mapLinkText}>Open in Google Maps</Text>
+            <Ionicons name="open-outline" size={13} color="#B8AFA3" />
+          </Pressable>
         </View>
       </Card>
     </View>
@@ -229,5 +303,29 @@ const styles = StyleSheet.create({
   },
   metricWrap: {
     marginTop: 16,
+  },
+  mapLinkRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  mapLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+  },
+  mapLinkButtonPressed: {
+    backgroundColor: '#FFF7EB',
+  },
+  mapLinkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8C8479',
   },
 });

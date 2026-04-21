@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getAnonymousSessionId } from '@/src/lib/anonymousSession';
 import type { MapFilters } from '@/src/lib/sharedMapFilters';
 import {
@@ -69,6 +69,7 @@ export function useReadTileSource(filters: MapFilters, enabled = true) {
       return fetchReadTileSource(API_URL, filters, credential, version);
     },
     enabled,
+    placeholderData: keepPreviousData,
     staleTime: READ_TILE_SOURCE_STALE_MS,
     retry: false,
     meta: {
