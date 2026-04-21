@@ -6,7 +6,6 @@ export type ColorStop = readonly [threshold: number, value: string];
 export interface ActiveSingleNodeVisualInput {
   activityScore: number;
   socialCount: number;
-  socialIntensity: number;
   activeListingCount: number;
   recentSocialCount?: number;
   recentSocialScoreTotal?: number;
@@ -16,7 +15,6 @@ export interface ActiveClusterNodeVisualInput {
   pointCount: number;
   listingShare: number;
   socialCount: number;
-  socialIntensity: number;
   recentSocialCount?: number;
   recentSocialScoreTotal?: number;
 }
@@ -46,7 +44,7 @@ export interface MapNodeVisual {
 const ACTIVE_SINGLE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx;
 const ACTIVE_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusStopsPx;
 const GHOST_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx;
-const MAP_NODE_LISTING_RING_ON_WIDTH = 2.5;
+const MAP_NODE_LISTING_RING_ON_WIDTH = 1.8;
 const MAP_NODE_LISTING_RING_ON_COLOR = '#2563EB';
 const MAP_NODE_LISTING_RING_ON_OPACITY = 0.96;
 
@@ -80,14 +78,7 @@ export const MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS = [
   [1, MAP_NODE_LISTING_RING_ON_OPACITY],
 ] as const satisfies readonly NumericStop[];
 
-export const MAP_NODE_SOCIAL_CORE_COLOR_STOPS = [
-  [0.5, '#FFDABB'],
-  [2, '#FFBC70'],
-  [8, '#FF8E63'],
-  [25, '#F15A5F'],
-  [60, '#B91C5C'],
-] as const satisfies readonly ColorStop[];
-
+export const MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR = '#FF9765';
 export const MAP_NODE_SOCIAL_IDLE_CORE_COLOR = '#DDE6F4';
 export const MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY = 0.96;
 export const MAP_NODE_SOCIAL_IDLE_CORE_OPACITY = 0.8;
@@ -307,9 +298,9 @@ export function resolveActiveSingleNodeVisual(
         input.activeListingCount,
       )
       : MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
-    coreDiameter: Math.max((radius - borderWidth) * 2, 8),
+    coreDiameter: radius * 2,
     coreColor: hasSocial
-      ? interpolateColorStops(MAP_NODE_SOCIAL_CORE_COLOR_STOPS, input.socialIntensity)
+      ? MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR
       : MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
     coreOpacity: hasSocial
       ? MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY
@@ -365,9 +356,9 @@ export function resolveActiveClusterNodeVisual(
         input.listingShare,
       )
       : MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
-    coreDiameter: Math.max((radius - borderWidth) * 2, 16),
+    coreDiameter: radius * 2,
     coreColor: hasSocial
-      ? interpolateColorStops(MAP_NODE_SOCIAL_CORE_COLOR_STOPS, input.socialIntensity)
+      ? MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR
       : MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
     coreOpacity: hasSocial
       ? MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY

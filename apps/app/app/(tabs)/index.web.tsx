@@ -626,14 +626,6 @@ interface ActivityPulseElement {
   pulse: HTMLDivElement;
 }
 
-function getNodeSocialIntensity(group: RenderedPropertyGroup): number {
-  if (group.socialCount <= 0) {
-    return 0;
-  }
-
-  return Math.max(group.socialScoreMax, group.socialScoreTotal / group.socialCount);
-}
-
 function resolveActivityPulseVisual(group: RenderedPropertyGroup) {
   if (
     group.nodeClass !== 'active' ||
@@ -648,14 +640,12 @@ function resolveActivityPulseVisual(group: RenderedPropertyGroup) {
       pointCount: group.pointCount,
       listingShare: group.pointCount > 0 ? group.activeListingCount / group.pointCount : 0,
       socialCount: group.socialCount,
-      socialIntensity: getNodeSocialIntensity(group),
       recentSocialCount: group.recentSocialCount,
       recentSocialScoreTotal: group.recentSocialScoreTotal,
     })
     : resolveActiveSingleNodeVisual({
       activityScore: group.activityScore,
       socialCount: group.socialCount,
-      socialIntensity: getNodeSocialIntensity(group),
       activeListingCount: group.activeListingCount,
       recentSocialCount: group.recentSocialCount,
       recentSocialScoreTotal: group.recentSocialScoreTotal,

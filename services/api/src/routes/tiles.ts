@@ -18,7 +18,7 @@ import {
   MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
   MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
   MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
-  MAP_NODE_SOCIAL_CORE_COLOR_STOPS,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
   MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
   MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
   MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
@@ -640,20 +640,6 @@ function buildListingShareExpression(): unknown[] {
   ];
 }
 
-function buildSocialIntensityExpression(): unknown[] {
-  const socialCount = buildPropertyFieldExpression('socialCount');
-  return [
-    'max',
-    buildPropertyFieldExpression('socialScoreMax'),
-    [
-      'case',
-      ['>', socialCount, 0],
-      ['/', buildPropertyFieldExpression('socialScoreTotal'), socialCount],
-      0,
-    ],
-  ];
-}
-
 function buildRecentPulseOpacityExpression(): unknown[] {
   return [
     'case',
@@ -725,7 +711,6 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
     buildPropertyFieldExpression('activeListingCount'),
     MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS
   );
-  const socialIntensity = buildSocialIntensityExpression();
   const recentPulseOpacity = buildRecentPulseOpacityExpression();
 
   return [
@@ -766,7 +751,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': activeClusterRadius,
+        'circle-radius': ['+', activeClusterRadius, activeClusterRingWidth],
         'circle-color': activeClusterRingColor,
         'circle-opacity': activeClusterRingOpacity,
         'circle-stroke-width': 0,
@@ -786,11 +771,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': ['max', ['-', activeClusterRadius, activeClusterRingWidth], 8],
+        'circle-radius': activeClusterRadius,
         'circle-color': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          buildInterpolateExpression(socialIntensity, MAP_NODE_SOCIAL_CORE_COLOR_STOPS),
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
           MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': [
@@ -878,7 +863,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': activeNodeRadius,
+        'circle-radius': ['+', activeNodeRadius, activeNodeRingWidth],
         'circle-color': buildInterpolateExpression(
           activeListingCount,
           MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
@@ -910,11 +895,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': ['max', ['-', activeNodeRadius, activeNodeRingWidth], 4],
+        'circle-radius': activeNodeRadius,
         'circle-color': [
           'case',
           ['>', buildPropertyFieldExpression('socialCount'), 0],
-          buildInterpolateExpression(socialIntensity, MAP_NODE_SOCIAL_CORE_COLOR_STOPS),
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
           MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': [

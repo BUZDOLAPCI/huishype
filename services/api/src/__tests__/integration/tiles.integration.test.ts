@@ -215,32 +215,47 @@ describe('Tile routes', () => {
       const clusterRingFields = collectExpressionStrings(activeClusterPaint['circle-stroke-color']);
       const clusterFillFields = collectExpressionStrings(activeClusterFillPaint['circle-color']);
       const clusterPulseFields = collectExpressionStrings(activeClusterPulsePaint['circle-opacity']);
+      const clusterPulseColorFields = collectExpressionStrings(activeClusterPulsePaint['circle-color']);
       const clusterRadiusFields = collectExpressionStrings(activeClusterPaint['circle-radius']);
+      const clusterFillRadiusFields = collectExpressionStrings(activeClusterFillPaint['circle-radius']);
       const nodeRingFields = collectExpressionStrings(activeNodePaint['circle-stroke-color']);
+      const nodeRadiusFields = collectExpressionStrings(activeNodePaint['circle-radius']);
       const nodeFillFields = collectExpressionStrings(activeNodeFillPaint['circle-color']);
+      const nodeFillRadiusFields = collectExpressionStrings(activeNodeFillPaint['circle-radius']);
       const nodePulseFields = collectExpressionStrings(activeNodePulsePaint['circle-opacity']);
+      const nodePulseColorFields = collectExpressionStrings(activeNodePulsePaint['circle-color']);
 
       expect(clusterRadiusFields).toContain('point_count');
+      expect(clusterRadiusFields).toContain('activeListingCount');
+      expect(clusterFillRadiusFields).not.toContain('activeListingCount');
       expect(clusterRingFields).toEqual(
         expect.arrayContaining(['activeListingCount', 'point_count']),
       );
       expect(clusterFillFields).toEqual(
-        expect.arrayContaining(['socialCount', 'socialScoreTotal', 'socialScoreMax']),
+        expect.arrayContaining(['socialCount']),
       );
       expect(clusterPulseFields).toEqual(
         expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
       );
+      expect(clusterPulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
       expect(nodeRingFields).toEqual(expect.arrayContaining(['activeListingCount']));
+      expect(nodeRadiusFields).toContain('activeListingCount');
+      expect(nodeFillRadiusFields).not.toContain('activeListingCount');
       expect(nodeFillFields).toEqual(
-        expect.arrayContaining(['socialCount', 'socialScoreTotal', 'socialScoreMax']),
+        expect.arrayContaining(['socialCount']),
       );
       expect(nodePulseFields).toEqual(
         expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
       );
+      expect(nodePulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
 
       expect(clusterFillFields).not.toContain('point_count');
+      expect(clusterFillFields).not.toContain('socialScoreTotal');
+      expect(clusterFillFields).not.toContain('socialScoreMax');
       expect(clusterPulseFields).not.toContain('point_count');
       expect(nodeFillFields).not.toContain('point_count');
+      expect(nodeFillFields).not.toContain('socialScoreTotal');
+      expect(nodeFillFields).not.toContain('socialScoreMax');
       expect(nodePulseFields).not.toContain('point_count');
 
       expect(collectExpressionNumbers(activeClusterPulsePaint['circle-opacity'])).toContain(0.5);

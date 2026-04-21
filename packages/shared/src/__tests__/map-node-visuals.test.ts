@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   interpolateColorStops,
   interpolateNumericStops,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
   resolveActiveClusterNodeVisual,
   resolveActiveSingleNodeVisual,
   resolveGhostClusterNodeVisual,
@@ -33,7 +34,6 @@ describe('map-node-visuals', () => {
     const quietVisual = resolveActiveSingleNodeVisual({
       activityScore: 0,
       socialCount: 4,
-      socialIntensity: 18,
       activeListingCount: 1,
       recentSocialCount: 1,
       recentSocialScoreTotal: 1,
@@ -41,7 +41,6 @@ describe('map-node-visuals', () => {
     const visual = resolveActiveSingleNodeVisual({
       activityScore: 80,
       socialCount: 4,
-      socialIntensity: 18,
       activeListingCount: 1,
       recentSocialCount: 3,
       recentSocialScoreTotal: 8,
@@ -49,9 +48,11 @@ describe('map-node-visuals', () => {
 
     expect(visual.borderWidth).toBeGreaterThan(0);
     expect(visual.borderOpacity).toBeGreaterThan(0.9);
-    expect(visual.coreDiameter).toBe(visual.diameter - (visual.borderWidth * 2));
-    expect(visual.coreColor).toBeTruthy();
+    expect(visual.coreDiameter).toBe(visual.diameter);
+    expect(visual.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
+    expect(quietVisual.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
     expect(visual.pulseOpacity).toBeGreaterThan(0);
+    expect(visual.pulseColor).not.toBe(quietVisual.pulseColor);
     expect(visual.diameter).toBeGreaterThan(0);
     expect(visual.diameter).toBe(quietVisual.diameter);
     expect(visual.pulseDiameter).toBeGreaterThan(quietVisual.pulseDiameter ?? 0);
@@ -61,7 +62,6 @@ describe('map-node-visuals', () => {
     const visual = resolveActiveSingleNodeVisual({
       activityScore: 20,
       socialCount: 3,
-      socialIntensity: 7,
       activeListingCount: 0,
       recentSocialCount: 0,
       recentSocialScoreTotal: 0,
@@ -78,7 +78,6 @@ describe('map-node-visuals', () => {
       pointCount: 2,
       listingShare: 0.05,
       socialCount: 12,
-      socialIntensity: 30,
       recentSocialCount: 1,
       recentSocialScoreTotal: 1,
     });
@@ -86,7 +85,6 @@ describe('map-node-visuals', () => {
       pointCount: 24,
       listingShare: 0.5,
       socialCount: 12,
-      socialIntensity: 30,
       recentSocialCount: 6,
       recentSocialScoreTotal: 16,
     });
@@ -97,19 +95,21 @@ describe('map-node-visuals', () => {
     expect(smallCluster.borderWidth).toBe(2.5);
     expect(visual.borderColor).toBe('#2563EB');
     expect(visual.borderOpacity).toBe(0.96);
-    expect(visual.coreDiameter).toBe(visual.diameter - (visual.borderWidth * 2));
+    expect(visual.coreDiameter).toBe(visual.diameter);
+    expect(visual.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
+    expect(smallCluster.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
+    expect(visual.pulseColor).not.toBe(smallCluster.pulseColor);
     expect(visual.labelColor).toBe('#FFFFFF');
     expect(visual.labelSize).toBe(11);
     expect(visual.pulseOpacity).toBeGreaterThan(0);
     expect(visual.pulseDiameter).toBeGreaterThan(smallCluster.pulseDiameter ?? 0);
   });
 
-  it('keeps no-listing active clusters ringless and lets the fill reach the edge', () => {
+  it('keeps no-listing active clusters ringless while preserving the fill footprint', () => {
     const visual = resolveActiveClusterNodeVisual({
       pointCount: 8,
       listingShare: 0,
       socialCount: 6,
-      socialIntensity: 14,
       recentSocialCount: 0,
       recentSocialScoreTotal: 0,
     });
@@ -117,7 +117,7 @@ describe('map-node-visuals', () => {
     expect(visual.borderWidth).toBe(1);
     expect(visual.borderColor).toBe('#FFFFFF');
     expect(visual.borderOpacity).toBe(0.9);
-    expect(visual.coreDiameter).toBe(visual.diameter - 2);
+    expect(visual.coreDiameter).toBe(visual.diameter);
   });
 
   it('resolves ghost visuals as low-emphasis dots and clusters', () => {
