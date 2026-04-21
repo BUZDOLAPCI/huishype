@@ -12,6 +12,10 @@ import {
 } from '../config/map-node-visuals.js';
 
 describe('map-node-visuals', () => {
+  it('uses Sun as the active social core fill color', () => {
+    expect(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR).toBe('#FDAE10');
+  });
+
   it('interpolates numeric stops linearly', () => {
     expect(interpolateNumericStops([
       [0, 0],
