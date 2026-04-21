@@ -633,6 +633,76 @@ describe('Mock handler runtime parity', () => {
     expect(selfFollowResponse.status).toBe(400);
   });
 
+  it('matches user search validation, ranking, and viewer-aware payload shape', async () => {
+    const invalidResponse = await fetch('http://localhost/users/search?q=@j');
+    expect(invalidResponse.status).toBe(400);
+    expect(await invalidResponse.json()).toEqual({
+      error: 'QUERY_TOO_SHORT',
+      message: 'Search query must be at least 2 characters.',
+    });
+
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const exactResponse = await fetch('http://localhost/users/search?q=jandevries&limit=20&offset=0');
+    const exactBody = await exactResponse.json();
+    expect(exactResponse.status).toBe(200);
+    expect(exactBody.items[0]).toEqual({
+      id: mockUserIds.jan,
+      displayName: 'Jan de Vries',
+      handle: 'jandevries',
+      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
+      relationship: 'none',
+      followerCount: 2,
+    });
+    expect(Object.keys(exactBody.items[0]).sort()).toEqual([
+      'displayName',
+      'followerCount',
+      'handle',
+      'id',
+      'profilePhotoUrl',
+      'relationship',
+    ]);
+    expect(exactBody.items[0]).not.toHaveProperty('email');
+    expect(exactBody.pagination).toEqual({
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const displayPrefixResponse = await fetch('http://localhost/users/search?q=maria%20bak');
+    const displayPrefixBody = await displayPrefixResponse.json();
+    expect(displayPrefixResponse.status).toBe(200);
+    expect(displayPrefixBody.items[0]).toHaveProperty('handle', 'mariabakker');
+
+    const containsTieResponse = await fetch('http://localhost/users/search?q=en');
+    const containsTieBody = await containsTieResponse.json();
+    expect(containsTieResponse.status).toBe(200);
+    expect(containsTieBody.items.map((item: { handle: string }) => item.handle)).toEqual([
+      'larshendriks',
+      'pieterjansen',
+    ]);
+
+    const authenticatedResponse = await fetch('http://localhost/users/search?q=@@lars', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const authenticatedBody = await authenticatedResponse.json();
+    expect(authenticatedResponse.status).toBe(200);
+    expect(authenticatedBody.items[0]).toEqual(
+      expect.objectContaining({
+        id: mockUserIds.lars,
+        handle: 'larshendriks',
+        relationship: 'mutual',
+        followerCount: 1,
+      })
+    );
+  });
+
   it('resets follow-state mutations between tests', async () => {
     const loginResponse = await fetch('http://localhost/auth/google', {
       method: 'POST',

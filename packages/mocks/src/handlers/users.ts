@@ -6,10 +6,9 @@
  */
 
 import { http, HttpResponse } from 'msw';
+import type { FollowRelationship, UserSearchItem } from '@huishype/shared';
 import { mockComments, mockGuesses, mockUserIds, mockUserProfiles } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
-
-export type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
 
 const karmaRankLevels: Record<string, number> = {
   Newcomer: 1,
@@ -186,7 +185,86 @@ function parsePagination(request: Request) {
   };
 }
 
+function normalizeSearchQuery(query: string | null) {
+  return (query ?? '').trim().replace(/^@+/, '').toLowerCase();
+}
+
+function rankSearchMatch(profile: (typeof mockUserProfiles)[number], query: string) {
+  const username = profile.username.toLowerCase();
+  const displayName = profile.displayName.toLowerCase();
+
+  if (username === query) {
+    return 0;
+  }
+  if (username.startsWith(query)) {
+    return 1;
+  }
+  if (displayName.startsWith(query)) {
+    return 2;
+  }
+  if (username.includes(query) || displayName.includes(query)) {
+    return 3;
+  }
+  return null;
+}
+
+function searchUsers(request: Request) {
+  const url = new URL(request.url);
+  const query = normalizeSearchQuery(url.searchParams.get('q'));
+  const { limit, offset } = parsePagination(request);
+  const viewerId = getMockAuthUser(request.headers.get('Authorization'))?.id ?? null;
+
+  if (query.length < 2) {
+    return HttpResponse.json(
+      { error: 'QUERY_TOO_SHORT', message: 'Search query must be at least 2 characters.' },
+      { status: 400 }
+    );
+  }
+
+  const rankedUsers = mockUserProfiles
+    .map((profile) => {
+      const rank = rankSearchMatch(profile, query);
+      return rank === null ? null : { profile, rank };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((left, right) => {
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+
+      const followerCountDelta =
+        getFollowerCount(right.profile.id) - getFollowerCount(left.profile.id);
+      if (followerCountDelta !== 0) {
+        return followerCountDelta;
+      }
+
+      return left.profile.username.localeCompare(right.profile.username);
+    });
+
+  const items: UserSearchItem[] = rankedUsers
+    .slice(offset, offset + limit)
+    .map(({ profile }) => ({
+      id: profile.id,
+      displayName: profile.displayName,
+      handle: profile.username,
+      profilePhotoUrl: profile.profilePhotoUrl ?? null,
+      relationship: getRelationship(viewerId, profile.id),
+      followerCount: getFollowerCount(profile.id),
+    }));
+
+  return HttpResponse.json({
+    items,
+    pagination: {
+      limit,
+      offset,
+      hasMore: offset + limit < rankedUsers.length,
+    },
+  });
+}
+
 export const userHandlers = [
+  http.get('*/users/search', ({ request }) => searchUsers(request)),
+
   http.get(/.*\/users\/me$/, ({ request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {

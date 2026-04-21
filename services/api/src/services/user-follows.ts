@@ -32,6 +32,24 @@ export interface FollowListResponse {
   };
 }
 
+export interface UserSearchItem {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  relationship: FollowRelationship;
+  followerCount: number;
+}
+
+export interface UserSearchResponse {
+  items: UserSearchItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 export function deriveFollowRelationship(params: {
   viewerId: string | null;
   targetUserId: string;
@@ -211,6 +229,108 @@ export async function listFollowing(
   offset: number,
 ): Promise<FollowListResponse> {
   return listFollowUsers({ mode: 'following', viewerId, limit, offset });
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+export function normalizeUserSearchQuery(rawQuery: string) {
+  return rawQuery.trim().replace(/^@+/, '').trim();
+}
+
+export async function searchUsers(params: {
+  query: string;
+  viewerId: string | null;
+  limit: number;
+  offset: number;
+}): Promise<UserSearchResponse> {
+  const escapedQuery = escapeLikePattern(params.query);
+  const exactQuery = params.query.toLowerCase();
+  const prefixPattern = `${escapedQuery}%`;
+  const containsPattern = `%${escapedQuery}%`;
+
+  const rows = await db.execute<{
+    id: string;
+    display_name: string;
+    handle: string;
+    profile_photo_url: string | null;
+    follower_count: number;
+    is_following: boolean;
+    is_followed_by: boolean;
+  }>(sql`
+    SELECT
+      u.id,
+      COALESCE(u.display_name, u.username) AS display_name,
+      u.username AS handle,
+      u.profile_photo_url,
+      follower_counts.follower_count,
+      ${
+        params.viewerId
+          ? sql`EXISTS(
+              SELECT 1
+              FROM user_follows viewer_follows
+              WHERE viewer_follows.follower_user_id = ${params.viewerId}
+                AND viewer_follows.followed_user_id = u.id
+            )`
+          : sql`false`
+      } AS is_following,
+      ${
+        params.viewerId
+          ? sql`EXISTS(
+              SELECT 1
+              FROM user_follows follows_viewer
+              WHERE follows_viewer.follower_user_id = u.id
+                AND follows_viewer.followed_user_id = ${params.viewerId}
+            )`
+          : sql`false`
+      } AS is_followed_by
+    FROM users u
+    CROSS JOIN LATERAL (
+      SELECT COUNT(*)::int AS follower_count
+      FROM user_follows uf
+      WHERE uf.followed_user_id = u.id
+    ) follower_counts
+    WHERE u.username ILIKE ${containsPattern} ESCAPE '\\'
+       OR u.display_name ILIKE ${containsPattern} ESCAPE '\\'
+    ORDER BY
+      CASE
+        WHEN lower(u.username) = ${exactQuery} THEN 0
+        WHEN u.username ILIKE ${prefixPattern} ESCAPE '\\' THEN 1
+        WHEN u.display_name ILIKE ${prefixPattern} ESCAPE '\\' THEN 2
+        ELSE 3
+      END,
+      follower_counts.follower_count DESC,
+      lower(u.username) ASC,
+      u.id ASC
+    LIMIT ${params.limit + 1}
+    OFFSET ${params.offset}
+  `);
+
+  const allRows = Array.from(rows);
+  const hasMore = allRows.length > params.limit;
+  const pageRows = hasMore ? allRows.slice(0, params.limit) : allRows;
+
+  return {
+    items: pageRows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      handle: row.handle,
+      profilePhotoUrl: row.profile_photo_url,
+      relationship: deriveFollowRelationship({
+        viewerId: params.viewerId,
+        targetUserId: row.id,
+        isFollowing: row.is_following,
+        isFollowedBy: row.is_followed_by,
+      }),
+      followerCount: row.follower_count,
+    })),
+    pagination: {
+      limit: params.limit,
+      offset: params.offset,
+      hasMore,
+    },
+  };
 }
 
 export async function followUser(

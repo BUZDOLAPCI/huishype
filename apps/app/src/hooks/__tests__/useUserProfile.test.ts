@@ -7,8 +7,10 @@ import {
   useFollowers,
   useFollowing,
   useFollowUser,
+  useUserSearch,
   usePublicProfile,
   useUnfollowUser,
+  normalizeUserSearchQuery,
   userKeys,
 } from '../useUserProfile';
 import { activityFeedKeys } from '../useActivityFeed';
@@ -391,6 +393,98 @@ describe('useUserProfile follow surfaces', () => {
           }),
         }),
       ])
+    );
+  });
+});
+
+describe('useUserProfile user search', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createQueryClient();
+    mockAuthUser = mockUser;
+    mockAccessToken = null;
+    mockGetAccessToken.mockClear();
+    mockGetAccessToken.mockResolvedValue('viewer-token');
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('normalizes leading @ characters before deciding whether search is enabled', () => {
+    expect(normalizeUserSearchQuery('  @@jo ')).toBe('jo');
+    expect(normalizeUserSearchQuery('@a')).toBe('a');
+  });
+
+  it('does not fetch until the normalized query has at least two characters', () => {
+    const { result } = renderHook(() => useUserSearch('@a'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('searches users with auth when a viewer is signed in', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            id: 'target-user',
+            displayName: 'Target User',
+            handle: 'target',
+            profilePhotoUrl: null,
+            relationship: 'none',
+            followerCount: 3,
+          },
+        ],
+        pagination: { limit: 20, offset: 0, hasMore: false },
+      }),
+    });
+
+    const { result } = renderHook(() => useUserSearch(' @target '), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.items[0]?.id).toBe('target-user');
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/users/search?q=target&limit=20&offset=0',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer viewer-token' },
+      }),
+    );
+  });
+
+  it('searches users without auth for signed-out viewers', async () => {
+    mockAuthUser = null;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [],
+        pagination: { limit: 20, offset: 0, hasMore: false },
+      }),
+    });
+
+    const { result } = renderHook(() => useUserSearch('target'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.items).toEqual([]);
+    });
+
+    expect(mockGetAccessToken).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/users/search?q=target&limit=20&offset=0',
+      expect.objectContaining({
+        headers: {},
+      }),
     );
   });
 });

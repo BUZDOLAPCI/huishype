@@ -64,6 +64,13 @@
       "when": 1776729600001,
       "tag": "0008_properties_resolve_address_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776729600002,
+      "tag": "0009_user_search_trgm",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,31 @@ export interface GuessHistoryResponse {
   hasMore: boolean;
 }
 
+export type UserSearchRelationship =
+  | 'self'
+  | 'none'
+  | 'following'
+  | 'followed_by'
+  | 'mutual';
+
+export interface UserSearchResult {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  relationship: UserSearchRelationship;
+  followerCount: number;
+}
+
+export interface UserSearchResponse {
+  items: UserSearchResult[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 export type SocialFollowAnalyticsEventName =
   | 'follow_button_impression'
   | 'follow_button_click'
@@ -99,6 +124,8 @@ export const userKeys = {
     [...userKeys.all, 'me', 'followers', viewerKey, pageSize] as const,
   following: (viewerKey: string, pageSize = FOLLOW_LIST_PAGE_SIZE) =>
     [...userKeys.all, 'me', 'following', viewerKey, pageSize] as const,
+  search: (viewerKey: string, query: string, limit = FOLLOW_LIST_PAGE_SIZE, offset = 0) =>
+    [...userKeys.all, 'search', viewerKey, { query, limit, offset }] as const,
   myGuesses: (viewerKey: string, limit?: number, offset?: number) =>
     [...userKeys.all, 'me', 'guesses', viewerKey, { limit, offset }] as const,
 };
@@ -171,6 +198,38 @@ async function fetchFollowList(
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ message: `Failed to fetch ${kind}` }));
+    throw new Error(err.message || `HTTP ${resp.status}`);
+  }
+
+  return resp.json();
+}
+
+export function normalizeUserSearchQuery(query: string): string {
+  return query.trim().replace(/^@+/, '').trim();
+}
+
+async function fetchUserSearch(
+  query: string,
+  accessToken?: string | null,
+  limit = FOLLOW_LIST_PAGE_SIZE,
+  offset = 0
+): Promise<UserSearchResponse> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const resp = await fetch(`${API_URL}/users/search?${params.toString()}`, {
+    headers,
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ message: 'Failed to search users' }));
     throw new Error(err.message || `HTTP ${resp.status}`);
   }
 
@@ -319,6 +378,22 @@ export function useFollowing(pageSize = FOLLOW_LIST_PAGE_SIZE, enabled = true) {
       return lastPageParam + lastPage.pagination.limit;
     },
     enabled: enabled && isAuthenticated && !!user,
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useUserSearch(query: string, limit = FOLLOW_LIST_PAGE_SIZE, offset = 0) {
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
+  const normalizedQuery = normalizeUserSearchQuery(query);
+
+  return useQuery({
+    queryKey: userKeys.search(viewerKey, normalizedQuery, limit, offset),
+    queryFn: async () => {
+      const accessToken = isAuthenticated && user ? await getAccessToken() : null;
+      return fetchUserSearch(normalizedQuery, accessToken, limit, offset);
+    },
+    enabled: normalizedQuery.length >= 2,
     staleTime: 15 * 1000,
   });
 }
