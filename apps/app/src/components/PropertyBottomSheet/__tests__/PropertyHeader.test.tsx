@@ -120,6 +120,23 @@ describe('PropertyHeader', () => {
     );
   });
 
+  it('renders only the street address as the title when address includes postcode and city', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: 'Beeldbuisring 41, 5651 HA Eindhoven',
+          postalCode: '5651 HA',
+          city: 'Eindhoven',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Beeldbuisring 41')).toBeTruthy();
+    expect(screen.queryByText('Beeldbuisring 41, 5651 HA Eindhoven')).toBeNull();
+    expect(screen.getByText('Eindhoven, 5651 HA')).toBeTruthy();
+  });
+
   it('uses compact Dutch postcodes in Google Maps queries', () => {
     render(
       <PropertyHeader

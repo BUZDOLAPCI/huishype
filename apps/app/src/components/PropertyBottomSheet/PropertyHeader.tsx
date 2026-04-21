@@ -127,6 +127,11 @@ function getGoogleMapsUrl(property: PropertyDetailsData): string {
   return 'https://www.google.com/maps';
 }
 
+function getPropertyAddressTitle(property: PropertyDetailsData): string {
+  const streetAddress = property.address.trim().split(',', 1)[0]?.trim();
+  return streetAddress || property.address;
+}
+
 export function PropertyHeader({
   property,
   containerWidth: _containerWidth,
@@ -134,6 +139,7 @@ export function PropertyHeader({
   const activity = ACTIVITY_CONFIG[property.activityLevel];
   const hasSecondaryLocation = Boolean(property.city || property.postalCode);
   const googleMapsUrl = getGoogleMapsUrl(property);
+  const addressTitle = getPropertyAddressTitle(property);
 
   const handleOpenGoogleMaps = async () => {
     try {
@@ -156,7 +162,7 @@ export function PropertyHeader({
           <View style={styles.addressColumn}>
             <Text style={styles.kicker}>Property Detail</Text>
             <Text style={styles.address} numberOfLines={2}>
-              {property.address}
+              {addressTitle}
             </Text>
             {hasSecondaryLocation && (
               <Text style={styles.location}>
