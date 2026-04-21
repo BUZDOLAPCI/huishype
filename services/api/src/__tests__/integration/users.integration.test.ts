@@ -38,6 +38,27 @@ describe('User profile routes', () => {
     return user;
   }
 
+  async function createSearchTestUser(
+    label: string,
+    options: {
+      username: string;
+      displayName: string;
+      profilePhotoUrl?: string | null;
+    },
+  ) {
+    const user = await createTestUser(label);
+    await db
+      .update(users)
+      .set({
+        username: options.username,
+        displayName: options.displayName,
+        profilePhotoUrl: options.profilePhotoUrl ?? null,
+      })
+      .where(eq(users.id, user.userId));
+
+    return user;
+  }
+
   async function createTestProperty() {
     const property = await createIntegrationProperty({
       street: 'Teststraat',
@@ -79,6 +100,191 @@ describe('User profile routes', () => {
     if (app) {
       await app.close();
     }
+  });
+
+  // ---------- GET /users/search ----------
+
+  describe('GET /users/search', () => {
+    it('searches by username and display name, strips leading @, ranks deterministically, and omits email', async () => {
+      const token = `srch${Date.now().toString(36)}`;
+      const exact = await createSearchTestUser('search-exact', {
+        username: token,
+        displayName: 'Exact Other',
+        profilePhotoUrl: 'https://example.com/exact.jpg',
+      });
+      const usernamePrefixLow = await createSearchTestUser('search-prefix-low', {
+        username: `${token}-prefix-low`,
+        displayName: 'Prefix Low',
+      });
+      const usernamePrefixHigh = await createSearchTestUser('search-prefix-high', {
+        username: `${token}-prefix-high`,
+        displayName: 'Prefix High',
+      });
+      const displayNamePrefix = await createSearchTestUser('search-display-prefix', {
+        username: `display-${token}`,
+        displayName: `${token} Display`,
+      });
+      const contains = await createSearchTestUser('search-contains', {
+        username: `contains-${token}-end`,
+        displayName: 'Contains User',
+      });
+      const followerOne = await createTestUser('search-follower-one');
+      const followerTwo = await createTestUser('search-follower-two');
+
+      await createIntegrationFollow({
+        followerUserId: followerOne.userId,
+        followedUserId: usernamePrefixHigh.userId,
+      });
+      await createIntegrationFollow({
+        followerUserId: followerTwo.userId,
+        followedUserId: usernamePrefixHigh.userId,
+      });
+
+      const resp = await app.inject({
+        method: 'GET',
+        url: `/users/search?q=%40%40${token}&limit=10&offset=0`,
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        exact.userId,
+        usernamePrefixHigh.userId,
+        usernamePrefixLow.userId,
+        displayNamePrefix.userId,
+        contains.userId,
+      ]);
+      expect(body.items[0]).toEqual(
+        expect.objectContaining({
+          id: exact.userId,
+          displayName: 'Exact Other',
+          handle: token,
+          profilePhotoUrl: 'https://example.com/exact.jpg',
+          relationship: 'none',
+          followerCount: 0,
+        })
+      );
+      expect(body.items[1].followerCount).toBe(2);
+      expect(body.items[3]).toEqual(
+        expect.objectContaining({
+          id: displayNamePrefix.userId,
+          displayName: `${token} Display`,
+        })
+      );
+      expect(body.items[0]).not.toHaveProperty('email');
+      expect(body.pagination).toEqual({
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      });
+    });
+
+    it('returns viewer-aware relationship for authenticated searches and none for anonymous searches', async () => {
+      const token = `rel${Date.now().toString(36)}`;
+      const viewer = await createSearchTestUser('search-viewer', {
+        username: `${token}-viewer`,
+        displayName: 'Search Viewer',
+      });
+      const target = await createSearchTestUser('search-target', {
+        username: `${token}-target`,
+        displayName: 'Search Target',
+      });
+
+      await createIntegrationFollow({
+        followerUserId: viewer.userId,
+        followedUserId: target.userId,
+      });
+      await createIntegrationFollow({
+        followerUserId: target.userId,
+        followedUserId: viewer.userId,
+      });
+
+      const anonymousResp = await app.inject({
+        method: 'GET',
+        url: `/users/search?q=${token}-target`,
+      });
+      expect(anonymousResp.statusCode).toBe(200);
+      expect(JSON.parse(anonymousResp.body).items[0]).toEqual(
+        expect.objectContaining({
+          id: target.userId,
+          relationship: 'none',
+          followerCount: 1,
+        })
+      );
+
+      const viewerResp = await app.inject({
+        method: 'GET',
+        url: `/users/search?q=${token}-target`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+      expect(viewerResp.statusCode).toBe(200);
+      expect(JSON.parse(viewerResp.body).items[0]).toEqual(
+        expect.objectContaining({
+          id: target.userId,
+          relationship: 'mutual',
+          followerCount: 1,
+        })
+      );
+    });
+
+    it('paginates with limit, offset, and hasMore', async () => {
+      const token = `page${Date.now().toString(36)}`;
+      const first = await createSearchTestUser('search-page-first', {
+        username: `${token}-a`,
+        displayName: 'Search Page First',
+      });
+      const second = await createSearchTestUser('search-page-second', {
+        username: `${token}-b`,
+        displayName: 'Search Page Second',
+      });
+      const third = await createSearchTestUser('search-page-third', {
+        username: `${token}-c`,
+        displayName: 'Search Page Third',
+      });
+
+      const firstPageResp = await app.inject({
+        method: 'GET',
+        url: `/users/search?q=${token}&limit=2&offset=0`,
+      });
+      expect(firstPageResp.statusCode).toBe(200);
+      const firstPage = JSON.parse(firstPageResp.body);
+      expect(firstPage.items.map((item: { id: string }) => item.id)).toEqual([
+        first.userId,
+        second.userId,
+      ]);
+      expect(firstPage.pagination).toEqual({
+        limit: 2,
+        offset: 0,
+        hasMore: true,
+      });
+
+      const secondPageResp = await app.inject({
+        method: 'GET',
+        url: `/users/search?q=${token}&limit=2&offset=2`,
+      });
+      expect(secondPageResp.statusCode).toBe(200);
+      const secondPage = JSON.parse(secondPageResp.body);
+      expect(secondPage.items.map((item: { id: string }) => item.id)).toEqual([third.userId]);
+      expect(secondPage.pagination).toEqual({
+        limit: 2,
+        offset: 2,
+        hasMore: false,
+      });
+    });
+
+    it('rejects queries shorter than two meaningful characters after trimming and @ stripping', async () => {
+      const resp = await app.inject({
+        method: 'GET',
+        url: '/users/search?q=%20%40%40a%20',
+      });
+
+      expect(resp.statusCode).toBe(400);
+      expect(JSON.parse(resp.body)).toEqual({
+        error: 'QUERY_TOO_SHORT',
+        message: 'Search query must be at least 2 characters.',
+      });
+    });
   });
 
   // ---------- GET /users/:id/profile ----------

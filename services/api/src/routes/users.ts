@@ -17,6 +17,8 @@ import {
   followUser,
   listFollowers,
   listFollowing,
+  normalizeUserSearchQuery,
+  searchUsers,
   unfollowUser,
   getFollowRelationshipPayload,
 } from '../services/user-follows.js';
@@ -87,6 +89,30 @@ const followListResponseSchema = z.object({
   }),
 });
 
+const userSearchQuerySchema = z.object({
+  q: z.string().default(''),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const userSearchItemSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  handle: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  relationship: z.enum(followRelationshipValues),
+  followerCount: z.number(),
+});
+
+const userSearchResponseSchema = z.object({
+  items: z.array(userSearchItemSchema),
+  pagination: z.object({
+    limit: z.number(),
+    offset: z.number(),
+    hasMore: z.boolean(),
+  }),
+});
+
 const updateProfileSchema = z.object({
   displayName: z.string().min(DISPLAY_NAME_MIN_LENGTH).max(DISPLAY_NAME_MAX_LENGTH).optional(),
   profilePhotoUrl: z.string().url().optional(),
@@ -117,6 +143,43 @@ const errorResponseSchema = z.object({
 
 export async function userRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  /**
+   * GET /users/search - Search public user profiles
+   */
+  app.get(
+    '/users/search',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['Users'],
+        summary: 'Search users',
+        querystring: userSearchQuerySchema,
+        response: {
+          200: userSearchResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { q, limit, offset } = request.query;
+      const query = normalizeUserSearchQuery(q);
+
+      if (query.length < 2) {
+        return reply.status(400).send({
+          error: 'QUERY_TOO_SHORT',
+          message: 'Search query must be at least 2 characters.',
+        });
+      }
+
+      return searchUsers({
+        query,
+        viewerId: request.userId ?? null,
+        limit,
+        offset,
+      });
+    }
+  );
 
   /**
    * GET /users/:id/profile - Public user profile

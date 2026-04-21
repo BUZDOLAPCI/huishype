@@ -27,6 +27,8 @@ import type {
   GetUserProfileResponse,
   PropertyResolveRequest,
   PropertyResolveResponse,
+  SearchUsersRequest,
+  SearchUsersResponse,
   SubmitListingRequest,
   SubmitListingResponse,
 } from '@huishype/shared';
@@ -64,6 +66,13 @@ type SavedPropertiesQueryFromOpenApi = NonNullable<
 >;
 type SavedPropertiesResponseFromOpenApi =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
+type UserSearchQueryFromOpenApi = NonNullable<
+  paths['/users/search']['get']['parameters']['query']
+>;
+type UserSearchResponseFromOpenApi =
+  paths['/users/search']['get']['responses'][200]['content']['application/json'];
+type UserSearchErrorFromOpenApi =
+  paths['/users/search']['get']['responses'][400]['content']['application/json'];
 type CanonicalSavedProperty = Expand<
   GetSavedPropertiesResponse['data'][number] & { isRead: boolean }
 >;
@@ -174,7 +183,10 @@ type CanonicalNearbyCluster = {
 };
 type CanonicalNearbyGroupedResponse = CanonicalNearbySingle | CanonicalNearbyCluster | null;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
+type HasGeneratedUserSearchPath = Extract<PathKeys, '/users/search'>;
 type ResolvePropertyMethodRequest = Parameters<HuisHypeApiClient['resolveProperty']>[0];
+type SearchUsersMethodRequest = Parameters<HuisHypeApiClient['searchUsers']>[0];
+type SearchUsersMethodResponse = Awaited<ReturnType<HuisHypeApiClient['searchUsers']>>;
 type Expect<T extends true> = T;
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -337,6 +349,12 @@ const feedContractAssertions = [
     Equal<FollowingNearbySharedSingle['marketState'], CanonicalNearbySingle['marketState']>
   >,
   true as Expect<Equal<HasStaleMapMethod, false>>,
+  true as Expect<Equal<SearchUsersMethodRequest, SearchUsersRequest>>,
+  true as Assert<IsExact<SearchUsersMethodResponse, SearchUsersResponse>>,
+  true as Expect<Equal<HasGeneratedUserSearchPath, '/users/search'>>,
+  true as Expect<Equal<UserSearchQueryFromOpenApi['q'], string | undefined>>,
+  true as Assert<IsExact<UserSearchResponseFromOpenApi, SearchUsersResponse>>,
+  true as Assert<IsExact<UserSearchErrorFromOpenApi, { error: string; message: string }>>,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -430,6 +448,7 @@ describe('HuisHypeApiClient', () => {
     expect(typeof client.getAuthMe).toBe('function');
 
     // Users
+    expect(typeof client.searchUsers).toBe('function');
     expect(typeof client.getProfile).toBe('function');
     expect(typeof client.updateProfile).toBe('function');
     expect(typeof client.getUser).toBe('function');
@@ -512,6 +531,61 @@ describe('HuisHypeApiClient', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'x-session-id': 'session-123',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes user search requests against the canonical public route', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'mock-token',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'b0000000-0000-4000-a000-000000000001',
+              displayName: 'Jan de Vries',
+              handle: 'jandevries',
+              profilePhotoUrl: null,
+              relationship: 'self',
+              followerCount: 2,
+            },
+          ],
+          pagination: {
+            limit: 20,
+            offset: 0,
+            hasMore: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    try {
+      await expect(
+        client.searchUsers({
+          q: '@jan',
+          limit: 20,
+          offset: 0,
+        })
+      ).resolves.toHaveProperty('items');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/users/search?q=%40jan&limit=20&offset=0',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer mock-token',
           }),
         })
       );

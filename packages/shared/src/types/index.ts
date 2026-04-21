@@ -18,6 +18,9 @@ export type {
   FollowListUser,
   FollowListResponse,
   FollowRelationshipResponse,
+  UserSearchItem,
+  SearchUsersRequest,
+  SearchUsersResponse,
 } from './user.js';
 
 // Property types

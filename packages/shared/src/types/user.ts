@@ -108,6 +108,30 @@ export interface FollowRelationshipResponse {
   followingCount: number;
 }
 
+export interface UserSearchItem {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  relationship: FollowRelationship;
+  followerCount: number;
+}
+
+export interface SearchUsersRequest {
+  q: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SearchUsersResponse {
+  items: UserSearchItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 /**
  * User badge/achievement
  */

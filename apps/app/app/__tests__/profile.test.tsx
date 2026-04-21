@@ -238,4 +238,12 @@ describe('ProfileScreen sign out', () => {
     expect(getRouterPush()).toHaveBeenNthCalledWith(1, '/user/followers');
     expect(getRouterPush()).toHaveBeenNthCalledWith(2, '/user/following');
   });
+
+  it('opens user search from the profile follow stats area', () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-search-user-button'));
+
+    expect(getRouterPush()).toHaveBeenCalledWith('/user/search');
+  });
 });

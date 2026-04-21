@@ -30,6 +30,7 @@ import type {
   UpdateUserProfileResponse,
   GetFeedResponse,
   RegisterPushTokenRequest,
+  SearchUsersRequest,
 } from '@huishype/shared';
 import type { paths } from '../generated/api.js';
 
@@ -37,6 +38,9 @@ type PublicUserProfileResponse =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
 type MyUserProfileResponse =
   paths['/users/me']['get']['responses'][200]['content']['application/json'];
+type UserSearchQuery = NonNullable<paths['/users/search']['get']['parameters']['query']>;
+type UserSearchGeneratedResponse =
+  paths['/users/search']['get']['responses'][200]['content']['application/json'];
 type FollowListQuery = NonNullable<paths['/users/me/followers']['get']['parameters']['query']>;
 type FollowListResponse =
   paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
@@ -284,8 +288,24 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // User Endpoints  (paths: /users/me, /users/me/profile, /users/:id/profile, /users/me/guesses, /users/me/followers, /users/me/following, /users/:id/follow)
+  // User Endpoints  (paths: /users/search, /users/me, /users/me/profile, /users/:id/profile, /users/me/guesses, /users/me/followers, /users/me/following, /users/:id/follow)
   // ============================================
+
+  async searchUsers(request: SearchUsersRequest): Promise<UserSearchGeneratedResponse> {
+    const query: UserSearchQuery = {
+      q: request.q,
+      limit: request.limit,
+      offset: request.offset,
+    };
+
+    return this.request<UserSearchGeneratedResponse>('GET', '/users/search', {
+      query: {
+        q: query.q,
+        limit: query.limit,
+        offset: query.offset,
+      },
+    });
+  }
 
   async getProfile(): Promise<MyUserProfileResponse> {
     return this.request<MyUserProfileResponse>('GET', '/users/me', {

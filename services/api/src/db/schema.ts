@@ -178,6 +178,8 @@ export const users = pgTable(
     uniqueIndex('users_apple_id_idx').on(table.appleId),
     uniqueIndex('users_email_idx').on(table.email),
     uniqueIndex('users_username_idx').on(table.username),
+    index('users_username_trgm_idx').using('gin', table.username.op('gin_trgm_ops')),
+    index('users_display_name_trgm_idx').using('gin', table.displayName.op('gin_trgm_ops')),
   ]
 );
 
