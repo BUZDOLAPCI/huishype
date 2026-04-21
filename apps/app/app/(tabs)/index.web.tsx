@@ -69,8 +69,12 @@ import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import {
+  MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
+  resolveActiveClusterNodeVisual,
+  resolveActiveSingleNodeVisual,
+  withAlpha,
 } from '@huishype/shared/config';
 import {
   buildCanonicalMapPreviewPath,
@@ -85,6 +89,10 @@ const FLOATING_ZOOM_CONTROL_SIZE = 40;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
+const STATIC_ACTIVITY_PULSE_LAYER_IDS = [
+  'property-cluster-pulse',
+  'active-node-pulse',
+] as const;
 const PREVIEW_ARROW_SIZE_PX = 10;
 const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
@@ -391,6 +399,20 @@ if (typeof document !== 'undefined') {
         opacity: 0.8;
       }
     }
+    @keyframes map-node-activity-pulse {
+      0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--map-node-pulse-ring);
+      }
+      70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 var(--map-node-pulse-spread) var(--map-node-pulse-transparent);
+      }
+      100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--map-node-pulse-transparent);
+      }
+    }
     @keyframes popIn {
       0% {
         transform: scale(0.8) translateY(10px);
@@ -429,6 +451,30 @@ if (typeof document !== 'undefined') {
       background-color: #F5A623;
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+    .map-node-activity-pulse-overlay {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .map-node-activity-pulse-frame {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+    }
+    .map-node-activity-pulse {
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: transparent;
+      box-shadow: 0 0 0 0 var(--map-node-pulse-ring);
+      animation: map-node-activity-pulse 2s infinite;
+      pointer-events: none;
+      will-change: transform, box-shadow;
     }
   `;
 }
@@ -563,6 +609,84 @@ function createSelectedMarkerElement(): HTMLDivElement {
   container.appendChild(dot);
 
   return container;
+}
+
+type RenderedPropertyGroup = NonNullable<ReturnType<typeof normalizeRenderedPropertyGroup>>;
+
+interface ActivityPulseElement {
+  coordinate: [number, number];
+  frame: HTMLDivElement;
+  pulse: HTMLDivElement;
+}
+
+function getNodeSocialIntensity(group: RenderedPropertyGroup): number {
+  if (group.socialCount <= 0) {
+    return 0;
+  }
+
+  return Math.max(group.socialScoreMax, group.socialScoreTotal / group.socialCount);
+}
+
+function resolveActivityPulseVisual(group: RenderedPropertyGroup) {
+  if (
+    group.nodeClass !== 'active' ||
+    group.recentSocialCount <= 0 ||
+    group.recentSocialScoreTotal <= MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD
+  ) {
+    return null;
+  }
+
+  const visual = group.groupKind === 'cluster'
+    ? resolveActiveClusterNodeVisual({
+      pointCount: group.pointCount,
+      listingShare: group.pointCount > 0 ? group.activeListingCount / group.pointCount : 0,
+      socialCount: group.socialCount,
+      socialIntensity: getNodeSocialIntensity(group),
+      recentSocialCount: group.recentSocialCount,
+      recentSocialScoreTotal: group.recentSocialScoreTotal,
+    })
+    : resolveActiveSingleNodeVisual({
+      activityScore: group.activityScore,
+      socialCount: group.socialCount,
+      socialIntensity: getNodeSocialIntensity(group),
+      activeListingCount: group.activeListingCount,
+      recentSocialCount: group.recentSocialCount,
+      recentSocialScoreTotal: group.recentSocialScoreTotal,
+    });
+
+  if (
+    !visual.pulseDiameter ||
+    !visual.pulseColor ||
+    !visual.pulseOpacity ||
+    visual.pulseOpacity <= 0
+  ) {
+    return null;
+  }
+
+  return visual;
+}
+
+function getActivityPulseNodeKey(group: RenderedPropertyGroup): string {
+  return [
+    group.groupKind,
+    group.primaryPropertyId,
+    group.coordinate[0],
+    group.coordinate[1],
+  ].join(':');
+}
+
+function hideStaticActivityPulseLayers(map: maplibregl.Map): void {
+  STATIC_ACTIVITY_PULSE_LAYER_IDS.forEach((layerId) => {
+    if (!map.getLayer(layerId)) {
+      return;
+    }
+
+    try {
+      map.setPaintProperty(layerId, 'circle-opacity', 0);
+    } catch {
+      // Layer timing can race style reloads; the DOM pulse overlay is best-effort.
+    }
+  });
 }
 
 // Property layer IDs for click handling
@@ -1308,6 +1432,119 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.addControl(zoomControl, 'top-right');
       map.addControl(compassControl, 'bottom-right');
 
+      const activityPulseOverlay = document.createElement('div');
+      activityPulseOverlay.className = 'map-node-activity-pulse-overlay';
+      activityPulseOverlay.dataset.testid = 'map-node-activity-pulse-overlay';
+      map.getContainer().appendChild(activityPulseOverlay);
+      const activityPulseElements = new Map<string, ActivityPulseElement>();
+      let activityPulseAnimationFrame: number | null = null;
+
+      const syncActivityPulsePositions = () => {
+        activityPulseElements.forEach(({ coordinate, frame }) => {
+          const point = map.project(coordinate);
+          frame.style.left = `${point.x}px`;
+          frame.style.top = `${point.y}px`;
+        });
+      };
+
+      const updateActivityPulseMarkers = () => {
+        if (cancelled || !map.isStyleLoaded()) {
+          return;
+        }
+
+        hideStaticActivityPulseLayers(map);
+
+        const mapContainer = map.getContainer();
+        if (mapContainer.clientWidth <= 0 || mapContainer.clientHeight <= 0) {
+          return;
+        }
+
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [mapContainer.clientWidth, mapContainer.clientHeight]],
+          { layers: PROPERTY_LAYER_IDS },
+        ) as unknown as GeoJSON.Feature[];
+        const seenKeys = new Set<string>();
+
+        for (const feature of features) {
+          const group = normalizeRenderedPropertyGroup(feature);
+          if (!group) {
+            continue;
+          }
+
+          const visual = resolveActivityPulseVisual(group);
+          if (!visual) {
+            continue;
+          }
+
+          const key = getActivityPulseNodeKey(group);
+          if (seenKeys.has(key)) {
+            continue;
+          }
+          seenKeys.add(key);
+
+          let element = activityPulseElements.get(key);
+          if (!element) {
+            const frame = document.createElement('div');
+            frame.className = 'map-node-activity-pulse-frame';
+            frame.setAttribute('aria-hidden', 'true');
+            frame.setAttribute('data-testid', 'map-node-activity-pulse');
+
+            const pulse = document.createElement('div');
+            pulse.className = 'map-node-activity-pulse';
+            frame.appendChild(pulse);
+            activityPulseOverlay.appendChild(frame);
+
+            element = { coordinate: group.coordinate, frame, pulse };
+            activityPulseElements.set(key, element);
+          }
+
+          const pulseDiameter = visual.pulseDiameter ?? visual.diameter;
+          const pulseColor = visual.pulseColor ?? '#E11D48';
+          const pulseOpacity = visual.pulseOpacity ?? 0;
+          const nodeDiameter = visual.diameter;
+          const pulseSpread = Math.max((pulseDiameter - nodeDiameter) / 2, 0);
+          element.coordinate = group.coordinate;
+          element.frame.style.width = `${pulseDiameter}px`;
+          element.frame.style.height = `${pulseDiameter}px`;
+          element.pulse.style.width = `${nodeDiameter}px`;
+          element.pulse.style.height = `${nodeDiameter}px`;
+          element.pulse.style.setProperty(
+            '--map-node-pulse-ring',
+            withAlpha(pulseColor, pulseOpacity),
+          );
+          element.pulse.style.setProperty(
+            '--map-node-pulse-transparent',
+            withAlpha(pulseColor, 0),
+          );
+          element.pulse.style.setProperty(
+            '--map-node-pulse-spread',
+            `${pulseSpread}px`,
+          );
+        }
+
+        activityPulseElements.forEach((element, key) => {
+          if (seenKeys.has(key)) {
+            return;
+          }
+
+          element.frame.remove();
+          activityPulseElements.delete(key);
+        });
+
+        syncActivityPulsePositions();
+      };
+
+      const scheduleActivityPulseUpdate = () => {
+        if (activityPulseAnimationFrame !== null) {
+          return;
+        }
+
+        activityPulseAnimationFrame = window.requestAnimationFrame(() => {
+          activityPulseAnimationFrame = null;
+          updateActivityPulseMarkers();
+        });
+      };
+
       const controlGroups = Array.from(
         map.getContainer().querySelectorAll('.maplibregl-ctrl-group')
       ) as HTMLDivElement[];
@@ -1409,6 +1646,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         setMapLoaded(true);
         syncVisibleZoomRef.current(map.getZoom());
         scheduleFollowingRenderedFeatureRefreshRef.current();
+        scheduleActivityPulseUpdate();
       };
 
       // Timeout fallback: dismiss loading overlay after 15s even if 'load' doesn't fire
@@ -1426,9 +1664,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
+        hideStaticActivityPulseLayers(map);
+        scheduleActivityPulseUpdate();
 
         setTimeout(() => {
           map.resize();
+          scheduleActivityPulseUpdate();
         }, 100);
       });
 
@@ -1440,6 +1681,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           markMapLoaded();
         }
       });
+
+      map.on('render', syncActivityPulsePositions);
 
       map.on('error', (e: maplibregl.ErrorEvent) => {
         console.warn('[MapScreen] MapLibre error:', e.error?.message || e);
@@ -1455,6 +1698,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         const zoom = map.getZoom();
         currentZoomRef.current = zoom;
         syncVisibleZoomRef.current(zoom);
+        scheduleActivityPulseUpdate();
       });
 
       // Track viewport center for dynamic city name (reverse geocoding)
@@ -1462,6 +1706,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('moveend', () => {
         const center = map.getCenter();
         const zoom = map.getZoom();
+        scheduleActivityPulseUpdate();
         scheduleFollowingRenderedFeatureRefreshRef.current();
         const previousSettledBubbleZoom = lastSettledAmbientBubbleZoomRef.current;
         lastSettledAmbientBubbleZoomRef.current = zoom;
@@ -1587,6 +1832,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       // Wait for layers to be added
       const layerHandlersAttached = new Set<string>();
       map.on('sourcedata', () => {
+        hideStaticActivityPulseLayers(map);
+        scheduleActivityPulseUpdate();
+
         PROPERTY_LAYER_IDS.forEach((layerId) => {
           if (map.getLayer(layerId)) {
             if (!layerHandlersAttached.has(layerId)) {
