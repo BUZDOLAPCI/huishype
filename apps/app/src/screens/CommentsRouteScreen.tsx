@@ -49,8 +49,10 @@ function toCommentCellData(
 ): CommentCellData {
   return {
     id: comment.id,
+    authorId: comment.user.id,
     author: comment.user.username,
     authorDisplayName: comment.user.displayName ?? undefined,
+    authorProfilePhotoUrl: comment.user.profilePhotoUrl,
     authorKarma: comment.user.karma,
     content: comment.content,
     likeCount: comment.likeCount,

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
@@ -115,6 +115,57 @@ describe('Auth routes', () => {
       expect(user).not.toHaveProperty('isPlus');
 
       testUserIds.push(user.id);
+    });
+
+    it('should reuse the existing user when the insert races with a stale identity lookup', async () => {
+      const uniqueId = `stale-google-${Date.now()}`;
+      const email = `${uniqueId}@gmail.com`;
+      const googleId = `gid${uniqueId}`;
+      const username = `stalegoogle${Date.now()}`.slice(0, 50);
+
+      const [existingUser] = await db
+        .insert(users)
+        .values({
+          email,
+          googleId,
+          username,
+          displayName: uniqueId,
+        })
+        .returning({ id: users.id });
+      testUserIds.push(existingUser.id);
+
+      const originalFindFirst = db.query.users.findFirst.bind(db.query.users);
+      const findFirstSpy = jest.spyOn(db.query.users, 'findFirst');
+      try {
+        findFirstSpy.mockImplementationOnce(() =>
+          originalFindFirst({
+            where: eq(users.id, '00000000-0000-0000-0000-000000000000'),
+          }),
+        );
+
+        const response = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: {
+            idToken: `mock-google:${Buffer.from(
+              JSON.stringify({
+                email,
+                googleId,
+                name: uniqueId,
+              }),
+              'utf8',
+            ).toString('base64url')}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.isNewUser).toBe(false);
+        expect(body.session.user.id).toBe(existingUser.id);
+        expect(findFirstSpy).toHaveBeenCalledTimes(2);
+      } finally {
+        findFirstSpy.mockRestore();
+      }
     });
 
     it('should return isNewUser=false for existing user', async () => {

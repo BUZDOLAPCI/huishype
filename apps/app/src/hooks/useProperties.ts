@@ -2,6 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
+import {
+  type MapFilters,
+  type MapMarketState,
+} from '@/src/lib/sharedMapFilters';
 
 // Types for property data
 export interface PropertyGeometry {
@@ -11,6 +15,11 @@ export interface PropertyGeometry {
 
 export interface Property {
   id: string;
+  /**
+   * Map-node class for properties opened from the map preview surface.
+   * API property detail responses do not currently provide this.
+   */
+  nodeClass?: 'active' | 'ghost';
   nationalId: string | null;
   /** ISO 3166-1 alpha-2 country code */
   countryCode: string;
@@ -24,7 +33,27 @@ export interface Property {
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   hasListing?: boolean;
+  hasActiveListing?: boolean;
+  marketState?: MapMarketState | null;
+  latestListingStatus?: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
   askingPrice?: number | null;
+  socialScore?: number;
+  recentSocialScore?: number;
+  lastSocialAt?: string | null;
+  topLevelCommentCount?: number;
+  replyCount?: number;
+  propertyLikeCount?: number;
+  commentLikeCount?: number;
+  guessCount?: number;
+  viewCount?: number;
+  uniqueViewerCount?: number;
+  recentTopLevelCommentCount?: number;
+  recentReplyCount?: number;
+  recentPropertyLikeCount?: number;
+  recentCommentLikeCount?: number;
+  recentGuessCount?: number;
+  recentViewCount?: number;
+  recentUniqueViewerCount?: number;
   aerialImageUrl?: string | null;
   thumbnailUrl?: string | null;
   createdAt: string;
@@ -60,16 +89,27 @@ export interface PropertyFmvData {
 }
 
 export interface PropertyDetails extends Property {
-  askingPrice?: number;
+  askingPrice?: number | null;
   fmv?: PropertyFmvData;
-  activityLevel: 'hot' | 'warm' | 'cold';
-  commentCount: number;
+  activityLevel?: 'hot' | 'warm' | 'cold';
+  commentCount?: number;
   guessCount: number;
   viewCount: number;
   uniqueViewers: number;
   likeCount?: number;
   isLiked?: boolean;
   isSaved?: boolean;
+}
+
+export const ACTIVE_SOCIAL_SCORE_THRESHOLD = 0.75;
+const RECENT_HOT_SCORE_THRESHOLD = 0.5;
+const HOT_ACTIVITY_SCORE_THRESHOLD = 50;
+
+export function getViewerCacheKey(
+  user: { id: string } | null | undefined,
+  isAuthenticated: boolean,
+): string {
+  return isAuthenticated && user?.id ? `auth:${user.id}` : 'anon';
 }
 
 // Query params for fetching properties
@@ -87,6 +127,102 @@ export interface PropertyQueryParams {
 
 function withDerivedPropertyImages<T extends Property>(property: T): T {
   return withDerivedPropertyImageData(property);
+}
+
+export function deriveCompatibilityActivityLevel(property: Pick<
+  Property,
+  'socialScore' | 'recentSocialScore'
+> & {
+  hasActiveListing?: boolean | null;
+}): 'hot' | 'warm' | 'cold' {
+  if ((property.recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD) {
+    return 'hot';
+  }
+
+  if ((property.socialScore ?? 0) >= HOT_ACTIVITY_SCORE_THRESHOLD) {
+    return 'hot';
+  }
+
+  if (
+    (property.socialScore ?? 0) >= ACTIVE_SOCIAL_SCORE_THRESHOLD ||
+    property.hasActiveListing
+  ) {
+    return 'warm';
+  }
+
+  return 'cold';
+}
+
+function isActivityLevel(
+  value: unknown,
+): value is NonNullable<PropertyDetails['activityLevel']> {
+  return value === 'hot' || value === 'warm' || value === 'cold';
+}
+
+export function resolvePropertyCommentCount(
+  property: {
+    commentCount?: number | null;
+    topLevelCommentCount?: number | null;
+    replyCount?: number | null;
+  },
+): number {
+  if (
+    typeof property.topLevelCommentCount === 'number' ||
+    typeof property.replyCount === 'number'
+  ) {
+    return (property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0);
+  }
+
+  return property.commentCount ?? 0;
+}
+
+export function resolvePropertyActivityLevel(
+  property: Pick<Property, 'socialScore' | 'recentSocialScore'> & {
+    hasActiveListing?: boolean | null;
+    activityLevel?: PropertyDetails['activityLevel'] | null;
+  },
+): 'hot' | 'warm' | 'cold' {
+  const hasModernSignals =
+    typeof property.socialScore === 'number' ||
+    typeof property.recentSocialScore === 'number' ||
+    property.hasActiveListing === true;
+
+  if (hasModernSignals) {
+    return deriveCompatibilityActivityLevel(property);
+  }
+
+  if (isActivityLevel(property.activityLevel)) {
+    return property.activityLevel;
+  }
+
+  return 'cold';
+}
+
+type PropertyResponseLike = Property &
+  Partial<PropertyDetails> & {
+    commentCount?: number;
+    uniqueViewers?: number;
+    likeCount?: number;
+  };
+
+function normalizePropertyResponse<T extends PropertyResponseLike>(property: T): T {
+  const normalized = {
+    ...property,
+    commentCount: resolvePropertyCommentCount(property),
+    guessCount: property.guessCount ?? 0,
+    viewCount: property.viewCount ?? 0,
+    uniqueViewers:
+      'uniqueViewers' in property && typeof property.uniqueViewers === 'number'
+        ? property.uniqueViewers
+        : property.uniqueViewerCount ?? 0,
+    likeCount:
+      'likeCount' in property && typeof property.likeCount === 'number'
+        ? property.likeCount
+        : property.propertyLikeCount ?? 0,
+    activityLevel: resolvePropertyActivityLevel(property),
+  };
+
+  return withDerivedPropertyImages(normalized as T);
 }
 
 // Fetch properties from API
@@ -109,7 +245,7 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
   const response = await api.get<PropertyListResponse>(endpoint);
   return {
     ...response,
-    data: response.data.map((property) => withDerivedPropertyImages(property)),
+    data: response.data.map((property) => normalizePropertyResponse(property)),
   };
 };
 
@@ -125,7 +261,7 @@ export const fetchPropertyById = async (
           },
         }
       : undefined);
-    return withDerivedPropertyImages(property);
+    return normalizePropertyResponse(property);
   } catch (error) {
     console.error('Failed to fetch property:', error);
     return null;
@@ -142,9 +278,20 @@ export const propertyKeys = {
   lists: () => [...propertyKeys.all, 'list'] as const,
   list: (params: PropertyQueryParams) => [...propertyKeys.lists(), params] as const,
   details: () => [...propertyKeys.all, 'detail'] as const,
-  detail: (id: string) => [...propertyKeys.details(), id] as const,
+  detailBase: (id: string) => [...propertyKeys.details(), id] as const,
+  detail: (id: string, viewerKey: string) => [...propertyKeys.detailBase(id), viewerKey] as const,
   map: (bounds?: { north: number; south: number; east: number; west: number }) =>
     [...propertyKeys.all, 'map', bounds] as const,
+  followingViewportRoot: (viewerKey: string) =>
+    [...propertyKeys.all, 'following-viewport', viewerKey] as const,
+  followingViewport: (
+    viewerKey: string,
+    bbox: string | null,
+    filters: Pick<
+      MapFilters,
+      'salePriceFrom' | 'salePriceTo' | 'rentPriceFrom' | 'rentPriceTo' | 'marketState'
+    >,
+  ) => [...propertyKeys.followingViewportRoot(viewerKey), bbox, filters] as const,
 };
 
 // Hook to fetch properties with optional filters
@@ -194,16 +341,21 @@ export function useAllProperties(limit = 100) {
 
 // Hook to fetch a single property's details
 export function useProperty(id: string | null) {
-  const { getAccessToken } = useAuthContext();
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   return useQuery({
-    queryKey: id ? propertyKeys.detail(id) : propertyKeys.details(),
+    queryKey: id ? propertyKeys.detail(id, viewerKey) : propertyKeys.details(),
     queryFn: async () => {
       if (!id) {
         return null;
       }
 
       const accessToken = await getAccessToken();
+      if (viewerKey !== 'anon' && !accessToken) {
+        throw new Error('Authenticated property fetch requires an access token');
+      }
+
       return fetchPropertyById(id, accessToken);
     },
     enabled: !!id,
@@ -217,9 +369,9 @@ export function usePriceGuess() {
   return useMutation({
     mutationFn: submitPriceGuess,
     onSuccess: (_data, variables) => {
-      // Invalidate the property detail to refetch updated FMV
+      // Invalidate every viewer variant for this property detail.
       queryClient.invalidateQueries({
-        queryKey: propertyKeys.detail(variables.propertyId),
+        queryKey: propertyKeys.detailBase(variables.propertyId),
       });
     },
   });

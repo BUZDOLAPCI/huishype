@@ -5,7 +5,8 @@
  * Private events (save) only in personal activity
  */
 
-export type ActivityEventType = 'property_like' | 'comment' | 'price_guess' | 'save';
+export type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
+export type ActivityEventType = PublicActivityEventType | 'save';
 
 export interface ActivityActor {
   id: string;
@@ -17,24 +18,31 @@ export interface ActivityActor {
 export interface ActivityProperty {
   id: string;
   address: string;
+  streetName: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
   city: string;
+  postalCode: string;
+  countryCode: string;
   thumbnailUrl: string | null;
 }
 
-export interface ActivityItem {
+export interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType> {
   id: string;
-  eventType: ActivityEventType;
+  eventType: TEventType;
   actor: ActivityActor;
   property: ActivityProperty;
   createdAt: string;
   meta: Record<string, unknown> | null;
 }
 
-export interface ActivityResponse {
-  items: ActivityItem[];
+export interface ActivityResponse<TEventType extends ActivityEventType = ActivityEventType> {
+  items: ActivityItem<TEventType>[];
   pagination: {
     limit: number;
     offset: number;
     hasMore: boolean;
   };
 }
+
+export type PublicActivityResponse = ActivityResponse<PublicActivityEventType>;

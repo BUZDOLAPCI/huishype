@@ -49,7 +49,7 @@ describe('PropertyMediaCard', () => {
   it('renders image when listingPhotoUrl is provided', () => {
     render(
       <PropertyMediaCard
-        property={{ ...baseProperty, listingPhotoUrl: 'https://example.com/photo.jpg' }}
+        property={{ ...baseProperty, listingPhotoUrl: 'https://cdn.huishype.nl/photo.jpg' }}
       />
     );
     expect(screen.getByTestId('property-media-image')).toBeTruthy();
@@ -61,7 +61,7 @@ describe('PropertyMediaCard', () => {
         property={{
           ...baseProperty,
           listingPhotoUrl: null,
-          aerialImageUrl: 'https://example.com/aerial.jpg',
+          aerialImageUrl: 'https://images.huishype.nl/aerial.jpg',
         }}
       />
     );

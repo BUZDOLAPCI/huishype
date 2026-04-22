@@ -416,9 +416,14 @@ async function batchInsertListings(
     INSERT INTO listings (${columns.join(', ')})
     VALUES ${valueClauses.join(',\n')}
     ON CONFLICT (source_url) DO NOTHING
+    RETURNING property_id
   `;
 
   const result = await mainDb.unsafe(sql, params as (string | number | null | Date)[]);
+  await advancePropertyChangeState(
+    mainDb,
+    result.map((row) => String(row.property_id)),
+  );
   const inserted = result.count;
   const duplicates = rows.length - inserted;
   return { inserted, duplicates };
@@ -451,10 +456,38 @@ async function batchInsertPriceHistory(
     INSERT INTO price_history (${columns.join(', ')})
     VALUES ${valueClauses.join(',\n')}
     ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
+    RETURNING property_id
   `;
 
   const result = await mainDb.unsafe(sql, params as (string | number | null)[]);
+  await advancePropertyChangeState(
+    mainDb,
+    result.map((row) => String(row.property_id)),
+  );
   return result.count;
+}
+
+async function advancePropertyChangeState(
+  mainDb: postgres.Sql,
+  propertyIds: string[],
+): Promise<void> {
+  const uniquePropertyIds = [...new Set(propertyIds)].filter((id) => id.length > 0);
+  if (uniquePropertyIds.length === 0) return;
+
+  const valueClauses = uniquePropertyIds.map((_, index) => `($${index + 1}::uuid)`);
+  const sql = `
+    WITH changed(property_id) AS (
+      VALUES ${valueClauses.join(',\n')}
+    )
+    INSERT INTO property_change_state (property_id, change_version, last_changed_at)
+    SELECT property_id, 1, NOW()
+    FROM changed
+    ON CONFLICT (property_id) DO UPDATE SET
+      change_version = property_change_state.change_version + 1,
+      last_changed_at = EXCLUDED.last_changed_at
+  `;
+
+  await mainDb.unsafe(sql, uniquePropertyIds);
 }
 
 // ---------------------------------------------------------------------------

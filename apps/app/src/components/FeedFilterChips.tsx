@@ -1,7 +1,7 @@
 /**
  * FeedFilterChips — Horizontal filter chips for the feed screen.
  *
- * Three chips: Trending, Latest, Recent Activity.
+ * Four chips: Trending, Latest, Recent Activity, Following.
  * Uses the Chip primitive with gold active state.
  *
  * Design spec: Section 7.4 (Feed Filter Chips).
@@ -23,6 +23,7 @@ const FILTER_CHIPS: FilterChipDef[] = [
   { key: 'trending', label: 'Trending', leadingIcon: true },
   { key: 'latest', label: 'Latest' },
   { key: 'recent-activity', label: 'Recent Activity' },
+  { key: 'following', label: 'Following' },
 ];
 
 interface FeedFilterChipsProps {

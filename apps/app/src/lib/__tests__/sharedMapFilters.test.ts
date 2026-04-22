@@ -1,9 +1,13 @@
 import {
+  buildNearbyGroupPath,
+  buildPropertyTileTemplateUrl,
+  createDefaultMapFilters,
   doesMapFilterCandidateMatch,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapStatusPillActive,
   toggleMapStatusPill,
+  updateMapFilterSearchParams,
 } from '../sharedMapFilters';
 
 describe('sharedMapFilters price suggestions', () => {
@@ -148,9 +152,48 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: 2000,
           marketState: ['for-rent'],
+          activity: 'all',
         },
       ),
     ).toBe(true);
+  });
+
+  it('applies the public activity facet independently of market state', () => {
+    expect(
+      doesMapFilterCandidateMatch(
+        {
+          marketState: 'for-sale',
+          socialScore: 12,
+          lastSocialAt: new Date().toISOString(),
+        },
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale'],
+          activity: 'all-time',
+        },
+      ),
+    ).toBe(true);
+
+    expect(
+      doesMapFilterCandidateMatch(
+        {
+          marketState: 'for-sale',
+          socialScore: 12,
+          lastSocialAt: '2025-01-01T00:00:00.000Z',
+        },
+        {
+          salePriceFrom: null,
+          salePriceTo: null,
+          rentPriceFrom: null,
+          rentPriceTo: null,
+          marketState: ['for-sale'],
+          activity: 'today',
+        },
+      ),
+    ).toBe(false);
   });
 
   it('treats the default market-state set as no status pills selected', () => {
@@ -162,6 +205,7 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceFrom: null,
           rentPriceTo: null,
           marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+          activity: 'all',
         },
         'for-sale',
       ),
@@ -176,6 +220,7 @@ describe('sharedMapFilters price suggestions', () => {
         rentPriceFrom: null,
         rentPriceTo: null,
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+        activity: 'all',
       },
       'sold',
     );
@@ -189,5 +234,23 @@ describe('sharedMapFilters price suggestions', () => {
       'rented',
       'not-listed',
     ]);
+    expect(reset.activity).toBe('all');
+  });
+
+  it('removes deprecated socialScope from public search serialization', () => {
+    const params = updateMapFilterSearchParams(
+      new URLSearchParams('socialScope=following&foo=bar'),
+      createDefaultMapFilters(),
+    );
+
+    expect(params.get('socialScope')).toBeNull();
+    expect(params.get('foo')).toBe('bar');
+  });
+
+  it('keeps app-local socialScope out of public tile and nearby URLs', () => {
+    const filters = createDefaultMapFilters();
+
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).not.toContain('socialScope');
+    expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).not.toContain('socialScope');
   });
 });

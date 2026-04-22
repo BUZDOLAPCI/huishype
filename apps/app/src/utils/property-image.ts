@@ -51,6 +51,31 @@ export interface PropertyImageRecord extends PropertyImageSource {
  */
 const COUNTRIES_WITH_AERIAL: ReadonlySet<string> = new Set(['NL']);
 const INVALID_PROPERTY_IMAGE_HOSTS: ReadonlySet<string> = new Set(['placeholder.test']);
+const INVALID_PROPERTY_IMAGE_HOST_SUFFIXES = [
+  '.example.com',
+  '.example.org',
+  '.example.net',
+] as const;
+
+function isInvalidPropertyImageHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+
+  if (INVALID_PROPERTY_IMAGE_HOSTS.has(normalized)) {
+    return true;
+  }
+
+  if (
+    normalized === 'example.com' ||
+    normalized === 'example.org' ||
+    normalized === 'example.net'
+  ) {
+    return true;
+  }
+
+  return INVALID_PROPERTY_IMAGE_HOST_SUFFIXES.some((suffix) =>
+    normalized.endsWith(suffix),
+  );
+}
 
 function normalizePropertyImageUrl(url?: string | null): string | null {
   const trimmed = url?.trim();
@@ -63,7 +88,7 @@ function normalizePropertyImageUrl(url?: string | null): string | null {
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return null;
     }
-    if (INVALID_PROPERTY_IMAGE_HOSTS.has(parsed.hostname.toLowerCase())) {
+    if (isInvalidPropertyImageHost(parsed.hostname)) {
       return null;
     }
     return trimmed;

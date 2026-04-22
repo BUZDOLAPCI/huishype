@@ -32,6 +32,36 @@ type QuickActionsProps = {
 jest.mock('../../../hooks/useProperties', () => {
   return {
     useProperty: (...args: unknown[]) => mockUseProperty(...args),
+    resolvePropertyCommentCount: (property: {
+      commentCount?: number | null;
+      topLevelCommentCount?: number | null;
+      replyCount?: number | null;
+    }) => {
+      if (
+        typeof property.topLevelCommentCount === 'number' ||
+        typeof property.replyCount === 'number'
+      ) {
+        return (property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0);
+      }
+
+      return property.commentCount ?? 0;
+    },
+    resolvePropertyActivityLevel: (property: {
+      socialScore?: number | null;
+      recentSocialScore?: number | null;
+      hasActiveListing?: boolean | null;
+      activityLevel?: 'hot' | 'warm' | 'cold' | null;
+    }) => {
+      if ((property.recentSocialScore ?? 0) > 0.5) {
+        return 'hot';
+      }
+
+      if ((property.socialScore ?? 0) > 0 || property.hasActiveListing) {
+        return 'warm';
+      }
+
+      return property.activityLevel ?? 'cold';
+    },
   };
 });
 
@@ -369,6 +399,20 @@ describe('PropertyContent', () => {
 
     expect(mockRecordPropertyView).toHaveBeenCalledTimes(1);
     expect(mockRecordPropertyView).toHaveBeenCalledWith(detailedProperty.id);
+  });
+
+  it('does not record a property view for ghost map nodes', () => {
+    renderWithProviders(
+      <PropertyContent
+        property={{
+          ...detailedProperty,
+          nodeClass: 'ghost',
+        }}
+        isVisible
+      />
+    );
+
+    expect(mockRecordPropertyView).not.toHaveBeenCalled();
   });
 
   it('fetches details only for summary properties', () => {

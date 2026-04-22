@@ -1,26 +1,36 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+
+type MockMapEventHandler = (...args: unknown[]) => void;
 
 type MockMapInstance = {
   options: {
     container: HTMLDivElement;
     style: {
-      sources?: Record<string, { tiles?: string[] }>;
+      sources?: Record<string, { promoteId?: string; tiles?: string[] }>;
     };
+    transformRequest?: (url: string) => { url: string; headers?: Record<string, string> };
   };
   keyboard: {
     disableRotation: jest.Mock;
   };
   addControl: jest.Mock;
+  addSource: jest.Mock;
+  addLayer: jest.Mock;
+  removeLayer: jest.Mock;
+  removeSource: jest.Mock;
   getContainer: jest.Mock;
   getCanvas: jest.Mock;
   getCenter: jest.Mock;
   getZoom: jest.Mock;
   getBearing: jest.Mock;
+  getBounds: jest.Mock;
   getStyle: jest.Mock;
   getPaintProperty: jest.Mock;
   setPaintProperty: jest.Mock;
+  setFeatureState: jest.Mock;
   on: jest.Mock;
   once: jest.Mock;
   off: jest.Mock;
@@ -38,51 +48,38 @@ type MockMapInstance = {
     serialize: jest.Mock;
     setTiles: jest.Mock;
   };
-  trigger: (event: string, payload?: unknown) => void;
+  trigger: (event: string, payload?: unknown, layerId?: string) => void;
 };
-
-type MockMarkerInstance = {
-  setLngLat: jest.Mock;
-  addTo: jest.Mock;
-  remove: jest.Mock;
-};
-
-type MockMapEventHandler = (...args: unknown[]) => void;
 
 let mockAppliedFilters = { tag: 'tile-a' };
+let mockIsAuthenticated = true;
+const mockGetAccessToken = jest.fn(async () => 'viewer-token');
+let mockFollowingTileSourceIsError = false;
+let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+const mockFollowingTileRefetch = jest.fn();
+let mockReadTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadCacheBustedTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
+let mockReadHeaderValue = 'session-123';
+const mockReadTileRefetch = jest.fn();
+const mockRecordPropertyView = jest.fn();
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
+const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
+let capturedMapFilterBarProps: {
+  socialScope?: 'all' | 'following';
+  followingActivity?: 'today' | '10d' | '30d' | 'all-time';
+  onToggleFollowing?: () => void;
+  onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
+} | null = null;
+
 const mockAmbientCommentBubbles = {
-  bubbles: [] as Array<{
-    nodeKey?: string;
-    property: { id: string; address: string; city: string; coordinate?: [number, number] };
-    coordinate: [number, number];
-    screenPoint: [number, number] | null;
-    preview: {
-      text: string;
-      likeCount: number;
-      authorName: string;
-      authorPhotoUrl: string | null;
-    };
-  }>,
+  bubbles: [] as unknown[],
   clearBubbles: jest.fn(),
   refreshBubbles: jest.fn(),
 };
-let capturedAmbientBubblePortalProps:
-  | {
-      onBubblePress: (bubble: {
-        nodeKey?: string;
-        property: {
-          id: string;
-          address: string;
-          city: string;
-          coordinate?: [number, number];
-        };
-        coordinate: [number, number];
-      }) => void;
-    }
-  | null = null;
+
 const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
@@ -122,31 +119,17 @@ const mockInteraction = {
   handleAuthStarting: jest.fn(),
 };
 
-const mockMapInstances: Array<{
-  getSource: jest.Mock;
-  getStyle: jest.Mock;
-  options: {
-    container: HTMLDivElement;
-    style: {
-      sources?: Record<string, { tiles?: string[] }>;
-    };
-  };
-  propertySource: {
-    serialize: jest.Mock;
-    setTiles: jest.Mock;
-  };
-  remove: jest.Mock;
-  trigger: (event: string, payload?: unknown) => void;
-}> = [];
+const mockMapInstances: MockMapInstance[] = [];
 
 jest.mock('react-native', () => {
-  const React = require('react') as typeof import('react');
+  const ReactModule = require('react') as typeof import('react');
+
   const createElement = (tag: string) =>
-    React.forwardRef<HTMLElement, React.PropsWithChildren<{ testID?: string }>>(
+    ReactModule.forwardRef<HTMLElement, React.PropsWithChildren<{ testID?: string }>>(
       (props, ref) => {
-      const { children, testID, ...rest } = props;
-      return React.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
-      },
+        const { children, testID, ...rest } = props;
+        return ReactModule.createElement(tag, { ...rest, ref, 'data-testid': testID }, children);
+      }
     );
 
   return {
@@ -156,6 +139,11 @@ jest.mock('react-native', () => {
     Platform: {
       OS: 'web',
     },
+    Pressable: createElement('button'),
+    StyleSheet: {
+      create: <T,>(styles: T) => styles,
+      absoluteFillObject: {},
+    },
     Text: createElement('span'),
     View: createElement('div'),
   };
@@ -163,8 +151,8 @@ jest.mock('react-native', () => {
 
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: jest.fn((effect: () => void | (() => void)) => {
-    const React = require('react') as typeof import('react');
-    React.useEffect(() => effect(), [effect]);
+    const ReactModule = require('react') as typeof import('react');
+    ReactModule.useEffect(() => effect(), [effect]);
   }),
 }));
 
@@ -175,16 +163,28 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/src/components', () => {
-  const React = require('react');
+  const ReactModule = require('react');
   return {
     AuthModal: () => null,
     SearchBar: () => null,
-    PropertyBottomSheet: React.forwardRef(() => null),
+    PropertyBottomSheet: ReactModule.forwardRef(() => null),
   };
 });
 
 jest.mock('@/src/components/map/MapFilterBar', () => ({
-  MapFilterBar: () => null,
+  MapFilterBar: (props: typeof capturedMapFilterBarProps) => {
+    capturedMapFilterBarProps = props;
+    return null;
+  },
+}));
+
+jest.mock('@/src/components/map/FollowingMapStateCard', () => ({
+  FollowingMapStateCard: ({ mode }: { mode: string }) => {
+    const ReactModule = require('react') as typeof import('react');
+    return ReactModule.createElement('div', {
+      'data-testid': `map-following-state-${mode}`,
+    });
+  },
 }));
 
 jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
@@ -192,10 +192,7 @@ jest.mock('@/src/components/WebPreviewMarkerPortal', () => ({
 }));
 
 jest.mock('@/src/components/WebAmbientCommentBubblesPortal', () => ({
-  WebAmbientCommentBubblesPortal: (props: typeof capturedAmbientBubblePortalProps) => {
-    capturedAmbientBubblePortalProps = props;
-    return null;
-  },
+  WebAmbientCommentBubblesPortal: () => null,
 }));
 
 jest.mock('@/src/components/navigation/MapHeaderRow', () => ({
@@ -219,6 +216,59 @@ jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
   toAmbientBubbleVisibleNode: jest.fn((node) => node),
 }));
 
+const mockUseFollowingTileSource = jest.fn(
+  (_filters: unknown, _followingActivity: unknown, _enabled: unknown) => ({
+    data: mockFollowingTileUrl
+      ? {
+          tileJsonUrl: 'http://api.test/tiles/following/properties.json',
+          tileUrl: mockFollowingTileUrl,
+          tileJson: { tiles: [mockFollowingTileUrl] },
+        }
+      : undefined,
+    isLoading: false,
+    isError: mockFollowingTileSourceIsError,
+    error: mockFollowingTileSourceIsError ? new Error('Following tile source failed') : null,
+    refetch: mockFollowingTileRefetch,
+  })
+);
+
+jest.mock('@/src/hooks/useFollowingTileSource', () => ({
+  useFollowingTileSource: jest.fn(
+    (filters: unknown, followingActivity: unknown, enabled: unknown) =>
+      mockUseFollowingTileSource(filters, followingActivity, enabled)
+  ),
+}));
+
+const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => ({
+  data: mockReadTileUrl
+    ? {
+        tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+        tileUrl: mockReadTileUrl,
+        cacheBustedTileUrl: mockReadCacheBustedTileUrl ?? mockReadTileUrl,
+        tileJson: { tiles: [mockReadTileUrl] },
+        headerName: mockReadHeaderName,
+        headerValue: mockReadHeaderValue,
+        version: 0,
+      }
+    : undefined,
+  isLoading: false,
+  isError: false,
+  error: null,
+  refetch: mockReadTileRefetch,
+}));
+
+jest.mock('@/src/hooks/useReadTileSource', () => ({
+  useReadTileSource: jest.fn((filters: unknown, enabled: unknown) =>
+    mockUseReadTileSource(filters, enabled)
+  ),
+}));
+
+jest.mock('@/src/hooks/usePropertyView', () => ({
+  usePropertyView: jest.fn(() => ({
+    recordPropertyView: mockRecordPropertyView,
+  })),
+}));
+
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
@@ -226,6 +276,14 @@ jest.mock('@/src/hooks/useMapCityName', () => ({
     onViewportCenterChanged: mockOnViewportCenterChanged,
   })),
   extractCityFromAddress: jest.fn(() => null),
+}));
+
+jest.mock('@/src/providers/AuthProvider', () => ({
+  useAuthContext: jest.fn(() => ({
+    accessToken: mockIsAuthenticated ? 'viewer-token' : null,
+    getAccessToken: mockGetAccessToken,
+    isAuthenticated: mockIsAuthenticated,
+  })),
 }));
 
 jest.mock('@/src/hooks/useMapFilterController', () => ({
@@ -246,6 +304,7 @@ jest.mock('@/src/lib/currentLocation', () => ({
 }));
 
 jest.mock('@/src/lib/mapRoute', () => ({
+  ...jest.requireActual('@/src/lib/mapRoute'),
   clearLocalPreviewRouteCache: jest.fn(),
   extractCanonicalRouteInput: jest.fn(() => null),
   registerLocalPreviewRoute: jest.fn(),
@@ -253,10 +312,9 @@ jest.mock('@/src/lib/mapRoute', () => ({
 
 jest.mock('@/src/lib/sharedMapFilters', () => ({
   appendSearchToPath: jest.fn((pathname, search) => `${pathname}${search}`),
-  buildPropertyTileTemplateUrl: jest.fn(
-    (_apiUrl, filters) => `https://tiles.test/${filters.tag}`,
-  ),
+  buildPropertyTileTemplateUrl: jest.fn((_apiUrl, filters) => `https://tiles.test/${filters.tag}`),
   createDefaultMapFilters: jest.fn(() => ({ tag: 'default' })),
+  doesMapFilterCandidateMatch: jest.fn(() => true),
   getCanonicalMapFilterSignature: jest.fn((filters) => filters.tag),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
   parseMapFiltersFromSearchParams: jest.fn(() => ({ tag: 'default' })),
@@ -264,7 +322,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
   getCurrentBrowserPathname: jest.fn(() => '/'),
-  replacePassiveBrowserPath: jest.fn(() => true),
+  replacePassiveBrowserPath: jest.fn((pathname: string) => mockReplacePassiveBrowserPath(pathname)),
 }));
 
 jest.mock('@/src/lib/useResolvedMapRoute', () => ({
@@ -277,10 +335,33 @@ jest.mock('@/src/lib/useResolvedMapRoute', () => ({
 
 jest.mock('maplibre-gl', () => {
   const Map = jest.fn().mockImplementation((options) => {
-    const listeners = new globalThis.Map<string, Array<(arg?: unknown) => void>>();
-    const onceListeners = new globalThis.Map<string, Array<(arg?: unknown) => void>>();
-    let currentTiles =
-      options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
+    const listeners = new globalThis.Map<string, MockMapEventHandler[]>();
+    const onceListeners = new globalThis.Map<string, MockMapEventHandler[]>();
+    let currentTiles = options.style?.sources?.['properties-source']?.tiles?.slice() ?? [];
+    let currentReadTiles = options.style?.sources?.['read-properties-source']?.tiles?.slice() ?? [];
+
+    const getKey = (event: string, layerId?: string) => (layerId ? `${event}:${layerId}` : event);
+
+    const addListener = (
+      storage: Map<string, MockMapEventHandler[]>,
+      event: string,
+      layerOrHandler: unknown,
+      maybeHandler?: unknown
+    ) => {
+      const isLayerListener = typeof layerOrHandler === 'string';
+      const layerId = isLayerListener ? (layerOrHandler as string) : undefined;
+      const handler = (isLayerListener ? maybeHandler : layerOrHandler) as
+        | MockMapEventHandler
+        | undefined;
+      if (!handler) {
+        return;
+      }
+
+      const key = getKey(event, layerId);
+      const queue = storage.get(key) ?? [];
+      queue.push(handler);
+      storage.set(key, queue);
+    };
 
     const propertySource = {
       serialize: jest.fn(() => ({ tiles: currentTiles })),
@@ -288,8 +369,15 @@ jest.mock('maplibre-gl', () => {
         currentTiles = tiles.slice();
       }),
     };
+    const readPropertySource = {
+      serialize: jest.fn(() => ({ tiles: currentReadTiles })),
+      setTiles: jest.fn((tiles: string[]) => {
+        currentReadTiles = tiles.slice();
+      }),
+    };
 
     const canvas = globalThis.document.createElement('canvas');
+    canvas.style.cursor = '';
 
     const instance = {} as MockMapInstance;
     Object.assign(instance, {
@@ -298,37 +386,65 @@ jest.mock('maplibre-gl', () => {
         disableRotation: jest.fn(),
       },
       addControl: jest.fn(),
+      addSource: jest.fn((sourceId: string, source: { tiles?: string[] }) => {
+        if (sourceId === 'read-properties-source') {
+          currentReadTiles = source.tiles?.slice() ?? [];
+        }
+      }),
+      addLayer: jest.fn(),
+      removeLayer: jest.fn(),
+      removeSource: jest.fn((sourceId: string) => {
+        if (sourceId === 'read-properties-source') {
+          currentReadTiles = [];
+        }
+      }),
       getContainer: jest.fn(() => options.container),
       getCanvas: jest.fn(() => canvas),
       getCenter: jest.fn(() => ({ lng: 4.9, lat: 52.37 })),
       getZoom: jest.fn(() => 14),
       getBearing: jest.fn(() => 0),
+      getBounds: jest.fn(() => ({
+        getWest: () => 4.8,
+        getSouth: () => 52.3,
+        getEast: () => 5.0,
+        getNorth: () => 52.4,
+      })),
       getStyle: jest.fn(() => ({ layers: [] })),
       getPaintProperty: jest.fn(() => null),
       setPaintProperty: jest.fn(),
+      setFeatureState: jest.fn(),
       on: jest.fn((event: string, layerOrHandler: unknown, maybeHandler?: unknown) => {
-        const handler = (
-          typeof layerOrHandler === 'function' ? layerOrHandler : maybeHandler
-        ) as MockMapEventHandler | undefined;
-        if (!handler) {
-          return instance;
+        addListener(listeners, event, layerOrHandler, maybeHandler);
+        return instance;
+      }),
+      once: jest.fn((event: string, handler: MockMapEventHandler) => {
+        addListener(onceListeners, event, handler);
+        return instance;
+      }),
+      off: jest.fn((event: string, layerOrHandler?: unknown) => {
+        const key =
+          typeof layerOrHandler === 'string' ? getKey(event, layerOrHandler) : getKey(event);
+        if (typeof layerOrHandler === 'function') {
+          const currentListeners = listeners.get(key) ?? [];
+          listeners.set(
+            key,
+            currentListeners.filter((listener) => listener !== layerOrHandler),
+          );
+        } else {
+          listeners.delete(key);
         }
-        const queue = listeners.get(event) ?? [];
-        queue.push(handler);
-        listeners.set(event, queue);
         return instance;
       }),
-      once: jest.fn((event: string, handler: (arg?: unknown) => void) => {
-        const queue = onceListeners.get(event) ?? [];
-        queue.push(handler);
-        onceListeners.set(event, queue);
-        return instance;
-      }),
-      off: jest.fn(),
       getLayer: jest.fn(() => false),
-      getSource: jest.fn((sourceId: string) =>
-        sourceId === 'properties-source' ? propertySource : undefined,
-      ),
+      getSource: jest.fn((sourceId: string) => {
+        if (sourceId === 'properties-source') {
+          return propertySource;
+        }
+        if (sourceId === 'read-properties-source' && currentReadTiles.length > 0) {
+          return readPropertySource;
+        }
+        return undefined;
+      }),
       isStyleLoaded: jest.fn(() => true),
       fitBounds: jest.fn(),
       flyTo: jest.fn(),
@@ -338,11 +454,12 @@ jest.mock('maplibre-gl', () => {
       resize: jest.fn(),
       remove: jest.fn(),
       propertySource,
-      trigger(event: string, payload?: unknown) {
-        (listeners.get(event) ?? []).forEach((listener: (arg?: unknown) => void) => listener(payload));
-        const oneTimeListeners = onceListeners.get(event) ?? [];
-        oneTimeListeners.forEach((listener: (arg?: unknown) => void) => listener(payload));
-        onceListeners.delete(event);
+      trigger(event: string, payload?: unknown, layerId?: string) {
+        const keyedListeners = listeners.get(getKey(event, layerId)) ?? [];
+        keyedListeners.forEach((listener) => listener(payload));
+        const keyedOnceListeners = onceListeners.get(getKey(event, layerId)) ?? [];
+        keyedOnceListeners.forEach((listener) => listener(payload));
+        onceListeners.delete(getKey(event, layerId));
       },
     });
 
@@ -351,15 +468,7 @@ jest.mock('maplibre-gl', () => {
   });
 
   const NavigationControl = jest.fn();
-  const Marker = jest.fn().mockImplementation(() => {
-    const instance = {} as MockMarkerInstance;
-    Object.assign(instance, {
-      setLngLat: jest.fn(() => instance),
-      addTo: jest.fn(() => instance),
-      remove: jest.fn(),
-    });
-    return instance;
-  });
+  const Marker = jest.fn();
 
   return {
     Map,
@@ -381,7 +490,7 @@ async function flushMicrotasks() {
   });
 }
 
-describe('MapScreen web filter updates', () => {
+describe('MapScreen web grouped Following mode', () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -390,9 +499,32 @@ describe('MapScreen web filter updates', () => {
     jest.useRealTimers();
     mockMapInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
+    mockIsAuthenticated = true;
+    mockFollowingTileSourceIsError = false;
+    mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+    mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadHeaderName = 'x-session-id';
+    mockReadHeaderValue = 'session-123';
+    mockRecordPropertyView.mockReset();
+    capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
-    capturedAmbientBubblePortalProps = null;
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+      currentPreviewIndex: 0,
+      selectedPropertyForSheet: null,
+      selectedProperty: null,
+    });
+    mockInteraction.handleFeaturePress.mockReset();
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
     (global as { __DEV__?: boolean }).__DEV__ = false;
+    (
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
+      }
+    ).__HUISHYPE_ANALYTICS_EVENTS__ = [];
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
 
     global.fetch = jest.fn().mockResolvedValue({
       json: async () => ({
@@ -403,6 +535,17 @@ describe('MapScreen web filter updates', () => {
             tiles: ['https://tiles.test/original'],
           },
         },
+        layers: [
+          {
+            id: 'active-node-fill',
+            type: 'circle',
+            source: 'properties-source',
+            'source-layer': 'properties',
+            paint: {
+              'circle-opacity': 0.96,
+            },
+          },
+        ],
       }),
     }) as jest.Mock;
 
@@ -416,11 +559,17 @@ describe('MapScreen web filter updates', () => {
     act(() => {
       root.unmount();
     });
+    Reflect.deleteProperty(
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
+      },
+      '__HUISHYPE_ANALYTICS_EVENTS__'
+    );
     container.remove();
     document.body.innerHTML = '';
   });
 
-  it('updates property source tiles in place when filters change', async () => {
+  it('updates public property source tiles in place when filters change', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -428,94 +577,347 @@ describe('MapScreen web filter updates', () => {
 
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
-    const map = mockMapInstances[0];
-    expect(map).toBeDefined();
+    const map = mockMapInstances[0] as MockMapInstance;
+    expect(map.options.style.sources?.['properties-source']?.tiles).toEqual([
+      'https://tiles.test/tile-a',
+    ]);
+
+    act(() => {
+      map.trigger('load');
+    });
+
+    mockAppliedFilters = { tag: 'tile-b' };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(map.propertySource.setTiles).toHaveBeenCalledWith(['https://tiles.test/tile-b']);
+  });
+
+  it('swaps to grouped Following tiles and applies auth headers only in Following mode', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(window.location.search).toBe('');
+    expect(window.history.state).toEqual({
+      huishypeMapView: {
+        socialScope: 'following',
+      },
+    });
+    expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
+      mockAppliedFilters,
+      'all-time',
+      true
+    );
+    expect(map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf')).toEqual(
+      {
+        url: 'https://tiles.test/following/12/2048/1363.pbf',
+        headers: {
+          Authorization: 'Bearer viewer-token',
+        },
+      }
+    );
+  });
+
+  it('adds private read overlay tiles and scopes signed-out session headers to read requests', async () => {
+    mockIsAuthenticated = false;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(mockUseReadTileSource).toHaveBeenLastCalledWith(mockAppliedFilters, true);
+    expect(map.options.style.sources?.['properties-source']?.tiles).toEqual([
+      'https://tiles.test/tile-a',
+    ]);
+    expect(map.options.style.sources?.['read-properties-source']?.tiles).toEqual([
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf',
+    ]);
+    const activeNodeFillLayer = (map.options.style as {
+      layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
+    }).layers?.find((layer) => layer.id === 'active-node-fill');
+    const readActiveNodeFillLayer = (map.options.style as {
+      layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
+    }).layers?.find((layer) => layer.id === 'read-active-node-fill');
+    const readLayerIds = ((map.options.style as {
+      layers?: Array<{ id?: string }>;
+    }).layers ?? []).map((layer) => layer.id);
+    expect(JSON.stringify(activeNodeFillLayer?.paint?.['circle-opacity'])).toContain('feature-state');
+    expect(readActiveNodeFillLayer?.paint?.['circle-opacity']).toBe(0);
+    expect(readLayerIds).not.toContain('read-cluster-count');
+    expect(readLayerIds).not.toContain('read-ghost-cluster-count');
+    expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
+      {
+        url: 'https://tiles.test/properties/read/12/2048/1363.pbf',
+        headers: {
+          'x-session-id': 'session-123',
+        },
+      }
+    );
+    expect(map.options.transformRequest?.('https://tiles.test/properties/12/2048/1363.pbf')).toEqual({
+      url: 'https://tiles.test/properties/12/2048/1363.pbf',
+    });
+  });
+
+  it('records active preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'active-property',
+          nodeClass: 'active',
+          address: 'Active Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
+  });
+
+  it('refreshes read overlay source tiles from the cache-busted template without removing the source', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const readSource = map.getSource('read-properties-source') as {
+      setTiles: jest.Mock;
+    };
+    readSource.setTiles.mockClear();
+
+    mockReadCacheBustedTileUrl =
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(readSource.setTiles).toHaveBeenCalledWith([
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+    ]);
+    expect(map.removeSource).not.toHaveBeenCalledWith('read-properties-source');
+  });
+
+  it('does not record ghost preview properties as read', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [{
+          id: 'ghost-property',
+          nodeClass: 'ghost',
+          address: 'Ghost Street 1',
+          city: 'Eindhoven',
+        }],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockRecordPropertyView).not.toHaveBeenCalled();
+  });
+
+  it('auth-gates signed-out Following toggles without switching state', async () => {
+    mockIsAuthenticated = false;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
+    expect(container.querySelector('[data-testid="map-following-state-signed-out"]')).toBeNull();
+    expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
+      subtitle: 'Sign in to see homes with activity from people you follow.',
+    });
+  });
+
+  it('shows the empty Following state from rendered grouped features after the map settles', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.queryRenderedFeatures.mockReturnValue([]);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+    act(() => {
+      map.trigger('moveend');
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+    });
+
+    expect(map.queryRenderedFeatures).toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
     expect(
-      map.options.style.sources?.['properties-source']?.tiles,
-    ).toEqual(['https://tiles.test/tile-a']);
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{ name: string }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'map_following_filter_enabled' }),
+        expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
+      ])
+    );
+  });
+
+  it('does not rescan read feature states on unrelated source events before the map is idle', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.queryRenderedFeatures.mockClear();
 
     act(() => {
       map.trigger('load');
     });
-
-    mockAppliedFilters = { tag: 'tile-b' };
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
     await flushMicrotasks();
 
-    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
-    expect(map.remove).not.toHaveBeenCalled();
-    expect(map.propertySource.setTiles).toHaveBeenCalledTimes(1);
-    expect(map.propertySource.setTiles).toHaveBeenCalledWith([
-      'https://tiles.test/tile-b',
-    ]);
-  });
-
-  it('opens comments for the tapped ambient bubble property', async () => {
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'cluster:prop-9',
-        property: {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-        coordinate: [5.48, 51.44],
-        screenPoint: [120, 180],
-        preview: {
-          text: 'Why is this still unsold?',
-          likeCount: 2,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    expect(capturedAmbientBubblePortalProps).not.toBeNull();
+    const callsAfterLoad = map.queryRenderedFeatures.mock.calls.length;
 
     act(() => {
-      capturedAmbientBubblePortalProps?.onBubblePress({
-        coordinate: [5.48, 51.44],
-        property: {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-      });
+      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
     });
 
-    expect(mockInteraction.setHighlightedCoordinate).toHaveBeenCalledWith([5.481, 51.441]);
-    expect(mockInteraction.setPreviewGroup).toHaveBeenCalledWith({
-      properties: [
-        {
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.481, 51.441],
-        },
-      ],
-      coordinate: [5.481, 51.441],
-    });
-    expect(mockInteraction.setCurrentPreviewIndex).toHaveBeenCalledWith(0);
-    expect(mockInteraction.setSelectedPropertyId).toHaveBeenCalledWith('prop-9');
-    expect(mockInteraction.handleComment).toHaveBeenCalledWith({
-      id: 'prop-9',
-      address: 'Stationsplein 1',
-      city: 'Eindhoven',
-      coordinate: [5.481, 51.441],
-    });
+    expect(map.queryRenderedFeatures.mock.calls.length).toBe(callsAfterLoad);
   });
 
-  it('does not clear ambient bubbles when a map gesture starts', async () => {
+  it('routes Following clicks through grouped tile features and emits click-through analytics', async () => {
+    mockInteraction.handleFeaturePress.mockResolvedValue(true);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      map.trigger('sourcedata');
+    });
+
+    const groupedFeature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.47, 51.44],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: 'property-9',
+        point_count: 1,
+        property_ids: 'property-9',
+        preview_property_ids: 'property-9',
+        address: 'Stationsplein 9',
+        city: 'Eindhoven',
+      },
+    };
+
+    act(() => {
+      map.trigger('click', { features: [groupedFeature] }, QUERYABLE_PROPERTY_LAYER_IDS[0]);
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleFeaturePress).toHaveBeenCalledWith(
+      [groupedFeature],
+      14,
+      expect.any(Object)
+    );
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __HUISHYPE_ANALYTICS_EVENTS__?: Array<{
+            name: string;
+            properties: Record<string, unknown>;
+          }>;
+        }
+      ).__HUISHYPE_ANALYTICS_EVENTS__
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'map_property_click_through_from_following_filter',
+          properties: expect.objectContaining({
+            propertyId: 'property-9',
+          }),
+        }),
+      ])
+    );
+  });
+
+  it('shows the error state from Following tile source failures instead of the empty state', async () => {
+    mockFollowingTileSourceIsError = true;
+
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -525,303 +927,14 @@ describe('MapScreen web filter updates', () => {
     act(() => {
       map.trigger('load');
     });
-    mockAmbientCommentBubbles.clearBubbles.mockClear();
+    await flushMicrotasks();
 
     act(() => {
-      map.trigger('dragstart');
-      map.trigger('zoomstart');
-      map.trigger('rotatestart');
-    });
-
-    expect(mockAmbientCommentBubbles.clearBubbles).not.toHaveBeenCalled();
-  });
-
-  it('tops up ambient bubbles on moveend when the visible count is under the viewport max', async () => {
-    jest.useFakeTimers();
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'property:existing',
-        property: {
-          id: 'existing',
-          address: 'Existing 1',
-          city: 'Eindhoven',
-          coordinate: [5.47, 51.43],
-        },
-        coordinate: [5.47, 51.43],
-        screenPoint: [100, 120],
-        preview: {
-          text: 'Existing bubble',
-          likeCount: 1,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
+      capturedMapFilterBarProps?.onToggleFollowing?.();
     });
     await flushMicrotasks();
 
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'single',
-          primary_property_id: 'moveend-prop',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-          address: 'Stationsplein 2',
-          city: 'Eindhoven',
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-    mockAmbientCommentBubbles.refreshBubbles.mockClear();
-
-    act(() => {
-      map.trigger('moveend');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'property:moveend-prop',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['moveend-prop'],
-        commentCount: 6,
-        likeCount: 4,
-        activityScore: 18,
-      }),
-    ], {
-      appendToExisting: true,
-      minimumVisibleCount: 3,
-      preserveRotation: true,
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
-  });
-
-  it('clears and fully reseeds ambient bubbles after a considerable zoom-out on moveend', async () => {
-    jest.useFakeTimers();
-    mockAmbientCommentBubbles.bubbles = [
-      {
-        nodeKey: 'property:existing',
-        property: {
-          id: 'existing',
-          address: 'Existing 1',
-          city: 'Eindhoven',
-          coordinate: [5.47, 51.43],
-        },
-        coordinate: [5.47, 51.43],
-        screenPoint: [100, 120],
-        preview: {
-          text: 'Existing bubble',
-          likeCount: 1,
-          authorName: 'Robin',
-          authorPhotoUrl: null,
-        },
-      },
-    ];
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-
-    let zoom = 14;
-    map.getZoom.mockImplementation(() => zoom);
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'single',
-          primary_property_id: 'moveend-prop',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-          address: 'Stationsplein 2',
-          city: 'Eindhoven',
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-    mockAmbientCommentBubbles.clearBubbles.mockClear();
-    mockAmbientCommentBubbles.refreshBubbles.mockClear();
-
-    zoom = 13;
-    act(() => {
-      map.trigger('moveend');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.clearBubbles).toHaveBeenCalledTimes(1);
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'property:moveend-prop',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['moveend-prop'],
-        commentCount: 6,
-        likeCount: 4,
-        activityScore: 18,
-      }),
-    ], {
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
-  });
-
-  it('does not reset preview state on a normal rerender while focused', async () => {
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    mockAppliedFilters = { tag: 'tile-b' };
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    expect(mockInteraction.resetTransientUI).not.toHaveBeenCalled();
-  });
-
-  it('passes grouped-node member property candidates into ambient bubble refresh during initial seeding', async () => {
-    jest.useFakeTimers();
-
-    mockInteraction.toGroupProperty.mockImplementation((property: {
-      id: string;
-      address: string;
-      city: string;
-      geometry?: { coordinates: [number, number] };
-    }) => ({
-      id: property.id,
-      address: property.address,
-      city: property.city,
-      coordinate: property.geometry?.coordinates,
-    }));
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    Object.defineProperty(map.options.container, 'clientWidth', {
-      configurable: true,
-      value: 800,
-    });
-    Object.defineProperty(map.options.container, 'clientHeight', {
-      configurable: true,
-      value: 600,
-    });
-    map.project.mockReturnValue({ x: 44, y: 66 });
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [5.48, 51.44],
-        },
-        properties: {
-          node_class: 'active',
-          group_kind: 'cluster',
-          primary_property_id: 'cluster-primary',
-          point_count: 3,
-          property_ids: 'member-1,member-2,member-3',
-          preview_property_ids: 'member-2,member-1',
-          commentCount: 6,
-          likeCount: 4,
-          activityScore: 18,
-          guessCount: 1,
-          hasListing: true,
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await act(async () => {
-      jest.advanceTimersByTime(900);
-      await Promise.resolve();
-    });
-
-    expect(mockAmbientCommentBubbles.refreshBubbles).toHaveBeenCalledWith([
-      expect.objectContaining({
-        nodeKey: 'cluster:cluster-primary:5.48:51.44',
-        coordinate: [5.48, 51.44],
-        screenPoint: [44, 66],
-        candidatePropertyIds: ['member-2', 'member-1'],
-        commentCount: 6,
-        likeCount: 4,
-        activityScore: 18,
-      }),
-    ], {
-      placementContext: {
-        viewportSize: { width: 800, height: 600 },
-      },
-    });
+    expect(container.querySelector('[data-testid="map-following-state-error"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).toBeNull();
   });
 });

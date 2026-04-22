@@ -23,6 +23,9 @@ import {
   activityHandlers,
   achievementHandlers,
   emailAuthHandlers,
+  resetMockFollowState,
+  resetMockReadState,
+  resetMockSessions,
 } from '../handlers/index.js';
 import {
   mockUsers,
@@ -36,6 +39,8 @@ import {
   mockMapProperties,
   mockPropertyClusters,
   mockFMV,
+  mockPropertyIds,
+  mockUserIds,
   getMockUser,
   getMockProperty,
   getMockComments,
@@ -44,6 +49,36 @@ import {
 
 describe('Mock handler runtime parity', () => {
   const listingPropertyId = '11111111-1111-4111-8111-111111111111';
+  const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const nearbyGroupedBaseKeys = [
+    'nodeClass',
+    'groupKind',
+    'primaryPropertyId',
+    'pointCount',
+    'propertyIds',
+    'previewPropertyIds',
+    'coordinate',
+    'bbox',
+    'activeListingCount',
+    'socialCount',
+    'recentSocialCount',
+    'socialScoreTotal',
+    'socialScoreMax',
+    'recentSocialScoreTotal',
+    'commentCount',
+    'isRead',
+    'distanceMeters',
+  ] as const;
+  const nearbySingleKeys = [
+    ...nearbyGroupedBaseKeys,
+    'address',
+    'city',
+    'askingPrice',
+    'thumbnailUrl',
+    'hasActiveListing',
+    'marketState',
+  ].sort();
+  const nearbyClusterKeys = [...nearbyGroupedBaseKeys].sort();
 
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
@@ -51,6 +86,9 @@ describe('Mock handler runtime parity', () => {
 
   afterEach(() => {
     server.resetHandlers();
+    resetMockSessions();
+    resetMockFollowState();
+    resetMockReadState();
   });
 
   afterAll(() => {
@@ -128,6 +166,16 @@ describe('Mock handler runtime parity', () => {
     if (body.data.length > 0) {
       expect(body.data[0]).toHaveProperty('savedAt');
       expect(body.data[0]).toHaveProperty('countryCode');
+      expect(body.data[0]).toHaveProperty('hasActiveListing');
+      expect(body.data[0]).toHaveProperty('marketState');
+      expect(body.data[0]).toHaveProperty('latestListingStatus');
+      expect(body.data[0]).toHaveProperty('topLevelCommentCount');
+      expect(body.data[0]).toHaveProperty('replyCount');
+      expect(body.data[0]).toHaveProperty('socialScore');
+      expect(body.data[0]).toHaveProperty('recentSocialScore');
+      expect(body.data[0]).toHaveProperty('isSaved', true);
+      expect(body.data[0]).not.toHaveProperty('commentCount');
+      expect(body.data[0].id).toMatch(uuidShape);
     }
   });
 
@@ -279,6 +327,515 @@ describe('Mock handler runtime parity', () => {
       error: 'VALIDATION_ERROR',
       message: 'Invalid query parameters',
     });
+  });
+
+  it('matches public resolve and nearby grouped map contracts', async () => {
+    const resolveResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&countryCode=NL',
+    );
+    const resolveBody = await resolveResponse.json();
+
+    expect(resolveResponse.status).toBe(200);
+    expect(resolveBody).toHaveProperty('hasActiveListing', true);
+    expect(resolveBody).toHaveProperty('marketState', 'for-sale');
+    expect(resolveBody).not.toHaveProperty('hasListing');
+
+    const nearbySingleResponse = await fetch(
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=17',
+    );
+    const nearbySingleBody = await nearbySingleResponse.json();
+
+    expect(nearbySingleResponse.status).toBe(200);
+    expect(nearbySingleBody).toHaveProperty('groupKind', 'single');
+    expect(nearbySingleBody).toHaveProperty('hasActiveListing');
+    expect(nearbySingleBody).toHaveProperty('marketState');
+    expect(nearbySingleBody).toHaveProperty('isRead', false);
+    expect(Object.keys(nearbySingleBody).sort()).toEqual(nearbySingleKeys);
+
+    const nearbyClusterResponse = await fetch(
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=13',
+    );
+    const nearbyClusterBody = await nearbyClusterResponse.json();
+
+    expect(nearbyClusterResponse.status).toBe(200);
+    expect(nearbyClusterBody).toHaveProperty('groupKind', 'cluster');
+    expect(nearbyClusterBody).toHaveProperty('isRead', false);
+    expect(Object.keys(nearbyClusterBody).sort()).toEqual(nearbyClusterKeys);
+
+    const nearbyNullResponse = await fetch(
+      'http://localhost/properties/nearby?lon=3.5&lat=55.1&zoom=17',
+    );
+    expect(nearbyNullResponse.status).toBe(200);
+    expect(await nearbyNullResponse.json()).toBeNull();
+  });
+
+  it('matches resolve validation and null lookup semantics', async () => {
+    const missingRequiredResponse = await fetch('http://localhost/properties/resolve?postalCode=1016GV');
+    expect(missingRequiredResponse.status).toBe(400);
+    expect(await missingRequiredResponse.json()).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+    });
+
+    const invalidHouseNumberResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=abc&countryCode=NL',
+    );
+    expect(invalidHouseNumberResponse.status).toBe(400);
+    expect(await invalidHouseNumberResponse.json()).toEqual({
+      error: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+    });
+
+    const mismatchedAdditionResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&houseNumberAddition=A&countryCode=NL',
+    );
+    expect(mismatchedAdditionResponse.status).toBe(200);
+    expect(await mismatchedAdditionResponse.json()).toBeNull();
+  });
+
+  it('matches Following TileJSON auth split and personalized nearby grouped payloads', async () => {
+    const unauthorizedResponse = await fetch(
+      'http://localhost/tiles/following/properties.json',
+    );
+    expect(unauthorizedResponse.status).toBe(401);
+
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const omittedActivityTileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const omittedActivityTileJsonBody = await omittedActivityTileJsonResponse.json();
+
+    expect(omittedActivityTileJsonResponse.status).toBe(200);
+    expect(omittedActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
+
+    const legacyAllActivityTileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json?activity=all',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const legacyAllActivityTileJsonBody = await legacyAllActivityTileJsonResponse.json();
+
+    expect(legacyAllActivityTileJsonResponse.status).toBe(200);
+    expect(legacyAllActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
+    expect(legacyAllActivityTileJsonBody.tiles[0]).not.toContain('activity=all&');
+
+    const tileJsonResponse = await fetch(
+      'http://localhost/tiles/following/properties.json?marketState=for-sale,sold&activity=10d',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const tileJsonBody = await tileJsonResponse.json();
+
+    expect(tileJsonResponse.status).toBe(200);
+    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
+    expect(tileJsonBody).toHaveProperty('tiles');
+    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
+    expect(tileJsonBody.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
+    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
+
+    const nearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const nearbyBody = await nearbyResponse.json();
+
+    expect(nearbyResponse.status).toBe(200);
+    expect(nearbyBody).toHaveProperty('groupKind', 'single');
+    expect(nearbyBody).toHaveProperty('primaryPropertyId');
+    expect(nearbyBody).toHaveProperty('hasActiveListing');
+    expect(nearbyBody).toHaveProperty('marketState', 'for-sale');
+    expect(Object.keys(nearbyBody).sort()).toEqual(nearbySingleKeys);
+
+    const tenDayNearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=10d',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const tenDayNearbyBody = await tenDayNearbyResponse.json();
+
+    expect(tenDayNearbyResponse.status).toBe(200);
+    expect(tenDayNearbyBody).toHaveProperty('groupKind', 'single');
+    expect(tenDayNearbyBody).toHaveProperty('primaryPropertyId', mockPropertyIds.herengracht502);
+    expect(tenDayNearbyBody).toHaveProperty('isRead', false);
+
+    const todayNearbyResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=today',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+
+    expect(todayNearbyResponse.status).toBe(200);
+    expect(await todayNearbyResponse.json()).toBeNull();
+
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(followResponse.status).toBe(200);
+
+    const afterFollowResponse = await fetch(
+      'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=13&marketState=for-sale',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const afterFollowBody = await afterFollowResponse.json();
+
+    expect(afterFollowResponse.status).toBe(200);
+    expect(afterFollowBody).toHaveProperty('groupKind', 'cluster');
+    expect(afterFollowBody).toHaveProperty('isRead', false);
+    expect(Object.keys(afterFollowBody).sort()).toEqual(nearbyClusterKeys);
+    expect(afterFollowBody.propertyIds).toEqual(
+      expect.arrayContaining([mockPropertyIds.herengracht502, mockPropertyIds.prinsengracht263]),
+    );
+  });
+
+  it('matches property view identity requirements and response envelope', async () => {
+    const missingIdentityResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/view`,
+      { method: 'POST' }
+    );
+    expect(missingIdentityResponse.status).toBe(400);
+    expect(await missingIdentityResponse.json()).toEqual({
+      error: 'BAD_REQUEST',
+      message: 'Authenticated user or x-session-id header is required.',
+    });
+
+    const sessionResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/view`,
+      {
+        method: 'POST',
+        headers: { 'x-session-id': 'mock-session-1' },
+      }
+    );
+    const sessionBody = await sessionResponse.json();
+
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionBody).toHaveProperty('viewCount');
+    expect(sessionBody).toHaveProperty('uniqueViewers');
+
+    const sessionDetailResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+      {
+        headers: { 'x-session-id': 'mock-session-1' },
+      },
+    );
+    expect(sessionDetailResponse.status).toBe(200);
+    expect(await sessionDetailResponse.json()).toHaveProperty('isRead', true);
+  });
+
+  it('matches read-state TileJSON identity requirements and envelope', async () => {
+    const missingIdentityResponse = await fetch('http://localhost/tiles/properties/read.json');
+    expect(missingIdentityResponse.status).toBe(400);
+    expect(await missingIdentityResponse.json()).toEqual({
+      error: 'BAD_REQUEST',
+      message: 'Authenticated user or x-session-id header is required.',
+    });
+
+    const tileJsonResponse = await fetch(
+      'http://localhost/tiles/properties/read.json?marketState=for-sale,sold&activity=10d',
+      {
+        headers: { 'x-session-id': 'mock-session-tiles' },
+      },
+    );
+    const tileJsonBody = await tileJsonResponse.json();
+
+    expect(tileJsonResponse.status).toBe(200);
+    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
+    expect(tileJsonBody).toHaveProperty('name', 'HuisHype Read Properties');
+    expect(tileJsonBody).toHaveProperty('tiles');
+    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
+    expect(tileJsonBody.tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
+    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
+
+    const missingIdentityTileResponse = await fetch(
+      'http://localhost/tiles/properties/read/12/2048/1363.pbf',
+    );
+    expect(missingIdentityTileResponse.status).toBe(400);
+
+    const tileResponse = await fetch('http://localhost/tiles/properties/read/12/2048/1363.pbf', {
+      headers: { 'x-session-id': 'mock-session-tiles' },
+    });
+    expect(tileResponse.status).toBe(204);
+  });
+
+  it('matches follow-aware user profile and follow route behavior', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const publicProfileResponse = await fetch(
+      `http://localhost/users/${mockUserIds.sophie}/profile`
+    );
+    const publicProfileBody = await publicProfileResponse.json();
+    expect(publicProfileResponse.status).toBe(200);
+    expect(publicProfileBody.relationship).toBe('none');
+    expect(publicProfileBody).toHaveProperty('followerCount');
+    expect(publicProfileBody).toHaveProperty('followingCount');
+
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followBody = await followResponse.json();
+    expect(publicProfileBody.id).toMatch(uuidShape);
+    expect(followResponse.status).toBe(200);
+    expect(followBody.relationship).toBe('following');
+    expect(followBody.followerCount).toBeGreaterThan(0);
+
+    const viewerAwareProfileResponse = await fetch(
+      `http://localhost/users/${mockUserIds.sophie}/profile`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const viewerAwareProfileBody = await viewerAwareProfileResponse.json();
+    expect(viewerAwareProfileResponse.status).toBe(200);
+    expect(viewerAwareProfileBody.relationship).toBe('following');
+    expect(viewerAwareProfileBody.followerCount).toBe(followBody.followerCount);
+    expect(viewerAwareProfileBody.followingCount).toBe(followBody.followingCount);
+
+    const followersResponse = await fetch('http://localhost/users/me/following', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followersBody = await followersResponse.json();
+    expect(followersResponse.status).toBe(200);
+    expect(Array.isArray(followersBody.items)).toBe(true);
+
+    expect(followersBody.items[0].id).toMatch(uuidShape);
+
+    const selfFollowResponse = await fetch(`http://localhost/users/${mockUserIds.jan}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(selfFollowResponse.status).toBe(400);
+  });
+
+  it('matches user search validation, ranking, and viewer-aware payload shape', async () => {
+    const invalidResponse = await fetch('http://localhost/users/search?q=@j');
+    expect(invalidResponse.status).toBe(400);
+    expect(await invalidResponse.json()).toEqual({
+      error: 'QUERY_TOO_SHORT',
+      message: 'Search query must be at least 2 characters.',
+    });
+
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const exactResponse = await fetch('http://localhost/users/search?q=jandevries&limit=20&offset=0');
+    const exactBody = await exactResponse.json();
+    expect(exactResponse.status).toBe(200);
+    expect(exactBody.items[0]).toEqual({
+      id: mockUserIds.jan,
+      displayName: 'Jan de Vries',
+      handle: 'jandevries',
+      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
+      relationship: 'none',
+      followerCount: 2,
+    });
+    expect(Object.keys(exactBody.items[0]).sort()).toEqual([
+      'displayName',
+      'followerCount',
+      'handle',
+      'id',
+      'profilePhotoUrl',
+      'relationship',
+    ]);
+    expect(exactBody.items[0]).not.toHaveProperty('email');
+    expect(exactBody.pagination).toEqual({
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const displayPrefixResponse = await fetch('http://localhost/users/search?q=maria%20bak');
+    const displayPrefixBody = await displayPrefixResponse.json();
+    expect(displayPrefixResponse.status).toBe(200);
+    expect(displayPrefixBody.items[0]).toHaveProperty('handle', 'mariabakker');
+
+    const containsTieResponse = await fetch('http://localhost/users/search?q=en');
+    const containsTieBody = await containsTieResponse.json();
+    expect(containsTieResponse.status).toBe(200);
+    expect(containsTieBody.items.map((item: { handle: string }) => item.handle)).toEqual([
+      'larshendriks',
+      'pieterjansen',
+    ]);
+
+    const authenticatedResponse = await fetch('http://localhost/users/search?q=@@lars', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const authenticatedBody = await authenticatedResponse.json();
+    expect(authenticatedResponse.status).toBe(200);
+    expect(authenticatedBody.items[0]).toEqual(
+      expect.objectContaining({
+        id: mockUserIds.lars,
+        handle: 'larshendriks',
+        relationship: 'mutual',
+        followerCount: 1,
+      })
+    );
+  });
+
+  it('resets follow-state mutations between tests', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const profileResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/profile`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const profileBody = await profileResponse.json();
+
+    expect(profileResponse.status).toBe(200);
+    expect(profileBody.relationship).toBe('none');
+  });
+
+  it('matches activity scope auth split and excludes save from public/following', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const publicResponse = await fetch('http://localhost/activity?scope=public&limit=20');
+    const publicBody = await publicResponse.json();
+    expect(publicResponse.status).toBe(200);
+    expect(publicBody.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
+      true
+    );
+    expect(publicBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 20,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      }),
+    );
+    expect(publicBody.items[0].actor.id).toMatch(uuidShape);
+    expect(publicBody.items[0].property.id).toMatch(uuidShape);
+    expect(publicBody.items[0].property).toHaveProperty('streetName');
+    expect(publicBody.items[0].property).toHaveProperty('postalCode');
+    expect(publicBody.items[0].property).toHaveProperty('countryCode');
+
+    const unauthorizedFollowingResponse = await fetch('http://localhost/activity?scope=following');
+    expect(unauthorizedFollowingResponse.status).toBe(401);
+
+    const followingResponse = await fetch('http://localhost/activity?scope=following&limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const followingBody = await followingResponse.json();
+    expect(followingResponse.status).toBe(200);
+    expect(
+      followingBody.items.every((item: { eventType: string }) => item.eventType !== 'save')
+    ).toBe(true);
+    expect(
+      followingBody.items.map((item: { actor: { id: string } }) => item.actor.id)
+    ).toEqual(expect.arrayContaining([mockUserIds.maria, mockUserIds.lars]));
+    expect(
+      followingBody.items.some((item: { actor: { id: string } }) => item.actor.id === mockUserIds.sophie)
+    ).toBe(false);
+
+    const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(followResponse.status).toBe(200);
+
+    const followingAfterFollowResponse = await fetch(
+      'http://localhost/activity?scope=following&limit=20',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const followingAfterFollowBody = await followingAfterFollowResponse.json();
+    expect(followingAfterFollowResponse.status).toBe(200);
+    expect(
+      followingAfterFollowBody.items.some(
+        (item: { actor: { id: string }; eventType: string }) =>
+          item.actor.id === mockUserIds.sophie && item.eventType === 'comment',
+      ),
+    ).toBe(true);
+
+    const selfResponse = await fetch('http://localhost/users/me/activity?limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const selfBody = await selfResponse.json();
+    expect(selfResponse.status).toBe(200);
+    expect(selfBody.items.some((item: { eventType: string }) => item.eventType === 'save')).toBe(
+      true
+    );
+    expect(selfBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 20,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      }),
+    );
+  });
+
+  it('matches canonical notification event names in mock responses', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const response = await fetch('http://localhost/notifications?limit=20', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(
+      body.items.some((item: { eventType: string }) => item.eventType === 'new_follower')
+    ).toBe(true);
+    expect(
+      body.items.every((item: { eventType: string }) =>
+        [
+          'property_comment',
+          'comment_reply',
+          'comment_like',
+          'property_like',
+          'property_guess',
+          'new_follower',
+          'achievement_unlocked',
+        ].includes(item.eventType)
+      )
+    ).toBe(true);
   });
 });
 
@@ -456,9 +1013,9 @@ describe('Fixture data integrity', () => {
   });
 
   it('getMockUser returns user for valid ID', () => {
-    const user = getMockUser('user-001');
+    const user = getMockUser(mockUserIds.jan);
     expect(user).toBeDefined();
-    expect(user?.id).toBe('user-001');
+    expect(user?.id).toBe(mockUserIds.jan);
   });
 
   it('getMockUser returns undefined for invalid ID', () => {
@@ -466,18 +1023,18 @@ describe('Fixture data integrity', () => {
   });
 
   it('getMockProperty returns property for valid ID', () => {
-    const prop = getMockProperty('prop-001');
+    const prop = getMockProperty(mockPropertyIds.prinsengracht263);
     expect(prop).toBeDefined();
-    expect(prop?.id).toBe('prop-001');
+    expect(prop?.id).toBe(mockPropertyIds.prinsengracht263);
   });
 
   it('getMockComments returns comments for valid property', () => {
-    const comments = getMockComments('prop-001');
+    const comments = getMockComments(mockPropertyIds.prinsengracht263);
     expect(comments.length).toBeGreaterThan(0);
   });
 
   it('getMockGuesses returns guesses for valid property', () => {
-    const guesses = getMockGuesses('prop-001');
+    const guesses = getMockGuesses(mockPropertyIds.prinsengracht263);
     expect(guesses.length).toBeGreaterThan(0);
   });
 });

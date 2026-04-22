@@ -5,6 +5,7 @@ import { db, priceGuesses, properties, users } from '../db/index.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
 import { calculateFmvForProperty } from '../services/fmv.js';
+import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -234,17 +235,35 @@ export async function guessRoutes(app: FastifyInstance) {
 
       if (existingGuess.length > 0) {
         const guess = existingGuess[0];
+        const changed =
+          Number(guess.guessedPrice) !== guessedPrice || guess.isMemeGuess !== isMeme;
 
-        // Update existing guess
-        const updated = await db
-          .update(priceGuesses)
-          .set({
-            guessedPrice,
-            isMemeGuess: isMeme,
-            updatedAt: new Date(),
-          })
-          .where(eq(priceGuesses.id, guess.id))
-          .returning();
+        if (!changed) {
+          return reply.status(200).send({
+            id: guess.id,
+            propertyId: guess.propertyId,
+            userId: guess.userId,
+            guessedPrice: Number(guess.guessedPrice),
+            createdAt: guess.createdAt.toISOString(),
+            updatedAt: guess.updatedAt.toISOString(),
+            message: 'Price guess unchanged',
+          });
+        }
+
+        const updated = await db.transaction(async (tx) => {
+          const rows = await tx
+            .update(priceGuesses)
+            .set({
+              guessedPrice,
+              isMemeGuess: isMeme,
+              updatedAt: new Date(),
+            })
+            .where(eq(priceGuesses.id, guess.id))
+            .returning();
+
+          await advancePropertyChangeVersion(propertyId, tx);
+          return rows;
+        });
 
         const updatedGuess = updated[0];
         return reply.status(200).send({
@@ -258,16 +277,20 @@ export async function guessRoutes(app: FastifyInstance) {
         });
       }
 
-      // Create new guess
-      const newGuess = await db
-        .insert(priceGuesses)
-        .values({
-          propertyId,
-          userId,
-          guessedPrice,
-          isMemeGuess: isMeme,
-        })
-        .returning();
+      const newGuess = await db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(priceGuesses)
+          .values({
+            propertyId,
+            userId,
+            guessedPrice,
+            isMemeGuess: isMeme,
+          })
+          .returning();
+
+        await advancePropertyChangeVersion(propertyId, tx);
+        return rows;
+      });
 
       const created = newGuess[0];
       return reply.status(201).send({

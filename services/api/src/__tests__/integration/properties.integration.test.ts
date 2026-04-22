@@ -4,7 +4,12 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
-import { createIntegrationProperty } from './helpers/fixtures.js';
+import {
+  createIntegrationFollow,
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
 
 /**
  * Integration tests for property routes.
@@ -293,6 +298,81 @@ describe('Property routes', () => {
       }
     });
 
+    it('should keep activity-only filtering independent from market listing joins', async () => {
+      const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const viewIds = Array.from({ length: 8 }, () => crypto.randomUUID());
+      const lon = 6.928;
+      const lat = 53.224;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES
+          (
+            ${propertyIds[0]},
+            'NL',
+            'Activity Filter Street',
+            1,
+            'Signalstad',
+            '9988AA',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+          ),
+          (
+            ${propertyIds[1]},
+            'NL',
+            'Activity Filter Street',
+            2,
+            'Signalstad',
+            '9988AA',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon + 0.00015}, ${lat + 0.0001}), 4326)
+          )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO property_views (id, property_id, session_id, viewed_at)
+        VALUES
+          ${sql.join(
+            viewIds.map(
+              (id, index) =>
+                sql`(${id}, ${propertyIds[0]}, ${`activity-session-${index}`}, NOW() - INTERVAL '2 hours')`
+            ),
+            sql`, `
+          )}
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties?lat=${lat}&lon=${lon}&radius=40&limit=10&activity=10d`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data.map((item: { id: string }) => item.id)).toEqual([propertyIds[0]]);
+        expect(body.data[0]).toMatchObject({
+          id: propertyIds[0],
+          marketState: 'not-listed',
+          hasListing: false,
+          hasActiveListing: false,
+        });
+        expect(body.meta.total).toBe(1);
+      } finally {
+        await db.execute(sql`DELETE FROM property_views WHERE id IN (${sql.join(viewIds.map((id) => sql`${id}`), sql`, `)})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+      }
+    });
+
     it('should return 400 for limit > 100', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -483,13 +563,26 @@ describe('Property routes', () => {
       expect(body).toHaveProperty('primaryPropertyId');
       expect(body).toHaveProperty('groupKind');
       expect(body).toHaveProperty('distanceMeters');
-      expect(body).toHaveProperty('hasListing');
-      expect(body).toHaveProperty('activityScore');
+      expect(body).toHaveProperty('activeListingCount');
+      expect(body).toHaveProperty('socialCount');
+      expect(body).toHaveProperty('recentSocialCount');
+      expect(body).toHaveProperty('socialScoreTotal');
+      expect(body).toHaveProperty('socialScoreMax');
+      expect(body).toHaveProperty('recentSocialScoreTotal');
+      expect(body).not.toHaveProperty('hasListing');
+      expect(body).not.toHaveProperty('activityScore');
+      expect(body).not.toHaveProperty('streetName');
+      expect(body).not.toHaveProperty('postalCode');
+      expect(body).not.toHaveProperty('countryCode');
+      expect(body).not.toHaveProperty('officialValuation');
+      expect(body).not.toHaveProperty('yearBuilt');
+      expect(body).not.toHaveProperty('floorAreaM2');
     });
 
     it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
       const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';
+      const isolatedNearbyFixture = { lon: 0.123456, lat: 0.123456 };
 
       await db.execute(sql`
         INSERT INTO properties (
@@ -510,7 +603,7 @@ describe('Property routes', () => {
           'RemoteCity',
           '9999ZZ',
           'active',
-          ST_SetSRID(ST_MakePoint(6.75, 53.2), 4326)
+          ST_SetSRID(ST_MakePoint(${isolatedNearbyFixture.lon}, ${isolatedNearbyFixture.lat}), 4326)
         )
       `);
 
@@ -554,7 +647,7 @@ describe('Property routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: '/properties/nearby?lon=6.75&lat=53.2&zoom=20',
+          url: `/properties/nearby?lon=${isolatedNearbyFixture.lon}&lat=${isolatedNearbyFixture.lat}&zoom=20`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -566,6 +659,130 @@ describe('Property routes', () => {
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+  });
+
+  describe('GET /properties/following-nearby', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns the canonical grouped shape for followed-user qualifying activity only', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-nearby-viewer' });
+      const actor = await createIntegrationUser(app, { label: 'following-nearby-actor' });
+      const property = await createIntegrationProperty({
+        street: 'Following Nearby Street',
+        houseNumber: 1,
+        city: 'Nearbyville',
+        postalCode: '9201AB',
+        lon: 4.8952,
+        lat: 52.3702,
+      });
+      const noActivityProperty = await createIntegrationProperty({
+        street: 'Following Nearby Quiet Street',
+        houseNumber: 2,
+        city: 'Nearbyville',
+        postalCode: '9201AC',
+        lon: 4.9152,
+        lat: 52.3702,
+      });
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 615000,
+          thumbnailUrl: 'https://cdn.example.com/following-nearby.jpg',
+        });
+        await createIntegrationListing({
+          propertyId: noActivityProperty.id,
+          askingPrice: 610000,
+          thumbnailUrl: 'https://cdn.example.com/following-nearby-quiet.jpg',
+        });
+        await createIntegrationFollow({
+          followerUserId: viewer.userId,
+          followedUserId: actor.userId,
+        });
+        await db.execute(sql`
+          INSERT INTO comments (id, property_id, user_id, content, created_at)
+          VALUES (
+            ${crypto.randomUUID()},
+            ${property.id},
+            ${actor.userId},
+            'Followed-user nearby comment',
+            NOW()
+          )
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).not.toBeNull();
+        expect(body.primaryPropertyId).toBe(property.id);
+        expect(body.groupKind).toBe('single');
+        expect(body.nodeClass).toBe('active');
+        expect(body.hasActiveListing).toBe(true);
+        expect(body.marketState).toBe('for-sale');
+        expect(body).not.toHaveProperty('actorCount');
+        expect(body).not.toHaveProperty('activityTypes');
+
+        const filteredResponse = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=16&salePriceTo=500000&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(filteredResponse.statusCode).toBe(200);
+        expect(JSON.parse(filteredResponse.body)).toBeNull();
+
+        const allActivityResponse = await app.inject({
+          method: 'GET',
+          url: '/properties/following-nearby?lon=4.9152&lat=52.3702&zoom=16&activity=all&marketState=for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(allActivityResponse.statusCode).toBe(200);
+        expect(JSON.parse(allActivityResponse.body)).toBeNull();
+      } finally {
+        await db.execute(sql`
+          DELETE FROM comments
+          WHERE property_id IN (${property.id}, ${noActivityProperty.id})
+        `);
+        await db.execute(sql`
+          DELETE FROM listings
+          WHERE property_id IN (${property.id}, ${noActivityProperty.id})
+        `);
+        await db.execute(sql`DELETE FROM user_follows WHERE follower_user_id = ${viewer.userId}`);
+        await db.execute(sql`
+          DELETE FROM properties
+          WHERE id IN (${property.id}, ${noActivityProperty.id})
+        `);
+        await db.execute(
+          sql`DELETE FROM users WHERE id IN (${sql.join(
+            [sql`${viewer.userId}`, sql`${actor.userId}`],
+            sql`, `,
+          )})`,
+        );
       }
     });
   });
@@ -838,10 +1055,10 @@ describe('Property routes', () => {
       expect(body.uniqueViewers).toBe(1); // All 4 views from the same user
       expect(body.likeCount).toBe(1);
       expect(body.isLiked).toBe(true); // Requesting user made the like
-
-      // Activity level: recentViews=4, commentCount=2, guessCount=3
-      // guessCount(3) > 1 → 'warm'
-      expect(body.activityLevel).toBe('warm');
+      expect(body.recentGuessCount).toBe(3);
+      expect(body.socialScore).toBeCloseTo(5.65, 5);
+      expect(body.recentSocialScore).toBeCloseTo(5.65, 5);
+      expect(body).not.toHaveProperty('activityLevel');
 
       // FMV assertions
       expect(body.fmv).toBeDefined();
@@ -880,6 +1097,55 @@ describe('Property routes', () => {
 
       // But isLiked should be false for unauthenticated
       expect(body.isLiked).toBe(false);
+    });
+
+    it('counts an edited guess once and treats updated_at as the public recency timestamp', async () => {
+      const propertyId = crypto.randomUUID();
+      const listingId = crypto.randomUUID();
+      const uniqueId = `editguess${Date.now()}`;
+      const loginResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
+      });
+      const loginBody = JSON.parse(loginResp.body);
+      const userId = loginBody.session.user.id;
+
+      const createdAt = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+      const updatedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+      try {
+        await db.execute(sql`
+          INSERT INTO properties (id, country_code, street, house_number, city, postal_code, status, geometry)
+          VALUES (${propertyId}, 'NL', 'Edited Guess Street', 123, 'Update City', '1234ZZ', 'active', ST_SetSRID(ST_MakePoint(5.48, 51.45), 4326))
+        `);
+        await db.execute(sql`
+          INSERT INTO listings (id, property_id, source_name, source_url, status, asking_price, created_at, updated_at)
+          VALUES (${listingId}, ${propertyId}, 'test', ${`https://test.example.com/edited-guess-${propertyId}`}, 'active', 455000, ${createdAt}, ${createdAt})
+        `);
+        await db.execute(sql`
+          INSERT INTO price_guesses (id, property_id, user_id, guessed_price, is_meme_guess, created_at, updated_at)
+          VALUES (${crypto.randomUUID()}, ${propertyId}, ${userId}, 440000, false, ${createdAt}, ${updatedAt})
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/${propertyId}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.guessCount).toBe(1);
+        expect(body.recentGuessCount).toBe(1);
+        expect(body.socialScore).toBeCloseTo(0.85, 5);
+        expect(body.recentSocialScore).toBeCloseTo(0.85, 5);
+        expect(body.lastSocialAt).toBe(updatedAt);
+        expect(body).not.toHaveProperty('activityLevel');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+      }
     });
   });
 });

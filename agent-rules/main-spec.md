@@ -152,6 +152,12 @@ Main view. A social Snap-style map focused on housing activity:
 - **Ghost Nodes:** Show all for-sale listings (via BAG data + "For Sale" indicator) as small, low-opacity dots. This proves the platform has data.
 - **Active Nodes:** Show "Socially Active" properties (recent comments, guesses, high interest) as slightly larger, pulsing, colored. This guides attention to engaging content.
 
+Public map filtering rule:
+
+- Public activity filtering is orthogonal to listing lifecycle filtering.
+- If public `activity` is omitted, the default behavior is equivalent to `all`.
+- When public `marketState` is `for-sale` or `for-rent` and public `activity` is omitted or `all`, listing-backed properties remain visible on the low-zoom public map even if they have no social activity yet.
+
 The contrast between ghost and active nodes creates visual proof of coverage while highlighting where the fun is.
 
 **Visual activity indicators:**

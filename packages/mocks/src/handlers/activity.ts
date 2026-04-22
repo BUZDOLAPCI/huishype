@@ -7,13 +7,22 @@
 
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
-import { fixedTimestamp } from '../data/visual-fixtures.js';
+import {
+  getMockProperty,
+  getMockUser,
+  mockComments,
+  mockGuesses,
+  mockPropertyIds,
+  mockUserIds,
+} from '../data/fixtures.js';
+import { getFollowedUserIds } from './users.js';
 
-// --- Mock activity data aligned with OpenAPI schema ---
+export type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
+type ActivityEventType = PublicActivityEventType | 'save';
 
-interface ActivityItem {
+interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType> {
   id: string;
-  eventType: 'property_like' | 'comment' | 'price_guess' | 'save';
+  eventType: TEventType;
   actor: {
     id: string;
     displayName: string;
@@ -23,228 +32,229 @@ interface ActivityItem {
   property: {
     id: string;
     address: string;
+    streetName: string;
+    houseNumber: number;
+    houseNumberAddition: string | null;
     city: string;
+    postalCode: string;
+    countryCode: string;
     thumbnailUrl: string | null;
   };
   createdAt: string;
   meta: Record<string, unknown> | null;
 }
 
-const mockPublicActivity: ActivityItem[] = [
+export interface MockActivityEvent {
+  id: string;
+  eventType: ActivityEventType;
+  actorUserId: string;
+  propertyId: string;
+  createdAt: string;
+  meta: Record<string, unknown> | null;
+}
+
+const mockPropertyLikeEvents: MockActivityEvent[] = [
   {
-    id: 'activity-pub-001',
-    eventType: 'price_guess',
-    actor: {
-      id: 'user-004',
-      displayName: 'Sophie Meijer',
-      handle: 'sophiemeijer',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
-    },
-    property: {
-      id: 'prop-001',
-      address: 'Prinsengracht 263, Amsterdam',
-      city: 'Amsterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 1),
-    meta: { isMemeGuess: false },
-  },
-  {
-    id: 'activity-pub-002',
-    eventType: 'comment',
-    actor: {
-      id: 'user-002',
-      displayName: 'Maria Bakker',
-      handle: 'mariabakker',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
-    },
-    property: {
-      id: 'prop-002',
-      address: 'Herengracht 502, Amsterdam',
-      city: 'Amsterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 3),
-    meta: { contentPreview: 'Mooi pand maar de prijs is wel hoog' },
-  },
-  {
-    id: 'activity-pub-003',
+    id: 'a0000000-0000-4000-a000-000000000901',
     eventType: 'property_like',
-    actor: {
-      id: 'user-003',
-      displayName: 'Pieter Jansen',
-      handle: 'pieterjansen',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
-    },
-    property: {
-      id: 'prop-003',
-      address: 'Coolsingel 40, Rotterdam',
-      city: 'Rotterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(1, 0),
+    actorUserId: mockUserIds.lars,
+    propertyId: mockPropertyIds.herengracht502,
+    createdAt: '2026-04-18T12:00:00.000Z',
     meta: null,
   },
   {
-    id: 'activity-pub-004',
-    eventType: 'price_guess',
-    actor: {
-      id: 'user-001',
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: 'prop-004',
-      address: 'Lange Voorhout 102, Den Haag',
-      city: 'Den Haag',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(1, 4),
-    meta: { isMemeGuess: false },
-  },
-  {
-    id: 'activity-pub-005',
-    eventType: 'comment',
-    actor: {
-      id: 'user-006',
-      displayName: 'Emma van Dijk',
-      handle: 'emmavandijk',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
-    },
-    property: {
-      id: 'prop-001',
-      address: 'Prinsengracht 263, Amsterdam',
-      city: 'Amsterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(2, 2),
-    meta: { contentPreview: 'Wat een locatie!' },
+    id: 'a0000000-0000-4000-a000-000000000902',
+    eventType: 'property_like',
+    actorUserId: mockUserIds.emma,
+    propertyId: mockPropertyIds.coolsingel40,
+    createdAt: '2026-04-16T08:30:00.000Z',
+    meta: null,
   },
 ];
 
-// Personal activity includes saves (private)
-const mockPersonalActivity: ActivityItem[] = [
+const mockSavedActivityEvents: MockActivityEvent[] = [
   {
-    id: 'activity-me-001',
-    eventType: 'price_guess',
-    actor: {
-      id: 'user-001',
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: 'prop-001',
-      address: 'Prinsengracht 263, Amsterdam',
-      city: 'Amsterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(0, 3),
-    meta: { isMemeGuess: false },
-  },
-  {
-    id: 'activity-me-002',
-    eventType: 'comment',
-    actor: {
-      id: 'user-001',
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: 'prop-002',
-      address: 'Herengracht 502, Amsterdam',
-      city: 'Amsterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(1, 1),
-    meta: { contentPreview: 'Prachtig grachtenpand' },
-  },
-  {
-    id: 'activity-me-003',
-    eventType: 'property_like',
-    actor: {
-      id: 'user-001',
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: 'prop-003',
-      address: 'Coolsingel 40, Rotterdam',
-      city: 'Rotterdam',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(2, 5),
+    id: 'a0000000-0000-4000-a000-000000000951',
+    eventType: 'save',
+    actorUserId: mockUserIds.jan,
+    propertyId: mockPropertyIds.herengracht502,
+    createdAt: '2026-04-19T09:15:00.000Z',
     meta: null,
   },
   {
-    id: 'activity-me-004',
+    id: 'a0000000-0000-4000-a000-000000000952',
     eventType: 'save',
-    actor: {
-      id: 'user-001',
-      displayName: 'Jan de Vries',
-      handle: 'jandevries',
-      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
-    },
-    property: {
-      id: 'prop-004',
-      address: 'Lange Voorhout 102, Den Haag',
-      city: 'Den Haag',
-      thumbnailUrl: null,
-    },
-    createdAt: fixedTimestamp(3, 2),
+    actorUserId: mockUserIds.jan,
+    propertyId: mockPropertyIds.prinsengracht263,
+    createdAt: '2026-04-17T11:45:00.000Z',
     meta: null,
   },
 ];
+
+function toActivityAddress(propertyId: string) {
+  const property = getMockProperty(propertyId);
+  if (!property) {
+    return null;
+  }
+
+  return {
+    id: property.id,
+    address: `${property.address}, ${property.postalCode} ${property.city}`,
+    streetName: property.streetName,
+    houseNumber: Number.parseInt(property.houseNumber, 10) || 0,
+    houseNumberAddition: property.houseNumberAddition ?? null,
+    city: property.city,
+    postalCode: property.postalCode ?? '',
+    countryCode: property.countryCode,
+    thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+  };
+}
+
+export function getMockActivityEvents(): MockActivityEvent[] {
+  const commentEvents = mockComments.map<MockActivityEvent>((comment) => ({
+    id: comment.id,
+    eventType: 'comment',
+    actorUserId: comment.userId,
+    propertyId: comment.propertyId,
+    createdAt: comment.editedAt ?? comment.createdAt,
+    meta: { contentPreview: comment.content.slice(0, 100) },
+  }));
+
+  const guessEvents = mockGuesses.map<MockActivityEvent>((guess) => ({
+    id: guess.id,
+    eventType: 'price_guess',
+    actorUserId: guess.userId,
+    propertyId: guess.propertyId,
+    createdAt: guess.createdAt,
+    meta: { isMemeGuess: false },
+  }));
+
+  return [...mockPropertyLikeEvents, ...commentEvents, ...guessEvents, ...mockSavedActivityEvents]
+    .slice()
+    .sort((left, right) => {
+      const byTime = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      return byTime !== 0 ? byTime : right.id.localeCompare(left.id);
+    });
+}
+
+function getScopedActivityEvents(
+  scope: 'public' | 'following' | 'self',
+  viewerId: string | null,
+): MockActivityEvent[] {
+  const events = getMockActivityEvents();
+
+  if (scope === 'self') {
+    return events.filter((event) => event.actorUserId === viewerId);
+  }
+
+  if (scope === 'following') {
+    if (!viewerId) {
+      return [];
+    }
+
+    const followedUserIds = new Set(getFollowedUserIds(viewerId));
+    return events.filter(
+      (event) => event.eventType !== 'save' && followedUserIds.has(event.actorUserId),
+    );
+  }
+
+  return events.filter((event) => event.eventType !== 'save');
+}
+
+function mapActivityEvent<TEventType extends ActivityEventType>(
+  event: MockActivityEvent & { eventType: TEventType },
+): ActivityItem<TEventType> | null {
+  const actor = getMockUser(event.actorUserId);
+  const property = toActivityAddress(event.propertyId);
+
+  if (!actor || !property) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    actor: {
+      id: actor.id,
+      displayName: actor.displayName,
+      handle: actor.username,
+      profilePhotoUrl: actor.profilePhotoUrl ?? null,
+    },
+    property,
+    createdAt: new Date(event.createdAt).toISOString(),
+    meta: event.meta,
+  };
+}
+
+function sliceActivity<TEventType extends ActivityEventType>(
+  events: Array<MockActivityEvent & { eventType: TEventType }>,
+  limit: number,
+  offset: number,
+) {
+  const pagedEvents = events.slice(offset, offset + limit + 1);
+  const hasMore = pagedEvents.length > limit;
+  const pageItems = (hasMore ? pagedEvents.slice(0, limit) : pagedEvents)
+    .map((event) => mapActivityEvent(event))
+    .filter((item): item is ActivityItem<TEventType> => item !== null);
+
+  return {
+    items: pageItems,
+    pagination: {
+      limit,
+      offset,
+      hasMore,
+    },
+  };
+}
 
 export const activityHandlers = [
-  /**
-   * GET /activity — public social activity feed
-   */
-  http.get('/activity', ({ request }) => {
-    const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
-    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
-
-    const items = mockPublicActivity.slice(offset, offset + limit);
-
-    return HttpResponse.json({
-      items,
-      pagination: {
-        limit,
-        offset,
-        hasMore: offset + limit < mockPublicActivity.length,
-      },
-    });
-  }),
-
-  /**
-   * GET /users/me/activity — personal activity history (includes saves)
-   */
-  http.get('/users/me/activity', ({ request }) => {
+  http.get('*/users/me/activity', ({ request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const items = getScopedActivityEvents('self', authUser.id).filter(
+      (event): event is MockActivityEvent & { eventType: ActivityEventType } => event.actorUserId === authUser.id,
+    );
 
-    const items = mockPersonalActivity.slice(offset, offset + limit);
+    return HttpResponse.json(sliceActivity(items, limit, offset));
+  }),
 
-    return HttpResponse.json({
-      items,
-      pagination: {
-        limit,
-        offset,
-        hasMore: offset + limit < mockPersonalActivity.length,
-      },
-    });
+  http.get('*/activity', ({ request }) => {
+    const url = new URL(request.url);
+    const scope = (url.searchParams.get('scope') ?? 'public') as 'public' | 'following';
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+    if (scope === 'following') {
+      const authUser = getMockAuthUser(request.headers.get('Authorization'));
+      if (!authUser) {
+        return HttpResponse.json(
+          { error: 'UNAUTHORIZED', message: 'Authentication required' },
+          { status: 401 },
+        );
+      }
+
+      const items = getScopedActivityEvents('following', authUser.id).filter(
+        (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+          event.eventType !== 'save',
+      );
+
+      return HttpResponse.json(sliceActivity(items, limit, offset));
+    }
+
+    const items = getScopedActivityEvents('public', null).filter(
+      (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+        event.eventType !== 'save',
+    );
+
+    return HttpResponse.json(sliceActivity(items, limit, offset));
   }),
 ];

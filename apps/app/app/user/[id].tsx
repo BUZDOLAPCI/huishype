@@ -1,8 +1,17 @@
-import { ScrollView, Text, View } from 'react-native';
+import React from 'react';
+import { Alert, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 
+import { AuthModal } from '@/src/components';
+import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
-import { usePublicProfile } from '@/src/hooks/useUserProfile';
+import { useAuthContext } from '@/src/providers/AuthProvider';
+import {
+  emitSocialFollowAnalyticsEvent,
+  useFollowUser,
+  usePublicProfile,
+  useUnfollowUser,
+} from '@/src/hooks/useUserProfile';
 
 function KarmaRankBadge({ title, level }: { title: string; level: number }) {
   const colors = [
@@ -29,8 +38,57 @@ function StatItem({ label, value, iconName }: { label: string; value: number; ic
 }
 
 export default function PublicProfileScreen() {
+  const { isAuthenticated, user } = useAuthContext();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [showAuth, setShowAuth] = React.useState(false);
   const { data: profile, isLoading, isError } = usePublicProfile(id ?? null);
+  const followMutation = useFollowUser();
+  const unfollowMutation = useUnfollowUser();
+  const isOwnProfile = profile?.id != null && profile.id === user?.id;
+  const isFollowing = profile?.relationship === 'following' || profile?.relationship === 'mutual';
+  const isFollowPending = followMutation.isPending || unfollowMutation.isPending;
+
+  React.useEffect(() => {
+    if (!profile || isOwnProfile) {
+      return;
+    }
+
+    emitSocialFollowAnalyticsEvent('follow_button_impression', {
+      targetUserId: profile.id,
+      relationship: profile.relationship,
+    });
+  }, [isOwnProfile, profile]);
+
+  const handleFollowPress = React.useCallback(async () => {
+    if (!profile) {
+      return;
+    }
+
+    emitSocialFollowAnalyticsEvent('follow_button_click', {
+      action: isFollowing ? 'unfollow' : 'follow',
+      authenticated: isAuthenticated,
+      targetUserId: profile.id,
+      relationship: profile.relationship,
+    });
+
+    if (!user) {
+      setShowAuth(true);
+      return;
+    }
+
+    try {
+      if (isFollowing) {
+        await unfollowMutation.mutateAsync(profile.id);
+      } else {
+        await followMutation.mutateAsync(profile.id);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Could not update follow status',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    }
+  }, [followMutation, isAuthenticated, isFollowing, profile, unfollowMutation, user]);
 
   if (isLoading) {
     return (
@@ -72,12 +130,35 @@ export default function PublicProfileScreen() {
           <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
 
           <Text className="text-sm text-warm-500 mt-2">{profile.karma} karma</Text>
+          {!isOwnProfile ? (
+            <Button
+              label={isFollowing ? 'Following' : 'Follow'}
+              onPress={() => void handleFollowPress()}
+              variant={isFollowing ? 'secondary' : 'primary'}
+              disabled={isFollowPending}
+              style={{ alignSelf: 'stretch', marginTop: 16 }}
+              testID="public-profile-follow-button"
+            />
+          ) : (
+            <Text className="text-xs text-warm-500 mt-4">This is your public profile</Text>
+          )}
         </View>
 
         {/* Stats */}
         <View className="bg-surface-card mt-2 px-6 py-5 flex-row border-b border-warm-100">
           <StatItem label="Guesses" value={profile.guessCount} iconName="Crosshair" />
           <StatItem label="Comments" value={profile.commentCount} iconName="ChatCircle" />
+        </View>
+
+        <View className="bg-surface-card mt-2 px-6 py-4 flex-row justify-between border-b border-warm-100">
+          <View className="items-center flex-1">
+            <Text className="text-lg font-bold text-warm-900">{profile.followerCount}</Text>
+            <Text className="text-xs text-warm-500">Followers</Text>
+          </View>
+          <View className="items-center flex-1">
+            <Text className="text-lg font-bold text-warm-900">{profile.followingCount}</Text>
+            <Text className="text-xs text-warm-500">Following</Text>
+          </View>
         </View>
 
         {/* Member since */}
@@ -90,6 +171,12 @@ export default function PublicProfileScreen() {
           </Text>
         </View>
       </ScrollView>
+      <AuthModal
+        visible={showAuth}
+        onClose={() => setShowAuth(false)}
+        message="Sign in to follow people"
+        onSuccess={() => setShowAuth(false)}
+      />
     </>
   );
 }

@@ -52,6 +52,22 @@ interface MockGoogleTokenPayload {
   name?: string;
 }
 
+type UserIdentityInsertError = {
+  code?: string;
+  constraint?: string;
+  constraint_name?: string;
+  detail?: string;
+};
+
+const GOOGLE_IDENTITY_UNIQUE_CONSTRAINTS = new Set([
+  'users_email_idx',
+  'users_email_key',
+  'users_email_unique',
+  'users_google_id_idx',
+  'users_google_id_key',
+  'users_google_id_unique',
+]);
+
 function decodeJwtSegment<T>(token: string, index: number): T | null {
   const segment = token.split('.')[index];
   if (!segment) {
@@ -182,6 +198,36 @@ function parseMockGoogleToken(
   };
 }
 
+function isGoogleIdentityUniqueViolation(error: unknown): boolean {
+  const pending: unknown[] = [error];
+
+  while (pending.length > 0) {
+    const candidate = pending.pop();
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+
+    const dbError = candidate as UserIdentityInsertError & { cause?: unknown };
+    if (dbError.code === '23505') {
+      const constraintName = dbError.constraint_name ?? dbError.constraint ?? '';
+      if (GOOGLE_IDENTITY_UNIQUE_CONSTRAINTS.has(constraintName)) {
+        return true;
+      }
+
+      const detail = dbError.detail ?? '';
+      if (detail.includes('(email)') || detail.includes('(google_id)')) {
+        return true;
+      }
+    }
+
+    if ('cause' in dbError) {
+      pending.push(dbError.cause);
+    }
+  }
+
+  return false;
+}
+
 /**
  * Validate Google ID token
  * In production, this would verify with Google's API
@@ -235,6 +281,18 @@ async function validateGoogleToken(
   } catch {
     return null;
   }
+}
+
+async function findUserByGoogleIdentity(googleUser: {
+  email: string;
+  googleId: string;
+}) {
+  return db.query.users.findFirst({
+    where: or(
+      eq(users.googleId, googleUser.googleId),
+      eq(users.email, googleUser.email),
+    ),
+  });
 }
 
 /**
@@ -376,32 +434,39 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
 
       // Check if user exists by Google ID or email
-      let user = await db.query.users.findFirst({
-        where: or(
-          eq(users.googleId, googleUser.googleId),
-          eq(users.email, googleUser.email)
-        ),
-      });
+      let user = await findUserByGoogleIdentity(googleUser);
 
       let isNewUser = false;
 
       if (!user) {
         // Create new user
         isNewUser = true;
-        user = await withGeneratedUniqueUsername(async (username) => {
-          const displayName = googleUser.name || username;
-          const [newUser] = await db
-            .insert(users)
-            .values({
-              googleId: googleUser.googleId,
-              email: googleUser.email,
-              username,
-              displayName,
-            })
-            .returning();
+        try {
+          user = await withGeneratedUniqueUsername(async (username) => {
+            const displayName = googleUser.name || username;
+            const [newUser] = await db
+              .insert(users)
+              .values({
+                googleId: googleUser.googleId,
+                email: googleUser.email,
+                username,
+                displayName,
+              })
+              .returning();
 
-          return newUser;
-        });
+            return newUser;
+          });
+        } catch (error) {
+          if (!isGoogleIdentityUniqueViolation(error)) {
+            throw error;
+          }
+
+          user = await findUserByGoogleIdentity(googleUser);
+          if (!user) {
+            throw error;
+          }
+          isNewUser = false;
+        }
       } else if (!user.googleId) {
         // Link Google account to existing user
         await db

@@ -6,8 +6,10 @@ import {
   Marker,
   UserLocation,
   LogManager,
+  NetworkManager,
   type CameraRef,
   type MapRef,
+  type PixelPointBounds,
   type ViewStateChangeEvent,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
@@ -31,6 +33,8 @@ import {
 } from '@/src/components/AmbientCommentBubble';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
+import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
+import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
 import {
   useAmbientCommentBubbles,
@@ -40,8 +44,12 @@ import {
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
+import { useReadTileSource } from '@/src/hooks/useReadTileSource';
+import { usePropertyView } from '@/src/hooks/usePropertyView';
 import {
   fetchNearbyGroup,
+  fetchFollowingNearbyGroup,
   normalizeRenderedPropertyGroup,
   API_URL,
 } from '@/src/utils/api';
@@ -50,12 +58,23 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefault
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
-import { replacePropertySourceTiles } from '@/src/lib/mapPropertySource';
+import {
+  buildFollowingTileRequestMatchPattern,
+  buildReadTileRequestMatchPattern,
+  injectReadPropertyOverlay,
+  replacePropertySourceTiles,
+} from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
-import { buildPropertyTileTemplateUrl } from '@/src/lib/sharedMapFilters';
+import {
+  buildPropertyTileTemplateUrl,
+  getCanonicalMapFilterSignature,
+  type MapActivityTimeFilter,
+} from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import type { MapSocialScope } from '@/src/lib/mapRoute';
+import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
@@ -78,8 +97,48 @@ const TOUCH_GUARD_RESET_MS = 500;
 const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
+const FOLLOWING_FEATURE_HIT_SLOP_PX = 28;
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
+
+function countRenderedGroupedFeatures(features: GeoJSON.Feature[]): number {
+  const dedupedKeys = new Set<string>();
+
+  for (const feature of features) {
+    const group = normalizeRenderedPropertyGroup(feature);
+    if (!group) {
+      continue;
+    }
+
+    dedupedKeys.add(
+      [
+        group.groupKind,
+        group.primaryPropertyId,
+        group.coordinate[0],
+        group.coordinate[1],
+      ].join(':'),
+    );
+  }
+
+  return dedupedKeys.size;
+}
+
+function emitFollowingFeatureClickAnalytics(
+  features: GeoJSON.Feature[],
+  platform: string,
+): void {
+  const group = normalizeRenderedPropertyGroup(features[0]);
+  if (!group) {
+    return;
+  }
+
+  emitMapFollowingAnalyticsEvent('map_property_click_through_from_following_filter', {
+    groupKind: group.groupKind,
+    platform,
+    pointCount: group.pointCount,
+    propertyId: group.primaryPropertyId,
+  });
+}
 
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't
@@ -98,7 +157,10 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
  * alpha on Android only reliably renders custom vector sources when passed
  * as inline style objects.
  */
-function useMergedMapStyle(propertyTileUrl: string): InlineMapStyle | null {
+function useMergedMapStyle(
+  propertyTiles: string[],
+  readPropertyTiles: string[],
+): InlineMapStyle | null {
   const [mergedStyle, setMergedStyle] = useState<InlineMapStyle | null>(null);
 
   useEffect(() => {
@@ -110,17 +172,18 @@ function useMergedMapStyle(propertyTileUrl: string): InlineMapStyle | null {
         if (cancelled) return;
         if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
           (styleJson.layers as Array<unknown>)?.length);
-        setMergedStyle(replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTileUrl));
+        const propertyStyle = replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTiles);
+        setMergedStyle(injectReadPropertyOverlay(propertyStyle, readPropertyTiles));
       })
       .catch(e => {
         console.error('[HuisHype] Failed to fetch merged style:', e.message);
         // Fallback: minimal style with just our tiles (no base map)
-        setMergedStyle({
+        setMergedStyle(injectReadPropertyOverlay({
           version: 8,
           sources: {
             'properties-source': {
               type: 'vector',
-              tiles: [propertyTileUrl],
+              tiles: propertyTiles,
               minzoom: 0,
               maxzoom: 22,
             },
@@ -135,14 +198,19 @@ function useMergedMapStyle(propertyTileUrl: string): InlineMapStyle | null {
               paint: { 'circle-radius': 10, 'circle-color': '#FF5A5F', 'circle-opacity': 0.9 },
             },
           ],
-        });
+        } as InlineMapStyle, readPropertyTiles));
       });
     return () => { cancelled = true; };
-  }, [propertyTileUrl]);
+  }, [propertyTiles, readPropertyTiles]);
 
   useEffect(() => {
-    setMergedStyle((current) => replacePropertySourceTiles(current, propertyTileUrl));
-  }, [propertyTileUrl]);
+    setMergedStyle((current) => (
+      injectReadPropertyOverlay(
+        replacePropertySourceTiles(current, propertyTiles),
+        readPropertyTiles,
+      )
+    ));
+  }, [propertyTiles, readPropertyTiles]);
 
   return mergedStyle;
 }
@@ -152,20 +220,56 @@ const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [hasLayout, setHasLayout] = useState(false);
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
-  const propertyTileUrl = useMemo(
+  const [socialScope, setSocialScope] = useState<MapSocialScope>('all');
+  const [followingActivity, setFollowingActivity] =
+    useState<MapActivityTimeFilter>('all-time');
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
   );
+  const appliedFilterSignature = useMemo(
+    () => getCanonicalMapFilterSignature(filterController.appliedFilters),
+    [filterController.appliedFilters],
+  );
+  const followingTileSource = useFollowingTileSource(
+    filterController.appliedFilters,
+    followingActivity,
+    socialScope === 'following' && mapLoaded,
+  );
+  const readTileSource = useReadTileSource(
+    filterController.appliedFilters,
+    socialScope !== 'following' && mapLoaded,
+  );
+  const activePropertyTiles = useMemo(
+    () => (
+      socialScope === 'following'
+        ? (followingTileSource.data?.tileUrl ? [followingTileSource.data.tileUrl] : [])
+        : [publicPropertyTileUrl]
+    ),
+    [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
+  );
+  const activeReadPropertyTiles = useMemo(
+    () => (
+      socialScope === 'following' || !readTileSource.data?.tileUrl
+        ? []
+        : [readTileSource.data.tileUrl]
+    ),
+    [readTileSource.data?.tileUrl, socialScope],
+  );
   // Merged style as JS object (base map + property vector tiles)
-  const mergedStyle = useMergedMapStyle(propertyTileUrl);
+  const mergedStyle = useMergedMapStyle(activePropertyTiles, activeReadPropertyTiles);
   const mapRef = useRef<MapRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [showUserLocation, setShowUserLocation] = useState(false);
+  const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
+  const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
+  const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
   const [nativePreviewPoint, setNativePreviewPoint] = useState<[number, number] | null>(null);
   const [nativePreviewSize, setNativePreviewSize] = useState({
     width: NATIVE_PREVIEW_FALLBACK_WIDTH,
@@ -173,6 +277,8 @@ export default function MapScreen() {
   });
   const appliedPitchRef = useRef(getPitchForZoom(DEFAULT_ZOOM));
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followingRenderRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackedFollowingEmptyViewRef = useRef(false);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -227,12 +333,178 @@ export default function MapScreen() {
     interaction.handleComment(anchoredProperty);
   }, [interaction]);
 
+  const clearFollowingRenderedFeatureRefresh = useCallback(() => {
+    if (followingRenderRefreshTimeoutRef.current) {
+      clearTimeout(followingRenderRefreshTimeoutRef.current);
+      followingRenderRefreshTimeoutRef.current = null;
+    }
+  }, []);
+
+  const refreshFollowingRenderedFeatureCount = useCallback(async () => {
+    if (
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl ||
+      !mapRef.current
+    ) {
+      setFollowingRenderedFeatureCount(null);
+      setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    try {
+      const features = await mapRef.current.queryRenderedFeatures({
+        layers: PROPERTY_LAYER_IDS,
+      });
+      setFollowingRenderedFeatureCount(countRenderedGroupedFeatures(features));
+      setFollowingRenderCheckComplete(true);
+    } catch (error) {
+      console.warn('[HuisHype] Failed to query rendered following features:', error);
+    }
+  }, [
+    followingTileSource.data?.tileUrl,
+    isAuthenticated,
+    socialScope,
+  ]);
+
+  const scheduleFollowingRenderedFeatureRefresh = useCallback(() => {
+    clearFollowingRenderedFeatureRefresh();
+
+    if (
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl
+    ) {
+      setFollowingRenderedFeatureCount(null);
+      setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    setFollowingRenderCheckComplete(false);
+    followingRenderRefreshTimeoutRef.current = setTimeout(() => {
+      followingRenderRefreshTimeoutRef.current = null;
+      void refreshFollowingRenderedFeatureCount();
+    }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
+  }, [
+    clearFollowingRenderedFeatureRefresh,
+    followingTileSource.data?.tileUrl,
+    isAuthenticated,
+    refreshFollowingRenderedFeatureCount,
+    socialScope,
+  ]);
+
+  const handleToggleFollowing = useCallback(() => {
+    setSocialScope((currentScope) => {
+      if (currentScope === 'following') {
+        return 'all';
+      }
+
+      if (!isAuthenticated) {
+        interaction.handleAuthRequired({
+          subtitle: 'Sign in to see homes with activity from people you follow.',
+        });
+        return currentScope;
+      }
+
+      emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+        authenticated: isAuthenticated,
+        platform: Platform.OS,
+      });
+
+      return 'following';
+    });
+  }, [interaction, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated && socialScope === 'following') {
+      setSocialScope('all');
+    }
+  }, [isAuthenticated, socialScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl
+    ) {
+      setFollowingTileAuthToken(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getAccessToken().then((token) => {
+      if (!cancelled) {
+        setFollowingTileAuthToken(token);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    followingTileSource.data?.tileUrl,
+    getAccessToken,
+    isAuthenticated,
+    socialScope,
+  ]);
+
+  useEffect(() => {
+    NetworkManager.removeRequestHeader('Authorization');
+    NetworkManager.removeRequestHeader('x-session-id');
+
+    if (
+      socialScope === 'following' &&
+      followingTileAuthToken &&
+      followingTileSource.data?.tileUrl
+    ) {
+      NetworkManager.addRequestHeader(
+        'Authorization',
+        `Bearer ${followingTileAuthToken}`,
+        buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl),
+      );
+    }
+
+    if (
+      socialScope !== 'following' &&
+      readTileSource.data?.tileUrl &&
+      readTileSource.data.headerValue
+    ) {
+      NetworkManager.addRequestHeader(
+        readTileSource.data.headerName,
+        readTileSource.data.headerValue,
+        buildReadTileRequestMatchPattern(readTileSource.data.tileUrl),
+      );
+    }
+
+    return () => {
+      NetworkManager.removeRequestHeader('Authorization');
+      NetworkManager.removeRequestHeader('x-session-id');
+    };
+  }, [
+    followingTileAuthToken,
+    followingTileSource.data?.tileUrl,
+    readTileSource.data?.headerName,
+    readTileSource.data?.headerValue,
+    readTileSource.data?.tileUrl,
+    socialScope,
+  ]);
+
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
   const currentPreviewProperty = useMemo(
     () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
     [interaction.currentPreviewIndex, interaction.previewGroup],
   );
+  const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
+  useEffect(() => {
+    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
+      recordPreviewPropertyView(currentPreviewProperty.id);
+    }
+  }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
 
   useFocusEffect(
     useCallback(() => {
@@ -567,6 +839,7 @@ export default function MapScreen() {
         onViewportCenterChanged(center[0], center[1], zoom);
       }
       void refreshNativePreviewPoint();
+      scheduleFollowingRenderedFeatureRefresh();
       if (ambientCommentBubbleItems.length < maxVisibleAmbientCommentBubbles) {
         scheduleAmbientCommentBubbleRefresh({
           appendToExisting: true,
@@ -580,10 +853,79 @@ export default function MapScreen() {
       maxVisibleAmbientCommentBubbles,
       onViewportCenterChanged,
       refreshNativePreviewPoint,
+      scheduleFollowingRenderedFeatureRefresh,
       scheduleAmbientCommentBubbleRefresh,
       syncPitchForZoom,
     ],
   );
+
+  useEffect(() => {
+    scheduleFollowingRenderedFeatureRefresh();
+  }, [
+    activePropertyTiles,
+    appliedFilterSignature,
+    mapLoaded,
+    scheduleFollowingRenderedFeatureRefresh,
+    socialScope,
+  ]);
+
+  useEffect(() => {
+    if (
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingTileSource.isLoading &&
+      !followingTileSource.isError &&
+      followingTileSource.data?.tileUrl
+    ) {
+      return;
+    }
+
+    clearFollowingRenderedFeatureRefresh();
+    setFollowingRenderedFeatureCount(null);
+    setFollowingRenderCheckComplete(false);
+  }, [
+    clearFollowingRenderedFeatureRefresh,
+    followingTileSource.data?.tileUrl,
+    followingTileSource.isError,
+    followingTileSource.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
+
+  useEffect(() => {
+    const shouldTrackEmpty =
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingTileSource.isError &&
+      !followingTileSource.isLoading &&
+      followingRenderCheckComplete &&
+      followingRenderedFeatureCount === 0;
+
+    if (!shouldTrackEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitMapFollowingAnalyticsEvent('map_following_filter_empty_viewed', {
+      platform: Platform.OS,
+    });
+  }, [
+    followingRenderCheckComplete,
+    followingRenderedFeatureCount,
+    followingTileSource.isError,
+    followingTileSource.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
 
   useEffect(() => {
     scheduleAmbientCommentBubbleRefresh();
@@ -598,7 +940,8 @@ export default function MapScreen() {
 
   useEffect(() => () => {
     clearAmbientBubbleRefreshTimeout();
-  }, [clearAmbientBubbleRefreshTimeout]);
+    clearFollowingRenderedFeatureRefresh();
+  }, [clearAmbientBubbleRefreshTimeout, clearFollowingRenderedFeatureRefresh]);
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
   const handleMapPress = useCallback(
@@ -623,12 +966,61 @@ export default function MapScreen() {
           );
 
           if (features && features.length > 0) {
+            if (socialScope === 'following') {
+              emitFollowingFeatureClickAnalytics(features, Platform.OS);
+            }
             const handled = await interaction.handleFeaturePress(features, currentZoom, cameraCommands);
             if (handled) return;
+          }
+
+          if (socialScope === 'following') {
+            const hitSlop = FOLLOWING_FEATURE_HIT_SLOP_PX;
+            const hitSlopBounds: PixelPointBounds = [
+              [pixelPoint[0] - hitSlop, pixelPoint[1] - hitSlop],
+              [pixelPoint[0] + hitSlop, pixelPoint[1] + hitSlop],
+            ];
+            const nearbyFeatures = await mapRef.current.queryRenderedFeatures(
+              hitSlopBounds,
+              { layers: PROPERTY_LAYER_IDS },
+            );
+
+            if (nearbyFeatures.length > 0) {
+              emitFollowingFeatureClickAnalytics(nearbyFeatures, Platform.OS);
+              const handled = await interaction.handleFeaturePress(
+                nearbyFeatures,
+                currentZoom,
+                cameraCommands,
+              );
+              if (handled) {
+                return;
+              }
+            }
           }
         } catch (error) {
           console.warn('[HuisHype] Error querying features:', error);
         }
+      }
+
+      if (socialScope === 'following') {
+        const [lon, lat] = lngLat;
+        try {
+          const nearby = await fetchFollowingNearbyGroup(
+            lon,
+            lat,
+            currentZoom,
+            filterController.appliedFilters,
+            followingActivity,
+          );
+          if (nearby) {
+            handleNearbyResult(nearby, currentZoom, cameraCommands);
+            return;
+          }
+        } catch (error) {
+          console.warn('[HuisHype] Following nearby fallback failed:', error);
+        }
+
+        handleEmptyMapTap();
+        return;
       }
 
       // Server-side fallback: use the nearby API with reliable lngLat coordinates.
@@ -660,6 +1052,8 @@ export default function MapScreen() {
       currentZoom,
       cameraCommands,
       filterController.appliedFilters,
+      followingActivity,
+      socialScope,
     ]
   );
 
@@ -669,6 +1063,10 @@ export default function MapScreen() {
       property: Parameters<typeof handleMapPropertyResolved>[0],
       resolvedAddress?: ResolvedAddress,
     ) => {
+      if (!property.coordinates) {
+        return;
+      }
+
       handleMapPropertyResolved(property, cameraCommands, resolvedAddress);
       // Set the search city from the resolved property
       const city = property.city || resolvedAddress?.details.city;
@@ -777,7 +1175,7 @@ export default function MapScreen() {
   return (
     <View style={{ flex: 1 }} className="bg-warm-100">
       {/* Map View */}
-      <View style={{ flex: 1 }} onLayout={(event) => {
+      <View testID="map-viewport" style={{ flex: 1 }} onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setMapViewportSize((current) => (
           current.width === width && current.height === height
@@ -1002,7 +1400,49 @@ export default function MapScreen() {
           transientResetKey={searchResetToken}
         />
 
-        <MapFilterBar controller={filterController} />
+        <MapFilterBar
+          controller={filterController}
+          followingActivity={followingActivity}
+          onFollowingActivityChange={setFollowingActivity}
+          onToggleFollowing={handleToggleFollowing}
+          socialScope={socialScope}
+        />
+
+        {socialScope === 'following' && !isAuthenticated ? (
+          <FollowingMapStateCard
+            mode="signed-out"
+            onPrimaryPress={() =>
+              interaction.handleAuthRequired({
+                subtitle: 'Sign in to see homes with activity from people you follow.',
+              })
+            }
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        followingTileSource.isError ? (
+          <FollowingMapStateCard
+            mode="error"
+            onPrimaryPress={() => {
+              void followingTileSource.refetch();
+            }}
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        !followingTileSource.isError &&
+        !followingTileSource.isLoading &&
+        followingRenderCheckComplete &&
+        followingRenderedFeatureCount === 0 ? (
+          <FollowingMapStateCard
+            mode="empty"
+            onPrimaryPress={() => setSocialScope('all')}
+          />
+        ) : null}
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (

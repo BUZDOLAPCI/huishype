@@ -10,7 +10,7 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
-import { propertyKeys } from './useProperties';
+import { getViewerCacheKey, propertyKeys } from './useProperties';
 import { savedPropertyKeys } from './useSavedProperties';
 import type { EnrichedProperty } from './usePropertyLike';
 
@@ -58,9 +58,10 @@ function isRecoverableSaveConflict(error: unknown, nextSaved: boolean): boolean 
 function reconcileSavedState(
   queryClient: ReturnType<typeof useQueryClient>,
   propertyId: string,
+  viewerKey: string,
   isSaved: boolean,
 ): void {
-  const key = propertyKeys.detail(propertyId);
+  const key = propertyKeys.detail(propertyId, viewerKey);
   const current = queryClient.getQueryData<EnrichedProperty>(key);
 
   if (!current) {
@@ -118,10 +119,11 @@ export function usePropertySave({
   onAuthRequired,
 }: UsePropertySaveOptions): UsePropertySaveReturn {
   const queryClient = useQueryClient();
-  const { user, getAccessToken } = useAuthContext();
+  const { user, getAccessToken, isAuthenticated } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   // Subscribe to the property detail query cache reactively
-  const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
+  const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : ['__noop__'];
   const { data: cachedProperty } = useQuery<EnrichedProperty>({
     queryKey,
     queryFn: () => Promise.reject(new Error('noop')),
@@ -135,7 +137,7 @@ export function usePropertySave({
     mutationFn: ({ propId, token }: { propId: string; token: string }) =>
       saveProperty(propId, token),
     onMutate: async ({ propId }) => {
-      const key = propertyKeys.detail(propId);
+      const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
       const optimistic = previous
@@ -167,11 +169,11 @@ export function usePropertySave({
       }
     },
     onSuccess: (data, { propId }) => {
-      reconcileSavedState(queryClient, propId, data.saved);
+      reconcileSavedState(queryClient, propId, viewerKey, data.saved);
     },
     onSettled: async (_data, _error, { propId }) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) }),
+        queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) }),
         queryClient.invalidateQueries({ queryKey: savedPropertyKeys.all }),
       ]);
     },
@@ -182,7 +184,7 @@ export function usePropertySave({
     mutationFn: ({ propId, token }: { propId: string; token: string }) =>
       unsaveProperty(propId, token),
     onMutate: async ({ propId }) => {
-      const key = propertyKeys.detail(propId);
+      const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
       const optimistic = previous
@@ -214,11 +216,11 @@ export function usePropertySave({
       }
     },
     onSuccess: (data, { propId }) => {
-      reconcileSavedState(queryClient, propId, data.saved);
+      reconcileSavedState(queryClient, propId, viewerKey, data.saved);
     },
     onSettled: async (_data, _error, { propId }) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) }),
+        queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) }),
         queryClient.invalidateQueries({ queryKey: savedPropertyKeys.all }),
       ]);
     },
@@ -249,7 +251,15 @@ export function usePropertySave({
     } catch {
       // Errors are reflected through mutation state and rollback logic.
     }
-  }, [propertyId, user, getAccessToken, isSaved, onAuthRequired, saveMutation, unsaveMutation]);
+  }, [
+    propertyId,
+    user,
+    getAccessToken,
+    isSaved,
+    onAuthRequired,
+    saveMutation,
+    unsaveMutation,
+  ]);
 
   return {
     isSaved,

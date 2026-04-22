@@ -6,6 +6,13 @@ import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
+import {
+  createIntegrationFollow,
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+  tileCoordinatesForPoint,
+} from './helpers/fixtures.js';
 
 type StyleSource = {
   type: string;
@@ -44,10 +51,35 @@ function requireComparableNumber(value: unknown, message: string): number {
   if (typeof value === 'number') {
     return value;
   }
-  if (Array.isArray(value) && typeof value[2] === 'number') {
-    return value[2];
+  const numericValues = collectExpressionNumbers(value);
+  if (numericValues.length > 0) {
+    return Math.max(...numericValues);
   }
   throw new Error(message);
+}
+
+function collectExpressionStrings(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectExpressionStrings(entry));
+  }
+
+  return [];
+}
+
+function collectExpressionNumbers(value: unknown): number[] {
+  if (typeof value === 'number') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectExpressionNumbers(entry));
+  }
+
+  return [];
 }
 
 /**
@@ -136,11 +168,98 @@ describe('Tile routes', () => {
       const layerIds = style.layers.map((layer) => layer.id);
 
       expect(layerIds).toContain('property-clusters');
+      expect(layerIds).toContain('property-cluster-fill');
+      expect(layerIds).toContain('property-cluster-pulse');
       expect(layerIds).toContain('cluster-count');
       expect(layerIds).toContain('active-nodes');
+      expect(layerIds).toContain('active-node-fill');
+      expect(layerIds).toContain('active-node-pulse');
       expect(layerIds).toContain('ghost-clusters');
       expect(layerIds).toContain('ghost-cluster-count');
       expect(layerIds).toContain('ghost-nodes');
+    });
+
+    it('uses additive ring, fill, and pulse semantics driven by composition fields', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body) as StyleJson;
+      const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
+      const activeClusterFill = style.layers.find((layer) => layer.id === 'property-cluster-fill');
+      const activeClusterPulse = style.layers.find((layer) => layer.id === 'property-cluster-pulse');
+      const activeNodes = style.layers.find((layer) => layer.id === 'active-nodes');
+      const activeNodeFill = style.layers.find((layer) => layer.id === 'active-node-fill');
+      const activeNodePulse = style.layers.find((layer) => layer.id === 'active-node-pulse');
+
+      if (
+        !activeClusters ||
+        !activeClusterFill ||
+        !activeClusterPulse ||
+        !activeNodes ||
+        !activeNodeFill ||
+        !activeNodePulse
+      ) {
+        throw new Error('Expected additive active property layers missing from style.json');
+      }
+
+      const activeClusterPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
+      const activeClusterFillPaint = requireValue(activeClusterFill.paint, 'property-cluster-fill paint missing from style.json');
+      const activeClusterPulsePaint = requireValue(activeClusterPulse.paint, 'property-cluster-pulse paint missing from style.json');
+      const activeNodePaint = requireValue(activeNodes.paint, 'active-nodes paint missing from style.json');
+      const activeNodeFillPaint = requireValue(activeNodeFill.paint, 'active-node-fill paint missing from style.json');
+      const activeNodePulsePaint = requireValue(activeNodePulse.paint, 'active-node-pulse paint missing from style.json');
+
+      const clusterRingFields = collectExpressionStrings(activeClusterPaint['circle-stroke-color']);
+      const clusterFillFields = collectExpressionStrings(activeClusterFillPaint['circle-color']);
+      const clusterPulseFields = collectExpressionStrings(activeClusterPulsePaint['circle-opacity']);
+      const clusterPulseColorFields = collectExpressionStrings(activeClusterPulsePaint['circle-color']);
+      const clusterRadiusFields = collectExpressionStrings(activeClusterPaint['circle-radius']);
+      const clusterFillRadiusFields = collectExpressionStrings(activeClusterFillPaint['circle-radius']);
+      const nodeRingFields = collectExpressionStrings(activeNodePaint['circle-stroke-color']);
+      const nodeRadiusFields = collectExpressionStrings(activeNodePaint['circle-radius']);
+      const nodeFillFields = collectExpressionStrings(activeNodeFillPaint['circle-color']);
+      const nodeFillRadiusFields = collectExpressionStrings(activeNodeFillPaint['circle-radius']);
+      const nodePulseFields = collectExpressionStrings(activeNodePulsePaint['circle-opacity']);
+      const nodePulseColorFields = collectExpressionStrings(activeNodePulsePaint['circle-color']);
+
+      expect(clusterRadiusFields).toContain('point_count');
+      expect(clusterRadiusFields).toContain('activeListingCount');
+      expect(clusterFillRadiusFields).not.toContain('activeListingCount');
+      expect(clusterRingFields).toEqual(
+        expect.arrayContaining(['activeListingCount', 'point_count']),
+      );
+      expect(clusterFillFields).toEqual(
+        expect.arrayContaining(['socialCount']),
+      );
+      expect(clusterPulseFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+      );
+      expect(clusterPulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
+      expect(nodeRingFields).toEqual(expect.arrayContaining(['activeListingCount']));
+      expect(nodeRadiusFields).toContain('activeListingCount');
+      expect(nodeFillRadiusFields).not.toContain('activeListingCount');
+      expect(nodeFillFields).toEqual(
+        expect.arrayContaining(['socialCount']),
+      );
+      expect(nodePulseFields).toEqual(
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+      );
+      expect(nodePulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
+
+      expect(clusterFillFields).not.toContain('point_count');
+      expect(clusterFillFields).not.toContain('socialScoreTotal');
+      expect(clusterFillFields).not.toContain('socialScoreMax');
+      expect(clusterPulseFields).not.toContain('point_count');
+      expect(nodeFillFields).not.toContain('point_count');
+      expect(nodeFillFields).not.toContain('socialScoreTotal');
+      expect(nodeFillFields).not.toContain('socialScoreMax');
+      expect(nodePulseFields).not.toContain('point_count');
+
+      expect(collectExpressionNumbers(activeClusterPulsePaint['circle-opacity'])).toContain(0.5);
+      expect(collectExpressionNumbers(activeNodePulsePaint['circle-opacity'])).toContain(0.5);
     });
 
     it('should include 3D buildings layer with OSM source', async () => {
@@ -188,9 +307,11 @@ describe('Tile routes', () => {
       expect(clusterCount.type).toBe('symbol');
       expect(clusterCountLayout).toHaveProperty('text-field');
       expect(clusterCountLayout).toHaveProperty('text-font');
-      expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Regular']);
-      expect(clusterCountLayout).toHaveProperty('text-size');
+      expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Bold']);
+      expect(clusterCountLayout).toHaveProperty('text-size', 14);
       expect(clusterCountPaint).toHaveProperty('text-color', '#FFFFFF');
+      expect(clusterCountPaint).toHaveProperty('text-halo-color', 'rgba(15, 23, 42, 0.72)');
+      expect(clusterCountPaint).toHaveProperty('text-halo-width', 1);
     });
 
     it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
@@ -219,12 +340,8 @@ describe('Tile routes', () => {
       expect(requireComparableNumber(ghostClustersPaint['circle-opacity'], 'ghost-clusters circle-opacity missing')).toBeLessThan(
         requireComparableNumber(activeClustersPaint['circle-opacity'], 'property-clusters circle-opacity missing'),
       );
-      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeLessThan(
-        requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing'),
-      );
-      expect(requireComparableNumber(ghostClustersPaint['circle-radius'], 'ghost-clusters circle-radius missing')).toBeLessThan(
-        requireComparableNumber(activeClustersPaint['circle-radius'], 'property-clusters circle-radius missing'),
-      );
+      expect(requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing')).toBe(0);
+      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeGreaterThan(0);
       expect(requireComparableNumber(ghostClusterCountLayout['text-size'], 'ghost-cluster-count text-size missing')).toBeLessThan(
         requireComparableNumber(activeClusterCountLayout['text-size'], 'cluster-count text-size missing'),
       );
@@ -272,6 +389,127 @@ describe('Tile routes', () => {
       expect(body.tiles[0]).toContain(
         '/tiles/properties/{z}/{x}/{y}.pbf?salePriceTo=500000&marketState=for-sale%2Cnot-listed',
       );
+    });
+  });
+
+  describe('GET /tiles/properties/read.json', () => {
+    it('requires a stable viewer identity', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read.json',
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'BAD_REQUEST',
+        message: 'Authenticated user or x-session-id header is required.',
+      });
+    });
+
+    it('returns private TileJSON metadata without tile templates before anything is read', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+        headers: { 'x-session-id': `read-tilejson-empty-${Date.now()}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toHaveProperty('tilejson', '2.1.0');
+      expect(body.tiles).toEqual([]);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      expect(response.headers.vary).toContain('Authorization');
+      expect(response.headers.vary).toContain('x-session-id');
+    });
+
+    it('returns private TileJSON metadata with filter params after a property is read', async () => {
+      const sessionId = `read-tilejson-session-${Date.now()}`;
+      const property = await createIntegrationProperty({
+        street: 'Read TileJSON Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9300AA',
+        lon: 6.2,
+        lat: 52.2,
+      });
+
+      try {
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty('tilejson', '2.1.0');
+        expect(body.tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+        expect(body.tiles[0]).toContain('marketState=for-sale%2Cnot-listed');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+        expect(response.headers.vary).toContain('x-session-id');
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+  });
+
+  describe('GET /tiles/following/properties.json', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/following/properties.json',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns private TileJSON metadata for authenticated Following tiles', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-tilejson-viewer' });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/following/properties.json?marketState=sold,for-sale',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty('tilejson', '2.1.0');
+        expect(body.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+        expect(body.tiles[0]).toContain('marketState=for-sale%2Csold');
+        expect(body.tiles[0]).toContain('activity=all-time');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+
+        const legacyAllResponse = await app.inject({
+          method: 'GET',
+          url: '/tiles/following/properties.json?activity=all',
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(legacyAllResponse.statusCode).toBe(200);
+        const legacyAllBody = JSON.parse(legacyAllResponse.body);
+        expect(legacyAllBody.tiles[0]).toContain('activity=all-time');
+      } finally {
+        await db.execute(sql`DELETE FROM users WHERE id = ${viewer.userId}`);
+      }
     });
   });
 
@@ -360,6 +598,45 @@ describe('Tile routes', () => {
       expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
       expect(secondResponse.headers['x-tile-cache']).toBe('hit');
       expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+    });
+
+    it('keeps public property tile cache viewer-agnostic even when request identity headers differ', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Viewer Agnostic Tile Street',
+        houseNumber: 1,
+        city: 'Cachefield',
+        postalCode: '9309AA',
+        lon: 5.4712,
+        lat: 51.4414,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 525000,
+          sourceUrl: `https://example.com/viewer-agnostic-${property.id}`,
+        });
+
+        const firstResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        const secondResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': `viewer-agnostic-${Date.now()}` },
+        });
+
+        expect(firstResponse.statusCode).toBe(200);
+        expect(firstResponse.headers['x-tile-cache']).toBe('miss');
+        expect(secondResponse.statusCode).toBe(200);
+        expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+        expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
     });
 
     it('should include the normalized filter signature in the property tile cache key', async () => {
@@ -495,6 +772,270 @@ describe('Tile routes', () => {
       }
 
       expect(foundCluster).toBe(true);
+    });
+  });
+
+  describe('GET /tiles/properties/read/:z/:x/:y.pbf', () => {
+    it('requires a stable viewer identity', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/read/16/33841/21594.pbf',
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'BAD_REQUEST',
+        message: 'Authenticated user or x-session-id header is required.',
+      });
+    });
+
+    it('returns 204 when matching properties are unread and 200 after viewing', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Read Overlay Tile Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9301AA',
+        lon: 6.201,
+        lat: 52.201,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+      const sessionId = `read-overlay-${Date.now()}`;
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 475000,
+          sourceUrl: `https://example.com/read-overlay-${property.id}`,
+        });
+
+        const unreadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(unreadResponse.statusCode).toBe(204);
+        expect(unreadResponse.headers['cache-control']).toBe('private, no-store');
+        expect(unreadResponse.headers.vary).toContain('Authorization');
+        expect(unreadResponse.headers.vary).toContain('x-session-id');
+
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const readResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(readResponse.statusCode).toBe(200);
+        expect(readResponse.headers['content-type']).toBe('application/x-protobuf');
+        expect(readResponse.headers['cache-control']).toBe('private, no-store');
+        expect(readResponse.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
+    it('only emits a clustered read overlay when every member has been read', async () => {
+      const sessionId = `read-cluster-${Date.now()}`;
+      const first = await createIntegrationProperty({
+        street: 'Read Overlay Cluster A',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9302AA',
+        lon: 6.202,
+        lat: 52.202,
+      });
+      const second = await createIntegrationProperty({
+        street: 'Read Overlay Cluster B',
+        houseNumber: 2,
+        city: 'Readtile',
+        postalCode: '9302AB',
+        lon: 6.20201,
+        lat: 52.20201,
+      });
+      const tile = tileCoordinatesForPoint(first.lon, first.lat, 14);
+
+      try {
+        await createIntegrationListing({
+          propertyId: first.id,
+          askingPrice: 475000,
+          sourceUrl: `https://example.com/read-cluster-${first.id}`,
+        });
+        await createIntegrationListing({
+          propertyId: second.id,
+          askingPrice: 476000,
+          sourceUrl: `https://example.com/read-cluster-${second.id}`,
+        });
+
+        const firstView = await app.inject({
+          method: 'POST',
+          url: `/properties/${first.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(firstView.statusCode).toBe(200);
+
+        const partiallyReadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(partiallyReadResponse.statusCode).toBe(204);
+
+        const secondView = await app.inject({
+          method: 'POST',
+          url: `/properties/${second.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(secondView.statusCode).toBe(200);
+
+        const fullyReadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(fullyReadResponse.statusCode).toBe(200);
+        expect(fullyReadResponse.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id IN (${first.id}, ${second.id})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${first.id}, ${second.id})`);
+      }
+    });
+
+    it('keeps read overlay tiles viewer-specific even when the public base tile is cached', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Read Overlay Identity Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9303AA',
+        lon: 6.203,
+        lat: 52.203,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+      const readerSessionId = `read-overlay-reader-${Date.now()}`;
+      const otherSessionId = `${readerSessionId}-other`;
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 477000,
+          sourceUrl: `https://example.com/read-overlay-identity-${property.id}`,
+        });
+
+        const publicResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        expect(publicResponse.statusCode).toBe(200);
+
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const readerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        const otherViewerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': otherSessionId },
+        });
+
+        expect(readerResponse.statusCode).toBe(200);
+        expect(readerResponse.headers['cache-control']).toBe('private, no-store');
+        expect(otherViewerResponse.statusCode).toBe(204);
+        expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+  });
+
+  describe('GET /tiles/following/properties/:z/:x/:y.pbf', () => {
+    it('requires authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/following/properties/14/8434/5443.pbf',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('returns personalized grouped tiles with private cache semantics', async () => {
+      const viewer = await createIntegrationUser(app, { label: 'following-tile-viewer' });
+      const actor = await createIntegrationUser(app, { label: 'following-tile-actor' });
+      const property = await createIntegrationProperty({
+        street: 'Following Tile Street',
+        houseNumber: 1,
+        city: 'Tileview',
+        postalCode: '9202AB',
+        lon: 4.8952,
+        lat: 52.3702,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 16);
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 625000,
+          thumbnailUrl: 'https://cdn.example.com/following-tile.jpg',
+        });
+        await createIntegrationFollow({
+          followerUserId: viewer.userId,
+          followedUserId: actor.userId,
+        });
+        await db.execute(sql`
+          INSERT INTO comments (id, property_id, user_id, content, created_at)
+          VALUES (
+            ${crypto.randomUUID()},
+            ${property.id},
+            ${actor.userId},
+            'Followed-user tile comment',
+            NOW()
+          )
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/following/properties/${tile.z}/${tile.x}/${tile.y}.pbf?marketState=for-sale`,
+          headers: {
+            authorization: `Bearer ${viewer.accessToken}`,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-type']).toBe('application/x-protobuf');
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+        expect(response.rawPayload.length).toBeGreaterThan(0);
+      } finally {
+        await db.execute(sql`DELETE FROM comments WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM user_follows WHERE follower_user_id = ${viewer.userId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(
+          sql`DELETE FROM users WHERE id IN (${sql.join(
+            [sql`${viewer.userId}`, sql`${actor.userId}`],
+            sql`, `,
+          )})`,
+        );
+      }
     });
   });
 

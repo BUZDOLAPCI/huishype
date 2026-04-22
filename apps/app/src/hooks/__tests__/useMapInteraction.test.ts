@@ -8,7 +8,7 @@ import {
   estimateZoomForBbox,
 } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
-import type { NearbyPropertyGroup } from '../../utils/api';
+import type { NearbyPropertyGroup, PropertyResolveResult } from '../../utils/api';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR } from '../../lib/mapCameraAnchor';
 import { fetchBatchProperties } from '../../utils/api';
 import {
@@ -121,13 +121,15 @@ describe('getActivityLevel', () => {
     expect(getActivityLevel(100)).toBe('hot');
   });
 
-  it('returns "warm" for scores > 0 and < 50', () => {
+  it('returns "warm" for active scores below hot', () => {
+    expect(getActivityLevel(0.75)).toBe('warm');
     expect(getActivityLevel(1)).toBe('warm');
     expect(getActivityLevel(49)).toBe('warm');
   });
 
-  it('returns "cold" for score 0', () => {
+  it('returns "cold" for scores below the active threshold', () => {
     expect(getActivityLevel(0)).toBe('cold');
+    expect(getActivityLevel(0.1)).toBe('cold');
   });
 
   it('returns "cold" for negative scores', () => {
@@ -755,6 +757,7 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
+      expect(result.current.previewGroup!.properties[0]?.nodeClass).toBe('active');
     });
 
     it('returns false for empty features array', async () => {
@@ -787,7 +790,11 @@ describe('useMapInteraction', () => {
           status: 'active',
           officialValuation: 250000,
           hasListing: true,
+          hasActiveListing: true,
+          marketState: 'for-sale',
           askingPrice: 300000,
+          socialScore: 7,
+          recentSocialScore: 0,
           likeCount: 3,
           commentCount: 5,
           guessCount: 2,
@@ -834,6 +841,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'p1',
+        nodeClass: 'active',
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -862,10 +870,18 @@ describe('useMapInteraction', () => {
         previewPropertyIds: ['prop-1'],
         coordinate: [4.9, 52.37],
         bbox: null,
+        activeListingCount: 1,
+        socialCount: 2,
+        recentSocialCount: 1,
+        socialScoreTotal: 25,
+        socialScoreMax: 25,
+        recentSocialScoreTotal: 10,
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
         countryCode: 'NL',
+        hasActiveListing: true,
+        marketState: 'for-sale',
         hasListing: true,
         activityScore: 25,
         activityScoreTotal: 25,
@@ -904,6 +920,7 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup!.coordinate).toEqual([4.9, 52.37]);
+      expect(result.current.previewGroup!.properties[0]?.nodeClass).toBe('active');
     });
 
     it('opens preview for dense nearby clusters', async () => {
@@ -922,7 +939,11 @@ describe('useMapInteraction', () => {
           status: 'active',
           officialValuation: 250000,
           hasListing: true,
+          hasActiveListing: true,
+          marketState: 'for-sale',
           askingPrice: 300000,
+          socialScore: 7,
+          recentSocialScore: 0,
           likeCount: 3,
           commentCount: 5,
           guessCount: 2,
@@ -945,6 +966,14 @@ describe('useMapInteraction', () => {
         previewPropertyIds: ['p1', 'p2', 'p3'],
         coordinate: [4.9, 52.37],
         bbox: { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
+        activeListingCount: 2,
+        socialCount: 5,
+        recentSocialCount: 3,
+        socialScoreTotal: 60,
+        socialScoreMax: 30,
+        recentSocialScoreTotal: 18,
+        hasActiveListing: true,
+        marketState: null,
         hasListing: true,
         activityScore: 60,
         activityScoreTotal: 60,
@@ -982,6 +1011,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'p1',
+        nodeClass: 'active',
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -1009,7 +1039,11 @@ describe('useMapInteraction', () => {
           status: 'active',
           officialValuation: 250000,
           hasListing: true,
+          hasActiveListing: true,
+          marketState: 'for-sale',
           askingPrice: 300000,
+          socialScore: 7,
+          recentSocialScore: 0,
           likeCount: 3,
           commentCount: 5,
           guessCount: 2,
@@ -1028,6 +1062,7 @@ describe('useMapInteraction', () => {
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         id: 'prop-1',
+        nodeClass: undefined,
         askingPrice: 300000,
         officialValuation: 250000,
         likeCount: 3,
@@ -1035,6 +1070,44 @@ describe('useMapInteraction', () => {
         guessCount: 2,
         activityScore: 7,
         activityLevel: 'warm',
+      });
+    });
+
+    it('preserves ghost class for grouped previews opened from ghost clusters', async () => {
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'ghost-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: 'Quiet Lane 1',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: false,
+          hasActiveListing: false,
+          marketState: 'not-listed',
+          socialScore: 0,
+          recentSocialScore: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.openClusterPreviewAtCoord(['ghost-1'], [4.9, 52.37], 'ghost');
+      });
+
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        id: 'ghost-1',
+        nodeClass: 'ghost',
       });
     });
   });
@@ -1047,14 +1120,15 @@ describe('useMapInteraction', () => {
       });
 
       const camera = createMockCamera();
-      const property = {
+      const property: PropertyResolveResult = {
         id: 'prop-1',
         address: '123 Main St',
         city: 'Amsterdam',
         postalCode: '1012AB',
         countryCode: 'NL',
         officialValuation: 250000,
-        hasListing: true,
+        hasActiveListing: true,
+        marketState: 'for-sale',
         coordinates: { lon: 4.9, lat: 52.37 },
       };
       const resolvedAddress = {
@@ -1093,10 +1167,43 @@ describe('useMapInteraction', () => {
 
       expect(result.current.selectedPropertyId).toBe('prop-1');
       expect(result.current.previewGroup).not.toBeNull();
+      expect(result.current.previewGroup?.properties[0]).toMatchObject({
+        hasActiveListing: true,
+        activityLevel: 'warm',
+      });
       expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
         { type: 'Point', coordinates: [4.9, 52.37] },
         'NL',
       );
+    });
+
+    it('ignores resolved properties that do not have coordinates', () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+
+      act(() => {
+        result.current.handlePropertyResolved(
+          {
+            id: 'prop-missing-coords',
+            address: 'Unknown',
+            city: 'Eindhoven',
+            postalCode: '5611AA',
+            coordinates: null,
+            hasActiveListing: false,
+            marketState: 'not-listed',
+          } as PropertyResolveResult,
+          camera,
+        );
+      });
+
+      expect(camera.flyTo).not.toHaveBeenCalled();
+      expect(result.current.highlightedCoordinate).toBeNull();
+      expect(result.current.selectedPropertyId).toBeNull();
+      expect(result.current.previewGroup).toBeNull();
     });
 
     it('handleLocationResolved flies to coordinate without setting preview', () => {
@@ -1258,6 +1365,40 @@ describe('useMapInteraction', () => {
       expect(gpp.activityLevel).toBe('hot');
     });
 
+    it('derives warm activity for listing-backed previews even without social score', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-2',
+        address: 'Listingstraat 4',
+        city: 'Eindhoven',
+        hasActiveListing: true,
+      });
+
+      expect(gpp.activityLevel).toBe('warm');
+      expect(gpp.hasActiveListing).toBe(true);
+    });
+
+    it('keeps a one-view-only preview quiet', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-view-only',
+        address: 'Kijklaan 5',
+        city: 'Eindhoven',
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+      });
+
+      expect(gpp.socialScore).toBe(0.1);
+      expect(gpp.recentSocialScore).toBe(0.1);
+      expect(gpp.activityLevel).toBe('cold');
+    });
+
     it('reuses the preview aerial image for the sheet property when available', async () => {
       mockUseProperty.mockReturnValue({
         data: {
@@ -1383,7 +1524,9 @@ describe('useMapInteraction', () => {
             divergence: -4,
           },
           likeCount: 7,
-          commentCount: 3,
+          commentCount: 2,
+          topLevelCommentCount: 2,
+          replyCount: 1,
           guessCount: 12,
           thumbnailUrl: null,
           createdAt: '2024-01-01T00:00:00Z',
@@ -1428,8 +1571,57 @@ describe('useMapInteraction', () => {
           commentCount: 3,
           guessCount: 12,
           aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          activityLevel: 'warm',
+          activityLevel: 'hot',
           activityScore: 7,
+        });
+      });
+    });
+
+    it('replaces neutral bootstrap activity with hydrated server activity', async () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: '123 Main St',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          imageryGeometry: null,
+          yearBuilt: 1920,
+          floorAreaM2: 85,
+          status: 'active',
+          officialValuation: 425000,
+          askingPrice: 449000,
+          socialScore: 64,
+          recentSocialScore: 18,
+          activityLevel: 'hot',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.previewGroup?.properties[0]).toMatchObject({
+          socialScore: 64,
+          recentSocialScore: 18,
+          activityLevel: 'hot',
         });
       });
     });

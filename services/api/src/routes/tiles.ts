@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
+  buildFollowingPropertyTileTemplateUrl,
   buildPropertyTileTemplateUrl,
   createDefaultMapFilters,
   getMapFilterSignature,
@@ -11,6 +12,33 @@ import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_MAP_LAYERS,
+  MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+  MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+  MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+  MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+  MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+  MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+  MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+  MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+  MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
+  MAP_NODE_RECENT_PULSE_SINGLE_COLOR_STOPS,
+  MAP_NODE_RECENT_PULSE_CLUSTER_COLOR_STOPS,
+  MAP_NODE_RECENT_PULSE_OPACITY_STOPS,
+  MAP_NODE_RECENT_PULSE_SINGLE_RADIUS_DELTA_STOPS,
+  MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
+  MAP_NODE_GHOST_CLUSTER_VISUAL,
+  MAP_NODE_GHOST_SINGLE_VISUAL,
+  type NumericStop,
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
@@ -19,10 +47,21 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
 import {
+  buildFollowingMvtForTile,
   buildMvtForTile,
+  buildReadMvtForTile,
   tileToBBox,
 } from '../services/property-grouping.js';
-import { parseMapFiltersQuery } from '../services/map-filters.js';
+import {
+  followingMapFiltersQuerySchema,
+  parseFollowingMapFiltersQuery,
+  parseMapFiltersQuery,
+  serializeMapFilterQuery,
+} from '../services/map-filters.js';
+import {
+  hasCurrentReadStateForViewer,
+  resolvePropertyReadViewer,
+} from '../services/property-read-state.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -92,6 +131,21 @@ const spriteParamsSchema = z.object({
   filename: z.string().regex(/^ofm(@2x)?\.(json|png)$/),
 });
 
+const errorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+const tileJsonResponseSchema = z.object({
+  tilejson: z.string(),
+  name: z.string(),
+  description: z.string(),
+  tiles: z.array(z.string()),
+  minzoom: z.number(),
+  maxzoom: z.number(),
+  bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+});
+
 const PROPERTY_TILE_CACHE_TTL_MS = 30_000;
 const PROPERTY_TILE_CACHE_MAX_ENTRIES = 1_024;
 
@@ -119,7 +173,7 @@ function touchPropertyTileCache(cacheKey: string, entry: PropertyTileCacheEntry)
 function setPropertyTileCache(
   cacheKey: string,
   entry: PropertyTileCacheEntry,
-  now = Date.now(),
+  now = Date.now()
 ): void {
   prunePropertyTileCache(now);
 
@@ -134,6 +188,11 @@ function setPropertyTileCache(
   }
 
   propertyTileCache.set(cacheKey, entry);
+}
+
+function buildReadPropertyTileTemplateUrl(baseUrl: string, filters: ReturnType<typeof parseMapFiltersQuery>): string {
+  const query = serializeMapFilterQuery(filters);
+  return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
 }
 
 // --- Sprite manifest + layer filtering ---
@@ -155,12 +214,45 @@ async function getSpriteManifest(): Promise<Set<string>> {
 
 // MapLibre expression keywords — not sprite names
 const EXPRESSION_KEYWORDS = new Set([
-  'match', 'case', 'coalesce', 'concat', 'get', 'has', 'in',
-  'literal', 'step', 'interpolate', 'linear', 'exponential',
-  'zoom', 'let', 'var', 'all', 'any', 'none', '!', '==', '!=',
-  '>', '<', '>=', '<=', 'to-string', 'to-number', 'to-boolean',
-  'typeof', 'string', 'number', 'boolean', 'image', 'format',
-  'number-format', 'at', 'length', 'slice', 'index-of',
+  'match',
+  'case',
+  'coalesce',
+  'concat',
+  'get',
+  'has',
+  'in',
+  'literal',
+  'step',
+  'interpolate',
+  'linear',
+  'exponential',
+  'zoom',
+  'let',
+  'var',
+  'all',
+  'any',
+  'none',
+  '!',
+  '==',
+  '!=',
+  '>',
+  '<',
+  '>=',
+  '<=',
+  'to-string',
+  'to-number',
+  'to-boolean',
+  'typeof',
+  'string',
+  'number',
+  'boolean',
+  'image',
+  'format',
+  'number-format',
+  'at',
+  'length',
+  'slice',
+  'index-of',
 ]);
 
 /**
@@ -274,7 +366,9 @@ function patchShieldRefLengthFilters(layers: Array<Record<string, unknown>>): vo
  * is safe.
  */
 function cssColorToHex(color: string): string {
-  const rgbMatch = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
+  const rgbMatch = color.match(
+    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/
+  );
   if (rgbMatch) {
     const r = parseInt(rgbMatch[1], 10);
     const g = parseInt(rgbMatch[2], 10);
@@ -284,7 +378,9 @@ function cssColorToHex(color: string): string {
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
-  const hslMatch = color.match(/^hsla?\(\s*(\d+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$/);
+  const hslMatch = color.match(
+    /^hsla?\(\s*(\d+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$/
+  );
   if (hslMatch) {
     const h = parseInt(hslMatch[1], 10) / 360;
     const s = parseFloat(hslMatch[2]) / 100;
@@ -311,7 +407,13 @@ function cssColorToHex(color: string): string {
       b = hue2rgb(p, q, h - 1 / 3);
     }
 
-    return `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
+    return `#${Math.round(r * 255)
+      .toString(16)
+      .padStart(2, '0')}${Math.round(g * 255)
+      .toString(16)
+      .padStart(2, '0')}${Math.round(b * 255)
+      .toString(16)
+      .padStart(2, '0')}`;
   }
 
   return color;
@@ -353,9 +455,9 @@ function normalizeCssColors(obj: unknown): void {
  * keeping the overall clean/minimal Positron aesthetic for lines and labels.
  */
 const FILL_COLOR_OVERRIDES: Record<string, string> = {
-  park: '#d8e8c8',            // Bright green (was #e6e9e5 — barely perceptible)
-  water: '#aad0e6',           // Soft blue (was #c2c8ca — barely perceptible)
-  landcover_wood: '#c5d8b5',  // Forest green (was #dce0dc — barely perceptible)
+  park: '#d8e8c8', // Bright green (was #e6e9e5 — barely perceptible)
+  water: '#aad0e6', // Soft blue (was #c2c8ca — barely perceptible)
+  landcover_wood: '#c5d8b5', // Forest green (was #dce0dc — barely perceptible)
 };
 
 /**
@@ -505,23 +607,75 @@ function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknow
   }
 }
 
-type StepStop = readonly [threshold: number, value: number];
+type StepStop = NumericStop;
 
 function buildStepExpression(
   input: unknown,
-  stops: readonly StepStop[],
+  stops: readonly StepStop[]
 ): [string, unknown, number, ...(number | string)[]] {
   const [firstStop, ...restStops] = stops;
   const expressionTail = restStops.flatMap(([threshold, value]) => [threshold, value]);
   return ['step', input, firstStop[1], ...expressionTail];
 }
 
-function buildInterpolateExpression(
+function buildInterpolateExpression<TValue extends number | string>(
   input: unknown,
-  stops: readonly StepStop[],
+  stops: ReadonlyArray<readonly [threshold: number, value: TValue]>
 ): [string, string[], unknown, ...(number | string)[]] {
   const expressionTail = stops.flatMap(([threshold, value]) => [threshold, value]);
   return ['interpolate', ['linear'], input, ...expressionTail];
+}
+
+const ACTIVE_CLUSTER_FILL_LAYER_ID = 'property-cluster-fill';
+const ACTIVE_CLUSTER_PULSE_LAYER_ID = 'property-cluster-pulse';
+const ACTIVE_NODE_FILL_LAYER_ID = 'active-node-fill';
+const ACTIVE_NODE_PULSE_LAYER_ID = 'active-node-pulse';
+
+function buildPropertyFieldExpression(field: string, fallback = 0): unknown[] {
+  return ['coalesce', ['get', field], fallback];
+}
+
+function buildListingShareExpression(): unknown[] {
+  const pointCount = buildPropertyFieldExpression('point_count', 1);
+  return [
+    'case',
+    ['>', pointCount, 0],
+    ['/', buildPropertyFieldExpression('activeListingCount'), pointCount],
+    0,
+  ];
+}
+
+function buildRecentPulseOpacityExpression(): unknown[] {
+  return [
+    'case',
+    [
+      'all',
+      ['>', buildPropertyFieldExpression('recentSocialCount'), 0],
+      [
+        '>',
+        buildPropertyFieldExpression('recentSocialScoreTotal'),
+        MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
+      ],
+    ],
+    [
+      ...buildInterpolateExpression(
+        buildPropertyFieldExpression('recentSocialScoreTotal'),
+        MAP_NODE_RECENT_PULSE_OPACITY_STOPS
+      ),
+    ],
+    0,
+  ];
+}
+
+function buildRecentPulseRadiusExpression(
+  baseRadius: unknown,
+  deltaStops: readonly NumericStop[]
+): unknown[] {
+  return [
+    '+',
+    baseRadius,
+    buildInterpolateExpression(buildPropertyFieldExpression('recentSocialScoreTotal'), deltaStops),
+  ];
 }
 
 /**
@@ -530,12 +684,61 @@ function buildInterpolateExpression(
  * consume them from /tiles/style.json.
  *
  * Final layer IDs:
- *   property-clusters, cluster-count, active-nodes,
+ *   property-clusters, property-cluster-fill, property-cluster-pulse, cluster-count,
+ *   active-nodes, active-node-fill, active-node-pulse,
  *   ghost-clusters, ghost-cluster-count, ghost-nodes
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
+  const activeClusterRadius = ACTIVE_FOOTPRINT.clusterRadiusPx;
+  const activeNodeRadius = ACTIVE_FOOTPRINT.singleRadiusPx;
+  const activeListingCount = buildPropertyFieldExpression('activeListingCount');
+  const hasActiveListings = ['>', activeListingCount, 0];
+  const listingShare = buildListingShareExpression();
+  const activeClusterRingWidth = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS
+  );
+  const activeClusterRingColor = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS
+  );
+  const activeClusterRingOpacity = buildInterpolateExpression(
+    listingShare,
+    MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS
+  );
+  const activeNodeRingWidth = buildInterpolateExpression(
+    buildPropertyFieldExpression('activeListingCount'),
+    MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS
+  );
+  const recentPulseOpacity = buildRecentPulseOpacityExpression();
+
   return [
-    // Active cluster circles at any zoom.
+    // Recent-social halo for clusters. This stays non-queryable; cluster count and taps
+    // still resolve against the canonical queryable ring layer.
+    {
+      id: ACTIVE_CLUSTER_PULSE_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      paint: {
+        'circle-radius': buildRecentPulseRadiusExpression(
+          activeClusterRadius,
+          MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS
+        ),
+        'circle-color': buildInterpolateExpression(
+          buildPropertyFieldExpression('recentSocialCount'),
+          MAP_NODE_RECENT_PULSE_CLUSTER_COLOR_STOPS
+        ),
+        'circle-opacity': recentPulseOpacity,
+        'circle-stroke-width': 0,
+      },
+    },
+    // Active cluster listing ring. The outer treatment only communicates listing composition.
     {
       id: PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,
       type: 'circle',
@@ -547,24 +750,47 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'cluster'],
       ],
       paint: {
-        'circle-radius': buildStepExpression(
-          ['coalesce', ['get', 'point_count'], 2],
-          ACTIVE_FOOTPRINT.clusterRadiusStopsPx,
-        ),
+        'circle-radius': ['+', activeClusterRadius, activeClusterRingWidth],
+        'circle-color': activeClusterRingColor,
+        'circle-opacity': activeClusterRingOpacity,
+        'circle-stroke-width': 0,
+        'circle-stroke-color': activeClusterRingColor,
+        'circle-stroke-opacity': activeClusterRingOpacity,
+      },
+    },
+    // Active cluster social core. The fill communicates social composition and intensity.
+    {
+      id: ACTIVE_CLUSTER_FILL_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'cluster'],
+      ],
+      paint: {
+        'circle-radius': activeClusterRadius,
         'circle-color': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          '#3B82F6',  // blue-500: small clusters (2-9)
-          10, '#F59E0B',  // amber-500: medium clusters (10-49)
-          50, '#EF4444',  // red-500: large clusters (50-99)
-          100, '#DC2626', // red-600: very large (100+)
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          2,      // default
-          50, 3,  // larger stroke for big clusters
+        'circle-opacity': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+          MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
         ],
-        'circle-stroke-color': '#FFFFFF',
+        'circle-stroke-width': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': [
+          'case',
+          hasActiveListings,
+          0,
+          MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+        ],
       },
     },
     // Active cluster count labels.
@@ -580,22 +806,40 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': [
-          'step', ['coalesce', ['get', 'point_count'], 2],
-          12,      // default (2-9)
-          10, 13,  // 10-49
-          50, 14,  // 50-99
-          100, 16, // 100+
-        ],
+        'text-font': [...MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK],
+        'text-size': MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
       },
       paint: {
-        'text-color': '#FFFFFF',
-        'text-halo-color': 'rgba(0, 0, 0, 0.25)',
-        'text-halo-width': 1,
+        'text-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+        'text-halo-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+        'text-halo-width': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
       },
     },
-    // Active singles at any zoom.
+    // Recent-social halo for singles. Low passive-view scores stay quiet.
+    {
+      id: ACTIVE_NODE_PULSE_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': buildRecentPulseRadiusExpression(
+          activeNodeRadius,
+          MAP_NODE_RECENT_PULSE_SINGLE_RADIUS_DELTA_STOPS
+        ),
+        'circle-color': buildInterpolateExpression(
+          buildPropertyFieldExpression('recentSocialCount'),
+          MAP_NODE_RECENT_PULSE_SINGLE_COLOR_STOPS
+        ),
+        'circle-opacity': recentPulseOpacity,
+        'circle-stroke-width': 0,
+      },
+    },
+    // Active single listing ring.
     {
       id: PROPERTY_MAP_LAYERS.ACTIVE_NODES,
       type: 'circle',
@@ -607,21 +851,59 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         ['==', ['get', 'group_kind'], 'single'],
       ],
       paint: {
-        'circle-radius': buildInterpolateExpression(
-          ['coalesce', ['get', 'activityScore'], 0],
-          ACTIVE_FOOTPRINT.singleRadiusStopsPx,
+        'circle-radius': ['+', activeNodeRadius, activeNodeRingWidth],
+        'circle-color': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
         ),
+        'circle-opacity': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS
+        ),
+        'circle-stroke-width': 0,
+        'circle-stroke-color': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
+        ),
+        'circle-stroke-opacity': buildInterpolateExpression(
+          activeListingCount,
+          MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS
+        ),
+      },
+    },
+    // Active single social core.
+    {
+      id: ACTIVE_NODE_FILL_LAYER_ID,
+      type: 'circle',
+      source: 'properties-source',
+      'source-layer': 'properties',
+      filter: [
+        'all',
+        ['==', ['get', 'node_class'], 'active'],
+        ['==', ['get', 'group_kind'], 'single'],
+      ],
+      paint: {
+        'circle-radius': activeNodeRadius,
         'circle-color': [
           'case',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 50],
-          '#EF4444',
-          ['>', ['coalesce', ['get', 'activityScore'], 0], 0],
-          '#F97316',
-          '#3B82F6',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+          MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#FFFFFF',
+        'circle-opacity': [
+          'case',
+          ['>', buildPropertyFieldExpression('socialCount'), 0],
+          MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+          MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+        ],
+        'circle-stroke-width': ['case', hasActiveListings, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+        'circle-stroke-opacity': [
+          'case',
+          hasActiveListings,
+          0,
+          MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+        ],
       },
     },
     // Ghost-only clusters appear once ghosts are revealed.
@@ -639,13 +921,13 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       paint: {
         'circle-radius': buildStepExpression(
           ['coalesce', ['get', 'point_count'], 2],
-          GHOST_FOOTPRINT.clusterRadiusStopsPx,
+          GHOST_FOOTPRINT.clusterRadiusStopsPx
         ),
-        'circle-color': '#CBD5E1',
-        'circle-opacity': 0.5,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-opacity': 0.7,
+        'circle-color': MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
+        'circle-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.opacity,
+        'circle-stroke-width': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
+        'circle-stroke-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeOpacity,
       },
     },
     {
@@ -662,11 +944,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
         'text-font': ['Noto Sans Regular'],
-        'text-size': 11,
+        'text-size': MAP_NODE_GHOST_CLUSTER_VISUAL.labelSize,
       },
       paint: {
-        'text-color': '#475569',
-        'text-halo-color': 'rgba(255, 255, 255, 0.85)',
+        'text-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
+        'text-halo-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
         'text-halo-width': 1,
       },
     },
@@ -684,11 +966,11 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       paint: {
         'circle-radius': GHOST_FOOTPRINT.singleRadiusPx,
-        'circle-color': '#94A3B8',
-        'circle-opacity': 0.4,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#FFFFFF',
-        'circle-stroke-opacity': 0.5,
+        'circle-color': MAP_NODE_GHOST_SINGLE_VISUAL.fill,
+        'circle-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.opacity,
+        'circle-stroke-width': MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
+        'circle-stroke-color': MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
+        'circle-stroke-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.strokeOpacity,
       },
     },
   ];
@@ -736,12 +1018,7 @@ function buildPaperTreesLayer(): Record<string, unknown> {
     minzoom: TREE_MIN_ZOOM,
     layout: {
       'icon-image': ['concat', 'tree-', ['to-string', ['get', 'tree_variant']]],
-      'icon-size': [
-        'interpolate', ['linear'], ['zoom'],
-        15, 0.4,
-        17, 0.8,
-        19, 1.2,
-      ],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.4, 17, 0.8, 19, 1.2],
       'icon-anchor': 'bottom',
       'icon-offset': [0, 3], // sink trunk into ground for "planted" look
       'icon-allow-overlap': true,
@@ -751,12 +1028,7 @@ function buildPaperTreesLayer(): Record<string, unknown> {
       'icon-rotation-alignment': 'viewport',
     },
     paint: {
-      'icon-opacity': [
-        'interpolate', ['linear'], ['zoom'],
-        15, 0,
-        15.5, 0.85,
-        18, 1,
-      ],
+      'icon-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.5, 0.85, 18, 1],
     },
   };
 }
@@ -781,7 +1053,8 @@ export async function tileRoutes(app: FastifyInstance) {
       schema: {
         tags: ['tiles'],
         summary: 'Get glyph PBF range for a font',
-        description: 'Returns a PBF file containing glyphs for the requested font and Unicode range.',
+        description:
+          'Returns a PBF file containing glyphs for the requested font and Unicode range.',
         params: fontParamsSchema,
       },
     },
@@ -881,10 +1154,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const protocol = request.protocol;
       const host = request.host;
       const baseUrl = `${protocol}://${host}`;
-      const tileUrl = buildPropertyTileTemplateUrl(
-        baseUrl,
-        createDefaultMapFilters(),
-      );
+      const tileUrl = buildPropertyTileTemplateUrl(baseUrl, createDefaultMapFilters());
       const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
@@ -903,15 +1173,13 @@ export async function tileRoutes(app: FastifyInstance) {
         if (buildingSource) buildingSource.tiles = [`${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`];
         style.glyphs = glyphsUrl;
         style.sprite = spriteUrl;
-        return reply
-          .header('Cache-Control', 'public, max-age=60')
-          .send(style);
+        return reply.header('Cache-Control', 'public, max-age=60').send(style);
       }
 
       try {
         // Fetch base style from OpenFreeMap
         const resp = await fetch('https://tiles.openfreemap.org/styles/positron');
-        const baseStyle = await resp.json() as Record<string, unknown>;
+        const baseStyle = (await resp.json()) as Record<string, unknown>;
 
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
@@ -923,7 +1191,7 @@ export async function tileRoutes(app: FastifyInstance) {
         // Remove unused raster sources (e.g. ne2_shaded natural earth) that have no
         // corresponding layer. MapLibre Native may still attempt to load/process these,
         // potentially interfering with the vector fill rendering pipeline.
-        const layerSources = new Set(layers.map(l => l.source as string).filter(Boolean));
+        const layerSources = new Set(layers.map((l) => l.source as string).filter(Boolean));
         for (const srcName of Object.keys(sources)) {
           if (!layerSources.has(srcName)) {
             delete sources[srcName];
@@ -939,7 +1207,7 @@ export async function tileRoutes(app: FastifyInstance) {
           if (source.type === 'vector' && typeof source.url === 'string' && !source.tiles) {
             try {
               const tjResp = await fetch(source.url as string);
-              const tileJson = await tjResp.json() as Record<string, unknown>;
+              const tileJson = (await tjResp.json()) as Record<string, unknown>;
               // Only keep essential TileJSON fields — large metadata like vector_layers
               // bloats the style JSON and may cause issues with MapLibre Native's
               // Fabric bridge serialization.
@@ -952,7 +1220,10 @@ export async function tileRoutes(app: FastifyInstance) {
                 ...(tileJson.attribution ? { attribution: tileJson.attribution } : {}),
               };
             } catch (tjErr) {
-              app.log.warn(tjErr, `Failed to resolve TileJSON for source "${name}" — keeping url reference`);
+              app.log.warn(
+                tjErr,
+                `Failed to resolve TileJSON for source "${name}" — keeping url reference`
+              );
             }
           }
         }
@@ -995,8 +1266,7 @@ export async function tileRoutes(app: FastifyInstance) {
         // from 2D to 3D is abrupt but avoids the bug entirely.
         layers.forEach((layer, index) => {
           const isBuilding =
-            layer.id?.toString().includes('building') &&
-            layer['source-layer'] === 'building';
+            layer.id?.toString().includes('building') && layer['source-layer'] === 'building';
 
           if (isBuilding && layer.type === 'fill') {
             layers[index] = {
@@ -1008,7 +1278,8 @@ export async function tileRoutes(app: FastifyInstance) {
 
         // Find label layer to insert 3D buildings below
         const labelLayerIndex = layers.findIndex(
-          (layer) => layer.type === 'symbol' && (layer.layout as Record<string, unknown>)?.['text-field']
+          (layer) =>
+            layer.type === 'symbol' && (layer.layout as Record<string, unknown>)?.['text-field']
         );
 
         // Insert 3D buildings layer below labels (or at end if no label layer found)
@@ -1029,7 +1300,10 @@ export async function tileRoutes(app: FastifyInstance) {
           const availableSprites = await getSpriteManifest();
           filteredLayers = filterLayersForMissingSprites(layers, availableSprites);
         } catch (spriteErr) {
-          app.log.warn(spriteErr, 'Failed to load sprite manifest for layer filtering — keeping all layers');
+          app.log.warn(
+            spriteErr,
+            'Failed to load sprite manifest for layer filtering — keeping all layers'
+          );
         }
 
         // MapLibre Native (v11 beta) rendering bug workaround:
@@ -1051,7 +1325,7 @@ export async function tileRoutes(app: FastifyInstance) {
         // Add paper-trees symbol layer AFTER sprite filtering to preserve
         // the raw concat expression (coalesce+image wrapper breaks on native).
         // Both web and native render the server-provided symbol layer directly.
-        const buildings3DIndex = filteredLayers.findIndex(l => l.id === '3d-buildings');
+        const buildings3DIndex = filteredLayers.findIndex((l) => l.id === '3d-buildings');
         const paperTreesLayer = buildPaperTreesLayer();
         if (buildings3DIndex !== -1) {
           filteredLayers.splice(buildings3DIndex + 1, 0, paperTreesLayer);
@@ -1080,9 +1354,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
         cachedStyle = { data: merged, fetchedAt: now };
 
-        return reply
-          .header('Cache-Control', 'public, max-age=60')
-          .send(merged);
+        return reply.header('Cache-Control', 'public, max-age=60').send(merged);
       } catch (err) {
         app.log.error(err, 'Failed to fetch base style');
         return reply.status(502).send({ error: 'Failed to build merged style' });
@@ -1104,6 +1376,9 @@ export async function tileRoutes(app: FastifyInstance) {
         summary: 'Get property tile metadata (TileJSON)',
         description: 'Returns TileJSON 2.1.0 metadata for property vector tiles.',
         querystring: mapFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -1122,6 +1397,93 @@ export async function tileRoutes(app: FastifyInstance) {
         maxzoom: 22,
         bounds: [-180, -85, 180, 85],
       });
+    }
+  );
+
+  typedApp.get(
+    '/tiles/following/properties.json',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get Following property tile metadata (TileJSON)',
+        description:
+          'Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.',
+        querystring: followingMapFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const protocol = request.protocol;
+      const host = request.host;
+      const filters = parseFollowingMapFiltersQuery(request.query);
+      const tileUrl = buildFollowingPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
+
+      return reply
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization')
+        .send({
+          tilejson: '2.1.0',
+          name: 'HuisHype Following Properties',
+          description: 'Personalized grouped property data from followed-user qualifying activity',
+          tiles: [tileUrl],
+          minzoom: 0,
+          maxzoom: 22,
+          bounds: [-180, -85, 180, 85],
+        });
+    }
+  );
+
+  typedApp.get(
+    '/tiles/properties/read.json',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get read property tile metadata (TileJSON)',
+        description:
+          'Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.',
+        querystring: mapFiltersQuerySchema,
+        response: {
+          200: tileJsonResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+
+      if (!viewer) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        });
+      }
+
+      const protocol = request.protocol;
+      const host = request.host;
+      const filters = parseMapFiltersQuery(request.query);
+      const tileUrl = buildReadPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
+      const tiles = (await hasCurrentReadStateForViewer(viewer)) ? [tileUrl] : [];
+
+      return reply
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization, x-session-id')
+        .send({
+          tilejson: '2.1.0',
+          name: 'HuisHype Read Properties',
+          description: 'Viewer-specific read property overlay data with clustering',
+          tiles,
+          minzoom: 0,
+          maxzoom: 22,
+          bounds: [-180, -85, 180, 85],
+        });
     }
   );
 
@@ -1186,10 +1548,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
       // Log slow queries for monitoring
       if (queryTime > 100) {
-        app.log.warn(
-          { z, x, y, queryTime },
-          `Slow tile generation: ${queryTime}ms`
-        );
+        app.log.warn({ z, x, y, queryTime }, `Slow tile generation: ${queryTime}ms`);
       }
 
       // Empty tile
@@ -1217,12 +1576,109 @@ export async function tileRoutes(app: FastifyInstance) {
       // Set appropriate headers for MVT
       return reply
         .header('Content-Type', 'application/x-protobuf')
-        .header(
-          'Cache-Control',
-          'public, max-age=30, stale-while-revalidate=60'
-        )
+        .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
         .header('X-Tile-Generation-Time', `${queryTime}ms`)
         .header('X-Tile-Cache', 'miss')
+        .send(mvtBuffer);
+    }
+  );
+
+  typedApp.get(
+    '/tiles/properties/read/:z/:x/:y.pbf',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get read property vector tile',
+        description:
+          'Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.',
+        params: tileParamsSchema,
+        querystring: mapFiltersQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+
+      if (!viewer) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        });
+      }
+
+      const filters = parseMapFiltersQuery(request.query);
+      const startTime = Date.now();
+      const mvtBuffer = await buildReadMvtForTile({ z, x, y }, viewer, filters);
+      const queryTime = Date.now() - startTime;
+
+      if (queryTime > 100) {
+        app.log.warn({ z, x, y, queryTime }, `Slow read tile generation: ${queryTime}ms`);
+      }
+
+      if (!mvtBuffer || mvtBuffer.length === 0) {
+        return reply
+          .header('Cache-Control', 'private, no-store')
+          .header('Vary', 'Authorization, x-session-id')
+          .header('X-Tile-Generation-Time', `${queryTime}ms`)
+          .status(204)
+          .send();
+      }
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization, x-session-id')
+        .header('X-Tile-Generation-Time', `${queryTime}ms`)
+        .send(mvtBuffer);
+    }
+  );
+
+  typedApp.get(
+    '/tiles/following/properties/:z/:x/:y.pbf',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get Following property vector tile',
+        description:
+          'Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.',
+        params: tileParamsSchema,
+        querystring: followingMapFiltersQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+      const filters = parseFollowingMapFiltersQuery(request.query);
+
+      const startTime = Date.now();
+      const mvtBuffer = await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters);
+      const queryTime = Date.now() - startTime;
+
+      if (queryTime > 100) {
+        app.log.warn(
+          { z, x, y, queryTime, viewerId: request.userId },
+          `Slow following tile generation: ${queryTime}ms`
+        );
+      }
+
+      if (!mvtBuffer || mvtBuffer.length === 0) {
+        return reply
+          .header('Cache-Control', 'private, no-store')
+          .header('Vary', 'Authorization')
+          .header('X-Tile-Generation-Time', `${queryTime}ms`)
+          .status(204)
+          .send();
+      }
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', 'private, no-store')
+        .header('Vary', 'Authorization')
+        .header('X-Tile-Generation-Time', `${queryTime}ms`)
         .send(mvtBuffer);
     }
   );
@@ -1314,7 +1770,7 @@ export async function tileRoutes(app: FastifyInstance) {
         .header('Content-Type', 'application/x-protobuf')
         .header('Cache-Control', 'public, max-age=3600')
         .send(mvtBuffer);
-    },
+    }
   );
 
   // --- OSM building tiles ---
@@ -1332,8 +1788,7 @@ export async function tileRoutes(app: FastifyInstance) {
       schema: {
         tags: ['tiles'],
         summary: 'Get OSM building vector tile',
-        description:
-          'Returns MVT with individual OSM building footprints and heights.',
+        description: 'Returns MVT with individual OSM building footprints and heights.',
         params: tileParamsSchema,
       },
     },
@@ -1381,7 +1836,7 @@ export async function tileRoutes(app: FastifyInstance) {
         .header('Cache-Control', 'public, max-age=86400')
         .header('X-Tile-Generation-Time', `${elapsed}ms`)
         .send(mvtBuffer);
-    },
+    }
   );
 }
 

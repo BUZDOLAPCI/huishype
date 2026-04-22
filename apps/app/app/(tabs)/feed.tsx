@@ -5,12 +5,20 @@
  * Recent Activity uses the /activity endpoint via useActivityFeed.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
+import { isValidCountryCode } from '@huishype/shared/config';
 
 import {
   ActivityFeedCard,
+  AuthModal,
   FeedEmptyState,
   FeedErrorState,
   FeedFilterChips,
@@ -21,6 +29,7 @@ import {
 import {
   useInfiniteFeed,
   useActivityFeed,
+  useMyProfile,
   type FeedTab,
   type PropertyFeedFilter,
   type FeedProperty,
@@ -30,6 +39,9 @@ import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
+import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
+import { useAuthContext } from '@/src/providers/AuthProvider';
+import { getDefaultCenter } from '@/src/lib/mapDefaults';
 import {
   buildPropertyRoute,
   toInternalAppHref,
@@ -42,12 +54,31 @@ const FILTER_TITLES: Record<FeedTab, string> = {
   trending: 'Trending Properties',
   latest: 'Latest Properties',
   'recent-activity': 'Recent Activity',
+  following: 'Following',
 };
 
 export default function FeedScreen() {
+  const { isAuthenticated } = useAuthContext();
+  const { data: profile } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const { data: unreadCount } = useUnreadNotificationCount();
+  const trackedFollowingEmptyViewRef = useRef(false);
+
+  const feedCountryCode = useMemo(() => {
+    const candidate = profile?.homeCountry?.toUpperCase();
+    return candidate && isValidCountryCode(candidate) ? candidate : 'NL';
+  }, [profile?.homeCountry]);
+
+  const feedScope = useMemo(() => {
+    const [lon, lat] = getDefaultCenter(feedCountryCode);
+    return {
+      country: feedCountryCode,
+      lat,
+      lon,
+    };
+  }, [feedCountryCode]);
 
   const headerRightAction = useMemo(
     () => (
@@ -78,15 +109,18 @@ export default function FeedScreen() {
   );
 
   // Property feed (trending/latest)
-  const isPropertyFeed = activeFilter !== 'recent-activity';
+  const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
+  const activityScope = activeFilter === 'following' ? 'following' : 'public';
   const propertyFeedFilter: PropertyFeedFilter =
     activeFilter === 'latest' ? 'latest' : 'trending';
   const feedQuery = useInfiniteFeed(
-    isPropertyFeed ? propertyFeedFilter : 'trending'
+    isPropertyFeed ? propertyFeedFilter : 'trending',
+    feedScope,
+    isPropertyFeed,
   );
 
   // Activity feed
-  const activityQuery = useActivityFeed();
+  const activityQuery = useActivityFeed(activityScope, !isPropertyFeed);
 
   const properties = useMemo(() => {
     if (!isPropertyFeed) return [];
@@ -100,6 +134,42 @@ export default function FeedScreen() {
     return activityQuery.data.pages.flatMap((page) => page.items);
   }, [activityQuery.data, isPropertyFeed]);
 
+  useEffect(() => {
+    if (activeFilter !== 'following' || !isAuthenticated) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    emitSocialFollowAnalyticsEvent('following_feed_opened', {});
+  }, [activeFilter, isAuthenticated]);
+
+  useEffect(() => {
+    const shouldTrackFollowingEmpty =
+      activeFilter === 'following' &&
+      isAuthenticated &&
+      !activityQuery.isLoading &&
+      !activityQuery.isError &&
+      activities.length === 0;
+
+    if (!shouldTrackFollowingEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitSocialFollowAnalyticsEvent('following_feed_empty_viewed', {});
+  }, [
+    activeFilter,
+    activities.length,
+    activityQuery.isError,
+    activityQuery.isLoading,
+    isAuthenticated,
+  ]);
+
   const activeQuery = isPropertyFeed ? feedQuery : activityQuery;
 
   const onRefresh = useCallback(async () => {
@@ -109,11 +179,19 @@ export default function FeedScreen() {
   }, [activeQuery]);
 
   const handleFilterChange = useCallback((filter: FeedTab) => {
+    if (filter === 'following' && !isAuthenticated) {
+      setShowAuth(true);
+      return;
+    }
+
     setActiveFilter(filter);
-  }, []);
+  }, [isAuthenticated]);
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
+  }, []);
+  const handleActorPress = useCallback((actorId: string) => {
+    router.push(`/user/${actorId}`);
   }, []);
 
   const handleLoadMore = useCallback(() => {
@@ -160,10 +238,33 @@ export default function FeedScreen() {
         actor={item.actor}
         property={item.property}
         createdAt={item.createdAt}
-        onPress={() => handlePropertyPress(item.property)}
+        onPropertyPress={() => {
+          if (activeFilter === 'following') {
+            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
+              activityId: item.id,
+              eventType: item.eventType,
+              propertyId: item.property.id,
+              target: 'property',
+            });
+          }
+
+          handlePropertyPress(item.property);
+        }}
+        onActorPress={() => {
+          if (activeFilter === 'following') {
+            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
+              activityId: item.id,
+              actorId: item.actor.id,
+              eventType: item.eventType,
+              target: 'actor',
+            });
+          }
+
+          handleActorPress(item.actor.id);
+        }}
       />
     ),
-    [handlePropertyPress]
+    [activeFilter, handleActorPress, handlePropertyPress]
   );
 
   const propertyKeyExtractor = useCallback(
@@ -191,6 +292,18 @@ export default function FeedScreen() {
     />
   );
 
+  const authModal = (
+    <AuthModal
+      visible={showAuth}
+      onClose={() => setShowAuth(false)}
+      message="Sign in to see activity from people you follow"
+      onSuccess={() => {
+        setShowAuth(false);
+        setActiveFilter('following');
+      }}
+    />
+  );
+
   // Loading state
   if (activeQuery.isLoading && !isRefreshing) {
     return (
@@ -201,6 +314,7 @@ export default function FeedScreen() {
           onFilterChange={handleFilterChange}
         />
         <FeedLoadingState />
+        {authModal}
       </View>
     );
   }
@@ -218,6 +332,7 @@ export default function FeedScreen() {
           message={activeQuery.error?.message || 'Failed to load'}
           onRetry={activeQuery.refetch}
         />
+        {authModal}
       </View>
     );
   }
@@ -228,6 +343,7 @@ export default function FeedScreen() {
     : activities.length === 0;
 
   if (isEmpty) {
+    const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
       <View className="flex-1 bg-warm-50">
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
@@ -235,7 +351,23 @@ export default function FeedScreen() {
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
         />
-        <FeedEmptyState filter={activeFilter} />
+        <FeedEmptyState
+          filter={activeFilter}
+          signedIn={signedInFollowing}
+          onPrimaryAction={
+            activeFilter === 'following'
+              ? () => {
+                  if (signedInFollowing) {
+                    setActiveFilter('recent-activity');
+                    return;
+                  }
+
+                  setShowAuth(true);
+                }
+              : undefined
+          }
+        />
+        {authModal}
       </View>
     );
   }
@@ -277,6 +409,7 @@ export default function FeedScreen() {
           />
         )}
       </View>
+      {authModal}
     </View>
   );
 }

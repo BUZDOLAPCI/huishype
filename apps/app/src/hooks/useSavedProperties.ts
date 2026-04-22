@@ -9,62 +9,28 @@ import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import type { FeedProperty } from './useFeed';
 import { withDerivedPropertyImageData } from '../utils/property-image';
-
-interface SavedPropertyApiResponse {
-  id: string;
-  nationalId: string | null;
-  countryCode: string;
-  street: string;
-  houseNumber: number;
-  houseNumberAddition: string | null;
-  address: string;
-  city: string;
-  postalCode: string | null;
-  geometry: { type: 'Point'; coordinates: [number, number] } | null;
-  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
-  status: 'active' | 'inactive' | 'demolished';
-  officialValuation: number | null;
-  hasListing: boolean;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  commentCount: number;
-  guessCount: number;
-  savedAt: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { SavedProperty } from '@huishype/shared';
+import {
+  getViewerCacheKey,
+  resolvePropertyActivityLevel,
+  resolvePropertyCommentCount,
+} from './useProperties';
 
 interface SavedPropertiesApiResponse {
-  data: SavedPropertyApiResponse[];
+  data: SavedProperty[];
   total: number;
   hasMore: boolean;
 }
 
 export const savedPropertyKeys = {
   all: ['saved-properties'] as const,
-  list: () => [...savedPropertyKeys.all, 'list'] as const,
+  list: (viewerKey: string) => [...savedPropertyKeys.all, 'list', viewerKey] as const,
 };
 
 const PAGE_SIZE = 20;
 
-export function transformSavedProperty(property: SavedPropertyApiResponse): FeedProperty {
-  const createdDate = new Date(property.createdAt);
-  const now = new Date();
-  const daysSinceCreation = Math.floor(
-    (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  let activityLevel: 'hot' | 'warm' | 'cold' = 'cold';
-  if (daysSinceCreation < 7) {
-    activityLevel = 'hot';
-  } else if (daysSinceCreation < 30) {
-    activityLevel = 'warm';
-  }
-  if (property.hasListing && activityLevel === 'cold') {
-    activityLevel = 'warm';
-  }
+export function transformSavedProperty(property: SavedProperty): FeedProperty {
+  const commentCount = resolvePropertyCommentCount(property);
 
   return withDerivedPropertyImageData({
     id: property.id,
@@ -83,13 +49,30 @@ export function transformSavedProperty(property: SavedPropertyApiResponse): Feed
     fmv: null,
     fmvValue: undefined,
     thumbnailUrl: property.thumbnailUrl,
-    likeCount: 0,
-    activityLevel,
-    lastActivityAt: property.savedAt,
+    likeCount: property.propertyLikeCount ?? 0,
+    activityLevel: resolvePropertyActivityLevel(property),
+    lastActivityAt: property.lastSocialAt ?? property.savedAt,
     hasListing: property.hasListing,
-    commentCount: property.commentCount,
+    hasActiveListing: property.hasActiveListing ?? false,
+    marketState: property.marketState ?? null,
+    socialScore: property.socialScore ?? 0,
+    recentSocialScore: property.recentSocialScore ?? 0,
+    topLevelCommentCount: property.topLevelCommentCount ?? 0,
+    replyCount: property.replyCount ?? 0,
+    propertyLikeCount: property.propertyLikeCount ?? 0,
+    commentLikeCount: property.commentLikeCount ?? 0,
+    commentCount,
     guessCount: property.guessCount,
-    viewCount: 0,
+    viewCount: property.viewCount ?? 0,
+    uniqueViewerCount: property.uniqueViewerCount ?? 0,
+    recentTopLevelCommentCount: property.recentTopLevelCommentCount ?? 0,
+    recentReplyCount: property.recentReplyCount ?? 0,
+    recentPropertyLikeCount: property.recentPropertyLikeCount ?? 0,
+    recentCommentLikeCount: property.recentCommentLikeCount ?? 0,
+    recentGuessCount: property.recentGuessCount ?? 0,
+    recentViewCount: property.recentViewCount ?? 0,
+    recentUniqueViewerCount: property.recentUniqueViewerCount ?? 0,
+    isSaved: property.isSaved ?? true,
     yearBuilt: property.yearBuilt,
     floorAreaM2: property.floorAreaM2,
   });
@@ -125,18 +108,26 @@ async function fetchSavedProperties(
 }
 
 export function useSavedProperties() {
-  const { user, accessToken } = useAuthContext();
+  const { user, getAccessToken, isAuthenticated } = useAuthContext();
   const queryClient = useQueryClient();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   const query = useInfiniteQuery({
-    queryKey: savedPropertyKeys.list(),
-    queryFn: ({ pageParam = 0 }) => fetchSavedProperties(accessToken!, pageParam, PAGE_SIZE),
+    queryKey: savedPropertyKeys.list(viewerKey),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchSavedProperties(accessToken, pageParam, PAGE_SIZE);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: !!user && !!accessToken,
+    enabled: isAuthenticated && !!user,
     staleTime: 10 * 1000, // 10 seconds — saves change frequently
   });
 

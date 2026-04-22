@@ -66,7 +66,7 @@ describe('PropertyFeedCard', () => {
 
   it('renders image when a listing thumbnail is provided', () => {
     const { getByTestId } = render(
-      <PropertyFeedCard {...defaultProps} thumbnailUrl="https://example.com/image.jpg" />
+      <PropertyFeedCard {...defaultProps} thumbnailUrl="https://cdn.huishype.nl/image.jpg" />
     );
 
     expect(getByTestId('property-image')).toBeTruthy();
@@ -77,7 +77,7 @@ describe('PropertyFeedCard', () => {
       <PropertyFeedCard
         {...defaultProps}
         countryCode="NL"
-        aerialImageUrl="https://example.com/aerial.jpg"
+        aerialImageUrl="https://images.huishype.nl/aerial.jpg"
       />
     );
 

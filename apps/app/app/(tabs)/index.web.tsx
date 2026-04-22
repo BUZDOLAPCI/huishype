@@ -3,13 +3,14 @@ import { Alert, Text, View, type ViewStyle } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
-
 import {
   AuthModal,
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
+import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
+import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
 import { WebAmbientCommentBubblesPortal } from '@/src/components/WebAmbientCommentBubblesPortal';
 import { WebPreviewMarkerPortal } from '@/src/components/WebPreviewMarkerPortal';
 import { useMapInteraction, type MapCameraCommands } from '@/src/hooks/useMapInteraction';
@@ -20,6 +21,9 @@ import {
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
+import { useReadTileSource } from '@/src/hooks/useReadTileSource';
+import { usePropertyView } from '@/src/hooks/usePropertyView';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
@@ -31,13 +35,28 @@ import { viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
+  getPersistedMapSocialScope,
+  persistMapSocialScope,
   registerLocalPreviewRoute,
   type ResolvedMapRoute,
+  type MapSocialScope,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
-import { replacePropertySourceTiles, PROPERTY_VECTOR_SOURCE_ID } from '@/src/lib/mapPropertySource';
+import {
+  applyReadPropertyFeatureStateStyles,
+  buildFollowingTileRequestMatchPattern,
+  buildReadTileRequestMatchPattern,
+  READ_OVERLAY_LAYER_IDS,
+  READ_PROPERTY_FEATURE_STATE_KEY,
+  getReadPropertyOverlayLayers,
+  injectReadPropertyOverlay,
+  replacePropertySourceTiles,
+  PROPERTY_VECTOR_SOURCE_ID,
+  PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+  READ_PROPERTY_VECTOR_SOURCE_ID,
+} from '@/src/lib/mapPropertySource';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import {
   appendSearchToPath,
@@ -46,6 +65,7 @@ import {
   getCanonicalMapFilterSignature,
   getMapFilterSearchString,
   parseMapFiltersFromSearchParams,
+  type MapActivityTimeFilter,
 } from '@/src/lib/sharedMapFilters';
 import {
   getCurrentBrowserPathname,
@@ -53,14 +73,19 @@ import {
 } from '@/src/lib/webMapUrlSync';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
+import { useAuthContext } from '@/src/providers/AuthProvider';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import {
+  MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
   PROPERTY_GHOST_REVEAL_ZOOM,
   QUERYABLE_PROPERTY_LAYER_IDS,
+  resolveActiveClusterNodeVisual,
+  resolveActiveSingleNodeVisual,
+  withAlpha,
 } from '@huishype/shared/config';
 import {
   buildCanonicalMapPreviewPath,
@@ -75,11 +100,16 @@ const FLOATING_ZOOM_CONTROL_SIZE = 40;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
+const STATIC_ACTIVITY_PULSE_LAYER_IDS = [
+  'property-cluster-pulse',
+  'active-node-pulse',
+] as const;
 const PREVIEW_ARROW_SIZE_PX = 10;
 const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -87,6 +117,99 @@ type WebViewStyle = ViewStyle & {
   filter?: string;
   transition?: string;
 };
+
+function countRenderedGroupedFeatures(features: GeoJSON.Feature[]): number {
+  const dedupedKeys = new Set<string>();
+
+  for (const feature of features) {
+    const group = normalizeRenderedPropertyGroup(feature);
+    if (!group) {
+      continue;
+    }
+
+    dedupedKeys.add(
+      [
+        group.groupKind,
+        group.primaryPropertyId,
+        group.coordinate[0],
+        group.coordinate[1],
+      ].join(':'),
+    );
+  }
+
+  return dedupedKeys.size;
+}
+
+function getRenderedReadFeatureId(feature: GeoJSON.Feature): string | null {
+  const properties = feature.properties ?? {};
+  const primaryPropertyId = properties.primary_property_id;
+  if (typeof primaryPropertyId === 'string' && primaryPropertyId.length > 0) {
+    return primaryPropertyId;
+  }
+
+  const id = properties.id;
+  if (typeof id === 'string' && id.length > 0) {
+    return id;
+  }
+
+  const propertyIds = properties.property_ids;
+  if (typeof propertyIds === 'string') {
+    return propertyIds.split(',').find((value) => value.length > 0) ?? null;
+  }
+
+  return null;
+}
+
+function collectVisibleReadFeatureIds(map: maplibregl.Map): Set<string> {
+  const readLayerIds = READ_OVERLAY_LAYER_IDS.filter((layerId) => map.getLayer(layerId));
+  if (readLayerIds.length === 0) {
+    return new Set();
+  }
+
+  const canvas = map.getCanvas();
+  const features = map.queryRenderedFeatures(
+    [[0, 0], [canvas.width, canvas.height]],
+    { layers: [...readLayerIds] },
+  ) ?? [];
+  const ids = new Set<string>();
+
+  for (const feature of features) {
+    const id = getRenderedReadFeatureId(feature);
+    if (id) {
+      ids.add(id);
+    }
+  }
+
+  return ids;
+}
+
+function setReadFeatureState(map: maplibregl.Map, id: string, read: boolean): void {
+  map.setFeatureState(
+    {
+      source: PROPERTY_VECTOR_SOURCE_ID,
+      sourceLayer: 'properties',
+      id,
+    },
+    { [READ_PROPERTY_FEATURE_STATE_KEY]: read },
+  );
+}
+
+function emitFollowingFeatureClickAnalytics(
+  features: GeoJSON.Feature[],
+  platform: string,
+): void {
+  const group = normalizeRenderedPropertyGroup(features[0]);
+  if (!group) {
+    return;
+  }
+
+  emitMapFollowingAnalyticsEvent('map_property_click_through_from_following_filter', {
+    groupKind: group.groupKind,
+    platform,
+    pointCount: group.pointCount,
+    propertyId: group.primaryPropertyId,
+  });
+}
 
 const MAP_OVERLAY_STYLE: WebViewStyle = {
   position: 'absolute',
@@ -341,6 +464,20 @@ if (typeof document !== 'undefined') {
         opacity: 0.8;
       }
     }
+    @keyframes map-node-activity-pulse {
+      0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--map-node-pulse-ring);
+      }
+      70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 var(--map-node-pulse-spread) var(--map-node-pulse-transparent);
+      }
+      100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--map-node-pulse-transparent);
+      }
+    }
     @keyframes popIn {
       0% {
         transform: scale(0.8) translateY(10px);
@@ -379,6 +516,30 @@ if (typeof document !== 'undefined') {
       background-color: #F5A623;
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+    .map-node-activity-pulse-overlay {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .map-node-activity-pulse-frame {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+    }
+    .map-node-activity-pulse {
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: transparent;
+      box-shadow: 0 0 0 0 var(--map-node-pulse-ring);
+      animation: map-node-activity-pulse 2s infinite;
+      pointer-events: none;
+      will-change: transform, box-shadow;
     }
   `;
 }
@@ -515,6 +676,74 @@ function createSelectedMarkerElement(): HTMLDivElement {
   return container;
 }
 
+type RenderedPropertyGroup = NonNullable<ReturnType<typeof normalizeRenderedPropertyGroup>>;
+
+interface ActivityPulseElement {
+  coordinate: [number, number];
+  frame: HTMLDivElement;
+  pulse: HTMLDivElement;
+}
+
+function resolveActivityPulseVisual(group: RenderedPropertyGroup) {
+  if (
+    group.nodeClass !== 'active' ||
+    group.recentSocialCount <= 0 ||
+    group.recentSocialScoreTotal <= MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD
+  ) {
+    return null;
+  }
+
+  const visual = group.groupKind === 'cluster'
+    ? resolveActiveClusterNodeVisual({
+      pointCount: group.pointCount,
+      listingShare: group.pointCount > 0 ? group.activeListingCount / group.pointCount : 0,
+      socialCount: group.socialCount,
+      recentSocialCount: group.recentSocialCount,
+      recentSocialScoreTotal: group.recentSocialScoreTotal,
+    })
+    : resolveActiveSingleNodeVisual({
+      activityScore: group.activityScore,
+      socialCount: group.socialCount,
+      activeListingCount: group.activeListingCount,
+      recentSocialCount: group.recentSocialCount,
+      recentSocialScoreTotal: group.recentSocialScoreTotal,
+    });
+
+  if (
+    !visual.pulseDiameter ||
+    !visual.pulseColor ||
+    !visual.pulseOpacity ||
+    visual.pulseOpacity <= 0
+  ) {
+    return null;
+  }
+
+  return visual;
+}
+
+function getActivityPulseNodeKey(group: RenderedPropertyGroup): string {
+  return [
+    group.groupKind,
+    group.primaryPropertyId,
+    group.coordinate[0],
+    group.coordinate[1],
+  ].join(':');
+}
+
+function hideStaticActivityPulseLayers(map: maplibregl.Map): void {
+  STATIC_ACTIVITY_PULSE_LAYER_IDS.forEach((layerId) => {
+    if (!map.getLayer(layerId)) {
+      return;
+    }
+
+    try {
+      map.setPaintProperty(layerId, 'circle-opacity', 0);
+    } catch {
+      // Layer timing can race style reloads; the DOM pulse overlay is best-effort.
+    }
+  });
+}
+
 // Property layer IDs for click handling
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
@@ -530,18 +759,67 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           ),
     [],
   );
+  const initialSocialScope = useMemo<MapSocialScope>(
+    () =>
+      typeof window === 'undefined'
+        ? 'all'
+        : getPersistedMapSocialScope(
+            new URLSearchParams(window.location.search),
+          ),
+    [],
+  );
   const filterController = useMapFilterController({
     initialAppliedFilters,
   });
+  const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
+  const [socialScope, setSocialScope] = useState<MapSocialScope>(initialSocialScope);
+  const [followingActivity, setFollowingActivity] =
+    useState<MapActivityTimeFilter>('all-time');
+  const [mapLoaded, setMapLoaded] = useState(false);
   const { replaceAppliedFilters } = filterController;
-  const propertyTileUrl = useMemo(
+  const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
   );
+  const followingTileSource = useFollowingTileSource(
+    filterController.appliedFilters,
+    followingActivity,
+    socialScope === 'following' && mapLoaded,
+  );
+  const readTileSource = useReadTileSource(
+    filterController.appliedFilters,
+    socialScope !== 'following' && mapLoaded,
+  );
+  const activePropertyTiles = useMemo(
+    () => (
+      socialScope === 'following'
+        ? (followingTileSource.data?.tileUrl ? [followingTileSource.data.tileUrl] : [])
+        : [publicPropertyTileUrl]
+    ),
+    [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
+  );
+  const activeReadPropertyTiles = useMemo(
+    (): string[] => {
+      const readTileUrl =
+        readTileSource.data?.cacheBustedTileUrl
+        ?? readTileSource.data?.tileUrl
+        ?? null;
+
+      if (socialScope === 'following' || !readTileUrl) {
+        return [];
+      }
+
+      return [readTileUrl];
+    },
+    [readTileSource.data?.cacheBustedTileUrl, readTileSource.data?.tileUrl, socialScope],
+  );
   // Keep map construction stable; later filter changes should update the
   // vector source tiles in place instead of remounting the whole map.
-  const propertyTileUrlRef = useRef(propertyTileUrl);
-  propertyTileUrlRef.current = propertyTileUrl;
+  const activePropertyTilesRef = useRef(activePropertyTiles);
+  activePropertyTilesRef.current = activePropertyTiles;
+  const activeReadPropertyTilesRef = useRef(activeReadPropertyTiles);
+  activeReadPropertyTilesRef.current = activeReadPropertyTiles;
+  const activeReadFeatureIdsRef = useRef<Set<string>>(new Set());
   const appliedFilterSignature = useMemo(
     () => getCanonicalMapFilterSignature(filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -549,7 +827,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const currentZoomRef = useRef(DEFAULT_ZOOM);
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
@@ -568,6 +845,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     typeof window === 'undefined' ? '' : window.location.search || '',
   );
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followingRenderedFeatureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
+  const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
+  const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
+  const trackedFollowingEmptyViewRef = useRef(false);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -609,6 +891,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const maxVisibleAmbientCommentBubbles = webViewportSize.width < 560 ? 2 : 3;
   const ambientBubblesEnabled =
     mapLoaded &&
+    socialScope !== 'following' &&
     !interaction.previewGroup &&
     interaction.sheetIndex < 0;
   const ambientCommentBubbles = useAmbientCommentBubbles({
@@ -647,6 +930,176 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     interaction.handleComment(anchoredProperty);
   }, [interaction]);
 
+  const handleToggleFollowing = useCallback(() => {
+    setSocialScope((currentScope) => {
+      if (currentScope === 'following') {
+        return 'all';
+      }
+
+      if (!isAuthenticated) {
+        interaction.handleAuthRequired({
+          subtitle: 'Sign in to see homes with activity from people you follow.',
+        });
+        return currentScope;
+      }
+
+      emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+        authenticated: isAuthenticated,
+        platform: 'web',
+      });
+
+      return 'following';
+    });
+  }, [interaction, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated && socialScope === 'following') {
+      setSocialScope('all');
+    }
+  }, [isAuthenticated, socialScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl
+    ) {
+      setFollowingTileAuthToken(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getAccessToken().then((token) => {
+      if (!cancelled) {
+        setFollowingTileAuthToken(token);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    followingTileSource.data?.tileUrl,
+    getAccessToken,
+    isAuthenticated,
+    socialScope,
+  ]);
+
+  const followingTileRequestPattern = useMemo(
+    () => (
+      followingTileSource.data?.tileUrl
+        ? buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl)
+        : null
+    ),
+    [followingTileSource.data?.tileUrl],
+  );
+  const socialScopeRef = useRef(socialScope);
+  socialScopeRef.current = socialScope;
+  const followingTileAuthTokenRef = useRef(followingTileAuthToken);
+  followingTileAuthTokenRef.current = followingTileAuthToken;
+  const followingTileRequestPatternRef = useRef<RegExp | null>(followingTileRequestPattern);
+  followingTileRequestPatternRef.current = followingTileRequestPattern;
+  const readTileRequestPattern = useMemo(
+    () => (
+      readTileSource.data?.tileUrl
+        ? buildReadTileRequestMatchPattern(readTileSource.data.tileUrl)
+        : null
+    ),
+    [readTileSource.data?.tileUrl],
+  );
+  const readTileSourceRef = useRef(readTileSource.data);
+  readTileSourceRef.current = readTileSource.data;
+  const readTileRequestPatternRef = useRef<RegExp | null>(readTileRequestPattern);
+  readTileRequestPatternRef.current = readTileRequestPattern;
+  const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
+  const bottomSheetRefBridge = useRef(bottomSheetRef);
+  bottomSheetRefBridge.current = bottomSheetRef;
+  const handleFeaturePressRef = useRef(handleFeaturePress);
+  handleFeaturePressRef.current = handleFeaturePress;
+  const handleAuthRequiredRef = useRef(handleAuthRequired);
+  handleAuthRequiredRef.current = handleAuthRequired;
+
+  const clearFollowingRenderedFeatureRefresh = useCallback(() => {
+    if (followingRenderedFeatureTimeoutRef.current) {
+      clearTimeout(followingRenderedFeatureTimeoutRef.current);
+      followingRenderedFeatureTimeoutRef.current = null;
+    }
+  }, []);
+
+  const refreshFollowingRenderedFeatureCount = useCallback(() => {
+    const map = mapRef.current;
+    if (
+      !map ||
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl
+    ) {
+      setFollowingRenderedFeatureCount(null);
+      setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    const source = map.getSource(PROPERTY_VECTOR_SOURCE_ID) as
+      | { serialize?: () => { tiles?: string[] } }
+      | undefined;
+    const currentTiles = source?.serialize?.().tiles;
+    const currentTileUrl = Array.isArray(currentTiles) ? currentTiles[0] : null;
+    if (currentTileUrl !== followingTileSource.data.tileUrl) {
+      setFollowingRenderCheckComplete(false);
+      followingRenderedFeatureTimeoutRef.current = setTimeout(() => {
+        followingRenderedFeatureTimeoutRef.current = null;
+        refreshFollowingRenderedFeatureCount();
+      }, FOLLOWING_RENDERED_FEATURE_SETTLE_MS);
+      return;
+    }
+
+    const renderedFeatures = map.queryRenderedFeatures({
+      layers: PROPERTY_LAYER_IDS,
+    }) as unknown as GeoJSON.Feature[];
+
+    setFollowingRenderedFeatureCount(countRenderedGroupedFeatures(renderedFeatures));
+    setFollowingRenderCheckComplete(true);
+  }, [
+    followingTileSource.data?.tileUrl,
+    isAuthenticated,
+    socialScope,
+  ]);
+
+  const scheduleFollowingRenderedFeatureRefresh = useCallback(() => {
+    clearFollowingRenderedFeatureRefresh();
+
+    if (
+      socialScope !== 'following' ||
+      !isAuthenticated ||
+      !followingTileSource.data?.tileUrl
+    ) {
+      setFollowingRenderedFeatureCount(null);
+      setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    setFollowingRenderCheckComplete(false);
+    followingRenderedFeatureTimeoutRef.current = setTimeout(() => {
+      followingRenderedFeatureTimeoutRef.current = null;
+      refreshFollowingRenderedFeatureCount();
+    }, FOLLOWING_RENDERED_FEATURE_SETTLE_MS);
+  }, [
+    clearFollowingRenderedFeatureRefresh,
+    followingTileSource.data?.tileUrl,
+    isAuthenticated,
+    refreshFollowingRenderedFeatureCount,
+    socialScope,
+  ]);
+  const scheduleFollowingRenderedFeatureRefreshRef = useRef(
+    scheduleFollowingRenderedFeatureRefresh,
+  );
+  scheduleFollowingRenderedFeatureRefreshRef.current =
+    scheduleFollowingRenderedFeatureRefresh;
+
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -677,6 +1130,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     return interaction.previewGroup.properties[interaction.currentPreviewIndex] ?? null;
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
+  const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
+  useEffect(() => {
+    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
+      recordPreviewPropertyView(currentPreviewProperty.id);
+    }
+  }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
   const previewRouteInput = useMemo(
     () =>
       extractCanonicalRouteInput(
@@ -703,6 +1162,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     },
     [],
   );
+  replaceMapBrowserPathRef.current = replaceMapBrowserPath;
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -721,7 +1181,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   // Refs for building single-property preview when useProperty data arrives (web deferred pattern)
   const pendingSinglePreview = useRef(false);
   const clickCoordRef = useRef<[number, number] | null>(null);
-  const clickActivityRef = useRef(0);
+  const clickActivityRef = useRef<number | undefined>(undefined);
   const pendingSinglePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelPendingSinglePreviewSelection = useCallback(() => {
@@ -734,7 +1194,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, []);
 
   const scheduleSinglePreviewSelection = useCallback(
-    (propertyId: string, coord: [number, number], activityScore: number, duration: number) => {
+    (
+      propertyId: string,
+      coord: [number, number],
+      activityScore: number | undefined,
+      duration: number,
+    ) => {
       cancelPendingSinglePreviewSelection();
       pendingSinglePreview.current = true;
       clickCoordRef.current = coord;
@@ -959,9 +1424,56 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     webViewportSize.width,
   ]);
 
+  useEffect(() => {
+    scheduleFollowingRenderedFeatureRefresh();
+  }, [
+    activePropertyTiles,
+    appliedFilterSignature,
+    mapLoaded,
+    scheduleFollowingRenderedFeatureRefresh,
+    socialScope,
+  ]);
+
+  useEffect(() => {
+    if (
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingTileSource.isLoading &&
+      !followingTileSource.isError &&
+      followingTileSource.data?.tileUrl
+    ) {
+      return;
+    }
+
+    clearFollowingRenderedFeatureRefresh();
+    setFollowingRenderedFeatureCount(null);
+    setFollowingRenderCheckComplete(false);
+  }, [
+    clearFollowingRenderedFeatureRefresh,
+    followingTileSource.data?.tileUrl,
+    followingTileSource.isError,
+    followingTileSource.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
+
   useEffect(() => () => {
     clearAmbientBubbleRefreshTimeout();
-  }, [clearAmbientBubbleRefreshTimeout]);
+    clearFollowingRenderedFeatureRefresh();
+  }, [clearAmbientBubbleRefreshTimeout, clearFollowingRenderedFeatureRefresh]);
+  const clearAmbientCommentBubblesRef = useRef(clearAmbientCommentBubbles);
+  clearAmbientCommentBubblesRef.current = clearAmbientCommentBubbles;
+  const cancelPendingSinglePreviewSelectionRef = useRef(
+    cancelPendingSinglePreviewSelection,
+  );
+  cancelPendingSinglePreviewSelectionRef.current =
+    cancelPendingSinglePreviewSelection;
+  const syncVisibleZoomRef = useRef(syncVisibleZoom);
+  syncVisibleZoomRef.current = syncVisibleZoom;
+  const cameraCommandsRef = useRef(cameraCommands);
+  cameraCommandsRef.current = cameraCommands;
 
   // Initialize map
   useEffect(() => {
@@ -976,7 +1488,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         const res = await fetch(STYLE_URL);
         style = replacePropertySourceTiles(
           await res.json(),
-          propertyTileUrlRef.current,
+          activePropertyTilesRef.current,
+        );
+        style = applyReadPropertyFeatureStateStyles(
+          style as maplibregl.StyleSpecification,
+        );
+        style = injectReadPropertyOverlay(
+          style as maplibregl.StyleSpecification,
+          activeReadPropertyTilesRef.current,
+          { mode: 'probe' },
         );
       } catch {
         style = STYLE_URL;
@@ -994,6 +1514,40 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         maxPitch: 70,
         touchPitch: false,
         pitchWithRotate: false,
+        transformRequest: (url: string) => {
+          const token = followingTileAuthTokenRef.current;
+          const pattern = followingTileRequestPatternRef.current;
+          const readSource = readTileSourceRef.current;
+          const readPattern = readTileRequestPatternRef.current;
+
+          if (
+            socialScopeRef.current === 'following' &&
+            token &&
+            pattern?.test(url)
+          ) {
+            return {
+              url,
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            };
+          }
+
+          if (
+            socialScopeRef.current !== 'following' &&
+            readSource &&
+            readPattern?.test(url)
+          ) {
+            return {
+              url,
+              headers: {
+                [readSource.headerName]: readSource.headerValue,
+              },
+            };
+          }
+
+          return { url };
+        },
         transformCameraUpdate: ({ zoom }) => ({
           pitch: getPitchForZoom(Number.isFinite(zoom) ? zoom : DEFAULT_ZOOM),
         }),
@@ -1013,6 +1567,119 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       map.addControl(zoomControl, 'top-right');
       map.addControl(compassControl, 'bottom-right');
+
+      const activityPulseOverlay = document.createElement('div');
+      activityPulseOverlay.className = 'map-node-activity-pulse-overlay';
+      activityPulseOverlay.dataset.testid = 'map-node-activity-pulse-overlay';
+      map.getContainer().appendChild(activityPulseOverlay);
+      const activityPulseElements = new Map<string, ActivityPulseElement>();
+      let activityPulseAnimationFrame: number | null = null;
+
+      const syncActivityPulsePositions = () => {
+        activityPulseElements.forEach(({ coordinate, frame }) => {
+          const point = map.project(coordinate);
+          frame.style.left = `${point.x}px`;
+          frame.style.top = `${point.y}px`;
+        });
+      };
+
+      const updateActivityPulseMarkers = () => {
+        if (cancelled || !map.isStyleLoaded()) {
+          return;
+        }
+
+        hideStaticActivityPulseLayers(map);
+
+        const mapContainer = map.getContainer();
+        if (mapContainer.clientWidth <= 0 || mapContainer.clientHeight <= 0) {
+          return;
+        }
+
+        const features = map.queryRenderedFeatures(
+          [[0, 0], [mapContainer.clientWidth, mapContainer.clientHeight]],
+          { layers: PROPERTY_LAYER_IDS },
+        ) as unknown as GeoJSON.Feature[];
+        const seenKeys = new Set<string>();
+
+        for (const feature of features) {
+          const group = normalizeRenderedPropertyGroup(feature);
+          if (!group) {
+            continue;
+          }
+
+          const visual = resolveActivityPulseVisual(group);
+          if (!visual) {
+            continue;
+          }
+
+          const key = getActivityPulseNodeKey(group);
+          if (seenKeys.has(key)) {
+            continue;
+          }
+          seenKeys.add(key);
+
+          let element = activityPulseElements.get(key);
+          if (!element) {
+            const frame = document.createElement('div');
+            frame.className = 'map-node-activity-pulse-frame';
+            frame.setAttribute('aria-hidden', 'true');
+            frame.setAttribute('data-testid', 'map-node-activity-pulse');
+
+            const pulse = document.createElement('div');
+            pulse.className = 'map-node-activity-pulse';
+            frame.appendChild(pulse);
+            activityPulseOverlay.appendChild(frame);
+
+            element = { coordinate: group.coordinate, frame, pulse };
+            activityPulseElements.set(key, element);
+          }
+
+          const pulseDiameter = visual.pulseDiameter ?? visual.diameter;
+          const pulseColor = visual.pulseColor ?? '#E11D48';
+          const pulseOpacity = visual.pulseOpacity ?? 0;
+          const nodeDiameter = visual.diameter;
+          const pulseSpread = Math.max((pulseDiameter - nodeDiameter) / 2, 0);
+          element.coordinate = group.coordinate;
+          element.frame.style.width = `${pulseDiameter}px`;
+          element.frame.style.height = `${pulseDiameter}px`;
+          element.pulse.style.width = `${nodeDiameter}px`;
+          element.pulse.style.height = `${nodeDiameter}px`;
+          element.pulse.style.setProperty(
+            '--map-node-pulse-ring',
+            withAlpha(pulseColor, pulseOpacity),
+          );
+          element.pulse.style.setProperty(
+            '--map-node-pulse-transparent',
+            withAlpha(pulseColor, 0),
+          );
+          element.pulse.style.setProperty(
+            '--map-node-pulse-spread',
+            `${pulseSpread}px`,
+          );
+        }
+
+        activityPulseElements.forEach((element, key) => {
+          if (seenKeys.has(key)) {
+            return;
+          }
+
+          element.frame.remove();
+          activityPulseElements.delete(key);
+        });
+
+        syncActivityPulsePositions();
+      };
+
+      const scheduleActivityPulseUpdate = () => {
+        if (activityPulseAnimationFrame !== null) {
+          return;
+        }
+
+        activityPulseAnimationFrame = window.requestAnimationFrame(() => {
+          activityPulseAnimationFrame = null;
+          updateActivityPulseMarkers();
+        });
+      };
 
       const controlGroups = Array.from(
         map.getContainer().querySelectorAll('.maplibregl-ctrl-group')
@@ -1079,8 +1746,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       // Expose bottom sheet ref for testing
       if (typeof window !== 'undefined') {
-        (window as unknown as { __bottomSheetRef: typeof bottomSheetRef }).__bottomSheetRef =
-          bottomSheetRef;
+        (
+          window as unknown as {
+            __bottomSheetRef: typeof bottomSheetRefBridge.current;
+          }
+        ).__bottomSheetRef = bottomSheetRefBridge.current;
       }
 
       // Expose auth modal trigger for testing
@@ -1088,7 +1758,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         (
           window as unknown as { __triggerAuthModal: (copy?: AuthModalCopyInput) => void }
         ).__triggerAuthModal = (copy?: AuthModalCopyInput) => {
-          handleAuthRequired(copy);
+          handleAuthRequiredRef.current(copy);
         };
       }
 
@@ -1110,7 +1780,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       const markMapLoaded = () => {
         clearTimeout(loadTimeout);
         setMapLoaded(true);
-        syncVisibleZoom(map.getZoom());
+        syncVisibleZoomRef.current(map.getZoom());
+        scheduleFollowingRenderedFeatureRefreshRef.current();
+        scheduleActivityPulseUpdate();
       };
 
       // Timeout fallback: dismiss loading overlay after 15s even if 'load' doesn't fire
@@ -1128,9 +1800,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         // Enhance base map colors (imperative overrides on top of server-provided style)
         enhanceBaseMapColors(map);
         enhanceVegetationColors(map);
+        hideStaticActivityPulseLayers(map);
+        scheduleActivityPulseUpdate();
 
         setTimeout(() => {
           map.resize();
+          scheduleActivityPulseUpdate();
         }, 100);
       });
 
@@ -1142,6 +1817,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           markMapLoaded();
         }
       });
+
+      map.on('render', syncActivityPulsePositions);
 
       map.on('error', (e: maplibregl.ErrorEvent) => {
         console.warn('[MapScreen] MapLibre error:', e.error?.message || e);
@@ -1156,7 +1833,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('zoomend', () => {
         const zoom = map.getZoom();
         currentZoomRef.current = zoom;
-        syncVisibleZoom(zoom);
+        syncVisibleZoomRef.current(zoom);
+        scheduleActivityPulseUpdate();
       });
 
       // Track viewport center for dynamic city name (reverse geocoding)
@@ -1164,6 +1842,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('moveend', () => {
         const center = map.getCenter();
         const zoom = map.getZoom();
+        scheduleActivityPulseUpdate();
+        scheduleFollowingRenderedFeatureRefreshRef.current();
         const previousSettledBubbleZoom = lastSettledAmbientBubbleZoomRef.current;
         lastSettledAmbientBubbleZoomRef.current = zoom;
         const previousCameraPath = lastCameraPathRef.current;
@@ -1182,7 +1862,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           canReplaceLockedAreaPath: canReplaceLockedAreaPathRef.current,
           previewOpen: previewOpenRef.current,
           skipNextPassiveUrlSync: skipNextPassiveUrlSyncRef.current,
-          replaceBrowserPath: replaceMapBrowserPath,
+          replaceBrowserPath: replaceMapBrowserPathRef.current,
         });
         browserPathRef.current = passiveSyncResult.browserPathname;
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
@@ -1194,7 +1874,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           previousSettledBubbleZoom - zoom >= AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA;
 
         if (didConsiderablyZoomOut) {
-          clearAmbientCommentBubbles();
+          clearAmbientCommentBubblesRef.current();
           scheduleAmbientCommentBubbleRefreshRef.current();
           return;
         }
@@ -1250,10 +1930,17 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           propertyClickResetTimer.current = null;
         }, 0);
 
-        await handleFeaturePress(
+        if (socialScopeRef.current === 'following') {
+          emitFollowingFeatureClickAnalytics(
+            e.features as unknown as GeoJSON.Feature[],
+            'web',
+          );
+        }
+
+        await handleFeaturePressRef.current(
           e.features as unknown as GeoJSON.Feature[],
           map.getZoom(),
-          cameraCommands,
+          cameraCommandsRef.current,
         );
       };
 
@@ -1270,7 +1957,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           return;
         }
 
-        cancelPendingSinglePreviewSelection();
+        cancelPendingSinglePreviewSelectionRef.current();
         handleEmptyMapTapRef.current();
       });
 
@@ -1281,6 +1968,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       // Wait for layers to be added
       const layerHandlersAttached = new Set<string>();
       map.on('sourcedata', () => {
+        hideStaticActivityPulseLayers(map);
+        scheduleActivityPulseUpdate();
+
         PROPERTY_LAYER_IDS.forEach((layerId) => {
           if (map.getLayer(layerId)) {
             if (!layerHandlersAttached.has(layerId)) {
@@ -1312,19 +2002,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         clearTimeout(propertyClickResetTimer.current);
         propertyClickResetTimer.current = null;
       }
-      cancelPendingSinglePreviewSelection();
+      cancelPendingSinglePreviewSelectionRef.current();
     };
-  }, [
-    bottomSheetRef,
-    cameraCommands,
-    cancelPendingSinglePreviewSelection,
-    clearAmbientCommentBubbles,
-    handleAuthRequired,
-    handleFeaturePress,
-    replaceMapBrowserPath,
-    scheduleSinglePreviewSelection,
-    syncVisibleZoom,
-  ]);
+  // Build the map once; refs above keep the event-time behavior fresh without
+  // tearing down the MapLibre instance on Following/auth/filter state changes.
+  }, []);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -1342,12 +2024,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   // Search bar callbacks (adapting shared hook to local camera commands)
   const handlePropertyResolved = useCallback(
     (property: PropertyResolveResult, resolvedAddress?: ResolvedAddress) => {
+      if (!property.coordinates) {
+        return;
+      }
+
       // On web, single-property search also uses the deferred pattern
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
 
       cameraCommands.flyTo({ center: coord, zoom: SEARCH_TARGET_ZOOM, duration: 1000 });
-      scheduleSinglePreviewSelection(property.id, coord, 0, 1000);
+      scheduleSinglePreviewSelection(property.id, coord, undefined, 1000);
 
       // Set the search city from the resolved property
       const city = property.city || resolvedAddress?.details.city;
@@ -1395,6 +2081,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           new URLSearchParams(browserSearchRef.current),
         ),
       );
+      setSocialScope(
+        getPersistedMapSocialScope(
+          new URLSearchParams(browserSearchRef.current),
+        ),
+      );
       browserPathRef.current = nextPathname;
       setRoutePathname(nextPathname);
     };
@@ -1406,12 +2097,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [replaceAppliedFilters]);
 
   useEffect(() => {
-    browserSearchRef.current = getMapFilterSearchString(
+    const publicSearch = getMapFilterSearchString(
       filterController.appliedFilters,
       browserSearchRef.current,
     );
+    browserSearchRef.current = publicSearch;
+    persistMapSocialScope(socialScope);
     replaceMapBrowserPath(browserPathRef.current);
-  }, [appliedFilterSignature, filterController.appliedFilters, replaceMapBrowserPath]);
+  }, [
+    appliedFilterSignature,
+    filterController.appliedFilters,
+    replaceMapBrowserPath,
+    socialScope,
+  ]);
 
   useEffect(() => {
     if (!interaction.previewGroup || !previewCanonicalPath || !previewRouteInput) {
@@ -1435,7 +2133,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           lon: interaction.previewGroup.coordinate[0],
           lat: interaction.previewGroup.coordinate[1],
         },
-        hasListing: false,
+        hasListing: previewSource.hasActiveListing ?? undefined,
+        hasActiveListing: previewSource.hasActiveListing ?? undefined,
+        marketState: previewSource.marketState ?? null,
         officialValuation: previewSource.officialValuation ?? null,
         askingPrice: previewSource.askingPrice ?? null,
         thumbnailUrl: previewSource.thumbnailUrl ?? null,
@@ -1556,18 +2256,24 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         return;
       }
 
+      const resolvedCoordinates = resolvedRoute.property.coordinates;
+      if (!resolvedCoordinates) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
       skipNextPassiveUrlSyncRef.current = true;
       if (lastCameraPathRef.current === '/') {
         lastCameraPathRef.current = serializeCanonicalCameraPath({
-          lat: resolvedRoute.property.coordinates.lat,
-          lng: resolvedRoute.property.coordinates.lon,
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
           zoom: SEARCH_TARGET_ZOOM,
         });
       }
       handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
       setSearchCity(resolvedRoute.property.city, [
-        resolvedRoute.property.coordinates.lon,
-        resolvedRoute.property.coordinates.lat,
+        resolvedCoordinates.lon,
+        resolvedCoordinates.lat,
       ]);
       appliedRoutePathRef.current = routeState.pathname;
     }
@@ -1635,13 +2341,150 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    const currentTiles = source.serialize?.().tiles ?? [];
-    if (currentTiles[0] === propertyTileUrl) {
+    const serializedTiles = source.serialize?.().tiles;
+    const currentTiles = Array.isArray(serializedTiles)
+      ? serializedTiles.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (
+      currentTiles.length === activePropertyTiles.length &&
+      currentTiles.every(
+        (value: string, index: number) => value === activePropertyTiles[index],
+      )
+    ) {
       return;
     }
 
-    source.setTiles([propertyTileUrl]);
-  }, [appliedFilterSignature, mapLoaded, propertyTileUrl]);
+    source.setTiles(activePropertyTiles);
+  }, [activePropertyTiles, appliedFilterSignature, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) {
+      return;
+    }
+
+    const source = map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID) as
+      | (maplibregl.Source & {
+          setTiles?: (tiles: string[]) => void;
+          serialize?: () => { tiles?: string[] };
+        })
+      | undefined;
+
+    if (source && activeReadPropertyTiles.length === 0) {
+      for (const layer of getReadPropertyOverlayLayers()) {
+        if (map.getLayer(layer.id)) {
+          map.removeLayer(layer.id);
+        }
+      }
+      map.removeSource(READ_PROPERTY_VECTOR_SOURCE_ID);
+      return;
+    }
+
+    if (!source) {
+      if (activeReadPropertyTiles.length === 0 || !map.addSource || !map.addLayer) {
+        return;
+      }
+
+      map.addSource(READ_PROPERTY_VECTOR_SOURCE_ID, {
+        type: 'vector',
+        tiles: activeReadPropertyTiles,
+        minzoom: 0,
+        maxzoom: 22,
+        promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+      });
+
+      for (const layer of getReadPropertyOverlayLayers({ mode: 'probe' })) {
+        if (!map.getLayer(layer.id)) {
+          map.addLayer(layer as maplibregl.LayerSpecification);
+        }
+      }
+      return;
+    }
+
+    if (!source.setTiles) {
+      return;
+    }
+
+    const serializedTiles = source.serialize?.().tiles;
+    const currentTiles = Array.isArray(serializedTiles)
+      ? serializedTiles.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (
+      currentTiles.length === activeReadPropertyTiles.length &&
+      currentTiles.every(
+        (value: string, index: number) => value === activeReadPropertyTiles[index],
+      )
+    ) {
+      return;
+    }
+
+    source.setTiles(activeReadPropertyTiles);
+  }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) {
+      return;
+    }
+
+    const clearReadFeatureStates = () => {
+      for (const id of activeReadFeatureIdsRef.current) {
+        try {
+          setReadFeatureState(map, id, false);
+        } catch {
+          // Source tiles can disappear while filters or read tiles are changing.
+        }
+      }
+      activeReadFeatureIdsRef.current = new Set();
+    };
+
+    if (activeReadPropertyTiles.length === 0) {
+      clearReadFeatureStates();
+      return;
+    }
+
+    const syncReadFeatureStates = () => {
+      if (!map.isStyleLoaded() || !map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID)) {
+        return;
+      }
+
+      let nextReadIds: Set<string>;
+      try {
+        nextReadIds = collectVisibleReadFeatureIds(map);
+      } catch {
+        return;
+      }
+
+      for (const id of activeReadFeatureIdsRef.current) {
+        if (!nextReadIds.has(id)) {
+          try {
+            setReadFeatureState(map, id, false);
+          } catch {
+            // Ignore stale tile ids while the vector source is refreshing.
+          }
+        }
+      }
+
+      for (const id of nextReadIds) {
+        if (!activeReadFeatureIdsRef.current.has(id)) {
+          try {
+            setReadFeatureState(map, id, true);
+          } catch {
+            // Ignore stale tile ids while the vector source is refreshing.
+          }
+        }
+      }
+
+      activeReadFeatureIdsRef.current = nextReadIds;
+    };
+
+    syncReadFeatureStates();
+    map.on('idle', syncReadFeatureStates);
+
+    return () => {
+      map.off('idle', syncReadFeatureStates);
+    };
+  }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
 
   useEffect(() => {
     if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {
@@ -1695,6 +2538,39 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }
     };
   }, [selectedMarkerCoordinate]);
+
+  useEffect(() => {
+    const shouldTrackEmpty =
+      socialScope === 'following' &&
+      isAuthenticated &&
+      mapLoaded &&
+      !followingTileSource.isError &&
+      !followingTileSource.isLoading &&
+      followingRenderCheckComplete &&
+      followingRenderedFeatureCount === 0;
+
+    if (!shouldTrackEmpty) {
+      trackedFollowingEmptyViewRef.current = false;
+      return;
+    }
+
+    if (trackedFollowingEmptyViewRef.current) {
+      return;
+    }
+
+    trackedFollowingEmptyViewRef.current = true;
+    emitMapFollowingAnalyticsEvent('map_following_filter_empty_viewed', {
+      platform: 'web',
+    });
+  }, [
+    followingRenderCheckComplete,
+    followingRenderedFeatureCount,
+    followingTileSource.isError,
+    followingTileSource.isLoading,
+    isAuthenticated,
+    mapLoaded,
+    socialScope,
+  ]);
 
   return (
     <View className="flex-1 bg-warm-100">
@@ -1752,7 +2628,49 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           transientResetKey={searchResetToken}
         />
 
-        <MapFilterBar controller={filterController} />
+        <MapFilterBar
+          controller={filterController}
+          followingActivity={followingActivity}
+          onFollowingActivityChange={setFollowingActivity}
+          onToggleFollowing={handleToggleFollowing}
+          socialScope={socialScope}
+        />
+
+        {socialScope === 'following' && !isAuthenticated ? (
+          <FollowingMapStateCard
+            mode="signed-out"
+            onPrimaryPress={() =>
+              interaction.handleAuthRequired({
+                subtitle: 'Sign in to see homes with activity from people you follow.',
+              })
+            }
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        followingTileSource.isError ? (
+          <FollowingMapStateCard
+            mode="error"
+            onPrimaryPress={() => {
+              void followingTileSource.refetch();
+            }}
+          />
+        ) : null}
+
+        {socialScope === 'following' &&
+        isAuthenticated &&
+        mapLoaded &&
+        !followingTileSource.isError &&
+        !followingTileSource.isLoading &&
+        followingRenderCheckComplete &&
+        followingRenderedFeatureCount === 0 ? (
+          <FollowingMapStateCard
+            mode="empty"
+            onPrimaryPress={() => setSocialScope('all')}
+          />
+        ) : null}
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (

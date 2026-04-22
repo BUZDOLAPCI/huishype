@@ -24,6 +24,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
+import type { NotificationEventType } from '@huishype/shared';
 import {
   useNotifications,
   useMarkAllRead,
@@ -64,33 +65,45 @@ function formatRelativeTime(isoDate: string): string {
 
 // --- Notification description ---
 
+interface NotificationDescriptionContext {
+  actorName: string;
+  propertyAddress: string;
+  payload: Record<string, unknown>;
+}
+
+const NOTIFICATION_DESCRIPTION_BUILDERS: Record<
+  NotificationEventType,
+  (context: NotificationDescriptionContext) => string
+> = {
+  property_comment: ({ actorName, propertyAddress }) =>
+    `${actorName} commented on ${propertyAddress}`,
+  comment_reply: ({ actorName, propertyAddress }) =>
+    `${actorName} replied to your comment on ${propertyAddress}`,
+  comment_like: ({ actorName, propertyAddress }) =>
+    `${actorName} liked your comment on ${propertyAddress}`,
+  property_like: ({ actorName, propertyAddress }) =>
+    `${actorName} liked ${propertyAddress}`,
+  property_guess: ({ actorName, propertyAddress }) =>
+    `${actorName} made a price guess on ${propertyAddress}`,
+  new_follower: ({ actorName }) => `${actorName} started following you`,
+  achievement_unlocked: ({ payload }) => {
+    const achievementName =
+      typeof payload.achievementName === 'string' ? payload.achievementName : null;
+    return `You unlocked ${achievementName ?? 'a new achievement'}`;
+  },
+};
+
 function getNotificationDescription(item: NotificationItem): string {
   const actorName = item.actor?.displayName ?? 'Someone';
-  const payload = item.payload as Record<string, string>;
-  const propertyAddress = payload?.propertyAddress ?? 'a property';
+  const payload = item.payload as Record<string, unknown>;
+  const propertyAddress =
+    typeof payload.propertyAddress === 'string' ? payload.propertyAddress : 'a property';
 
-  switch (item.eventType) {
-    case 'comment_like':
-      return `${actorName} liked your comment on ${propertyAddress}`;
-    case 'new_comment':
-      return payload?.count
-        ? `${payload.count} new comments on ${propertyAddress}`
-        : `${actorName} commented on ${propertyAddress}`;
-    case 'price_guess':
-      return `${actorName} guessed ${payload?.amount ?? ''} on your saved property`;
-    case 'guess_liked':
-      return payload?.count
-        ? `${actorName} and ${Number(payload.count) - 1} others liked your price guess`
-        : `${actorName} liked your price guess`;
-    case 'reply':
-      return `${actorName} replied to your comment on ${propertyAddress}`;
-    case 'new_listing':
-      return `New listing near your saved search: ${payload?.area ?? propertyAddress}`;
-    case 'guess_result':
-      return `Your price guess was closest! ${propertyAddress}`;
-    default:
-      return `${actorName} interacted with ${propertyAddress}`;
-  }
+  return NOTIFICATION_DESCRIPTION_BUILDERS[item.eventType]({
+    actorName,
+    propertyAddress,
+    payload,
+  });
 }
 
 // --- List item types ---
@@ -158,7 +171,6 @@ export default function NotificationsScreen() {
       if (!notification.readAt) {
         markOneRead.mutate(notification.id);
       }
-      // Navigate to property if available
       if (notification.propertyId) {
         const property = await fetchPropertyById(notification.propertyId);
         if (property) {
@@ -166,6 +178,11 @@ export default function NotificationsScreen() {
             toInternalAppHref(buildPropertyRoute(property, '/notifications')),
           );
         }
+        return;
+      }
+
+      if (notification.actor?.id) {
+        router.push(`/user/${notification.actor.id}`);
       }
     },
     [markOneRead]
@@ -189,7 +206,9 @@ export default function NotificationsScreen() {
 
       const notification = item.data;
       const isUnread = !notification.readAt;
-      const payload = notification.payload as Record<string, string>;
+      const payload = notification.payload as Record<string, unknown>;
+      const thumbnailUrl =
+        typeof payload.thumbnailUrl === 'string' ? payload.thumbnailUrl : null;
 
       return (
         <Pressable
@@ -202,9 +221,9 @@ export default function NotificationsScreen() {
         >
           {/* Thumbnail with event icon overlay */}
           <View style={styles.thumbnailContainer}>
-            {payload?.thumbnailUrl ? (
+            {thumbnailUrl ? (
               <Image
-                source={{ uri: payload.thumbnailUrl }}
+                source={{ uri: thumbnailUrl }}
                 style={styles.thumbnail}
                 resizeMode="cover"
               />

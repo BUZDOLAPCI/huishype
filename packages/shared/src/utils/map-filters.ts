@@ -2,9 +2,13 @@ import { z } from 'zod';
 
 import { formatPropertyPrice } from './formatting.js';
 import type {
+  MapActivityFilter,
+  MapActivityTimeFilter,
   MapFilterCategory,
   MapFilters,
   MapMarketState,
+  PropertyMarketFilters,
+  FollowingPropertyFilters,
   RentEffectivePriceInput,
   SaleEffectivePriceInput,
 } from '../types/property.js';
@@ -12,6 +16,7 @@ import type {
 export const MAP_FILTER_CATEGORIES = [
   'price',
   'marketState',
+  'activity',
 ] as const satisfies readonly MapFilterCategory[];
 
 export const MAP_MARKET_STATES = [
@@ -28,6 +33,7 @@ export const MAP_FILTER_QUERY_KEYS = [
   'rentPriceFrom',
   'rentPriceTo',
   'marketState',
+  'activity',
 ] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
@@ -47,6 +53,20 @@ const MAP_MARKET_STATE_LABELS: Record<MapMarketState, string> = {
   rented: 'Rented',
   'not-listed': 'Not Listed',
 };
+const MAP_ACTIVITY_LABELS: Record<MapActivityFilter, string> = {
+  all: 'Any Activity',
+  today: 'Today',
+  '10d': '10 Days',
+  '30d': '30 Days',
+  'all-time': 'All Time',
+};
+
+export const MAP_ACTIVITY_TIME_FILTERS = [
+  'today',
+  '10d',
+  '30d',
+  'all-time',
+] as const satisfies readonly MapActivityTimeFilter[];
 
 const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
 const RENT_PRICE_MARKET_STATES = ['for-rent', 'rented'] as const;
@@ -72,7 +92,7 @@ function stableUniqueMarketState(values: Iterable<MapMarketState>): MapMarketSta
 
 function normalizePriceRange(
   from: number | null,
-  to: number | null,
+  to: number | null
 ): [number | null, number | null] {
   if (from != null && to != null && from > to) {
     return [to, from];
@@ -83,7 +103,7 @@ function normalizePriceRange(
 
 function getPriceBoundsForMode(
   filters: MapFilters,
-  mode: MapPriceMode,
+  mode: MapPriceMode
 ): [number | null, number | null] {
   return mode === 'sale'
     ? [filters.salePriceFrom, filters.salePriceTo]
@@ -92,17 +112,14 @@ function getPriceBoundsForMode(
 
 function isPriceModeStateIncluded(
   marketState: readonly MapMarketState[],
-  mode: MapPriceMode,
+  mode: MapPriceMode
 ): boolean {
-  const relevantStates =
-    mode === 'sale' ? SALE_PRICE_MARKET_STATES : RENT_PRICE_MARKET_STATES;
+  const relevantStates = mode === 'sale' ? SALE_PRICE_MARKET_STATES : RENT_PRICE_MARKET_STATES;
 
   return relevantStates.some((state) => marketState.includes(state));
 }
 
-function getMapVisiblePriceModes(
-  marketState: readonly MapMarketState[],
-): MapPriceMode[] {
+function getMapVisiblePriceModes(marketState: readonly MapMarketState[]): MapPriceMode[] {
   const hasSale = isPriceModeStateIncluded(marketState, 'sale');
   const hasRent = isPriceModeStateIncluded(marketState, 'rent');
 
@@ -128,6 +145,7 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceFrom: null,
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
+    activity: 'all',
   };
 }
 
@@ -140,13 +158,12 @@ export function isMapFilterQueryKey(value: string): value is MapFilterQueryKey {
 }
 
 export function normalizeMapMarketState(
-  values: Iterable<MapMarketState | string | null | undefined>,
+  values: Iterable<MapMarketState | string | null | undefined>
 ): MapMarketState[] {
   const normalized = stableUniqueMarketState(
     Array.from(values).filter(
-      (value): value is MapMarketState =>
-        typeof value === 'string' && isMapMarketState(value),
-    ),
+      (value): value is MapMarketState => typeof value === 'string' && isMapMarketState(value)
+    )
   );
 
   return normalized.length > 0 ? normalized : [...MAP_MARKET_STATES];
@@ -177,16 +194,14 @@ export function parseDraftNumber(value: string): number | null {
 
 export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
   const defaultFilters = createDefaultMapFilters();
-  const marketState = stableUniqueMarketState(
-    filters.marketState ?? defaultFilters.marketState,
-  );
+  const marketState = stableUniqueMarketState(filters.marketState ?? defaultFilters.marketState);
   const [salePriceFrom, salePriceTo] = normalizePriceRange(
     normalizeNumber(filters.salePriceFrom ?? defaultFilters.salePriceFrom),
-    normalizeNumber(filters.salePriceTo ?? defaultFilters.salePriceTo),
+    normalizeNumber(filters.salePriceTo ?? defaultFilters.salePriceTo)
   );
   const [rentPriceFrom, rentPriceTo] = normalizePriceRange(
     normalizeNumber(filters.rentPriceFrom ?? defaultFilters.rentPriceFrom),
-    normalizeNumber(filters.rentPriceTo ?? defaultFilters.rentPriceTo),
+    normalizeNumber(filters.rentPriceTo ?? defaultFilters.rentPriceTo)
   );
 
   return {
@@ -195,6 +210,34 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
     rentPriceFrom,
     rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...MAP_MARKET_STATES],
+    activity: isMapActivityFilter(filters.activity) ? filters.activity : defaultFilters.activity,
+  };
+}
+
+export function isMapActivityFilter(value: string | null | undefined): value is MapActivityFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '10d' ||
+    value === '30d' ||
+    value === 'all-time'
+  );
+}
+
+export function normalizePropertyMarketFilters(
+  filters: PropertyMarketFilters
+): Required<PropertyMarketFilters> {
+  const normalized = normalizeMapFilters({
+    ...filters,
+    activity: 'all',
+  });
+
+  return {
+    salePriceFrom: normalized.salePriceFrom,
+    salePriceTo: normalized.salePriceTo,
+    rentPriceFrom: normalized.rentPriceFrom,
+    rentPriceTo: normalized.rentPriceTo,
+    marketState: normalized.marketState,
   };
 }
 
@@ -207,16 +250,15 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.salePriceTo === normalizedRight.salePriceTo &&
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
+    normalizedLeft.activity === normalizedRight.activity &&
     normalizedLeft.marketState.length === normalizedRight.marketState.length &&
-    normalizedLeft.marketState.every(
-      (value, index) => value === normalizedRight.marketState[index],
-    )
+    normalizedLeft.marketState.every((value, index) => value === normalizedRight.marketState[index])
   );
 }
 
 export function isMapFilterCategoryActive(
   filters: MapFilters,
-  category: MapFilterCategory,
+  category: MapFilterCategory
 ): boolean {
   const normalized = normalizeMapFilters(filters);
 
@@ -228,28 +270,28 @@ export function isMapFilterCategoryActive(
       });
     case 'marketState':
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
+    case 'activity':
+      return normalized.activity !== 'all';
   }
 }
 
 export function isMapFilterCategoryDefault(
   filters: MapFilters,
-  category: MapFilterCategory,
+  category: MapFilterCategory
 ): boolean {
   return !isMapFilterCategoryActive(filters, category);
 }
 
 export function areMapFiltersDefault(filters: MapFilters): boolean {
-  return MAP_FILTER_CATEGORIES.every((category) =>
-    isMapFilterCategoryDefault(filters, category),
-  );
+  return MAP_FILTER_CATEGORIES.every((category) => isMapFilterCategoryDefault(filters, category));
 }
 
 export function getOrderedMapFilterCategories(filters: MapFilters): MapFilterCategory[] {
   const activeCategories = MAP_FILTER_CATEGORIES.filter((category) =>
-    isMapFilterCategoryActive(filters, category),
+    isMapFilterCategoryActive(filters, category)
   );
   const inactiveCategories = MAP_FILTER_CATEGORIES.filter(
-    (category) => !activeCategories.includes(category),
+    (category) => !activeCategories.includes(category)
   );
   return [...activeCategories, ...inactiveCategories];
 }
@@ -259,9 +301,7 @@ function formatCompactPrice(value: number | null): string | null {
     return null;
   }
 
-  return formatPropertyPrice(value, 'NL', { compact: true })
-    .replace(/\s+/g, ' ')
-    .trim();
+  return formatPropertyPrice(value, 'NL', { compact: true }).replace(/\s+/g, ' ').trim();
 }
 
 function summarizePriceBounds(from: number | null, to: number | null): string | null {
@@ -287,6 +327,9 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
   if (category === 'marketState') {
     return 'Status';
   }
+  if (category === 'activity') {
+    return 'Activity';
+  }
 
   return 'Price';
 }
@@ -297,7 +340,7 @@ export function getMapMarketStateLabel(state: MapMarketState): string {
 
 export function getMapFilterPillSummary(
   category: MapFilterCategory,
-  filters: MapFilters,
+  filters: MapFilters
 ): string | null {
   const normalized = normalizeMapFilters(filters);
 
@@ -322,12 +365,14 @@ export function getMapFilterPillSummary(
       return normalized.marketState.length === MAP_MARKET_STATES.length
         ? null
         : `${normalized.marketState.length} selected`;
+    case 'activity':
+      return normalized.activity === 'all' ? null : MAP_ACTIVITY_LABELS[normalized.activity];
   }
 }
 
 export function resetMapFilterCategory(
   filters: MapFilters,
-  category: MapFilterCategory,
+  category: MapFilterCategory
 ): MapFilters {
   const normalized = normalizeMapFilters(filters);
 
@@ -342,6 +387,8 @@ export function resetMapFilterCategory(
       };
     case 'marketState':
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
+    case 'activity':
+      return { ...normalized, activity: 'all' };
   }
 }
 
@@ -365,10 +412,11 @@ export const mapFiltersQuerySchema = z.object({
           .split(',')
           .map((entry) => entry.trim())
           .filter((entry): entry is MapMarketState =>
-            MAP_MARKET_STATES.includes(entry as MapMarketState),
-          ),
+            MAP_MARKET_STATES.includes(entry as MapMarketState)
+          )
       );
     }),
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
 });
 
 export function hasOnlyMapFilterQueryParams(params: URLSearchParams): boolean {
@@ -381,25 +429,24 @@ export function hasOnlyMapFilterQueryParams(params: URLSearchParams): boolean {
   return true;
 }
 
-export function hasOnlyAllowedMapFilterQueryParams(
-  params: URLSearchParams,
-): boolean {
+export function hasOnlyAllowedMapFilterQueryParams(params: URLSearchParams): boolean {
   return hasOnlyMapFilterQueryParams(params);
 }
 
 export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFilters {
   const filters = createDefaultMapFilters();
   const marketStateValues = params.getAll('marketState');
-  const marketState = marketStateValues.length > 0
-    ? stableUniqueMarketState(
-        marketStateValues
-          .flatMap((value) => value.split(','))
-          .map((value) => value.trim())
-          .filter((value): value is MapMarketState =>
-            MAP_MARKET_STATES.includes(value as MapMarketState),
-          ),
-      )
-    : filters.marketState;
+  const marketState =
+    marketStateValues.length > 0
+      ? stableUniqueMarketState(
+          marketStateValues
+            .flatMap((value) => value.split(','))
+            .map((value) => value.trim())
+            .filter((value): value is MapMarketState =>
+              MAP_MARKET_STATES.includes(value as MapMarketState)
+            )
+        )
+      : filters.marketState;
 
   return normalizeMapFilters({
     salePriceFrom: parseDraftNumber(params.get('salePriceFrom') ?? ''),
@@ -407,18 +454,73 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
     rentPriceFrom: parseDraftNumber(params.get('rentPriceFrom') ?? ''),
     rentPriceTo: parseDraftNumber(params.get('rentPriceTo') ?? ''),
     marketState,
+    activity: isMapActivityFilter(params.get('activity'))
+      ? (params.get('activity') as MapActivityFilter)
+      : 'all',
   });
 }
 
-export function serializeMapFiltersToSearchParams(
-  filters: MapFilters,
-): URLSearchParams {
+export function serializeMapFiltersToSearchParams(filters: MapFilters): URLSearchParams {
   return updateMapFilterSearchParams(new URLSearchParams(), filters);
+}
+
+export function updatePropertyMarketFilterSearchParams(
+  params: URLSearchParams,
+  filters: PropertyMarketFilters
+): URLSearchParams {
+  const next = new URLSearchParams(params.toString());
+  const normalized = normalizePropertyMarketFilters(filters);
+
+  next.delete('salePriceFrom');
+  next.delete('salePriceTo');
+  next.delete('rentPriceFrom');
+  next.delete('rentPriceTo');
+  next.delete('marketState');
+  next.delete('activity');
+
+  if (normalized.salePriceFrom != null) {
+    next.set('salePriceFrom', String(normalized.salePriceFrom));
+  }
+  if (normalized.salePriceTo != null) {
+    next.set('salePriceTo', String(normalized.salePriceTo));
+  }
+  if (normalized.rentPriceFrom != null) {
+    next.set('rentPriceFrom', String(normalized.rentPriceFrom));
+  }
+  if (normalized.rentPriceTo != null) {
+    next.set('rentPriceTo', String(normalized.rentPriceTo));
+  }
+  if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
+    next.set('marketState', normalized.marketState.join(','));
+  }
+
+  return next;
+}
+
+export function updateFollowingPropertyFilterSearchParams(
+  params: URLSearchParams,
+  filters: FollowingPropertyFilters
+): URLSearchParams {
+  const next = updatePropertyMarketFilterSearchParams(params, filters);
+  const activity = isMapActivityFilter(filters.activity) ? filters.activity : 'all-time';
+
+  next.delete('activity');
+  if (activity !== 'all') {
+    next.set('activity', activity);
+  }
+
+  return next;
+}
+
+export function serializePropertyMarketFiltersToSearchParams(
+  filters: PropertyMarketFilters
+): URLSearchParams {
+  return updatePropertyMarketFilterSearchParams(new URLSearchParams(), filters);
 }
 
 export function updateMapFilterSearchParams(
   params: URLSearchParams,
-  filters: MapFilters,
+  filters: MapFilters
 ): URLSearchParams {
   const next = new URLSearchParams(params.toString());
   const normalized = normalizeMapFilters(filters);
@@ -442,27 +544,23 @@ export function updateMapFilterSearchParams(
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     next.set('marketState', normalized.marketState.join(','));
   }
+  if (normalized.activity !== 'all') {
+    next.set('activity', normalized.activity);
+  }
 
   return next;
 }
 
-export function getMapFilterSearchString(
-  filters: MapFilters,
-  currentSearch = '',
-): string {
+export function getMapFilterSearchString(filters: MapFilters, currentSearch = ''): string {
   const params = updateMapFilterSearchParams(
-    new URLSearchParams(
-      currentSearch.startsWith('?') ? currentSearch.slice(1) : currentSearch,
-    ),
-    filters,
+    new URLSearchParams(currentSearch.startsWith('?') ? currentSearch.slice(1) : currentSearch),
+    filters
   );
   const query = params.toString();
   return query ? `?${query}` : '';
 }
 
-export function normalizeMapFilterSearchString(
-  params: URLSearchParams,
-): string | null {
+export function normalizeMapFilterSearchString(params: URLSearchParams): string | null {
   if (!hasOnlyAllowedMapFilterQueryParams(params)) {
     return null;
   }
@@ -470,9 +568,7 @@ export function normalizeMapFilterSearchString(
   return getMapFilterSearchString(parseMapFiltersFromSearchParams(params));
 }
 
-export function normalizeMapFilterQueryParams(
-  params: URLSearchParams,
-): URLSearchParams {
+export function normalizeMapFilterQueryParams(params: URLSearchParams): URLSearchParams {
   return serializeMapFiltersToSearchParams(parseMapFiltersFromSearchParams(params));
 }
 
@@ -486,23 +582,39 @@ export function getCanonicalMapFilterSignature(filters: MapFilters): string {
 }
 
 export function appendSearchToPath(pathname: string, search: string): string {
-  return `${pathname}${
-    search.startsWith('?') || search.length === 0 ? search : `?${search}`
-  }`;
+  return `${pathname}${search.startsWith('?') || search.length === 0 ? search : `?${search}`}`;
 }
 
-export function buildPropertyTileTemplateUrl(
-  apiUrl: string,
-  filters: MapFilters,
-): string {
+export function buildPropertyTileTemplateUrl(apiUrl: string, filters: MapFilters): string {
   return `${apiUrl}/tiles/properties/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
+}
+
+export function getPropertyMarketFilterSearchString(
+  filters: PropertyMarketFilters,
+  currentSearch = ''
+): string {
+  const params = updatePropertyMarketFilterSearchParams(
+    new URLSearchParams(currentSearch.startsWith('?') ? currentSearch.slice(1) : currentSearch),
+    filters
+  );
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+export function buildFollowingPropertyTileTemplateUrl(
+  apiUrl: string,
+  filters: FollowingPropertyFilters
+): string {
+  const params = updateFollowingPropertyFilterSearchParams(new URLSearchParams(), filters);
+  const query = params.toString();
+  return `${apiUrl}/tiles/following/properties/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
 }
 
 export function buildNearbyGroupPath(
   lon: number,
   lat: number,
   zoom: number,
-  filters: MapFilters,
+  filters: MapFilters
 ): string {
   const params = updateMapFilterSearchParams(
     new URLSearchParams({
@@ -510,14 +622,29 @@ export function buildNearbyGroupPath(
       lat: String(lat),
       zoom: String(zoom),
     }),
-    filters,
+    filters
   );
   return `/properties/nearby?${params.toString()}`;
 }
 
-export function getSaleEffectivePrice(
-  input: SaleEffectivePriceInput,
-): number | null {
+export function buildFollowingNearbyGroupPath(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: FollowingPropertyFilters
+): string {
+  const params = updateFollowingPropertyFilterSearchParams(
+    new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+    }),
+    filters
+  );
+  return `/properties/following-nearby?${params.toString()}`;
+}
+
+export function getSaleEffectivePrice(input: SaleEffectivePriceInput): number | null {
   return (
     normalizeNumber(input.activeSaleAskingPrice ?? null) ??
     normalizeNumber(input.lastSoldPrice ?? null) ??
@@ -526,9 +653,7 @@ export function getSaleEffectivePrice(
   );
 }
 
-export function getRentEffectivePrice(
-  input: RentEffectivePriceInput,
-): number | null {
+export function getRentEffectivePrice(input: RentEffectivePriceInput): number | null {
   return (
     normalizeNumber(input.activeRentAskingPrice ?? null) ??
     normalizeNumber(input.lastRentedPrice ?? null)

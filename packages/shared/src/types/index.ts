@@ -11,6 +11,16 @@ export type {
   UserSummary,
   KarmaRank,
   InternalKarmaMetrics,
+  FollowRelationship,
+  KarmaRankSummary,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListUser,
+  FollowListResponse,
+  FollowRelationshipResponse,
+  UserSearchItem,
+  SearchUsersRequest,
+  SearchUsersResponse,
 } from './user.js';
 
 // Property types
@@ -32,8 +42,12 @@ export type {
   PropertyGroupBounds,
   PropertyNodeGroup,
   NearbyPropertyGroup,
+  MapActivityFilter,
+  MapActivityTimeFilter,
   MapFilterCategory,
   MapMarketState,
+  PropertyMarketFilters,
+  FollowingPropertyFilters,
   MapFilters,
   SaleEffectivePriceInput,
   RentEffectivePriceInput,
@@ -110,10 +124,12 @@ export type {
 // Activity types
 export type {
   ActivityEventType,
+  PublicActivityEventType,
   ActivityActor,
   ActivityProperty,
   ActivityItem,
   ActivityResponse,
+  PublicActivityResponse,
 } from './activity.js';
 
 // Leaderboard types
@@ -141,12 +157,22 @@ export type {
   AuthMeResponse,
   // User
   GetUserProfileResponse,
+  GetMyProfileResponse,
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetUserGuessHistoryResponse,
+  GetFollowListRequest,
+  GetFollowersResponse,
+  GetFollowingResponse,
+  FollowUserResponse,
+  UnfollowUserResponse,
   // Property
   PropertyResolveRequest,
+  ResolvedProperty,
   PropertyResolveResponse,
+  LatestListingStatus,
+  PropertyContractBase,
+  PropertyFmvResponse,
   GetPropertyRequest,
   GetPropertyResponse,
   // Listing
@@ -173,6 +199,12 @@ export type {
   GetSavedPropertiesRequest,
   SavedProperty,
   GetSavedPropertiesResponse,
+  PropertyTileJson,
+  FollowingPropertyTileRequest,
+  GetFollowingPropertyTilesRequest,
+  GetFollowingPropertyTilesResponse,
+  GetFollowingNearbyPropertyRequest,
+  GetFollowingNearbyPropertyResponse,
   // Notification
   GetNotificationsResponse,
   GetUnreadCountResponse,
@@ -182,6 +214,8 @@ export type {
   // Leaderboard
   GetLeaderboardResponse,
   // Activity
+  GetActivityRequest,
+  GetUserActivityRequest,
   GetActivityResponse,
   GetUserActivityResponse,
   // Achievement

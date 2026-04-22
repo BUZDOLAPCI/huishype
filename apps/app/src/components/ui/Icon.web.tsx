@@ -54,6 +54,7 @@ import {
   TrendDown,
   Trophy,
   User,
+  UserPlus,
   Users,
   WarningCircle,
   X,
@@ -130,6 +131,7 @@ export type IconName =
   | 'TrendUp'
   | 'Trophy'
   | 'User'
+  | 'UserPlus'
   | 'Users'
   | 'WarningCircle'
   | 'X';
@@ -183,6 +185,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   TrendUp,
   Trophy,
   User,
+  UserPlus,
   Users,
   WarningCircle,
   X,

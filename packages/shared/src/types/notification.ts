@@ -11,6 +11,7 @@ export type NotificationEventType =
   | 'comment_like'
   | 'property_like'
   | 'property_guess'
+  | 'new_follower'
   | 'achievement_unlocked';
 
 export interface NotificationActor {

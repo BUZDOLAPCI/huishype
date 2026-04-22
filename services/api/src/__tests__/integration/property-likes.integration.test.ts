@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
  * Integration tests for property like endpoints and enriched GET /properties/:id.
  *
  * Tests POST/DELETE /properties/:id/like and verifies the enriched
- * property detail endpoint returns likeCount, isLiked, isSaved.
+ * property detail endpoint returns propertyLikeCount, isLiked, isSaved.
  */
 describe('Property like routes', () => {
   let app: FastifyInstance;
@@ -63,7 +63,7 @@ describe('Property like routes', () => {
   });
 
   describe('GET /properties/:id (enriched, before liking)', () => {
-    it('should return likeCount=0, isLiked=false, isSaved=false without auth', async () => {
+    it('should return propertyLikeCount=0, isLiked=false, isSaved=false without auth', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
@@ -72,12 +72,12 @@ describe('Property like routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.id).toBe(propertyId);
-      expect(body.likeCount).toBe(0);
+      expect(body.propertyLikeCount).toBe(0);
       expect(body.isLiked).toBe(false);
       expect(body.isSaved).toBe(false);
     });
 
-    it('should return likeCount=0, isLiked=false, isSaved=false with auth (not yet liked)', async () => {
+    it('should return propertyLikeCount=0, isLiked=false, isSaved=false with auth (not yet liked)', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
@@ -86,7 +86,7 @@ describe('Property like routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.likeCount).toBe(0);
+      expect(body.propertyLikeCount).toBe(0);
       expect(body.isLiked).toBe(false);
       expect(body.isSaved).toBe(false);
     });
@@ -141,7 +141,7 @@ describe('Property like routes', () => {
   });
 
   describe('GET /properties/:id (enriched, after liking)', () => {
-    it('should return isLiked=true and likeCount=1 with auth after liking', async () => {
+    it('should return isLiked=true and propertyLikeCount=1 with auth after liking', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
@@ -150,12 +150,12 @@ describe('Property like routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.likeCount).toBe(1);
+      expect(body.propertyLikeCount).toBe(1);
       expect(body.isLiked).toBe(true);
       expect(body.isSaved).toBe(false);
     });
 
-    it('should return isLiked=false without auth (likeCount still 1)', async () => {
+    it('should return isLiked=false without auth (propertyLikeCount still 1)', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
@@ -163,7 +163,7 @@ describe('Property like routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.likeCount).toBe(1);
+      expect(body.propertyLikeCount).toBe(1);
       expect(body.isLiked).toBe(false);
       expect(body.isSaved).toBe(false);
     });
@@ -205,7 +205,7 @@ describe('Property like routes', () => {
   });
 
   describe('GET /properties/:id (enriched, after unliking)', () => {
-    it('should return likeCount=0 and isLiked=false after unliking', async () => {
+    it('should return propertyLikeCount=0 and isLiked=false after unliking', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/${propertyId}`,
@@ -214,7 +214,7 @@ describe('Property like routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.likeCount).toBe(0);
+      expect(body.propertyLikeCount).toBe(0);
       expect(body.isLiked).toBe(false);
     });
   });

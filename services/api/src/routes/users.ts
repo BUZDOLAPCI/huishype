@@ -12,11 +12,22 @@ import { users, priceGuesses, comments, savedProperties, reactions } from '../db
 import { getKarmaRank } from '../services/karma.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { isValidCountryCode } from '@huishype/shared';
+import {
+  ensureUserExists,
+  followUser,
+  listFollowers,
+  listFollowing,
+  normalizeUserSearchQuery,
+  searchUsers,
+  unfollowUser,
+  getFollowRelationshipPayload,
+} from '../services/user-follows.js';
 
 // --- Constants ---
 const DISPLAY_NAME_COOLDOWN_DAYS = 30;
 const DISPLAY_NAME_MIN_LENGTH = 2;
 const DISPLAY_NAME_MAX_LENGTH = 50;
+const followRelationshipValues = ['self', 'none', 'following', 'followed_by', 'mutual'] as const;
 
 // --- Schema Definitions ---
 
@@ -36,6 +47,9 @@ const publicProfileSchema = z.object({
   guessCount: z.number(),
   commentCount: z.number(),
   joinedAt: z.string().datetime(),
+  followerCount: z.number(),
+  followingCount: z.number(),
+  relationship: z.enum(followRelationshipValues),
 });
 
 const myProfileSchema = publicProfileSchema.extend({
@@ -46,13 +60,71 @@ const myProfileSchema = publicProfileSchema.extend({
   lastNameChangeAt: z.string().datetime().nullable(),
 });
 
+const followActionResponseSchema = z.object({
+  relationship: z.enum(followRelationshipValues),
+  followerCount: z.number(),
+  followingCount: z.number(),
+});
+
+const followListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const followListItemSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  handle: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  followedAt: z.string().datetime(),
+  relationship: z.enum(followRelationshipValues),
+});
+
+const followListResponseSchema = z.object({
+  items: z.array(followListItemSchema),
+  pagination: z.object({
+    limit: z.number(),
+    offset: z.number(),
+    hasMore: z.boolean(),
+  }),
+});
+
+const userSearchQuerySchema = z.object({
+  q: z.string().default(''),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const userSearchItemSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  handle: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  relationship: z.enum(followRelationshipValues),
+  followerCount: z.number(),
+});
+
+const userSearchResponseSchema = z.object({
+  items: z.array(userSearchItemSchema),
+  pagination: z.object({
+    limit: z.number(),
+    offset: z.number(),
+    hasMore: z.boolean(),
+  }),
+});
+
 const updateProfileSchema = z.object({
   displayName: z.string().min(DISPLAY_NAME_MIN_LENGTH).max(DISPLAY_NAME_MAX_LENGTH).optional(),
   profilePhotoUrl: z.string().url().optional(),
-  homeCountry: z.string().length(2).toUpperCase().refine(
-    (val) => isValidCountryCode(val),
-    { message: 'Invalid country code. Must be a supported 2-letter ISO country code.' }
-  ).nullable().optional(),
+  homeCountry: z
+    .string()
+    .length(2)
+    .toUpperCase()
+    .refine((val) => isValidCountryCode(val), {
+      message: 'Invalid country code. Must be a supported 2-letter ISO country code.',
+    })
+    .nullable()
+    .optional(),
 });
 
 const guessHistoryItemSchema = z.object({
@@ -73,11 +145,49 @@ export async function userRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
   /**
+   * GET /users/search - Search public user profiles
+   */
+  app.get(
+    '/users/search',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['Users'],
+        summary: 'Search users',
+        querystring: userSearchQuerySchema,
+        response: {
+          200: userSearchResponseSchema,
+          400: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { q, limit, offset } = request.query;
+      const query = normalizeUserSearchQuery(q);
+
+      if (query.length < 2) {
+        return reply.status(400).send({
+          error: 'QUERY_TOO_SHORT',
+          message: 'Search query must be at least 2 characters.',
+        });
+      }
+
+      return searchUsers({
+        query,
+        viewerId: request.userId ?? null,
+        limit,
+        offset,
+      });
+    }
+  );
+
+  /**
    * GET /users/:id/profile - Public user profile
    */
   app.get(
     '/users/:id/profile',
     {
+      onRequest: [fastify.optionalAuth],
       schema: {
         tags: ['Users'],
         summary: 'Get public user profile',
@@ -92,6 +202,7 @@ export async function userRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
+      const viewerId = request.userId ?? null;
 
       const user = await db.query.users.findFirst({
         where: eq(users.id, id),
@@ -114,6 +225,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         .select({ value: count() })
         .from(comments)
         .where(eq(comments.userId, id));
+      const relationshipPayload = await getFollowRelationshipPayload(id, viewerId);
 
       const rank = getKarmaRank(user.karma);
 
@@ -128,6 +240,9 @@ export async function userRoutes(fastify: FastifyInstance) {
         guessCount: Number(guessCountResult.value),
         commentCount: Number(commentCountResult.value),
         joinedAt: user.createdAt.toISOString(),
+        followerCount: relationshipPayload.followerCount,
+        followingCount: relationshipPayload.followingCount,
+        relationship: relationshipPayload.relationship,
       };
     }
   );
@@ -163,13 +278,21 @@ export async function userRoutes(fastify: FastifyInstance) {
       }
 
       // Count guesses, comments, saved, liked in parallel
-      const [guessCountResult, commentCountResult, savedCountResult, likedCountResult, averageAccuracyResult] =
-        await Promise.all([
-          db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
-          db.select({ value: count() }).from(comments).where(eq(comments.userId, userId)),
-          db.select({ value: count() }).from(savedProperties).where(eq(savedProperties.userId, userId)),
-          db.select({ value: count() }).from(reactions).where(eq(reactions.userId, userId)),
-          db.execute<{ average_accuracy: number | null }>(sql`
+      const [
+        guessCountResult,
+        commentCountResult,
+        savedCountResult,
+        likedCountResult,
+        averageAccuracyResult,
+      ] = await Promise.all([
+        db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
+        db.select({ value: count() }).from(comments).where(eq(comments.userId, userId)),
+        db
+          .select({ value: count() })
+          .from(savedProperties)
+          .where(eq(savedProperties.userId, userId)),
+        db.select({ value: count() }).from(reactions).where(eq(reactions.userId, userId)),
+        db.execute<{ average_accuracy: number | null }>(sql`
             SELECT AVG(
               GREATEST(
                 0,
@@ -191,10 +314,11 @@ export async function userRoutes(fastify: FastifyInstance) {
             WHERE pg.user_id = ${userId}
               AND pg.is_meme_guess = false
           `),
-        ]);
+      ]);
 
       const rank = getKarmaRank(user.karma);
       const averageAccuracy = Array.from(averageAccuracyResult)[0]?.average_accuracy ?? null;
+      const followCounts = await getFollowRelationshipPayload(userId, userId);
 
       return {
         id: user.id,
@@ -213,7 +337,130 @@ export async function userRoutes(fastify: FastifyInstance) {
         likedCount: Number(likedCountResult[0].value),
         lastNameChangeAt: user.lastDisplayNameChangeAt?.toISOString() ?? null,
         joinedAt: user.createdAt.toISOString(),
+        followerCount: followCounts.followerCount,
+        followingCount: followCounts.followingCount,
+        relationship: 'self' as const,
       };
+    }
+  );
+
+  app.get(
+    '/users/me/followers',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'List followers for the current user',
+        querystring: followListQuerySchema,
+        response: {
+          200: followListResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const { limit, offset } = request.query;
+      return listFollowers(request.userId!, limit, offset);
+    }
+  );
+
+  app.get(
+    '/users/me/following',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'List followed users for the current user',
+        querystring: followListQuerySchema,
+        response: {
+          200: followListResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const { limit, offset } = request.query;
+      return listFollowing(request.userId!, limit, offset);
+    }
+  );
+
+  app.put(
+    '/users/:id/follow',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'Follow a user',
+        params: z.object({
+          id: z.string().uuid(),
+        }),
+        response: {
+          200: followActionResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const followerUserId = request.userId!;
+      const { id: followedUserId } = request.params;
+
+      if (followerUserId === followedUserId) {
+        return reply.status(400).send({
+          error: 'SELF_FOLLOW',
+          message: 'You cannot follow yourself.',
+        });
+      }
+
+      if (!(await ensureUserExists(followedUserId))) {
+        return reply.status(404).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      return followUser(followerUserId, followedUserId);
+    }
+  );
+
+  app.delete(
+    '/users/:id/follow',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'Unfollow a user',
+        params: z.object({
+          id: z.string().uuid(),
+        }),
+        response: {
+          200: followActionResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const followerUserId = request.userId!;
+      const { id: followedUserId } = request.params;
+
+      if (followerUserId === followedUserId) {
+        return reply.status(400).send({
+          error: 'SELF_FOLLOW',
+          message: 'You cannot unfollow yourself.',
+        });
+      }
+
+      if (!(await ensureUserExists(followedUserId))) {
+        return reply.status(404).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      return unfollowUser(followerUserId, followedUserId);
     }
   );
 
@@ -287,17 +534,13 @@ export async function userRoutes(fastify: FastifyInstance) {
         updates.homeCountry = homeCountry;
       }
 
-      const [updated] = await db
-        .update(users)
-        .set(updates)
-        .where(eq(users.id, userId))
-        .returning({
-          id: users.id,
-          displayName: users.displayName,
-          profilePhotoUrl: users.profilePhotoUrl,
-          homeCountry: users.homeCountry,
-          lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
-        });
+      const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning({
+        id: users.id,
+        displayName: users.displayName,
+        profilePhotoUrl: users.profilePhotoUrl,
+        homeCountry: users.homeCountry,
+        lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
+      });
 
       return {
         id: updated.id,
@@ -391,7 +634,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (soldPrice !== null) {
           const deviation = Math.abs(guessedPrice - soldPrice) / soldPrice;
           if (deviation <= 0.05) outcome = 'accurate';
-          else if (deviation <= 0.20) outcome = 'close';
+          else if (deviation <= 0.2) outcome = 'close';
           else outcome = 'inaccurate';
         } else {
           outcome = 'pending';
@@ -407,7 +650,7 @@ export async function userRoutes(fastify: FastifyInstance) {
               postalCode: r.postal_code,
               city: r.city,
             },
-            isValidCountryCode(r.country_code) ? r.country_code : undefined,
+            isValidCountryCode(r.country_code) ? r.country_code : undefined
           ),
           guessAmount: guessedPrice,
           guessedAt: new Date(r.guessed_at).toISOString(),

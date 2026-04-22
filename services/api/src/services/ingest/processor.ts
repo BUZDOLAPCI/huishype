@@ -13,6 +13,7 @@ import { decodeOpaqueIngestCursor } from './cursor.js';
 import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
 import { finalizeIngestRunLifecycle } from './store.js';
+import { advancePropertyChangeVersion } from '../property-read-state.js';
 
 interface CanonicalizedListing {
   item: IngestListing;
@@ -37,6 +38,7 @@ interface ListingWriteResult {
   propertyId: string;
   mirrorListingId: string;
   inserted: boolean;
+  changed: boolean;
 }
 
 interface ClaimedBatch {
@@ -426,6 +428,46 @@ async function upsertMatchedListings(
 
   for (let offset = 0; offset < matched.length; offset += chunkSize) {
     const chunk = matched.slice(offset, offset + chunkSize);
+    const existingRows = await tx.execute<{
+      id: string;
+      property_id: string;
+      source_url: string;
+      mirror_listing_id: string;
+      asking_price: number | null;
+      price_type: string | null;
+      living_area_m2: number | null;
+      num_rooms: number | null;
+      energy_label: string | null;
+      thumbnail_url: string | null;
+      og_title: string | null;
+      status: string;
+      mirror_last_changed_at: Date | null;
+    }>(sql`
+      SELECT
+        id,
+        property_id,
+        source_url,
+        mirror_listing_id,
+        asking_price,
+        price_type,
+        living_area_m2,
+        num_rooms,
+        energy_label,
+        thumbnail_url,
+        og_title,
+        status,
+        mirror_last_changed_at
+      FROM listings
+      WHERE source_name = ${sourceName}
+        AND mirror_listing_id IN (${sql.join(
+          chunk.map(({ item }) => sql`${item.mirrorListingId}`),
+          sql`, `,
+        )})
+    `);
+    const existingByMirrorId = new Map(
+      Array.from(existingRows).map((row) => [row.mirror_listing_id, row])
+    );
+
     const valueFragments = chunk.map(({ propertyId, item }) => sql`(
       ${propertyId}::uuid,
       ${normalizeSourceUrl(item.sourceUrl)},
@@ -494,11 +536,36 @@ async function upsertMatchedListings(
     `);
 
     for (const row of rows) {
+      const matchedListing = chunk.find((entry) => entry.item.mirrorListingId === row.mirror_listing_id);
+      const existing = existingByMirrorId.get(row.mirror_listing_id);
+      const normalizedUrl = matchedListing ? normalizeSourceUrl(matchedListing.item.sourceUrl) : row.mirror_listing_id;
+      const mirrorLastChangedAt = matchedListing?.item.mirrorLastChangedAt
+        ? new Date(matchedListing.item.mirrorLastChangedAt).getTime()
+        : null;
+      const existingMirrorLastChangedAt = existing?.mirror_last_changed_at
+        ? new Date(existing.mirror_last_changed_at).getTime()
+        : null;
+      const existingAskingPrice = existing?.asking_price != null ? Number(existing.asking_price) : null;
+      const changed =
+        !existing ||
+        existing.property_id !== row.property_id ||
+        existing.source_url !== normalizedUrl ||
+        existingAskingPrice !== (matchedListing?.item.askingPrice ?? null) ||
+        existing.price_type !== (matchedListing?.item.priceType ?? null) ||
+        existing.living_area_m2 !== (matchedListing?.item.livingAreaM2 ?? null) ||
+        existing.num_rooms !== (matchedListing?.item.numRooms ?? null) ||
+        existing.energy_label !== (matchedListing?.item.energyLabel ?? null) ||
+        existing.thumbnail_url !== (matchedListing?.item.thumbnailUrl ?? null) ||
+        existing.og_title !== (matchedListing?.item.ogTitle ?? null) ||
+        existing.status !== matchedListing?.item.status ||
+        existingMirrorLastChangedAt !== mirrorLastChangedAt;
+
       results.push({
         listingId: row.id,
         propertyId: row.property_id,
         mirrorListingId: row.mirror_listing_id,
         inserted: row.inserted,
+        changed,
       });
     }
   }
@@ -511,7 +578,7 @@ async function insertPriceHistory(
   sourceName: string,
   matched: MatchedListing[],
   listingWrites: ListingWriteResult[],
-): Promise<void> {
+): Promise<string[]> {
   const listingByMirrorId = new Map<string, ListingWriteResult>();
   for (const write of listingWrites) {
     listingByMirrorId.set(write.mirrorListingId, write);
@@ -543,6 +610,7 @@ async function insertPriceHistory(
   }
 
   const chunkSize = 5_000;
+  const insertedPropertyIds = new Set<string>();
   for (let offset = 0; offset < values.length; offset += chunkSize) {
     const chunk = values.slice(offset, offset + chunkSize);
     const valueFragments = chunk.map((entry) => sql`(
@@ -554,7 +622,7 @@ async function insertPriceHistory(
       ${sourceName}
     )`);
 
-    await tx.execute(sql`
+    const insertedRows = await tx.execute<{ property_id: string }>(sql`
       INSERT INTO price_history (
         property_id,
         listing_id,
@@ -565,8 +633,15 @@ async function insertPriceHistory(
       )
       VALUES ${sql.join(valueFragments, sql`, `)}
       ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
+      RETURNING property_id
     `);
+
+    for (const row of insertedRows) {
+      insertedPropertyIds.add(row.property_id);
+    }
   }
+
+  return [...insertedPropertyIds];
 }
 
 async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: string): Promise<void> {
@@ -703,7 +778,21 @@ export async function processIngestBatch(
 
       const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(canonicalized, exactMatches);
       const listingWrites = await upsertMatchedListings(tx, claimed.sourceName, matched);
-      await insertPriceHistory(tx, claimed.sourceName, matched, listingWrites);
+      const priceHistoryChangedPropertyIds = await insertPriceHistory(
+        tx,
+        claimed.sourceName,
+        matched,
+        listingWrites,
+      );
+      await advancePropertyChangeVersion(
+        [
+          ...listingWrites
+            .filter((row) => row.inserted || row.changed)
+            .map((row) => row.propertyId),
+          ...priceHistoryChangedPropertyIds,
+        ],
+        tx,
+      );
 
       const ingestedCount = listingWrites.filter((row) => row.inserted).length;
       const updatedCount = listingWrites.length - ingestedCount;

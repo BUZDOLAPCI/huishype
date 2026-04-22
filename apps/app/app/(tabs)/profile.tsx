@@ -362,6 +362,36 @@ export default function ProfileScreen() {
               <Text style={styles.editLink}>Edit display name</Text>
             </Pressable>
           )}
+
+          <View style={styles.followCountsRow}>
+            <Pressable
+              onPress={() => router.push('/user/followers')}
+              style={[styles.followCountCard, styles.followCountCardAligned]}
+              testID="profile-followers-link"
+            >
+              <Text style={styles.followCountValue}>{profile.followerCount}</Text>
+              <Text style={styles.followCountLabel}>Followers</Text>
+            </Pressable>
+            <View style={styles.followingColumn}>
+              <Button
+                label="Search User"
+                size="sm"
+                variant="secondary"
+                onPress={() => router.push('/user/search')}
+                leading={<Icon name="UserPlus" size="sm" color="#B47712" />}
+                style={styles.searchUserButton}
+                testID="profile-search-user-button"
+              />
+              <Pressable
+                onPress={() => router.push('/user/following')}
+                style={styles.followCountCard}
+                testID="profile-following-link"
+              >
+                <Text style={styles.followCountValue}>{profile.followingCount}</Text>
+                <Text style={styles.followCountLabel}>Following</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
 
         {/* Stats Grid */}
@@ -545,6 +575,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#B47712', // gold-700 — AA contrast on white
+  },
+  followCountsRow: {
+    marginTop: 18,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+  },
+  followCountCard: {
+    flex: 1,
+    backgroundColor: '#FFF8F0',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E8E0D4',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  followCountCardAligned: {
+    marginTop: 44,
+  },
+  followingColumn: {
+    flex: 1,
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  searchUserButton: {
+    alignSelf: 'flex-end',
+    minWidth: 138,
+  },
+  followCountValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2D2926',
+  },
+  followCountLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#9C958A',
   },
 
   // Stats grid

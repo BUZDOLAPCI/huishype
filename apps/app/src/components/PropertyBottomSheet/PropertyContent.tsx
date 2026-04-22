@@ -284,10 +284,10 @@ export function PropertyContent({
 
   const { recordPropertyView } = usePropertyView();
   useEffect(() => {
-    if (resolvedProperty?.id && isVisible) {
+    if (resolvedProperty?.id && isVisible && resolvedProperty.nodeClass !== 'ghost') {
       recordPropertyView(resolvedProperty.id);
     }
-  }, [resolvedProperty?.id, isVisible, recordPropertyView]);
+  }, [resolvedProperty?.id, resolvedProperty?.nodeClass, isVisible, recordPropertyView]);
 
   const shouldManageInteractions =
     manageInteractionsInternally ??

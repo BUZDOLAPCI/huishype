@@ -19,6 +19,166 @@ const SEEDED_GHOST_CLUSTER_FIXTURE = {
   zoom: 17,
 };
 
+async function withHermeticNearbyActiveCluster(
+  run: (fixture: { lon: number; lat: number; propertyIds: string[] }) => Promise<void>,
+) {
+  const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const viewIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const lon = -29.812345;
+  const lat = 0.123456;
+
+  await db.execute(sql`
+    INSERT INTO properties (
+      id,
+      country_code,
+      street,
+      house_number,
+      city,
+      postal_code,
+      status,
+      geometry
+    )
+    VALUES
+      (
+        ${propertyIds[0]},
+        'NL',
+        'Nearby Fixture Street',
+        1,
+        'Fixture City',
+        '1000AA',
+        'active',
+        ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+      ),
+      (
+        ${propertyIds[1]},
+        'NL',
+        'Nearby Fixture Street',
+        2,
+        'Fixture City',
+        '1000AA',
+        'active',
+        ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+      )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO listings (
+      id,
+      property_id,
+      source_name,
+      source_url,
+      status,
+      asking_price,
+      price_type,
+      created_at,
+      updated_at
+    )
+    VALUES
+      (
+        ${listingIds[0]},
+        ${propertyIds[0]},
+        'funda',
+        ${`https://example.com/nearby-fixture-${listingIds[0]}`},
+        'active',
+        350000,
+        'sale',
+        NOW() - INTERVAL '2 days',
+        NOW() - INTERVAL '2 days'
+      ),
+      (
+        ${listingIds[1]},
+        ${propertyIds[1]},
+        'funda',
+        ${`https://example.com/nearby-fixture-${listingIds[1]}`},
+        'active',
+        360000,
+        'sale',
+        NOW() - INTERVAL '1 day',
+        NOW() - INTERVAL '1 day'
+      )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO property_views (id, property_id, user_id, session_id, viewed_at)
+    VALUES
+      (${viewIds[0]}, ${propertyIds[0]}, NULL, ${`nearby-fixture-session-${viewIds[0]}`}, NOW()),
+      (${viewIds[1]}, ${propertyIds[1]}, NULL, ${`nearby-fixture-session-${viewIds[1]}`}, NOW())
+  `);
+
+  try {
+    await run({ lon, lat, propertyIds });
+  } finally {
+    await db.execute(sql`DELETE FROM property_views WHERE id IN (${viewIds[0]}, ${viewIds[1]})`);
+    await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
+    await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+  }
+}
+
+async function withHermeticNearbyListingOnlyProperty(
+  run: (fixture: { lon: number; lat: number; propertyId: string }) => Promise<void>,
+) {
+  const propertyId = crypto.randomUUID();
+  const listingId = crypto.randomUUID();
+  const lon = -29.812345;
+  const lat = 0.123456;
+
+  await db.execute(sql`
+    INSERT INTO properties (
+      id,
+      country_code,
+      street,
+      house_number,
+      city,
+      postal_code,
+      status,
+      geometry
+    )
+    VALUES (
+      ${propertyId},
+      'NL',
+      'Listing Visibility Street',
+      1,
+      'Fixture City',
+      '1000AB',
+      'active',
+      ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO listings (
+      id,
+      property_id,
+      source_name,
+      source_url,
+      status,
+      asking_price,
+      price_type,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${listingId},
+      ${propertyId},
+      'funda',
+      ${`https://example.com/listing-only-${listingId}`},
+      'active',
+      350000,
+      'sale',
+      NOW() - INTERVAL '1 day',
+      NOW() - INTERVAL '1 day'
+    )
+  `);
+
+  try {
+    await run({ lon, lat, propertyId });
+  } finally {
+    await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
+    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+  }
+}
+
 function tileForCoordinate(lon: number, lat: number, zoom: number) {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   return {
@@ -153,18 +313,25 @@ describe('GET /properties/nearby', () => {
       if (body !== null) {
         expect(typeof body.primaryPropertyId).toBe('string');
         expect(typeof body.pointCount).toBe('number');
-        expect(typeof body.hasListing).toBe('boolean');
-        expect(typeof body.activityScore).toBe('number');
-        expect(typeof body.activityScoreTotal).toBe('number');
+        expect(typeof body.activeListingCount).toBe('number');
+        expect(typeof body.socialCount).toBe('number');
+        expect(typeof body.recentSocialCount).toBe('number');
+        expect(typeof body.socialScoreTotal).toBe('number');
+        expect(typeof body.socialScoreMax).toBe('number');
+        expect(typeof body.recentSocialScoreTotal).toBe('number');
         expect(typeof body.distanceMeters).toBe('number');
 
         if (body.groupKind === 'single') {
           expect(typeof body.address).toBe('string');
           expect(typeof body.city).toBe('string');
+          expect(typeof body.hasActiveListing).toBe('boolean');
+          expect(typeof body.marketState).toBe('string');
         } else {
           expect(body.bbox).not.toBeNull();
-          expect(body.address).toBeNull();
-          expect(body.city).toBeNull();
+          expect(body).not.toHaveProperty('address');
+          expect(body).not.toHaveProperty('city');
+          expect(body).not.toHaveProperty('hasActiveListing');
+          expect(body).not.toHaveProperty('marketState');
         }
       }
     });
@@ -244,35 +411,31 @@ describe('GET /properties/nearby', () => {
 
   describe('grouped nearby fallback', () => {
     it('should return a grouped feature in a populated area', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10',
+      await withHermeticNearbyActiveCluster(async ({ lon, lat, propertyIds }) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body).not.toBeNull();
+        expect(body.nodeClass).toBe('active');
+        expect(body.groupKind).toBe('cluster');
+        expect(body.pointCount).toBe(propertyIds.length);
+        expect(body.propertyIds).toEqual(expect.arrayContaining(propertyIds));
+        expect(body.propertyIds).toHaveLength(propertyIds.length);
+        expect(body.previewPropertyIds).toEqual(expect.arrayContaining(propertyIds));
+        expect(body.previewPropertyIds).toHaveLength(propertyIds.length);
+        expect(body.primaryPropertyId).toEqual(expect.any(String));
+        expect(Array.isArray(body.coordinate)).toBe(true);
+        expect(body.coordinate).toHaveLength(2);
+        expect(typeof body.coordinate[0]).toBe('number');
+        expect(typeof body.coordinate[1]).toBe('number');
+        expect(typeof body.distanceMeters).toBe('number');
+        expect(body.bbox).not.toBeNull();
       });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-
-      if (body !== null) {
-        expect(body).toHaveProperty('nodeClass');
-        expect(body).toHaveProperty('groupKind');
-        expect(Array.isArray(body.propertyIds)).toBe(true);
-        expect(Array.isArray(body.previewPropertyIds)).toBe(true);
-        expect(typeof body.primaryPropertyId).toBe('string');
-        if (body.groupKind === 'cluster') {
-          expect(body.pointCount).toBeGreaterThan(1);
-          expect(body.propertyIds.length).toBe(body.pointCount);
-          expect(Array.isArray(body.coordinate)).toBe(true);
-          expect(body.coordinate).toHaveLength(2);
-          expect(typeof body.coordinate[0]).toBe('number');
-          expect(typeof body.coordinate[1]).toBe('number');
-          expect(typeof body.distanceMeters).toBe('number');
-          expect(body.bbox).not.toBeNull();
-        } else {
-          expect(body.groupKind).toBe('single');
-          expect(body.pointCount).toBe(1);
-          expect(body.address).toEqual(expect.any(String));
-        }
-      }
     });
 
     it('should resolve a grouped feature at high zoom without assuming singles', async () => {
@@ -364,11 +527,14 @@ describe('GET /properties/nearby', () => {
       expect(body.propertyIds).toEqual(matchingGroup?.propertyIds);
       expect(body.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
       expect(body.bbox).toEqual(matchingGroup?.bbox);
-      expect(body.hasListing).toBe(false);
-      expect(body.activityScore).toBe(0);
-      expect(body.activityScoreTotal).toBe(0);
-      expect(body.address).toBeNull();
-      expect(body.city).toBeNull();
+      expect(body.activeListingCount).toBe(0);
+      expect(body.socialCount).toBe(0);
+      expect(body.recentSocialCount).toBe(0);
+      expect(body.socialScoreTotal).toBe(0);
+      expect(body.socialScoreMax).toBe(0);
+      expect(body.recentSocialScoreTotal).toBe(0);
+      expect(body).not.toHaveProperty('address');
+      expect(body).not.toHaveProperty('city');
     });
 
     it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {
@@ -444,16 +610,44 @@ describe('GET /properties/nearby', () => {
         expect(body.primaryPropertyId).toBe(propertyId);
         expect(body.address).toEqual(expect.any(String));
         expect(body.city).toBe('Remote City');
-        expect(body.postalCode).toBe('9999 ZZ');
-        expect(body.countryCode).toBe('NL');
-        expect(body.officialValuation).toBe(123456);
-        expect(body.yearBuilt).toBe(1994);
-        expect(body.floorAreaM2).toBe(101);
-        expect(body.hasListing).toBe(false);
+        expect(body.activeListingCount).toBe(0);
+        expect(body.hasActiveListing).toBe(false);
+        expect(body.marketState).toBe('not-listed');
         expect(body.askingPrice).toBeNull();
+        expect(body).not.toHaveProperty('postalCode');
+        expect(body).not.toHaveProperty('countryCode');
+        expect(body).not.toHaveProperty('officialValuation');
+        expect(body).not.toHaveProperty('yearBuilt');
+        expect(body).not.toHaveProperty('floorAreaM2');
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
+    });
+
+    it('keeps listing-backed for-sale properties visible at low zoom without an activity filter', async () => {
+      await withHermeticNearbyListingOnlyProperty(async ({ lon, lat, propertyId }) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM - 1}&marketState=for-sale`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body).not.toBeNull();
+        expect(body.nodeClass).toBe('active');
+        expect(body.groupKind).toBe('single');
+        expect(body.primaryPropertyId).toBe(propertyId);
+        expect(body.propertyIds).toEqual([propertyId]);
+        expect(body.activeListingCount).toBe(1);
+        expect(body.socialCount).toBe(0);
+        expect(body.recentSocialCount).toBe(0);
+        expect(body.socialScoreTotal).toBe(0);
+        expect(body.socialScoreMax).toBe(0);
+        expect(body.hasActiveListing).toBe(true);
+        expect(body.marketState).toBe('for-sale');
+        expect(body.askingPrice).toBe(350000);
+      });
     });
 
     it('applies market filters before resolving nearby grouped features', async () => {
@@ -554,21 +748,23 @@ describe('GET /properties/nearby', () => {
     });
 
     it('should include valid UUIDs in grouped propertyIds', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10',
-      });
+      await withHermeticNearbyActiveCluster(async ({ lon, lat, propertyIds }) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+        });
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
 
-      if (body !== null) {
-        const ids = body.propertyIds;
+        expect(body).not.toBeNull();
+        expect(body.groupKind).toBe('cluster');
+        expect(body.propertyIds).toHaveLength(propertyIds.length);
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        for (const id of ids) {
+        for (const id of body.propertyIds) {
           expect(id).toMatch(uuidRegex);
         }
-      }
+      });
     });
   });
 

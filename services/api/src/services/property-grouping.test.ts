@@ -14,8 +14,10 @@ import {
   buildCanonicalGroupsForTile,
   groupCandidatesForTile,
   lngLatToWorldUnits,
+  serializeGroupForTile,
   shouldFetchGhostCandidates,
   type GroupingCandidate,
+  resetCanonicalGroupCacheForTests,
   resolveNearbyGroupedFeature,
 } from './property-grouping.js';
 import { normalizeMapFilters } from './map-filters.js';
@@ -47,13 +49,17 @@ function makeCandidate(
   overrides: Partial<GroupingCandidate> = {},
 ): GroupingCandidate {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const hasActiveListing = overrides.hasActiveListing ?? true;
+  const socialScore = overrides.socialScore ?? 10;
+  const recentSocialScore = overrides.recentSocialScore ?? socialScore;
+  const commentCount = overrides.commentCount ?? 0;
   return {
     id,
-    hasListing: true,
-    activityScore: 10,
-    likeCount: 0,
-    commentCount: 0,
-    guessCount: 0,
+    hasActiveListing,
+    socialScore,
+    recentSocialScore,
+    commentCount,
+    marketState: overrides.marketState ?? (hasActiveListing ? 'for-sale' : 'not-listed'),
     lon,
     lat,
     worldX,
@@ -75,6 +81,7 @@ function makeCandidateAtWorld(
 
 describe('property-grouping', () => {
   afterEach(() => {
+    resetCanonicalGroupCacheForTests();
     jest.restoreAllMocks();
   });
 
@@ -89,15 +96,15 @@ describe('property-grouping', () => {
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
     const denseA = makeCandidate('00000000-0000-0000-0000-000000000001', baseLon, baseLat, zoom, {
-      activityScore: 80,
-      likeCount: 5,
+      socialScore: 80,
+      commentCount: 5,
     });
     const denseB = makeCandidate(
       '00000000-0000-0000-0000-000000000002',
       baseLon + 0.00002,
       baseLat + 0.00001,
       zoom,
-      { activityScore: 20 },
+      { socialScore: 20 },
     );
 
     const groups = groupCandidatesForTile(tile, [denseA, denseB]);
@@ -125,14 +132,14 @@ describe('property-grouping', () => {
       leftLon,
       leftLat,
       zoom,
-      { activityScore: 90, likeCount: 2 },
+      { socialScore: 90, commentCount: 2 },
     );
     const right = makeCandidate(
       '00000000-0000-0000-0000-000000000032',
       rightLon,
       rightLat,
       zoom,
-      { activityScore: 65, likeCount: 1 },
+      { socialScore: 65, commentCount: 1 },
     );
 
     const groups = groupCandidatesForTile(tile, [left, right]);
@@ -161,42 +168,42 @@ describe('property-grouping', () => {
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 10, likeCount: 4 },
+      { socialScore: 10, commentCount: 4 },
     );
     const leftB = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000032',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 9, likeCount: 3 },
+      { socialScore: 9, commentCount: 3 },
     );
     const leftC = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000033',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 8, likeCount: 2 },
+      { socialScore: 8, commentCount: 2 },
     );
     const leftD = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000034',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { activityScore: 7, likeCount: 1 },
+      { socialScore: 7, commentCount: 1 },
     );
     const seed = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000035',
       rightEdgeX + 33,
       centerY,
       zoom,
-      { activityScore: 100 },
+      { socialScore: 100 },
     );
     const extra = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000036',
       rightEdgeX + 66,
       centerY,
       zoom,
-      { activityScore: 1 },
+      { socialScore: 1 },
     );
 
     const candidates = [leftA, leftB, leftC, leftD, seed, extra];
@@ -240,21 +247,21 @@ describe('property-grouping', () => {
       alphaLon,
       alphaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 3 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 3 },
     );
     const beta = makeCandidate(
       '00000000-0000-0000-0000-000000000052',
       betaLon,
       betaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 2 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 2 },
     );
     const gamma = makeCandidate(
       '00000000-0000-0000-0000-000000000053',
       gammaLon,
       gammaLat,
       zoom,
-      { activityScore: 10, hasListing: true, likeCount: 1 },
+      { socialScore: 10, hasActiveListing: true, commentCount: 1 },
     );
 
     const groups = groupCandidatesForTile(tile, [alpha, beta, gamma]);
@@ -274,7 +281,7 @@ describe('property-grouping', () => {
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
     const active = makeCandidate('00000000-0000-0000-0000-000000000011', baseLon, baseLat, zoom, {
-      activityScore: 95,
+      socialScore: 95,
     });
     const suppressedGhost = makeCandidate(
       '00000000-0000-0000-0000-000000000012',
@@ -282,8 +289,8 @@ describe('property-grouping', () => {
       baseLat + 0.00001,
       zoom,
       {
-        hasListing: false,
-        activityScore: 0,
+        hasActiveListing: false,
+        socialScore: 0,
       },
     );
 
@@ -291,6 +298,130 @@ describe('property-grouping', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].nodeClass).toBe('active');
     expect(groups[0].primaryPropertyId).toBe(active.id);
+  });
+
+  it('keeps listing-backed zero-social candidates active below ghost reveal zoom while hiding true ghosts', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const listed = makeCandidate(
+      '00000000-0000-0000-0000-000000000013',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'for-sale',
+      },
+    );
+    const hiddenGhost = makeCandidate(
+      '00000000-0000-0000-0000-000000000014',
+      baseLon + 0.001,
+      baseLat + 0.001,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [listed, hiddenGhost]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('single');
+    expect(groups[0].primaryPropertyId).toBe(listed.id);
+    expect(groups[0].propertyIds).toEqual([listed.id]);
+    expect(groups[0].activeListingCount).toBe(1);
+    expect(groups[0].socialCount).toBe(0);
+    expect(groups[0].socialScoreTotal).toBe(0);
+  });
+
+  it('keeps a single unique view below active-node semantics', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000015',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(0);
+  });
+
+  it('allows enough unique-view interest to promote a non-listing node', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000016',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.8,
+        recentSocialScore: 0.8,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('single');
+    expect(groups[0].primaryPropertyId).toBe(viewed.id);
+    expect(groups[0].activeListingCount).toBe(0);
+    expect(groups[0].socialCount).toBe(1);
+    expect(groups[0].recentSocialCount).toBe(1);
+    expect(groups[0].socialScoreTotal).toBe(0.8);
+    expect(groups[0].recentSocialScoreTotal).toBe(0.8);
+  });
+
+  it('keeps revealed one-view non-listing nodes in the ghost layer', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const viewed = makeCandidate(
+      '00000000-0000-0000-0000-000000000017',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('ghost');
+    expect(groups[0].primaryPropertyId).toBe(viewed.id);
+    expect(groups[0].socialCount).toBe(0);
+    expect(groups[0].recentSocialCount).toBe(0);
+    expect(groups[0].socialScoreTotal).toBe(0.1);
   });
 
   it('builds ghost clusters from ghost members only once ghosts are revealed', () => {
@@ -307,21 +438,21 @@ describe('property-grouping', () => {
       ghostLonA,
       ghostLatA,
       zoom,
-      { hasListing: false, activityScore: 0 },
+      { hasActiveListing: false, socialScore: 0 },
     );
     const ghostB = makeCandidate(
       '00000000-0000-0000-0000-000000000042',
       ghostLonB,
       ghostLatB,
       zoom,
-      { hasListing: false, activityScore: 0 },
+      { hasActiveListing: false, socialScore: 0 },
     );
     const active = makeCandidate(
       '00000000-0000-0000-0000-000000000043',
       activeLon,
       activeLat,
       zoom,
-      { hasListing: true, activityScore: 18, likeCount: 4 },
+      { hasActiveListing: true, socialScore: 18, commentCount: 4 },
     );
 
     const groups = groupCandidatesForTile(tile, [ghostA, ghostB, active]);
@@ -335,9 +466,10 @@ describe('property-grouping', () => {
     expect(ghostGroup?.pointCount).toBe(2);
     expect(ghostGroup?.propertyIds).toEqual([ghostA.id, ghostB.id]);
     expect(ghostGroup?.previewPropertyIds).toEqual([ghostA.id, ghostB.id]);
-    expect(ghostGroup?.hasListing).toBe(false);
-    expect(ghostGroup?.activityScore).toBe(0);
-    expect(ghostGroup?.activityScoreTotal).toBe(0);
+    expect(ghostGroup?.activeListingCount).toBe(0);
+    expect(ghostGroup?.socialCount).toBe(0);
+    expect(ghostGroup?.recentSocialCount).toBe(0);
+    expect(ghostGroup?.socialScoreTotal).toBe(0);
   });
 
   it('orders preview members by grouping priority and caps them to the preview member limit', () => {
@@ -350,14 +482,14 @@ describe('property-grouping', () => {
       { length: PROPERTY_PREVIEW_MEMBER_LIMIT + 5 },
       (_, index) => ({
         id: `00000000-0000-0000-0000-${String(index + 100).padStart(12, '0')}`,
-        activityScore:
+        socialScore:
           index === 0 ? 80 :
           index === 1 ? 80 :
           index === 2 ? 80 :
           index === 3 ? 65 :
           64 - index,
-        hasListing: index !== 2,
-        likeCount:
+        hasActiveListing: index !== 2,
+        commentCount:
           index === 0 ? 2 :
           index === 1 ? 5 :
           index === 2 ? 99 :
@@ -372,18 +504,18 @@ describe('property-grouping', () => {
         zoom,
       );
       return makeCandidate(spec.id, lon, lat, zoom, {
-        activityScore: spec.activityScore,
-        hasListing: spec.hasListing,
-        likeCount: spec.likeCount,
+        socialScore: spec.socialScore,
+        hasActiveListing: spec.hasActiveListing,
+        commentCount: spec.commentCount,
       });
     });
 
     const expectedOrder = [...candidates]
       .sort(
         (a, b) =>
-          b.activityScore - a.activityScore ||
-          Number(b.hasListing) - Number(a.hasListing) ||
-          b.likeCount - a.likeCount ||
+          b.socialScore - a.socialScore ||
+          Number(b.hasActiveListing) - Number(a.hasActiveListing) ||
+          b.commentCount - a.commentCount ||
           a.id.localeCompare(b.id),
       )
       .map((candidate) => candidate.id);
@@ -413,11 +545,11 @@ describe('property-grouping', () => {
     const [neighborLon, neighborLat] = worldUnitsToLngLat(worldXRight, worldY, zoom);
 
     const left = makeCandidate('00000000-0000-0000-0000-000000000021', ownerLon, ownerLat, zoom, {
-      activityScore: 70,
-      likeCount: 2,
+      socialScore: 70,
+      commentCount: 2,
     });
     const right = makeCandidate('00000000-0000-0000-0000-000000000022', neighborLon, neighborLat, zoom, {
-      activityScore: 10,
+      socialScore: 10,
     });
 
     const ownerGroups = groupCandidatesForTile(ownerTile, [left, right]);
@@ -434,23 +566,29 @@ describe('property-grouping', () => {
     const lat = 51.443432;
     const zoom = 17;
     const propertyId = '00000000-0000-4000-a000-0000000000aa';
-
-    const executeSpy = jest
-      .spyOn(db, 'execute')
+    const txExecuteMock = jest
+      .fn()
+      .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce(
         [
           {
             id: propertyId,
-            has_listing: true,
-            activity_score: 8,
-            like_count: 3,
+            has_active_listing: true,
+            social_score: 8,
+            recent_social_score: 8,
             comment_count: 2,
-            guess_count: 1,
+            market_state: 'for-sale',
             lon,
             lat,
           },
         ] as never,
-      )
+      );
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    const executeSpy = jest
+      .spyOn(db, 'execute')
       .mockResolvedValueOnce(
         [
           {
@@ -461,42 +599,84 @@ describe('property-grouping', () => {
             house_number_addition: 'A',
             city: 'Eindhoven',
             postal_code: '5611 AA',
-            official_valuation: 345000,
-            year_built: 1998,
-            floor_area_m2: 87,
             asking_price: 359000,
             thumbnail_url: 'https://cdn.example.com/mock-thumb.jpg',
           },
         ] as never,
       )
       .mockImplementation(() => {
-        throw new Error('resolveNearbyGroupedFeature should only execute two shared queries');
+        throw new Error('resolveNearbyGroupedFeature should only execute one shared detail query');
       });
 
     const result = await resolveNearbyGroupedFeature(lon, lat, zoom);
 
-    expect(executeSpy).toHaveBeenCalledTimes(2);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(txExecuteMock).toHaveBeenCalledTimes(2);
+    expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(result).not.toBeNull();
     expect(result?.groupKind).toBe('single');
     expect(result?.nodeClass).toBe('active');
     expect(result?.primaryPropertyId).toBe(propertyId);
-    expect(result?.address).toEqual(expect.any(String));
+    expect(result?.address).toBe('Mockstraat 12A, 5611 AA Eindhoven');
     expect(result?.city).toBe('Eindhoven');
-    expect(result?.postalCode).toBe('5611 AA');
-    expect(result?.countryCode).toBe('NL');
-    expect(result?.officialValuation).toBe(345000);
     expect(result?.askingPrice).toBe(359000);
     expect(result?.thumbnailUrl).toBe('https://cdn.example.com/mock-thumb.jpg');
-    expect(result?.yearBuilt).toBe(1998);
-    expect(result?.floorAreaM2).toBe(87);
     expect(result?.distanceMeters).toBe(0);
+  });
+
+  it('serializes grouped singles as thin preview seeds for tile transport', () => {
+    const feature = serializeGroupForTile({
+      nodeClass: 'active',
+      groupKind: 'single',
+      primaryPropertyId: '00000000-0000-4000-a000-0000000000bb',
+      pointCount: 1,
+      propertyIds: ['00000000-0000-4000-a000-0000000000bb'],
+      previewPropertyIds: ['00000000-0000-4000-a000-0000000000bb'],
+      coordinate: [5.47, 51.44],
+      bbox: null,
+      activeListingCount: 1,
+      socialCount: 1,
+      recentSocialCount: 1,
+      socialScoreTotal: 3,
+      socialScoreMax: 3,
+      recentSocialScoreTotal: 1,
+      commentCount: 2,
+      address: 'Mockstraat 12, 5611 AA Eindhoven',
+      city: 'Eindhoven',
+      askingPrice: 359000,
+      thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
+      hasActiveListing: true,
+      marketState: 'for-sale',
+      ownerTile: { z: 17, x: 67478, y: 43551 },
+      anchorWorldX: 0,
+      anchorWorldY: 0,
+    });
+
+    expect(feature).toMatchObject({
+      address: 'Mockstraat 12, 5611 AA Eindhoven',
+      city: 'Eindhoven',
+      askingPrice: 359000,
+      thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
+      hasActiveListing: true,
+      marketState: 'for-sale',
+    });
+    expect(feature).not.toHaveProperty('streetName');
+    expect(feature).not.toHaveProperty('houseNumber');
+    expect(feature).not.toHaveProperty('houseNumberAddition');
+    expect(feature).not.toHaveProperty('postalCode');
+    expect(feature).not.toHaveProperty('countryCode');
+    expect(feature).not.toHaveProperty('officialValuation');
+    expect(feature).not.toHaveProperty('yearBuilt');
+    expect(feature).not.toHaveProperty('floorAreaM2');
   });
 
   it('applies map filters before grouping clustered active sale candidates', async () => {
     const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
     const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
-    const baseLon = 6.75;
-    const baseLat = 53.2;
+    // Keep this fixture outside the seeded European dataset so the cluster only
+    // contains the rows created by this test.
+    const baseLon = -40.25;
+    const baseLat = -32.5;
     const zoom = 20;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
 

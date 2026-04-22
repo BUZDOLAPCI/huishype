@@ -26,11 +26,15 @@ describe('Feed routes', () => {
   const cleanupPropertyIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const runId = Date.now();
-  const coordinateOffset = (runId % 1000) / 100000;
+  const fixtureBaseTime = new Date(runId);
+  fixtureBaseTime.setMilliseconds(0);
+  const coordinateSeed = runId + process.pid * 997;
   const slice = {
-    country: 'NL',
-    lat: 0.2345 + coordinateOffset,
-    lon: 0.1234 + coordinateOffset,
+    // Keep the feed suite out of the heavily used NL integration fixture
+    // space so pagination assertions stay hermetic during the full API gate.
+    country: 'FI',
+    lon: -170 + ((coordinateSeed % 100) * 1.5),
+    lat: -70 + ((Math.floor(coordinateSeed / 100) % 80) * 1.5),
   };
 
   type FeedFixtureKey = 'recent' | 'hot' | 'warm' | 'like' | 'cold' | 'outsideRadius';
@@ -49,7 +53,6 @@ describe('Feed routes', () => {
     likeCount: number;
     viewCount: number;
     fmv: number | null;
-    activityLevel: 'hot' | 'warm' | 'cold';
   };
   const feedFixtures = {} as Record<FeedFixtureKey, FeedFixture>;
   let noListingPropertyId: string;
@@ -63,8 +66,9 @@ describe('Feed routes', () => {
     hours?: number;
     minutes?: number;
   }) {
-    const date = new Date(Date.now() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000));
-    date.setMilliseconds(0);
+    const date = new Date(
+      fixtureBaseTime.getTime() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000)
+    );
     return date;
   }
 
@@ -94,10 +98,12 @@ describe('Feed routes', () => {
     createdAt: Date,
     content: string,
   ) {
+    const commentId = crypto.randomUUID();
     await db.execute(sql`
       INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
-      VALUES (${crypto.randomUUID()}, ${propertyId}, ${userId}, ${content}, ${createdAt.toISOString()}, ${createdAt.toISOString()})
+      VALUES (${commentId}, ${propertyId}, ${userId}, ${content}, ${createdAt.toISOString()}, ${createdAt.toISOString()})
     `);
+    return commentId;
   }
 
   async function insertGuess(
@@ -132,6 +138,13 @@ describe('Feed routes', () => {
     await db.execute(sql`
       INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
       VALUES (${crypto.randomUUID()}, 'property', ${propertyId}, ${userId}, 'like', ${createdAt.toISOString()})
+    `);
+  }
+
+  async function insertCommentLike(commentId: string, userId: string, createdAt: Date) {
+    await db.execute(sql`
+      INSERT INTO reactions (id, target_type, target_id, user_id, reaction_type, created_at)
+      VALUES (${crypto.randomUUID()}, 'comment', ${commentId}, ${userId}, 'like', ${createdAt.toISOString()})
     `);
   }
 
@@ -184,7 +197,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'hot' as const,
@@ -204,7 +216,6 @@ describe('Feed routes', () => {
         likeCount: 1,
         viewCount: 2,
         fmv: 550000,
-        activityLevel: 'hot' as const,
       },
       {
         key: 'warm' as const,
@@ -224,7 +235,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 1,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'like' as const,
@@ -244,7 +254,6 @@ describe('Feed routes', () => {
         likeCount: 1,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
       {
         key: 'cold' as const,
@@ -264,7 +273,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'cold' as const,
       },
       {
         key: 'outsideRadius' as const,
@@ -284,7 +292,6 @@ describe('Feed routes', () => {
         likeCount: 0,
         viewCount: 0,
         fmv: null,
-        activityLevel: 'warm' as const,
       },
     ];
 
@@ -332,7 +339,6 @@ describe('Feed routes', () => {
         likeCount: definition.likeCount,
         viewCount: definition.viewCount,
         fmv: definition.fmv,
-        activityLevel: definition.activityLevel,
       };
     }
 
@@ -463,10 +469,127 @@ describe('Feed routes', () => {
         commentCount: feedFixtures.hot.commentCount,
         guessCount: feedFixtures.hot.guessCount,
         viewCount: feedFixtures.hot.viewCount,
-        activityLevel: feedFixtures.hot.activityLevel,
+        activityLevel: 'hot',
         lastActivityAt: feedFixtures.hot.lastActivityAt,
         hasListing: true,
       });
+    });
+
+    it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
+      const user = await createIntegrationUser(app, { label: `feedguessupdate${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Guess Edit ${runId}`,
+        houseNumber: 31,
+        city: `Feed Edit City ${runId}`,
+        postalCode: '9811AX',
+        lon: slice.lon + 0.015,
+        lat: slice.lat + 0.015,
+        officialValuation: 430000,
+      });
+
+      try {
+        const listingCreatedAt = atOffset({ days: 20 });
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 440000,
+          createdAt: listingCreatedAt,
+          updatedAt: listingCreatedAt,
+        });
+
+        const guessCreatedAt = atOffset({ days: 20, hours: 1 });
+        const guessUpdatedAt = atOffset({ minutes: 3 });
+        await insertGuess(property.id, user.userId, 410000, guessCreatedAt);
+        await db.execute(sql`
+          UPDATE price_guesses
+          SET guessed_price = 445000,
+              updated_at = ${guessUpdatedAt.toISOString()}
+          WHERE property_id = ${property.id}
+            AND user_id = ${user.userId}
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/feed?filter=latest&lat=${slice.lat + 0.015}&lon=${slice.lon + 0.015}&country=${slice.country}&limit=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const item = body.items.find((entry: { id: string }) => entry.id === property.id);
+
+        expect(item).toBeDefined();
+        expect(item).toMatchObject({
+          id: property.id,
+          guessCount: 1,
+          commentCount: 0,
+          likeCount: 0,
+          viewCount: 0,
+          activityLevel: 'warm',
+          lastActivityAt: guessUpdatedAt.toISOString(),
+        });
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
+    });
+
+    it('uses the newest comment-like timestamp for lastActivityAt without changing feed counts', async () => {
+      const author = await createIntegrationUser(app, { label: `feedcommentauthor${runId}` });
+      const liker = await createIntegrationUser(app, { label: `feedcommentliker${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Comment Like ${runId}`,
+        houseNumber: 32,
+        city: `Feed Comment Like City ${runId}`,
+        postalCode: '9811AW',
+        lon: slice.lon + 0.017,
+        lat: slice.lat + 0.017,
+        officialValuation: 450000,
+      });
+
+      try {
+        const listingCreatedAt = atOffset({ days: 15 });
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 455000,
+          createdAt: listingCreatedAt,
+          updatedAt: listingCreatedAt,
+        });
+
+        const commentCreatedAt = atOffset({ days: 1 });
+        const commentId = await insertComment(
+          property.id,
+          author.userId,
+          commentCreatedAt,
+          'Comment that later gets liked',
+        );
+        const commentLikeCreatedAt = atOffset({ minutes: 2 });
+        await insertCommentLike(commentId, liker.userId, commentLikeCreatedAt);
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/feed?filter=latest&lat=${slice.lat + 0.017}&lon=${slice.lon + 0.017}&country=${slice.country}&limit=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const item = body.items.find((entry: { id: string }) => entry.id === property.id);
+
+        expect(item).toBeDefined();
+        expect(item).toMatchObject({
+          id: property.id,
+          commentCount: 1,
+          guessCount: 0,
+          likeCount: 0,
+          viewCount: 0,
+          activityLevel: 'warm',
+          lastActivityAt: commentLikeCreatedAt.toISOString(),
+        });
+      } finally {
+        const userIds = sql.join([sql`${author.userId}`, sql`${liker.userId}`], sql`, `);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id IN (${userIds})`);
+      }
     });
 
     it('applies latest ordering and deterministic pagination without overlap', async () => {
@@ -545,6 +668,43 @@ describe('Feed routes', () => {
       expect(returnedIds).not.toContain(feedFixtures.outsideRadius.propertyId);
       expect(returnedIds).not.toContain(noListingPropertyId);
       expect(body.items.every((item: { hasListing: boolean }) => item.hasListing === true)).toBe(true);
+    });
+
+    it('uses shared listing facts instead of stale mv_latest_active_listings semantics', async () => {
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Ownership ${runId}`,
+        houseNumber: 21,
+        city: `Feed Ownership City ${runId}`,
+        postalCode: '9811AY',
+        lon: slice.lon + 0.12,
+        lat: slice.lat + 0.12,
+      });
+      cleanupPropertyIds.push(property.id);
+
+      const listing = await createIntegrationListing({
+        propertyId: property.id,
+        askingPrice: 515000,
+        createdAt: atOffset({ hours: 2 }),
+        updatedAt: atOffset({ hours: 2 }),
+      });
+
+      await refreshLatestActiveListingsView();
+
+      await db.execute(sql`
+        UPDATE listings
+        SET status = 'withdrawn', updated_at = NOW()
+        WHERE id = ${listing.id}
+      `);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/feed?filter=latest&lat=${slice.lat + 0.12}&lon=${slice.lon + 0.12}&country=${slice.country}&limit=10`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items.map((item: { id: string }) => item.id)).not.toContain(property.id);
     });
 
     it('returns 400 for limit > 50', async () => {

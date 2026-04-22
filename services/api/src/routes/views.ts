@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, propertyViews } from '../db/index.js';
 import { sql, eq } from 'drizzle-orm';
+import { markPropertyRead, resolvePropertyReadViewer } from '../services/property-read-state.js';
 
 // Schema definitions
 const propertyParamsSchema = z.object({
@@ -73,6 +74,7 @@ export async function viewRoutes(app: FastifyInstance) {
         params: propertyParamsSchema,
         response: {
           200: viewResponseSchema,
+          400: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
@@ -80,7 +82,18 @@ export async function viewRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id: propertyId } = request.params;
       const userId = request.userId;
-      const sessionId = (request.headers['x-session-id'] as string | undefined) || null;
+      const viewer = resolvePropertyReadViewer(
+        userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+      const sessionId = viewer && 'sessionId' in viewer ? viewer.sessionId : null;
+
+      if (!viewer) {
+        return reply.status(400).send({
+          error: 'BAD_REQUEST',
+          message: 'Authenticated user or x-session-id header is required.',
+        });
+      }
 
       // Verify property exists
       const propertyExists = await db
@@ -129,11 +142,13 @@ export async function viewRoutes(app: FastifyInstance) {
         });
       }
 
+      await markPropertyRead(propertyId, viewer);
+
       // Get current counts
       const counts = await db.execute<{ view_count: number; unique_viewers: number }>(sql`
         SELECT
           COUNT(*)::int AS view_count,
-          COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int AS unique_viewers
+          COUNT(DISTINCT COALESCE(user_id::text, session_id))::int AS unique_viewers
         FROM property_views
         WHERE property_id = ${propertyId}
       `);

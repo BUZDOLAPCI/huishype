@@ -1,48 +1,52 @@
 /**
  * useActivityFeed Hook
- * Fetches the public social activity feed (likes, comments, guesses).
+ * Fetches the public or following social activity feed.
  */
 
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
+import { useAuthContext } from '../providers/AuthProvider';
 import type {
   ActivityItem,
   ActivityActor,
   ActivityProperty,
-  ActivityEventType,
-} from './useUserActivity';
+  PublicActivityEventType,
+  PublicActivityResponse,
+} from '@huishype/shared';
 
 // Re-export shared types for convenience
-export type { ActivityItem, ActivityActor, ActivityProperty, ActivityEventType };
-
-interface ActivityFeedApiResponse {
-  items: ActivityItem[];
-  pagination: {
-    limit: number;
-    offset: number;
-    hasMore: boolean;
-  };
-}
+export type { ActivityItem, ActivityActor, ActivityProperty, PublicActivityEventType };
 
 // --- Query Keys ---
 
 export const activityFeedKeys = {
   all: ['activity-feed'] as const,
-  infinite: () => [...activityFeedKeys.all, 'infinite'] as const,
+  infinite: (scope: 'public' | 'following', viewerKey: string) =>
+    [...activityFeedKeys.all, 'infinite', scope, viewerKey] as const,
 };
 
 // --- API Function ---
 
 async function fetchActivityFeed(
+  scope: 'public' | 'following',
   limit: number,
-  offset: number
-): Promise<ActivityFeedApiResponse> {
+  offset: number,
+  accessToken?: string | null,
+): Promise<PublicActivityResponse> {
   const params = new URLSearchParams({
+    scope,
     limit: String(limit),
     offset: String(offset),
   });
 
-  const resp = await fetch(`${API_URL}/activity?${params.toString()}`);
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const resp = await fetch(`${API_URL}/activity?${params.toString()}`, {
+    headers,
+  });
 
   if (!resp.ok) {
     const err = await resp
@@ -58,17 +62,32 @@ async function fetchActivityFeed(
 
 const PAGE_SIZE = 20;
 
-/** Fetch the public social activity feed with infinite scroll. */
-export function useActivityFeed() {
+/** Fetch the public or following social activity feed with infinite scroll. */
+export function useActivityFeed(
+  scope: 'public' | 'following' = 'public',
+  enabled = true,
+) {
+  const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const viewerKey = scope === 'following' ? (user?.id ?? 'anon') : 'public';
+
   return useInfiniteQuery({
-    queryKey: activityFeedKeys.infinite(),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchActivityFeed(PAGE_SIZE, pageParam),
+    queryKey: activityFeedKeys.infinite(scope, viewerKey),
+    queryFn: async ({ pageParam = 0 }) => {
+      const accessToken =
+        scope === 'following' ? await getAccessToken() : null;
+
+      if (scope === 'following' && !accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchActivityFeed(scope, PAGE_SIZE, pageParam, accessToken);
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
+    enabled: enabled && (scope === 'public' || (isAuthenticated && !!user)),
     staleTime: 30 * 1000,
   });
 }

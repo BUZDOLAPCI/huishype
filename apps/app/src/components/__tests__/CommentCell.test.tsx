@@ -1,11 +1,20 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import { CommentCell, type CommentData } from '../CommentCell';
+
+jest.mock('expo-router', () => ({
+  router: {
+    push: jest.fn(),
+  },
+}));
 
 const mockComment: CommentData = {
   id: 'comment-1',
+  authorId: 'user-1',
   author: 'MarcoV',
   authorDisplayName: 'Marco V.',
+  authorProfilePhotoUrl: null,
   authorKarma: 120,
   content: 'The renovation potential here is incredible.',
   likeCount: 12,
@@ -14,8 +23,10 @@ const mockComment: CommentData = {
   replies: [
     {
       id: 'reply-1',
+      authorId: 'user-2',
       author: 'SophieK',
       authorDisplayName: 'Sophie K.',
+      authorProfilePhotoUrl: null,
       authorKarma: 50,
       content: 'Agreed! The garden is a huge plus.',
       likeCount: 4,
@@ -79,6 +90,18 @@ describe('CommentCell', () => {
     expect(onReply).toHaveBeenCalledWith('comment-1');
   });
 
+  it('navigates to the author profile when avatar is pressed', () => {
+    render(<CommentCell comment={mockComment} />);
+    fireEvent.press(screen.getByTestId('comment-author-avatar-button'));
+    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+  });
+
+  it('navigates to the author profile when name is pressed', () => {
+    render(<CommentCell comment={mockComment} />);
+    fireEvent.press(screen.getByTestId('comment-author-button'));
+    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+  });
+
   it('shows "View 1 reply" toggle when replies exist', () => {
     render(<CommentCell comment={mockComment} />);
     expect(screen.getByTestId('view-replies-button')).toBeTruthy();
@@ -92,7 +115,9 @@ describe('CommentCell', () => {
         ...(mockComment.replies ?? []),
         {
           id: 'reply-2',
+          authorId: 'user-3',
           author: 'JanV',
+          authorProfilePhotoUrl: null,
           authorKarma: 30,
           content: 'Second reply.',
           likeCount: 0,

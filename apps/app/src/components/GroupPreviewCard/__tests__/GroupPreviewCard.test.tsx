@@ -471,7 +471,7 @@ describe('GroupPreviewCard', () => {
           properties={[
             makeProperty({
               countryCode: 'NL',
-              thumbnailUrl: 'https://example.com/photo.jpg',
+              thumbnailUrl: 'https://cdn.huishype.nl/photo.jpg',
             }),
           ]}
           onClose={jest.fn()}

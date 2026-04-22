@@ -1,7 +1,20 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { PropertyHeader } from '../PropertyHeader';
 import type { PropertyDetailsData } from '../types';
+
+jest.mock('react-native', () => {
+  const RN = jest.requireActual('react-native');
+  RN.Linking = {
+    openURL: jest.fn(),
+    canOpenURL: jest.fn().mockResolvedValue(true),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    getInitialURL: jest.fn().mockResolvedValue(null),
+  };
+  return RN;
+});
 
 const baseProperty: PropertyDetailsData = {
   id: 'property-1',
@@ -30,12 +43,16 @@ const baseProperty: PropertyDetailsData = {
 };
 
 describe('PropertyHeader', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('renders listing thumbnails without the aerial marker', () => {
     render(
       <PropertyHeader
         property={{
           ...baseProperty,
-          thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
         }}
       />
     );
@@ -50,7 +67,7 @@ describe('PropertyHeader', () => {
       <PropertyHeader
         property={{
           ...baseProperty,
-          aerialImageUrl: 'https://example.com/aerial.jpg',
+          aerialImageUrl: 'https://images.huishype.nl/aerial.jpg',
         }}
       />
     );
@@ -65,7 +82,7 @@ describe('PropertyHeader', () => {
       <PropertyHeader
         property={{
           ...baseProperty,
-          thumbnailUrl: 'https://example.com/broken-listing.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/broken-listing.jpg',
         }}
       />
     );
@@ -91,5 +108,70 @@ describe('PropertyHeader', () => {
     );
 
     expect(screen.getByTestId('property-header-placeholder')).toBeTruthy();
+  });
+
+  it('opens the property address in Google Maps from the main property card', () => {
+    render(<PropertyHeader property={baseProperty} />);
+
+    fireEvent.press(screen.getByText('Open in Google Maps'));
+
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      'https://www.google.com/maps/search/?api=1&query=Teststraat%2012%2C%205611AA%2C%20Eindhoven%2C%20NL'
+    );
+  });
+
+  it('renders only the street address as the title when address includes postcode and city', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: 'Beeldbuisring 41, 5651 HA Eindhoven',
+          postalCode: '5651 HA',
+          city: 'Eindhoven',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Beeldbuisring 41')).toBeTruthy();
+    expect(screen.queryByText('Beeldbuisring 41, 5651 HA Eindhoven')).toBeNull();
+    expect(screen.getByText('Eindhoven, 5651 HA')).toBeTruthy();
+  });
+
+  it('uses compact Dutch postcodes in Google Maps queries', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: 'Beeldbuisring 45, 5651 HA Eindhoven',
+          postalCode: '5651 HA',
+        }}
+      />
+    );
+
+    fireEvent.press(screen.getByText('Open in Google Maps'));
+
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      'https://www.google.com/maps/search/?api=1&query=Beeldbuisring%2045%2C%205651HA%20Eindhoven%2C%205651HA%2C%20Eindhoven%2C%20NL'
+    );
+  });
+
+  it('falls back to coordinates for Google Maps when address text is missing', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: '',
+          postalCode: null,
+          city: '',
+          countryCode: '',
+        }}
+      />
+    );
+
+    fireEvent.press(screen.getByText('Open in Google Maps'));
+
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      'https://www.google.com/maps/search/?api=1&query=51.44%2C5.47'
+    );
   });
 });

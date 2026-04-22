@@ -51,6 +51,43 @@ async function focusMapOnSeededPropertyArea(page: Page) {
   await page.waitForTimeout(3000);
 }
 
+async function readSettledPreviewText(
+  page: Page,
+  previewCard: import('@playwright/test').Locator,
+  timeout = 5_000,
+  pollMs = 100,
+  settleMs = 300,
+): Promise<string> {
+  const deadline = Date.now() + timeout;
+  let previous = '';
+
+  while (Date.now() < deadline) {
+    const current = ((await previewCard.textContent()) || '').trim();
+
+    if (current.length === 0) {
+      previous = '';
+      await page.waitForTimeout(pollMs);
+      continue;
+    }
+
+    if (current !== previous) {
+      previous = current;
+      await page.waitForTimeout(pollMs);
+      continue;
+    }
+
+    await page.waitForTimeout(settleMs);
+    const confirmed = ((await previewCard.textContent()) || '').trim();
+    if (confirmed === current) {
+      return confirmed;
+    }
+
+    previous = confirmed;
+  }
+
+  throw new Error('Timed out waiting for preview text to settle');
+}
+
 test.describe('Map to Property Flow', () => {
   let consoleErrors: string[] = [];
   let consoleWarnings: string[] = [];
@@ -437,7 +474,7 @@ test.describe('Map to Property Flow', () => {
 
     await expect(previewCard).toBeVisible({ timeout: 10000 });
 
-    const initialText = ((await previewCard.textContent()) || '').trim();
+    const initialText = await readSettledPreviewText(page, previewCard);
     expect(initialText.length).toBeGreaterThan(5);
     const propertyId = firstClick.propertyId;
     if (!propertyId) {
@@ -450,7 +487,7 @@ test.describe('Map to Property Flow', () => {
     const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
     expect(reopenResult.success).toBe(true);
     await expect(previewCard).toBeVisible({ timeout: 10000 });
-    const reopenedText = ((await previewCard.textContent()) || '').trim();
+    const reopenedText = await readSettledPreviewText(page, previewCard);
     expect(reopenedText).toBe(initialText);
   });
 

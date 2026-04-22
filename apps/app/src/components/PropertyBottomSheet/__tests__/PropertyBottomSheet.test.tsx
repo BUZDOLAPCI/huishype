@@ -112,10 +112,17 @@ jest.mock('react-native-reanimated', () => {
 });
 
 // Mock Linking
-jest.mock('react-native/Libraries/Linking/Linking', () => ({
-  openURL: jest.fn(),
-  canOpenURL: jest.fn().mockResolvedValue(true),
-}));
+jest.mock('react-native', () => {
+  const RN = jest.requireActual('react-native');
+  RN.Linking = {
+    openURL: jest.fn(),
+    canOpenURL: jest.fn().mockResolvedValue(true),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    getInitialURL: jest.fn().mockResolvedValue(null),
+  };
+  return RN;
+});
 
 // Mock Share
 jest.mock('react-native/Libraries/Share/Share', () => ({

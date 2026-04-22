@@ -24,6 +24,10 @@ const WEB_BUBBLE_SHADOW: WebViewStyle = {
   boxShadow: `0px ${scaleBubbleSize(14)}px ${scaleBubbleSize(30)}px rgba(33, 27, 22, 0.14), 0px ${scaleBubbleSize(3)}px ${scaleBubbleSize(12)}px rgba(180, 119, 18, 0.08)`,
 };
 
+// Web antialiasing can reveal a seam where the separate arrow triangle meets
+// the card border unless the arrow is pushed slightly under the bubble edge.
+const ARROW_CARD_OVERLAP = Platform.OS === 'web' ? scaleBubbleSize(2) : scaleBubbleSize(1);
+
 export const AMBIENT_COMMENT_BUBBLE_WIDTH = scaleBubbleSize(236);
 export const AMBIENT_COMMENT_BUBBLE_HEIGHT = scaleBubbleSize(64);
 export const AMBIENT_COMMENT_BUBBLE_MARKER_OFFSET_PX = scaleBubbleSize(24);
@@ -282,7 +286,7 @@ const styles = StyleSheet.create({
   },
   arrowUpContainer: {
     position: 'absolute',
-    top: scaleBubbleSize(1),
+    top: ARROW_CARD_OVERLAP,
     width: scaleBubbleSize(22),
     height: scaleBubbleSize(10),
     zIndex: 2,
@@ -315,7 +319,7 @@ const styles = StyleSheet.create({
   },
   arrowDownContainer: {
     position: 'absolute',
-    bottom: scaleBubbleSize(1),
+    bottom: ARROW_CARD_OVERLAP,
     width: scaleBubbleSize(22),
     height: scaleBubbleSize(10),
     zIndex: 2,

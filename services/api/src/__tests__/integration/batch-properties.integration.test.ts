@@ -73,8 +73,9 @@ describe('GET /properties/batch', () => {
     expect(prop).toHaveProperty('geometry');
     expect(prop).toHaveProperty('status');
     expect(prop).toHaveProperty('hasListing');
-    expect(prop).toHaveProperty('likeCount');
-    expect(prop).toHaveProperty('commentCount');
+    expect(prop).toHaveProperty('propertyLikeCount');
+    expect(prop).toHaveProperty('topLevelCommentCount');
+    expect(prop).toHaveProperty('replyCount');
     expect(prop).toHaveProperty('guessCount');
     expect(prop).toHaveProperty('createdAt');
     expect(prop).toHaveProperty('updatedAt');

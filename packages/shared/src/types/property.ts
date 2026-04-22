@@ -26,6 +26,21 @@ export type PropertyNodeClass = 'active' | 'ghost';
  */
 export type PropertyGroupKind = 'single' | 'cluster';
 
+export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
+export type MapActivityTimeFilter = Exclude<MapActivityFilter, 'all'>;
+
+export interface PropertyMarketFilters {
+  salePriceFrom?: number | null;
+  salePriceTo?: number | null;
+  rentPriceFrom?: number | null;
+  rentPriceTo?: number | null;
+  marketState?: MapMarketState[];
+}
+
+export interface FollowingPropertyFilters extends PropertyMarketFilters {
+  activity?: MapActivityFilter;
+}
+
 /**
  * Core property information (multi-country)
  */
@@ -243,49 +258,51 @@ export interface PropertyGroupBounds {
   north: number;
 }
 
-/**
- * Canonical grouped map node model shared across tile features and nearby JSON.
- */
-export interface PropertyNodeGroup {
+interface PropertyNodeGroupBase {
   nodeClass: PropertyNodeClass;
-  groupKind: PropertyGroupKind;
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
-  hasListing: boolean;
-  activityScore: number;
-  activityScoreTotal: number;
-  likeCount: number;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
   commentCount: number;
-  guessCount: number;
-  streetName: string | null;
-  houseNumber: number | null;
-  houseNumberAddition: string | null;
-  address: string | null;
-  city: string | null;
-  postalCode: string | null;
-  countryCode: string | null;
-  officialValuation: number | null;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  yearBuilt: number | null;
-  floorAreaM2: number | null;
 }
+
+/**
+ * Canonical grouped map node model shared across tile features and nearby JSON.
+ */
+export type PropertyNodeGroup =
+  | (PropertyNodeGroupBase & {
+      groupKind: 'single';
+      address: string;
+      city: string;
+      askingPrice: number | null;
+      thumbnailUrl: string | null;
+      hasActiveListing: boolean;
+      marketState: MapMarketState;
+    })
+  | (PropertyNodeGroupBase & {
+      groupKind: 'cluster';
+    });
 
 /**
  * Nearby grouped node response adds the tap distance to the canonical grouped model.
  */
-export interface NearbyPropertyGroup extends PropertyNodeGroup {
+export type NearbyPropertyGroup = PropertyNodeGroup & {
   distanceMeters: number;
-}
+};
 
 /**
  * Canonical filter categories for map state.
  */
-export type MapFilterCategory = 'price' | 'marketState';
+export type MapFilterCategory = 'price' | 'marketState' | 'activity';
 
 /**
  * Exclusive market-state taxonomy for map filtering.
@@ -306,6 +323,7 @@ export interface MapFilters {
   rentPriceFrom: number | null;
   rentPriceTo: number | null;
   marketState: MapMarketState[];
+  activity: MapActivityFilter;
 }
 
 /**

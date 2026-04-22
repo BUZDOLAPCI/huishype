@@ -58,6 +58,15 @@ describe('resolvePropertyImage', () => {
     expect(result).toBe('https://pdok.nl/aerial.jpg');
   });
 
+  it('ignores reserved example image hosts and falls back cleanly', () => {
+    const result = resolvePropertyImage({
+      listingPhotoUrl: 'https://cdn.example.com/fixture.jpg',
+      aerialImageUrl: 'https://pdok.nl/aerial.jpg',
+      countryCode: 'NL',
+    });
+    expect(result).toBe('https://pdok.nl/aerial.jpg');
+  });
+
   it('ignores non-http image URLs', () => {
     const result = resolvePropertyImage({
       listingPhotoUrl: 'file:///tmp/image.jpg',
@@ -115,11 +124,11 @@ describe('property image data helpers', () => {
   it('maps thumbnailUrl to listingPhotoUrl for shared surfaces', () => {
     expect(
       toPropertyImageSource({
-        thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+        thumbnailUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
         countryCode: 'NL',
       })
     ).toEqual({
-      listingPhotoUrl: 'https://cdn.example.com/listing-thumb.jpg',
+      listingPhotoUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
       aerialImageUrl: null,
       countryCode: 'NL',
     });
@@ -127,12 +136,12 @@ describe('property image data helpers', () => {
 
   it('derives aerial imagery without overwriting listing thumbnails', () => {
     const property = withDerivedPropertyImageData({
-      thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+      thumbnailUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
       geometry: { type: 'Point' as const, coordinates: [5.47, 51.44] as [number, number] },
       countryCode: 'NL',
     });
 
-    expect(property.thumbnailUrl).toBe('https://cdn.example.com/listing-thumb.jpg');
+    expect(property.thumbnailUrl).toBe('https://cdn.huishype.nl/listing-thumb.jpg');
     expect(property.aerialImageUrl).toBe(derivePropertyAerialImageUrl(property));
   });
 });

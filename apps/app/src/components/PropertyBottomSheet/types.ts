@@ -1,4 +1,10 @@
-import type { Property, PropertyDetails, PropertyFmvData } from '../../hooks/useProperties';
+import {
+  resolvePropertyActivityLevel,
+  resolvePropertyCommentCount,
+  type Property,
+  type PropertyDetails,
+  type PropertyFmvData,
+} from '../../hooks/useProperties';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
 export type PropertyContentData = Property | PropertyDetails | PropertyDetailsData;
@@ -6,10 +12,27 @@ export type PropertyContentData = Property | PropertyDetails | PropertyDetailsDa
 export interface PropertyDetailsData extends Property {
   askingPrice?: number;
   fmv?: PropertyFmvData;
+  hasActiveListing?: boolean;
+  marketState?: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
+  socialScore?: number;
+  recentSocialScore?: number;
+  lastSocialAt?: string | null;
   activityLevel: 'hot' | 'warm' | 'cold';
   commentCount: number;
+  topLevelCommentCount?: number;
+  replyCount?: number;
   guessCount: number;
   viewCount: number;
+  uniqueViewerCount?: number;
+  propertyLikeCount?: number;
+  commentLikeCount?: number;
+  recentTopLevelCommentCount?: number;
+  recentReplyCount?: number;
+  recentPropertyLikeCount?: number;
+  recentCommentLikeCount?: number;
+  recentGuessCount?: number;
+  recentViewCount?: number;
+  recentUniqueViewerCount?: number;
   likeCount?: number;
   isSaved?: boolean;
   isLiked?: boolean;
@@ -72,15 +95,41 @@ export function toPropertyDetails(
   overrides?: { isLiked?: boolean; isSaved?: boolean }
 ): PropertyDetailsData {
   const details = property as Partial<PropertyDetailsData>;
+  const activityLevel = resolvePropertyActivityLevel(details);
+  const replyCount = details.replyCount ?? 0;
+  const commentCount = resolvePropertyCommentCount(details);
+  const topLevelCommentCount =
+    typeof details.topLevelCommentCount === 'number'
+      ? details.topLevelCommentCount
+      : typeof details.commentCount === 'number'
+        ? Math.max(details.commentCount - replyCount, 0)
+        : 0;
 
   return {
     ...property,
     askingPrice: property.askingPrice ?? undefined,
     fmv: details.fmv,
-    activityLevel: isActivityLevel(details.activityLevel) ? details.activityLevel : 'cold',
-    commentCount: details.commentCount ?? 0,
+    hasActiveListing: details.hasActiveListing ?? false,
+    marketState: details.marketState ?? null,
+    socialScore: details.socialScore ?? 0,
+    recentSocialScore: details.recentSocialScore ?? 0,
+    lastSocialAt: details.lastSocialAt ?? null,
+    activityLevel,
+    commentCount,
+    topLevelCommentCount,
+    replyCount,
     guessCount: details.guessCount ?? 0,
     viewCount: details.viewCount ?? 0,
+    uniqueViewerCount: details.uniqueViewerCount ?? 0,
+    propertyLikeCount: details.propertyLikeCount ?? 0,
+    commentLikeCount: details.commentLikeCount ?? 0,
+    recentTopLevelCommentCount: details.recentTopLevelCommentCount ?? 0,
+    recentReplyCount: details.recentReplyCount ?? 0,
+    recentPropertyLikeCount: details.recentPropertyLikeCount ?? 0,
+    recentCommentLikeCount: details.recentCommentLikeCount ?? 0,
+    recentGuessCount: details.recentGuessCount ?? 0,
+    recentViewCount: details.recentViewCount ?? 0,
+    recentUniqueViewerCount: details.recentUniqueViewerCount ?? 0,
     likeCount: details.likeCount ?? 0,
     isSaved: overrides?.isSaved ?? details.isSaved ?? false,
     isLiked: overrides?.isLiked ?? details.isLiked ?? false,

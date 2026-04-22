@@ -53,6 +53,85 @@ export interface UserProfile extends User {
   displayNameChangeAvailableAt?: string;
 }
 
+export type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
+
+export interface KarmaRankSummary {
+  title: string;
+  level: number;
+}
+
+export interface PublicUserProfile {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  homeCountry: string | null;
+  karma: number;
+  karmaRank: KarmaRankSummary;
+  guessCount: number;
+  commentCount: number;
+  joinedAt: string;
+  followerCount: number;
+  followingCount: number;
+  relationship: FollowRelationship;
+}
+
+export interface MyUserProfile extends PublicUserProfile {
+  email: string;
+  averageAccuracy: number | null;
+  savedCount: number;
+  likedCount: number;
+  lastNameChangeAt: string | null;
+}
+
+export interface FollowListUser {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  followedAt: string;
+  relationship: FollowRelationship;
+}
+
+export interface FollowListResponse {
+  items: FollowListUser[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
+export interface FollowRelationshipResponse {
+  relationship: FollowRelationship;
+  followerCount: number;
+  followingCount: number;
+}
+
+export interface UserSearchItem {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  relationship: FollowRelationship;
+  followerCount: number;
+}
+
+export interface SearchUsersRequest {
+  q: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SearchUsersResponse {
+  items: UserSearchItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 /**
  * User badge/achievement
  */

@@ -13,6 +13,7 @@
 
 import React, { useState } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
 import { Icon } from './ui/Icon';
 import { UserAvatar, type AvatarSize } from './ui/UserAvatar';
 import { KarmaBadge } from './Comments/KarmaBadge';
@@ -21,8 +22,10 @@ export type CommentCellVariant = 'compact' | 'full';
 
 export interface CommentData {
   id: string;
+  authorId?: string;
   author: string;
   authorDisplayName?: string;
+  authorProfilePhotoUrl?: string | null;
   authorKarma: number;
   content: string;
   likeCount: number;
@@ -62,12 +65,21 @@ export function CommentCell({
   const [showReplies, setShowReplies] = useState(false);
   const avatarSize: AvatarSize = isReply ? 'sm' : 'md';
   const isLiked = likedCommentIds ? likedCommentIds.has(comment.id) : !!comment.isLiked;
+  const displayName = comment.authorDisplayName || comment.author;
 
   const handleToggleReplies = () => {
     if (onExpandReplies) {
       onExpandReplies(comment.id);
     }
     setShowReplies((prev) => !prev);
+  };
+
+  const handleAuthorPress = () => {
+    if (!comment.authorId) {
+      return;
+    }
+
+    router.push(`/user/${comment.authorId}`);
   };
 
   const hasReplies = comment.replies && comment.replies.length > 0;
@@ -82,20 +94,50 @@ export function CommentCell({
       testID={testID ?? (isReply ? 'comment-reply' : 'comment-cell')}
     >
       {/* Avatar */}
-      <UserAvatar
-        username={comment.author}
-        displayName={comment.authorDisplayName}
-        size={avatarSize}
-      />
+      {comment.authorId ? (
+        <Pressable
+          onPress={handleAuthorPress}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${displayName}'s profile`}
+          testID="comment-author-avatar-button"
+        >
+          <UserAvatar
+            username={comment.author}
+            displayName={comment.authorDisplayName}
+            profilePhotoUrl={comment.authorProfilePhotoUrl}
+            size={avatarSize}
+          />
+        </Pressable>
+      ) : (
+        <UserAvatar
+          username={comment.author}
+          displayName={comment.authorDisplayName}
+          profilePhotoUrl={comment.authorProfilePhotoUrl}
+          size={avatarSize}
+        />
+      )}
 
       {/* Content */}
       <View style={styles.content}>
         {/* Header: name, karma badge, timestamp */}
         <View style={styles.header}>
           <View style={styles.authorRow}>
-            <Text style={styles.authorName} numberOfLines={1}>
-              {comment.authorDisplayName || comment.author}
-            </Text>
+            {comment.authorId ? (
+              <Pressable
+                onPress={handleAuthorPress}
+                accessibilityRole="link"
+                accessibilityLabel={`Open ${displayName}'s profile`}
+                testID="comment-author-button"
+              >
+                <Text style={styles.authorName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.authorName} numberOfLines={1}>
+                {displayName}
+              </Text>
+            )}
             <KarmaBadge karma={comment.authorKarma} size="sm" />
           </View>
           <Text style={styles.timestamp}>{comment.createdAt}</Text>

@@ -259,7 +259,7 @@ describe('PropertyPreviewCard', () => {
     const propertyWithAerial: PropertyPreviewData = {
       ...mockProperty,
       countryCode: 'NL',
-      aerialImageUrl: 'https://example.com/aerial.jpg',
+      aerialImageUrl: 'https://images.huishype.nl/aerial.jpg',
       listingPhotoUrl: null,
     };
 
@@ -274,7 +274,7 @@ describe('PropertyPreviewCard', () => {
       <PropertyPreviewCard
         property={{
           ...mockProperty,
-          thumbnailUrl: 'https://cdn.example.com/listing-thumb.jpg',
+          thumbnailUrl: 'https://cdn.huishype.nl/listing-thumb.jpg',
           countryCode: 'NL',
         }}
       />

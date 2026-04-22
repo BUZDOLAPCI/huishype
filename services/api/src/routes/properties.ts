@@ -2,34 +2,75 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
-import { sql, eq, and } from 'drizzle-orm';
+import { sql, eq, and, type SQL } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
-import {
-  isValidCountryCode,
-  getCountryConfig,
-  type CountryCode,
-} from '@huishype/shared';
-import { calculateActivityLevel } from './views.js';
+import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
-import { resolveNearbyGroupedFeature } from '../services/property-grouping.js';
 import {
+  resolveNearbyFollowingGroupedFeature,
+  resolveNearbyGroupedFeature,
+} from '../services/property-grouping.js';
+import {
+  areMapFiltersDefault,
   buildPropertyMarketFilterQuery,
   mapFiltersQuerySchema,
   normalizeMapFilters,
+  parseFollowingMapFiltersQuery,
   parseMapFiltersQuery,
+  followingMapFiltersQuerySchema,
 } from '../services/map-filters.js';
+import {
+  buildActivityFilterPredicate,
+  buildCanonicalHouseNumberAdditionExpression,
+  buildPropertyListingFactsJoin,
+  buildPropertySocialFactsJoin,
+} from '../services/property-queries.js';
+import {
+  getReadPropertyIdSet,
+  isPropertyReadForViewer,
+  resolvePropertyReadViewer,
+} from '../services/property-read-state.js';
 
-// Schema definitions
 const coordinateSchema = z.object({
   type: z.literal('Point'),
   coordinates: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
 });
 
 const imageryCoordinateSchema = coordinateSchema.describe(
-  'Geometry used for imagery framing. May snap to a nearby building surface point.',
+  'Geometry used for imagery framing. May snap to a nearby building surface point.'
 );
 
-const propertySchema = z.object({
+const marketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
+const latestListingStatusSchema = z.enum(['active', 'sold', 'rented', 'withdrawn']).nullable();
+
+const propertyContractFields = {
+  hasListing: z.boolean(),
+  hasActiveListing: z.boolean(),
+  marketState: marketStateSchema,
+  latestListingStatus: latestListingStatusSchema,
+  askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  socialScore: z.number(),
+  recentSocialScore: z.number(),
+  lastSocialAt: z.string().datetime().nullable(),
+  topLevelCommentCount: z.number(),
+  replyCount: z.number(),
+  propertyLikeCount: z.number(),
+  commentLikeCount: z.number(),
+  guessCount: z.number(),
+  viewCount: z.number(),
+  uniqueViewerCount: z.number(),
+  recentTopLevelCommentCount: z.number(),
+  recentReplyCount: z.number(),
+  recentPropertyLikeCount: z.number(),
+  recentCommentLikeCount: z.number(),
+  recentGuessCount: z.number(),
+  recentViewCount: z.number(),
+  recentUniqueViewerCount: z.number(),
+  isRead: z.boolean(),
+};
+
+const propertyBaseSchema = z.object({
   id: z.string().uuid(),
   nationalId: z.string().nullable(),
   countryCode: z.string(),
@@ -37,52 +78,20 @@ const propertySchema = z.object({
   street: z.string(),
   houseNumber: z.number(),
   houseNumberAddition: z.string().nullable(),
-  address: z.string(), // computed display string
+  address: z.string(),
   city: z.string(),
   postalCode: z.string().nullable(),
   geometry: coordinateSchema.nullable(),
   imageryGeometry: imageryCoordinateSchema.nullable().optional(),
-  yearBuilt: z.number().nullable().describe('Year of construction'),
-  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
+  yearBuilt: z.number().nullable(),
+  floorAreaM2: z.number().nullable(),
   status: z.enum(['active', 'inactive', 'demolished']),
-  officialValuation: z.number().nullable().describe('Official government valuation'),
-  hasListing: z.boolean(),
-  askingPrice: z.number().nullable(),
-  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
-  likeCount: z.number().describe('Total number of likes'),
-  commentCount: z.number(),
-  guessCount: z.number(),
+  officialValuation: z.number().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
-const propertyListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-  city: z.string().optional(),
-  minPrice: z.coerce.number().optional(),
-  maxPrice: z.coerce.number().optional(),
-  ...mapFiltersQuerySchema.shape,
-  // Bounding box for geospatial queries
-  bbox: z
-    .string()
-    .optional()
-    .describe('Bounding box as "minLon,minLat,maxLon,maxLat"'),
-  // Point-based radius query
-  lat: z.coerce.number().min(-90).max(90).optional(),
-  lon: z.coerce.number().min(-180).max(180).optional(),
-  radius: z.coerce.number().positive().default(1000).describe('Radius in meters'),
-});
-
-const propertyListResponseSchema = z.object({
-  data: z.array(propertySchema),
-  meta: z.object({
-    page: z.number(),
-    limit: z.number(),
-    total: z.number(),
-    totalPages: z.number(),
-  }),
-});
+const propertySchema = propertyBaseSchema.extend(propertyContractFields);
 
 const fmvDistributionSchema = z.object({
   p10: z.number(),
@@ -104,37 +113,41 @@ const fmvSchema = z.object({
   divergence: z.number().nullable(),
 });
 
-const propertyDetailSchema = z.object({
-  id: z.string().uuid(),
-  nationalId: z.string().nullable(),
-  countryCode: z.string(),
-  region: z.string().nullable(),
-  street: z.string(),
-  houseNumber: z.number(),
-  houseNumberAddition: z.string().nullable(),
-  address: z.string(),
-  city: z.string(),
-  postalCode: z.string().nullable(),
-  geometry: coordinateSchema.nullable(),
-  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
-  yearBuilt: z.number().nullable().describe('Year of construction'),
-  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
-  status: z.enum(['active', 'inactive', 'demolished']),
-  officialValuation: z.number().nullable().describe('Official government valuation'),
-  hasListing: z.boolean().describe('Whether property has an active listing'),
-  askingPrice: z.number().nullable().describe('Active listing asking price'),
-  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
-  likeCount: z.number().describe('Total number of likes on this property'),
-  isLiked: z.boolean().describe('Whether the current user has liked this property'),
-  isSaved: z.boolean().describe('Whether the current user has saved this property'),
-  viewCount: z.number().describe('Total view count'),
-  uniqueViewers: z.number().describe('Unique viewers count'),
-  commentCount: z.number().describe('Total comments'),
-  guessCount: z.number().describe('Total price guesses'),
-  activityLevel: z.enum(['hot', 'warm', 'cold']).describe('Activity level based on views, comments, and guesses'),
-  fmv: fmvSchema.describe('Fair Market Value calculation'),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+const propertyDetailSchema = propertySchema.extend({
+  isLiked: z.boolean(),
+  isSaved: z.boolean(),
+  commentCount: z.number(),
+  likeCount: z.number(),
+  uniqueViewers: z.number(),
+  fmv: fmvSchema,
+});
+
+const savedPropertySchema = propertySchema.extend({
+  savedAt: z.string().datetime(),
+  isSaved: z.literal(true),
+});
+
+const propertyListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  city: z.string().optional(),
+  minPrice: z.coerce.number().optional(),
+  maxPrice: z.coerce.number().optional(),
+  ...mapFiltersQuerySchema.shape,
+  bbox: z.string().optional().describe('Bounding box as "minLon,minLat,maxLon,maxLat"'),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lon: z.coerce.number().min(-180).max(180).optional(),
+  radius: z.coerce.number().positive().default(1000).describe('Radius in meters'),
+});
+
+const propertyListResponseSchema = z.object({
+  data: z.array(propertySchema),
+  meta: z.object({
+    page: z.number(),
+    limit: z.number(),
+    total: z.number(),
+    totalPages: z.number(),
+  }),
 });
 
 const propertyParamsSchema = z.object({
@@ -150,33 +163,6 @@ const errorResponseSchema = z.object({
   message: z.string(),
 });
 
-const savedPropertySchema = z.object({
-  id: z.string().uuid(),
-  nationalId: z.string().nullable(),
-  countryCode: z.string(),
-  region: z.string().nullable(),
-  street: z.string(),
-  houseNumber: z.number(),
-  houseNumberAddition: z.string().nullable(),
-  address: z.string(),
-  city: z.string(),
-  postalCode: z.string().nullable(),
-  geometry: coordinateSchema.nullable(),
-  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
-  yearBuilt: z.number().nullable().describe('Year of construction'),
-  floorAreaM2: z.number().nullable().describe('Floor area in m\u00B2'),
-  status: z.enum(['active', 'inactive', 'demolished']),
-  officialValuation: z.number().nullable().describe('Official government valuation'),
-  hasListing: z.boolean(),
-  askingPrice: z.number().nullable(),
-  thumbnailUrl: z.string().nullable().describe('Latest available active listing thumbnail URL'),
-  commentCount: z.number(),
-  guessCount: z.number(),
-  savedAt: z.string().datetime(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
 const savedPropertiesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
@@ -188,11 +174,8 @@ const savedPropertiesResponseSchema = z.object({
   hasMore: z.boolean(),
 });
 
-// Schema for /properties/resolve endpoint
-// Postal code validation is permissive at schema level — country-specific
-// validation is done in the handler using the country-config registry.
 const resolveQuerySchema = z.object({
-  postalCode: z.string().min(1, 'Postal code is required').max(15),
+  postalCode: z.string().min(1).max(15),
   houseNumber: z.coerce.number().int().positive(),
   houseNumberAddition: z.string().optional(),
   countryCode: z.string().length(2).toUpperCase().default('NL'),
@@ -200,19 +183,132 @@ const resolveQuerySchema = z.object({
   city: z.string().min(1).optional(),
 });
 
-const resolveResponseSchema = z.object({
+const resolveFoundResponseSchema = z.object({
   id: z.string().uuid(),
   countryCode: z.string(),
   address: z.string(),
   postalCode: z.string(),
   city: z.string(),
-  coordinates: z.object({
-    lon: z.number(),
-    lat: z.number(),
-  }),
-  hasListing: z.boolean(),
+  coordinates: z
+    .object({
+      lon: z.number(),
+      lat: z.number(),
+    })
+    .nullable(),
+  hasActiveListing: z.boolean(),
+  marketState: marketStateSchema,
   officialValuation: z.number().nullable(),
 });
+
+const resolveResponseSchema = z.nullable(resolveFoundResponseSchema);
+
+const nearbyQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  zoom: z.coerce.number().min(0).max(22).default(17),
+  ...mapFiltersQuerySchema.shape,
+});
+
+const nearbyGroupedBaseSchema = z.object({
+  nodeClass: z.enum(['active', 'ghost']),
+  primaryPropertyId: z.string().uuid(),
+  pointCount: z.number(),
+  propertyIds: z.array(z.string().uuid()),
+  previewPropertyIds: z.array(z.string().uuid()),
+  coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
+  distanceMeters: z.number(),
+  bbox: z
+    .tuple([z.number(), z.number(), z.number(), z.number()])
+    .nullable()
+    .describe('[west, south, east, north]'),
+  activeListingCount: z.number(),
+  socialCount: z.number(),
+  recentSocialCount: z.number(),
+  socialScoreTotal: z.number(),
+  socialScoreMax: z.number(),
+  recentSocialScoreTotal: z.number(),
+  commentCount: z.number(),
+  isRead: z.boolean(),
+});
+
+const nearbySingleResultSchema = nearbyGroupedBaseSchema.extend({
+  groupKind: z.literal('single'),
+  address: z.string(),
+  city: z.string(),
+  askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  hasActiveListing: z.boolean(),
+  marketState: marketStateSchema,
+});
+
+const nearbyClusterResultSchema = nearbyGroupedBaseSchema.extend({
+  groupKind: z.literal('cluster'),
+});
+
+const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
+  nearbySingleResultSchema,
+  nearbyClusterResultSchema,
+]);
+
+const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
+
+const followingNearbyQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  zoom: z.coerce.number().min(0).max(22).default(17),
+  ...followingMapFiltersQuerySchema.shape,
+});
+
+type PropertyRow = {
+  id: string;
+  national_id: string | null;
+  country_code: string;
+  region: string | null;
+  street: string;
+  house_number: number;
+  house_number_addition: string | null;
+  city: string;
+  postal_code: string | null;
+  lon: number | null;
+  lat: number | null;
+  imagery_lon: number | null;
+  imagery_lat: number | null;
+  year_built: number | null;
+  floor_area_m2: number | null;
+  status: string;
+  official_valuation: number | null;
+  created_at: string;
+  updated_at: string;
+  has_listing: boolean;
+  has_active_listing: boolean;
+  market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
+  latest_listing_status: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
+  asking_price: number | null;
+  thumbnail_url: string | null;
+  social_score: number;
+  recent_social_score: number;
+  last_social_at: string | null;
+  top_level_comment_count: number;
+  reply_count: number;
+  property_like_count: number;
+  comment_like_count: number;
+  guess_count: number;
+  view_count: number;
+  unique_viewer_count: number;
+  recent_top_level_comment_count: number;
+  recent_reply_count: number;
+  recent_property_like_count: number;
+  recent_comment_like_count: number;
+  recent_guess_count: number;
+  recent_view_count: number;
+  recent_unique_viewer_count: number;
+  is_read?: boolean;
+};
+
+type PropertyDetailRow = PropertyRow & {
+  is_liked: boolean;
+  is_saved: boolean;
+};
 
 function normalizeComparableAddressPart(value: string | null | undefined): string {
   return (value ?? '')
@@ -239,54 +335,6 @@ function buildComparableAddressPredicate(column: string, value: string) {
   return sql`${buildComparableAddressExpression(column)} = ${normalizedValue}`;
 }
 
-// Schema for /properties/nearby endpoint
-const nearbyQuerySchema = z.object({
-  lon: z.coerce.number().min(-180).max(180),
-  lat: z.coerce.number().min(-90).max(90),
-  zoom: z.coerce.number().min(0).max(22).default(17),
-  ...mapFiltersQuerySchema.shape,
-});
-
-const nearbyGroupedResultSchema = z.object({
-  nodeClass: z.enum(['active', 'ghost']),
-  groupKind: z.enum(['single', 'cluster']),
-  primaryPropertyId: z.string().uuid(),
-  pointCount: z.number(),
-  propertyIds: z.array(z.string().uuid()),
-  previewPropertyIds: z.array(z.string().uuid()),
-  coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
-  distanceMeters: z.number(),
-  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable()
-    .describe('[west, south, east, north]'),
-  activityScore: z.number(),
-  activityScoreTotal: z.number(),
-  likeCount: z.number(),
-  commentCount: z.number(),
-  guessCount: z.number(),
-  hasListing: z.boolean(),
-  streetName: z.string().nullable(),
-  houseNumber: z.number().nullable(),
-  houseNumberAddition: z.string().nullable(),
-  address: z.string().nullable(),
-  city: z.string().nullable(),
-  postalCode: z.string().nullable(),
-  countryCode: z.string().nullable(),
-  officialValuation: z.number().nullable(),
-  askingPrice: z.number().nullable(),
-  thumbnailUrl: z.string().nullable(),
-  yearBuilt: z.number().nullable(),
-  floorAreaM2: z.number().nullable(),
-});
-
-const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
-
-/**
- * Build an index-friendly bounding box and exact radius filter for point searches.
- *
- * The geometry column is stored in EPSG:4326, so we prefilter with a geometry
- * bounding box that can use the existing GiST index before applying the exact
- * geography distance check for meter-accurate results.
- */
 function buildRadiusConditions(lon: number, lat: number, radiusMeters: number) {
   const latRadiusDegrees = radiusMeters / 110574;
   const lonScale = Math.max(Math.cos((lat * Math.PI) / 180), 0.000001);
@@ -306,24 +354,6 @@ function buildRadiusConditions(lon: number, lat: number, radiusMeters: number) {
     )`,
   ];
 }
-
-/**
- * Engagement count SQL fragment — single lateral subquery replacing 4 correlated
- * subqueries (comments was counted twice: once for activity_score, once for
- * comment_count; same for price_guesses).
- */
-const engagementJoin = sql`LEFT JOIN LATERAL (
-  SELECT
-    COALESCE(c.cnt, 0)::int AS comment_count,
-    COALESCE(g.cnt, 0)::int AS guess_count,
-    COALESCE(lk.cnt, 0)::int AS like_count,
-    (COALESCE(c.cnt, 0) + COALESCE(g.cnt, 0))::int AS activity_score
-  FROM
-    (SELECT 1) AS _dummy
-    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM comments WHERE property_id = p.id) c ON true
-    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM price_guesses WHERE property_id = p.id) g ON true
-    LEFT JOIN LATERAL (SELECT COUNT(*)::int AS cnt FROM reactions WHERE target_type='property' AND target_id=p.id AND reaction_type='like') lk ON true
-) eng ON true`;
 
 const IMAGERY_BUILDING_SEARCH_DEGREES = 0.001;
 const IMAGERY_BUILDING_MAX_DISTANCE_METERS = 80;
@@ -357,67 +387,7 @@ const imageryLatSelect = sql`CASE
   ELSE ST_Y(p.geometry)
 END`;
 
-const latestActiveListingJoin = sql`LEFT JOIN LATERAL (
-  SELECT id, asking_price
-  FROM listings
-  WHERE property_id = p.id AND status = 'active'
-  ORDER BY created_at DESC
-  LIMIT 1
-) l ON true`;
-
-const latestThumbnailJoin = sql`LEFT JOIN LATERAL (
-  SELECT thumbnail_url
-  FROM listings
-  WHERE property_id = p.id
-    AND status = 'active'
-    AND thumbnail_url IS NOT NULL
-  ORDER BY created_at DESC
-  LIMIT 1
-) lt ON true`;
-
-function mapNearbyGroupedResult(
-  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
-) {
-  if (!result) {
-    return null;
-  }
-
-  return {
-    nodeClass: result.nodeClass,
-    groupKind: result.groupKind,
-    primaryPropertyId: result.primaryPropertyId,
-    pointCount: result.pointCount,
-    propertyIds: result.propertyIds,
-    previewPropertyIds: result.previewPropertyIds,
-    coordinate: result.coordinate,
-    distanceMeters: result.distanceMeters,
-    bbox: result.bbox,
-    activityScore: result.activityScore,
-    activityScoreTotal: result.activityScoreTotal,
-    likeCount: result.likeCount,
-    commentCount: result.commentCount,
-    guessCount: result.guessCount,
-    hasListing: result.hasListing,
-    streetName: result.groupKind === 'single' ? result.streetName : null,
-    houseNumber: result.groupKind === 'single' ? result.houseNumber : null,
-    houseNumberAddition: result.groupKind === 'single' ? result.houseNumberAddition : null,
-    address: result.groupKind === 'single' ? result.address : null,
-    city: result.groupKind === 'single' ? result.city : null,
-    postalCode: result.groupKind === 'single' ? result.postalCode : null,
-    countryCode: result.groupKind === 'single' ? result.countryCode : null,
-    officialValuation: result.groupKind === 'single' ? result.officialValuation : null,
-    askingPrice: result.groupKind === 'single' ? result.askingPrice : null,
-    thumbnailUrl: result.groupKind === 'single' ? result.thumbnailUrl : null,
-    yearBuilt: result.groupKind === 'single' ? result.yearBuilt : null,
-    floorAreaM2: result.groupKind === 'single' ? result.floorAreaM2 : null,
-  };
-}
-
-/**
- * Map common DB row fields to camelCase response fields.
- * Used by properties list, property detail, and saved-properties endpoints.
- */
-function mapPropertyRow(r: {
+function mapPropertyBaseRow(row: {
   id: string;
   national_id: string | null;
   country_code: string;
@@ -435,62 +405,228 @@ function mapPropertyRow(r: {
   floor_area_m2: number | null;
   status: string;
   official_valuation: number | null;
-  thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
 }) {
   return {
-    id: r.id,
-    nationalId: r.national_id,
-    countryCode: r.country_code,
-    region: r.region,
-    street: r.street,
-    houseNumber: r.house_number,
-    houseNumberAddition: r.house_number_addition,
+    id: row.id,
+    nationalId: row.national_id,
+    countryCode: row.country_code,
+    region: row.region,
+    street: row.street,
+    houseNumber: row.house_number,
+    houseNumberAddition: row.house_number_addition,
     address: formatDisplayAddress(
       {
-        street: r.street,
-        houseNumber: r.house_number,
-        houseNumberAddition: r.house_number_addition,
-        postalCode: r.postal_code ?? '',
-        city: r.city,
+        street: row.street,
+        houseNumber: row.house_number,
+        houseNumberAddition: row.house_number_addition,
+        postalCode: row.postal_code ?? '',
+        city: row.city,
       },
-      isValidCountryCode(r.country_code) ? r.country_code : undefined,
+      isValidCountryCode(row.country_code) ? row.country_code : undefined
     ),
-    city: r.city,
-    postalCode: r.postal_code,
+    city: row.city,
+    postalCode: row.postal_code,
     geometry:
-      r.lon != null && r.lat != null
-        ? { type: 'Point' as const, coordinates: [r.lon, r.lat] as [number, number] }
+      row.lon != null && row.lat != null
+        ? { type: 'Point' as const, coordinates: [row.lon, row.lat] as [number, number] }
         : null,
     imageryGeometry:
-      r.imagery_lon != null && r.imagery_lat != null
+      row.imagery_lon != null && row.imagery_lat != null
         ? {
             type: 'Point' as const,
-            coordinates: [r.imagery_lon, r.imagery_lat] as [number, number],
+            coordinates: [row.imagery_lon, row.imagery_lat] as [number, number],
           }
         : null,
-    yearBuilt: r.year_built != null ? Number(r.year_built) : null,
-    floorAreaM2: r.floor_area_m2 != null ? Number(r.floor_area_m2) : null,
-    status: r.status as 'active' | 'inactive' | 'demolished',
-    officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
-    thumbnailUrl: r.thumbnail_url,
-    createdAt: new Date(r.created_at).toISOString(),
-    updatedAt: new Date(r.updated_at).toISOString(),
+    yearBuilt: row.year_built != null ? Number(row.year_built) : null,
+    floorAreaM2: row.floor_area_m2 != null ? Number(row.floor_area_m2) : null,
+    status: row.status as 'active' | 'inactive' | 'demolished',
+    officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
+
+function mapPublicPropertyRow(row: PropertyRow) {
+  return {
+    ...mapPropertyBaseRow(row),
+    hasListing: row.has_listing,
+    hasActiveListing: row.has_active_listing,
+    marketState: row.market_state,
+    latestListingStatus: row.latest_listing_status,
+    askingPrice: row.asking_price != null ? Number(row.asking_price) : null,
+    thumbnailUrl: row.thumbnail_url,
+    socialScore: Number(row.social_score),
+    recentSocialScore: Number(row.recent_social_score),
+    lastSocialAt: row.last_social_at ? new Date(row.last_social_at).toISOString() : null,
+    topLevelCommentCount: Number(row.top_level_comment_count),
+    replyCount: Number(row.reply_count),
+    propertyLikeCount: Number(row.property_like_count),
+    commentLikeCount: Number(row.comment_like_count),
+    guessCount: Number(row.guess_count),
+    viewCount: Number(row.view_count),
+    uniqueViewerCount: Number(row.unique_viewer_count),
+    recentTopLevelCommentCount: Number(row.recent_top_level_comment_count),
+    recentReplyCount: Number(row.recent_reply_count),
+    recentPropertyLikeCount: Number(row.recent_property_like_count),
+    recentCommentLikeCount: Number(row.recent_comment_like_count),
+    recentGuessCount: Number(row.recent_guess_count),
+    recentViewCount: Number(row.recent_view_count),
+    recentUniqueViewerCount: Number(row.recent_unique_viewer_count),
+    isRead: Boolean(row.is_read),
+  };
+}
+
+function mapNearbyGroupedResult(
+  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
+  isRead = false,
+) {
+  if (!result) {
+    return null;
+  }
+
+  const baseResult = {
+    nodeClass: result.nodeClass,
+    primaryPropertyId: result.primaryPropertyId,
+    pointCount: result.pointCount,
+    propertyIds: result.propertyIds,
+    previewPropertyIds: result.previewPropertyIds,
+    coordinate: result.coordinate,
+    distanceMeters: result.distanceMeters,
+    bbox: result.bbox,
+    activeListingCount: result.activeListingCount,
+    socialCount: result.socialCount,
+    recentSocialCount: result.recentSocialCount,
+    socialScoreTotal: result.socialScoreTotal,
+    socialScoreMax: result.socialScoreMax,
+    recentSocialScoreTotal: result.recentSocialScoreTotal,
+    commentCount: result.commentCount,
+    isRead,
+  };
+
+  if (result.groupKind === 'single') {
+    if (
+      result.address == null ||
+      result.city == null ||
+      result.hasActiveListing == null ||
+      result.marketState == null
+    ) {
+      throw new Error(
+        `Grouped nearby single ${result.primaryPropertyId} is missing required preview fields`
+      );
+    }
+
+    return {
+      ...baseResult,
+      groupKind: 'single' as const,
+      address: result.address,
+      city: result.city,
+      askingPrice: result.askingPrice,
+      thumbnailUrl: result.thumbnailUrl,
+      hasActiveListing: result.hasActiveListing,
+      marketState: result.marketState,
+    };
+  }
+
+  return {
+    ...baseResult,
+    groupKind: 'cluster' as const,
+  };
+}
+
+function parseBboxString(bbox: string) {
+  const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
+  if ([minLon, minLat, maxLon, maxLat].some((value) => value == null || Number.isNaN(value))) {
+    return null;
+  }
+
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+function buildPropertyWhereConditions(params: {
+  city?: string;
+  bbox?: string;
+  lat?: number;
+  lon?: number;
+  radius: number;
+}) {
+  const conditions: SQL[] = [];
+
+  if (params.city) {
+    conditions.push(sql`p.city = ${params.city}`);
+  }
+
+  if (params.bbox) {
+    const parsed = parseBboxString(params.bbox);
+    if (parsed) {
+      conditions.push(
+        sql`p.geometry && ST_MakeEnvelope(${parsed.minLon}, ${parsed.minLat}, ${parsed.maxLon}, ${parsed.maxLat}, 4326)`
+      );
+    }
+  }
+
+  if (params.lat !== undefined && params.lon !== undefined) {
+    conditions.push(...buildRadiusConditions(params.lon, params.lat, params.radius));
+  }
+
+  return conditions;
+}
+
+const PUBLIC_PROPERTY_SELECT = sql`
+  p.id,
+  p.national_id,
+  p.country_code,
+  p.region,
+  p.street,
+  p.house_number,
+  p.house_number_addition,
+  p.city,
+  p.postal_code,
+  ST_X(p.geometry) AS lon,
+  ST_Y(p.geometry) AS lat,
+  ${imageryLonSelect} AS imagery_lon,
+  ${imageryLatSelect} AS imagery_lat,
+  p.year_built,
+  p.floor_area_m2,
+  p.status,
+  p.official_valuation,
+  p.created_at,
+  p.updated_at,
+  lf.has_listing,
+  lf.has_active_listing,
+  lf.market_state,
+  lf.latest_listing_status,
+  lf.asking_price,
+  lf.thumbnail_url,
+  sf.social_score,
+  sf.recent_social_score,
+  sf.last_social_at,
+  sf.top_level_comment_count,
+  sf.reply_count,
+  sf.property_like_count,
+  sf.comment_like_count,
+  sf.guess_count,
+  sf.view_count,
+  sf.unique_viewer_count,
+  sf.recent_top_level_comment_count,
+  sf.recent_reply_count,
+  sf.recent_property_like_count,
+  sf.recent_comment_like_count,
+  sf.recent_guess_count,
+  sf.recent_view_count,
+  sf.recent_unique_viewer_count
+`;
 
 export async function propertyRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  // GET /properties - List properties with optional geospatial filters
   typedApp.get(
     '/properties',
     {
       schema: {
         tags: ['properties'],
         summary: 'List properties',
-        description: 'Get a paginated list of properties with optional filtering by city, price range, or geographic bounds',
         querystring: propertyListQuerySchema,
         response: {
           200: propertyListResponseSchema,
@@ -507,145 +643,49 @@ export async function propertyRoutes(app: FastifyInstance) {
         salePriceTo: parsedMapFilters.salePriceTo ?? maxPrice ?? null,
       });
       const mapFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
+      const requiresListingFactsForMarketFilters = !areMapFiltersDefault(mapFilterQuery.filters);
+      const requiresSocialFactsForCount = filters.activity !== 'all';
+      const activityPredicate = requiresSocialFactsForCount
+        ? buildActivityFilterPredicate(filters.activity, 'sf')
+        : sql`TRUE`;
+      const conditions = buildPropertyWhereConditions({ city, bbox, lat, lon, radius });
 
-      // Build WHERE conditions dynamically using raw SQL fragments
-      const conditions: ReturnType<typeof sql>[] = [];
+      conditions.push(mapFilterQuery.predicate, activityPredicate);
 
-      if (city) {
-        conditions.push(sql`p.city = ${city}`);
-      }
+      const whereFragment = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
-      // Bounding box query (requires PostGIS)
-      if (bbox) {
-        const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
-        if (minLon != null && minLat != null && maxLon != null && maxLat != null
-            && !Number.isNaN(minLon) && !Number.isNaN(minLat) && !Number.isNaN(maxLon) && !Number.isNaN(maxLat)) {
-          // properties.geometry is a Point in EPSG:4326, so bounding-box overlap
-          // is equivalent to point-in-envelope while remaining GiST-index friendly.
-          conditions.push(
-            sql`p.geometry && ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326)`
-          );
-        }
-      }
-
-      // Point + radius query (requires PostGIS)
-      if (lat !== undefined && lon !== undefined) {
-        conditions.push(...buildRadiusConditions(lon, lat, radius));
-      }
-
-      conditions.push(mapFilterQuery.predicate);
-
-      const whereFragment = conditions.length > 0
-        ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-        : sql``;
-
-      // Get total count with same filters
       const countRows = await db.execute<{ cnt: number }>(sql`
         SELECT COUNT(*)::int AS cnt
         FROM properties p
         ${mapFilterQuery.join}
+        ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
         ${whereFragment}
       `);
       const total = Array.from(countRows)[0]?.cnt ?? 0;
 
-      // Get paginated results with listing, comment, and guess data
-      const rows = await db.execute<{
-        id: string;
-        national_id: string | null;
-        country_code: string;
-        region: string | null;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string | null;
-        lon: number | null;
-        lat: number | null;
-        imagery_lon: number | null;
-        imagery_lat: number | null;
-        year_built: number | null;
-        floor_area_m2: number | null;
-        status: string;
-        official_valuation: number | null;
-        has_listing: boolean;
-        asking_price: number | null;
-        thumbnail_url: string | null;
-        like_count: number;
-        comment_count: number;
-        guess_count: number;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
-        WITH page_rows AS (
-          SELECT
-            p.id,
-            p.national_id,
-            p.country_code,
-            p.region,
-            p.street,
-            p.house_number,
-            p.house_number_addition,
-            p.city,
-            p.postal_code,
-            p.geometry,
-            p.year_built,
-            p.floor_area_m2,
-            p.status,
-            p.official_valuation,
-            p.created_at,
-            p.updated_at
+      const rows = await db.execute<PropertyRow>(sql`
+        WITH page_ids AS (
+          SELECT p.id
           FROM properties p
-          ${mapFilterQuery.join}
+          ${requiresListingFactsForMarketFilters ? mapFilterQuery.join : sql``}
+          ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
           ${whereFragment}
-          ORDER BY p.created_at
+          ORDER BY p.created_at, p.id
           LIMIT ${limit}
           OFFSET ${offset}
         )
         SELECT
-          p.id,
-          p.national_id,
-          p.country_code,
-          p.region,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          ${imageryLonSelect} AS imagery_lon,
-          ${imageryLatSelect} AS imagery_lat,
-          p.year_built,
-          p.floor_area_m2,
-          p.status,
-          p.official_valuation,
-          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          l.asking_price,
-          lt.thumbnail_url,
-          eng.like_count,
-          eng.comment_count,
-          eng.guess_count,
-          p.created_at,
-          p.updated_at
-        FROM page_rows p
-        ${latestActiveListingJoin}
-        ${latestThumbnailJoin}
-        ${engagementJoin}
+          ${PUBLIC_PROPERTY_SELECT}
+        FROM page_ids page
+        INNER JOIN properties p ON p.id = page.id
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+        ${buildPropertySocialFactsJoin('p', 'sf')}
         ${imageryJoin}
-        ORDER BY p.created_at
+        ORDER BY p.created_at, p.id
       `);
 
-      const results = Array.from(rows).map((r) => ({
-        ...mapPropertyRow(r),
-        hasListing: r.has_listing,
-        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
-        likeCount: Number(r.like_count),
-        commentCount: Number(r.comment_count),
-        guessCount: Number(r.guess_count),
-      }));
-
       return reply.send({
-        data: results,
+        data: Array.from(rows).map(mapPublicPropertyRow),
         meta: {
           page,
           limit,
@@ -656,31 +696,17 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /properties/resolve - Resolve an address to a local property
   typedApp.get(
     '/properties/resolve',
     {
       schema: {
         tags: ['properties'],
         summary: 'Resolve address to property',
-        description:
-          'Resolve a canonical address to a local property UUID and coordinates. ' +
-          'Matches the multi-country uniqueness model on country code, street, postal code, house number, and house number addition.',
         querystring: resolveQuerySchema,
         response: {
           200: resolveResponseSchema,
-          400: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          409: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
-          404: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          400: errorResponseSchema,
+          409: errorResponseSchema,
         },
       },
     },
@@ -694,7 +720,6 @@ export async function propertyRoutes(app: FastifyInstance) {
         city,
       } = request.query;
 
-      // Validate country code against config registry
       if (!isValidCountryCode(rawCC)) {
         return reply.status(400).send({
           error: 'BAD_REQUEST',
@@ -703,7 +728,6 @@ export async function propertyRoutes(app: FastifyInstance) {
       }
       const cc = rawCC as CountryCode;
 
-      // Validate postal code against country-specific regex
       const cfg = getCountryConfig(cc);
       const stripped = postalCode.replace(/\s/g, '').toUpperCase();
       if (!cfg.postalCodeRegex.test(stripped)) {
@@ -712,46 +736,44 @@ export async function propertyRoutes(app: FastifyInstance) {
           message: `Invalid postal code format for ${cfg.name}: "${postalCode}"`,
         });
       }
-      const normalizedPostalCode = stripped;
 
-      // Normalize addition: trim, uppercase, treat empty as null
       const normalizedAddition = houseNumberAddition?.trim().toUpperCase() || null;
       const normalizedStreet = normalizeComparableAddressPart(street);
       const normalizedCity = normalizeComparableAddressPart(city);
-
       const additionCondition = normalizedAddition
-        ? sql`p.house_number_addition = ${normalizedAddition}`
-        : sql`(p.house_number_addition IS NULL OR p.house_number_addition = '')`;
+        ? sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} = ${normalizedAddition}`
+        : sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} IS NULL`;
 
-      const fetchCandidates = async () => {
-        const conditions: ReturnType<typeof sql>[] = [
-          sql`p.country_code = ${cc}`,
-          sql`p.postal_code = ${normalizedPostalCode}`,
-          sql`p.house_number = ${houseNumber}`,
-          additionCondition,
-        ];
+      const conditions: SQL[] = [
+        sql`p.country_code = ${cc}`,
+        sql`p.postal_code = ${stripped}`,
+        sql`p.house_number = ${houseNumber}`,
+        additionCondition,
+      ];
 
-        if (street) {
-          conditions.push(buildComparableAddressPredicate('p.street', street));
-        }
+      if (street) {
+        conditions.push(buildComparableAddressPredicate('p.street', street));
+      }
 
-        if (city) {
-          conditions.push(buildComparableAddressPredicate('p.city', city));
-        }
+      if (city) {
+        conditions.push(buildComparableAddressPredicate('p.city', city));
+      }
 
-        const rows = await db.execute<{
-          id: string;
-          country_code: string;
-          street: string;
-          house_number: number;
-          house_number_addition: string | null;
-          city: string;
-          postal_code: string;
-          official_valuation: number | null;
-          has_listing: boolean;
-          lon: number | null;
-          lat: number | null;
-        }>(sql`
+      const rows = await db.execute<{
+        id: string;
+        country_code: string;
+        street: string;
+        house_number: number;
+        house_number_addition: string | null;
+        city: string;
+        postal_code: string;
+        official_valuation: number | null;
+        has_active_listing: boolean;
+        market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
+        lon: number | null;
+        lat: number | null;
+      }>(sql`
+        WITH matched_properties AS (
           SELECT
             p.id,
             p.country_code,
@@ -761,82 +783,86 @@ export async function propertyRoutes(app: FastifyInstance) {
             p.city,
             p.postal_code,
             p.official_valuation,
-            CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
             ST_X(p.geometry) AS lon,
             ST_Y(p.geometry) AS lat
           FROM properties p
-          LEFT JOIN LATERAL (
-            SELECT id FROM listings
-            WHERE property_id = p.id AND status = 'active'
-            LIMIT 1
-          ) l ON true
           WHERE ${sql.join(conditions, sql` AND `)}
           LIMIT 2
-        `);
+        )
+        SELECT
+          p.id,
+          p.country_code,
+          p.street,
+          p.house_number,
+          ${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} AS house_number_addition,
+          p.city,
+          p.postal_code,
+          p.official_valuation,
+          lf.has_active_listing,
+          lf.market_state,
+          p.lon,
+          p.lat
+        FROM matched_properties p
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+      `);
 
-        return Array.from(rows);
-      };
-
-      const rows = (await fetchCandidates()).filter((row) => {
-        const streetMatches = !normalizedStreet
-          || normalizeComparableAddressPart(row.street) === normalizedStreet;
-        const cityMatches = !normalizedCity
-          || normalizeComparableAddressPart(row.city) === normalizedCity;
+      const matches = Array.from(rows).filter((row) => {
+        const streetMatches =
+          !normalizedStreet || normalizeComparableAddressPart(row.street) === normalizedStreet;
+        const cityMatches =
+          !normalizedCity || normalizeComparableAddressPart(row.city) === normalizedCity;
         return streetMatches && cityMatches;
       });
 
-      if (rows.length === 0) {
-        return reply.status(404).send({
-          error: 'NOT_FOUND',
-          message: `No property found for ${cc} ${normalizedPostalCode} ${houseNumber}${normalizedAddition ?? ''}`,
-        });
+      if (matches.length === 0) {
+        return reply.send(null);
       }
 
-      if (rows.length > 1) {
+      if (matches.length > 1) {
         return reply.status(409).send({
           error: 'AMBIGUOUS_ADDRESS',
-          message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
+          message:
+            'Multiple properties matched this address. Provide street and city to disambiguate.',
         });
       }
 
-      const r = rows[0];
+      const row = matches[0];
       return reply.send({
-        id: r.id,
-        countryCode: r.country_code,
+        id: row.id,
+        countryCode: row.country_code,
         address: formatDisplayAddress(
           {
-            street: r.street,
-            houseNumber: r.house_number,
-            houseNumberAddition: r.house_number_addition,
-            postalCode: r.postal_code ?? '',
-            city: r.city,
+            street: row.street,
+            houseNumber: row.house_number,
+            houseNumberAddition: row.house_number_addition,
+            postalCode: row.postal_code,
+            city: row.city,
           },
-          isValidCountryCode(r.country_code) ? r.country_code : undefined,
+          isValidCountryCode(row.country_code) ? row.country_code : undefined
         ),
-        postalCode: r.postal_code,
-        city: r.city,
-        coordinates: {
-          lon: r.lon ?? 0,
-          lat: r.lat ?? 0,
-        },
-        hasListing: r.has_listing,
-        officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
+        postalCode: row.postal_code,
+        city: row.city,
+        coordinates:
+          row.lon != null && row.lat != null
+            ? {
+                lon: row.lon,
+                lat: row.lat,
+              }
+            : null,
+        hasActiveListing: row.has_active_listing,
+        marketState: row.market_state,
+        officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
       });
     }
   );
 
-  // GET /properties/nearby - Find the nearest grouped property to a coordinate
-  // Used as a fallback for native map taps when queryRenderedFeatures fails
   typedApp.get(
     '/properties/nearby',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['properties'],
-        summary: 'Find nearby properties',
-        description:
-          'Resolve the nearest grouped property feature to a coordinate. ' +
-          'Used as a fallback for native map taps when queryRenderedFeatures is unreliable. ' +
-          'Returns the canonical grouped feature using the same density-aware grouping engine as vector tiles.',
+        summary: 'Find nearby grouped property',
         querystring: nearbyQuerySchema,
         response: {
           200: nearbyGroupedResponseSchema,
@@ -847,24 +873,35 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { lon, lat, zoom } = request.query;
       const filters = parseMapFiltersQuery(request.query);
       const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
-      return reply.send(mapNearbyGroupedResult(result));
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+      const readIds = result
+        ? await getReadPropertyIdSet(result.propertyIds, viewer)
+        : new Set<string>();
+      const isRead =
+        result != null &&
+        result.propertyIds.length > 0 &&
+        result.propertyIds.every((propertyId) => readIds.has(propertyId));
+      return reply.send(mapNearbyGroupedResult(result, isRead));
     }
   );
 
-  // GET /properties/batch - Fetch multiple properties by IDs
   const batchQuerySchema = z.object({
-    ids: z.string().transform((val) => val.split(',')).pipe(
-      z.array(z.string().uuid()).min(1).max(50)
-    ),
+    ids: z
+      .string()
+      .transform((value) => value.split(','))
+      .pipe(z.array(z.string().uuid()).min(1).max(50)),
   });
 
   typedApp.get(
     '/properties/batch',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['properties'],
         summary: 'Batch fetch properties',
-        description: 'Fetch multiple properties by their IDs (comma-separated, max 50). Returns properties in the same order as the input IDs.',
         querystring: batchQuerySchema,
         response: {
           200: z.array(propertySchema),
@@ -873,91 +910,78 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { ids } = request.query;
-
-      const rows = await db.execute<{
-        id: string;
-        national_id: string | null;
-        country_code: string;
-        region: string | null;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string | null;
-        lon: number | null;
-        lat: number | null;
-        imagery_lon: number | null;
-        imagery_lat: number | null;
-        year_built: number | null;
-        floor_area_m2: number | null;
-        status: string;
-        official_valuation: number | null;
-        has_listing: boolean;
-        asking_price: number | null;
-        thumbnail_url: string | null;
-        like_count: number;
-        comment_count: number;
-        guess_count: number;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
+      const rows = await db.execute<PropertyRow>(sql`
         SELECT
-          p.id,
-          p.national_id,
-          p.country_code,
-          p.region,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          ${imageryLonSelect} AS imagery_lon,
-          ${imageryLatSelect} AS imagery_lat,
-          p.year_built,
-          p.floor_area_m2,
-          p.status,
-          p.official_valuation,
-          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          l.asking_price,
-          lt.thumbnail_url,
-          eng.like_count,
-          eng.comment_count,
-          eng.guess_count,
-          p.created_at,
-          p.updated_at
+          ${PUBLIC_PROPERTY_SELECT}
         FROM properties p
-        ${latestActiveListingJoin}
-        ${latestThumbnailJoin}
-        ${engagementJoin}
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+        ${buildPropertySocialFactsJoin('p', 'sf')}
         ${imageryJoin}
-        WHERE p.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+        WHERE p.id IN (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})
       `);
 
-      // Build a Map for O(1) lookup, then return in input order
-      const rowMap = new Map<string, (typeof results)[0]>();
-      const results = Array.from(rows).map((r) => ({
-        ...mapPropertyRow(r),
-        hasListing: r.has_listing,
-        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
-        likeCount: Number(r.like_count),
-        commentCount: Number(r.comment_count),
-        guessCount: Number(r.guess_count),
-      }));
-      for (const item of results) {
-        rowMap.set(item.id, item);
-      }
-
-      const ordered = ids
-        .map((id) => rowMap.get(id))
-        .filter((item): item is NonNullable<typeof item> => item != null);
-
-      return reply.send(ordered);
+      const readIds = await getReadPropertyIdSet(ids, viewer);
+      const byId = new Map(
+        Array.from(rows).map((row) => [
+          row.id,
+          {
+            ...mapPublicPropertyRow(row),
+            isRead: readIds.has(row.id),
+          },
+        ])
+      );
+      return reply.send(
+        ids
+          .map((id) => byId.get(id))
+          .filter((item): item is NonNullable<typeof item> => item != null)
+      );
     }
   );
 
-  // GET /properties/:id - Get a single property by ID
+  typedApp.get(
+    '/properties/following-nearby',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['properties'],
+        summary: 'Find nearby grouped property in Following mode',
+        description:
+          'Returns the personalized grouped-property hit for the signed-in viewer when Following is active.',
+        querystring: followingNearbyQuerySchema,
+        response: {
+          200: nearbyGroupedResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { lon, lat, zoom } = request.query;
+      const filters = parseFollowingMapFiltersQuery(request.query);
+      const result = await resolveNearbyFollowingGroupedFeature(
+        lon,
+        lat,
+        zoom,
+        request.userId!,
+        filters
+      );
+      const readIds = result
+        ? await getReadPropertyIdSet(result.propertyIds, { userId: request.userId! })
+        : new Set<string>();
+      const isRead =
+        result != null &&
+        result.propertyIds.length > 0 &&
+        result.propertyIds.every((propertyId) => readIds.has(propertyId));
+      return reply.send(mapNearbyGroupedResult(result, isRead));
+    }
+  );
+
   typedApp.get(
     '/properties/:id',
     {
@@ -965,143 +989,77 @@ export async function propertyRoutes(app: FastifyInstance) {
       schema: {
         tags: ['properties'],
         summary: 'Get property by ID',
-        description: 'Get detailed information about a specific property',
         params: propertyParamsSchema,
         response: {
           200: propertyDetailSchema,
-          404: z.object({
-            error: z.string(),
-            message: z.string(),
-          }),
+          404: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      const userId = request.userId;
+      const effectiveUserId = request.userId ?? '00000000-0000-4000-a000-000000000000';
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined,
+      );
 
-      // Use a placeholder UUID for unauthenticated requests (will never match)
-      const effectiveUserId = userId || '00000000-0000-4000-a000-000000000000';
-
-      const rows = await db.execute<{
-        id: string;
-        national_id: string | null;
-        country_code: string;
-        region: string | null;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string | null;
-        lon: number | null;
-        lat: number | null;
-        imagery_lon: number | null;
-        imagery_lat: number | null;
-        year_built: number | null;
-        floor_area_m2: number | null;
-        status: string;
-        official_valuation: number | null;
-        has_listing: boolean;
-        asking_price: number | null;
-        thumbnail_url: string | null;
-        like_count: number;
-        is_liked: boolean;
-        is_saved: boolean;
-        view_count: number;
-        unique_viewers: number;
-        recent_views: number;
-        comment_count: number;
-        guess_count: number;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
+      const rows = await db.execute<PropertyDetailRow>(sql`
         SELECT
-          p.id,
-          p.national_id,
-          p.country_code,
-          p.region,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          ${imageryLonSelect} AS imagery_lon,
-          ${imageryLatSelect} AS imagery_lat,
-          p.year_built,
-          p.floor_area_m2,
-          p.status,
-          p.official_valuation,
-          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          l.asking_price,
-          lt.thumbnail_url,
-          eng.like_count,
-          EXISTS(SELECT 1 FROM reactions WHERE target_type='property' AND target_id=p.id AND user_id=${effectiveUserId} AND reaction_type='like') AS is_liked,
-          EXISTS(SELECT 1 FROM saved_properties WHERE property_id=p.id AND user_id=${effectiveUserId}) AS is_saved,
-          pv.view_count,
-          pv.unique_viewers,
-          pv.recent_views,
-          eng.comment_count,
-          eng.guess_count,
-          p.created_at,
-          p.updated_at
+          ${PUBLIC_PROPERTY_SELECT},
+          EXISTS(
+            SELECT 1
+            FROM reactions r
+            WHERE r.target_type = 'property'
+              AND r.target_id = p.id
+              AND r.user_id = ${effectiveUserId}
+              AND r.reaction_type = 'like'
+          ) AS is_liked,
+          EXISTS(
+            SELECT 1
+            FROM saved_properties sp
+            WHERE sp.property_id = p.id
+              AND sp.user_id = ${effectiveUserId}
+          ) AS is_saved
         FROM properties p
-        ${latestActiveListingJoin}
-        ${latestThumbnailJoin}
-        ${engagementJoin}
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+        ${buildPropertySocialFactsJoin('p', 'sf')}
         ${imageryJoin}
-        LEFT JOIN LATERAL (
-          SELECT
-            COUNT(*)::int AS view_count,
-            COUNT(DISTINCT COALESCE(user_id::text, session_id, id::text))::int AS unique_viewers,
-            COUNT(*) FILTER (WHERE viewed_at > NOW() - INTERVAL '7 days')::int AS recent_views
-          FROM property_views WHERE property_id = p.id
-        ) pv ON true
         WHERE p.id = ${id}
         LIMIT 1
       `);
 
-      const result = Array.from(rows);
-      if (result.length === 0) {
+      const row = Array.from(rows)[0];
+      if (!row) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${id} not found`,
         });
       }
 
-      const r = result[0];
-      const viewCount = Number(r.view_count);
-      const uniqueViewers = Number(r.unique_viewers);
-      const commentCount = Number(r.comment_count);
-      const guessCount = Number(r.guess_count);
-      const recentViews = Number(r.recent_views);
-
-      // Calculate FMV — reuse official_valuation and asking_price already
-      // loaded by the main query instead of re-fetching them (saves 2 DB round-trips)
+      const publicRow = mapPublicPropertyRow(row);
       const guesses = await fetchGuessesWithKarma(id);
-      const officialValuation = r.official_valuation != null ? Number(r.official_valuation) : null;
-      const askingPrice = r.asking_price != null ? Number(r.asking_price) : null;
-      const fmvResult = calculateFmv(guesses, officialValuation, askingPrice);
+      const fmvResult = calculateFmv(
+        guesses,
+        row.official_valuation != null ? Number(row.official_valuation) : null,
+        row.asking_price != null ? Number(row.asking_price) : null
+      );
+      const commentCount = Number(row.top_level_comment_count) + Number(row.reply_count);
+      const isRead = await isPropertyReadForViewer(id, viewer);
 
       return reply.send({
-        ...mapPropertyRow(r),
-        hasListing: r.has_listing,
-        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
-        likeCount: Number(r.like_count),
-        isLiked: r.is_liked,
-        isSaved: r.is_saved,
-        viewCount,
-        uniqueViewers,
+        ...publicRow,
+        isRead,
         commentCount,
-        guessCount,
-        activityLevel: calculateActivityLevel(recentViews, commentCount, guessCount),
+        likeCount: Number(row.property_like_count),
+        uniqueViewers: Number(row.unique_viewer_count),
+        isLiked: row.is_liked,
+        isSaved: row.is_saved,
         fmv: fmvResult,
       });
     }
   );
 
-  // POST /properties/:id/save — Save a property
   typedApp.post(
     '/properties/:id/save',
     {
@@ -1109,7 +1067,6 @@ export async function propertyRoutes(app: FastifyInstance) {
       schema: {
         tags: ['properties'],
         summary: 'Save a property',
-        description: 'Save a property to the user\'s saved list. Returns 409 if already saved.',
         params: propertyParamsSchema,
         response: {
           201: saveResponseSchema,
@@ -1123,7 +1080,6 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { id: propertyId } = request.params;
       const userId = request.userId!;
 
-      // Verify property exists
       const propertyExists = await db
         .select({ id: propertiesTable.id })
         .from(propertiesTable)
@@ -1137,16 +1093,10 @@ export async function propertyRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check if already saved
       const existing = await db
         .select({ id: savedProperties.id })
         .from(savedProperties)
-        .where(
-          and(
-            eq(savedProperties.userId, userId),
-            eq(savedProperties.propertyId, propertyId)
-          )
-        )
+        .where(and(eq(savedProperties.userId, userId), eq(savedProperties.propertyId, propertyId)))
         .limit(1);
 
       if (existing.length > 0) {
@@ -1156,7 +1106,6 @@ export async function propertyRoutes(app: FastifyInstance) {
         });
       }
 
-      // Insert (try-catch for race condition on unique/FK constraint)
       try {
         await db.insert(savedProperties).values({
           userId,
@@ -1183,7 +1132,6 @@ export async function propertyRoutes(app: FastifyInstance) {
     }
   );
 
-  // DELETE /properties/:id/save — Unsave a property
   typedApp.delete(
     '/properties/:id/save',
     {
@@ -1191,7 +1139,6 @@ export async function propertyRoutes(app: FastifyInstance) {
       schema: {
         tags: ['properties'],
         summary: 'Unsave a property',
-        description: 'Remove a property from the user\'s saved list. Returns 404 if not saved.',
         params: propertyParamsSchema,
         response: {
           200: saveResponseSchema,
@@ -1204,16 +1151,10 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { id: propertyId } = request.params;
       const userId = request.userId!;
 
-      // Find the existing saved entry
       const existing = await db
         .select({ id: savedProperties.id })
         .from(savedProperties)
-        .where(
-          and(
-            eq(savedProperties.userId, userId),
-            eq(savedProperties.propertyId, propertyId)
-          )
-        )
+        .where(and(eq(savedProperties.userId, userId), eq(savedProperties.propertyId, propertyId)))
         .limit(1);
 
       if (existing.length === 0) {
@@ -1223,15 +1164,12 @@ export async function propertyRoutes(app: FastifyInstance) {
         });
       }
 
-      await db
-        .delete(savedProperties)
-        .where(eq(savedProperties.id, existing[0].id));
+      await db.delete(savedProperties).where(eq(savedProperties.id, existing[0].id));
 
       return reply.send({ saved: false });
     }
   );
 
-  // GET /saved-properties — List user's saved properties (paginated)
   typedApp.get(
     '/saved-properties',
     {
@@ -1239,7 +1177,6 @@ export async function propertyRoutes(app: FastifyInstance) {
       schema: {
         tags: ['properties'],
         summary: 'List saved properties',
-        description: 'Get a paginated list of the user\'s saved properties, ordered by most recently saved.',
         querystring: savedPropertiesQuerySchema,
         response: {
           200: savedPropertiesResponseSchema,
@@ -1249,95 +1186,43 @@ export async function propertyRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const userId = request.userId!;
-
       const { limit, offset } = request.query;
 
-      // Total count for pagination
       const countRows = await db.execute<{ cnt: number }>(sql`
-        SELECT COUNT(*)::int AS cnt FROM saved_properties WHERE user_id = ${userId}
+        SELECT COUNT(*)::int AS cnt
+        FROM saved_properties
+        WHERE user_id = ${userId}
       `);
       const total = Array.from(countRows)[0]?.cnt ?? 0;
 
-      const rows = await db.execute<{
-        id: string;
-        national_id: string | null;
-        country_code: string;
-        region: string | null;
-        street: string;
-        house_number: number;
-        house_number_addition: string | null;
-        city: string;
-        postal_code: string | null;
-        lon: number | null;
-        lat: number | null;
-        imagery_lon: number | null;
-        imagery_lat: number | null;
-        year_built: number | null;
-        floor_area_m2: number | null;
-        status: string;
-        official_valuation: number | null;
-        has_listing: boolean;
-        asking_price: number | null;
-        thumbnail_url: string | null;
-        comment_count: number;
-        guess_count: number;
-        saved_at: string;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
+      const rows = await db.execute<PropertyRow & { saved_at: string }>(sql`
         SELECT
-          p.id,
-          p.national_id,
-          p.country_code,
-          p.region,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.city,
-          p.postal_code,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          ${imageryLonSelect} AS imagery_lon,
-          ${imageryLatSelect} AS imagery_lat,
-          p.year_built,
-          p.floor_area_m2,
-          p.status,
-          p.official_valuation,
-          CASE WHEN l.id IS NOT NULL THEN true ELSE false END AS has_listing,
-          l.asking_price,
-          lt.thumbnail_url,
-          eng.comment_count,
-          eng.guess_count,
-          sp.created_at AS saved_at,
-          p.created_at,
-          p.updated_at
+          ${PUBLIC_PROPERTY_SELECT},
+          sp.created_at AS saved_at
         FROM saved_properties sp
         INNER JOIN properties p ON p.id = sp.property_id
-        ${latestActiveListingJoin}
-        ${latestThumbnailJoin}
-        ${engagementJoin}
+        ${buildPropertyListingFactsJoin('p', 'lf')}
+        ${buildPropertySocialFactsJoin('p', 'sf')}
         ${imageryJoin}
         WHERE sp.user_id = ${userId}
-        ORDER BY sp.created_at DESC
+        ORDER BY sp.created_at DESC, p.id
         LIMIT ${limit}
         OFFSET ${offset}
       `);
 
-      const results = Array.from(rows).map((r) => ({
-        ...mapPropertyRow(r),
-        hasListing: r.has_listing,
-        askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
-        commentCount: Number(r.comment_count),
-        guessCount: Number(r.guess_count),
-        savedAt: new Date(r.saved_at).toISOString(),
-      }));
-
-      return reply.send({ data: results, total, hasMore: offset + limit < total });
+      return reply.send({
+        data: Array.from(rows).map((row) => ({
+          ...mapPublicPropertyRow(row),
+          savedAt: new Date(row.saved_at).toISOString(),
+          isSaved: true as const,
+        })),
+        total,
+        hasMore: offset + limit < total,
+      });
     }
   );
 }
 
-// Export types for client usage
 export type PropertyListQuery = z.infer<typeof propertyListQuerySchema>;
 export type PropertyListResponse = z.infer<typeof propertyListResponseSchema>;
 export type PropertyResponse = z.infer<typeof propertySchema>;

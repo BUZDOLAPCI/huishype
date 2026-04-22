@@ -101,6 +101,29 @@ describe('Notification routes', () => {
       expect(body.items[0].actor).not.toBeNull();
       expect(body.items[0].actor.id).toBe(actorId);
     });
+
+    it('returns canonical notification event names including new_follower', async () => {
+      await createNotification({
+        recipientUserId: userId,
+        actorUserId: actorId,
+        eventType: 'new_follower',
+        payload: {},
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/notifications?limit=20',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const newFollowerNotification = body.items.find(
+        (item: { eventType: string }) => item.eventType === 'new_follower'
+      );
+
+      expect(newFollowerNotification).toBeDefined();
+    });
   });
 
   describe('GET /notifications/unread-count', () => {

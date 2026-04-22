@@ -218,6 +218,9 @@ describe('AuthProvider startup token refresh', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['properties', 'detail'],
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['saved-properties'],
+    });
 
     invalidateQueries.mockRestore();
   });

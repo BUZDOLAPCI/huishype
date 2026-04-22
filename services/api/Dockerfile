@@ -41,6 +41,7 @@ COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/services/api/package.json ./services/api/package.json
 COPY --from=build /app/services/api/node_modules ./services/api/node_modules
 COPY --from=build /app/services/api/dist ./services/api/dist
+COPY --from=build /app/services/api/assets ./services/api/assets
 COPY --from=build /app/services/api/drizzle ./services/api/drizzle
 COPY --from=build /app/services/api/fonts ./services/api/fonts
 COPY --from=build /app/services/api/sprites ./services/api/sprites

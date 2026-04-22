@@ -3,27 +3,49 @@
  * These types define the contract between frontend and backend
  */
 
-import type { PropertyDetail, PropertySummary } from './property.js';
+import type {
+  PropertyDetail,
+  PropertySummary,
+  MapMarketState,
+  PropertyMarketFilters,
+  MapActivityFilter,
+} from './property.js';
 import type { ListingSummary, ListingStatus } from './listing.js';
-import type { User, UserProfile, UserSession } from './user.js';
+import type {
+  User,
+  UserProfile,
+  UserSession,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListResponse,
+  FollowRelationshipResponse,
+} from './user.js';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
 import type { CommentThread, Comment } from './comment.js';
 import type { ReactionCounts } from './reaction.js';
 import type { NotificationsResponse, UnreadCountResponse } from './notification.js';
 import type { AchievementsResponse } from './achievement.js';
-import type { ActivityResponse } from './activity.js';
+import type { ActivityResponse, PublicActivityResponse } from './activity.js';
 import type { LeaderboardResponse } from './leaderboard.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary };
 export type { ListingSummary };
-export type { User, UserProfile, UserSession };
+export type {
+  User,
+  UserProfile,
+  UserSession,
+  PublicUserProfile,
+  MyUserProfile,
+  FollowListResponse,
+  FollowRelationshipResponse,
+};
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
 export type { ReactionCounts };
 export type { NotificationsResponse, UnreadCountResponse };
 export type { AchievementsResponse };
-export type { ActivityResponse };
+export type { ActivityResponse, PublicActivityResponse };
 export type { LeaderboardResponse };
 
 // ============================================
@@ -104,21 +126,36 @@ export interface AuthMeResponse {
 // User API Types
 // ============================================
 
-export interface GetUserProfileResponse {
-  profile: UserProfile;
-}
+export type GetUserProfileResponse = PublicUserProfile;
+export type GetMyProfileResponse = MyUserProfile;
 
 export interface UpdateUserProfileRequest {
   displayName?: string;
+  profilePhotoUrl?: string;
+  homeCountry?: string | null;
 }
 
 export interface UpdateUserProfileResponse {
-  user: User;
+  id: string;
+  displayName: string;
+  profilePhotoUrl: string | null;
+  homeCountry: string | null;
+  lastNameChangeAt: string | null;
 }
 
 export interface GetUserGuessHistoryResponse {
   history: UserGuessHistory;
 }
+
+export interface GetFollowListRequest {
+  limit?: number;
+  offset?: number;
+}
+
+export type GetFollowersResponse = FollowListResponse;
+export type GetFollowingResponse = FollowListResponse;
+export type FollowUserResponse = FollowRelationshipResponse;
+export type UnfollowUserResponse = FollowRelationshipResponse;
 
 // ============================================
 // Property API Types
@@ -131,29 +168,103 @@ export interface GetUserGuessHistoryResponse {
  */
 export interface PropertyResolveRequest {
   postalCode: string;
-  houseNumber: string | number;
+  houseNumber: number;
   houseNumberAddition?: string;
   countryCode?: string;
   street?: string;
   city?: string;
 }
 
-export interface PropertyResolveResponse {
+export interface ResolvedProperty {
   id: string;
-  address: string;        // formatted: "Street Number, PostalCode City"
+  countryCode: string;
+  address: string;
   postalCode: string;
   city: string;
-  coordinates: { lon: number; lat: number };
-  hasListing: boolean;
+  coordinates: { lon: number; lat: number } | null;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
   officialValuation: number | null;
+}
+
+export type PropertyResolveResponse = ResolvedProperty | null;
+
+export type LatestListingStatus = 'active' | 'sold' | 'rented' | 'withdrawn' | null;
+
+export interface PropertyContractBase {
+  id: string;
+  nationalId: string | null;
   countryCode: string;
+  region: string | null;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
+  status: 'active' | 'inactive' | 'demolished';
+  officialValuation: number | null;
+  createdAt: string;
+  updatedAt: string;
+  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  latestListingStatus: LatestListingStatus;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  socialScore: number;
+  recentSocialScore: number;
+  lastSocialAt: string | null;
+  topLevelCommentCount: number;
+  replyCount: number;
+  propertyLikeCount: number;
+  commentLikeCount: number;
+  guessCount: number;
+  viewCount: number;
+  uniqueViewerCount: number;
+  recentTopLevelCommentCount: number;
+  recentReplyCount: number;
+  recentPropertyLikeCount: number;
+  recentCommentLikeCount: number;
+  recentGuessCount: number;
+  recentViewCount: number;
+  recentUniqueViewerCount: number;
+}
+
+export interface PropertyFmvResponse {
+  fmv: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  guessCount: number;
+  distribution: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+    min: number;
+    max: number;
+  } | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  divergence: number | null;
 }
 
 export interface GetPropertyRequest {
   id: string;
 }
 
-export type GetPropertyResponse = PropertyDetail;
+export interface GetPropertyResponse extends PropertyContractBase {
+  isLiked: boolean;
+  isSaved: boolean;
+  commentCount: number;
+  likeCount: number;
+  uniqueViewers: number;
+  fmv: PropertyFmvResponse;
+}
 
 // ============================================
 // Listing API Types
@@ -257,7 +368,7 @@ export interface LikeCommentResponse {
 
 // Feed tabs shown in the app UI.
 // Property feed tabs are derived from the canonical /feed contract.
-export type FeedTab = PropertyFeedFilter | 'recent-activity';
+export type FeedTab = PropertyFeedFilter | 'recent-activity' | 'following';
 
 // Filters accepted by the property-only /feed endpoint.
 export type PropertyFeedFilter = 'trending' | 'latest';
@@ -326,14 +437,33 @@ export interface SavedProperty {
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
-  hasListing: boolean;
-  askingPrice: number | null;
-  thumbnailUrl: string | null;
-  commentCount: number;
-  guessCount: number;
-  savedAt: string;
   createdAt: string;
   updatedAt: string;
+  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  latestListingStatus: LatestListingStatus;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  socialScore: number;
+  recentSocialScore: number;
+  lastSocialAt: string | null;
+  topLevelCommentCount: number;
+  replyCount: number;
+  propertyLikeCount: number;
+  commentLikeCount: number;
+  guessCount: number;
+  viewCount: number;
+  uniqueViewerCount: number;
+  recentTopLevelCommentCount: number;
+  recentReplyCount: number;
+  recentPropertyLikeCount: number;
+  recentCommentLikeCount: number;
+  recentGuessCount: number;
+  recentViewCount: number;
+  recentUniqueViewerCount: number;
+  savedAt: string;
+  isSaved: true;
 }
 
 export interface GetSavedPropertiesResponse {
@@ -341,6 +471,101 @@ export interface GetSavedPropertiesResponse {
   total: number;
   hasMore: boolean;
 }
+
+export interface PropertyTileJson {
+  tilejson: string;
+  name: string;
+  description: string;
+  tiles: string[];
+  minzoom: number;
+  maxzoom: number;
+  bounds: [number, number, number, number];
+}
+
+export interface FollowingPropertyTileRequest
+  extends Omit<PropertyMarketFilters, 'marketState'> {
+  marketState?: MapMarketState | MapMarketState[];
+  activity?: MapActivityFilter;
+}
+
+export type GetFollowingPropertyTilesRequest = FollowingPropertyTileRequest;
+
+export type GetFollowingPropertyTilesResponse = PropertyTileJson;
+
+export interface GetFollowingNearbyPropertyRequest extends FollowingPropertyTileRequest {
+  lon: number;
+  lat: number;
+  zoom?: number;
+}
+
+export type FollowingNearbyPropertyGroupBase = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+};
+
+export type FollowingNearbySinglePropertyResponse = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  groupKind: 'single';
+  address: string;
+  city: string;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+};
+
+export type FollowingNearbyClusterPropertyResponse = {
+  nodeClass: 'active' | 'ghost';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  distanceMeters: number;
+  bbox: [number, number, number, number] | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  groupKind: 'cluster';
+};
+
+export type FollowingNearbyPropertyResponse =
+  | FollowingNearbySinglePropertyResponse
+  | FollowingNearbyClusterPropertyResponse
+  | null;
+
+export type GetFollowingNearbyPropertyResponse = FollowingNearbyPropertyResponse;
 
 // ============================================
 // Notification API Types
@@ -373,7 +598,18 @@ export type GetLeaderboardResponse = LeaderboardResponse;
 // Activity API Types
 // ============================================
 
-export type GetActivityResponse = ActivityResponse;
+export interface GetActivityRequest {
+  scope?: 'public' | 'following';
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetUserActivityRequest {
+  limit?: number;
+  offset?: number;
+}
+
+export type GetActivityResponse = PublicActivityResponse;
 export type GetUserActivityResponse = ActivityResponse;
 
 // ============================================

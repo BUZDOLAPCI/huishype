@@ -21,6 +21,7 @@ import { splitHouseNumber, type ResolvedAddress } from '@/src/services/address-r
 import {
   resolveProperty,
   type PropertyResolveResult,
+  type PropertyResolveRequest,
 } from '@/src/utils/api';
 
 const DEFAULT_AREA_ZOOM = 14;
@@ -92,6 +93,44 @@ export interface RoutePropertyLike {
   streetName?: string | null;
   houseNumber?: string | number | null;
   houseNumberAddition?: string | null;
+}
+
+export type MapSocialScope = 'all' | 'following';
+
+const MAP_VIEW_STATE_HISTORY_KEY = 'huishypeMapView';
+const MAP_SOCIAL_SCOPE_SESSION_KEY = 'huishype.map.socialScope';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeMapSocialScope(value: unknown): MapSocialScope | null {
+  return value === 'following' ? 'following' : value === 'all' ? 'all' : null;
+}
+
+function readMapSocialScopeFromHistoryState(state: unknown): MapSocialScope | null {
+  if (!isRecord(state)) {
+    return null;
+  }
+
+  const mapViewState = state[MAP_VIEW_STATE_HISTORY_KEY];
+  if (!isRecord(mapViewState)) {
+    return null;
+  }
+
+  return normalizeMapSocialScope(mapViewState.socialScope);
+}
+
+function readMapSocialScopeFromSessionStorage(): MapSocialScope | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return normalizeMapSocialScope(window.sessionStorage.getItem(MAP_SOCIAL_SCOPE_SESSION_KEY));
+  } catch {
+    return null;
+  }
 }
 
 const localPreviewRouteCache = new Map<string, LocalPreviewResolvedMapRoute>();
@@ -187,6 +226,21 @@ function matchesPostcodeSuggestion(
   );
 }
 
+function buildPropertyResolveRequest(
+  routeInput: CanonicalPropertyRouteInput,
+): PropertyResolveRequest {
+  const houseNumber = Number.parseInt(String(routeInput.houseNumber).trim(), 10);
+
+  return {
+    postalCode: routeInput.postalCode,
+    houseNumber,
+    houseNumberAddition: routeInput.houseNumberAddition ?? null,
+    countryCode: routeInput.countryCode ?? null,
+    street: routeInput.streetName,
+    city: routeInput.city,
+  };
+}
+
 function buildCanonicalPathForKind(
   kind: 'preview' | 'property' | 'comments' | 'guesses',
   input: CanonicalPropertyRouteInput,
@@ -225,6 +279,10 @@ function buildSyntheticResolvedAddress(
   property: PropertyResolveResult,
   routeInput: CanonicalPropertyRouteInput,
 ): ResolvedAddress {
+  if (!property.coordinates) {
+    throw new Error('Cannot build a resolved address without property coordinates');
+  }
+
   const houseNumber = String(routeInput.houseNumber).trim();
   const addition = routeInput.houseNumberAddition?.trim() || null;
   const number = addition ? `${houseNumber} ${addition}` : houseNumber;
@@ -264,6 +322,10 @@ export function registerLocalPreviewRoute(
   property: PropertyResolveResult,
   routeInput: CanonicalPropertyRouteInput,
 ): void {
+  if (!property.coordinates) {
+    return;
+  }
+
   const canonicalPath = normalizePathname(pathname);
   localPreviewRouteCache.set(canonicalPath, {
     kind: 'preview',
@@ -465,14 +527,7 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
   }
 
   const routeInput = buildCanonicalInputFromLeafRoute(parsed, parsedHouse);
-  const property = await resolveProperty({
-    postalCode: routeInput.postalCode,
-    houseNumber: routeInput.houseNumber,
-    houseNumberAddition: routeInput.houseNumberAddition,
-    countryCode: routeInput.countryCode,
-    street: routeInput.streetName,
-    city: routeInput.city,
-  });
+  const property = await resolveProperty(buildPropertyResolveRequest(routeInput));
 
   if (!property) {
     return { kind: 'invalid', canonicalPath: '/', reason: 'property-not-found' };
@@ -483,6 +538,9 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
     parsedHouse,
     property,
   );
+  if (!property.coordinates) {
+    return { kind: 'invalid', canonicalPath: '/', reason: 'property-missing-coordinates' };
+  }
   const resolvedAddress = buildSyntheticResolvedAddress(property, canonicalRouteInput);
 
   return {
@@ -556,4 +614,57 @@ export function buildMapPreviewPathname(
   }
 
   return `/map/${trimmedSegments.join('/')}`;
+}
+
+export function parseMapSocialScopeFromSearchParams(
+  _params: URLSearchParams,
+): MapSocialScope {
+  return 'all';
+}
+
+export function getPersistedMapSocialScope(
+  params?: URLSearchParams,
+): MapSocialScope {
+  if (typeof window === 'undefined') {
+    return params ? parseMapSocialScopeFromSearchParams(params) : 'all';
+  }
+
+  return (
+    readMapSocialScopeFromHistoryState(window.history.state) ??
+    readMapSocialScopeFromSessionStorage() ??
+    'all'
+  );
+}
+
+export function persistMapSocialScope(socialScope: MapSocialScope): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const currentHistoryState = isRecord(window.history.state) ? window.history.state : {};
+  const nextHistoryState: Record<string, unknown> = { ...currentHistoryState };
+
+  if (socialScope === 'following') {
+    nextHistoryState[MAP_VIEW_STATE_HISTORY_KEY] = {
+      socialScope,
+    };
+  } else {
+    delete nextHistoryState[MAP_VIEW_STATE_HISTORY_KEY];
+  }
+
+  window.history.replaceState(
+    nextHistoryState,
+    '',
+    `${window.location.pathname}${window.location.search}`,
+  );
+
+  try {
+    if (socialScope === 'following') {
+      window.sessionStorage.setItem(MAP_SOCIAL_SCOPE_SESSION_KEY, socialScope);
+    } else {
+      window.sessionStorage.removeItem(MAP_SOCIAL_SCOPE_SESSION_KEY);
+    }
+  } catch {
+    // Best-effort browser persistence only.
+  }
 }

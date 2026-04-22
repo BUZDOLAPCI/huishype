@@ -10,7 +10,7 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
-import { propertyKeys, type Property } from './useProperties';
+import { getViewerCacheKey, propertyKeys, type Property } from './useProperties';
 
 export interface UsePropertyLikeOptions {
   propertyId: string | null;
@@ -106,10 +106,11 @@ export function usePropertyLike({
   onAuthRequired,
 }: UsePropertyLikeOptions): UsePropertyLikeReturn {
   const queryClient = useQueryClient();
-  const { user, getAccessToken } = useAuthContext();
+  const { user, getAccessToken, isAuthenticated } = useAuthContext();
+  const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   // Subscribe to the property detail query cache reactively
-  const queryKey = propertyId ? propertyKeys.detail(propertyId) : ['__noop__'];
+  const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : ['__noop__'];
   const { data: cachedProperty } = useQuery<EnrichedProperty>({
     queryKey,
     queryFn: () => Promise.reject(new Error('noop')),
@@ -124,7 +125,7 @@ export function usePropertyLike({
     mutationFn: ({ propId, token }: { propId: string; token: string }) =>
       likeProperty(propId, token),
     onMutate: async ({ propId }) => {
-      const key = propertyKeys.detail(propId);
+      const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
       const optimistic = previous
@@ -157,7 +158,7 @@ export function usePropertyLike({
       }
     },
     onSettled: (_data, _error, { propId }) => {
-      queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) });
+      queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) });
     },
   });
 
@@ -166,7 +167,7 @@ export function usePropertyLike({
     mutationFn: ({ propId, token }: { propId: string; token: string }) =>
       unlikeProperty(propId, token),
     onMutate: async ({ propId }) => {
-      const key = propertyKeys.detail(propId);
+      const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
       const optimistic = previous
@@ -199,7 +200,7 @@ export function usePropertyLike({
       }
     },
     onSettled: (_data, _error, { propId }) => {
-      queryClient.invalidateQueries({ queryKey: propertyKeys.detail(propId) });
+      queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) });
     },
   });
 

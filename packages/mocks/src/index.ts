@@ -29,7 +29,12 @@ export {
 } from './handlers/index.js';
 
 // Export auth helpers
-export { validateMockToken, getMockAuthUser, resetMockSessions } from './handlers/index.js';
+export {
+  validateMockToken,
+  getMockAuthUser,
+  resetMockSessions,
+  resetMockFollowState,
+} from './handlers/index.js';
 
 // Export fixtures for direct use in tests
 export {

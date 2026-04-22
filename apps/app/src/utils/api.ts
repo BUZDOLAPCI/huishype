@@ -1,15 +1,18 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import type {
+  PropertyResolveRequest as SharedPropertyResolveRequest,
   PropertyGroupBounds,
-  PropertyNodeGroup,
   PropertyResolveResponse,
 } from '@huishype/shared';
 import { withDerivedPropertyImageData } from './property-image';
 import {
   buildNearbyGroupPath,
   createDefaultMapFilters,
+  updateMapFilterSearchParams,
+  type MapActivityFilter,
   type MapFilters,
+  type MapMarketState,
 } from '@/src/lib/sharedMapFilters';
 
 const DEFAULT_API_PORT = '3100';
@@ -181,16 +184,23 @@ export async function apiFetch<T>(
 
 export type PropertyResolveResult = PropertyResolveResponse & {
   countryCode?: string | null;
+  hasActiveListing?: boolean;
+  marketState?: MapMarketState | null;
 };
 
-export interface PropertyResolveRequest {
-  postalCode: string;
-  houseNumber: string | number;
+export type PropertyResolveRequest = Omit<
+  SharedPropertyResolveRequest,
+  'houseNumberAddition' | 'countryCode' | 'street' | 'city'
+> & {
   houseNumberAddition?: string | null;
   countryCode?: string | null;
   street?: string | null;
   city?: string | null;
-}
+};
+
+type PropertyResolveRequestInput = Omit<PropertyResolveRequest, 'houseNumber'> & {
+  houseNumber: number | string;
+};
 
 function normalizePostalCodeForCompare(value: string): string {
   return value.replace(/\s/g, '').toUpperCase();
@@ -280,9 +290,27 @@ function resolvedPropertyMatchesRequest(
  * result tap handlers.
  */
 export async function resolveProperty(
-  request: PropertyResolveRequest,
+  requestInput: PropertyResolveRequestInput,
 ): Promise<PropertyResolveResult | null> {
   try {
+    const normalizedHouseNumber = Number.parseInt(
+      String(requestInput.houseNumber).trim(),
+      10,
+    );
+
+    if (!Number.isSafeInteger(normalizedHouseNumber) || normalizedHouseNumber <= 0) {
+      return null;
+    }
+
+    const request: PropertyResolveRequest = {
+      ...requestInput,
+      houseNumber: normalizedHouseNumber,
+      houseNumberAddition: requestInput.houseNumberAddition ?? undefined,
+      countryCode: requestInput.countryCode ?? undefined,
+      street: requestInput.street ?? undefined,
+      city: requestInput.city ?? undefined,
+    };
+
     const params = new URLSearchParams({
       postalCode: request.postalCode,
       houseNumber: String(request.houseNumber),
@@ -300,9 +328,12 @@ export async function resolveProperty(
       params.set('city', request.city);
     }
 
-    const result = await apiFetch<PropertyResolveResult>(
+    const result = await apiFetch<PropertyResolveResult | null>(
       `/properties/resolve?${params.toString()}`,
     );
+    if (!result) {
+      return null;
+    }
     if (!resolvedPropertyMatchesRequest(result, request)) {
       console.warn('[HuisHype] resolveProperty mismatch for canonical input:', {
         request,
@@ -334,12 +365,13 @@ export interface NearbyGroupedResult {
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
-  activityScore: number;
-  activityScoreTotal: number;
-  likeCount: number;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
   commentCount: number;
-  guessCount: number;
-  hasListing: boolean;
   streetName: string | null;
   houseNumber: number | null;
   houseNumberAddition: string | null;
@@ -352,11 +384,59 @@ export interface NearbyGroupedResult {
   thumbnailUrl: string | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
+  hasActiveListing?: boolean | null;
+  marketState?: MapMarketState | null;
+  isRead?: boolean | null;
+
+  // Temporary compatibility while backend tile payloads finish the cutover.
+  activityScore?: number;
+  activityScoreTotal?: number;
+  hasListing?: boolean;
 }
 
-export type NearbyPropertyGroup = PropertyNodeGroup & {
+export interface NormalizedPropertyNodeGroup {
+  nodeClass: 'active' | 'ghost';
+  groupKind: 'single' | 'cluster';
+  primaryPropertyId: string;
+  pointCount: number;
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  coordinate: [number, number];
+  bbox: PropertyGroupBounds | null;
+  activeListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+  streetName: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  countryCode: string | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
+  hasActiveListing: boolean | null;
+  marketState: MapMarketState | null;
+  isRead?: boolean | null;
+
+  // Legacy compatibility while downstream consumers finish the cutover.
+  hasListing: boolean;
+  activityScore: number;
+  activityScoreTotal: number;
+  likeCount: number;
+  guessCount: number;
+}
+
+export interface NearbyPropertyGroup extends NormalizedPropertyNodeGroup {
   distanceMeters: number;
-};
+}
 
 export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
   if (Array.isArray(value)) {
@@ -390,6 +470,49 @@ function toNullableString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function toNullableBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
+  }
+  return null;
+}
+
+function toNullableMarketState(value: unknown): MapMarketState | null {
+  return value === 'for-sale' ||
+    value === 'for-rent' ||
+    value === 'sold' ||
+    value === 'rented' ||
+    value === 'not-listed'
+    ? value
+    : null;
+}
+
+function getTransportValue(
+  properties: GeoJSON.GeoJsonProperties | Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  if (!properties) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = properties[key];
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeBbox(
   bbox: [number, number, number, number] | null | undefined,
 ): PropertyGroupBounds | null {
@@ -406,6 +529,21 @@ function normalizeBbox(
 }
 
 export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): NearbyPropertyGroup {
+  const activeListingCount = toNumber(
+    result.activeListingCount,
+    result.hasActiveListing ? 1 : 0,
+  );
+  const socialScoreTotal = toNumber(result.socialScoreTotal);
+  const socialScoreMax = toNumber(result.socialScoreMax, socialScoreTotal);
+  const recentSocialScoreTotal = toNumber(result.recentSocialScoreTotal);
+  const socialCount = toNumber(result.socialCount, socialScoreTotal > 0 ? 1 : 0);
+  const recentSocialCount = toNumber(
+    result.recentSocialCount,
+    recentSocialScoreTotal > 0 ? 1 : 0,
+  );
+  const hasActiveListing =
+    result.hasActiveListing ?? (activeListingCount > 0 ? true : false);
+
   return {
     nodeClass: result.nodeClass,
     groupKind: result.groupKind,
@@ -415,12 +553,18 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     previewPropertyIds: result.previewPropertyIds,
     coordinate: result.coordinate,
     bbox: normalizeBbox(result.bbox),
-    hasListing: result.hasListing,
-    activityScore: result.activityScore,
-    activityScoreTotal: result.activityScoreTotal,
-    likeCount: result.likeCount,
+    activeListingCount,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
     commentCount: result.commentCount,
-    guessCount: result.guessCount,
+    hasListing: hasActiveListing,
+    activityScore: socialScoreMax,
+    activityScoreTotal: socialScoreTotal,
+    likeCount: 0,
+    guessCount: 0,
     streetName: result.streetName,
     houseNumber: result.houseNumber,
     houseNumberAddition: result.houseNumberAddition,
@@ -433,13 +577,16 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     thumbnailUrl: result.thumbnailUrl,
     yearBuilt: result.yearBuilt ?? null,
     floorAreaM2: result.floorAreaM2 ?? null,
+    hasActiveListing,
+    marketState: result.marketState ?? null,
+    isRead: result.isRead ?? null,
     distanceMeters: result.distanceMeters,
   };
 }
 
 export function normalizeRenderedPropertyGroup(
   feature: GeoJSON.Feature,
-): PropertyNodeGroup | null {
+): NormalizedPropertyNodeGroup | null {
   const properties = feature.properties;
   const geometry = feature.geometry;
 
@@ -450,13 +597,17 @@ export function normalizeRenderedPropertyGroup(
   const nodeClass = toNullableString(properties.node_class);
   const groupKind = toNullableString(properties.group_kind);
   const propertyIds = parseTransportPropertyIds(
-    (properties.property_ids as string | string[] | undefined) ?? null,
+    getTransportValue(properties, 'property_ids') as string | string[] | null | undefined,
   );
   const previewPropertyIds = parseTransportPropertyIds(
-    (properties.preview_property_ids as string | string[] | undefined) ?? null,
+    getTransportValue(properties, 'preview_property_ids') as
+      | string
+      | string[]
+      | null
+      | undefined,
   );
   const primaryPropertyId =
-    toNullableString(properties.primary_property_id) ??
+    toNullableString(getTransportValue(properties, 'primary_property_id')) ??
     toNullableString(properties.id) ??
     propertyIds[0] ??
     null;
@@ -469,6 +620,34 @@ export function normalizeRenderedPropertyGroup(
     return null;
   }
 
+  const activeListingCount = toNumber(
+    getTransportValue(properties, 'activeListingCount', 'active_listing_count'),
+    toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing'))
+      ? 1
+      : 0,
+  );
+  const socialScoreTotal = toNumber(
+    getTransportValue(properties, 'socialScoreTotal', 'social_score_total'),
+  );
+  const socialScoreMax = toNumber(
+    getTransportValue(properties, 'socialScoreMax', 'social_score_max'),
+    socialScoreTotal,
+  );
+  const recentSocialScoreTotal = toNumber(
+    getTransportValue(properties, 'recentSocialScoreTotal', 'recent_social_score_total'),
+  );
+  const socialCount = toNumber(
+    getTransportValue(properties, 'socialCount', 'social_count'),
+    socialScoreTotal > 0 ? 1 : 0,
+  );
+  const recentSocialCount = toNumber(
+    getTransportValue(properties, 'recentSocialCount', 'recent_social_count'),
+    recentSocialScoreTotal > 0 ? 1 : 0,
+  );
+  const hasActiveListing =
+    toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing')) ??
+    (activeListingCount > 0 ? true : false);
+
   return {
     nodeClass,
     groupKind,
@@ -478,35 +657,50 @@ export function normalizeRenderedPropertyGroup(
     previewPropertyIds: previewPropertyIds.length > 0 ? previewPropertyIds : propertyIds,
     coordinate: geometry.coordinates as [number, number],
     bbox:
-      toNullableNumber(properties.bbox_west) != null &&
-      toNullableNumber(properties.bbox_south) != null &&
-      toNullableNumber(properties.bbox_east) != null &&
-      toNullableNumber(properties.bbox_north) != null
+      toNullableNumber(getTransportValue(properties, 'bbox_west')) != null &&
+      toNullableNumber(getTransportValue(properties, 'bbox_south')) != null &&
+      toNullableNumber(getTransportValue(properties, 'bbox_east')) != null &&
+      toNullableNumber(getTransportValue(properties, 'bbox_north')) != null
         ? {
-            west: toNumber(properties.bbox_west),
-            south: toNumber(properties.bbox_south),
-            east: toNumber(properties.bbox_east),
-            north: toNumber(properties.bbox_north),
+            west: toNumber(getTransportValue(properties, 'bbox_west')),
+            south: toNumber(getTransportValue(properties, 'bbox_south')),
+            east: toNumber(getTransportValue(properties, 'bbox_east')),
+            north: toNumber(getTransportValue(properties, 'bbox_north')),
           }
         : null,
-    hasListing: Boolean(properties.hasListing),
-    activityScore: toNumber(properties.activityScore),
-    activityScoreTotal: toNumber(properties.activityScoreTotal, toNumber(properties.activityScore)),
-    likeCount: toNumber(properties.likeCount),
-    commentCount: toNumber(properties.commentCount),
-    guessCount: toNumber(properties.guessCount),
-    streetName: toNullableString(properties.streetName),
-    houseNumber: toNullableNumber(properties.houseNumber),
-    houseNumberAddition: toNullableString(properties.houseNumberAddition),
-    address: toNullableString(properties.address),
-    city: toNullableString(properties.city),
-    postalCode: toNullableString(properties.postalCode),
-    countryCode: toNullableString(properties.countryCode),
-    officialValuation: toNullableNumber(properties.officialValuation),
-    askingPrice: toNullableNumber(properties.askingPrice),
-    thumbnailUrl: toNullableString(properties.thumbnailUrl),
-    yearBuilt: toNullableNumber(properties.yearBuilt),
-    floorAreaM2: toNullableNumber(properties.floorAreaM2),
+    activeListingCount,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
+    commentCount: toNumber(getTransportValue(properties, 'commentCount', 'comment_count')),
+    hasListing: hasActiveListing,
+    activityScore: socialScoreMax,
+    activityScoreTotal: socialScoreTotal,
+    likeCount: toNumber(getTransportValue(properties, 'likeCount', 'like_count')),
+    guessCount: toNumber(getTransportValue(properties, 'guessCount', 'guess_count')),
+    streetName: toNullableString(getTransportValue(properties, 'streetName', 'street_name')),
+    houseNumber: toNullableNumber(getTransportValue(properties, 'houseNumber', 'house_number')),
+    houseNumberAddition: toNullableString(
+      getTransportValue(properties, 'houseNumberAddition', 'house_number_addition'),
+    ),
+    address: toNullableString(getTransportValue(properties, 'address')),
+    city: toNullableString(getTransportValue(properties, 'city')),
+    postalCode: toNullableString(getTransportValue(properties, 'postalCode', 'postal_code')),
+    countryCode: toNullableString(getTransportValue(properties, 'countryCode', 'country_code')),
+    officialValuation: toNullableNumber(
+      getTransportValue(properties, 'officialValuation', 'official_valuation'),
+    ),
+    askingPrice: toNullableNumber(getTransportValue(properties, 'askingPrice', 'asking_price')),
+    thumbnailUrl: toNullableString(getTransportValue(properties, 'thumbnailUrl', 'thumbnail_url')),
+    yearBuilt: toNullableNumber(getTransportValue(properties, 'yearBuilt', 'year_built')),
+    floorAreaM2: toNullableNumber(getTransportValue(properties, 'floorAreaM2', 'floor_area_m2')),
+    hasActiveListing,
+    marketState: toNullableMarketState(
+      getTransportValue(properties, 'marketState', 'market_state'),
+    ),
+    isRead: toNullableBoolean(getTransportValue(properties, 'isRead', 'is_read')),
   };
 }
 
@@ -532,6 +726,48 @@ export async function fetchNearbyGroup(
   }
 }
 
+function buildFollowingNearbyGroupPath(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: MapFilters,
+  followingActivity: MapActivityFilter,
+): string {
+  const params = updateMapFilterSearchParams(
+    new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+    }),
+    filters,
+  );
+
+  params.delete('activity');
+  if (followingActivity !== 'all') {
+    params.set('activity', followingActivity);
+  }
+
+  return `/properties/following-nearby?${params.toString()}`;
+}
+
+export async function fetchFollowingNearbyGroup(
+  lon: number,
+  lat: number,
+  zoom: number,
+  filters: MapFilters = createDefaultMapFilters(),
+  followingActivity: MapActivityFilter = 'all-time',
+): Promise<NearbyPropertyGroup | null> {
+  try {
+    const result = await apiFetch<NearbyGroupedResult | null>(
+      buildFollowingNearbyGroupPath(lon, lat, zoom, filters, followingActivity),
+    );
+    return result ? normalizeNearbyPropertyGroup(result) : null;
+  } catch (err) {
+    console.warn('[HuisHype] fetchFollowingNearbyGroup failed:', err);
+    return null;
+  }
+}
+
 // --- Batch property lookup (imperative, not a hook) ---
 
 /** Shape returned by GET /properties/batch */
@@ -549,15 +785,41 @@ export interface BatchProperty {
   status: string;
   officialValuation: number | null;
   hasListing: boolean;
+  hasActiveListing?: boolean;
+  marketState?: MapMarketState;
+  latestListingStatus?: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
   askingPrice: number | null;
-  likeCount: number;
-  commentCount: number;
+  socialScore?: number;
+  recentSocialScore?: number;
+  lastSocialAt?: string | null;
+  topLevelCommentCount?: number;
+  replyCount?: number;
+  propertyLikeCount?: number;
+  commentLikeCount?: number;
   guessCount: number;
+  viewCount?: number;
+  uniqueViewerCount?: number;
+  recentTopLevelCommentCount?: number;
+  recentReplyCount?: number;
+  recentPropertyLikeCount?: number;
+  recentCommentLikeCount?: number;
+  recentGuessCount?: number;
+  recentViewCount?: number;
+  recentUniqueViewerCount?: number;
+  likeCount?: number;
+  commentCount?: number;
   activityScore?: number;
+  isRead?: boolean | null;
   aerialImageUrl?: string | null;
   thumbnailUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function normalizeBatchPropertiesResponse(
+  response: BatchProperty[],
+): BatchProperty[] {
+  return response.map((property) => withDerivedPropertyImageData(property));
 }
 
 /**
@@ -571,7 +833,7 @@ export async function fetchBatchProperties(
   const result = await apiFetch<BatchProperty[]>(
     `/properties/batch?ids=${ids.join(',')}`,
   );
-  return result.map((property) => withDerivedPropertyImageData(property));
+  return normalizeBatchPropertiesResponse(result);
 }
 
 // Convenience methods

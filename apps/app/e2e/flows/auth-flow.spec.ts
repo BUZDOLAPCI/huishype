@@ -7,16 +7,28 @@
  * - Unauthenticated users get 401 on protected routes
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { createTestUser } from './helpers/test-user';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 const SCREENSHOT_DIR = getPlaywrightArtifactPath('flows');
+const AUTH_API_REQUEST_TIMEOUT_MS = 45_000;
 
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+
+async function postMockGoogleLogin(request: APIRequestContext, uniqueId: string) {
+  return request.post(`${API_BASE_URL}/auth/google`, {
+    data: {
+      idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
+    },
+    // Under full-suite load the shared API can take longer than Playwright's
+    // default per-request timeout even though the auth path still succeeds.
+    timeout: AUTH_API_REQUEST_TIMEOUT_MS,
+  });
+}
 
 test.use({ trace: 'off' });
 
@@ -80,11 +92,7 @@ test.describe('Auth Flow', () => {
 
   test('Auth API: mock Google login creates new user', async ({ request }) => {
     const uniqueId = `e2eauth${Date.now()}`;
-    const response = await request.post(`${API_BASE_URL}/auth/google`, {
-      data: {
-        idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
-      },
-    });
+    const response = await postMockGoogleLogin(request, uniqueId);
 
     expect(response.ok()).toBe(true);
     const body = await response.json();
@@ -105,6 +113,7 @@ test.describe('Auth Flow', () => {
 
     const response = await request.get(`${API_BASE_URL}/auth/me`, {
       headers: { authorization: `Bearer ${user.accessToken}` },
+      timeout: AUTH_API_REQUEST_TIMEOUT_MS,
     });
 
     expect(response.ok()).toBe(true);
@@ -114,23 +123,22 @@ test.describe('Auth Flow', () => {
   });
 
   test('Auth API: /auth/me returns 401 without token', async ({ request }) => {
-    const response = await request.get(`${API_BASE_URL}/auth/me`);
+    const response = await request.get(`${API_BASE_URL}/auth/me`, {
+      timeout: AUTH_API_REQUEST_TIMEOUT_MS,
+    });
     expect(response.status()).toBe(401);
   });
 
   test('Auth API: token refresh works', async ({ request }) => {
     const uniqueId = `e2erefresh${Date.now()}`;
-    const loginResp = await request.post(`${API_BASE_URL}/auth/google`, {
-      data: {
-        idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
-      },
-    });
+    const loginResp = await postMockGoogleLogin(request, uniqueId);
 
     const loginBody = await loginResp.json();
     const { refreshToken } = loginBody.session;
 
     const refreshResp = await request.post(`${API_BASE_URL}/auth/refresh`, {
       data: { refreshToken },
+      timeout: AUTH_API_REQUEST_TIMEOUT_MS,
     });
 
     expect(refreshResp.ok()).toBe(true);
@@ -147,7 +155,9 @@ test.describe('Auth Flow', () => {
     ];
 
     for (const endpoint of protectedEndpoints) {
-      const response = await request[endpoint.method.toLowerCase() as 'get'](endpoint.url);
+      const response = await request[endpoint.method.toLowerCase() as 'get'](endpoint.url, {
+        timeout: AUTH_API_REQUEST_TIMEOUT_MS,
+      });
       expect(
         response.status(),
         `${endpoint.method} ${endpoint.url} should return 401`
@@ -184,17 +194,14 @@ test.describe('Auth Flow', () => {
 
   test('Auth API: logout returns 204', async ({ request }) => {
     const uniqueId = `e2elogout${Date.now()}`;
-    const loginResp = await request.post(`${API_BASE_URL}/auth/google`, {
-      data: {
-        idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
-      },
-    });
+    const loginResp = await postMockGoogleLogin(request, uniqueId);
     const loginBody = await loginResp.json();
     const { refreshToken } = loginBody.session;
 
     // Logout should return 204
     const logoutResp = await request.post(`${API_BASE_URL}/auth/logout`, {
       data: { refreshToken },
+      timeout: AUTH_API_REQUEST_TIMEOUT_MS,
     });
     expect(logoutResp.status()).toBe(204);
   });

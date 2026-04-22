@@ -36,8 +36,10 @@ export interface ActivityFeedCardProps {
   };
   /** ISO timestamp. */
   createdAt: string;
-  /** Called when the card is pressed. */
-  onPress?: () => void;
+  /** Called when the property is pressed. */
+  onPropertyPress?: () => void;
+  /** Called when the actor row is pressed. */
+  onActorPress?: () => void;
 }
 
 // --- Action badge config ---
@@ -103,18 +105,19 @@ export function ActivityFeedCard({
   actor,
   property,
   createdAt,
-  onPress,
+  onPropertyPress,
+  onActorPress,
 }: ActivityFeedCardProps) {
   const config = ACTION_CONFIGS[eventType];
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={styles.pressable}
-      accessibilityRole="button"
-    >
-      <Card shadow="card" testID="activity-feed-card">
-        {/* Property image */}
+    <Card shadow="card" testID="activity-feed-card" style={styles.card}>
+      <Pressable
+        onPress={onPropertyPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${property.address}`}
+        testID="activity-feed-property-button"
+      >
         <View style={styles.imageWrapper}>
           <PropertyImageSurface
             source={{ listingPhotoUrl: property.thumbnailUrl }}
@@ -128,15 +131,22 @@ export function ActivityFeedCard({
           />
         </View>
 
-        {/* Content */}
         <View style={styles.body}>
-          {/* Address */}
           <Text style={styles.address} numberOfLines={1}>
-            {property.address} · {property.city}
+            {property.address}
           </Text>
+        </View>
+      </Pressable>
 
-          {/* User row */}
-          <View style={styles.userRow}>
+      <View style={styles.body}>
+        <View style={styles.metaRow}>
+          <Pressable
+            onPress={onActorPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${actor.displayName}'s profile`}
+            style={styles.userRow}
+            testID="activity-feed-actor-button"
+          >
             <UserAvatar
               username={actor.handle}
               displayName={actor.displayName}
@@ -147,12 +157,13 @@ export function ActivityFeedCard({
               <Text style={styles.userName} numberOfLines={1}>
                 {actor.displayName}
               </Text>
-              <Text style={styles.timestamp}>
-                {formatRelativeTime(createdAt)}
-              </Text>
             </View>
+          </Pressable>
 
-            {/* Action badge */}
+          <View style={styles.metaRight}>
+            <Text style={styles.timestamp}>
+              {formatRelativeTime(createdAt)}
+            </Text>
             <View style={[styles.actionBadge, { backgroundColor: config.bg }]}>
               <Icon
                 name={config.icon}
@@ -165,24 +176,14 @@ export function ActivityFeedCard({
               </Text>
             </View>
           </View>
-
-          {/* Simple stats row */}
-          <View style={styles.metricsRow}>
-            <View style={styles.metric}>
-              <Icon name="Heart" size={15} color="#C7BFB3" />
-            </View>
-            <View style={styles.metric}>
-              <Icon name="ChatCircle" size={15} color="#42A5F5" />
-            </View>
-          </View>
         </View>
-      </Card>
-    </Pressable>
+      </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  pressable: {
+  card: {
     marginHorizontal: 16,
     marginBottom: 16,
   },
@@ -211,10 +212,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9C958A', // warm-500
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
   },
   userInfo: {
     flex: 1,
@@ -229,6 +237,10 @@ const styles = StyleSheet.create({
     color: '#9C958A', // warm-500
     marginTop: 1,
   },
+  metaRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   actionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -240,14 +252,5 @@ const styles = StyleSheet.create({
   actionBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  metric: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
   },
 });

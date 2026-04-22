@@ -1,13 +1,8 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
+import { buildPropertyListingFactsJoin } from './property-queries.js';
 
-export const MAP_MARKET_STATES = [
-  'for-sale',
-  'for-rent',
-  'sold',
-  'rented',
-  'not-listed',
-] as const;
+export const MAP_MARKET_STATES = ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'] as const;
 
 const MAP_MARKET_STATE_SET = new Set<string>(MAP_MARKET_STATES);
 const DEFAULT_MARKET_STATE_ORDER = [...MAP_MARKET_STATES];
@@ -22,7 +17,10 @@ export interface MapFilters {
   rentPriceFrom: number | null;
   rentPriceTo: number | null;
   marketState: MapMarketState[];
+  activity: MapActivityFilter;
 }
+
+export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
 
 type MapFilterQueryInput = {
   salePriceFrom?: number;
@@ -30,6 +28,7 @@ type MapFilterQueryInput = {
   rentPriceFrom?: number;
   rentPriceTo?: number;
   marketState?: string | string[];
+  activity?: MapActivityFilter;
 };
 
 export const mapFiltersQuerySchema = z.object({
@@ -38,6 +37,15 @@ export const mapFiltersQuerySchema = z.object({
   rentPriceFrom: z.coerce.number().optional(),
   rentPriceTo: z.coerce.number().optional(),
   marketState: z.union([z.string(), z.array(z.string())]).optional(),
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+});
+
+export const propertyMarketFiltersQuerySchema = mapFiltersQuerySchema.omit({
+  activity: true,
+});
+
+export const followingMapFiltersQuerySchema = mapFiltersQuerySchema.extend({
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all-time'),
 });
 
 export type PropertyMarketFilterQuery = {
@@ -53,6 +61,7 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceFrom: null,
     rentPriceTo: null,
     marketState: [...DEFAULT_MARKET_STATE_ORDER],
+    activity: 'all',
   };
 }
 
@@ -108,7 +117,18 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
         ? rentPriceFrom
         : rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...DEFAULT_MARKET_STATE_ORDER],
+    activity: isMapActivityFilter(filters.activity) ? filters.activity : 'all',
   };
+}
+
+function isMapActivityFilter(value: string | null | undefined): value is MapActivityFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '10d' ||
+    value === '30d' ||
+    value === 'all-time'
+  );
 }
 
 export function parseMapFiltersQuery(query: unknown): MapFilters {
@@ -120,6 +140,37 @@ export function parseMapFiltersQuery(query: unknown): MapFilters {
     rentPriceFrom: parsed.rentPriceFrom ?? null,
     rentPriceTo: parsed.rentPriceTo ?? null,
     marketState: parseMarketStateInput(parsed.marketState),
+    activity: parsed.activity ?? 'all',
+  });
+}
+
+export function parsePropertyMarketFiltersQuery(query: unknown): MapFilters {
+  const parsed = propertyMarketFiltersQuerySchema.parse(query) as Omit<
+    MapFilterQueryInput,
+    'activity'
+  >;
+
+  return normalizeMapFilters({
+    salePriceFrom: parsed.salePriceFrom ?? null,
+    salePriceTo: parsed.salePriceTo ?? null,
+    rentPriceFrom: parsed.rentPriceFrom ?? null,
+    rentPriceTo: parsed.rentPriceTo ?? null,
+    marketState: parseMarketStateInput(parsed.marketState),
+    activity: 'all',
+  });
+}
+
+export function parseFollowingMapFiltersQuery(query: unknown): MapFilters {
+  const parsed = followingMapFiltersQuerySchema.parse(query) as MapFilterQueryInput;
+  const activity = parsed.activity === 'all' ? 'all-time' : (parsed.activity ?? 'all-time');
+
+  return normalizeMapFilters({
+    salePriceFrom: parsed.salePriceFrom ?? null,
+    salePriceTo: parsed.salePriceTo ?? null,
+    rentPriceFrom: parsed.rentPriceFrom ?? null,
+    rentPriceTo: parsed.rentPriceTo ?? null,
+    marketState: parseMarketStateInput(parsed.marketState),
+    activity,
   });
 }
 
@@ -129,12 +180,16 @@ export function areMapFiltersDefault(filters: MapFilters): boolean {
     filters.salePriceTo == null &&
     filters.rentPriceFrom == null &&
     filters.rentPriceTo == null &&
+    filters.activity === 'all' &&
     filters.marketState.length === DEFAULT_MARKET_STATE_ORDER.length &&
     filters.marketState.every((value, index) => value === DEFAULT_MARKET_STATE_ORDER[index])
   );
 }
 
-function applyMapFiltersToSearchParams(params: URLSearchParams, filters: MapFilters): URLSearchParams {
+function applyMapFiltersToSearchParams(
+  params: URLSearchParams,
+  filters: MapFilters
+): URLSearchParams {
   const normalized = normalizeMapFilters(filters);
   const next = new URLSearchParams(params.toString());
 
@@ -143,6 +198,7 @@ function applyMapFiltersToSearchParams(params: URLSearchParams, filters: MapFilt
   next.delete('rentPriceFrom');
   next.delete('rentPriceTo');
   next.delete('marketState');
+  next.delete('activity');
 
   if (normalized.salePriceFrom != null) {
     next.set('salePriceFrom', String(normalized.salePriceFrom));
@@ -158,6 +214,9 @@ function applyMapFiltersToSearchParams(params: URLSearchParams, filters: MapFilt
   }
   if (normalized.marketState.length !== DEFAULT_MARKET_STATE_ORDER.length) {
     next.set('marketState', normalized.marketState.join(','));
+  }
+  if (normalized.activity !== 'all') {
+    next.set('activity', normalized.activity);
   }
 
   return next;
@@ -178,7 +237,10 @@ export function buildPropertyTileTemplateUrl(baseUrl: string, filters: MapFilter
 }
 
 function buildStateList(states: readonly MapMarketState[]): SQL {
-  return sql`(${sql.join(states.map((state) => sql`${state}`), sql`, `)})`;
+  return sql`(${sql.join(
+    states.map((state) => sql`${state}`),
+    sql`, `
+  )})`;
 }
 
 function buildScopedPricePredicate(
@@ -187,7 +249,7 @@ function buildScopedPricePredicate(
   impactedStates: readonly MapMarketState[],
   unaffectedStates: readonly MapMarketState[],
   operator: '>=' | '<=',
-  value: number,
+  value: number
 ): SQL {
   return sql`(
     ${marketStateColumn} IN ${buildStateList(unaffectedStates)}
@@ -200,9 +262,14 @@ function buildScopedPricePredicate(
 
 export function buildPropertyMarketFilterQuery(
   filters: MapFilters,
-  propertyAlias = 'p',
+  propertyAlias = 'p'
 ): PropertyMarketFilterQuery {
-  const normalized = normalizeMapFilters(filters);
+  // Property market filtering is layered separately from activity filtering, so
+  // activity-only requests should not force listing/effective-price joins.
+  const normalized = normalizeMapFilters({
+    ...filters,
+    activity: 'all',
+  });
 
   if (areMapFiltersDefault(normalized)) {
     return {
@@ -212,129 +279,19 @@ export function buildPropertyMarketFilterQuery(
     };
   }
 
-  const propertyIdColumn = sql.raw(`${propertyAlias}.id`);
-  const officialValuationColumn = sql.raw(`${propertyAlias}.official_valuation`);
-  const needsSaleFacts = normalized.salePriceFrom != null || normalized.salePriceTo != null;
-  const needsRentFacts = normalized.rentPriceFrom != null || normalized.rentPriceTo != null;
-
-  const soldHistoryJoin = needsSaleFacts
-    ? sql`
-        LEFT JOIN LATERAL (
-          SELECT ph.price AS last_sold_price
-          FROM price_history ph
-          WHERE ph.property_id = ${propertyIdColumn}
-            AND ph.event_type = 'sold'
-          ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) sold_history ON TRUE
-      `
-    : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS last_sold_price) sold_history ON TRUE`;
-
-  const rentedHistoryJoin = needsRentFacts
-    ? sql`
-        LEFT JOIN LATERAL (
-          SELECT ph.price AS last_rented_price
-          FROM price_history ph
-          WHERE ph.property_id = ${propertyIdColumn}
-            AND ph.event_type = 'rented'
-          ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) rented_history ON TRUE
-      `
-    : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS last_rented_price) rented_history ON TRUE`;
-
-  const guessFactsJoin = needsSaleFacts
-    ? sql`
-        LEFT JOIN LATERAL (
-          SELECT
-            guess_base.guess_count,
-            CASE
-              WHEN guess_base.guess_count = 0 OR guess_base.weighted_mean IS NULL THEN NULL
-              WHEN guess_base.guess_count <= 2 THEN ROUND(
-                CASE
-                  WHEN ${officialValuationColumn} IS NOT NULL
-                    THEN ${officialValuationColumn}::numeric * 0.7 + guess_base.weighted_mean * 0.3
-                  ELSE guess_base.weighted_mean
-                END
-              )::bigint
-              WHEN guess_base.guess_count <= 9 THEN ROUND(
-                CASE
-                  WHEN ${officialValuationColumn} IS NOT NULL
-                    THEN ${officialValuationColumn}::numeric * 0.3 + guess_base.weighted_mean * 0.7
-                  ELSE guess_base.weighted_mean
-                END
-              )::bigint
-              ELSE ROUND(guess_base.weighted_mean)::bigint
-            END AS canonical_fmv
-          FROM (
-            SELECT
-              COUNT(*)::int AS guess_count,
-              SUM(pg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
-                / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0) AS weighted_mean
-            FROM price_guesses pg
-            INNER JOIN users u ON u.id = pg.user_id
-            WHERE pg.property_id = ${propertyIdColumn}
-              AND pg.is_meme_guess = FALSE
-          ) guess_base
-        ) guess_facts ON TRUE
-      `
-    : sql`LEFT JOIN LATERAL (SELECT 0::int AS guess_count, NULL::bigint AS canonical_fmv) guess_facts ON TRUE`;
-
-  const join = sql`
-    LEFT JOIN LATERAL (
-      SELECT
-        CASE
-          WHEN active_listing.active_price_type = 'rent' THEN 'for-rent'
-          WHEN active_listing.active_asking_price IS NOT NULL THEN 'for-sale'
-          WHEN terminal_listing.latest_terminal_listing_status = 'sold' THEN 'sold'
-          WHEN terminal_listing.latest_terminal_listing_status = 'rented' THEN 'rented'
-          ELSE 'not-listed'
-        END AS market_state,
-        COALESCE(
-          CASE
-            WHEN active_listing.active_price_type = 'sale' THEN active_listing.active_asking_price
-            ELSE NULL
-          END,
-          sold_history.last_sold_price,
-          guess_facts.canonical_fmv,
-          ${officialValuationColumn}
-        ) AS sale_effective_price,
-        COALESCE(
-          CASE
-            WHEN active_listing.active_price_type = 'rent' THEN active_listing.active_asking_price
-            ELSE NULL
-          END,
-          rented_history.last_rented_price
-        ) AS rent_effective_price
-      FROM (SELECT 1) AS _seed
-      LEFT JOIN LATERAL (
-        SELECT
-          l.asking_price AS active_asking_price,
-          COALESCE(NULLIF(l.price_type, ''), 'sale') AS active_price_type
-        FROM listings l
-        WHERE l.property_id = ${propertyIdColumn}
-          AND l.status = 'active'
-        ORDER BY l.created_at DESC, l.id DESC
-        LIMIT 1
-      ) active_listing ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT l.status AS latest_terminal_listing_status
-        FROM listings l
-        WHERE l.property_id = ${propertyIdColumn}
-          AND l.status IN ('sold', 'rented', 'withdrawn')
-        ORDER BY l.created_at DESC, l.id DESC
-        LIMIT 1
-      ) terminal_listing ON TRUE
-      ${soldHistoryJoin}
-      ${rentedHistoryJoin}
-      ${guessFactsJoin}
-    ) mf ON TRUE
-  `;
+  const requiresEffectivePrices =
+    normalized.salePriceFrom != null ||
+    normalized.salePriceTo != null ||
+    normalized.rentPriceFrom != null ||
+    normalized.rentPriceTo != null;
+  const join = buildPropertyListingFactsJoin(propertyAlias, 'lf', {
+    includeEffectivePrices: requiresEffectivePrices,
+  });
 
   const predicates: SQL[] = [];
-  const marketStateColumn = sql.raw('mf.market_state');
-  const saleEffectivePriceColumn = sql.raw('mf.sale_effective_price');
-  const rentEffectivePriceColumn = sql.raw('mf.rent_effective_price');
+  const marketStateColumn = sql.raw('lf.market_state');
+  const saleEffectivePriceColumn = sql.raw('lf.sale_effective_price');
+  const rentEffectivePriceColumn = sql.raw('lf.rent_effective_price');
 
   if (normalized.marketState.length !== DEFAULT_MARKET_STATE_ORDER.length) {
     predicates.push(sql`${marketStateColumn} IN ${buildStateList(normalized.marketState)}`);
@@ -348,8 +305,8 @@ export function buildPropertyMarketFilterQuery(
         SALE_MARKET_STATES,
         RENT_MARKET_STATES,
         '>=',
-        normalized.salePriceFrom,
-      ),
+        normalized.salePriceFrom
+      )
     );
   }
 
@@ -361,8 +318,8 @@ export function buildPropertyMarketFilterQuery(
         SALE_MARKET_STATES,
         RENT_MARKET_STATES,
         '<=',
-        normalized.salePriceTo,
-      ),
+        normalized.salePriceTo
+      )
     );
   }
 
@@ -374,8 +331,8 @@ export function buildPropertyMarketFilterQuery(
         RENT_MARKET_STATES,
         SALE_MARKET_STATES,
         '>=',
-        normalized.rentPriceFrom,
-      ),
+        normalized.rentPriceFrom
+      )
     );
   }
 
@@ -387,8 +344,8 @@ export function buildPropertyMarketFilterQuery(
         RENT_MARKET_STATES,
         SALE_MARKET_STATES,
         '<=',
-        normalized.rentPriceTo,
-      ),
+        normalized.rentPriceTo
+      )
     );
   }
 
