@@ -20,6 +20,11 @@ const actorSchema = z.object({
   profilePhotoUrl: z.string().nullable(),
 });
 
+const coordinateSchema = z.object({
+  type: z.literal('Point'),
+  coordinates: z.tuple([z.number(), z.number()]),
+});
+
 const propertyPayloadSchema = z.object({
   id: z.string().uuid(),
   address: z.string(),
@@ -29,6 +34,7 @@ const propertyPayloadSchema = z.object({
   city: z.string(),
   postalCode: z.string(),
   countryCode: z.string(),
+  geometry: coordinateSchema.nullable(),
   thumbnailUrl: z.string().nullable(),
 });
 

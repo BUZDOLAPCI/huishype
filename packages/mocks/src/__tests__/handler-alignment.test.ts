@@ -748,6 +748,7 @@ describe('Mock handler runtime parity', () => {
     expect(publicBody.items[0].property).toHaveProperty('streetName');
     expect(publicBody.items[0].property).toHaveProperty('postalCode');
     expect(publicBody.items[0].property).toHaveProperty('countryCode');
+    expect(publicBody.items[0].property).toHaveProperty('geometry');
 
     const unauthorizedFollowingResponse = await fetch('http://localhost/activity?scope=following');
     expect(unauthorizedFollowingResponse.status).toBe(401);

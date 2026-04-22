@@ -38,6 +38,7 @@ interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType>
     city: string;
     postalCode: string;
     countryCode: string;
+    geometry: { type: 'Point'; coordinates: [number, number] } | null;
     thumbnailUrl: string | null;
   };
   createdAt: string;
@@ -106,6 +107,10 @@ function toActivityAddress(propertyId: string) {
     city: property.city,
     postalCode: property.postalCode ?? '',
     countryCode: property.countryCode,
+    geometry: {
+      type: 'Point' as const,
+      coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
+    },
     thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
   };
 }

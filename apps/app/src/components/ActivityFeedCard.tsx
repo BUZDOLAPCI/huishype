@@ -14,6 +14,7 @@ import { UserAvatar } from './ui/UserAvatar';
 import { Card } from './ui/Card';
 import type { ActivityEventType } from '../hooks/useUserActivity';
 import { PropertyImageSurface } from './PropertyImageSurface';
+import { toPropertyImageSource } from '../utils/property-image';
 
 export interface ActivityFeedCardProps {
   /** Unique activity event ID. */
@@ -32,6 +33,8 @@ export interface ActivityFeedCardProps {
     id: string;
     address: string;
     city: string;
+    countryCode: string;
+    geometry: { type: 'Point'; coordinates: [number, number] } | null;
     thumbnailUrl: string | null;
   };
   /** ISO timestamp. */
@@ -121,9 +124,10 @@ function ActivityFeedCardComponent({
       >
         <View style={styles.imageWrapper}>
           <PropertyImageSurface
-            source={{ listingPhotoUrl: property.thumbnailUrl }}
+            source={toPropertyImageSource(property)}
             style={styles.image}
             imageTestID="activity-feed-image"
+            markerTestID="activity-feed-image-marker"
             placeholder={(
               <View style={styles.placeholder}>
                 <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
@@ -198,6 +202,9 @@ function areActivityFeedCardPropsEqual(
     prev.property.id === next.property.id &&
     prev.property.address === next.property.address &&
     prev.property.city === next.property.city &&
+    prev.property.countryCode === next.property.countryCode &&
+    prev.property.geometry?.coordinates[0] === next.property.geometry?.coordinates[0] &&
+    prev.property.geometry?.coordinates[1] === next.property.geometry?.coordinates[1] &&
     prev.property.thumbnailUrl === next.property.thumbnailUrl
   );
 }

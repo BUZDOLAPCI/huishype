@@ -443,6 +443,7 @@ describe('FeedScreen following surface', () => {
                       city: 'Eindhoven',
                       postalCode: '5611 AA',
                       countryCode: 'NL',
+                      geometry: null,
                       thumbnailUrl: null,
                     },
                     createdAt: '2026-04-19T10:00:00.000Z',

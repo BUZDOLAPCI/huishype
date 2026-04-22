@@ -260,6 +260,7 @@ const feedContractAssertions = [
       | 'city'
       | 'postalCode'
       | 'countryCode'
+      | 'geometry'
       | 'thumbnailUrl'
     >
   >,

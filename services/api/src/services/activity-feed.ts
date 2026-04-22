@@ -24,6 +24,7 @@ export interface ActivityFeedItem {
     city: string;
     postalCode: string;
     countryCode: string;
+    geometry: { type: 'Point'; coordinates: [number, number] } | null;
     thumbnailUrl: string | null;
   };
   createdAt: string;
@@ -53,6 +54,8 @@ interface ActivityRow extends Record<string, unknown> {
   house_number_addition: string | null;
   postal_code: string;
   city: string;
+  lon: number | null;
+  lat: number | null;
   thumbnail_url: string | null;
   created_at: string;
   meta: Record<string, unknown> | null;
@@ -86,6 +89,13 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
       city: row.city,
       postalCode: row.postal_code,
       countryCode: row.country_code,
+      geometry:
+        row.lon != null && row.lat != null
+          ? {
+              type: 'Point',
+              coordinates: [row.lon, row.lat],
+            }
+          : null,
       thumbnailUrl: row.thumbnail_url,
     },
     createdAt: new Date(row.created_at).toISOString(),
@@ -147,6 +157,8 @@ export async function fetchActivityFeed(params: {
           p.house_number_addition,
           p.postal_code,
           p.city,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
           lt.thumbnail_url,
           r.created_at,
           NULL::jsonb AS meta
@@ -182,6 +194,8 @@ export async function fetchActivityFeed(params: {
           p.house_number_addition,
           p.postal_code,
           p.city,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
           lt.thumbnail_url,
           c.created_at,
           jsonb_build_object('contentPreview', LEFT(c.content, 100)) AS meta
@@ -215,6 +229,8 @@ export async function fetchActivityFeed(params: {
           p.house_number_addition,
           p.postal_code,
           p.city,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
           lt.thumbnail_url,
           GREATEST(pg.created_at, pg.updated_at) AS created_at,
           jsonb_build_object('isMemeGuess', pg.is_meme_guess) AS meta
@@ -250,6 +266,8 @@ export async function fetchActivityFeed(params: {
                 p.house_number_addition,
                 p.postal_code,
                 p.city,
+                CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
+                CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
                 lt.thumbnail_url,
                 sp.created_at,
                 NULL::jsonb AS meta
@@ -284,6 +302,8 @@ export async function fetchActivityFeed(params: {
       house_number_addition,
       postal_code,
       city,
+      lon,
+      lat,
       thumbnail_url,
       created_at,
       meta

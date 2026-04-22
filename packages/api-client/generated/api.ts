@@ -4449,6 +4449,14 @@ export interface paths {
                                     city: string;
                                     postalCode: string;
                                     countryCode: string;
+                                    geometry: {
+                                        /** @enum {string} */
+                                        type: "Point";
+                                        coordinates: [
+                                            number,
+                                            number
+                                        ];
+                                    } | null;
                                     thumbnailUrl: string | null;
                                 };
                                 /** Format: date-time */
@@ -4539,6 +4547,14 @@ export interface paths {
                                     city: string;
                                     postalCode: string;
                                     countryCode: string;
+                                    geometry: {
+                                        /** @enum {string} */
+                                        type: "Point";
+                                        coordinates: [
+                                            number,
+                                            number
+                                        ];
+                                    } | null;
                                     thumbnailUrl: string | null;
                                 };
                                 /** Format: date-time */

@@ -24,6 +24,7 @@ export interface ActivityProperty {
   city: string;
   postalCode: string;
   countryCode: string;
+  geometry: { type: 'Point'; coordinates: [number, number] } | null;
   thumbnailUrl: string | null;
 }
 

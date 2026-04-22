@@ -189,6 +189,10 @@ describe('Activity routes', () => {
           city: 'Activity City',
           postalCode: '9020AA',
           countryCode: 'NL',
+          geometry: {
+            type: 'Point',
+            coordinates: [5.4702, 51.4402],
+          },
         })
       );
     });

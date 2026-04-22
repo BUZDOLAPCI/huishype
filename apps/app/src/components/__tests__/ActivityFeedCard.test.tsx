@@ -15,6 +15,8 @@ const baseProps = {
     id: 'property-1',
     address: 'Keizersgracht 42, 1015 CZ Amsterdam',
     city: 'Amsterdam',
+    countryCode: 'NL',
+    geometry: null,
     thumbnailUrl: null,
   },
   createdAt: '2026-04-07T12:00:00.000Z',
@@ -41,6 +43,24 @@ describe('ActivityFeedCard', () => {
     );
 
     expect(screen.getByTestId('activity-feed-image')).toBeTruthy();
+  });
+
+  it('falls back to aerial imagery when the property has geometry but no listing thumbnail', () => {
+    render(
+      <ActivityFeedCard
+        {...baseProps}
+        property={{
+          ...baseProps.property,
+          geometry: {
+            type: 'Point',
+            coordinates: [4.8936, 52.3665],
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('activity-feed-image')).toBeTruthy();
+    expect(screen.getByTestId('activity-feed-image-marker')).toBeTruthy();
   });
 
   it('splits property and actor press targets', () => {
