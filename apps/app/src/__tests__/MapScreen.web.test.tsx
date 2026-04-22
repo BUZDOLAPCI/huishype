@@ -659,8 +659,13 @@ describe('MapScreen web grouped Following mode', () => {
     const readActiveNodeFillLayer = (map.options.style as {
       layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
     }).layers?.find((layer) => layer.id === 'read-active-node-fill');
+    const readLayerIds = ((map.options.style as {
+      layers?: Array<{ id?: string }>;
+    }).layers ?? []).map((layer) => layer.id);
     expect(JSON.stringify(activeNodeFillLayer?.paint?.['circle-opacity'])).toContain('feature-state');
     expect(readActiveNodeFillLayer?.paint?.['circle-opacity']).toBe(0);
+    expect(readLayerIds).not.toContain('read-cluster-count');
+    expect(readLayerIds).not.toContain('read-ghost-cluster-count');
     expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
       {
         url: 'https://tiles.test/properties/read/12/2048/1363.pbf',

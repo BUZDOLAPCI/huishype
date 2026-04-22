@@ -574,7 +574,11 @@ export function getReadPropertyOverlayLayers(
     },
   ];
 
-  return options.mode === 'probe' ? layers.map(applyProbeOpacity) : layers;
+  if (options.mode === 'probe') {
+    return layers.filter((layer) => layer.type === 'circle').map(applyProbeOpacity);
+  }
+
+  return layers;
 }
 
 export function applyReadPropertyFeatureStateStyles<T extends StyleLike | null>(style: T): T {
