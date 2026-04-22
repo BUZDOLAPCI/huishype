@@ -202,24 +202,9 @@ function getStepRadius(pointCount: number, stops: readonly RadiusStop[]): number
   return radius;
 }
 
-function interpolateRadius(value: number, stops: readonly RadiusStop[]): number {
-  if (stops.length === 0) return 0;
-  if (value <= stops[0][0]) return stops[0][1];
-
-  for (let index = 1; index < stops.length; index += 1) {
-    const [currentThreshold, currentRadius] = stops[index];
-    if (value <= currentThreshold) {
-      const [previousThreshold, previousRadius] = stops[index - 1];
-      const progress = (value - previousThreshold) / (currentThreshold - previousThreshold);
-      return previousRadius + progress * (currentRadius - previousRadius);
-    }
-  }
-
-  return stops[stops.length - 1][1];
-}
-
 export function getActiveSingleRadiusPx(activityScore: number): number {
-  return interpolateRadius(activityScore, ACTIVE_FOOTPRINT.singleRadiusStopsPx);
+  void activityScore;
+  return ACTIVE_FOOTPRINT.singleRadiusPx;
 }
 
 export function getActiveClusterRadiusPx(_pointCount: number): number {

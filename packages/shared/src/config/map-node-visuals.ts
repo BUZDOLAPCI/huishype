@@ -41,7 +41,7 @@ export interface MapNodeVisual {
   labelSize?: number;
 }
 
-const ACTIVE_SINGLE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx;
+const ACTIVE_SINGLE_RADIUS = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusPx;
 const ACTIVE_CLUSTER_RADIUS = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusPx;
 const GHOST_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx;
 const MAP_NODE_LISTING_RING_ON_WIDTH = 1.8;
@@ -266,7 +266,7 @@ function shouldShowRecentPulse(
 export function resolveActiveSingleNodeVisual(
   input: ActiveSingleNodeVisualInput,
 ): MapNodeVisual {
-  const radius = interpolateNumericStops(ACTIVE_SINGLE_FOOTPRINT, input.activityScore);
+  const radius = ACTIVE_SINGLE_RADIUS;
   const recentSocialScoreTotal = input.recentSocialScoreTotal ?? 0;
   const hasSocial = input.socialCount > 0;
   const listingBorderWidth = interpolateNumericStops(

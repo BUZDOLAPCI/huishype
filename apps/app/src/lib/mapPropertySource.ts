@@ -376,10 +376,7 @@ export function getReadPropertyOverlayLayers(
   options: ReadPropertyOverlayLayerOptions = {}
 ): Array<CircleLayerLike | SymbolLayerLike> {
   const activeClusterRadius = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusPx;
-  const activeNodeRadius = buildInterpolateExpression(
-    ['coalesce', ['get', 'socialScoreMax'], 0],
-    PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx
-  );
+  const activeNodeRadius = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusPx;
   const activeListingCount = buildPropertyFieldExpression('activeListingCount');
   const listingShare = buildListingShareExpression();
   const activeClusterRingWidth = buildInterpolateExpression(

@@ -690,10 +690,7 @@ function buildRecentPulseRadiusExpression(
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
   const activeClusterRadius = ACTIVE_FOOTPRINT.clusterRadiusPx;
-  const activeNodeRadius = buildInterpolateExpression(
-    ['coalesce', ['get', 'socialScoreMax'], 0],
-    ACTIVE_FOOTPRINT.singleRadiusStopsPx
-  );
+  const activeNodeRadius = ACTIVE_FOOTPRINT.singleRadiusPx;
   const activeListingCount = buildPropertyFieldExpression('activeListingCount');
   const hasActiveListings = ['>', activeListingCount, 0];
   const listingShare = buildListingShareExpression();
