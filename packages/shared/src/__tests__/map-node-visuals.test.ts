@@ -93,7 +93,7 @@ describe('map-node-visuals', () => {
       recentSocialScoreTotal: 16,
     });
 
-    expect(visual.diameter).toBeGreaterThan(20);
+    expect(visual.diameter).toBe(24);
     expect(visual.diameter).toBe(smallCluster.diameter);
     expect(visual.borderWidth).toBe(1.8);
     expect(smallCluster.borderWidth).toBe(1.8);
@@ -104,7 +104,7 @@ describe('map-node-visuals', () => {
     expect(smallCluster.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
     expect(visual.pulseColor).not.toBe(smallCluster.pulseColor);
     expect(visual.labelColor).toBe('#FFFFFF');
-    expect(visual.labelSize).toBe(18);
+    expect(visual.labelSize).toBe(14);
     expect(visual.pulseOpacity).toBeGreaterThan(0);
     expect(visual.pulseDiameter).toBeGreaterThan(smallCluster.pulseDiameter ?? 0);
   });

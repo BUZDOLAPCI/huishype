@@ -308,10 +308,10 @@ describe('Tile routes', () => {
       expect(clusterCountLayout).toHaveProperty('text-field');
       expect(clusterCountLayout).toHaveProperty('text-font');
       expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Bold']);
-      expect(clusterCountLayout).toHaveProperty('text-size', 18);
+      expect(clusterCountLayout).toHaveProperty('text-size', 14);
       expect(clusterCountPaint).toHaveProperty('text-color', '#FFFFFF');
       expect(clusterCountPaint).toHaveProperty('text-halo-color', 'rgba(15, 23, 42, 0.72)');
-      expect(clusterCountPaint).toHaveProperty('text-halo-width', 2);
+      expect(clusterCountPaint).toHaveProperty('text-halo-width', 1);
     });
 
     it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
