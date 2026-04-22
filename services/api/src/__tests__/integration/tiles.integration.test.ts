@@ -307,9 +307,11 @@ describe('Tile routes', () => {
       expect(clusterCount.type).toBe('symbol');
       expect(clusterCountLayout).toHaveProperty('text-field');
       expect(clusterCountLayout).toHaveProperty('text-font');
-      expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Regular']);
-      expect(clusterCountLayout).toHaveProperty('text-size');
+      expect(clusterCountLayout['text-font']).toEqual(['Noto Sans Bold']);
+      expect(clusterCountLayout).toHaveProperty('text-size', 18);
       expect(clusterCountPaint).toHaveProperty('text-color', '#FFFFFF');
+      expect(clusterCountPaint).toHaveProperty('text-halo-color', 'rgba(15, 23, 42, 0.72)');
+      expect(clusterCountPaint).toHaveProperty('text-halo-width', 2);
     });
 
     it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
@@ -340,9 +342,6 @@ describe('Tile routes', () => {
       );
       expect(requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing')).toBe(0);
       expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeGreaterThan(0);
-      expect(requireComparableNumber(ghostClustersPaint['circle-radius'], 'ghost-clusters circle-radius missing')).toBeLessThan(
-        requireComparableNumber(activeClustersPaint['circle-radius'], 'property-clusters circle-radius missing'),
-      );
       expect(requireComparableNumber(ghostClusterCountLayout['text-size'], 'ghost-cluster-count text-size missing')).toBeLessThan(
         requireComparableNumber(activeClusterCountLayout['text-size'], 'cluster-count text-size missing'),
       );

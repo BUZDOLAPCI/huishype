@@ -1,15 +1,10 @@
 const ACTIVE_SINGLE_RADIUS_STOPS_PX = [
-  [0, 10],
-  [50, 10],
-  [100, 10],
-] as const;
-
-const ACTIVE_CLUSTER_RADIUS_STOPS_PX = [
-  [2, 12],
-  [10, 12],
+  [0, 12],
   [50, 12],
   [100, 12],
 ] as const;
+
+const ACTIVE_CLUSTER_RADIUS_PX = 14;
 const ACTIVE_CLUSTERING_RADIUS_PX = 34;
 const ACTIVE_GROUPING_GAP_PX = 2;
 
@@ -27,14 +22,14 @@ export const PROPERTY_MAP_FOOTPRINTS = {
   active: {
     rendered: {
       singleRadiusStopsPx: ACTIVE_SINGLE_RADIUS_STOPS_PX,
-      clusterRadiusStopsPx: ACTIVE_CLUSTER_RADIUS_STOPS_PX,
+      clusterRadiusPx: ACTIVE_CLUSTER_RADIUS_PX,
     },
     clustering: {
       radiusPx: ACTIVE_CLUSTERING_RADIUS_PX,
       groupingGapPx: ACTIVE_GROUPING_GAP_PX,
     },
     singleRadiusStopsPx: ACTIVE_SINGLE_RADIUS_STOPS_PX,
-    clusterRadiusStopsPx: ACTIVE_CLUSTER_RADIUS_STOPS_PX,
+    clusterRadiusPx: ACTIVE_CLUSTER_RADIUS_PX,
     groupingGapPx: ACTIVE_GROUPING_GAP_PX,
   },
   ghost: {

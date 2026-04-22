@@ -222,8 +222,8 @@ export function getActiveSingleRadiusPx(activityScore: number): number {
   return interpolateRadius(activityScore, ACTIVE_FOOTPRINT.singleRadiusStopsPx);
 }
 
-export function getActiveClusterRadiusPx(pointCount: number): number {
-  return getStepRadius(pointCount, ACTIVE_FOOTPRINT.clusterRadiusStopsPx);
+export function getActiveClusterRadiusPx(_pointCount: number): number {
+  return ACTIVE_FOOTPRINT.clusterRadiusPx;
 }
 
 export function getGhostSingleRadiusPx(): number {

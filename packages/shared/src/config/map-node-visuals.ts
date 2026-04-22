@@ -42,7 +42,7 @@ export interface MapNodeVisual {
 }
 
 const ACTIVE_SINGLE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx;
-const ACTIVE_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusStopsPx;
+const ACTIVE_CLUSTER_RADIUS = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusPx;
 const GHOST_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx;
 const MAP_NODE_LISTING_RING_ON_WIDTH = 1.8;
 const MAP_NODE_LISTING_RING_ON_COLOR = '#2563EB';
@@ -122,8 +122,10 @@ export const MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS = [
 ] as const satisfies readonly NumericStop[];
 
 export const MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR = '#FFFFFF';
-export const MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR = 'rgba(0, 0, 0, 0.25)';
-export const MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE = 11;
+export const MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK = ['Noto Sans Bold'] as const;
+export const MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR = 'rgba(15, 23, 42, 0.72)';
+export const MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH = 2;
+export const MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE = 18;
 
 export const MAP_NODE_GHOST_CLUSTER_VISUAL = {
   fill: '#D3DAE6',
@@ -322,7 +324,7 @@ export function resolveActiveSingleNodeVisual(
 export function resolveActiveClusterNodeVisual(
   input: ActiveClusterNodeVisualInput,
 ): MapNodeVisual {
-  const radius = interpolateNumericStops(ACTIVE_CLUSTER_FOOTPRINT, input.pointCount);
+  const radius = ACTIVE_CLUSTER_RADIUS;
   const recentSocialScoreTotal = input.recentSocialScoreTotal ?? 0;
   const hasSocial = input.socialCount > 0;
   const listingBorderWidth = interpolateNumericStops(

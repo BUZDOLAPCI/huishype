@@ -104,7 +104,7 @@ describe('map-node-visuals', () => {
     expect(smallCluster.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
     expect(visual.pulseColor).not.toBe(smallCluster.pulseColor);
     expect(visual.labelColor).toBe('#FFFFFF');
-    expect(visual.labelSize).toBe(11);
+    expect(visual.labelSize).toBe(18);
     expect(visual.pulseOpacity).toBeGreaterThan(0);
     expect(visual.pulseDiameter).toBeGreaterThan(smallCluster.pulseDiameter ?? 0);
   });

@@ -31,6 +31,11 @@ import {
   MAP_NODE_RECENT_PULSE_OPACITY_STOPS,
   MAP_NODE_RECENT_PULSE_SINGLE_RADIUS_DELTA_STOPS,
   MAP_NODE_RECENT_PULSE_CLUSTER_RADIUS_DELTA_STOPS,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
   MAP_NODE_GHOST_CLUSTER_VISUAL,
   MAP_NODE_GHOST_SINGLE_VISUAL,
   type NumericStop,
@@ -684,10 +689,7 @@ function buildRecentPulseRadiusExpression(
  *   ghost-clusters, ghost-cluster-count, ghost-nodes
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
-  const activeClusterRadius = buildStepExpression(
-    ['coalesce', ['get', 'point_count'], 2],
-    ACTIVE_FOOTPRINT.clusterRadiusStopsPx
-  );
+  const activeClusterRadius = ACTIVE_FOOTPRINT.clusterRadiusPx;
   const activeNodeRadius = buildInterpolateExpression(
     ['coalesce', ['get', 'socialScoreMax'], 0],
     ACTIVE_FOOTPRINT.singleRadiusStopsPx
@@ -807,23 +809,13 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
       ],
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': [
-          'step',
-          ['coalesce', ['get', 'point_count'], 2],
-          11, // default (2-9)
-          10,
-          11, // 10-49
-          50,
-          12, // 50-99
-          100,
-          13, // 100+
-        ],
+        'text-font': [...MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK],
+        'text-size': MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
       },
       paint: {
-        'text-color': '#FFFFFF',
-        'text-halo-color': 'rgba(0, 0, 0, 0.25)',
-        'text-halo-width': 1,
+        'text-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+        'text-halo-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+        'text-halo-width': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
       },
     },
     // Recent-social halo for singles. Low passive-view scores stay quiet.

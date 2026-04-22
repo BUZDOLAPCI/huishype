@@ -4,6 +4,11 @@ import {
   type MapFilters,
 } from './sharedMapFilters';
 import {
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
+  MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
   MAP_NODE_GHOST_CLUSTER_VISUAL,
   MAP_NODE_GHOST_SINGLE_VISUAL,
   MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
@@ -42,8 +47,6 @@ const READ_NODE_OPACITY = 0.6;
 const READ_PROBE_OPACITY = 0;
 const READ_NODE_STROKE_COLOR = '#FFFFFF';
 const READ_LABEL_OPACITY = 0.6;
-const READ_ACTIVE_CLUSTER_LABEL_COLOR = '#FFFFFF';
-const READ_ACTIVE_CLUSTER_LABEL_HALO_COLOR = 'rgba(0, 0, 0, 0.25)';
 const PROPERTY_VECTOR_SOURCE_LAYER = 'properties';
 const ACTIVE_CLUSTER_RING_LAYER_ID = 'property-clusters';
 const ACTIVE_CLUSTER_FILL_LAYER_ID = 'property-cluster-fill';
@@ -372,10 +375,7 @@ export function buildReadTileRequestMatchPattern(tileUrl: string): RegExp {
 export function getReadPropertyOverlayLayers(
   options: ReadPropertyOverlayLayerOptions = {}
 ): Array<CircleLayerLike | SymbolLayerLike> {
-  const activeClusterRadius = buildStepExpression(
-    ['coalesce', ['get', 'point_count'], 2],
-    PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusStopsPx
-  );
+  const activeClusterRadius = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusPx;
   const activeNodeRadius = buildInterpolateExpression(
     ['coalesce', ['get', 'socialScoreMax'], 0],
     PROPERTY_MAP_FOOTPRINTS.active.singleRadiusStopsPx
@@ -450,13 +450,13 @@ export function getReadPropertyOverlayLayers(
       ],
       layout: {
         'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 11,
+        'text-font': [...MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK],
+        'text-size': MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
       },
       paint: {
-        'text-color': READ_ACTIVE_CLUSTER_LABEL_COLOR,
-        'text-halo-color': READ_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
-        'text-halo-width': 1,
+        'text-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
+        'text-halo-color': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
+        'text-halo-width': MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
         'text-opacity': READ_LABEL_OPACITY,
       },
     },
