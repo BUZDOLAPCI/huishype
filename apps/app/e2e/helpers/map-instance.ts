@@ -35,6 +35,7 @@ export type MapStyle = VisualMapStyleLike;
 
 export type MapInstance = VisualMapInstance & {
   loaded?: () => boolean;
+  isSourceLoaded?: (sourceId: string) => boolean;
   rotateTo?: (bearing: number, options?: { duration?: number }) => void;
   touchPitch?: {
     isEnabled?: () => boolean;

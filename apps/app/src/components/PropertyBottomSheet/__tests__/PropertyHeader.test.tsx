@@ -174,4 +174,40 @@ describe('PropertyHeader', () => {
       'https://www.google.com/maps/search/?api=1&query=51.44%2C5.47'
     );
   });
+
+  it('handles nullish address fields without crashing and falls back to coordinates', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: null as unknown as string,
+          postalCode: null,
+          city: undefined as unknown as string,
+          countryCode: undefined as unknown as string,
+        }}
+      />
+    );
+
+    fireEvent.press(screen.getByText('Open in Google Maps'));
+
+    expect(Linking.openURL).toHaveBeenCalledWith(
+      'https://www.google.com/maps/search/?api=1&query=51.44%2C5.47'
+    );
+    expect(screen.queryByText('undefined')).toBeNull();
+  });
+
+  it('renders a postal-code-only location without a leading comma', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          city: undefined as unknown as string,
+          postalCode: '5651 HA',
+        }}
+      />
+    );
+
+    expect(screen.getByText('5651 HA')).toBeTruthy();
+    expect(screen.queryByText(', 5651 HA')).toBeNull();
+  });
 });

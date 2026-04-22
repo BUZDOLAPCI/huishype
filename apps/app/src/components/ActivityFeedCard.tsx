@@ -7,7 +7,7 @@
  * Design spec: Section 7.12 (Social Activity Feed).
  */
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon, type IconName } from './ui/Icon';
 import { UserAvatar } from './ui/UserAvatar';
@@ -100,7 +100,7 @@ function formatRelativeTime(isoDate: string): string {
 
 // --- Component ---
 
-export function ActivityFeedCard({
+function ActivityFeedCardComponent({
   eventType,
   actor,
   property,
@@ -109,6 +109,7 @@ export function ActivityFeedCard({
   onActorPress,
 }: ActivityFeedCardProps) {
   const config = ACTION_CONFIGS[eventType];
+  const relativeTime = useMemo(() => formatRelativeTime(createdAt), [createdAt]);
 
   return (
     <Card shadow="card" testID="activity-feed-card" style={styles.card}>
@@ -162,7 +163,7 @@ export function ActivityFeedCard({
 
           <View style={styles.metaRight}>
             <Text style={styles.timestamp}>
-              {formatRelativeTime(createdAt)}
+              {relativeTime}
             </Text>
             <View style={[styles.actionBadge, { backgroundColor: config.bg }]}>
               <Icon
@@ -181,6 +182,30 @@ export function ActivityFeedCard({
     </Card>
   );
 }
+
+function areActivityFeedCardPropsEqual(
+  prev: Readonly<ActivityFeedCardProps>,
+  next: Readonly<ActivityFeedCardProps>,
+) {
+  return (
+    prev.id === next.id &&
+    prev.eventType === next.eventType &&
+    prev.createdAt === next.createdAt &&
+    prev.actor.id === next.actor.id &&
+    prev.actor.displayName === next.actor.displayName &&
+    prev.actor.handle === next.actor.handle &&
+    prev.actor.profilePhotoUrl === next.actor.profilePhotoUrl &&
+    prev.property.id === next.property.id &&
+    prev.property.address === next.property.address &&
+    prev.property.city === next.property.city &&
+    prev.property.thumbnailUrl === next.property.thumbnailUrl
+  );
+}
+
+export const ActivityFeedCard = memo(
+  ActivityFeedCardComponent,
+  areActivityFeedCardPropsEqual
+);
 
 const styles = StyleSheet.create({
   card: {

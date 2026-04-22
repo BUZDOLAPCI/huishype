@@ -21,6 +21,8 @@ import {
   toInternalAppHref,
 } from '@/src/utils/property-route';
 
+const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
+
 function RedirectingScreen() {
   return (
     <>
@@ -39,6 +41,8 @@ function CanonicalAddressRouteContent() {
   }>();
   const pathname = usePathname();
   const [webRedirectPathname, setWebRedirectPathname] = useState<string | null>(null);
+  const isNonMapTabPath =
+    Platform.OS === 'web' && NON_MAP_TAB_PATHNAMES.has(pathname);
   const pathnameOverride =
     Platform.OS === 'web' && webRedirectPathname && pathname !== webRedirectPathname
       ? webRedirectPathname
@@ -54,6 +58,10 @@ function CanonicalAddressRouteContent() {
   }, []);
 
   useEffect(() => {
+    if (isNonMapTabPath) {
+      return;
+    }
+
     if (
       Platform.OS === 'web' &&
       webRedirectPathname &&
@@ -61,9 +69,13 @@ function CanonicalAddressRouteContent() {
     ) {
       setWebRedirectPathname(null);
     }
-  }, [pathname, webRedirectPathname]);
+  }, [isNonMapTabPath, pathname, webRedirectPathname]);
 
   useEffect(() => {
+    if (isNonMapTabPath) {
+      return;
+    }
+
     if (!resolvedRoute) {
       return;
     }
@@ -90,7 +102,11 @@ function CanonicalAddressRouteContent() {
         buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo) as Href,
       );
     }
-  }, [resolvedPathname, resolvedRoute, returnTo]);
+  }, [isNonMapTabPath, resolvedPathname, resolvedRoute, returnTo]);
+
+  if (isNonMapTabPath) {
+    return null;
+  }
 
   if (!resolvedRoute || routeState.isLoading) {
     return <RedirectingScreen />;

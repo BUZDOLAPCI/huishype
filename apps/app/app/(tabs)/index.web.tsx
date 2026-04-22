@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo, startTransition } from 'react';
 import { Alert, Text, View, type ViewStyle } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { router, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
 import {
@@ -22,8 +22,8 @@ import {
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
-import { useReadTileSource } from '@/src/hooks/useReadTileSource';
 import { usePropertyView } from '@/src/hooks/usePropertyView';
+import { useReadTileSource } from '@/src/hooks/useReadTileSource';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
@@ -110,6 +110,7 @@ const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
+const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -118,13 +119,61 @@ type WebViewStyle = ViewStyle & {
   transition?: string;
 };
 
-function countRenderedGroupedFeatures(features: GeoJSON.Feature[]): number {
+type InternalMapStyle = {
+  _clearSource?: (id: string) => void;
+  _reloadSource?: (id: string) => void;
+  _updateSources?: (transform: unknown) => void;
+};
+
+function usesFollowingTiles(tiles: readonly string[]): boolean {
+  return tiles.some((tileUrl) => tileUrl.includes('/following/'));
+}
+
+function resetSourceCache(map: maplibregl.Map, sourceId: string): void {
+  const internalMap = map as maplibregl.Map & {
+    style?: InternalMapStyle;
+    transform?: unknown;
+    triggerRepaint?: () => void;
+  };
+  const style = internalMap.style;
+
+  if (!style?._clearSource || !style?._reloadSource) {
+    return;
+  }
+
+  style._clearSource(sourceId);
+  style._reloadSource(sourceId);
+  style._updateSources?.(internalMap.transform);
+  internalMap.triggerRepaint?.();
+}
+
+function countGroupedFeaturesInBounds(
+  features: GeoJSON.Feature[],
+  bounds?: {
+    getWest: () => number;
+    getSouth: () => number;
+    getEast: () => number;
+    getNorth: () => number;
+  },
+): number {
   const dedupedKeys = new Set<string>();
 
   for (const feature of features) {
     const group = normalizeRenderedPropertyGroup(feature);
     if (!group) {
       continue;
+    }
+
+    if (bounds) {
+      const [lng, lat] = group.coordinate;
+      if (
+        lng < bounds.getWest() ||
+        lng > bounds.getEast() ||
+        lat < bounds.getSouth() ||
+        lat > bounds.getNorth()
+      ) {
+        continue;
+      }
     }
 
     dedupedKeys.add(
@@ -750,6 +799,7 @@ const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  const isFocused = useIsFocused();
   const initialAppliedFilters = useMemo(
     () =>
       typeof window === 'undefined'
@@ -776,6 +826,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [followingActivity, setFollowingActivity] =
     useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapInteractionsSuspended, setMapInteractionsSuspended] = useState(false);
+  const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
   const { replaceAppliedFilters } = filterController;
   const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
@@ -793,10 +845,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const activePropertyTiles = useMemo(
     () => (
       socialScope === 'following'
-        ? (followingTileSource.data?.tileUrl ? [followingTileSource.data.tileUrl] : [])
+        ? (
+            followingTileSource.data?.tileUrl && followingTileAuthToken
+              ? [followingTileSource.data.tileUrl]
+              : []
+          )
         : [publicPropertyTileUrl]
     ),
-    [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
+    [
+      followingTileAuthToken,
+      followingTileSource.data?.tileUrl,
+      publicPropertyTileUrl,
+      socialScope,
+    ],
   );
   const activeReadPropertyTiles = useMemo(
     (): string[] => {
@@ -831,6 +892,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
   const [searchResetToken, setSearchResetToken] = useState(0);
+  const isMapTabActive = isFocused;
   const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
@@ -844,9 +906,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const browserSearchRef = useRef(
     typeof window === 'undefined' ? '' : window.location.search || '',
   );
+  const isMapTabActiveRef = useRef(isMapTabActive);
+  isMapTabActiveRef.current = isMapTabActive;
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followingRenderedFeatureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
   const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
   const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
   const trackedFollowingEmptyViewRef = useRef(false);
@@ -972,6 +1035,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       };
     }
 
+    if (accessToken) {
+      setFollowingTileAuthToken((currentToken) =>
+        currentToken === accessToken ? currentToken : accessToken,
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
+
     void getAccessToken().then((token) => {
       if (!cancelled) {
         setFollowingTileAuthToken(token);
@@ -1048,7 +1120,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       | undefined;
     const currentTiles = source?.serialize?.().tiles;
     const currentTileUrl = Array.isArray(currentTiles) ? currentTiles[0] : null;
-    if (currentTileUrl !== followingTileSource.data.tileUrl) {
+    const expectedTileUrl = activePropertyTilesRef.current[0] ?? null;
+    if (!expectedTileUrl || currentTileUrl !== expectedTileUrl) {
       setFollowingRenderCheckComplete(false);
       followingRenderedFeatureTimeoutRef.current = setTimeout(() => {
         followingRenderedFeatureTimeoutRef.current = null;
@@ -1057,28 +1130,29 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    const renderedFeatures = map.queryRenderedFeatures({
-      layers: PROPERTY_LAYER_IDS,
-    }) as unknown as GeoJSON.Feature[];
+    const canvas = map.getCanvas();
+    const renderedFeatures = map.queryRenderedFeatures(
+      [[0, 0], [canvas.width, canvas.height]],
+      { layers: PROPERTY_LAYER_IDS },
+    ) as unknown as GeoJSON.Feature[];
 
-    setFollowingRenderedFeatureCount(countRenderedGroupedFeatures(renderedFeatures));
+    setFollowingRenderedFeatureCount(countGroupedFeaturesInBounds(renderedFeatures));
     setFollowingRenderCheckComplete(true);
-  }, [
-    followingTileSource.data?.tileUrl,
-    isAuthenticated,
-    socialScope,
-  ]);
+  }, [followingTileSource.data?.tileUrl, isAuthenticated, socialScope]);
 
   const scheduleFollowingRenderedFeatureRefresh = useCallback(() => {
-    clearFollowingRenderedFeatureRefresh();
-
     if (
       socialScope !== 'following' ||
       !isAuthenticated ||
       !followingTileSource.data?.tileUrl
     ) {
+      clearFollowingRenderedFeatureRefresh();
       setFollowingRenderedFeatureCount(null);
       setFollowingRenderCheckComplete(false);
+      return;
+    }
+
+    if (followingRenderedFeatureTimeoutRef.current) {
       return;
     }
 
@@ -1157,10 +1231,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   previewOpenRef.current = !!interaction.previewGroup || !!interaction.highlightedCoordinate;
   const replaceMapBrowserPath = useCallback(
     (pathname: string) => {
+      if (!isMapTabActiveRef.current) {
+        return false;
+      }
+
+      const currentBrowserPathname = getCurrentBrowserPathname('/');
+      if (pathnameOverride == null && NON_MAP_TAB_PATHNAMES.has(currentBrowserPathname)) {
+        return false;
+      }
+
       const nextHref = appendSearchToPath(pathname, browserSearchRef.current);
       return replacePassiveBrowserPath(nextHref);
     },
-    [],
+    [pathnameOverride],
   );
   replaceMapBrowserPathRef.current = replaceMapBrowserPath;
 
@@ -1815,6 +1898,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('idle', () => {
         if (!cancelled) {
           markMapLoaded();
+          scheduleFollowingRenderedFeatureRefreshRef.current();
+          scheduleActivityPulseUpdate();
         }
       });
 
@@ -1834,7 +1919,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         const zoom = map.getZoom();
         currentZoomRef.current = zoom;
         syncVisibleZoomRef.current(zoom);
-        scheduleActivityPulseUpdate();
       });
 
       // Track viewport center for dynamic city name (reverse geocoding)
@@ -1842,7 +1926,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.on('moveend', () => {
         const center = map.getCenter();
         const zoom = map.getZoom();
-        scheduleActivityPulseUpdate();
         scheduleFollowingRenderedFeatureRefreshRef.current();
         const previousSettledBubbleZoom = lastSettledAmbientBubbleZoomRef.current;
         lastSettledAmbientBubbleZoomRef.current = zoom;
@@ -1967,18 +2050,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       // Wait for layers to be added
       const layerHandlersAttached = new Set<string>();
-      map.on('sourcedata', () => {
-        hideStaticActivityPulseLayers(map);
-        scheduleActivityPulseUpdate();
+      map.on('sourcedata', (event: unknown) => {
+        const sourceDataEvent = event as
+          | { sourceId?: string; isSourceLoaded?: boolean }
+          | undefined;
+        if (
+          sourceDataEvent?.sourceId === PROPERTY_VECTOR_SOURCE_ID &&
+          sourceDataEvent.isSourceLoaded
+        ) {
+          scheduleFollowingRenderedFeatureRefreshRef.current();
+        }
 
         PROPERTY_LAYER_IDS.forEach((layerId) => {
-          if (map.getLayer(layerId)) {
-            if (!layerHandlersAttached.has(layerId)) {
-              layerHandlersAttached.add(layerId);
-            }
-            map.off('click', layerId, handlePropertyClick);
-            map.off('mouseenter', layerId, handleMouseEnter);
-            map.off('mouseleave', layerId, handleMouseLeave);
+          if (map.getLayer(layerId) && !layerHandlersAttached.has(layerId)) {
+            layerHandlersAttached.add(layerId);
             map.on('click', layerId, handlePropertyClick);
             map.on('mouseenter', layerId, handleMouseEnter);
             map.on('mouseleave', layerId, handleMouseLeave);
@@ -2062,11 +2147,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
   useEffect(() => {
     const nextRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
+    if (!isMapTabActive) {
+      return;
+    }
+
     setRoutePathname((currentPathname) =>
       currentPathname === nextRoutePathname ? currentPathname : nextRoutePathname,
     );
     browserPathRef.current = nextRoutePathname;
-  }, [pathnameOverride]);
+  }, [isMapTabActive, pathnameOverride]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2097,6 +2186,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [replaceAppliedFilters]);
 
   useEffect(() => {
+    if (!isMapTabActive) {
+      return;
+    }
+
     const publicSearch = getMapFilterSearchString(
       filterController.appliedFilters,
       browserSearchRef.current,
@@ -2107,6 +2200,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     appliedFilterSignature,
     filterController.appliedFilters,
+    isMapTabActive,
     replaceMapBrowserPath,
     socialScope,
   ]);
@@ -2154,7 +2248,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   useEffect(() => {
     const resolvedRoute = routeState.resolvedRoute;
     const map = mapRef.current;
-    if (!resolvedRoute || !map || !mapLoaded || routeState.isLoading) {
+    if (!isMapTabActive || !resolvedRoute || !map || !mapLoaded || routeState.isLoading) {
       return;
     }
 
@@ -2280,6 +2374,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     currentPreviewProperty,
     handlePropertyResolved,
+    isMapTabActive,
     interaction,
     mapLoaded,
     previewCanonicalPath,
@@ -2291,7 +2386,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   ]);
 
   useEffect(() => {
-    if (routeState.isLoading || !mapRef.current) {
+    if (!isMapTabActive || routeState.isLoading || !mapRef.current) {
       return;
     }
 
@@ -2318,6 +2413,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       browserPathRef.current = lastCameraPathRef.current;
     }
   }, [
+    isMapTabActive,
     interaction.previewGroup,
     previewCanonicalPath,
     replaceMapBrowserPath,
@@ -2355,6 +2451,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
 
     source.setTiles(activePropertyTiles);
+    if (usesFollowingTiles(currentTiles) !== usesFollowingTiles(activePropertyTiles)) {
+      resetSourceCache(map, PROPERTY_VECTOR_SOURCE_ID);
+    }
   }, [activePropertyTiles, appliedFilterSignature, mapLoaded]);
 
   useEffect(() => {
@@ -2586,6 +2685,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
             bottom: 0,
             width: '100%',
             height: '100%',
+            pointerEvents: mapInteractionsSuspended ? 'none' : 'auto',
           }}
           data-testid="map-view"
         />
@@ -2632,6 +2732,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           controller={filterController}
           followingActivity={followingActivity}
           onFollowingActivityChange={setFollowingActivity}
+          onPanelOpenChange={setMapInteractionsSuspended}
           onToggleFollowing={handleToggleFollowing}
           socialScope={socialScope}
         />
@@ -2689,25 +2790,29 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           <LocationButton testID="location-button" onPress={handleCurrentLocationPress} />
         </View>
 
-        <WebPreviewMarkerPortal
-          map={mapRef.current}
-          previewGroup={interaction.previewGroup}
-          currentIndex={interaction.currentPreviewIndex}
-          markerOffsetPx={PREVIEW_CARD_MARKER_OFFSET_PX}
-          onIndexChange={interaction.setCurrentPreviewIndex}
-          onClose={interaction.handleClosePreview}
-          onPropertyTap={interaction.handlePreviewPropertyTap}
-          onLike={interaction.handleLike}
-          onComment={interaction.handleComment}
-          onGuess={interaction.handleGuess}
-          isLiked={interaction.isLiked}
-        />
+        {!mapInteractionsSuspended ? (
+          <WebPreviewMarkerPortal
+            map={mapRef.current}
+            previewGroup={interaction.previewGroup}
+            currentIndex={interaction.currentPreviewIndex}
+            markerOffsetPx={PREVIEW_CARD_MARKER_OFFSET_PX}
+            onIndexChange={interaction.setCurrentPreviewIndex}
+            onClose={interaction.handleClosePreview}
+            onPropertyTap={interaction.handlePreviewPropertyTap}
+            onLike={interaction.handleLike}
+            onComment={interaction.handleComment}
+            onGuess={interaction.handleGuess}
+            isLiked={interaction.isLiked}
+          />
+        ) : null}
 
-        <WebAmbientCommentBubblesPortal
-          map={mapRef.current}
-          bubbles={ambientCommentBubbleItems}
-          onBubblePress={handleAmbientBubblePress}
-        />
+        {!mapInteractionsSuspended ? (
+          <WebAmbientCommentBubblesPortal
+            map={mapRef.current}
+            bubbles={ambientCommentBubbleItems}
+            onBubblePress={handleAmbientBubblePress}
+          />
+        ) : null}
 
       </View>
 

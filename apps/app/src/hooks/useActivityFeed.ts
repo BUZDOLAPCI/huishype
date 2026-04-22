@@ -89,5 +89,6 @@ export function useActivityFeed(
     },
     enabled: enabled && (scope === 'public' || (isAuthenticated && !!user)),
     staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
   });
 }

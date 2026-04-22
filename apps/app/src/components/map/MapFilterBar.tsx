@@ -43,6 +43,7 @@ const COLORS = {
 interface MapFilterBarProps {
   controller: UseMapFilterControllerReturn;
   socialScope?: MapSocialScope;
+  onPanelOpenChange?: (open: boolean) => void;
   onToggleFollowing?: () => void;
   followingActivity?: MapActivityTimeFilter;
   onFollowingActivityChange?: (activity: MapActivityTimeFilter) => void;
@@ -219,6 +220,7 @@ function getPriceFieldError(draftFilters: MapFilterDraftState, mode: MapPriceMod
 export function MapFilterBar({
   controller,
   socialScope = 'all',
+  onPanelOpenChange,
   onToggleFollowing,
   followingActivity = 'all-time',
   onFollowingActivityChange,
@@ -249,6 +251,13 @@ export function MapFilterBar({
   const isActivityPanelOpen = openOptionsPanel === 'activity';
   const isFollowingPanelOpen = openOptionsPanel === 'following';
   const isAnyPanelOpen = isPricePanelOpen || openOptionsPanel != null;
+
+  useEffect(() => {
+    onPanelOpenChange?.(isAnyPanelOpen);
+    return () => {
+      onPanelOpenChange?.(false);
+    };
+  }, [isAnyPanelOpen, onPanelOpenChange]);
 
   const cancelScheduledPriceInputBlur = useCallback(() => {
     if (priceInputBlurTimeoutRef.current != null) {
@@ -670,7 +679,10 @@ export function MapFilterBar({
         />
       ) : null}
 
-      <View pointerEvents="box-none" style={[styles.container, { top: topOffset }]}>
+      <View
+        pointerEvents={isAnyPanelOpen ? 'auto' : 'box-none'}
+        style={[styles.container, { top: topOffset }]}
+      >
         <ScrollView
           horizontal
           contentContainerStyle={styles.railContent}
@@ -1174,6 +1186,8 @@ const styles = StyleSheet.create({
   },
   panel: {
     marginTop: 12,
+    position: 'relative',
+    zIndex: 1,
     borderRadius: 22,
     padding: 16,
     backgroundColor: COLORS.white,

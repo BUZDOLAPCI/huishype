@@ -16,6 +16,7 @@ import {
   isCanonicalMapRoutePath,
 } from '@huishype/shared';
 import { buildPropertyRoute } from '@/src/utils/property-route';
+import { waitForPropertyDetailReady } from '../integration/helpers';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
@@ -138,12 +139,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
-      timeout: 10000,
-    });
+    await waitForPropertyDetailReady(page, property.address, 10000);
     await expect(page).toHaveURL(new RegExp(`${propertyRoute.replace(/\//g, '\\/')}(?:\\?.*)?$`));
 
     await page.screenshot({
@@ -219,12 +215,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
-      timeout: 10000,
-    });
+    await waitForPropertyDetailReady(page, property.address, 10000);
 
     const header = page.getByTestId('property-header-carousel');
     await header.screenshot({
@@ -242,12 +233,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto(propertyRoute);
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByTestId('property-header-carousel')).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(page.getByText(property.address, { exact: true })).toBeVisible({
-      timeout: 10000,
-    });
+    await waitForPropertyDetailReady(page, property.address, 10000);
     await expect(page.locator('[data-testid="map-view"]')).toHaveCount(0);
 
     await page.screenshot({

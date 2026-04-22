@@ -159,6 +159,9 @@ describe('Activity routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe(
+        'public, max-age=15, stale-while-revalidate=30'
+      );
       const body = JSON.parse(response.body);
       expect(Array.isArray(body.items)).toBe(true);
       expect(body.pagination).toEqual(
@@ -229,6 +232,7 @@ describe('Activity routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('private, no-store');
       const body = JSON.parse(response.body);
       expect(body.items.map((item: { id: string }) => item.id)).toEqual([
         activityEventIds.followedGuess,
@@ -267,6 +271,7 @@ describe('Activity routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('private, no-store');
       const body = JSON.parse(response.body);
       expect(body.items.map((item: { id: string }) => item.id)).toEqual([activityEventIds.viewerLike]);
 
@@ -284,6 +289,7 @@ describe('Activity routes', () => {
         headers: { authorization: `Bearer ${viewerAccessToken}` },
       });
 
+      expect(withSaveResponse.headers['cache-control']).toBe('private, no-store');
       const withSaveBody = JSON.parse(withSaveResponse.body);
       expect(withSaveBody.items.map((item: { id: string }) => item.id)).toEqual([
         viewerSaveId,

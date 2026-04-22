@@ -48,6 +48,22 @@ import {
   type PropertyRouteAddressLike,
 } from '@/src/utils/property-route';
 
+const FEED_LIST_CONTENT_CONTAINER_STYLE = {
+  paddingTop: 8,
+  paddingBottom: 96,
+};
+
+const FEED_LIST_CONTAINER_STYLE = {
+  width: '100%' as const,
+  maxWidth: 768,
+  flex: 1,
+};
+
+const FEED_LIST_WINDOW_SIZE = 5;
+const FEED_LIST_INITIAL_NUM_TO_RENDER = 6;
+const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 4;
+const FEED_LIST_BATCHING_PERIOD_MS = 50;
+
 // --- Header title per filter ---
 
 const FILTER_TITLES: Record<FeedTab, string> = {
@@ -57,21 +73,61 @@ const FILTER_TITLES: Record<FeedTab, string> = {
   following: 'Following',
 };
 
+function FeedHeaderActions() {
+  const { data: unreadCount } = useUnreadNotificationCount();
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <Pressable
+        onPress={() => router.push('/leaderboard')}
+        hitSlop={8}
+        testID="feed-leaderboard-button"
+        accessibilityRole="button"
+        accessibilityLabel="Leaderboard"
+        accessibilityHint="Opens the community leaderboard"
+        style={{
+          minWidth: 44,
+          minHeight: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="Trophy" size="lg" weight="regular" color="#504A42" />
+      </Pressable>
+      <NotificationBell
+        unreadCount={unreadCount ?? 0}
+        onPress={() => router.push('/notifications')}
+      />
+    </View>
+  );
+}
+
 export default function FeedScreen() {
   const { isAuthenticated } = useAuthContext();
-  const { data: profile } = useMyProfile();
+  const { data: profile, isLoading: isProfileLoading } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
-  const { data: unreadCount } = useUnreadNotificationCount();
   const trackedFollowingEmptyViewRef = useRef(false);
 
   const feedCountryCode = useMemo(() => {
     const candidate = profile?.homeCountry?.toUpperCase();
-    return candidate && isValidCountryCode(candidate) ? candidate : 'NL';
-  }, [profile?.homeCountry]);
+    if (candidate && isValidCountryCode(candidate)) {
+      return candidate;
+    }
+
+    if (isAuthenticated && isProfileLoading) {
+      return null;
+    }
+
+    return 'NL';
+  }, [isAuthenticated, isProfileLoading, profile?.homeCountry]);
 
   const feedScope = useMemo(() => {
+    if (!feedCountryCode) {
+      return undefined;
+    }
+
     const [lon, lat] = getDefaultCenter(feedCountryCode);
     return {
       country: feedCountryCode,
@@ -80,43 +136,18 @@ export default function FeedScreen() {
     };
   }, [feedCountryCode]);
 
-  const headerRightAction = useMemo(
-    () => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <Pressable
-          onPress={() => router.push('/leaderboard')}
-          hitSlop={8}
-          testID="feed-leaderboard-button"
-          accessibilityRole="button"
-          accessibilityLabel="Leaderboard"
-          accessibilityHint="Opens the community leaderboard"
-          style={{
-            minWidth: 44,
-            minHeight: 44,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name="Trophy" size="lg" weight="regular" color="#504A42" />
-        </Pressable>
-        <NotificationBell
-          unreadCount={unreadCount ?? 0}
-          onPress={() => router.push('/notifications')}
-        />
-      </View>
-    ),
-    [unreadCount]
-  );
+  const headerRightAction = useMemo(() => <FeedHeaderActions />, []);
 
   // Property feed (trending/latest)
   const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
   const activityScope = activeFilter === 'following' ? 'following' : 'public';
   const propertyFeedFilter: PropertyFeedFilter =
     activeFilter === 'latest' ? 'latest' : 'trending';
+  const isBootstrappingPropertyFeed = isPropertyFeed && !feedScope;
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
     feedScope,
-    isPropertyFeed,
+    isPropertyFeed && !!feedScope,
   );
 
   // Activity feed
@@ -283,13 +314,16 @@ export default function FeedScreen() {
     return null;
   }, [activeQuery.isFetchingNextPage]);
 
-  const refreshControl = (
-    <RefreshControl
-      refreshing={isRefreshing}
-      onRefresh={onRefresh}
-      tintColor="#DE911D"
-      colors={['#DE911D']}
-    />
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl
+        refreshing={isRefreshing}
+        onRefresh={onRefresh}
+        tintColor="#DE911D"
+        colors={['#DE911D']}
+      />
+    ),
+    [isRefreshing, onRefresh]
   );
 
   const authModal = (
@@ -305,7 +339,7 @@ export default function FeedScreen() {
   );
 
   // Loading state
-  if (activeQuery.isLoading && !isRefreshing) {
+  if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
       <View className="flex-1 bg-warm-50">
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
@@ -374,7 +408,7 @@ export default function FeedScreen() {
 
   return (
     <View className="flex-1 bg-warm-50 items-center" testID="feed-screen">
-      <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
+      <View style={FEED_LIST_CONTAINER_STYLE}>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
@@ -386,12 +420,17 @@ export default function FeedScreen() {
             data={properties}
             keyExtractor={propertyKeyExtractor}
             renderItem={renderPropertyItem}
-            contentContainerStyle={{ paddingTop: 8, paddingBottom: 96 }}
+            contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
             refreshControl={refreshControl}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={ListFooterComponent}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
+            maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
+            updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
+            windowSize={FEED_LIST_WINDOW_SIZE}
+            removeClippedSubviews
             testID="feed-list"
           />
         ) : (
@@ -399,12 +438,17 @@ export default function FeedScreen() {
             data={activities}
             keyExtractor={activityKeyExtractor}
             renderItem={renderActivityItem}
-            contentContainerStyle={{ paddingTop: 8, paddingBottom: 96 }}
+            contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
             refreshControl={refreshControl}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={ListFooterComponent}
             showsVerticalScrollIndicator={false}
+            initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
+            maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
+            updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
+            windowSize={FEED_LIST_WINDOW_SIZE}
+            removeClippedSubviews
             testID="activity-feed-list"
           />
         )}

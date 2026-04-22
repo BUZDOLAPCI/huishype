@@ -405,6 +405,34 @@ test.describe('Following grouped tiles', () => {
 
     await toggleFollowing(page);
     await setMapView(page, property.geometry.coordinates, FOLLOWING_ZOOM);
+    const diagnostics = await page.evaluate(() => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      const source = map?.getSource?.('properties-source') as
+        | { serialize?: () => { tiles?: readonly string[] | null } | null }
+        | null
+        | undefined;
+      const serialized = source?.serialize?.();
+      const tileUrl = Array.isArray(serialized?.tiles) ? (serialized?.tiles[0] ?? null) : null;
+      const canvas = map?.getCanvas?.();
+      const renderedFeatures = map && canvas
+        ? map.queryRenderedFeatures(
+            [[0, 0], [canvas.width, canvas.height]],
+            { layers: ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes'] }
+          )
+        : [];
+      const sourceFeatures = map?.querySourceFeatures?.('properties-source', {
+        sourceLayer: 'properties',
+      }) ?? [];
+
+      return {
+        tileUrl,
+        isSourceLoaded: map?.isSourceLoaded?.('properties-source') ?? null,
+        areTilesLoaded: map?.areTilesLoaded?.() ?? null,
+        renderedCount: renderedFeatures.length,
+        sourceCount: sourceFeatures.length,
+      };
+    });
+    console.log('FOLLOWING EMPTY DIAGNOSTICS', diagnostics);
 
     await expect(page.getByTestId('map-following-state-empty')).toBeVisible({
       timeout: 20_000,

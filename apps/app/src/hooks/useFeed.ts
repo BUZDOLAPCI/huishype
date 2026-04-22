@@ -156,6 +156,7 @@ export function useFeed(
     queryFn: () => fetchFeed(1, 20, filter, scope),
     enabled,
     staleTime: 30 * 1000, // 30 seconds
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -176,5 +177,6 @@ export function useInfiniteFeed(
     },
     enabled,
     staleTime: 30 * 1000, // 30 seconds
+    refetchOnWindowFocus: false,
   });
 }

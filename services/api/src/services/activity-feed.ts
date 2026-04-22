@@ -120,8 +120,15 @@ export async function fetchActivityFeed(params: {
   limit: number;
   offset: number;
 }): Promise<ActivityFeedResponse> {
-  const actorPredicate = activityActorPredicate(params.scope, 'event_user_id', params.viewerId);
   const includeSave = params.scope === 'self';
+  const propertyLikeActorPredicate = activityActorPredicate(params.scope, 'r.user_id', params.viewerId);
+  const commentActorPredicate = activityActorPredicate(params.scope, 'c.user_id', params.viewerId);
+  const priceGuessActorPredicate = activityActorPredicate(params.scope, 'pg.user_id', params.viewerId);
+  const savedPropertyActorPredicate = activityActorPredicate(
+    params.scope,
+    'sp.user_id',
+    params.viewerId,
+  );
 
   const rows = await db.execute<ActivityRow>(sql`
     WITH activity_events AS (
@@ -157,6 +164,7 @@ export async function fetchActivityFeed(params: {
         ) lt ON TRUE
         WHERE r.target_type = 'property'
           AND r.reaction_type = 'like'
+          AND ${propertyLikeActorPredicate}
       )
       UNION ALL
       (
@@ -189,6 +197,7 @@ export async function fetchActivityFeed(params: {
           ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
           LIMIT 1
         ) lt ON TRUE
+        WHERE ${commentActorPredicate}
       )
       UNION ALL
       (
@@ -221,6 +230,7 @@ export async function fetchActivityFeed(params: {
           ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
           LIMIT 1
         ) lt ON TRUE
+        WHERE ${priceGuessActorPredicate}
       )
       ${includeSave
         ? sql`
@@ -254,7 +264,8 @@ export async function fetchActivityFeed(params: {
                   AND l.thumbnail_url IS NOT NULL
                 ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
                 LIMIT 1
-              ) lt ON TRUE
+                ) lt ON TRUE
+                WHERE ${savedPropertyActorPredicate}
             )
           `
         : sql``}
@@ -277,7 +288,6 @@ export async function fetchActivityFeed(params: {
       created_at,
       meta
     FROM activity_events
-    WHERE ${actorPredicate}
     ORDER BY created_at DESC, event_id DESC
     LIMIT ${params.limit + 1}
     OFFSET ${params.offset}

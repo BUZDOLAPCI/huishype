@@ -13,6 +13,11 @@ type MockMapInstance = {
     };
     transformRequest?: (url: string) => { url: string; headers?: Record<string, string> };
   };
+  style: {
+    _clearSource: jest.Mock;
+    _reloadSource: jest.Mock;
+    _updateSources: jest.Mock;
+  };
   keyboard: {
     disableRotation: jest.Mock;
   };
@@ -37,10 +42,13 @@ type MockMapInstance = {
   getLayer: jest.Mock;
   getSource: jest.Mock;
   isStyleLoaded: jest.Mock;
+  isSourceLoaded: jest.Mock;
+  areTilesLoaded: jest.Mock;
   fitBounds: jest.Mock;
   flyTo: jest.Mock;
   jumpTo: jest.Mock;
   project: jest.Mock;
+  querySourceFeatures: jest.Mock;
   queryRenderedFeatures: jest.Mock;
   resize: jest.Mock;
   remove: jest.Mock;
@@ -53,7 +61,10 @@ type MockMapInstance = {
 
 let mockAppliedFilters = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
-const mockGetAccessToken = jest.fn(async () => 'viewer-token');
+let mockAccessToken: string | null = 'viewer-token';
+let mockIsFocused = true;
+let mockBrowserPathname = '/';
+const mockGetAccessToken = jest.fn<Promise<string | null>, []>(async () => 'viewer-token');
 let mockFollowingTileSourceIsError = false;
 let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
 const mockFollowingTileRefetch = jest.fn();
@@ -70,6 +81,7 @@ const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
   followingActivity?: 'today' | '10d' | '30d' | 'all-time';
+  onPanelOpenChange?: (open: boolean) => void;
   onToggleFollowing?: () => void;
   onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
 } | null = null;
@@ -154,6 +166,7 @@ jest.mock('@react-navigation/native', () => ({
     const ReactModule = require('react') as typeof import('react');
     ReactModule.useEffect(() => effect(), [effect]);
   }),
+  useIsFocused: jest.fn(() => mockIsFocused),
 }));
 
 jest.mock('expo-router', () => ({
@@ -280,7 +293,7 @@ jest.mock('@/src/hooks/useMapCityName', () => ({
 
 jest.mock('@/src/providers/AuthProvider', () => ({
   useAuthContext: jest.fn(() => ({
-    accessToken: mockIsAuthenticated ? 'viewer-token' : null,
+    accessToken: mockIsAuthenticated ? mockAccessToken : null,
     getAccessToken: mockGetAccessToken,
     isAuthenticated: mockIsAuthenticated,
   })),
@@ -321,7 +334,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 }));
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
-  getCurrentBrowserPathname: jest.fn(() => '/'),
+  getCurrentBrowserPathname: jest.fn(() => mockBrowserPathname),
   replacePassiveBrowserPath: jest.fn((pathname: string) => mockReplacePassiveBrowserPath(pathname)),
 }));
 
@@ -378,10 +391,16 @@ jest.mock('maplibre-gl', () => {
 
     const canvas = globalThis.document.createElement('canvas');
     canvas.style.cursor = '';
+    const internalStyle = {
+      _clearSource: jest.fn(),
+      _reloadSource: jest.fn(),
+      _updateSources: jest.fn(),
+    };
 
     const instance = {} as MockMapInstance;
     Object.assign(instance, {
       options,
+      style: internalStyle,
       keyboard: {
         disableRotation: jest.fn(),
       },
@@ -446,10 +465,13 @@ jest.mock('maplibre-gl', () => {
         return undefined;
       }),
       isStyleLoaded: jest.fn(() => true),
+      isSourceLoaded: jest.fn(() => true),
+      areTilesLoaded: jest.fn(() => true),
       fitBounds: jest.fn(),
       flyTo: jest.fn(),
       jumpTo: jest.fn(),
       project: jest.fn(() => ({ x: 0, y: 0 })),
+      querySourceFeatures: jest.fn(() => []),
       queryRenderedFeatures: jest.fn(() => []),
       resize: jest.fn(),
       remove: jest.fn(),
@@ -500,6 +522,11 @@ describe('MapScreen web grouped Following mode', () => {
     mockMapInstances.length = 0;
     mockAppliedFilters = { tag: 'tile-a' };
     mockIsAuthenticated = true;
+    mockAccessToken = 'viewer-token';
+    mockIsFocused = true;
+    mockBrowserPathname = '/';
+    mockGetAccessToken.mockReset();
+    mockGetAccessToken.mockResolvedValue('viewer-token');
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
@@ -625,6 +652,9 @@ describe('MapScreen web grouped Following mode', () => {
       'all-time',
       true
     );
+    expect(mockGetAccessToken).not.toHaveBeenCalled();
+    expect(map.style._clearSource).toHaveBeenCalledWith('properties-source');
+    expect(map.style._reloadSource).toHaveBeenCalledWith('properties-source');
     expect(map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf')).toEqual(
       {
         url: 'https://tiles.test/following/12/2048/1363.pbf',
@@ -682,7 +712,7 @@ describe('MapScreen web grouped Following mode', () => {
     });
   });
 
-  it('records active preview properties as read', async () => {
+  it('records active preview properties as read on web', async () => {
     Object.assign(mockInteraction, {
       previewGroup: {
         properties: [{
@@ -735,6 +765,50 @@ describe('MapScreen web grouped Following mode', () => {
     expect(map.removeSource).not.toHaveBeenCalledWith('read-properties-source');
   });
 
+  it('waits for a resolved auth token before swapping to Following tiles', async () => {
+    mockAccessToken = null;
+    let resolveAccessToken: ((token: string | null) => void) | null = null;
+    mockGetAccessToken.mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveAccessToken = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    map.propertySource.setTiles.mockClear();
+
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(map.propertySource.setTiles).not.toHaveBeenCalledWith([
+      'https://tiles.test/following/{z}/{x}/{y}.pbf',
+    ]);
+
+    await act(async () => {
+      resolveAccessToken?.('viewer-token');
+      await Promise.resolve();
+    });
+    await flushMicrotasks();
+
+    expect(map.propertySource.setTiles).toHaveBeenCalledWith([
+      'https://tiles.test/following/{z}/{x}/{y}.pbf',
+    ]);
+  });
+
   it('does not record ghost preview properties as read', async () => {
     Object.assign(mockInteraction, {
       previewGroup: {
@@ -777,6 +851,17 @@ describe('MapScreen web grouped Following mode', () => {
     });
   });
 
+  it('does not passively rewrite the browser URL while a non-map tab is active', async () => {
+    mockBrowserPathname = '/feed';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).not.toHaveBeenCalled();
+  });
+
   it('shows the empty Following state from rendered grouped features after the map settles', async () => {
     await act(async () => {
       root.render(<MapScreen />);
@@ -784,6 +869,16 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
+    map.querySourceFeatures.mockReturnValue([
+      {
+        properties: {
+          group_kind: 'single',
+          primary_property_id: 'stale-public-property',
+          point_count: 1,
+        },
+        geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+      },
+    ]);
     map.queryRenderedFeatures.mockReturnValue([]);
 
     act(() => {
@@ -802,7 +897,11 @@ describe('MapScreen web grouped Following mode', () => {
       await new Promise((resolve) => setTimeout(resolve, 1700));
     });
 
-    expect(map.queryRenderedFeatures).toHaveBeenCalled();
+    const canvas = map.getCanvas();
+    expect(map.queryRenderedFeatures).toHaveBeenCalledWith(
+      [[0, 0], [canvas.width, canvas.height]],
+      { layers: QUERYABLE_PROPERTY_LAYER_IDS }
+    );
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
     expect(
       (
@@ -816,6 +915,67 @@ describe('MapScreen web grouped Following mode', () => {
         expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
       ])
     );
+  });
+
+  it('shows the empty Following state even when empty Following tiles never report as fully loaded', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.isSourceLoaded.mockReturnValue(false);
+    map.areTilesLoaded.mockReturnValue(false);
+    map.queryRenderedFeatures.mockReturnValue([]);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+    act(() => {
+      map.trigger('moveend');
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+    });
+
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
+  });
+
+  it('still completes the empty Following check when repeated idle events fire before settle', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.queryRenderedFeatures.mockReturnValue([]);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+    act(() => {
+      capturedMapFilterBarProps?.onToggleFollowing?.();
+    });
+    await flushMicrotasks();
+
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      act(() => {
+        map.trigger('idle');
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+    }
+
+    expect(map.queryRenderedFeatures).toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
   });
 
   it('does not rescan read feature states on unrelated source events before the map is idle', async () => {
@@ -839,6 +999,32 @@ describe('MapScreen web grouped Following mode', () => {
     });
 
     expect(map.queryRenderedFeatures.mock.calls.length).toBe(callsAfterLoad);
+  });
+
+  it('does not rebind property layer listeners on repeated source updates', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const onCallsBeforeSourceEvents = map.on.mock.calls.length;
+
+    act(() => {
+      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
+      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
+    });
+
+    expect(map.on.mock.calls.length - onCallsBeforeSourceEvents).toBe(
+      QUERYABLE_PROPERTY_LAYER_IDS.length * 3,
+    );
   });
 
   it('routes Following clicks through grouped tile features and emits click-through analytics', async () => {

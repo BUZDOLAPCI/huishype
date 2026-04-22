@@ -81,11 +81,15 @@ interface PropertyHeaderProps {
   containerWidth?: number;
 }
 
+function normalizePropertyText(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function formatGoogleMapsAddressPart(
   part: string | null | undefined,
   countryCode: string
 ): string | undefined {
-  const trimmed = part?.trim();
+  const trimmed = normalizePropertyText(part);
 
   if (!trimmed) {
     return undefined;
@@ -103,11 +107,12 @@ function formatGoogleMapsAddressPart(
 }
 
 function getGoogleMapsUrl(property: PropertyDetailsData): string {
-  const countryCode = property.countryCode.trim();
+  const countryCode = normalizePropertyText(property.countryCode);
+  const city = normalizePropertyText(property.city);
   const addressQuery = [
     formatGoogleMapsAddressPart(property.address, countryCode),
     formatGoogleMapsAddressPart(property.postalCode, countryCode),
-    property.city.trim(),
+    city,
     countryCode,
   ]
     .filter(Boolean)
@@ -128,8 +133,9 @@ function getGoogleMapsUrl(property: PropertyDetailsData): string {
 }
 
 function getPropertyAddressTitle(property: PropertyDetailsData): string {
-  const streetAddress = property.address.trim().split(',', 1)[0]?.trim();
-  return streetAddress || property.address;
+  const address = normalizePropertyText(property.address);
+  const streetAddress = address.split(',', 1)[0]?.trim();
+  return streetAddress || address;
 }
 
 export function PropertyHeader({
@@ -137,7 +143,10 @@ export function PropertyHeader({
   containerWidth: _containerWidth,
 }: PropertyHeaderProps) {
   const activity = ACTIVITY_CONFIG[property.activityLevel];
-  const hasSecondaryLocation = Boolean(property.city || property.postalCode);
+  const city = normalizePropertyText(property.city);
+  const postalCode = normalizePropertyText(property.postalCode);
+  const secondaryLocation = [city, postalCode].filter(Boolean).join(', ');
+  const hasSecondaryLocation = secondaryLocation.length > 0;
   const googleMapsUrl = getGoogleMapsUrl(property);
   const addressTitle = getPropertyAddressTitle(property);
 
@@ -165,10 +174,7 @@ export function PropertyHeader({
               {addressTitle}
             </Text>
             {hasSecondaryLocation && (
-              <Text style={styles.location}>
-                {property.city}
-                {property.postalCode ? `, ${property.postalCode}` : ''}
-              </Text>
+              <Text style={styles.location}>{secondaryLocation}</Text>
             )}
           </View>
 

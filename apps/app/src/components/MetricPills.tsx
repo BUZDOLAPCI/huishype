@@ -10,7 +10,7 @@
  * Multi-country: price-per-m² uses country-aware formatting.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 import { Icon, type IconName } from './ui/Icon';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
@@ -138,7 +138,7 @@ function StatPill({
 
 // ─── Main Component ──────────────────────────────────────────────────────
 
-export function MetricPills({
+function MetricPillsComponent({
   info,
   stats,
   variant,
@@ -204,6 +204,28 @@ export function MetricPills({
 
   return null;
 }
+
+function areMetricPillsPropsEqual(
+  prev: Readonly<MetricPillsProps>,
+  next: Readonly<MetricPillsProps>,
+) {
+  return (
+    prev.variant === next.variant &&
+    prev.showAllStats === next.showAllStats &&
+    prev.testID === next.testID &&
+    prev.info?.yearBuilt === next.info?.yearBuilt &&
+    prev.info?.floorAreaM2 === next.info?.floorAreaM2 &&
+    prev.info?.viewCount === next.info?.viewCount &&
+    prev.info?.pricePerM2 === next.info?.pricePerM2 &&
+    prev.info?.countryCode === next.info?.countryCode &&
+    prev.stats?.likeCount === next.stats?.likeCount &&
+    prev.stats?.commentCount === next.stats?.commentCount &&
+    prev.stats?.guessCount === next.stats?.guessCount &&
+    prev.stats?.viewCount === next.stats?.viewCount
+  );
+}
+
+export const MetricPills = memo(MetricPillsComponent, areMetricPillsPropsEqual);
 
 // ─── Styles ──────────────────────────────────────────────────────────────
 

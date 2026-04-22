@@ -54,9 +54,10 @@ function useAnonymousViewerKey(enabled: boolean): string | null | undefined {
 export function useReadTileSource(filters: MapFilters, enabled = true) {
   const queryClient = useQueryClient();
   const { accessToken, getAccessToken, isAuthenticated, user } = useAuthContext();
-  useReadTileSourceVersion();
+  const readTileSourceVersion = useReadTileSourceVersion();
+  const readOverlayEnabled = enabled && readTileSourceVersion > 0;
   const filterKey = getReadTileFilterKey(filters);
-  const anonymousViewerKey = useAnonymousViewerKey(enabled && !isAuthenticated);
+  const anonymousViewerKey = useAnonymousViewerKey(readOverlayEnabled && !isAuthenticated);
   const viewerKey = isAuthenticated && user?.id ? `auth:${user.id}` : anonymousViewerKey;
 
   return useQuery<ResolvedReadTileSource>({
@@ -87,7 +88,7 @@ export function useReadTileSource(filters: MapFilters, enabled = true) {
       const latestVersion = queryClient.getQueryData<number>(readTileSourceKeys.version) ?? 0;
       return fetchReadTileSource(API_URL, filters, credential, latestVersion);
     },
-    enabled: enabled && (isAuthenticated ? !!user?.id : anonymousViewerKey !== undefined),
+    enabled: readOverlayEnabled && (isAuthenticated ? !!user?.id : anonymousViewerKey !== undefined),
     staleTime: READ_TILE_SOURCE_STALE_MS,
     retry: false,
     meta: {

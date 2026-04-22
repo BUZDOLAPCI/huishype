@@ -12,6 +12,7 @@
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { getCanonicalTestPropertyRoute } from './helpers/test-property-route';
+import { waitForPropertyDetailReady } from '../integration/helpers';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
@@ -72,11 +73,10 @@ test.describe('Comment Flow', () => {
 
     await page.goto(property.route);
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('[data-testid="property-header-carousel"]')).toBeVisible({
-      timeout: 30000,
-    });
     if (property.address) {
-      await expect(page.getByText(property.address, { exact: true })).toBeVisible({
+      await waitForPropertyDetailReady(page, property.address, 30000);
+    } else {
+      await expect(page.locator('[data-testid="property-header-carousel"]')).toBeVisible({
         timeout: 30000,
       });
     }

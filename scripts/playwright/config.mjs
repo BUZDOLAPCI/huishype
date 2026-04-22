@@ -16,6 +16,7 @@ export function createPlaywrightConfig() {
   const runtime = applyPlaywrightRuntimeEnvironment();
   const disableWebServer = process.env.PLAYWRIGHT_DISABLE_WEBSERVER === '1';
   const isCi = !!process.env.CI;
+  const benchmarkTestDir = path.join(PLAYWRIGHT_TEST_DIR, 'benchmark');
   const sharedVisualUse = {
     ...devices['Desktop Chrome'],
     viewport: { width: 1280, height: 720 },
@@ -47,6 +48,16 @@ export function createPlaywrightConfig() {
       name: 'flows',
       testDir: PLAYWRIGHT_FLOW_TEST_DIR,
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'benchmark',
+      testDir: benchmarkTestDir,
+      use: {
+        ...devices['Desktop Chrome'],
+        trace: 'off',
+        screenshot: 'off',
+        video: 'off',
+      },
     },
   ];
 

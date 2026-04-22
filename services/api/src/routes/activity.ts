@@ -73,6 +73,14 @@ const errorResponseSchema = z.object({
   message: z.string(),
 });
 
+function applyActivityCacheHeader(scope: 'public' | 'following' | 'self', userId: string | null) {
+  if (scope === 'public' && userId == null) {
+    return 'public, max-age=15, stale-while-revalidate=30';
+  }
+
+  return 'private, no-store';
+}
+
 export async function activityRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -101,6 +109,8 @@ export async function activityRoutes(fastify: FastifyInstance) {
           message: 'Authentication required',
         });
       }
+
+      reply.header('Cache-Control', applyActivityCacheHeader(scope, request.userId ?? null));
 
       const feed = await fetchActivityFeed({
         scope,
@@ -135,8 +145,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { limit, offset } = request.query;
+      reply.header('Cache-Control', applyActivityCacheHeader('self', request.userId ?? null));
       return fetchActivityFeed({
         scope: 'self',
         viewerId: request.userId!,

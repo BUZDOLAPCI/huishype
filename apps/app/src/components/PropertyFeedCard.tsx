@@ -7,7 +7,7 @@
  * Design spec: Section 7.5 (Feed Card).
  */
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import { MetricPills } from './MetricPills';
@@ -51,7 +51,7 @@ const ACTIVITY_CONFIG = {
   cold: { bg: '#C7BFB3', label: '', iconName: undefined },
 } as const;
 
-export function PropertyFeedCard({
+function PropertyFeedCardComponent({
   address,
   city,
   countryCode,
@@ -68,11 +68,29 @@ export function PropertyFeedCard({
   onPress,
 }: PropertyFeedCardProps) {
   const activityConfig = ACTIVITY_CONFIG[activityLevel];
-  const imageSource = toPropertyImageSource({
-    thumbnailUrl,
-    aerialImageUrl,
-    countryCode,
-  });
+  const imageSource = useMemo(
+    () =>
+      toPropertyImageSource({
+        thumbnailUrl,
+        aerialImageUrl,
+        countryCode,
+      }),
+    [aerialImageUrl, countryCode, thumbnailUrl]
+  );
+  const stats = useMemo(
+    () => ({
+      likeCount,
+      commentCount,
+      guessCount,
+      viewCount,
+    }),
+    [commentCount, guessCount, likeCount, viewCount]
+  );
+  const accessibilityLabel = useMemo(
+    () =>
+      `${address}, ${city}${askingPrice ? `, asking ${formatPrice(askingPrice, countryCode)}` : ''}`,
+    [address, askingPrice, city, countryCode]
+  );
 
   // Determine the primary display price
   const primaryPrice = fmvValue ?? officialValuation;
@@ -82,7 +100,7 @@ export function PropertyFeedCard({
       onPress={onPress}
       style={styles.pressable}
       accessibilityRole="button"
-      accessibilityLabel={`${address}, ${city}${askingPrice ? `, asking ${formatPrice(askingPrice, countryCode)}` : ''}`}
+      accessibilityLabel={accessibilityLabel}
       accessibilityHint="Opens property details"
       testID="property-feed-card"
     >
@@ -179,12 +197,7 @@ export function PropertyFeedCard({
           {/* Stat pills */}
           <View style={styles.statDivider} />
           <MetricPills
-            stats={{
-              likeCount,
-              commentCount,
-              guessCount,
-              viewCount,
-            }}
+            stats={stats}
             variant="stats"
             showAllStats
             testID="feed-card-stats"
@@ -194,6 +207,36 @@ export function PropertyFeedCard({
     </Pressable>
   );
 }
+
+function arePropertyFeedCardPropsEqual(
+  prev: Readonly<PropertyFeedCardProps>,
+  next: Readonly<PropertyFeedCardProps>,
+) {
+  return (
+    prev.id === next.id &&
+    prev.address === next.address &&
+    prev.city === next.city &&
+    prev.postalCode === next.postalCode &&
+    prev.countryCode === next.countryCode &&
+    prev.thumbnailUrl === next.thumbnailUrl &&
+    prev.aerialImageUrl === next.aerialImageUrl &&
+    prev.officialValuation === next.officialValuation &&
+    prev.askingPrice === next.askingPrice &&
+    prev.fmvValue === next.fmvValue &&
+    prev.activityLevel === next.activityLevel &&
+    prev.likeCount === next.likeCount &&
+    prev.commentCount === next.commentCount &&
+    prev.guessCount === next.guessCount &&
+    prev.viewCount === next.viewCount &&
+    prev.yearBuilt === next.yearBuilt &&
+    prev.floorAreaM2 === next.floorAreaM2
+  );
+}
+
+export const PropertyFeedCard = memo(
+  PropertyFeedCardComponent,
+  arePropertyFeedCardPropsEqual
+);
 
 const styles = StyleSheet.create({
   pressable: {

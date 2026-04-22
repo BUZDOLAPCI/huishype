@@ -75,8 +75,27 @@ describe('useReadTileSource', () => {
     });
   });
 
+  it('does not fetch read tiles before any read state exists in the runtime', async () => {
+    const queryClient = createQueryClient();
+
+    renderHook(() => useReadTileSource(filters, true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockFetchReadTileSource).not.toHaveBeenCalled();
+    expect(mockGetAccessToken).not.toHaveBeenCalled();
+    expect(mockGetAnonymousSessionId).not.toHaveBeenCalled();
+  });
+
   it('uses fresh Authorization credentials for signed-in read TileJSON requests', async () => {
     const queryClient = createQueryClient();
+    act(() => {
+      bumpReadTileSourceVersion(queryClient);
+    });
     renderHook(() => useReadTileSource(filters, true), {
       wrapper: createWrapper(queryClient),
     });
@@ -92,7 +111,7 @@ describe('useReadTileSource', () => {
         headerName: 'Authorization',
         headerValue: 'Bearer fresh-token',
       },
-      0,
+      1,
     );
     expect(mockGetAnonymousSessionId).not.toHaveBeenCalled();
   });
@@ -100,6 +119,9 @@ describe('useReadTileSource', () => {
   it('uses the anonymous session ID for signed-out read TileJSON requests', async () => {
     mockIsAuthenticated = false;
     const queryClient = createQueryClient();
+    act(() => {
+      bumpReadTileSourceVersion(queryClient);
+    });
 
     renderHook(() => useReadTileSource(filters, true), {
       wrapper: createWrapper(queryClient),
@@ -116,7 +138,7 @@ describe('useReadTileSource', () => {
         headerName: 'x-session-id',
         headerValue: 'session-123',
       },
-      0,
+      1,
     );
     expect(mockGetAccessToken).not.toHaveBeenCalled();
   });
@@ -124,22 +146,22 @@ describe('useReadTileSource', () => {
   it('keeps the previous read tile source while a bumped version is loading', async () => {
     const queryClient = createQueryClient();
     const initialTileSource = {
-      tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=1',
       tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
-      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
-      tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf'] },
+      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1'] },
       headerName: 'Authorization',
       headerValue: 'Bearer fresh-token',
-      version: 0,
+      version: 1,
     };
     const refreshedTileSource = {
       ...initialTileSource,
-      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=1',
-      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=2',
+      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2',
       tileJson: {
-        tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1'],
+        tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2'],
       },
-      version: 1,
+      version: 2,
     };
     let resolveRefresh!: (value: typeof refreshedTileSource) => void;
 
@@ -153,6 +175,10 @@ describe('useReadTileSource', () => {
 
     const { result } = renderHook(() => useReadTileSource(filters, true), {
       wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      bumpReadTileSourceVersion(queryClient);
     });
 
     await waitFor(() => {
@@ -174,7 +200,7 @@ describe('useReadTileSource', () => {
         headerName: 'Authorization',
         headerValue: 'Bearer fresh-token',
       },
-      1,
+      2,
     );
     expect(result.current.data?.tileUrl).toBe(initialTileSource.tileUrl);
     expect(result.current.data?.cacheBustedTileUrl).toBe(initialTileSource.cacheBustedTileUrl);

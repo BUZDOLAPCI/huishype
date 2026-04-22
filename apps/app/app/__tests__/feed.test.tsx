@@ -216,6 +216,37 @@ function createMyProfileResult(
   };
 }
 
+function createMyProfileLoadingResult(): ReturnType<typeof useMyProfile> {
+  return {
+    data: undefined,
+    dataUpdatedAt: 0,
+    error: null,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    errorUpdateCount: 0,
+    isError: false,
+    isFetched: false,
+    isFetchedAfterMount: false,
+    isFetching: true,
+    isLoading: true,
+    isPending: true,
+    isLoadingError: false,
+    isInitialLoading: true,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isRefetching: false,
+    isStale: true,
+    isSuccess: false,
+    isEnabled: true,
+    refetch: jest.fn(),
+    status: 'pending',
+    fetchStatus: 'fetching',
+    promise: Promise.resolve(null as unknown as MyProfile),
+  } as unknown as ReturnType<typeof useMyProfile>;
+}
+
 function seedAuth() {
   mockUseAuthContext.mockReturnValue({
     user: {
@@ -370,6 +401,21 @@ describe('FeedScreen following surface', () => {
       lat: 52.52,
       lon: 13.405,
     }, true);
+  });
+
+  it('waits for the authenticated profile scope before enabling the property feed query', () => {
+    mockUseMyProfile.mockReturnValue(createMyProfileLoadingResult());
+    mockUseActivityFeed.mockImplementation((scope) =>
+      createQueryResult([
+        {
+          items: scope === 'following' ? [] : [],
+        },
+      ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', undefined, false);
   });
 
   it('emits following-feed item click analytics for both property and actor targets', async () => {
