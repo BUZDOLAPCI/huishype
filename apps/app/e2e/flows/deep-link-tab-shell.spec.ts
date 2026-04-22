@@ -79,6 +79,8 @@ test.describe('Deep Link Tab Shell', () => {
       );
       await feedTab.first().click();
 
+      await expect(page).toHaveURL(/\/feed(?:[/?#]|$)/, { timeout: 15000 });
+
       expect(
         await isAnyVisible(page, [
           '[data-testid="feed-screen"]',

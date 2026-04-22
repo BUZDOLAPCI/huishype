@@ -142,13 +142,7 @@ test.describe('App Boot & Navigation', () => {
 
     await feedTab.first().click();
 
-    // Should navigate to feed - wait for either URL change or feed content
-    await Promise.race([
-      page.waitForURL('**/feed**', { timeout: 15000 }).catch(() => null),
-      page.waitForSelector('[data-testid="feed-screen"]', { timeout: 15000 }).catch(() => null),
-      page.waitForSelector('[data-testid="feed-loading"]', { timeout: 15000 }).catch(() => null),
-      page.waitForSelector('[data-testid="feed-empty"]', { timeout: 15000 }).catch(() => null),
-    ]);
+    await page.waitForURL('**/feed**', { timeout: 15000 });
 
     await page.waitForTimeout(2000);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/app-feed-tab.png` });

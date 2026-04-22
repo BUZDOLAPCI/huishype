@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { View, Pressable, Text, StyleSheet } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, type Href } from 'expo-router';
 
 import { Icon, type IconName } from '@/src/components/ui/Icon';
 import { BlurContainer } from '@/src/components/ui/BlurContainer';
@@ -60,6 +61,13 @@ const TAB_LABELS: Record<string, string> = {
   profile: 'Profile',
 };
 
+const TAB_HREFS: Record<string, Href> = {
+  index: '/',
+  feed: '/feed',
+  saved: '/saved',
+  profile: '/profile',
+};
+
 const VISIBLE_TAB_NAMES = new Set(Object.keys(TAB_LABELS));
 
 const MAP_ROUTE_NAMES = new Set([
@@ -85,6 +93,7 @@ const COLORS = {
 
 export function CustomTabBar({ state, descriptors: _descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const activeRoute = state.routes[state.index];
   const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);
@@ -115,6 +124,14 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
       });
 
       if (!isFocused && !event.defaultPrevented) {
+        if (Platform.OS === 'web') {
+          const href = TAB_HREFS[route.name];
+          if (href) {
+            router.navigate(href);
+            return;
+          }
+        }
+
         navigation.navigate(route.name, route.params);
       }
     };
