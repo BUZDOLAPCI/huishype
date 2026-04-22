@@ -264,7 +264,12 @@ export function buildPropertyMarketFilterQuery(
   filters: MapFilters,
   propertyAlias = 'p'
 ): PropertyMarketFilterQuery {
-  const normalized = normalizeMapFilters(filters);
+  // Property market filtering is layered separately from activity filtering, so
+  // activity-only requests should not force listing/effective-price joins.
+  const normalized = normalizeMapFilters({
+    ...filters,
+    activity: 'all',
+  });
 
   if (areMapFiltersDefault(normalized)) {
     return {
@@ -274,7 +279,14 @@ export function buildPropertyMarketFilterQuery(
     };
   }
 
-  const join = buildPropertyListingFactsJoin(propertyAlias, 'lf', { includeEffectivePrices: true });
+  const requiresEffectivePrices =
+    normalized.salePriceFrom != null ||
+    normalized.salePriceTo != null ||
+    normalized.rentPriceFrom != null ||
+    normalized.rentPriceTo != null;
+  const join = buildPropertyListingFactsJoin(propertyAlias, 'lf', {
+    includeEffectivePrices: requiresEffectivePrices,
+  });
 
   const predicates: SQL[] = [];
   const marketStateColumn = sql.raw('lf.market_state');

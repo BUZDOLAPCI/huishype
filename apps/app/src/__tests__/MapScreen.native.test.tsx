@@ -28,6 +28,7 @@ let mockFollowingTileSourceIsError = false;
 let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
 const mockFollowingTileRefetch = jest.fn();
 let mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
 let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
 let mockReadHeaderValue = 'session-123';
 const mockReadTileRefetch = jest.fn();
@@ -204,6 +205,7 @@ const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => 
     ? {
         tileJsonUrl: 'http://api.test/tiles/properties/read.json',
         tileUrl: mockReadTileUrl,
+        cacheBustedTileUrl: mockReadCacheBustedTileUrl,
         tileJson: { tiles: [mockReadTileUrl] },
         headerName: mockReadHeaderName,
         headerValue: mockReadHeaderValue,
@@ -339,6 +341,7 @@ describe('MapScreen native grouped Following mode', () => {
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
     mockRecordPropertyView.mockReset();
@@ -471,6 +474,23 @@ describe('MapScreen native grouped Following mode', () => {
     const pattern = addCall?.[2] as RegExp;
     expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
     expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
+  });
+
+  it('does not refetch the merged native style when only the cache-busted read tile URL changes', async () => {
+    const screen = await renderMapScreen();
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    mockReadCacheBustedTileUrl =
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1';
+
+    await act(async () => {
+      screen.rerender(<MapScreen />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('records active preview properties as read', async () => {

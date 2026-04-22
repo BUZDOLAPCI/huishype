@@ -12,13 +12,15 @@ import {
   buildActivityFilterPredicate,
   buildPropertyFollowingSocialFactsJoin,
   buildPropertyListingFactsJoin,
-  buildPropertySocialFactsJoin,
 } from './property-queries.js';
 import {
   areMapFiltersDefault,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
+  getMapFilterSignature,
+  MAP_MARKET_STATES,
   type MapFilters,
+  type MapMarketState,
 } from './map-filters.js';
 import {
   filterReadCanonicalGroups,
@@ -158,6 +160,19 @@ type GroupingCandidateFetcher = (
 ) => Promise<GroupingCandidate[]>;
 
 type RadiusStop = readonly [threshold: number, radiusPx: number];
+
+type CanonicalGroupCacheEntry = {
+  expiresAt: number;
+  groups: CanonicalPropertyGroup[];
+};
+
+const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
+const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
+const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
+
+export function resetCanonicalGroupCacheForTests(): void {
+  canonicalGroupCache.clear();
+}
 
 export type TileTransportFeature = {
   lon: number;
@@ -483,6 +498,185 @@ function tileKey(tile: TileId): string {
   return `${tile.z}:${tile.x}:${tile.y}`;
 }
 
+function buildCanonicalGroupCacheKey(tile: TileId, filters: MapFilters): string {
+  return `${tile.z}/${tile.x}/${tile.y}:${getMapFilterSignature(filters)}`;
+}
+
+function pruneCanonicalGroupCache(now = Date.now()): void {
+  for (const [key, entry] of canonicalGroupCache) {
+    if (entry.expiresAt <= now) {
+      canonicalGroupCache.delete(key);
+    }
+  }
+}
+
+function getCachedCanonicalGroups(tile: TileId, filters: MapFilters): CanonicalPropertyGroup[] | null {
+  const now = Date.now();
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const entry = canonicalGroupCache.get(cacheKey);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= now) {
+    canonicalGroupCache.delete(cacheKey);
+    return null;
+  }
+
+  canonicalGroupCache.delete(cacheKey);
+  canonicalGroupCache.set(cacheKey, entry);
+  return entry.groups;
+}
+
+function setCachedCanonicalGroups(
+  tile: TileId,
+  filters: MapFilters,
+  groups: CanonicalPropertyGroup[]
+): void {
+  const now = Date.now();
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+
+  pruneCanonicalGroupCache(now);
+  if (canonicalGroupCache.has(cacheKey)) {
+    canonicalGroupCache.delete(cacheKey);
+  }
+
+  while (canonicalGroupCache.size >= CANONICAL_GROUP_CACHE_MAX_ENTRIES) {
+    const oldestKey = canonicalGroupCache.keys().next().value as string | undefined;
+    if (!oldestKey) {
+      break;
+    }
+    canonicalGroupCache.delete(oldestKey);
+  }
+
+  canonicalGroupCache.set(cacheKey, {
+    expiresAt: now + CANONICAL_GROUP_CACHE_TTL_MS,
+    groups,
+  });
+}
+
+function buildStateList(states: readonly MapMarketState[]): SQL {
+  return sql`(${sql.join(states.map((state) => sql`${state}`), sql`, `)})`;
+}
+
+function buildScopedPricePredicate(
+  marketStateColumn: SQL,
+  effectivePriceColumn: SQL,
+  impactedStates: readonly MapMarketState[],
+  unaffectedStates: readonly MapMarketState[],
+  operator: '>=' | '<=',
+  value: number
+): SQL {
+  return sql`(
+    ${marketStateColumn} IN ${buildStateList(unaffectedStates)}
+    OR (
+      ${marketStateColumn} IN ${buildStateList(impactedStates)}
+      AND ${effectivePriceColumn} ${sql.raw(operator)} ${value}
+    )
+  )`;
+}
+
+function hasPriceFilters(filters: MapFilters): boolean {
+  return (
+    filters.salePriceFrom != null ||
+    filters.salePriceTo != null ||
+    filters.rentPriceFrom != null ||
+    filters.rentPriceTo != null
+  );
+}
+
+function buildActivityWindowPredicate(column: SQL, activity: MapFilters['activity']): SQL {
+  if (activity === 'today') {
+    return sql`${column} > NOW() - INTERVAL '24 hours'`;
+  }
+
+  if (activity === '10d') {
+    return sql`${column} > NOW() - INTERVAL '10 days'`;
+  }
+
+  if (activity === '30d') {
+    return sql`${column} > NOW() - INTERVAL '30 days'`;
+  }
+
+  return sql`TRUE`;
+}
+
+function buildBulkMarketStatePredicate(filters: MapFilters, alias = 'lf'): SQL {
+  if (filters.marketState.length === MAP_MARKET_STATES.length) {
+    return sql`TRUE`;
+  }
+
+  return sql`${sql.raw(`${alias}.market_state`)} IN ${buildStateList(filters.marketState)}`;
+}
+
+function buildPriceFilterPredicate(filters: MapFilters, alias = 'lf'): SQL {
+  const predicates: SQL[] = [];
+  const marketStateColumn = sql.raw(`${alias}.market_state`);
+  const saleEffectivePriceColumn = sql.raw(`${alias}.sale_effective_price`);
+  const rentEffectivePriceColumn = sql.raw(`${alias}.rent_effective_price`);
+  const saleStates: readonly MapMarketState[] = ['for-sale', 'sold', 'not-listed'];
+  const rentStates: readonly MapMarketState[] = ['for-rent', 'rented'];
+
+  if (filters.marketState.length !== MAP_MARKET_STATES.length) {
+    predicates.push(sql`${marketStateColumn} IN ${buildStateList(filters.marketState)}`);
+  }
+
+  if (filters.salePriceFrom != null) {
+    predicates.push(
+      buildScopedPricePredicate(
+        marketStateColumn,
+        saleEffectivePriceColumn,
+        saleStates,
+        rentStates,
+        '>=',
+        filters.salePriceFrom
+      )
+    );
+  }
+
+  if (filters.salePriceTo != null) {
+    predicates.push(
+      buildScopedPricePredicate(
+        marketStateColumn,
+        saleEffectivePriceColumn,
+        saleStates,
+        rentStates,
+        '<=',
+        filters.salePriceTo
+      )
+    );
+  }
+
+  if (filters.rentPriceFrom != null) {
+    predicates.push(
+      buildScopedPricePredicate(
+        marketStateColumn,
+        rentEffectivePriceColumn,
+        rentStates,
+        saleStates,
+        '>=',
+        filters.rentPriceFrom
+      )
+    );
+  }
+
+  if (filters.rentPriceTo != null) {
+    predicates.push(
+      buildScopedPricePredicate(
+        marketStateColumn,
+        rentEffectivePriceColumn,
+        rentStates,
+        saleStates,
+        '<=',
+        filters.rentPriceTo
+      )
+    );
+  }
+
+  return predicates.length > 0 ? sql`${sql.join(predicates, sql` AND `)}` : sql`TRUE`;
+}
+
 async function fetchNearbyEmittedGroups(
   lon: number,
   lat: number,
@@ -608,6 +802,29 @@ function toCandidate(row: GroupingCandidateRow, zoom: number): GroupingCandidate
   };
 }
 
+function buildBoundsFilter(boundsList: TileBBox[], geometryColumn: SQL): SQL {
+  return sql.join(
+    boundsList.map(
+      (bounds) => sql`${geometryColumn} && ST_MakeEnvelope(
+          ${bounds.minLon},
+          ${bounds.minLat},
+          ${bounds.maxLon},
+          ${bounds.maxLat},
+          4326
+        )`
+    ),
+    sql` OR `
+  );
+}
+
+function buildListingOrderExpression(alias: string): SQL {
+  return sql`COALESCE(${sql.raw(`${alias}.mirror_last_changed_at`)}, ${sql.raw(
+    `${alias}.updated_at`
+  )}, ${sql.raw(`${alias}.created_at`)}) DESC, ${sql.raw(`${alias}.created_at`)} DESC, ${sql.raw(
+    `${alias}.id`
+  )} DESC`;
+}
+
 async function fetchGroupingCandidatesInBBox(
   bounds: TileBBox,
   zoom: number,
@@ -623,36 +840,471 @@ async function fetchGroupingCandidatesInBBoxes(
   includeGhostCandidates: boolean,
   filters: MapFilters
 ): Promise<GroupingCandidate[]> {
-  const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
   const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
-  const listingFactsJoin = areMapFiltersDefault(marketFilterQuery.filters)
-    ? buildPropertyListingFactsJoin('p', 'lf')
-    : marketFilterQuery.join;
+  const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
         COALESCE(lf.has_active_listing, FALSE)
         OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
       )`;
+  const marketStatePredicate = buildBulkMarketStatePredicate(filters, 'lf');
+  const includeEffectivePrices = hasPriceFilters(filters);
+  const requiresMarketStateFacts = filters.marketState.length !== MAP_MARKET_STATES.length;
+  const priceFilterPredicate = includeEffectivePrices
+    ? buildPriceFilterPredicate(filters, 'lf')
+    : sql`TRUE`;
+  const activityCandidateFilter = buildActivityWindowPredicate(sql.raw('activity_at'), filters.activity);
+  const candidateScopeCtes = includeGhostCandidates
+    ? sql`
+        candidate_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
+        )
+      `
+    : sql`
+        bounded_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
+        ),
+        active_listing_candidate_ids AS MATERIALIZED (
+          SELECT DISTINCT l.property_id
+          FROM listings l
+          INNER JOIN bounded_properties bp ON bp.id = l.property_id
+          WHERE l.status = 'active'
+        ),
+        social_activity_candidate_ids AS MATERIALIZED (
+          SELECT property_id
+          FROM (
+            SELECT c.property_id
+            FROM (
+              SELECT c.property_id, c.created_at AS activity_at
+              FROM comments c
+            ) c
+            INNER JOIN bounded_properties bp ON bp.id = c.property_id
+            WHERE ${activityCandidateFilter}
+            UNION
+            SELECT r.property_id
+            FROM (
+              SELECT r.target_id AS property_id, r.created_at AS activity_at
+              FROM reactions r
+              WHERE r.target_type = 'property'
+            ) r
+            INNER JOIN bounded_properties bp ON bp.id = r.property_id
+            WHERE ${activityCandidateFilter}
+            UNION
+            SELECT rc.property_id
+            FROM (
+              SELECT c.property_id, r.created_at AS activity_at
+              FROM reactions r
+              INNER JOIN comments c ON c.id = r.target_id
+              WHERE r.target_type = 'comment'
+            ) rc
+            INNER JOIN bounded_properties bp ON bp.id = rc.property_id
+            WHERE ${activityCandidateFilter}
+            UNION
+            SELECT pg.property_id
+            FROM (
+              SELECT
+                pg.property_id,
+                GREATEST(pg.created_at, pg.updated_at) AS activity_at
+              FROM price_guesses pg
+            ) pg
+            INNER JOIN bounded_properties bp ON bp.id = pg.property_id
+            WHERE ${activityCandidateFilter}
+            UNION
+            SELECT pv.property_id
+            FROM (
+              SELECT
+                pv.property_id,
+                MAX(pv.viewed_at) AS activity_at
+              FROM property_views pv
+              GROUP BY pv.property_id
+              HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
+            ) pv
+            INNER JOIN bounded_properties bp ON bp.id = pv.property_id
+            WHERE ${activityCandidateFilter}
+          ) social_candidates
+        ),
+        candidate_property_ids AS MATERIALIZED (
+          SELECT property_id
+          FROM active_listing_candidate_ids
+          UNION
+          SELECT property_id
+          FROM social_activity_candidate_ids
+        ),
+        candidate_properties AS MATERIALIZED (
+          SELECT
+            bp.id,
+            bp.geometry,
+            bp.official_valuation
+          FROM bounded_properties bp
+          INNER JOIN candidate_property_ids cpi ON cpi.property_id = bp.id
+        )
+      `;
+  const listingFactsCtes = includeEffectivePrices
+    ? sql`
+        latest_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.status
+          FROM listings l
+          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+        ),
+        active_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.asking_price,
+            COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
+          FROM listings l
+          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          WHERE l.status = 'active'
+          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+        ),
+        sold_history AS MATERIALIZED (
+          SELECT DISTINCT ON (ph.property_id)
+            ph.property_id,
+            ph.price AS last_sold_price
+          FROM price_history ph
+          INNER JOIN candidate_properties cp ON cp.id = ph.property_id
+          WHERE ph.event_type = 'sold'
+          ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+        ),
+        rented_history AS MATERIALIZED (
+          SELECT DISTINCT ON (ph.property_id)
+            ph.property_id,
+            ph.price AS last_rented_price
+          FROM price_history ph
+          INNER JOIN candidate_properties cp ON cp.id = ph.property_id
+          WHERE ph.event_type = 'rented'
+          ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+        ),
+        guess_facts AS MATERIALIZED (
+          SELECT
+            lpg.property_id,
+            CASE
+              WHEN COUNT(*) = 0 THEN NULL::bigint
+              WHEN COUNT(*) <= 2 THEN ROUND(
+                CASE
+                  WHEN cp.official_valuation IS NOT NULL
+                    THEN cp.official_valuation::numeric * 0.7
+                      + (
+                        SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                        / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                      ) * 0.3
+                  ELSE (
+                    SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                    / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                  )
+                END
+              )::bigint
+              WHEN COUNT(*) <= 9 THEN ROUND(
+                CASE
+                  WHEN cp.official_valuation IS NOT NULL
+                    THEN cp.official_valuation::numeric * 0.3
+                      + (
+                        SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                        / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                      ) * 0.7
+                  ELSE (
+                    SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                    / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                  )
+                END
+              )::bigint
+              ELSE ROUND(
+                SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+              )::bigint
+            END AS canonical_fmv
+          FROM latest_public_guesses lpg
+          INNER JOIN users u ON u.id = lpg.user_id
+          INNER JOIN candidate_properties cp ON cp.id = lpg.property_id
+          WHERE lpg.is_meme_guess = FALSE
+          GROUP BY lpg.property_id, cp.official_valuation
+        ),
+        listing_facts AS MATERIALIZED (
+          SELECT
+            cp.id AS property_id,
+            active_listing.property_id IS NOT NULL AS has_active_listing,
+            CASE
+              WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+                THEN 'for-rent'
+              WHEN active_listing.property_id IS NOT NULL
+                THEN 'for-sale'
+              WHEN latest_listing.status = 'sold'
+                THEN 'sold'
+              WHEN latest_listing.status = 'rented'
+                THEN 'rented'
+              ELSE 'not-listed'
+            END AS market_state,
+            COALESCE(
+              CASE
+                WHEN active_listing.property_id IS NOT NULL
+                  AND active_listing.price_type = 'sale'
+                  THEN active_listing.asking_price
+                ELSE NULL
+              END,
+              sold_history.last_sold_price,
+              guess_facts.canonical_fmv,
+              cp.official_valuation
+            ) AS sale_effective_price,
+            COALESCE(
+              CASE
+                WHEN active_listing.property_id IS NOT NULL
+                  AND active_listing.price_type = 'rent'
+                  THEN active_listing.asking_price
+                ELSE NULL
+              END,
+              rented_history.last_rented_price
+            ) AS rent_effective_price
+          FROM candidate_properties cp
+          LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
+          LEFT JOIN active_listing ON active_listing.property_id = cp.id
+          LEFT JOIN sold_history ON sold_history.property_id = cp.id
+          LEFT JOIN rented_history ON rented_history.property_id = cp.id
+          LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
+        )
+      `
+    : requiresMarketStateFacts
+      ? sql`
+          latest_listing AS MATERIALIZED (
+            SELECT DISTINCT ON (l.property_id)
+              l.property_id,
+              l.status
+            FROM listings l
+            INNER JOIN candidate_properties cp ON cp.id = l.property_id
+            ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+          ),
+          active_listing AS MATERIALIZED (
+            SELECT DISTINCT ON (l.property_id)
+              l.property_id,
+              COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
+            FROM listings l
+            INNER JOIN candidate_properties cp ON cp.id = l.property_id
+            WHERE l.status = 'active'
+            ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+          ),
+          listing_facts AS MATERIALIZED (
+            SELECT
+              cp.id AS property_id,
+              active_listing.property_id IS NOT NULL AS has_active_listing,
+              CASE
+                WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+                  THEN 'for-rent'
+                WHEN active_listing.property_id IS NOT NULL
+                  THEN 'for-sale'
+                WHEN latest_listing.status = 'sold'
+                  THEN 'sold'
+                WHEN latest_listing.status = 'rented'
+                  THEN 'rented'
+                ELSE 'not-listed'
+              END AS market_state,
+              NULL::bigint AS sale_effective_price,
+              NULL::bigint AS rent_effective_price
+            FROM candidate_properties cp
+            LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
+            LEFT JOIN active_listing ON active_listing.property_id = cp.id
+          )
+        `
+    : sql`
+        active_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
+          FROM listings l
+          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          WHERE l.status = 'active'
+          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+        ),
+        listing_facts AS MATERIALIZED (
+          SELECT
+            cp.id AS property_id,
+            active_listing.property_id IS NOT NULL AS has_active_listing,
+            CASE
+              WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+                THEN 'for-rent'
+              WHEN active_listing.property_id IS NOT NULL
+                THEN 'for-sale'
+              ELSE 'not-listed'
+            END AS market_state,
+            NULL::bigint AS sale_effective_price,
+            NULL::bigint AS rent_effective_price
+          FROM candidate_properties cp
+          LEFT JOIN active_listing ON active_listing.property_id = cp.id
+        )
+      `;
 
-  const bboxFilter = sql.join(
-    boundsList.map(
-      (bounds) => sql`p.geometry && ST_MakeEnvelope(
-          ${bounds.minLon},
-          ${bounds.minLat},
-          ${bounds.maxLon},
-          ${bounds.maxLat},
-          4326
-        )`
+  const rows = await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+
+    return tx.execute<GroupingCandidateRow>(sql`
+      WITH ${candidateScopeCtes},
+      latest_public_guesses AS MATERIALIZED (
+        SELECT DISTINCT ON (pg.property_id, pg.user_id)
+          pg.property_id,
+          pg.user_id,
+        pg.guessed_price,
+        pg.is_meme_guess,
+        GREATEST(pg.created_at, pg.updated_at) AS effective_at
+      FROM price_guesses pg
+      INNER JOIN candidate_properties cp ON cp.id = pg.property_id
+      ORDER BY
+        pg.property_id,
+        pg.user_id,
+        GREATEST(pg.created_at, pg.updated_at) DESC,
+        pg.created_at DESC,
+        pg.id DESC
     ),
-    sql` OR `
-  );
-
-  const rows = await db.execute<GroupingCandidateRow>(sql`
+    ${listingFactsCtes},
+    guess_activity AS MATERIALIZED (
+      SELECT
+        lpg.property_id,
+        COUNT(*)::int AS guess_count,
+        COUNT(*) FILTER (
+          WHERE lpg.effective_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_guess_count,
+        MAX(lpg.effective_at) AS latest_guess_at
+      FROM latest_public_guesses lpg
+      GROUP BY lpg.property_id
+    ),
+    top_level_comments AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE c.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(c.created_at) AS latest
+      FROM comments c
+      INNER JOIN candidate_properties cp ON cp.id = c.property_id
+      WHERE c.parent_id IS NULL
+      GROUP BY c.property_id
+    ),
+    replies AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE c.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(c.created_at) AS latest
+      FROM comments c
+      INNER JOIN candidate_properties cp ON cp.id = c.property_id
+      WHERE c.parent_id IS NOT NULL
+      GROUP BY c.property_id
+    ),
+    property_likes AS MATERIALIZED (
+      SELECT
+        r.target_id AS property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE r.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(r.created_at) AS latest
+      FROM reactions r
+      INNER JOIN candidate_properties cp ON cp.id = r.target_id
+      WHERE r.target_type = 'property'
+        AND r.reaction_type = 'like'
+      GROUP BY r.target_id
+    ),
+    comment_likes AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE r.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(r.created_at) AS latest
+      FROM reactions r
+      INNER JOIN comments c ON c.id = r.target_id
+      INNER JOIN candidate_properties cp ON cp.id = c.property_id
+      WHERE r.target_type = 'comment'
+        AND r.reaction_type = 'like'
+      GROUP BY c.property_id
+    ),
+    view_facts AS MATERIALIZED (
+      SELECT
+        pv.property_id,
+        COUNT(*)::int AS view_count,
+        COUNT(*) FILTER (
+          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_view_count,
+        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
+        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
+          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_unique_viewer_count,
+        MAX(pv.viewed_at) AS latest
+      FROM property_views pv
+      INNER JOIN candidate_properties cp ON cp.id = pv.property_id
+      GROUP BY pv.property_id
+    ),
+    social_facts AS MATERIALIZED (
+      SELECT
+        cp.id AS property_id,
+        COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
+        COALESCE(replies.count, 0)::int AS reply_count,
+        COALESCE(property_likes.count, 0)::int AS property_like_count,
+        COALESCE(comment_likes.count, 0)::int AS comment_like_count,
+        COALESCE(guess_activity.guess_count, 0)::int AS guess_count,
+        COALESCE(view_facts.view_count, 0)::int AS view_count,
+        COALESCE(view_facts.unique_viewer_count, 0)::int AS unique_viewer_count,
+        COALESCE(top_level_comments.recent_count, 0)::int AS recent_top_level_comment_count,
+        COALESCE(replies.recent_count, 0)::int AS recent_reply_count,
+        COALESCE(property_likes.recent_count, 0)::int AS recent_property_like_count,
+        COALESCE(comment_likes.recent_count, 0)::int AS recent_comment_like_count,
+        COALESCE(guess_activity.recent_guess_count, 0)::int AS recent_guess_count,
+        COALESCE(view_facts.recent_view_count, 0)::int AS recent_view_count,
+        COALESCE(view_facts.recent_unique_viewer_count, 0)::int AS recent_unique_viewer_count,
+        (
+          COALESCE(top_level_comments.count, 0)::double precision
+          + COALESCE(replies.count, 0)::double precision
+          + COALESCE(property_likes.count, 0)::double precision
+          + COALESCE(comment_likes.count, 0)::double precision * 0.8
+          + COALESCE(guess_activity.guess_count, 0)::double precision * 0.85
+          + COALESCE(view_facts.unique_viewer_count, 0)::double precision * 0.1
+        )::double precision AS social_score,
+        (
+          COALESCE(top_level_comments.recent_count, 0)::double precision
+          + COALESCE(replies.recent_count, 0)::double precision
+          + COALESCE(property_likes.recent_count, 0)::double precision
+          + COALESCE(comment_likes.recent_count, 0)::double precision * 0.8
+          + COALESCE(guess_activity.recent_guess_count, 0)::double precision * 0.85
+          + COALESCE(view_facts.recent_unique_viewer_count, 0)::double precision * 0.1
+        )::double precision AS recent_social_score,
+        GREATEST(
+          top_level_comments.latest,
+          replies.latest,
+          property_likes.latest,
+          comment_likes.latest,
+          guess_activity.latest_guess_at,
+          view_facts.latest
+        ) AS last_social_at
+      FROM candidate_properties cp
+      LEFT JOIN top_level_comments ON top_level_comments.property_id = cp.id
+      LEFT JOIN replies ON replies.property_id = cp.id
+      LEFT JOIN property_likes ON property_likes.property_id = cp.id
+      LEFT JOIN comment_likes ON comment_likes.property_id = cp.id
+      LEFT JOIN guess_activity ON guess_activity.property_id = cp.id
+      LEFT JOIN view_facts ON view_facts.property_id = cp.id
+    )
     SELECT
-      p.id,
-      ST_X(p.geometry) AS lon,
-      ST_Y(p.geometry) AS lat,
+      cp.id,
+      ST_X(cp.geometry) AS lon,
+      ST_Y(cp.geometry) AS lat,
       COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
       COALESCE(sf.social_score, 0)::double precision AS social_score,
       COALESCE(sf.recent_social_score, 0)::double precision AS recent_social_score,
@@ -661,16 +1313,15 @@ async function fetchGroupingCandidatesInBBoxes(
         + COALESCE(sf.reply_count, 0)
       )::int AS comment_count,
       lf.market_state
-    FROM properties p
-    ${listingFactsJoin}
-    ${buildPropertySocialFactsJoin('p', 'sf')}
-    WHERE p.geometry IS NOT NULL
-      AND p.status = 'active'
-      AND (${bboxFilter})
-      AND ${marketFilterQuery.predicate}
-      AND ${activityFilterPredicate}
-      AND ${candidateVisibilityFilter}
-  `);
+      FROM candidate_properties cp
+      INNER JOIN listing_facts lf ON lf.property_id = cp.id
+      INNER JOIN social_facts sf ON sf.property_id = cp.id
+      WHERE ${marketStatePredicate}
+        AND ${priceFilterPredicate}
+        AND ${activityFilterPredicate}
+        AND ${candidateVisibilityFilter}
+    `);
+  });
 
   return Array.from(rows).map((row) => toCandidate(row, zoom));
 }
@@ -700,28 +1351,32 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
     sql` OR `
   );
 
-  const rows = await db.execute<GroupingCandidateRow>(sql`
-    SELECT
-      p.id,
-      ST_X(p.geometry) AS lon,
-      ST_Y(p.geometry) AS lat,
-      COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
-      COALESCE(fsf.social_score, 0)::double precision AS social_score,
-      COALESCE(fsf.recent_social_score, 0)::double precision AS recent_social_score,
-      (
-        COALESCE(fsf.top_level_comment_count, 0)
-        + COALESCE(fsf.reply_count, 0)
-      )::int AS comment_count,
-      lf.market_state
-    FROM properties p
-    ${listingFactsJoin}
-    ${buildPropertyFollowingSocialFactsJoin(viewerId, 'p', 'fsf')}
-    WHERE p.geometry IS NOT NULL
-      AND p.status = 'active'
-      AND (${bboxFilter})
-      AND ${marketFilterQuery.predicate}
-      AND ${activityFilterPredicate}
-  `);
+  const rows = await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+
+    return tx.execute<GroupingCandidateRow>(sql`
+      SELECT
+        p.id,
+        ST_X(p.geometry) AS lon,
+        ST_Y(p.geometry) AS lat,
+        COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
+        COALESCE(fsf.social_score, 0)::double precision AS social_score,
+        COALESCE(fsf.recent_social_score, 0)::double precision AS recent_social_score,
+        (
+          COALESCE(fsf.top_level_comment_count, 0)
+          + COALESCE(fsf.reply_count, 0)
+        )::int AS comment_count,
+        lf.market_state
+      FROM properties p
+      ${listingFactsJoin}
+      ${buildPropertyFollowingSocialFactsJoin(viewerId, 'p', 'fsf')}
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND (${bboxFilter})
+        AND ${marketFilterQuery.predicate}
+        AND ${activityFilterPredicate}
+    `);
+  });
 
   return Array.from(rows).map((row) => toCandidate(row, zoom));
 }
@@ -927,13 +1582,28 @@ export function groupCandidatesForTile(
   );
 }
 
+async function buildUnhydratedCanonicalGroupsForTile(
+  tile: TileId,
+  filters: MapFilters
+): Promise<CanonicalPropertyGroup[]> {
+  const candidates = await fetchGroupingCandidates(tile, filters);
+  return groupCandidatesForTile(tile, candidates);
+}
+
 export async function buildCanonicalGroupsForTile(
   tile: TileId,
   filters: MapFilters = createDefaultMapFilters()
 ): Promise<CanonicalPropertyGroup[]> {
-  const candidates = await fetchGroupingCandidates(tile, filters);
-  const groups = groupCandidatesForTile(tile, candidates);
-  return hydrateSinglePropertyDetails(groups);
+  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  if (cachedGroups) {
+    return cachedGroups;
+  }
+
+  const groups = await hydrateSinglePropertyDetails(
+    await buildUnhydratedCanonicalGroupsForTile(tile, filters)
+  );
+  setCachedCanonicalGroups(tile, filters, groups);
+  return groups;
 }
 
 export async function buildFollowingCanonicalGroupsForTile(
@@ -955,8 +1625,21 @@ export async function buildReadCanonicalGroupsForTile(
     return [];
   }
 
-  const groups = await buildCanonicalGroupsForTile(tile, filters);
-  return filterReadCanonicalGroups(groups, viewer);
+  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  if (cachedGroups) {
+    return filterReadCanonicalGroups(cachedGroups, viewer);
+  }
+
+  const readGroups = await filterReadCanonicalGroups(
+    await buildUnhydratedCanonicalGroupsForTile(tile, filters),
+    viewer
+  );
+
+  if (readGroups.length === 0) {
+    return [];
+  }
+
+  return hydrateSinglePropertyDetails(readGroups);
 }
 
 function haversineMeters(a: [number, number], b: [number, number]): number {

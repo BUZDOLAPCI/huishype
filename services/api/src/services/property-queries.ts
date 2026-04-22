@@ -56,6 +56,18 @@ export function buildPropertyListingFactsJoin(
   const includeEffectivePrices = options.includeEffectivePrices ?? false;
   const idColumn = propertyIdColumn(propertyAlias);
   const valuationColumn = officialValuationColumn(propertyAlias);
+  const activeSalePriceExpression = sql`CASE
+    WHEN active_listing.id IS NOT NULL
+      AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'sale'
+      THEN active_listing.asking_price
+    ELSE NULL
+  END`;
+  const activeRentPriceExpression = sql`CASE
+    WHEN active_listing.id IS NOT NULL
+      AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'rent'
+      THEN active_listing.asking_price
+    ELSE NULL
+  END`;
 
   const soldHistoryJoin = includeEffectivePrices
     ? sql`
@@ -68,7 +80,7 @@ export function buildPropertyListingFactsJoin(
           LIMIT 1
         ) sold_history ON TRUE
       `
-    : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS last_sold_price) sold_history ON TRUE`;
+    : sql``;
 
   const rentedHistoryJoin = includeEffectivePrices
     ? sql`
@@ -81,7 +93,7 @@ export function buildPropertyListingFactsJoin(
           LIMIT 1
         ) rented_history ON TRUE
       `
-    : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS last_rented_price) rented_history ON TRUE`;
+    : sql``;
 
   const guessFactsJoin = includeEffectivePrices
     ? sql`
@@ -128,7 +140,25 @@ export function buildPropertyListingFactsJoin(
           WHERE pg.is_meme_guess = FALSE
         ) guess_facts ON TRUE
       `
-    : sql`LEFT JOIN LATERAL (SELECT NULL::bigint AS canonical_fmv) guess_facts ON TRUE`;
+    : sql``;
+
+  const saleEffectivePriceExpression = includeEffectivePrices
+    ? sql`COALESCE(
+        ${activeSalePriceExpression},
+        sold_history.last_sold_price,
+        guess_facts.canonical_fmv,
+        ${valuationColumn}
+      )`
+    : sql`COALESCE(
+        ${activeSalePriceExpression},
+        ${valuationColumn}
+      )`;
+  const rentEffectivePriceExpression = includeEffectivePrices
+    ? sql`COALESCE(
+        ${activeRentPriceExpression},
+        rented_history.last_rented_price
+      )`
+    : sql`${activeRentPriceExpression}`;
 
   return sql`
     LEFT JOIN LATERAL (
@@ -150,26 +180,8 @@ export function buildPropertyListingFactsJoin(
             THEN 'rented'
           ELSE 'not-listed'
         END AS market_state,
-        COALESCE(
-          CASE
-            WHEN active_listing.id IS NOT NULL
-              AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'sale'
-              THEN active_listing.asking_price
-            ELSE NULL
-          END,
-          sold_history.last_sold_price,
-          guess_facts.canonical_fmv,
-          ${valuationColumn}
-        ) AS sale_effective_price,
-        COALESCE(
-          CASE
-            WHEN active_listing.id IS NOT NULL
-              AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'rent'
-              THEN active_listing.asking_price
-            ELSE NULL
-          END,
-          rented_history.last_rented_price
-        ) AS rent_effective_price
+        ${saleEffectivePriceExpression} AS sale_effective_price,
+        ${rentEffectivePriceExpression} AS rent_effective_price
       FROM (SELECT 1) AS _seed
       LEFT JOIN LATERAL (
         SELECT

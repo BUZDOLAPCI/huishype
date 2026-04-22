@@ -9,5 +9,8 @@ export function bumpReadTileSourceVersion(queryClient: QueryClient): void {
   queryClient.setQueryData<number>(readTileSourceKeys.version, (current) =>
     typeof current === 'number' ? current + 1 : 1,
   );
-  void queryClient.invalidateQueries({ queryKey: readTileSourceKeys.sourceRoot });
+  void queryClient.invalidateQueries({
+    queryKey: readTileSourceKeys.sourceRoot,
+    refetchType: 'active',
+  });
 }

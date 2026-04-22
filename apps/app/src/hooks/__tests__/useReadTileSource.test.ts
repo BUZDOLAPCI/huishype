@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { useReadTileSource } from '../useReadTileSource';
-import { readTileSourceKeys } from '../readTileSourceInvalidation';
+import { bumpReadTileSourceVersion } from '../readTileSourceInvalidation';
 import type { MapFilters } from '../../lib/sharedMapFilters';
 
 const mockGetAccessToken = jest.fn<Promise<string | null>, []>();
@@ -67,6 +67,7 @@ describe('useReadTileSource', () => {
     mockFetchReadTileSource.mockResolvedValue({
       tileJsonUrl: 'http://api.test/tiles/properties/read.json',
       tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
+      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
       tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf'] },
       headerName: 'Authorization',
       headerValue: 'Bearer fresh-token',
@@ -125,6 +126,7 @@ describe('useReadTileSource', () => {
     const initialTileSource = {
       tileJsonUrl: 'http://api.test/tiles/properties/read.json',
       tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
+      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
       tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf'] },
       headerName: 'Authorization',
       headerValue: 'Bearer fresh-token',
@@ -133,7 +135,7 @@ describe('useReadTileSource', () => {
     const refreshedTileSource = {
       ...initialTileSource,
       tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=1',
-      tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
       tileJson: {
         tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1'],
       },
@@ -158,7 +160,7 @@ describe('useReadTileSource', () => {
     });
 
     act(() => {
-      queryClient.setQueryData(readTileSourceKeys.version, 1);
+      bumpReadTileSourceVersion(queryClient);
     });
 
     await waitFor(() => {
@@ -175,13 +177,15 @@ describe('useReadTileSource', () => {
       1,
     );
     expect(result.current.data?.tileUrl).toBe(initialTileSource.tileUrl);
+    expect(result.current.data?.cacheBustedTileUrl).toBe(initialTileSource.cacheBustedTileUrl);
 
     act(() => {
       resolveRefresh(refreshedTileSource);
     });
 
     await waitFor(() => {
-      expect(result.current.data?.tileUrl).toBe(refreshedTileSource.tileUrl);
+      expect(result.current.data?.cacheBustedTileUrl).toBe(refreshedTileSource.cacheBustedTileUrl);
     });
+    expect(result.current.data?.tileUrl).toBe(initialTileSource.tileUrl);
   });
 });

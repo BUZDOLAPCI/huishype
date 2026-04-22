@@ -17,6 +17,7 @@ import {
   serializeGroupForTile,
   shouldFetchGhostCandidates,
   type GroupingCandidate,
+  resetCanonicalGroupCacheForTests,
   resolveNearbyGroupedFeature,
 } from './property-grouping.js';
 import { normalizeMapFilters } from './map-filters.js';
@@ -80,6 +81,7 @@ function makeCandidateAtWorld(
 
 describe('property-grouping', () => {
   afterEach(() => {
+    resetCanonicalGroupCacheForTests();
     jest.restoreAllMocks();
   });
 
@@ -564,9 +566,9 @@ describe('property-grouping', () => {
     const lat = 51.443432;
     const zoom = 17;
     const propertyId = '00000000-0000-4000-a000-0000000000aa';
-
-    const executeSpy = jest
-      .spyOn(db, 'execute')
+    const txExecuteMock = jest
+      .fn()
+      .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce(
         [
           {
@@ -580,7 +582,13 @@ describe('property-grouping', () => {
             lat,
           },
         ] as never,
-      )
+      );
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    const executeSpy = jest
+      .spyOn(db, 'execute')
       .mockResolvedValueOnce(
         [
           {
@@ -597,12 +605,14 @@ describe('property-grouping', () => {
         ] as never,
       )
       .mockImplementation(() => {
-        throw new Error('resolveNearbyGroupedFeature should only execute two shared queries');
+        throw new Error('resolveNearbyGroupedFeature should only execute one shared detail query');
       });
 
     const result = await resolveNearbyGroupedFeature(lon, lat, zoom);
 
-    expect(executeSpy).toHaveBeenCalledTimes(2);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(txExecuteMock).toHaveBeenCalledTimes(2);
+    expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(result).not.toBeNull();
     expect(result?.groupKind).toBe('single');
     expect(result?.nodeClass).toBe('active');

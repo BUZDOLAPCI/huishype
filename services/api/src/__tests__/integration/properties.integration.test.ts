@@ -298,6 +298,81 @@ describe('Property routes', () => {
       }
     });
 
+    it('should keep activity-only filtering independent from market listing joins', async () => {
+      const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+      const viewIds = Array.from({ length: 8 }, () => crypto.randomUUID());
+      const lon = 6.928;
+      const lat = 53.224;
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry
+        )
+        VALUES
+          (
+            ${propertyIds[0]},
+            'NL',
+            'Activity Filter Street',
+            1,
+            'Signalstad',
+            '9988AA',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+          ),
+          (
+            ${propertyIds[1]},
+            'NL',
+            'Activity Filter Street',
+            2,
+            'Signalstad',
+            '9988AA',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon + 0.00015}, ${lat + 0.0001}), 4326)
+          )
+      `);
+
+      await db.execute(sql`
+        INSERT INTO property_views (id, property_id, session_id, viewed_at)
+        VALUES
+          ${sql.join(
+            viewIds.map(
+              (id, index) =>
+                sql`(${id}, ${propertyIds[0]}, ${`activity-session-${index}`}, NOW() - INTERVAL '2 hours')`
+            ),
+            sql`, `
+          )}
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties?lat=${lat}&lon=${lon}&radius=40&limit=10&activity=10d`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data.map((item: { id: string }) => item.id)).toEqual([propertyIds[0]]);
+        expect(body.data[0]).toMatchObject({
+          id: propertyIds[0],
+          marketState: 'not-listed',
+          hasListing: false,
+          hasActiveListing: false,
+        });
+        expect(body.meta.total).toBe(1);
+      } finally {
+        await db.execute(sql`DELETE FROM property_views WHERE id IN (${sql.join(viewIds.map((id) => sql`${id}`), sql`, `)})`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+      }
+    });
+
     it('should return 400 for limit > 100', async () => {
       const response = await app.inject({
         method: 'GET',

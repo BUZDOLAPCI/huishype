@@ -72,6 +72,7 @@ export interface ReadTileCredential {
 export interface ResolvedReadTileSource extends ReadTileCredential {
   tileJsonUrl: string;
   tileUrl: string | null;
+  cacheBustedTileUrl: string | null;
   tileJson: TileJsonLike;
   version: number;
 }
@@ -356,7 +357,8 @@ export async function fetchReadTileSource(
   return {
     ...credential,
     tileJsonUrl,
-    tileUrl: rawTileUrl ? withReadVersion(rawTileUrl, version) : null,
+    tileUrl: rawTileUrl,
+    cacheBustedTileUrl: rawTileUrl ? withReadVersion(rawTileUrl, version) : null,
     tileJson,
     version,
   };

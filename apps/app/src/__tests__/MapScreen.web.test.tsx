@@ -58,6 +58,7 @@ let mockFollowingTileSourceIsError = false;
 let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
 const mockFollowingTileRefetch = jest.fn();
 let mockReadTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+let mockReadCacheBustedTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
 let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
 let mockReadHeaderValue = 'session-123';
 const mockReadTileRefetch = jest.fn();
@@ -243,6 +244,7 @@ const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => 
     ? {
         tileJsonUrl: 'http://api.test/tiles/properties/read.json',
         tileUrl: mockReadTileUrl,
+        cacheBustedTileUrl: mockReadCacheBustedTileUrl ?? mockReadTileUrl,
         tileJson: { tiles: [mockReadTileUrl] },
         headerName: mockReadHeaderName,
         headerValue: mockReadHeaderValue,
@@ -501,6 +503,7 @@ describe('MapScreen web grouped Following mode', () => {
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
+    mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
     mockRecordPropertyView.mockReset();
@@ -701,6 +704,37 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
   });
 
+  it('refreshes read overlay source tiles from the cache-busted template without removing the source', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const readSource = map.getSource('read-properties-source') as {
+      setTiles: jest.Mock;
+    };
+    readSource.setTiles.mockClear();
+
+    mockReadCacheBustedTileUrl =
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(readSource.setTiles).toHaveBeenCalledWith([
+      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+    ]);
+    expect(map.removeSource).not.toHaveBeenCalledWith('read-properties-source');
+  });
+
   it('does not record ghost preview properties as read', async () => {
     Object.assign(mockInteraction, {
       previewGroup: {
@@ -782,6 +816,29 @@ describe('MapScreen web grouped Following mode', () => {
         expect.objectContaining({ name: 'map_following_filter_empty_viewed' }),
       ])
     );
+  });
+
+  it('does not rescan read feature states on unrelated source events before the map is idle', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.queryRenderedFeatures.mockClear();
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const callsAfterLoad = map.queryRenderedFeatures.mock.calls.length;
+
+    act(() => {
+      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
+    });
+
+    expect(map.queryRenderedFeatures.mock.calls.length).toBe(callsAfterLoad);
   });
 
   it('routes Following clicks through grouped tile features and emits click-through analytics', async () => {

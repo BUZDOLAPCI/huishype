@@ -276,7 +276,7 @@ describe('Read tile source helpers', () => {
     expect(JSON.stringify(clusterPaint)).toContain('"text-opacity"');
   });
 
-  it('fetches read TileJSON with the supplied private credential and versions tile templates', async () => {
+  it('fetches read TileJSON with the supplied private credential and exposes stable and cache-busted templates', async () => {
     const mockFetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -304,6 +304,9 @@ describe('Read tile source helpers', () => {
       },
     );
     expect(source.tileUrl).toBe(
+      'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale',
+    );
+    expect(source.cacheBustedTileUrl).toBe(
       'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale&readVersion=4',
     );
     expect(source.headerName).toBe('x-session-id');
@@ -327,6 +330,37 @@ describe('Read tile source helpers', () => {
     );
 
     expect(source.tileUrl).toBeNull();
+    expect(source.cacheBustedTileUrl).toBeNull();
     expect(source.tileJson).toEqual({ tiles: [] });
+  });
+
+  it('returns a stable tile template plus a cache-busted read template', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tiles: ['http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf'],
+      }),
+    }) as jest.Mock;
+
+    await expect(
+      fetchReadTileSource(
+        'http://localhost:3100/',
+        filters,
+        {
+          headerName: 'x-session-id',
+          headerValue: 'session-123',
+        },
+        2,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        tileJsonUrl:
+          'http://localhost:3100/tiles/properties/read.json?salePriceFrom=500000&marketState=for-sale&activity=today&readVersion=2',
+        tileUrl: 'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf',
+        cacheBustedTileUrl:
+          'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2',
+        version: 2,
+      }),
+    );
   });
 });

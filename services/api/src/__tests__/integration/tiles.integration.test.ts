@@ -600,6 +600,45 @@ describe('Tile routes', () => {
       expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
     });
 
+    it('keeps public property tile cache viewer-agnostic even when request identity headers differ', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Viewer Agnostic Tile Street',
+        houseNumber: 1,
+        city: 'Cachefield',
+        postalCode: '9309AA',
+        lon: 5.4712,
+        lat: 51.4414,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 525000,
+          sourceUrl: `https://example.com/viewer-agnostic-${property.id}`,
+        });
+
+        const firstResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        const secondResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': `viewer-agnostic-${Date.now()}` },
+        });
+
+        expect(firstResponse.statusCode).toBe(200);
+        expect(firstResponse.headers['x-tile-cache']).toBe('miss');
+        expect(secondResponse.statusCode).toBe(200);
+        expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+        expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
     it('should include the normalized filter signature in the property tile cache key', async () => {
       const propertyId = crypto.randomUUID();
       const listingId = crypto.randomUUID();
@@ -866,6 +905,60 @@ describe('Tile routes', () => {
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id IN (${first.id}, ${second.id})`);
         await db.execute(sql`DELETE FROM properties WHERE id IN (${first.id}, ${second.id})`);
+      }
+    });
+
+    it('keeps read overlay tiles viewer-specific even when the public base tile is cached', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Read Overlay Identity Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9303AA',
+        lon: 6.203,
+        lat: 52.203,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
+      const readerSessionId = `read-overlay-reader-${Date.now()}`;
+      const otherSessionId = `${readerSessionId}-other`;
+
+      try {
+        await createIntegrationListing({
+          propertyId: property.id,
+          askingPrice: 477000,
+          sourceUrl: `https://example.com/read-overlay-identity-${property.id}`,
+        });
+
+        const publicResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        expect(publicResponse.statusCode).toBe(200);
+
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+
+        const readerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        const otherViewerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': otherSessionId },
+        });
+
+        expect(readerResponse.statusCode).toBe(200);
+        expect(readerResponse.headers['cache-control']).toBe('private, no-store');
+        expect(otherViewerResponse.statusCode).toBe(204);
+        expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
+      } finally {
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
   });

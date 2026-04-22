@@ -799,12 +799,19 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
   );
   const activeReadPropertyTiles = useMemo(
-    () => (
-      socialScope === 'following' || !readTileSource.data?.tileUrl
-        ? []
-        : [readTileSource.data.tileUrl]
-    ),
-    [readTileSource.data?.tileUrl, socialScope],
+    (): string[] => {
+      const readTileUrl =
+        readTileSource.data?.cacheBustedTileUrl
+        ?? readTileSource.data?.tileUrl
+        ?? null;
+
+      if (socialScope === 'following' || !readTileUrl) {
+        return [];
+      }
+
+      return [readTileUrl];
+    },
+    [readTileSource.data?.cacheBustedTileUrl, readTileSource.data?.tileUrl, socialScope],
   );
   // Keep map construction stable; later filter changes should update the
   // vector source tiles in place instead of remounting the whole map.
@@ -2473,13 +2480,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     syncReadFeatureStates();
     map.on('idle', syncReadFeatureStates);
-    map.on('moveend', syncReadFeatureStates);
-    map.on('sourcedata', syncReadFeatureStates);
 
     return () => {
       map.off('idle', syncReadFeatureStates);
-      map.off('moveend', syncReadFeatureStates);
-      map.off('sourcedata', syncReadFeatureStates);
     };
   }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
 

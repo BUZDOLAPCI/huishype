@@ -643,7 +643,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         salePriceTo: parsedMapFilters.salePriceTo ?? maxPrice ?? null,
       });
       const mapFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
-      const requiresListingFactsForMarketFilters = !areMapFiltersDefault(filters);
+      const requiresListingFactsForMarketFilters = !areMapFiltersDefault(mapFilterQuery.filters);
       const requiresSocialFactsForCount = filters.activity !== 'all';
       const activityPredicate = requiresSocialFactsForCount
         ? buildActivityFilterPredicate(filters.activity, 'sf')

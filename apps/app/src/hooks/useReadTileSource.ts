@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAnonymousSessionId } from '@/src/lib/anonymousSession';
 import type { MapFilters } from '@/src/lib/sharedMapFilters';
 import {
@@ -35,14 +35,32 @@ function useReadTileSourceVersion(): number {
   return data;
 }
 
+function useAnonymousViewerKey(enabled: boolean): string | null | undefined {
+  const { data } = useQuery<string | null>({
+    queryKey: ['auth', 'anonymous-session-id'],
+    queryFn: getAnonymousSessionId,
+    enabled,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+
+  if (data === undefined) {
+    return undefined;
+  }
+
+  return data ? `anon:${data}` : null;
+}
+
 export function useReadTileSource(filters: MapFilters, enabled = true) {
+  const queryClient = useQueryClient();
   const { accessToken, getAccessToken, isAuthenticated, user } = useAuthContext();
-  const version = useReadTileSourceVersion();
+  useReadTileSourceVersion();
   const filterKey = getReadTileFilterKey(filters);
-  const viewerKey = isAuthenticated && user?.id ? `auth:${user.id}` : 'anon-session';
+  const anonymousViewerKey = useAnonymousViewerKey(enabled && !isAuthenticated);
+  const viewerKey = isAuthenticated && user?.id ? `auth:${user.id}` : anonymousViewerKey;
 
   return useQuery<ResolvedReadTileSource>({
-    queryKey: [...readTileSourceKeys.sourceRoot, viewerKey, filterKey, version],
+    queryKey: [...readTileSourceKeys.sourceRoot, viewerKey ?? 'anon:pending', filterKey],
     queryFn: async () => {
       let credential: ReadTileCredential;
 
@@ -56,7 +74,7 @@ export function useReadTileSource(filters: MapFilters, enabled = true) {
           headerValue: `Bearer ${token}`,
         };
       } else {
-        const sessionId = await getAnonymousSessionId();
+        const sessionId = anonymousViewerKey?.replace(/^anon:/, '') ?? await getAnonymousSessionId();
         if (!sessionId) {
           throw new Error('Anonymous session unavailable');
         }
@@ -66,10 +84,10 @@ export function useReadTileSource(filters: MapFilters, enabled = true) {
         };
       }
 
-      return fetchReadTileSource(API_URL, filters, credential, version);
+      const latestVersion = queryClient.getQueryData<number>(readTileSourceKeys.version) ?? 0;
+      return fetchReadTileSource(API_URL, filters, credential, latestVersion);
     },
-    enabled,
-    placeholderData: keepPreviousData,
+    enabled: enabled && (isAuthenticated ? !!user?.id : anonymousViewerKey !== undefined),
     staleTime: READ_TILE_SOURCE_STALE_MS,
     retry: false,
     meta: {
