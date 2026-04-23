@@ -1,87 +1,41 @@
-/**
- * ActivityFeedCard — Card variant for the "Recent Activity" feed tab.
- *
- * Shows social events (likes, comments, guesses) with actor info,
- * property context, and timestamp.
- *
- * Design spec: Section 7.12 (Social Activity Feed).
- */
-
 import React, { memo, useMemo } from 'react';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
-import { Icon, type IconName } from './ui/Icon';
-import { UserAvatar } from './ui/UserAvatar';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card } from './ui/Card';
-import type { ActivityEventType } from '../hooks/useUserActivity';
+import { Icon, type IconName } from './ui/Icon';
 import { PropertyImageSurface } from './PropertyImageSurface';
-import { toPropertyImageSource } from '../utils/property-image';
+import { UserAvatar } from './ui/UserAvatar';
+import { toPropertyImageSource, withDerivedPropertyImageData } from '../utils/property-image';
+import type {
+  GroupedActivityPreview,
+  GroupedPropertyActivityItem,
+} from '../hooks/useActivityFeed';
 
 export interface ActivityFeedCardProps {
-  /** Unique activity event ID. */
-  id: string;
-  /** Event type. */
-  eventType: ActivityEventType;
-  /** Actor who performed the action. */
-  actor: {
-    id: string;
-    displayName: string;
-    handle: string;
-    profilePhotoUrl: string | null;
-  };
-  /** Property the action was performed on. */
-  property: {
-    id: string;
-    address: string;
-    city: string;
-    countryCode: string;
-    geometry: { type: 'Point'; coordinates: [number, number] } | null;
-    thumbnailUrl: string | null;
-  };
-  /** ISO timestamp. */
-  createdAt: string;
-  /** Called when the property is pressed. */
-  onPropertyPress?: () => void;
-  /** Called when the actor row is pressed. */
-  onActorPress?: () => void;
+  property: GroupedPropertyActivityItem['property'];
+  lastActivityAt: string;
+  recentActors: GroupedPropertyActivityItem['recentActors'];
+  preview: GroupedActivityPreview;
+  counts: GroupedPropertyActivityItem['counts'];
+  onPress?: () => void;
 }
 
-// --- Action badge config ---
-
-interface ActionBadgeConfig {
-  icon: IconName;
-  label: string;
-  bg: string;
-  color: string;
-}
-
-const ACTION_CONFIGS: Record<ActivityEventType, ActionBadgeConfig> = {
-  property_like: {
-    icon: 'Heart',
-    label: 'Liked',
-    bg: '#FFF0F0',
-    color: '#E53935',
+const STAT_CONFIG = {
+  likes: {
+    icon: 'Heart' as const,
+    color: '#E91E63',
+    bg: 'rgba(233, 30, 99, 0.08)',
   },
-  comment: {
-    icon: 'ChatCircle',
-    label: 'Commented',
-    bg: '#EFF6FF',
+  comments: {
+    icon: 'ChatCircle' as const,
     color: '#42A5F5',
+    bg: 'rgba(66, 165, 245, 0.08)',
   },
-  price_guess: {
-    icon: 'Tag',
-    label: 'Guessed',
-    bg: '#ECFDF5',
+  guesses: {
+    icon: 'Tag' as const,
     color: '#4CAF50',
+    bg: 'rgba(76, 175, 80, 0.08)',
   },
-  save: {
-    icon: 'BookmarkSimple',
-    label: 'Saved',
-    bg: '#FFFBEB',
-    color: '#F5A623',
-  },
-};
-
-// --- Relative time formatting ---
+} as const;
 
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();
@@ -93,7 +47,7 @@ function formatRelativeTime(isoDate: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
 
   const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs} ${diffHrs === 1 ? 'hour' : 'hours'} ago`;
+  if (diffHrs < 24) return `${diffHrs}h ago`;
 
   const diffDays = Math.floor(diffHrs / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
@@ -101,89 +55,172 @@ function formatRelativeTime(isoDate: string): string {
   return `${Math.floor(diffDays / 30)}mo ago`;
 }
 
-// --- Component ---
+function formatActorHeadline(actors: GroupedPropertyActivityItem['recentActors']) {
+  if (actors.length === 0) {
+    return 'Recent activity';
+  }
+
+  if (actors.length === 1) {
+    return actors[0].displayName;
+  }
+
+  if (actors.length === 2) {
+    return `${actors[0].displayName} and ${actors[1].displayName}`;
+  }
+
+  return `${actors[0].displayName}, ${actors[1].displayName} and ${actors[2].displayName}`;
+}
+
+function renderPreviewText(preview: GroupedActivityPreview) {
+  if (preview.kind === 'comment') {
+    return `${preview.actor.displayName}: ${preview.contentPreview}`;
+  }
+
+  return preview.summary;
+}
+
+function StatChip({
+  icon,
+  value,
+  color,
+  backgroundColor,
+  testID,
+}: {
+  icon: IconName;
+  value: number;
+  color: string;
+  backgroundColor: string;
+  testID: string;
+}) {
+  return (
+    <View style={[styles.statChip, { backgroundColor }]} testID={testID}>
+      <Icon name={icon} size={14} color={color} />
+      <Text style={[styles.statChipText, { color }]}>{value}</Text>
+    </View>
+  );
+}
 
 function ActivityFeedCardComponent({
-  eventType,
-  actor,
   property,
-  createdAt,
-  onPropertyPress,
-  onActorPress,
+  lastActivityAt,
+  recentActors,
+  preview,
+  counts,
+  onPress,
 }: ActivityFeedCardProps) {
-  const config = ACTION_CONFIGS[eventType];
-  const relativeTime = useMemo(() => formatRelativeTime(createdAt), [createdAt]);
+  const propertyWithImages = useMemo(
+    () => withDerivedPropertyImageData(property),
+    [property],
+  );
+  const imageSource = useMemo(
+    () => toPropertyImageSource(propertyWithImages),
+    [propertyWithImages],
+  );
+  const relativeTime = useMemo(() => formatRelativeTime(lastActivityAt), [lastActivityAt]);
+  const actorHeadline = useMemo(() => formatActorHeadline(recentActors), [recentActors]);
+  const previewText = useMemo(() => renderPreviewText(preview), [preview]);
 
   return (
-    <Card shadow="card" testID="activity-feed-card" style={styles.card}>
-      <Pressable
-        onPress={onPropertyPress}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${property.address}`}
-        testID="activity-feed-property-button"
-      >
+    <Pressable
+      onPress={onPress}
+      style={styles.pressable}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${property.address}`}
+      accessibilityHint="Opens property details"
+      testID="property-activity-card"
+    >
+      <Card shadow="card">
         <View style={styles.imageWrapper}>
           <PropertyImageSurface
-            source={toPropertyImageSource(property)}
+            source={imageSource}
             style={styles.image}
-            imageTestID="activity-feed-image"
-            markerTestID="activity-feed-image-marker"
+            imageTestID="property-activity-image"
+            markerTestID="property-activity-image-marker"
             placeholder={(
               <View style={styles.placeholder}>
                 <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
+                <Text style={styles.placeholderText}>No image available</Text>
               </View>
             )}
           />
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.address} numberOfLines={1}>
-            {property.address}
-          </Text>
-        </View>
-      </Pressable>
-
-      <View style={styles.body}>
-        <View style={styles.metaRow}>
-          <Pressable
-            onPress={onActorPress}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${actor.displayName}'s profile`}
-            style={styles.userRow}
-            testID="activity-feed-actor-button"
-          >
-            <UserAvatar
-              username={actor.handle}
-              displayName={actor.displayName}
-              profilePhotoUrl={actor.profilePhotoUrl}
-              size="sm"
-            />
-            <View style={styles.userInfo}>
-              <Text style={styles.userName} numberOfLines={1}>
-                {actor.displayName}
+          <View style={styles.addressRow}>
+            <View style={styles.addressContent}>
+              <Text style={styles.address} numberOfLines={1}>
+                {property.address}
+              </Text>
+              <Text style={styles.city} numberOfLines={1}>
+                {property.city}
               </Text>
             </View>
-          </Pressable>
+            <Text style={styles.timestamp}>{relativeTime}</Text>
+          </View>
 
-          <View style={styles.metaRight}>
-            <Text style={styles.timestamp}>
-              {relativeTime}
+          <View style={styles.actorRow}>
+            <View style={styles.facepile} testID="property-activity-facepile">
+              {recentActors.map((actor, index) => (
+                <View
+                  key={actor.id}
+                  style={[
+                    styles.facepileItem,
+                    index > 0 ? { marginLeft: -10 } : null,
+                    { zIndex: recentActors.length - index },
+                  ]}
+                >
+                  <UserAvatar
+                    username={actor.handle}
+                    displayName={actor.displayName}
+                    profilePhotoUrl={actor.profilePhotoUrl}
+                    size="xs"
+                    testID={`property-activity-actor-${index}`}
+                  />
+                </View>
+              ))}
+            </View>
+            <Text style={styles.actorText} numberOfLines={1}>
+              {actorHeadline}
             </Text>
-            <View style={[styles.actionBadge, { backgroundColor: config.bg }]}>
-              <Icon
-                name={config.icon}
-                size={14}
-                weight="fill"
-                color={config.color}
-              />
-              <Text style={[styles.actionBadgeText, { color: config.color }]}>
-                {config.label}
-              </Text>
-            </View>
+          </View>
+
+          <View style={styles.previewBlock}>
+            <Text style={styles.previewLabel}>
+              {preview.kind === 'comment' ? 'Latest comment' : 'Latest activity'}
+            </Text>
+            <Text style={styles.previewText} numberOfLines={3}>
+              {previewText}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.statRow} testID="property-activity-stats">
+            <StatChip
+              icon={STAT_CONFIG.likes.icon}
+              color={STAT_CONFIG.likes.color}
+              backgroundColor={STAT_CONFIG.likes.bg}
+              value={counts.likeCount}
+              testID="property-activity-stats-likes"
+            />
+            <StatChip
+              icon={STAT_CONFIG.comments.icon}
+              color={STAT_CONFIG.comments.color}
+              backgroundColor={STAT_CONFIG.comments.bg}
+              value={counts.commentCount}
+              testID="property-activity-stats-comments"
+            />
+            <StatChip
+              icon={STAT_CONFIG.guesses.icon}
+              color={STAT_CONFIG.guesses.color}
+              backgroundColor={STAT_CONFIG.guesses.bg}
+              value={counts.guessCount}
+              testID="property-activity-stats-guesses"
+            />
           </View>
         </View>
-      </View>
-    </Card>
+      </Card>
+    </Pressable>
   );
 }
 
@@ -192,30 +229,38 @@ function areActivityFeedCardPropsEqual(
   next: Readonly<ActivityFeedCardProps>,
 ) {
   return (
-    prev.id === next.id &&
-    prev.eventType === next.eventType &&
-    prev.createdAt === next.createdAt &&
-    prev.actor.id === next.actor.id &&
-    prev.actor.displayName === next.actor.displayName &&
-    prev.actor.handle === next.actor.handle &&
-    prev.actor.profilePhotoUrl === next.actor.profilePhotoUrl &&
     prev.property.id === next.property.id &&
     prev.property.address === next.property.address &&
     prev.property.city === next.property.city &&
     prev.property.countryCode === next.property.countryCode &&
+    prev.property.thumbnailUrl === next.property.thumbnailUrl &&
     prev.property.geometry?.coordinates[0] === next.property.geometry?.coordinates[0] &&
     prev.property.geometry?.coordinates[1] === next.property.geometry?.coordinates[1] &&
-    prev.property.thumbnailUrl === next.property.thumbnailUrl
+    prev.lastActivityAt === next.lastActivityAt &&
+    prev.counts.likeCount === next.counts.likeCount &&
+    prev.counts.commentCount === next.counts.commentCount &&
+    prev.counts.guessCount === next.counts.guessCount &&
+    prev.preview.kind === next.preview.kind &&
+    prev.recentActors.length === next.recentActors.length &&
+    prev.recentActors.every((actor, index) => {
+      const nextActor = next.recentActors[index];
+      return (
+        actor?.id === nextActor?.id &&
+        actor?.displayName === nextActor?.displayName &&
+        actor?.handle === nextActor?.handle &&
+        actor?.profilePhotoUrl === nextActor?.profilePhotoUrl
+      );
+    })
   );
 }
 
 export const ActivityFeedCard = memo(
   ActivityFeedCardComponent,
-  areActivityFeedCardPropsEqual
+  areActivityFeedCardPropsEqual,
 );
 
 const styles = StyleSheet.create({
-  card: {
+  pressable: {
     marginHorizontal: 16,
     marginBottom: 16,
   },
@@ -225,64 +270,111 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
-    height: 200,
+    height: 188,
   },
   placeholder: {
     width: '100%',
-    height: 200,
+    height: 188,
     backgroundColor: '#F5F0E8',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  placeholderText: {
+    color: '#C7BFB3',
+    fontSize: 13,
+    marginTop: 8,
+  },
   body: {
-    padding: 14,
     paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: 16,
     gap: 12,
   },
-  address: {
-    fontSize: 13,
-    color: '#9C958A', // warm-500
-  },
-  metaRow: {
+  addressRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
   },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  addressContent: {
     flex: 1,
   },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: 14,
+  address: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#3D3832', // warm-800
+    color: '#2D2926',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  city: {
+    marginTop: 2,
+    fontSize: 13,
+    color: '#736C62',
   },
   timestamp: {
     fontSize: 12,
-    color: '#9C958A', // warm-500
-    marginTop: 1,
+    color: '#9C958A',
+    marginTop: 2,
   },
-  metaRight: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  actionBadge: {
+  actorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    gap: 4,
+    gap: 10,
   },
-  actionBadgeText: {
-    fontSize: 12,
+  facepile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 28,
+  },
+  facepileItem: {
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF',
+  },
+  actorText: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
+    color: '#3D3832',
+  },
+  previewBlock: {
+    backgroundColor: '#F8F5EF',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 6,
+  },
+  previewLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: '#9C958A',
+  },
+  previewText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3D3832',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#EFE7DB',
+  },
+  statRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  statChipText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

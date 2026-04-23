@@ -1,21 +1,28 @@
 /**
  * useActivityFeed Hook
- * Fetches the public or following social activity feed.
+ * Fetches grouped property activity posts for the public or following feed tabs.
  */
 
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import type {
-  ActivityItem,
   ActivityActor,
   ActivityProperty,
+  GroupedActivityPreview,
+  GroupedPropertyActivityItem,
+  GroupedPropertyActivityResponse,
   PublicActivityEventType,
-  PublicActivityResponse,
 } from '@huishype/shared';
 
 // Re-export shared types for convenience
-export type { ActivityItem, ActivityActor, ActivityProperty, PublicActivityEventType };
+export type {
+  ActivityActor,
+  ActivityProperty,
+  GroupedActivityPreview,
+  GroupedPropertyActivityItem,
+  PublicActivityEventType,
+};
 
 // --- Query Keys ---
 
@@ -32,7 +39,7 @@ async function fetchActivityFeed(
   limit: number,
   offset: number,
   accessToken?: string | null,
-): Promise<PublicActivityResponse> {
+): Promise<GroupedPropertyActivityResponse> {
   const params = new URLSearchParams({
     scope,
     limit: String(limit),
@@ -44,14 +51,14 @@ async function fetchActivityFeed(
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const resp = await fetch(`${API_URL}/activity?${params.toString()}`, {
+  const resp = await fetch(`${API_URL}/activity/properties?${params.toString()}`, {
     headers,
   });
 
   if (!resp.ok) {
     const err = await resp
       .json()
-      .catch(() => ({ message: 'Failed to fetch activity feed' }));
+      .catch(() => ({ message: 'Failed to fetch grouped property activity feed' }));
     throw new Error(err.message || `HTTP ${resp.status}`);
   }
 

@@ -3,23 +3,50 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { ActivityFeedCard } from '../ActivityFeedCard';
 
 const baseProps = {
-  id: 'activity-1',
-  eventType: 'comment' as const,
-  actor: {
-    id: 'user-1',
-    displayName: 'Ada Lovelace',
-    handle: 'ada',
-    profilePhotoUrl: null,
-  },
   property: {
     id: 'property-1',
     address: 'Keizersgracht 42, 1015 CZ Amsterdam',
+    streetName: 'Keizersgracht',
+    houseNumber: 42,
+    houseNumberAddition: null,
     city: 'Amsterdam',
+    postalCode: '1015 CZ',
     countryCode: 'NL',
     geometry: null,
     thumbnailUrl: null,
   },
-  createdAt: '2026-04-07T12:00:00.000Z',
+  lastActivityAt: '2026-04-07T12:00:00.000Z',
+  recentActors: [
+    {
+      id: 'user-1',
+      displayName: 'Ada Lovelace',
+      handle: 'ada',
+      profilePhotoUrl: null,
+    },
+    {
+      id: 'user-2',
+      displayName: 'Grace Hopper',
+      handle: 'grace',
+      profilePhotoUrl: null,
+    },
+  ],
+  preview: {
+    kind: 'comment' as const,
+    commentId: 'comment-1',
+    createdAt: '2026-04-07T11:50:00.000Z',
+    actor: {
+      id: 'user-1',
+      displayName: 'Ada Lovelace',
+      handle: 'ada',
+      profilePhotoUrl: null,
+    },
+    contentPreview: 'This facade is surprisingly clean.',
+  },
+  counts: {
+    likeCount: 3,
+    commentCount: 2,
+    guessCount: 1,
+  },
 };
 
 describe('ActivityFeedCard', () => {
@@ -27,11 +54,10 @@ describe('ActivityFeedCard', () => {
     render(<ActivityFeedCard {...baseProps} />);
 
     expect(screen.getByText('Keizersgracht 42, 1015 CZ Amsterdam')).toBeTruthy();
-    expect(screen.queryByText('Keizersgracht 42, 1015 CZ Amsterdam · Amsterdam')).toBeNull();
-    expect(screen.queryByTestId('activity-feed-image')).toBeNull();
+    expect(screen.queryByTestId('property-activity-image')).toBeNull();
   });
 
-  it('uses PropertyImageSurface for listing thumbnails', () => {
+  it('uses listing thumbnails when available', () => {
     render(
       <ActivityFeedCard
         {...baseProps}
@@ -39,10 +65,10 @@ describe('ActivityFeedCard', () => {
           ...baseProps.property,
           thumbnailUrl: 'https://cdn.huishype.nl/listing.jpg',
         }}
-      />
+      />,
     );
 
-    expect(screen.getByTestId('activity-feed-image')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-image')).toBeTruthy();
   });
 
   it('falls back to aerial imagery when the property has geometry but no listing thumbnail', () => {
@@ -56,30 +82,42 @@ describe('ActivityFeedCard', () => {
             coordinates: [4.8936, 52.3665],
           },
         }}
-      />
+      />,
     );
 
-    expect(screen.getByTestId('activity-feed-image')).toBeTruthy();
-    expect(screen.getByTestId('activity-feed-image-marker')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-image')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-image-marker')).toBeTruthy();
   });
 
-  it('splits property and actor press targets', () => {
-    const onPropertyPress = jest.fn();
-    const onActorPress = jest.fn();
-
+  it('renders grouped actor facepile, preview fallback, and stat chips', () => {
     render(
       <ActivityFeedCard
         {...baseProps}
-        onPropertyPress={onPropertyPress}
-        onActorPress={onActorPress}
-      />
+        preview={{
+          kind: 'summary',
+          eventType: 'property_like',
+          createdAt: '2026-04-07T11:50:00.000Z',
+          actor: baseProps.recentActors[0],
+          summary: 'Ada Lovelace liked this property',
+        }}
+      />,
     );
 
-    fireEvent.press(screen.getByTestId('activity-feed-property-button'));
-    expect(onPropertyPress).toHaveBeenCalledTimes(1);
-    expect(onActorPress).not.toHaveBeenCalled();
+    expect(screen.getByTestId('property-activity-facepile')).toBeTruthy();
+    expect(screen.getByText('Ada Lovelace and Grace Hopper')).toBeTruthy();
+    expect(screen.getByText('Latest activity')).toBeTruthy();
+    expect(screen.getByText('Ada Lovelace liked this property')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-stats-likes')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-stats-comments')).toBeTruthy();
+    expect(screen.getByTestId('property-activity-stats-guesses')).toBeTruthy();
+  });
 
-    fireEvent.press(screen.getByTestId('activity-feed-actor-button'));
-    expect(onActorPress).toHaveBeenCalledTimes(1);
+  it('uses the card as the primary property press target', () => {
+    const onPress = jest.fn();
+
+    render(<ActivityFeedCard {...baseProps} onPress={onPress} />);
+
+    fireEvent.press(screen.getByTestId('property-activity-card'));
+    expect(onPress).toHaveBeenCalledTimes(1);
   });
 });

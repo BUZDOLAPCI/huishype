@@ -135,4 +135,6 @@ export {
 export {
   useActivityFeed,
   activityFeedKeys,
+  type GroupedActivityPreview,
+  type GroupedPropertyActivityItem,
 } from './useActivityFeed';

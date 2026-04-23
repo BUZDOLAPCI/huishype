@@ -31,11 +31,11 @@ export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: Fee
       case 'trending':
         return 'No trending properties at the moment.';
       case 'recent-activity':
-        return 'No recent activity yet. Be the first to like, comment, or guess!';
+        return 'No property posts yet. Be the first to like, comment, or guess.';
       case 'following':
         return signedIn
-          ? 'Follow people from their profiles or activity cards to build a personal feed.'
-          : 'Follow people from profiles and activity cards to build a personal feed.';
+          ? 'Follow people from their profiles to build a personal feed.'
+          : 'Follow people from profiles to build a personal feed.';
       default:
         return 'No properties to show.';
     }

@@ -73,7 +73,7 @@ describe('auth-sensitive app reads', () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:3100/activity?scope=following&limit=20&offset=0',
+      'http://localhost:3100/activity/properties?scope=following&limit=20&offset=0',
       expect.objectContaining({
         headers: { Authorization: 'Bearer viewer-token' },
       }),

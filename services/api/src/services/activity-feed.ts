@@ -103,7 +103,7 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
   };
 }
 
-function activityActorPredicate(
+export function activityActorPredicate(
   scope: ActivityFeedScope,
   eventUserIdColumn: string,
   viewerId: string | null,

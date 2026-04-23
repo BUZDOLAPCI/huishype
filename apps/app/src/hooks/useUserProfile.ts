@@ -69,7 +69,7 @@ export type SocialFollowAnalyticsEventName =
   | 'unfollow'
   | 'following_feed_opened'
   | 'following_feed_empty_viewed'
-  | 'following_feed_item_clicked';
+  | 'following_feed_post_clicked';
 
 export interface SocialFollowAnalyticsEvent {
   name: SocialFollowAnalyticsEventName;

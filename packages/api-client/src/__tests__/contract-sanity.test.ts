@@ -15,6 +15,8 @@ import type { paths } from '../../generated/api.js';
 import type {
   GetFeedRequest,
   GetFeedResponse,
+  GetGroupedPropertyActivityRequest,
+  GetGroupedPropertyActivityResponse,
   GetFollowingNearbyPropertyRequest,
   GetFollowingNearbyPropertyResponse,
   GetFollowersResponse,
@@ -82,6 +84,11 @@ type CanonicalSavedPropertiesResponse = Expand<
 type ActivityQueryFromOpenApi = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponseFromOpenApi =
   paths['/activity']['get']['responses'][200]['content']['application/json'];
+type GroupedPropertyActivityQueryFromOpenApi = NonNullable<
+  paths['/activity/properties']['get']['parameters']['query']
+>;
+type GroupedPropertyActivityResponseFromOpenApi =
+  paths['/activity/properties']['get']['responses'][200]['content']['application/json'];
 type SelfActivityResponseFromOpenApi =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
 type PublicProfileResponseFromOpenApi =
@@ -246,8 +253,23 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<Equal<ActivityQueryFromOpenApi['scope'], 'public' | 'following' | undefined>>,
+  true as Assert<
+    IsExact<GroupedPropertyActivityQueryFromOpenApi, GetGroupedPropertyActivityRequest>
+  >,
+  true as Assert<
+    IsExact<GroupedPropertyActivityResponseFromOpenApi, GetGroupedPropertyActivityResponse>
+  >,
   true as Expect<
     Equal<keyof ActivityResponseFromOpenApi['pagination'], 'limit' | 'offset' | 'hasMore'>
+  >,
+  true as Expect<
+    Equal<
+      keyof GroupedPropertyActivityResponseFromOpenApi['items'][number]['counts'],
+      'likeCount' | 'commentCount' | 'guessCount'
+    >
+  >,
+  true as Expect<
+    Equal<GroupedPropertyActivityResponseFromOpenApi['items'][number]['preview']['kind'], 'comment' | 'summary'>
   >,
   true as Expect<
     Equal<
@@ -399,6 +421,7 @@ describe('Generated OpenAPI types', () => {
       '/users/{id}/follow',
       '/users/me/guesses',
       '/activity',
+      '/activity/properties',
       '/users/me/activity',
       '/notifications',
       '/notifications/unread-count',
@@ -417,7 +440,7 @@ describe('Generated OpenAPI types', () => {
       expect(path).toBeTruthy();
     }
     // Verify we have a meaningful number of paths
-    expect(expectedPaths.length).toBeGreaterThanOrEqual(38);
+    expect(expectedPaths.length).toBeGreaterThanOrEqual(39);
   });
 
   it('generated paths do not use /api/v1 prefix', () => {
@@ -479,6 +502,7 @@ describe('HuisHypeApiClient', () => {
     // Saved / Like
     expect(typeof client.getSavedProperties).toBe('function');
     expect(typeof client.getActivity).toBe('function');
+    expect(typeof client.getGroupedPropertyActivity).toBe('function');
     expect(typeof client.getMyActivity).toBe('function');
     expect(typeof client.getNotifications).toBe('function');
     expect(typeof client.getUnreadNotificationCount).toBe('function');

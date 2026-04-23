@@ -4,13 +4,13 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, comments, reactions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { createIntegrationProperty } from './helpers/fixtures.js';
+import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
 /**
  * Integration tests for comment routes.
  *
- * Creates test users via auth, inserts a suite-owned property fixture,
- * then exercises the comments CRUD API.
+ * Creates suite-owned users and a property fixture, then exercises the
+ * comments CRUD API without depending on the auth route.
  */
 describe('Comment routes', () => {
   let app: FastifyInstance;
@@ -24,27 +24,14 @@ describe('Comment routes', () => {
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
-    // Create test user via auth
-    const uniqueId = `commtest${Date.now()}`;
-    const loginResp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${uniqueId}-gid${uniqueId}` },
-    });
-    const loginBody = JSON.parse(loginResp.body);
-    userId = loginBody.session.user.id;
-    accessToken = loginBody.session.accessToken;
+    const author = await createIntegrationUser(app, { label: 'comments-author' });
+    userId = author.userId;
+    accessToken = author.accessToken;
     testUserIds.push(userId);
 
-    const likerUniqueId = `commtestliker${Date.now()}`;
-    const likerResp = await app.inject({
-      method: 'POST',
-      url: '/auth/google',
-      payload: { idToken: `mock-google-${likerUniqueId}-gid${likerUniqueId}` },
-    });
-    const likerBody = JSON.parse(likerResp.body);
-    likerAccessToken = likerBody.session.accessToken;
-    testUserIds.push(likerBody.session.user.id);
+    const liker = await createIntegrationUser(app, { label: 'comments-liker' });
+    likerAccessToken = liker.accessToken;
+    testUserIds.push(liker.userId);
 
     const property = await createIntegrationProperty({
       street: 'Comments Fixture Street',

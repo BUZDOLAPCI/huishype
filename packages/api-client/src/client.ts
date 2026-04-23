@@ -21,6 +21,8 @@ import type {
   CreateCommentRequest,
   CreateCommentResponse,
   GetFeedRequest,
+  GetGroupedPropertyActivityRequest,
+  GetGroupedPropertyActivityResponse,
   GetFollowingNearbyPropertyRequest,
   GetFollowingPropertyTilesRequest,
   GetSavedPropertiesRequest,
@@ -48,6 +50,10 @@ type FollowActionResponse =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
 type ActivityQuery = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponse = paths['/activity']['get']['responses'][200]['content']['application/json'];
+type GroupedPropertyActivityQuery =
+  NonNullable<paths['/activity/properties']['get']['parameters']['query']>;
+type GroupedPropertyActivityResponseFromOpenApi =
+  paths['/activity/properties']['get']['responses'][200]['content']['application/json'];
 type MyActivityQuery = NonNullable<paths['/users/me/activity']['get']['parameters']['query']>;
 type MyActivityResponse =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
@@ -522,6 +528,21 @@ export class HuisHypeApiClient {
         limit: params.limit,
         offset: params.offset,
       },
+    });
+  }
+
+  async getGroupedPropertyActivity(
+    params: GetGroupedPropertyActivityRequest = {},
+  ): Promise<GetGroupedPropertyActivityResponse> {
+    const query = {
+      scope: params.scope,
+      limit: params.limit,
+      offset: params.offset,
+    } satisfies GroupedPropertyActivityQuery;
+
+    return this.request<GroupedPropertyActivityResponseFromOpenApi>('GET', '/activity/properties', {
+      query,
+      requiresAuth: params.scope === 'following',
     });
   }
 

@@ -80,6 +80,6 @@ describe('FeedEmptyState', () => {
   it('shows filter-specific message for "recent-activity" filter', () => {
     const { getByText } = render(<FeedEmptyState filter="recent-activity" />);
 
-    expect(getByText('No recent activity yet. Be the first to like, comment, or guess!')).toBeTruthy();
+    expect(getByText('No property posts yet. Be the first to like, comment, or guess.')).toBeTruthy();
   });
 });

@@ -806,6 +806,64 @@ describe('Mock handler runtime parity', () => {
     );
   });
 
+  it('matches grouped property activity auth split and grouped payload shape', async () => {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'mock-google-token' }),
+    });
+    const loginBody = await loginResponse.json();
+    const token = loginBody.session.accessToken as string;
+
+    const publicResponse = await fetch(
+      'http://localhost/activity/properties?scope=public&limit=20',
+    );
+    const publicBody = await publicResponse.json();
+    expect(publicResponse.status).toBe(200);
+    expect(publicBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 20,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      }),
+    );
+    expect(publicBody.items[0]).toHaveProperty('property');
+    expect(publicBody.items[0]).toHaveProperty('lastActivityAt');
+    expect(publicBody.items[0]).toHaveProperty('counts');
+    expect(publicBody.items[0]).toHaveProperty('recentActors');
+    expect(publicBody.items[0]).toHaveProperty('preview');
+    expect(publicBody.items[0].counts).toEqual(
+      expect.objectContaining({
+        likeCount: expect.any(Number),
+        commentCount: expect.any(Number),
+        guessCount: expect.any(Number),
+      }),
+    );
+    expect(Array.isArray(publicBody.items[0].recentActors)).toBe(true);
+    expect(publicBody.items[0].recentActors.length).toBeLessThanOrEqual(3);
+    expect(['comment', 'summary']).toContain(publicBody.items[0].preview.kind);
+
+    const unauthorizedFollowingResponse = await fetch(
+      'http://localhost/activity/properties?scope=following&limit=20',
+    );
+    expect(unauthorizedFollowingResponse.status).toBe(401);
+
+    const followingResponse = await fetch(
+      'http://localhost/activity/properties?scope=following&limit=20',
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    const followingBody = await followingResponse.json();
+    expect(followingResponse.status).toBe(200);
+    const allowedRecentActorIds = new Set<string>([mockUserIds.maria, mockUserIds.lars]);
+    expect(
+      followingBody.items.every((item: { recentActors: Array<{ id: string }> }) =>
+        item.recentActors.every(({ id }) => allowedRecentActorIds.has(id)),
+      ),
+    ).toBe(true);
+  });
+
   it('matches canonical notification event names in mock responses', async () => {
     const loginResponse = await fetch('http://localhost/auth/google', {
       method: 'POST',

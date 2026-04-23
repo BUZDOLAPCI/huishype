@@ -130,6 +130,12 @@ export type {
   ActivityItem,
   ActivityResponse,
   PublicActivityResponse,
+  GroupedActivityCounts,
+  GroupedActivityCommentPreview,
+  GroupedActivitySummaryPreview,
+  GroupedActivityPreview,
+  GroupedPropertyActivityItem,
+  GroupedPropertyActivityResponse,
 } from './activity.js';
 
 // Leaderboard types
@@ -215,8 +221,10 @@ export type {
   GetLeaderboardResponse,
   // Activity
   GetActivityRequest,
+  GetGroupedPropertyActivityRequest,
   GetUserActivityRequest,
   GetActivityResponse,
+  GetGroupedPropertyActivityResponse,
   GetUserActivityResponse,
   // Achievement
   GetAchievementsResponse,

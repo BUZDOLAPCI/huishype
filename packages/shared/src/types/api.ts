@@ -25,7 +25,11 @@ import type { CommentThread, Comment } from './comment.js';
 import type { ReactionCounts } from './reaction.js';
 import type { NotificationsResponse, UnreadCountResponse } from './notification.js';
 import type { AchievementsResponse } from './achievement.js';
-import type { ActivityResponse, PublicActivityResponse } from './activity.js';
+import type {
+  ActivityResponse,
+  GroupedPropertyActivityResponse,
+  PublicActivityResponse,
+} from './activity.js';
 import type { LeaderboardResponse } from './leaderboard.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
@@ -45,7 +49,7 @@ export type { CommentThread, Comment };
 export type { ReactionCounts };
 export type { NotificationsResponse, UnreadCountResponse };
 export type { AchievementsResponse };
-export type { ActivityResponse, PublicActivityResponse };
+export type { ActivityResponse, GroupedPropertyActivityResponse, PublicActivityResponse };
 export type { LeaderboardResponse };
 
 // ============================================
@@ -604,12 +608,19 @@ export interface GetActivityRequest {
   offset?: number;
 }
 
+export interface GetGroupedPropertyActivityRequest {
+  scope?: 'public' | 'following';
+  limit?: number;
+  offset?: number;
+}
+
 export interface GetUserActivityRequest {
   limit?: number;
   offset?: number;
 }
 
 export type GetActivityResponse = PublicActivityResponse;
+export type GetGroupedPropertyActivityResponse = GroupedPropertyActivityResponse;
 export type GetUserActivityResponse = ActivityResponse;
 
 // ============================================

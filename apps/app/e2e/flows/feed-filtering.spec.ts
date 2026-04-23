@@ -2,7 +2,7 @@
  * Flow E2E Test: Feed Filtering
  *
  * Tests the feed view with filter interactions:
- * - Feed loads with property cards or appropriate empty/loading state
+ * - Feed loads with property cards or grouped property-post cards
  * - Filter chips are visible and interactive
  * - Clicking filter chips changes the active filter
  * - Clicking a property card navigates to property detail
@@ -113,8 +113,10 @@ test.describe('Feed Filtering', () => {
 
     // Check how many property cards loaded
     const propertyCards = page.locator('[data-testid="property-feed-card"]');
+    const groupedCards = page.locator('[data-testid="property-activity-card"]');
     const cardCount = await propertyCards.count();
-    console.log(`Found ${cardCount} property feed cards`);
+    const groupedCardCount = await groupedCards.count();
+    console.log(`Found ${cardCount} property feed cards and ${groupedCardCount} grouped activity cards`);
 
     // Should not show error state
     const errorState = page.locator('[data-testid="feed-error"]');
@@ -146,6 +148,10 @@ test.describe('Feed Filtering', () => {
     await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({ timeout: 5000 });
     await activityFilter.click();
     await page.waitForTimeout(2000);
+    await Promise.race([
+      page.locator('[data-testid="property-activity-card"]').first().waitFor({ timeout: 5000 }).catch(() => null),
+      page.locator('[data-testid="feed-empty"]').waitFor({ timeout: 5000 }).catch(() => null),
+    ]);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
 
     // Click back to "Trending" filter
@@ -205,6 +211,30 @@ test.describe('Feed Filtering', () => {
 
       console.log(`No property cards visible. Empty state: ${isEmpty}`);
       await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-no-cards.png` });
+    }
+  });
+
+  test('recent activity uses grouped property-post cards', async ({ page }) => {
+    await page.goto('/feed');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(3000);
+
+    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
+    await expect(activityFilter).toBeVisible({ timeout: 10000 });
+    await activityFilter.click();
+    await page.waitForTimeout(2000);
+
+    const groupedCard = page.locator('[data-testid="property-activity-card"]').first();
+    const cardVisible = await groupedCard.isVisible({ timeout: 10000 }).catch(() => false);
+
+    if (cardVisible) {
+      await expect(groupedCard.locator('[data-testid="property-activity-stats"]')).toBeVisible();
+      const statPills = groupedCard.locator('[data-testid^="property-activity-stats-"]');
+      await expect(statPills).toHaveCount(3);
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-grouped-activity-card.png` });
+    } else {
+      await expect(page.locator('[data-testid="feed-empty"]')).toBeVisible();
+      await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-grouped-activity-empty.png` });
     }
   });
 

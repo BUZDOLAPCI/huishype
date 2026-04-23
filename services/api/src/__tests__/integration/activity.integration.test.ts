@@ -257,6 +257,167 @@ describe('Activity routes', () => {
     });
   });
 
+  describe('GET /activity/properties', () => {
+    it('groups public activity by property with aggregated counts, recent actors, and comment-first previews', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?limit=10',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe(
+        'public, max-age=15, stale-while-revalidate=30'
+      );
+
+      const body = JSON.parse(response.body);
+      const groupedItem = body.items.find(
+        (item: { property: { id: string } }) => item.property.id === propertyId
+      );
+
+      expect(groupedItem).toBeDefined();
+      expect(groupedItem).toEqual(
+        expect.objectContaining({
+          property: expect.objectContaining({
+            id: propertyId,
+            streetName: 'Activity Fixture Street',
+          }),
+          lastActivityAt: timeline.otherLikeCreatedAt.toISOString(),
+          counts: {
+            likeCount: 2,
+            commentCount: 2,
+            guessCount: 1,
+          },
+        }),
+      );
+      expect(groupedItem.recentActors.map((actor: { id: string }) => actor.id)).toEqual([
+        otherUserId,
+        followedUserId,
+        viewerUserId,
+      ]);
+      expect(groupedItem.preview).toEqual({
+        kind: 'comment',
+        commentId: activityEventIds.otherComment,
+        createdAt: timeline.otherCommentCreatedAt.toISOString(),
+        actor: expect.objectContaining({
+          id: otherUserId,
+          displayName: expect.any(String),
+        }),
+        contentPreview: 'Unfollowed user comment',
+      });
+    });
+
+    it('returns 401 for following scope without authentication', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=following',
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
+    });
+
+    it('filters following scope to followed-user grouped property posts', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=following&limit=10',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      const body = JSON.parse(response.body);
+
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].counts).toEqual({
+        likeCount: 0,
+        commentCount: 1,
+        guessCount: 1,
+      });
+      expect(body.items[0].recentActors).toEqual([
+        expect.objectContaining({
+          id: followedUserId,
+        }),
+      ]);
+      expect(body.items[0].preview).toEqual({
+        kind: 'comment',
+        commentId: activityEventIds.followedComment,
+        createdAt: timeline.followedCommentCreatedAt.toISOString(),
+        actor: expect.objectContaining({
+          id: followedUserId,
+        }),
+        contentPreview: 'Followed user comment',
+      });
+    });
+
+    it('orders grouped properties by latest activity and paginates grouped rows', async () => {
+      const secondProperty = await createIntegrationProperty({
+        street: 'Grouped Activity Avenue',
+        houseNumber: 9,
+        city: 'Second City',
+        postalCode: '9030BB',
+        lon: 5.571,
+        lat: 51.55,
+      });
+      const latestGroupEventId = crypto.randomUUID();
+
+      await db.insert(reactions).values({
+        id: latestGroupEventId,
+        targetType: 'property',
+        targetId: secondProperty.id,
+        userId: followedUserId,
+        reactionType: 'like',
+        createdAt: new Date('2035-01-01T15:00:00.000Z'),
+      });
+
+      try {
+        const firstPageResponse = await app.inject({
+          method: 'GET',
+          url: '/activity/properties?scope=following&limit=1&offset=0',
+          headers: { authorization: `Bearer ${viewerAccessToken}` },
+        });
+        expect(firstPageResponse.statusCode).toBe(200);
+        const firstPageBody = JSON.parse(firstPageResponse.body);
+        expect(firstPageBody.pagination).toEqual({
+          limit: 1,
+          offset: 0,
+          hasMore: true,
+        });
+        expect(firstPageBody.items).toHaveLength(1);
+        expect(firstPageBody.items[0].property.id).toBe(secondProperty.id);
+        expect(firstPageBody.items[0].preview).toEqual({
+          kind: 'summary',
+          eventType: 'property_like',
+          createdAt: '2035-01-01T15:00:00.000Z',
+          actor: expect.objectContaining({
+            id: followedUserId,
+          }),
+          summary: expect.stringContaining('liked this property'),
+        });
+
+        const secondPageResponse = await app.inject({
+          method: 'GET',
+          url: '/activity/properties?scope=following&limit=1&offset=1',
+          headers: { authorization: `Bearer ${viewerAccessToken}` },
+        });
+        expect(secondPageResponse.statusCode).toBe(200);
+        const secondPageBody = JSON.parse(secondPageResponse.body);
+        expect(secondPageBody.pagination).toEqual({
+          limit: 1,
+          offset: 1,
+          hasMore: false,
+        });
+        expect(secondPageBody.items).toHaveLength(1);
+        expect(secondPageBody.items[0].property.id).toBe(propertyId);
+      } finally {
+        await db.delete(reactions).where(eq(reactions.id, latestGroupEventId));
+        await db.execute(sql`DELETE FROM properties WHERE id = ${secondProperty.id}`);
+      }
+    });
+  });
+
   describe('GET /users/me/activity', () => {
     it('returns 401 without auth', async () => {
       const response = await app.inject({

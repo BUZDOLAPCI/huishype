@@ -4495,6 +4495,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activity/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get grouped property activity feed
+         * @description Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    scope?: "public" | "following";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                property: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    streetName: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    city: string;
+                                    postalCode: string;
+                                    countryCode: string;
+                                    geometry: {
+                                        /** @enum {string} */
+                                        type: "Point";
+                                        coordinates: [
+                                            number,
+                                            number
+                                        ];
+                                    } | null;
+                                    thumbnailUrl: string | null;
+                                };
+                                /** Format: date-time */
+                                lastActivityAt: string;
+                                counts: {
+                                    likeCount: number;
+                                    commentCount: number;
+                                    guessCount: number;
+                                };
+                                recentActors: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    displayName: string;
+                                    handle: string;
+                                    profilePhotoUrl: string | null;
+                                }[];
+                                preview: {
+                                    /** @enum {string} */
+                                    kind: "comment";
+                                    /** Format: uuid */
+                                    commentId: string;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                    actor: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        displayName: string;
+                                        handle: string;
+                                        profilePhotoUrl: string | null;
+                                    };
+                                    contentPreview: string;
+                                } | {
+                                    /** @enum {string} */
+                                    kind: "summary";
+                                    /** @enum {string} */
+                                    eventType: "property_like" | "comment" | "price_guess";
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                    actor: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        displayName: string;
+                                        handle: string;
+                                        profilePhotoUrl: string | null;
+                                    };
+                                    summary: string;
+                                };
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/me/activity": {
         parameters: {
             query?: never;

@@ -1,8 +1,8 @@
 /**
- * Feed Screen — Browse properties with Trending, Latest, and Recent Activity tabs.
+ * Feed Screen — Browse properties with Trending, Latest, and grouped activity tabs.
  *
  * Trending and Latest use the /feed endpoint via useInfiniteFeed.
- * Recent Activity uses the /activity endpoint via useActivityFeed.
+ * Recent Activity and Following use grouped property posts from /activity/properties.
  */
 
 import React, {
@@ -33,7 +33,7 @@ import {
   type FeedTab,
   type PropertyFeedFilter,
   type FeedProperty,
-  type ActivityItem,
+  type GroupedPropertyActivityItem,
 } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
@@ -221,10 +221,6 @@ export default function FeedScreen() {
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
   }, []);
-  const handleActorPress = useCallback((actorId: string) => {
-    router.push(`/user/${actorId}`);
-  }, []);
-
   const handleLoadMore = useCallback(() => {
     if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
       activeQuery.fetchNextPage();
@@ -262,40 +258,30 @@ export default function FeedScreen() {
   // --- Activity feed render ---
 
   const renderActivityItem = useCallback(
-    ({ item }: { item: ActivityItem }) => (
+    ({ item }: { item: GroupedPropertyActivityItem }) => (
       <ActivityFeedCard
-        id={item.id}
-        eventType={item.eventType}
-        actor={item.actor}
         property={item.property}
-        createdAt={item.createdAt}
-        onPropertyPress={() => {
+        lastActivityAt={item.lastActivityAt}
+        recentActors={item.recentActors}
+        preview={item.preview}
+        counts={item.counts}
+        onPress={() => {
           if (activeFilter === 'following') {
-            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
-              activityId: item.id,
-              eventType: item.eventType,
+            emitSocialFollowAnalyticsEvent('following_feed_post_clicked', {
               propertyId: item.property.id,
-              target: 'property',
+              likeCount: item.counts.likeCount,
+              commentCount: item.counts.commentCount,
+              guessCount: item.counts.guessCount,
+              lastActivityAt: item.lastActivityAt,
+              previewKind: item.preview.kind,
             });
           }
 
           handlePropertyPress(item.property);
         }}
-        onActorPress={() => {
-          if (activeFilter === 'following') {
-            emitSocialFollowAnalyticsEvent('following_feed_item_clicked', {
-              activityId: item.id,
-              actorId: item.actor.id,
-              eventType: item.eventType,
-              target: 'actor',
-            });
-          }
-
-          handleActorPress(item.actor.id);
-        }}
       />
     ),
-    [activeFilter, handleActorPress, handlePropertyPress]
+    [activeFilter, handlePropertyPress]
   );
 
   const propertyKeyExtractor = useCallback(
@@ -303,7 +289,7 @@ export default function FeedScreen() {
     []
   );
   const activityKeyExtractor = useCallback(
-    (item: ActivityItem) => item.id,
+    (item: GroupedPropertyActivityItem) => item.property.id,
     []
   );
 

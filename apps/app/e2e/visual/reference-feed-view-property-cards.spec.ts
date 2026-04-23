@@ -2,7 +2,7 @@
  * Reference Expectation E2E Test: feed-view-property-cards
  *
  * This test verifies the Feed View displays property cards with:
- * - Property photos with activity badges and view count overlays
+ * - Property photos and grouped property-post cards for activity tabs
  * - Address and location information
  * - Price information (WOZ, Asking, FMV)
  * - Activity stats (comments, guesses, views)
@@ -107,7 +107,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Additional wait for any animations or lazy loading
     await page.waitForTimeout(2000);
 
-    // Take screenshot of the feed view
+    // Take screenshot of the default feed view
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`,
       fullPage: false,
@@ -252,6 +252,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     if (filtersVisible.activity) {
       await activityFilter.click();
       await page.waitForTimeout(1000);
+
+      const groupedCard = page.locator('[data-testid="property-activity-card"]').first();
+      const groupedCardVisible = await groupedCard.isVisible({ timeout: 5000 }).catch(() => false);
+      if (groupedCardVisible) {
+        await expect(groupedCard.locator('[data-testid="property-activity-stats"]')).toBeVisible();
+      }
 
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-recent-activity-filter.png`,

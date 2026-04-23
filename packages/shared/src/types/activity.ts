@@ -47,3 +47,46 @@ export interface ActivityResponse<TEventType extends ActivityEventType = Activit
 }
 
 export type PublicActivityResponse = ActivityResponse<PublicActivityEventType>;
+
+export interface GroupedActivityCounts {
+  likeCount: number;
+  commentCount: number;
+  guessCount: number;
+}
+
+export interface GroupedActivityCommentPreview {
+  kind: 'comment';
+  commentId: string;
+  createdAt: string;
+  actor: ActivityActor;
+  contentPreview: string;
+}
+
+export interface GroupedActivitySummaryPreview {
+  kind: 'summary';
+  eventType: PublicActivityEventType;
+  createdAt: string;
+  actor: ActivityActor;
+  summary: string;
+}
+
+export type GroupedActivityPreview =
+  | GroupedActivityCommentPreview
+  | GroupedActivitySummaryPreview;
+
+export interface GroupedPropertyActivityItem {
+  property: ActivityProperty;
+  lastActivityAt: string;
+  counts: GroupedActivityCounts;
+  recentActors: ActivityActor[];
+  preview: GroupedActivityPreview;
+}
+
+export interface GroupedPropertyActivityResponse {
+  items: GroupedPropertyActivityItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}

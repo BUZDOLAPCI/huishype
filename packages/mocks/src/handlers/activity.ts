@@ -6,6 +6,11 @@
  */
 
 import { http, HttpResponse } from 'msw';
+import type {
+  GroupedActivityPreview,
+  GroupedPropertyActivityItem,
+  GroupedPropertyActivityResponse,
+} from '@huishype/shared';
 import { getMockAuthUser } from './auth.js';
 import {
   getMockProperty,
@@ -43,6 +48,20 @@ interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType>
   };
   createdAt: string;
   meta: Record<string, unknown> | null;
+}
+
+function toActivityActor(userId: string) {
+  const actor = getMockUser(userId);
+  if (!actor) {
+    return null;
+  }
+
+  return {
+    id: actor.id,
+    displayName: actor.displayName,
+    handle: actor.username,
+    profilePhotoUrl: actor.profilePhotoUrl ?? null,
+  };
 }
 
 export interface MockActivityEvent {
@@ -191,6 +210,130 @@ function mapActivityEvent<TEventType extends ActivityEventType>(
   };
 }
 
+function buildActivitySummary(event: MockActivityEvent, actorName: string) {
+  switch (event.eventType) {
+    case 'property_like':
+      return `${actorName} liked this property`;
+    case 'price_guess':
+      return `${actorName} made a price guess`;
+    case 'comment':
+    default:
+      return `${actorName} commented on this property`;
+  }
+}
+
+function buildGroupedPreview(
+  propertyEvents: Array<MockActivityEvent & { eventType: PublicActivityEventType }>,
+): GroupedActivityPreview | null {
+  const commentEvent = propertyEvents.find((event) => event.eventType === 'comment');
+  if (commentEvent) {
+    const actor = toActivityActor(commentEvent.actorUserId);
+    if (!actor) {
+      return null;
+    }
+
+    return {
+      kind: 'comment',
+      commentId: commentEvent.id,
+      createdAt: new Date(commentEvent.createdAt).toISOString(),
+      actor,
+      contentPreview: String(commentEvent.meta?.contentPreview ?? ''),
+    };
+  }
+
+  const latestEvent = propertyEvents[0];
+  if (!latestEvent) {
+    return null;
+  }
+
+  const actor = toActivityActor(latestEvent.actorUserId);
+  if (!actor) {
+    return null;
+  }
+
+  return {
+    kind: 'summary',
+    eventType: latestEvent.eventType,
+    createdAt: new Date(latestEvent.createdAt).toISOString(),
+    actor,
+    summary: buildActivitySummary(latestEvent, actor.displayName),
+  };
+}
+
+function getGroupedActivityItems(
+  scope: 'public' | 'following',
+  viewerId: string | null,
+): GroupedPropertyActivityItem[] {
+  const events = getScopedActivityEvents(scope, viewerId).filter(
+    (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+      event.eventType !== 'save',
+  );
+  const eventsByProperty = new Map<string, Array<MockActivityEvent & { eventType: PublicActivityEventType }>>();
+
+  for (const event of events) {
+    const propertyEvents = eventsByProperty.get(event.propertyId);
+    if (propertyEvents) {
+      propertyEvents.push(event);
+      continue;
+    }
+
+    eventsByProperty.set(event.propertyId, [event]);
+  }
+
+  const items: GroupedPropertyActivityItem[] = [];
+
+  for (const [propertyId, propertyEvents] of eventsByProperty.entries()) {
+    propertyEvents.sort((left, right) => {
+      const byTime = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      return byTime !== 0 ? byTime : right.id.localeCompare(left.id);
+    });
+
+    const property = toActivityAddress(propertyId);
+    const preview = buildGroupedPreview(propertyEvents);
+    if (!property || !preview) {
+      continue;
+    }
+
+    const recentActors: NonNullable<GroupedPropertyActivityItem['recentActors']> = [];
+    const seenActorIds = new Set<string>();
+
+    for (const event of propertyEvents) {
+      if (seenActorIds.has(event.actorUserId)) {
+        continue;
+      }
+
+      const actor = toActivityActor(event.actorUserId);
+      if (!actor) {
+        continue;
+      }
+
+      seenActorIds.add(event.actorUserId);
+      recentActors.push(actor);
+
+      if (recentActors.length === 3) {
+        break;
+      }
+    }
+
+    items.push({
+      property,
+      lastActivityAt: new Date(propertyEvents[0].createdAt).toISOString(),
+      counts: {
+        likeCount: propertyEvents.filter((event) => event.eventType === 'property_like').length,
+        commentCount: propertyEvents.filter((event) => event.eventType === 'comment').length,
+        guessCount: propertyEvents.filter((event) => event.eventType === 'price_guess').length,
+      },
+      recentActors,
+      preview,
+    });
+  }
+
+  return items.sort((left, right) => {
+    const byTime = Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt);
+    return byTime !== 0 ? byTime : right.property.id.localeCompare(left.property.id);
+  });
+}
+
 function sliceActivity<TEventType extends ActivityEventType>(
   events: Array<MockActivityEvent & { eventType: TEventType }>,
   limit: number,
@@ -261,5 +404,48 @@ export const activityHandlers = [
     );
 
     return HttpResponse.json(sliceActivity(items, limit, offset));
+  }),
+
+  http.get('*/activity/properties', ({ request }) => {
+    const url = new URL(request.url);
+    const scope = (url.searchParams.get('scope') ?? 'public') as 'public' | 'following';
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+    if (scope === 'following') {
+      const authUser = getMockAuthUser(request.headers.get('Authorization'));
+      if (!authUser) {
+        return HttpResponse.json(
+          { error: 'UNAUTHORIZED', message: 'Authentication required' },
+          { status: 401 },
+        );
+      }
+
+      const items = getGroupedActivityItems('following', authUser.id);
+      const pagedItems = items.slice(offset, offset + limit + 1);
+      const hasMore = pagedItems.length > limit;
+
+      return HttpResponse.json<GroupedPropertyActivityResponse>({
+        items: hasMore ? pagedItems.slice(0, limit) : pagedItems,
+        pagination: {
+          limit,
+          offset,
+          hasMore,
+        },
+      });
+    }
+
+    const items = getGroupedActivityItems('public', null);
+    const pagedItems = items.slice(offset, offset + limit + 1);
+    const hasMore = pagedItems.length > limit;
+
+    return HttpResponse.json<GroupedPropertyActivityResponse>({
+      items: hasMore ? pagedItems.slice(0, limit) : pagedItems,
+      pagination: {
+        limit,
+        offset,
+        hasMore,
+      },
+    });
   }),
 ];

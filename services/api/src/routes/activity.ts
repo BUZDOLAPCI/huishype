@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { fetchActivityFeed } from '../services/activity-feed.js';
+import { fetchGroupedPropertyActivityFeed } from '../services/grouped-property-activity-feed.js';
 
 const publicActivityEventTypes = ['property_like', 'comment', 'price_guess'] as const;
 const selfActivityEventTypes = [...publicActivityEventTypes, 'save'] as const;
@@ -62,6 +63,47 @@ function createActivityResponseSchema<TEventTypes extends readonly [string, ...s
 
 const publicActivityResponseSchema = createActivityResponseSchema(publicActivityEventTypes);
 const selfActivityResponseSchema = createActivityResponseSchema(selfActivityEventTypes);
+const groupedActivityCountsSchema = z.object({
+  likeCount: z.number(),
+  commentCount: z.number(),
+  guessCount: z.number(),
+});
+
+const groupedActivityCommentPreviewSchema = z.object({
+  kind: z.literal('comment'),
+  commentId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  actor: actorSchema,
+  contentPreview: z.string(),
+});
+
+const groupedActivitySummaryPreviewSchema = z.object({
+  kind: z.literal('summary'),
+  eventType: z.enum(publicActivityEventTypes),
+  createdAt: z.string().datetime(),
+  actor: actorSchema,
+  summary: z.string(),
+});
+
+const groupedActivityResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      property: propertyPayloadSchema,
+      lastActivityAt: z.string().datetime(),
+      counts: groupedActivityCountsSchema,
+      recentActors: z.array(actorSchema),
+      preview: z.discriminatedUnion('kind', [
+        groupedActivityCommentPreviewSchema,
+        groupedActivitySummaryPreviewSchema,
+      ]),
+    }),
+  ),
+  pagination: z.object({
+    limit: z.number(),
+    offset: z.number(),
+    hasMore: z.boolean(),
+  }),
+});
 
 const activityQuerySchema = z.object({
   scope: z.enum(['public', 'following']).default('public'),
@@ -133,6 +175,43 @@ export async function activityRoutes(fastify: FastifyInstance) {
         })),
       };
     }
+  );
+
+  app.get(
+    '/activity/properties',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['activity'],
+        summary: 'Get grouped property activity feed',
+        description:
+          'Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.',
+        querystring: activityQuerySchema,
+        response: {
+          200: groupedActivityResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { scope, limit, offset } = request.query;
+
+      if (scope === 'following' && !request.userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required',
+        });
+      }
+
+      reply.header('Cache-Control', applyActivityCacheHeader(scope, request.userId ?? null));
+
+      return fetchGroupedPropertyActivityFeed({
+        scope,
+        viewerId: request.userId ?? null,
+        limit,
+        offset,
+      });
+    },
   );
 
   app.get(

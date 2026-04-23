@@ -37,28 +37,20 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 
 jest.mock('@/src/components', () => ({
   ActivityFeedCard: ({
-    id,
-    onActorPress,
-    onPropertyPress,
+    property,
+    onPress,
   }: {
-    id: string;
-    onActorPress: () => void;
-    onPropertyPress: () => void;
+    property: { id: string };
+    onPress: () => void;
   }) => {
     const ReactNative = require('react-native');
     return (
       <ReactNative.View>
         <ReactNative.Pressable
-          testID={`activity-property-${id}`}
-          onPress={onPropertyPress}
+          testID={`activity-card-${property.id}`}
+          onPress={onPress}
         >
-          <ReactNative.Text>Open property {id}</ReactNative.Text>
-        </ReactNative.Pressable>
-        <ReactNative.Pressable
-          testID={`activity-actor-${id}`}
-          onPress={onActorPress}
-        >
-          <ReactNative.Text>Open actor {id}</ReactNative.Text>
+          <ReactNative.Text>Open property {property.id}</ReactNative.Text>
         </ReactNative.Pressable>
       </ReactNative.View>
     );
@@ -418,7 +410,7 @@ describe('FeedScreen following surface', () => {
     expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', undefined, false);
   });
 
-  it('emits following-feed item click analytics for both property and actor targets', async () => {
+  it('emits following-feed post click analytics with grouped property-post payloads', async () => {
     mockUseActivityFeed.mockImplementation((scope) =>
       createQueryResult([
         {
@@ -426,19 +418,11 @@ describe('FeedScreen following surface', () => {
             scope === 'following'
               ? [
                   {
-                    id: 'activity-1',
-                    eventType: 'comment',
-                    actor: {
-                      id: 'actor-1',
-                      displayName: 'Actor 1',
-                      handle: 'actor-1',
-                      profilePhotoUrl: null,
-                    },
                     property: {
                       id: 'property-9',
                       address: 'Main 9',
                       streetName: 'Main',
-                      houseNumber: '9',
+                      houseNumber: 9,
                       houseNumberAddition: null,
                       city: 'Eindhoven',
                       postalCode: '5611 AA',
@@ -446,7 +430,32 @@ describe('FeedScreen following surface', () => {
                       geometry: null,
                       thumbnailUrl: null,
                     },
-                    createdAt: '2026-04-19T10:00:00.000Z',
+                    lastActivityAt: '2026-04-19T10:00:00.000Z',
+                    recentActors: [
+                      {
+                        id: 'actor-1',
+                        displayName: 'Actor 1',
+                        handle: 'actor-1',
+                        profilePhotoUrl: null,
+                      },
+                    ],
+                    preview: {
+                      kind: 'comment',
+                      commentId: 'comment-1',
+                      createdAt: '2026-04-19T09:30:00.000Z',
+                      actor: {
+                        id: 'actor-1',
+                        displayName: 'Actor 1',
+                        handle: 'actor-1',
+                        profilePhotoUrl: null,
+                      },
+                      contentPreview: 'Nice one',
+                    },
+                    counts: {
+                      likeCount: 4,
+                      commentCount: 2,
+                      guessCount: 1,
+                    },
                   },
                 ]
               : [],
@@ -457,8 +466,7 @@ describe('FeedScreen following surface', () => {
     const { getByTestId } = render(<FeedScreen />);
 
     fireEvent.press(getByTestId('chip-following'));
-    fireEvent.press(getByTestId('activity-property-activity-1'));
-    fireEvent.press(getByTestId('activity-actor-activity-1'));
+    fireEvent.press(getByTestId('activity-card-property-9'));
 
     const analyticsEvents = (
       globalThis as typeof globalThis & {
@@ -472,19 +480,13 @@ describe('FeedScreen following surface', () => {
     expect(analyticsEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: 'following_feed_item_clicked',
+          name: 'following_feed_post_clicked',
           properties: expect.objectContaining({
-            target: 'property',
-            activityId: 'activity-1',
             propertyId: 'property-9',
-          }),
-        }),
-        expect.objectContaining({
-          name: 'following_feed_item_clicked',
-          properties: expect.objectContaining({
-            target: 'actor',
-            activityId: 'activity-1',
-            actorId: 'actor-1',
+            likeCount: 4,
+            commentCount: 2,
+            guessCount: 1,
+            previewKind: 'comment',
           }),
         }),
       ])
