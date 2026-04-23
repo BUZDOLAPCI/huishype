@@ -35,7 +35,7 @@ export interface IngestProcessorModule {
     skipped: number;
   }>;
   refreshLatestListingsMaintenance(
-    refreshView: () => Promise<void>,
+    refreshViews: (() => Promise<void>) | Array<() => Promise<void>>,
     options?: {
       logger?: {
         info(payload: Record<string, unknown>, message: string): void;
@@ -60,6 +60,7 @@ export interface IngestStoreModule {
 
 export interface ListingsViewModule {
   refreshLatestListingsView(): Promise<void>;
+  refreshPriceGuessStartMarketSummaries(): Promise<void>;
 }
 
 export interface ApiDbModule {

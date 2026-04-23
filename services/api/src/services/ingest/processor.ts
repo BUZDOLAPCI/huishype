@@ -859,10 +859,11 @@ export async function processIngestBatch(
 }
 
 export async function refreshLatestListingsMaintenance(
-  refreshView: () => Promise<void>,
+  refreshViews: (() => Promise<void>) | Array<() => Promise<void>>,
   options: RefreshMaintenanceOptions = {},
 ): Promise<number> {
   const logger = options.logger ?? defaultLogger();
+  const viewRefreshers = Array.isArray(refreshViews) ? refreshViews : [refreshViews];
   const refreshStartedAt = new Date();
   const pendingRows = await db
     .select({ id: ingestBatches.id })
@@ -874,7 +875,9 @@ export async function refreshLatestListingsMaintenance(
     );
 
   try {
-    await refreshView();
+    for (const refreshView of viewRefreshers) {
+      await refreshView();
+    }
   } catch (error) {
     logger.error({ error: serializeError(error) }, 'Maintenance refresh failed');
     throw error;

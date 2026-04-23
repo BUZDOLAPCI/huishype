@@ -18,12 +18,46 @@ import * as Haptics from 'expo-haptics';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 
 export type PriceGuessSliderVariant = 'compact' | 'full' | 'embedded';
+export type PriceGuessSliderStartSource =
+  | 'user_guess'
+  | 'active_listing_asking_price'
+  | 'official_valuation_adjusted'
+  | 'local_comparable_price_per_m2'
+  | 'official_valuation'
+  | 'country_default'
+  | 'initial_price';
+export type PriceGuessSliderStartConfidence =
+  | 'submitted'
+  | 'known'
+  | 'usable'
+  | 'weak'
+  | 'fallback'
+  | 'none';
+
+type PriceGuessSliderAnalyticsEventName =
+  | 'price_guess_slider_shown'
+  | 'price_guess_slider_submitted';
+
+interface PriceGuessSliderAnalyticsEvent {
+  name: PriceGuessSliderAnalyticsEventName;
+  properties: Record<string, unknown>;
+  timestamp: string;
+}
+
+interface AnalyticsGlobal {
+  __HUISHYPE_ANALYTICS_EVENTS__?: PriceGuessSliderAnalyticsEvent[];
+  __HUISHYPE_ANALYTICS_LISTENER__?: (event: PriceGuessSliderAnalyticsEvent) => void;
+}
 
 export interface PriceGuessSliderProps {
   propertyId: string;
   countryCode?: string;
   officialValuation?: number;
   askingPrice?: number;
+  initialPrice?: number;
+  initialPriceSource?: PriceGuessSliderStartSource;
+  initialPriceConfidence?: PriceGuessSliderStartConfidence;
+  initialPriceSampleSize?: number;
   currentFMV?: number;
   userGuess?: number;
   onGuessChange?: (price: number) => void;
@@ -38,6 +72,12 @@ export interface PriceGuessSliderProps {
 // Price range constants
 const MIN_PRICE = 50000;
 const MAX_PRICE = 2000000;
+const DEFAULT_GUESS_START = 350000;
+const PRICE_BUCKET_SIZE = 50000;
+
+function getCountryDefaultGuessStart(_countryCode?: string): number {
+  return DEFAULT_GUESS_START;
+}
 
 // Logarithmic scale helpers
 // Using log scale: most houses are in the 150k-600k range, so we want more precision there
@@ -82,6 +122,129 @@ function formatBubblePrice(price: number, countryCode?: string): string {
 
 function hasSamePrice(left?: number, right?: number): boolean {
   return left !== undefined && right !== undefined && left === right;
+}
+
+function bucketPrice(price: number): string {
+  if (price < MIN_PRICE) {
+    return `<${MIN_PRICE / 1000}k`;
+  }
+  if (price >= MAX_PRICE) {
+    return `${MAX_PRICE / 1000}k+`;
+  }
+
+  const lower = Math.floor(price / PRICE_BUCKET_SIZE) * PRICE_BUCKET_SIZE;
+  const upper = lower + PRICE_BUCKET_SIZE - 1;
+  return `${Math.round(lower / 1000)}k-${Math.round(upper / 1000)}k`;
+}
+
+function bucketDelta(delta: number): string {
+  if (delta === 0) {
+    return '0';
+  }
+
+  const sign = delta > 0 ? '+' : '-';
+  const absoluteDelta = Math.abs(delta);
+  const lower = Math.floor(absoluteDelta / PRICE_BUCKET_SIZE) * PRICE_BUCKET_SIZE;
+  const upper = lower + PRICE_BUCKET_SIZE - 1;
+  return `${sign}${Math.round(lower / 1000)}k-${Math.round(upper / 1000)}k`;
+}
+
+function emitPriceGuessSliderAnalyticsEvent(
+  name: PriceGuessSliderAnalyticsEventName,
+  properties: Record<string, unknown>,
+): void {
+  const event: PriceGuessSliderAnalyticsEvent = {
+    name,
+    properties,
+    timestamp: new Date().toISOString(),
+  };
+  const analyticsGlobal = globalThis as typeof globalThis &
+    AnalyticsGlobal & {
+      dispatchEvent?: (event: Event) => boolean;
+      CustomEvent?: typeof CustomEvent;
+    };
+
+  analyticsGlobal.__HUISHYPE_ANALYTICS_LISTENER__?.(event);
+  analyticsGlobal.__HUISHYPE_ANALYTICS_EVENTS__?.push(event);
+
+  if (
+    typeof analyticsGlobal.dispatchEvent === 'function' &&
+    typeof analyticsGlobal.CustomEvent === 'function'
+  ) {
+    analyticsGlobal.dispatchEvent(
+      new analyticsGlobal.CustomEvent('huishype:analytics', {
+        detail: event,
+      }),
+    );
+  }
+}
+
+function resolveStartSource({
+  userGuess,
+  initialPrice,
+  initialPriceSource,
+  officialValuation,
+}: {
+  userGuess?: number;
+  initialPrice?: number;
+  initialPriceSource?: PriceGuessSliderStartSource;
+  officialValuation?: number;
+}): PriceGuessSliderStartSource {
+  if (userGuess !== undefined) {
+    return 'user_guess';
+  }
+  if (initialPrice !== undefined) {
+    return initialPriceSource ?? 'initial_price';
+  }
+  if (officialValuation !== undefined) {
+    return 'official_valuation';
+  }
+  return 'country_default';
+}
+
+function resolveStartConfidence({
+  source,
+  initialPriceConfidence,
+}: {
+  source: PriceGuessSliderStartSource;
+  initialPriceConfidence?: PriceGuessSliderStartConfidence;
+}): PriceGuessSliderStartConfidence {
+  if (source === 'user_guess') {
+    return 'submitted';
+  }
+  if (initialPriceConfidence) {
+    return initialPriceConfidence;
+  }
+  if (source === 'active_listing_asking_price') {
+    return 'known';
+  }
+  if (source === 'official_valuation') {
+    return 'usable';
+  }
+  if (source === 'country_default') {
+    return 'fallback';
+  }
+  return 'none';
+}
+
+function buildStartAnalytics({
+  price,
+  source,
+  confidence,
+  sampleSize,
+}: {
+  price: number;
+  source: PriceGuessSliderStartSource;
+  confidence: PriceGuessSliderStartConfidence;
+  sampleSize?: number;
+}) {
+  return {
+    price,
+    source,
+    confidence,
+    sampleSize,
+    startBucket: bucketPrice(price),
+  };
 }
 
 // Check if two positions are "near" each other (within 3%)
@@ -156,6 +319,10 @@ export function PriceGuessSlider({
   countryCode,
   officialValuation,
   askingPrice,
+  initialPrice,
+  initialPriceSource,
+  initialPriceConfidence,
+  initialPriceSampleSize,
   currentFMV,
   userGuess,
   onGuessChange,
@@ -165,15 +332,27 @@ export function PriceGuessSlider({
   variant = 'full',
   testID = 'price-guess-slider',
 }: PriceGuessSliderProps) {
-  // Initial price - prefer user's existing guess, then WOZ, then middle of range
-  const initialPrice = userGuess ?? officialValuation ?? 350000;
-  const [guessedPrice, setGuessedPrice] = useState(initialPrice);
+  const countryDefaultGuessStart = getCountryDefaultGuessStart(countryCode);
+  // Initial price - prefer user's existing guess, API initializer, WOZ/valuation, then country default.
+  const resolvedInitialPrice =
+    userGuess ?? initialPrice ?? officialValuation ?? countryDefaultGuessStart;
+  const resolvedStartSource = resolveStartSource({
+    userGuess,
+    initialPrice,
+    initialPriceSource,
+    officialValuation,
+  });
+  const resolvedStartConfidence = resolveStartConfidence({
+    source: resolvedStartSource,
+    initialPriceConfidence,
+  });
+  const [guessedPrice, setGuessedPrice] = useState(resolvedInitialPrice);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
 
   // Animation values - use shared value for slider width for proper animated style updates
   const sliderWidthShared = useSharedValue(300);
   const [sliderWidth, setSliderWidth] = useState(300);
-  const thumbPosition = useSharedValue(priceToPosition(initialPrice));
+  const thumbPosition = useSharedValue(priceToPosition(resolvedInitialPrice));
   const thumbScale = useSharedValue(1);
   const thumbPulse = useSharedValue(1);
   const priceDisplayScale = useSharedValue(1);
@@ -181,9 +360,40 @@ export function PriceGuessSlider({
   const isDragging = useSharedValue(false);
 
   // Refs
-  const lastHapticPrice = useRef(initialPrice);
+  const hasUserInteracted = useRef(false);
+  const initialPriceSyncDone = useRef(initialPrice !== undefined);
+  const hasLoggedShown = useRef(false);
+  const startAnalytics = useRef(
+    buildStartAnalytics({
+      price: resolvedInitialPrice,
+      source: resolvedStartSource,
+      confidence: resolvedStartConfidence,
+      sampleSize: initialPriceSampleSize,
+    }),
+  );
+  const lastHapticPrice = useRef(resolvedInitialPrice);
   const lastWOZCrossing = useRef<number | null>(null);
   const lastSyncedUserGuess = useRef<number | undefined>(userGuess);
+
+  useEffect(() => {
+    if (hasLoggedShown.current) {
+      return;
+    }
+
+    hasLoggedShown.current = true;
+    emitPriceGuessSliderAnalyticsEvent('price_guess_slider_shown', {
+      propertyId: _propertyId,
+      countryCode,
+      source: startAnalytics.current.source,
+      confidence: startAnalytics.current.confidence,
+      startBucket: startAnalytics.current.startBucket,
+      sampleSize: startAnalytics.current.sampleSize,
+    });
+  }, [_propertyId, countryCode]);
+
+  const markUserInteracted = useCallback(() => {
+    hasUserInteracted.current = true;
+  }, []);
 
   // Throttled haptic feedback
   const triggerSelectionHaptic = useMemo(
@@ -276,6 +486,7 @@ export function PriceGuessSlider({
   const panGesture = Gesture.Pan()
     .enabled(!disabled)
     .onBegin(() => {
+      runOnJS(markUserInteracted)();
       isDragging.value = true;
       thumbScale.value = withSpring(1.3, { damping: 10 });
     })
@@ -293,6 +504,7 @@ export function PriceGuessSlider({
   const tapGesture = Gesture.Tap()
     .enabled(!disabled)
     .onEnd((event) => {
+      runOnJS(markUserInteracted)();
       const newPosition = Math.max(0, Math.min(1, event.x / sliderWidth));
       thumbPosition.value = withSpring(newPosition, { damping: 15 });
       runOnJS(updatePrice)(newPosition);
@@ -342,14 +554,34 @@ export function PriceGuessSlider({
     );
 
     triggerSuccessHaptic();
+    emitPriceGuessSliderAnalyticsEvent('price_guess_slider_submitted', {
+      propertyId: _propertyId,
+      countryCode,
+      source: startAnalytics.current.source,
+      confidence: startAnalytics.current.confidence,
+      startBucket: startAnalytics.current.startBucket,
+      submittedBucket: bucketPrice(guessedPrice),
+      deltaBucket: bucketDelta(guessedPrice - startAnalytics.current.price),
+      sampleSize: startAnalytics.current.sampleSize,
+    });
     onGuessSubmit(guessedPrice);
-  }, [disabled, isSubmitting, guessedPrice, onGuessSubmit, submitButtonScale, triggerSuccessHaptic]);
+  }, [
+    _propertyId,
+    countryCode,
+    disabled,
+    isSubmitting,
+    guessedPrice,
+    onGuessSubmit,
+    submitButtonScale,
+    triggerSuccessHaptic,
+  ]);
 
   // Quick adjustment handler
   const handleQuickAdjust = useCallback(
     (delta: number) => {
       if (disabled) return;
 
+      markUserInteracted();
       const newPrice = Math.max(MIN_PRICE, Math.min(MAX_PRICE, guessedPrice + delta));
       const newPosition = priceToPosition(newPrice);
 
@@ -357,7 +589,7 @@ export function PriceGuessSlider({
       updatePrice(newPosition);
       triggerSelectionHaptic();
     },
-    [disabled, guessedPrice, thumbPosition, updatePrice, triggerSelectionHaptic]
+    [disabled, guessedPrice, markUserInteracted, thumbPosition, updatePrice, triggerSelectionHaptic]
   );
 
   // Only sync when the server-side submitted guess itself changes.
@@ -370,7 +602,47 @@ export function PriceGuessSlider({
     lastHapticPrice.current = userGuess;
     setGuessedPrice(userGuess);
     thumbPosition.value = withSpring(priceToPosition(userGuess), { damping: 15 });
+    startAnalytics.current = buildStartAnalytics({
+      price: userGuess,
+      source: 'user_guess',
+      confidence: 'submitted',
+    });
   }, [userGuess, thumbPosition]);
+
+  // Sync an asynchronously loaded initializer exactly once if the user has not interacted.
+  useEffect(() => {
+    if (initialPrice === undefined || initialPriceSyncDone.current || userGuess !== undefined) {
+      return;
+    }
+
+    initialPriceSyncDone.current = true;
+    if (hasUserInteracted.current) {
+      return;
+    }
+
+    const source = initialPriceSource ?? 'initial_price';
+    const confidence = resolveStartConfidence({
+      source,
+      initialPriceConfidence,
+    });
+
+    lastHapticPrice.current = initialPrice;
+    setGuessedPrice(initialPrice);
+    thumbPosition.value = withSpring(priceToPosition(initialPrice), { damping: 15 });
+    startAnalytics.current = buildStartAnalytics({
+      price: initialPrice,
+      source,
+      confidence,
+      sampleSize: initialPriceSampleSize,
+    });
+  }, [
+    initialPrice,
+    initialPriceConfidence,
+    initialPriceSampleSize,
+    initialPriceSource,
+    thumbPosition,
+    userGuess,
+  ]);
 
   const showPreviousGuessReference = !hasSamePrice(userGuess, guessedPrice);
 

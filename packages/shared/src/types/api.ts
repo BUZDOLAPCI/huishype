@@ -316,12 +316,52 @@ export interface UpdateGuessRequest {
 
 export interface GetPropertyGuessesRequest {
   propertyId: string;
+  page?: number;
   limit?: number;
-  cursor?: string;
 }
 
-export interface GetPropertyGuessesResponse extends CursorPaginatedResponse<PriceGuess> {
-  fmv: FMV;
+export interface PriceGuessStart {
+  price: number;
+  source:
+    | 'official_valuation_adjusted'
+    | 'local_comparable_price_per_m2'
+    | 'official_valuation'
+    | 'country_default';
+  confidence: 'weak' | 'usable';
+  sampleSize: number;
+}
+
+export interface PriceGuessWithUserResponse {
+  id: string;
+  propertyId: string;
+  userId: string;
+  guessedPrice: number;
+  createdAt: string;
+  updatedAt: string;
+  isMemeGuess: boolean;
+  user: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    karma: number;
+    karmaRank: {
+      title: string;
+      level: number;
+    };
+  };
+}
+
+export interface GetPropertyGuessesResponse {
+  data: PriceGuessWithUserResponse[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  fmv: PropertyFmvResponse;
+  activeListingAskingPrice: number | null;
+  priceGuessStart?: PriceGuessStart;
 }
 
 // ============================================

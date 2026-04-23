@@ -186,6 +186,7 @@ export type {
   GetListingsResponse,
   // Guess
   GetPropertyGuessesRequest,
+  PriceGuessStart,
   GetPropertyGuessesResponse,
   // Comment
   GetCommentsRequest,

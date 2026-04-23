@@ -225,14 +225,17 @@ export class WorkerRuntime {
       loadListingsViewModule(),
     ]);
 
-    this.logger.info('Refreshing listing maintenance view', {
+    this.logger.info('Refreshing listing maintenance views', {
       jobId: job.id,
       requestedBy: job.data.requestedBy,
       batchId: job.data.batchId ?? null,
     });
 
     const refreshedBatchCount = await processor.refreshLatestListingsMaintenance(
-      listingsView.refreshLatestListingsView,
+      [
+        listingsView.refreshLatestListingsView,
+        listingsView.refreshPriceGuessStartMarketSummaries,
+      ],
       { logger: toIngestLogger(this.logger) },
     );
 

@@ -1406,6 +1406,15 @@ export interface paths {
                                 askingPrice: number | null;
                                 divergence: number | null;
                             };
+                            activeListingAskingPrice: number | null;
+                            priceGuessStart?: {
+                                price: number;
+                                /** @enum {string} */
+                                source: "official_valuation_adjusted" | "local_comparable_price_per_m2" | "official_valuation" | "country_default";
+                                /** @enum {string} */
+                                confidence: "weak" | "usable";
+                                sampleSize: number;
+                            };
                         };
                     };
                 };

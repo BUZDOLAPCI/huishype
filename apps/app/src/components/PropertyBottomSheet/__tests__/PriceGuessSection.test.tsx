@@ -19,12 +19,27 @@ jest.mock('../../../hooks/usePriceGuess', () => ({
 }));
 
 jest.mock('../../PriceGuessSlider', () => ({
-  PriceGuessSlider: ({ disabled, onGuessSubmit }: { disabled?: boolean; onGuessSubmit: (price: number) => void }) => {
+  PriceGuessSlider: ({
+    disabled,
+    initialPrice,
+    initialPriceSource,
+    initialPriceConfidence,
+    onGuessSubmit,
+  }: {
+    disabled?: boolean;
+    initialPrice?: number;
+    initialPriceSource?: string;
+    initialPriceConfidence?: string;
+    onGuessSubmit: (price: number) => void;
+  }) => {
     const React = require('react');
     const { Pressable, Text, View } = require('react-native');
     return (
       <View>
         <Text testID="price-guess-slider-disabled">{String(!!disabled)}</Text>
+        <Text testID="price-guess-slider-initial-price">{String(initialPrice ?? '')}</Text>
+        <Text testID="price-guess-slider-initial-source">{String(initialPriceSource ?? '')}</Text>
+        <Text testID="price-guess-slider-initial-confidence">{String(initialPriceConfidence ?? '')}</Text>
         <Pressable testID="price-guess-slider-submit" onPress={() => onGuessSubmit(345000)}>
           <Text>Submit Guess</Text>
         </Pressable>
@@ -103,6 +118,8 @@ describe('PriceGuessSection', () => {
         canEdit: true,
         cooldownEndsAt: null,
         guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: null,
       },
       isLoading: false,
       refetch: jest.fn(),
@@ -157,6 +174,8 @@ describe('PriceGuessSection', () => {
         canEdit: false,
         cooldownEndsAt: '2024-01-07T00:00:00Z',
         guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: null,
       },
       isLoading: false,
       refetch: jest.fn(),
@@ -166,5 +185,83 @@ describe('PriceGuessSection', () => {
 
     expect(screen.getByTestId('price-guess-slider-disabled').props.children).toBe('false');
     expect(screen.queryByText('Cooldown Active')).toBeNull();
+  });
+
+  it('passes active sale asking price as the slider initializer', () => {
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: 365000,
+          divergence: -2,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: 372000,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const screen = render(<PriceGuessSection property={property} />);
+
+    expect(screen.getByTestId('price-guess-slider-initial-price').props.children).toBe('372000');
+    expect(screen.getByTestId('price-guess-slider-initial-source').props.children).toBe(
+      'active_listing_asking_price'
+    );
+    expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
+      'known'
+    );
+  });
+
+  it('falls back to priceGuessStart as the slider initializer without using property askingPrice', () => {
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: 365000,
+          divergence: -2,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const screen = render(<PriceGuessSection property={property} />);
+
+    expect(screen.getByTestId('price-guess-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('price-guess-slider-initial-source').props.children).toBe(
+      'local_comparable_price_per_m2'
+    );
+    expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
+      'usable'
+    );
   });
 });

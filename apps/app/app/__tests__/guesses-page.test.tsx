@@ -79,12 +79,27 @@ jest.mock('@/src/components/FMVVisualization', () => ({
 }));
 
 jest.mock('@/src/components/PriceGuessSlider', () => ({
-  PriceGuessSlider: ({ disabled, onGuessSubmit }: { disabled?: boolean; onGuessSubmit: (price: number) => void }) => {
+  PriceGuessSlider: ({
+    disabled,
+    initialPrice,
+    initialPriceSource,
+    initialPriceConfidence,
+    onGuessSubmit,
+  }: {
+    disabled?: boolean;
+    initialPrice?: number;
+    initialPriceSource?: string;
+    initialPriceConfidence?: string;
+    onGuessSubmit: (price: number) => void;
+  }) => {
     const React = require('react');
     const { Pressable, Text, View } = require('react-native');
     return (
       <View>
         <Text testID="guesses-slider-disabled">{String(!!disabled)}</Text>
+        <Text testID="guesses-slider-initial-price">{String(initialPrice ?? '')}</Text>
+        <Text testID="guesses-slider-initial-source">{String(initialPriceSource ?? '')}</Text>
+        <Text testID="guesses-slider-initial-confidence">{String(initialPriceConfidence ?? '')}</Text>
         <Pressable testID="guesses-slider-submit" onPress={() => onGuessSubmit(360000)}>
           <Text>Submit Guess</Text>
         </Pressable>
@@ -163,6 +178,8 @@ describe('GuessesPage', () => {
         canEdit: true,
         cooldownEndsAt: null,
         guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: null,
       },
       isLoading: false,
       refetch: jest.fn(),
@@ -187,5 +204,83 @@ describe('GuessesPage', () => {
       expect(screen.getByText('Auth Modal Open')).toBeTruthy();
     });
     expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('passes active sale asking price as the slider initializer', () => {
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: 365000,
+          divergence: -2,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: 372000,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const screen = render(<GuessesRouteScreen propertyId="property-123" />);
+
+    fireEvent.press(screen.getByTestId('make-guess-button'));
+
+    expect(screen.getByTestId('guesses-slider-initial-price').props.children).toBe('372000');
+    expect(screen.getByTestId('guesses-slider-initial-source').props.children).toBe(
+      'active_listing_asking_price'
+    );
+    expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('known');
+  });
+
+  it('falls back to priceGuessStart as the slider initializer without using property askingPrice', () => {
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: 365000,
+          divergence: -2,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const screen = render(<GuessesRouteScreen propertyId="property-123" />);
+
+    fireEvent.press(screen.getByTestId('make-guess-button'));
+
+    expect(screen.getByTestId('guesses-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('guesses-slider-initial-source').props.children).toBe(
+      'local_comparable_price_per_m2'
+    );
+    expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('usable');
   });
 });

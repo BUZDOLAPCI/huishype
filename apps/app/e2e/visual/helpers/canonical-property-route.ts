@@ -14,6 +14,8 @@ export interface CanonicalPropertyFixture extends PropertyRouteAddressLike {
   address?: string | null;
   geometry?: { type: 'Point'; coordinates: [number, number] } | null;
   hasListing?: boolean | null;
+  hasActiveListing?: boolean | null;
+  marketState?: string | null;
   commentCount?: number | null;
   guessCount?: number | null;
   officialValuation?: number | null;
@@ -221,6 +223,22 @@ export async function setupCanonicalPropertyRouteMocks(
         askingPrice: null,
         divergence: null,
       },
+      activeListingAskingPrice:
+        property.hasActiveListing === true && property.marketState === 'for-sale'
+          ? property.askingPrice ?? null
+          : null,
+      ...(property.hasActiveListing === true && property.marketState === 'for-sale'
+        ? {}
+        : property.officialValuation != null
+          ? {
+              priceGuessStart: {
+                price: property.officialValuation,
+                source: 'official_valuation',
+                confidence: 'weak',
+                sampleSize: property.guessCount ?? 0,
+              },
+            }
+          : {}),
     }),
     fetchJsonOrFallback(request, `/properties/${property.id}/listings`, { data: [] }),
   ]);

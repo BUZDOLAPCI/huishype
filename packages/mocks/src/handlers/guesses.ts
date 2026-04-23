@@ -6,12 +6,41 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import { mockGuesses, mockFMV, getMockProperty } from '../data/fixtures.js';
+import { mockGuesses, mockFMV, getMockProperty, getMockUser } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 import type { PriceGuess, FMV } from '@huishype/shared';
 
 // In-memory store for new guesses during mock session
 const sessionGuesses: PriceGuess[] = [];
+
+type MockPropertyFmvResponse = {
+  fmv: number | null;
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  guessCount: number;
+  distribution: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+    min: number;
+    max: number;
+  } | null;
+  officialValuation: number | null;
+  askingPrice: number | null;
+  divergence: number | null;
+};
+
+type MockPriceGuessStart = {
+  price: number;
+  source:
+    | 'official_valuation_adjusted'
+    | 'local_comparable_price_per_m2'
+    | 'official_valuation'
+    | 'country_default';
+  confidence: 'weak' | 'usable';
+  sampleSize: number;
+};
 
 export const guessHandlers = [
   /**
@@ -20,8 +49,8 @@ export const guessHandlers = [
   http.get('*/properties/:propertyId/guesses', ({ params, request }) => {
     const { propertyId } = params;
     const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1', 10);
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
-    const cursor = url.searchParams.get('cursor');
 
     const property = getMockProperty(propertyId as string);
     if (!property) {
@@ -35,22 +64,43 @@ export const guessHandlers = [
       .filter((g) => g.propertyId === propertyId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    // Handle cursor pagination
-    if (cursor) {
-      const cursorIndex = guesses.findIndex((g) => g.id === cursor);
-      if (cursorIndex !== -1) {
-        guesses = guesses.slice(cursorIndex + 1);
-      }
-    }
-
-    const hasMore = guesses.length > limit;
-    guesses = guesses.slice(0, limit);
+    const total = guesses.length;
+    const offset = (page - 1) * limit;
+    guesses = guesses.slice(offset, offset + limit);
+    const activeListingAskingPrice = getActiveSaleAskingPrice(property);
+    const priceGuessStart =
+      activeListingAskingPrice == null ? getPriceGuessStart(property, total) : undefined;
 
     return HttpResponse.json({
-      data: guesses,
-      cursor: hasMore ? guesses[guesses.length - 1]?.id : undefined,
-      hasMore,
-      fmv: property.fmv || mockFMV,
+      data: guesses.map((guess) => {
+        const user = getMockUser(guess.userId);
+
+        return {
+          id: guess.id,
+          propertyId: guess.propertyId,
+          userId: guess.userId,
+          guessedPrice: guess.guessedPrice,
+          createdAt: guess.createdAt,
+          updatedAt: guess.updatedAt ?? guess.createdAt,
+          isMemeGuess: false,
+          user: {
+            id: user?.id ?? guess.userId,
+            username: user?.username ?? 'unknown',
+            displayName: user?.displayName ?? null,
+            karma: user?.karma ?? 0,
+            karmaRank: getKarmaRankSummary(user?.karmaRank),
+          },
+        };
+      }),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      fmv: toPropertyFmvResponse(property),
+      activeListingAskingPrice,
+      ...(priceGuessStart ? { priceGuessStart } : {}),
     });
   }),
 
@@ -146,4 +196,88 @@ function calculateMedian(values: number[]): number {
   return sorted.length % 2 !== 0
     ? sorted[mid]
     : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function toPropertyFmvResponse(
+  property: NonNullable<ReturnType<typeof getMockProperty>>
+): MockPropertyFmvResponse {
+  const fmv = property.fmv;
+
+  if (!fmv) {
+    return {
+      fmv: null,
+      confidence: 'none',
+      guessCount: 0,
+      distribution: null,
+      officialValuation: property.officialValuation ?? null,
+      askingPrice: property.activeListing?.askingPrice ?? null,
+      divergence: null,
+    };
+  }
+
+  return {
+    fmv: fmv.value,
+    confidence: fmv.confidence,
+    guessCount: fmv.guessCount,
+    distribution: {
+      p10: fmv.distribution.min,
+      p25: fmv.distribution.p25,
+      p50: fmv.distribution.median,
+      p75: fmv.distribution.p75,
+      p90: fmv.distribution.max,
+      min: fmv.distribution.min,
+      max: fmv.distribution.max,
+    },
+    officialValuation: property.officialValuation ?? null,
+    askingPrice: property.activeListing?.askingPrice ?? null,
+    divergence: fmv.vsAskingPrice?.difference ?? null,
+  };
+}
+
+function getActiveSaleAskingPrice(
+  property: NonNullable<ReturnType<typeof getMockProperty>>
+): number | null {
+  const listing = property.activeListing;
+  if (!listing) {
+    return null;
+  }
+
+  const sourceUrl = listing.sourceUrl.toLowerCase();
+  const isRentListing = sourceUrl.includes('/huur/') || listing.sourceName === 'pararius';
+  return isRentListing ? null : listing.askingPrice;
+}
+
+function getPriceGuessStart(
+  property: NonNullable<ReturnType<typeof getMockProperty>>,
+  sampleSize: number
+): MockPriceGuessStart | undefined {
+  const price = property.officialValuation ?? null;
+  if (price == null) {
+    return undefined;
+  }
+
+  return {
+    price,
+    source: 'official_valuation',
+    confidence: sampleSize >= 3 ? 'usable' : 'weak',
+    sampleSize,
+  };
+}
+
+function getKarmaRankSummary(rank?: string): { title: string; level: number } {
+  const levels: Record<string, number> = {
+    Newcomer: 1,
+    Contributor: 2,
+    'Rising Star': 3,
+    'Local Expert': 4,
+    Expert: 5,
+    'Local Legend': 6,
+    Master: 7,
+  };
+
+  const title = rank ?? 'Newcomer';
+  return {
+    title,
+    level: levels[title] ?? 1,
+  };
 }

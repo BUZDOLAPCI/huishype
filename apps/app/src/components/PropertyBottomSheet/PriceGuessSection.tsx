@@ -128,6 +128,16 @@ export function PriceGuessSection({
 
   const hasExistingGuess = !!guessData?.userGuess;
   const activeUserGuess = submittedPrice ?? guessData?.userGuess?.guessedPrice ?? null;
+  const initialPrice =
+    guessData?.activeListingAskingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
+  const initialPriceSource =
+    guessData?.activeListingAskingPrice != null
+      ? 'active_listing_asking_price'
+      : guessData?.priceGuessStart?.source;
+  const initialPriceConfidence =
+    guessData?.activeListingAskingPrice != null
+      ? 'known'
+      : guessData?.priceGuessStart?.confidence;
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -179,6 +189,10 @@ export function PriceGuessSection({
             propertyId={property.id}
             officialValuation={property.officialValuation ?? undefined}
             askingPrice={property.askingPrice}
+            initialPrice={initialPrice}
+            initialPriceSource={initialPriceSource}
+            initialPriceConfidence={initialPriceConfidence}
+            initialPriceSampleSize={guessData?.priceGuessStart?.sampleSize}
             currentFMV={fmvData?.value ?? undefined}
             userGuess={guessData?.userGuess?.guessedPrice}
             onGuessSubmit={handleGuessSubmit}

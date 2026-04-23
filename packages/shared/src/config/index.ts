@@ -10,6 +10,8 @@ export {
   getSourceNameForDomain,
   getAllListingSourceNames,
   isValidCountryCode,
+  getPriceGuessPostalScope,
+  getCountryDefaultGuessStart,
 } from './country-config.js';
 
 export type {

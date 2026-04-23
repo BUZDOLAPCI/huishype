@@ -42,6 +42,19 @@ export interface FmvResponse {
   divergence: number | null;
 }
 
+export type PriceGuessStartSource =
+  | 'official_valuation_adjusted'
+  | 'local_comparable_price_per_m2'
+  | 'official_valuation'
+  | 'country_default';
+
+export interface PriceGuessStart {
+  price: number;
+  source: PriceGuessStartSource;
+  confidence: 'weak' | 'usable';
+  sampleSize: number;
+}
+
 export interface GuessListResponse {
   data: PriceGuess[];
   meta: {
@@ -51,6 +64,8 @@ export interface GuessListResponse {
     totalPages: number;
   };
   fmv: FmvResponse;
+  activeListingAskingPrice?: number | null;
+  priceGuessStart?: PriceGuessStart | null;
 }
 
 export interface PriceGuessData {
@@ -59,6 +74,8 @@ export interface PriceGuessData {
   canEdit: boolean;
   cooldownEndsAt: string | null;
   guesses: PriceGuess[];
+  activeListingAskingPrice: number | null;
+  priceGuessStart: PriceGuessStart | null;
 }
 
 export interface SubmitGuessParams {
@@ -115,6 +132,8 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
           canEdit: true,
           cooldownEndsAt: null,
           guesses: [],
+          activeListingAskingPrice: null,
+          priceGuessStart: null,
         };
       }
 
@@ -122,7 +141,12 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
         `/properties/${propertyId}/guesses?limit=100`
       );
 
-      const { data: guesses, fmv } = response;
+      const {
+        data: guesses,
+        fmv,
+        activeListingAskingPrice = null,
+        priceGuessStart = null,
+      } = response;
 
       // Find user's guess if userId is provided
       const userGuess = userId
@@ -135,6 +159,8 @@ export function useFetchPriceGuess(propertyId: string | null, userId?: string | 
         canEdit: true,
         cooldownEndsAt: null,
         guesses,
+        activeListingAskingPrice,
+        priceGuessStart,
       };
     },
     enabled: !!propertyId,

@@ -3,6 +3,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { PriceGuessSlider } from '../PriceGuessSlider';
 
 // Mocks are configured in jest.config.js
+interface TestAnalyticsEvent {
+  name: string;
+  properties: Record<string, unknown>;
+}
 
 describe('PriceGuessSlider', () => {
   const defaultProps = {
@@ -12,6 +16,11 @@ describe('PriceGuessSlider', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: TestAnalyticsEvent[];
+      }
+    ).__HUISHYPE_ANALYTICS_EVENTS__ = [];
   });
 
   it('renders correctly with default props', () => {
@@ -37,8 +46,38 @@ describe('PriceGuessSlider', () => {
   it('initializes with user guess when provided', () => {
     render(<PriceGuessSlider {...defaultProps} userGuess={400000} />);
 
-    // The price display should show the user's guess
-    expect(screen.getByTestId('price-display')).toBeTruthy();
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/400/)
+    );
+  });
+
+  it('initializes with initialPrice before official valuation', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={425000}
+        officialValuation={350000}
+      />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/425/)
+    );
+  });
+
+  it('keeps userGuess stronger than initialPrice', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        userGuess={400000}
+        initialPrice={425000}
+        officialValuation={350000}
+      />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/400/)
+    );
   });
 
   it('uses the submitted guess as a starting point without locking the slider to it', async () => {
@@ -70,6 +109,57 @@ describe('PriceGuessSlider', () => {
     });
   });
 
+  it('syncs an asynchronously loaded initialPrice before interaction', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider {...defaultProps} officialValuation={300000} />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/300/)
+    );
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        officialValuation={300000}
+        initialPrice={450000}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/450/)
+      );
+    });
+  });
+
+  it('does not sync an asynchronously loaded initialPrice after quick adjustment', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider {...defaultProps} officialValuation={300000} />
+    );
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/310/)
+      );
+    });
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        officialValuation={300000}
+        initialPrice={450000}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/310/)
+      );
+    });
+  });
+
   it('renders quick adjustment buttons', () => {
     render(<PriceGuessSlider {...defaultProps} />);
 
@@ -88,6 +178,60 @@ describe('PriceGuessSlider', () => {
 
     await waitFor(() => {
       expect(onGuessSubmit).toHaveBeenCalled();
+    });
+  });
+
+  it('emits client-only shown and submitted diagnostics with buckets', async () => {
+    const onGuessSubmit = jest.fn();
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={425000}
+        initialPriceSource="active_listing_asking_price"
+        initialPriceConfidence="known"
+        onGuessSubmit={onGuessSubmit}
+      />
+    );
+
+    const analyticsEvents = (
+      globalThis as typeof globalThis & {
+        __HUISHYPE_ANALYTICS_EVENTS__?: TestAnalyticsEvent[];
+      }
+    ).__HUISHYPE_ANALYTICS_EVENTS__;
+
+    await waitFor(() => {
+      expect(analyticsEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'price_guess_slider_shown',
+            properties: expect.objectContaining({
+              source: 'active_listing_asking_price',
+              confidence: 'known',
+              startBucket: expect.any(String),
+            }),
+          }),
+        ])
+      );
+    });
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+
+    await waitFor(() => {
+      expect(onGuessSubmit).toHaveBeenCalled();
+      expect(analyticsEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'price_guess_slider_submitted',
+            properties: expect.objectContaining({
+              source: 'active_listing_asking_price',
+              confidence: 'known',
+              startBucket: expect.any(String),
+              submittedBucket: expect.any(String),
+              deltaBucket: expect.any(String),
+            }),
+          }),
+        ])
+      );
     });
   });
 
@@ -146,6 +290,13 @@ describe('PriceGuessSlider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('price-display')).toBeTruthy();
     });
+  });
+
+  it('does not show HuisHype estimate copy', () => {
+    render(<PriceGuessSlider {...defaultProps} initialPrice={425000} />);
+
+    expect(screen.queryByText(/HuisHype estimate/i)).toBeNull();
+    expect(screen.queryByText(/HuisHype valuation/i)).toBeNull();
   });
 });
 

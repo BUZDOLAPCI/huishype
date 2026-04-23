@@ -6,6 +6,7 @@ import { eq, and, sql, desc } from 'drizzle-orm';
 import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
 import { calculateFmvForProperty } from '../services/fmv.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
+import { getPriceGuessStartForProperty } from '../services/price-guess-start.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -64,6 +65,18 @@ const fmvSchema = z.object({
   divergence: z.number().nullable(),
 });
 
+const priceGuessStartSchema = z.object({
+  price: z.number(),
+  source: z.enum([
+    'official_valuation_adjusted',
+    'local_comparable_price_per_m2',
+    'official_valuation',
+    'country_default',
+  ]),
+  confidence: z.enum(['weak', 'usable']),
+  sampleSize: z.number(),
+});
+
 const guessListResponseSchema = z.object({
   data: z.array(priceGuessWithUserSchema),
   meta: z.object({
@@ -73,6 +86,8 @@ const guessListResponseSchema = z.object({
     totalPages: z.number(),
   }),
   fmv: fmvSchema,
+  activeListingAskingPrice: z.number().nullable(),
+  priceGuessStart: priceGuessStartSchema.optional(),
 });
 
 export async function guessRoutes(app: FastifyInstance) {
@@ -103,13 +118,22 @@ export async function guessRoutes(app: FastifyInstance) {
       const offset = (page - 1) * limit;
 
       // Check if property exists
-      const propertyExists = await db
-        .select({ id: properties.id })
+      const propertyRows = await db
+        .select({
+          id: properties.id,
+          countryCode: properties.countryCode,
+          postalCode: properties.postalCode,
+          city: properties.city,
+          region: properties.region,
+          officialValuation: properties.officialValuation,
+          floorAreaM2: properties.floorAreaM2,
+        })
         .from(properties)
         .where(eq(properties.id, propertyId))
         .limit(1);
+      const property = propertyRows[0];
 
-      if (propertyExists.length === 0) {
+      if (!property) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
@@ -143,6 +167,7 @@ export async function guessRoutes(app: FastifyInstance) {
 
       // Calculate FMV using karma-weighted algorithm with WOZ anchoring
       const fmvResult = await calculateFmvForProperty(propertyId);
+      const startResult = await getPriceGuessStartForProperty(property);
 
       return reply.send({
         data: results.map(({ guess, user }) => ({
@@ -165,6 +190,10 @@ export async function guessRoutes(app: FastifyInstance) {
           totalPages: Math.ceil(total / limit),
         },
         fmv: fmvResult,
+        activeListingAskingPrice: startResult.activeListingAskingPrice,
+        ...(startResult.priceGuessStart
+          ? { priceGuessStart: startResult.priceGuessStart }
+          : {}),
       });
     }
   );

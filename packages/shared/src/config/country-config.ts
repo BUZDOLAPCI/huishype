@@ -541,6 +541,7 @@ export const COUNTRY_CONFIGS: Record<CountryCode, CountryConfig> = {
 // ---------------------------------------------------------------------------
 
 const ALL_CODES = Object.keys(COUNTRY_CONFIGS) as CountryCode[];
+const DEFAULT_PRICE_GUESS_START = 350_000;
 
 /** Look up a single country config.  Throws if the code is unknown. */
 export function getCountryConfig(code: CountryCode): CountryConfig {
@@ -552,6 +553,33 @@ export function getCountryConfig(code: CountryCode): CountryConfig {
 /** All supported country codes. */
 export function getAllCountryCodes(): CountryCode[] {
   return ALL_CODES;
+}
+
+/**
+ * Country-aware postal scope used for price-guess market summaries.
+ * Returns a normalized key only where the project has an explicit rule.
+ */
+export function getPriceGuessPostalScope(
+  countryCode: CountryCode,
+  postalCode: string | null | undefined,
+): string | null {
+  if (!postalCode) {
+    return null;
+  }
+
+  const cfg = getCountryConfig(countryCode);
+  const normalized = cfg.postalCodeNormalize(postalCode);
+
+  if (countryCode === 'NL' && cfg.postalCodeRegex.test(normalized)) {
+    return normalized.replace(/\s/g, '').slice(0, 4);
+  }
+
+  return null;
+}
+
+/** Conservative country default used only as the final price-guess fallback. */
+export function getCountryDefaultGuessStart(_countryCode: CountryCode): number {
+  return DEFAULT_PRICE_GUESS_START;
 }
 
 /**

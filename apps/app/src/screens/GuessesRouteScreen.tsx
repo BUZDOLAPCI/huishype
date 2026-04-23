@@ -351,6 +351,16 @@ export function GuessesRouteScreen({
   }, [handleClose]);
 
   const divergence = guessData?.fmv?.divergence ?? null;
+  const initialPrice =
+    guessData?.activeListingAskingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
+  const initialPriceSource =
+    guessData?.activeListingAskingPrice != null
+      ? 'active_listing_asking_price'
+      : guessData?.priceGuessStart?.source;
+  const initialPriceConfidence =
+    guessData?.activeListingAskingPrice != null
+      ? 'known'
+      : guessData?.priceGuessStart?.confidence;
 
   return (
     <>
@@ -426,6 +436,10 @@ export function GuessesRouteScreen({
             countryCode={property?.countryCode ?? undefined}
             officialValuation={property?.officialValuation ?? undefined}
             askingPrice={property?.askingPrice ?? undefined}
+            initialPrice={initialPrice}
+            initialPriceSource={initialPriceSource}
+            initialPriceConfidence={initialPriceConfidence}
+            initialPriceSampleSize={guessData?.priceGuessStart?.sampleSize}
             currentFMV={guessData?.fmv?.fmv ?? undefined}
             userGuess={guessData?.userGuess?.guessedPrice}
             onGuessSubmit={handleGuessSubmit}

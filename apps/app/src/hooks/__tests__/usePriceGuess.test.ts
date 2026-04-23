@@ -193,6 +193,47 @@ describe('useFetchPriceGuess', () => {
     expect(result.current.data?.fmv.guessCount).toBe(1);
   });
 
+  it('maps price guess start fields from the API response', async () => {
+    const mockResponse = {
+      data: [],
+      meta: { page: 1, limit: 100, total: 0, totalPages: 1 },
+      fmv: {
+        fmv: null,
+        confidence: 'none' as const,
+        guessCount: 0,
+        distribution: null,
+        officialValuation: null,
+        askingPrice: null,
+        divergence: null,
+      },
+      activeListingAskingPrice: 372000,
+      priceGuessStart: {
+        price: 340000,
+        source: 'local_comparable_price_per_m2' as const,
+        confidence: 'usable' as const,
+        sampleSize: 12,
+      },
+    };
+
+    mockApi.get.mockResolvedValueOnce(mockResponse);
+
+    const { result } = renderHook(() => useFetchPriceGuess('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data?.activeListingAskingPrice).toBe(372000);
+    expect(result.current.data?.priceGuessStart).toEqual({
+      price: 340000,
+      source: 'local_comparable_price_per_m2',
+      confidence: 'usable',
+      sampleSize: 12,
+    });
+  });
+
   it('identifies user guess when userId matches', async () => {
     const mockResponse = {
       data: [

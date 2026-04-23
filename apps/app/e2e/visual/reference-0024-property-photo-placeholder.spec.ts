@@ -107,6 +107,13 @@ async function setupPropertyMocking(page: Page): Promise<void> {
             askingPrice: null,
             divergence: null,
           },
+          activeListingAskingPrice: null,
+          priceGuessStart: {
+            price: MOCK_PROPERTY_WITH_GEOMETRY.officialValuation,
+            source: 'official_valuation',
+            confidence: 'weak',
+            sampleSize: 0,
+          },
         }),
       });
       return;

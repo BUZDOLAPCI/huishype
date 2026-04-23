@@ -179,6 +179,69 @@ describe('Mock handler runtime parity', () => {
     }
   });
 
+  it('matches live /properties/:id/guesses envelope and price-start fields', async () => {
+    const activeSaleResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/guesses?page=1&limit=2`
+    );
+    const activeSaleBody = await activeSaleResponse.json();
+
+    expect(activeSaleResponse.status).toBe(200);
+    expect(activeSaleBody).toHaveProperty('data');
+    expect(activeSaleBody).toHaveProperty('meta');
+    expect(activeSaleBody).toHaveProperty('fmv');
+    expect(activeSaleBody).toHaveProperty('activeListingAskingPrice', 2950000);
+    expect(activeSaleBody).not.toHaveProperty('cursor');
+    expect(activeSaleBody).not.toHaveProperty('hasMore');
+    expect(activeSaleBody).not.toHaveProperty('priceGuessStart');
+    expect(activeSaleBody.meta).toEqual({
+      page: 1,
+      limit: 2,
+      total: 2,
+      totalPages: 1,
+    });
+    expect(activeSaleBody.fmv).toEqual({
+      fmv: 2780000,
+      confidence: 'high',
+      guessCount: 42,
+      distribution: {
+        p10: 2500000,
+        p25: 2650000,
+        p50: 2780000,
+        p75: 2900000,
+        p90: 3200000,
+        min: 2500000,
+        max: 3200000,
+      },
+      officialValuation: 2850000,
+      askingPrice: 2950000,
+      divergence: -170000,
+    });
+    expect(activeSaleBody.data[0]).toMatchObject({
+      propertyId: mockPropertyIds.prinsengracht263,
+      isMemeGuess: false,
+      user: {
+        karmaRank: {
+          title: expect.any(String),
+          level: expect.any(Number),
+        },
+      },
+    });
+
+    const nonListingResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.oudegracht150}/guesses`
+    );
+    const nonListingBody = await nonListingResponse.json();
+
+    expect(nonListingResponse.status).toBe(200);
+    expect(nonListingBody).toHaveProperty('activeListingAskingPrice', null);
+    expect(nonListingBody.priceGuessStart).toEqual({
+      price: 585000,
+      source: 'official_valuation',
+      confidence: 'weak',
+      sampleSize: 0,
+    });
+  });
+
   it('matches live listing preview/submit auth split and payload envelopes', async () => {
     const previewResponse = await fetch('http://localhost/listings/preview', {
       method: 'POST',

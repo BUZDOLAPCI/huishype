@@ -4041,12 +4041,57 @@
                         "divergence"
                       ],
                       "additionalProperties": false
+                    },
+                    "activeListingAskingPrice": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "priceGuessStart": {
+                      "type": "object",
+                      "properties": {
+                        "price": {
+                          "type": "number"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "official_valuation_adjusted",
+                            "local_comparable_price_per_m2",
+                            "official_valuation",
+                            "country_default"
+                          ]
+                        },
+                        "confidence": {
+                          "type": "string",
+                          "enum": [
+                            "weak",
+                            "usable"
+                          ]
+                        },
+                        "sampleSize": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "price",
+                        "source",
+                        "confidence",
+                        "sampleSize"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
                     "data",
                     "meta",
-                    "fmv"
+                    "fmv",
+                    "activeListingAskingPrice"
                   ],
                   "additionalProperties": false
                 }

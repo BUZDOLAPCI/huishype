@@ -373,6 +373,54 @@ describe('Durable ingest API contract', () => {
     }
   });
 
+  it('marks maintenance complete only after all refreshers succeed', async () => {
+    const maintenanceSourceName = `maintenance-all-refreshes-${Date.now()}`;
+    const request = await db.transaction(async (tx) =>
+      createMaintenanceRefreshRequest(tx, {
+        sourceName: maintenanceSourceName,
+        requestedBy: 'listing-submit',
+        idempotencyKey: `${maintenanceSourceName}-before`,
+        payload: {
+          reason: 'all-refreshes-success',
+        },
+      }),
+    );
+
+    try {
+      await expect(
+        refreshLatestListingsMaintenance([
+          async () => undefined,
+          async () => {
+            throw new Error('price summary refresh failed');
+          },
+        ]),
+      ).rejects.toThrow('price summary refresh failed');
+
+      const [failedRow] = await db
+        .select()
+        .from(ingestBatches)
+        .where(eq(ingestBatches.id, request.batchId))
+        .limit(1);
+      expect(failedRow?.maintenanceCompletedAt).toBeNull();
+
+      const refreshedCount = await refreshLatestListingsMaintenance([
+        async () => undefined,
+        async () => undefined,
+      ]);
+
+      expect(refreshedCount).toBeGreaterThanOrEqual(1);
+
+      const [completedRow] = await db
+        .select()
+        .from(ingestBatches)
+        .where(eq(ingestBatches.id, request.batchId))
+        .limit(1);
+      expect(completedRow?.maintenanceCompletedAt).not.toBeNull();
+    } finally {
+      await db.delete(ingestBatches).where(eq(ingestBatches.id, request.batchId));
+    }
+  });
+
   it('tracks run lifecycle completion across multiple batches and links price history to listings', async () => {
     const runKey = `fotocasa-run-${Date.now()}`;
     const firstMirrorListingId = `fotocasa-listing-a-${Date.now()}`;

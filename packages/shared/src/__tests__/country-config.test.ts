@@ -5,6 +5,8 @@ import {
   getAllCountryCodes,
   getAllListingDomains,
   getCountryForDomain,
+  getCountryDefaultGuessStart,
+  getPriceGuessPostalScope,
   isValidCountryCode,
   type CountryCode,
   type AddressParts,
@@ -360,5 +362,27 @@ describe('isValidCountryCode', () => {
     expect(isValidCountryCode('XX')).toBe(false);
     expect(isValidCountryCode('nl')).toBe(false);
     expect(isValidCountryCode('')).toBe(false);
+  });
+});
+
+describe('price guess helpers', () => {
+  it('uses NL postcode4 after postal-code normalization', () => {
+    expect(getPriceGuessPostalScope('NL', '1234AB')).toBe('1234');
+    expect(getPriceGuessPostalScope('NL', '1234 ab')).toBe('1234');
+  });
+
+  it('skips postal scope for unsupported country prefix rules', () => {
+    expect(getPriceGuessPostalScope('DE', '10115')).toBeNull();
+    expect(getPriceGuessPostalScope('GB', 'SW1A 1AA')).toBeNull();
+  });
+
+  it('skips malformed or missing postal codes', () => {
+    expect(getPriceGuessPostalScope('NL', '123')).toBeNull();
+    expect(getPriceGuessPostalScope('NL', null)).toBeNull();
+  });
+
+  it('uses the configured conservative country default', () => {
+    expect(getCountryDefaultGuessStart('NL')).toBe(350_000);
+    expect(getCountryDefaultGuessStart('DE')).toBe(350_000);
   });
 });
