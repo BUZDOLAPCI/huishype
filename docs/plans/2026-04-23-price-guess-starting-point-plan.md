@@ -7,9 +7,9 @@ Status: Proposed
 
 Add a lightweight, isolated, cheap price anchor used only to initialize the
 Price Guess Slider. If a property has an active sale listing, the asking price
-becomes the initial thumb position. If it has no active listing and no existing
-user guess, a local market-summary hint avoids dropping users onto an arbitrary
-`350000` slider default.
+becomes the initial thumb position. If it has no active sale listing and no
+existing user guess, a local market-summary hint avoids dropping users onto an
+arbitrary `350000` slider default.
 
 This is not an AVM product, not a public algorithmic price estimate, and not a
 Woningstats clone. The goal is only to choose a better starting point when
@@ -53,12 +53,19 @@ better internal anchor without turning that anchor into a user-facing valuation.
 userGuess ?? officialValuation ?? 350000
 ```
 
+It already receives `askingPrice` in the bottom-sheet and guesses-route entry
+points, but that value is currently used only as a reference marker and is not
+part of slider initialization. The component also only re-syncs its thumb when
+the submitted `userGuess` changes, so an asynchronously loaded non-user
+initializer will not reliably move the thumb unless the component is updated to
+handle that case.
+
 This works when WOZ or another official valuation is present, but it is blunt:
 
 - old official valuations may lag current market level
 - properties without official valuation fall back to a hardcoded number
-- local price context already exists in `properties`, `listings`, and
-  `price_history`, but the slider does not use it
+- local asking-price context already exists in `properties` and `listings`, but
+  the slider does not use it
 
 Relevant existing fields:
 
@@ -76,6 +83,22 @@ Relevant existing fields:
 - `listings.living_area_m2`
 - `price_history.price`
 - `price_history.event_type`
+
+Important current-code caveats:
+
+- the canonical reconciled listing read model does not exist yet; current app
+  reads still use the legacy mixed `listings` table
+- `property.askingPrice` is not a dedicated sale-only field; it is safe as a
+  sale initializer only when the property read also says `marketState =
+  'for-sale'`
+- the current FMV helper loads the newest active listing without filtering
+  `price_type`; the implementation must query active sale asking price directly
+  instead of reusing `fmv.askingPrice`
+- `price_history` is supported by the main schema, but live scraper sync does
+  not reliably send price-history payloads today
+- Funda mirror rows may store `price_type = 'buy'` before sync normalization;
+  market-summary inputs must normalize `buy` to `sale`
+- Pararius is rent-first in practice and must not feed sale market summaries
 
 ## Woningstats Lessons To Reuse Carefully
 
@@ -107,6 +130,7 @@ userGuess
 The active-listing asking price initializer is an explicit product goal. The
 derived `priceGuessStart` hint is only for properties without an active sale
 listing; it should be omitted or ignored when `activeListingAskingPrice` exists.
+An active rent listing must never initialize the sale price-guess slider.
 
 The hint is only used as an initial thumb position. User interaction,
 submission validation, FMV calculation, and crowd consensus stay unchanged.
@@ -115,6 +139,23 @@ The API should read this hint from a worker-maintained market-summary
 materialized view. Request-time work should be limited to loading the property,
 checking whether it has an active listing, and doing a small indexed lookup
 against the summary rows.
+
+This sprint deliverable includes the sale-only canonical listing facts needed
+by this feature. If the broader listing-ingest reconciliation work is not fully
+merged first, add a narrow compatibility adapter in the API/worker that exposes
+the same canonical fields used below:
+
+- property id
+- country code
+- active sale status
+- normalized price type
+- sale-capable source name
+- asking price
+- listed-at timestamp
+- living area when available
+
+Long-lived service contracts must use those canonical field names rather than
+raw scraper-row semantics.
 
 ## API Shape
 
@@ -141,11 +182,34 @@ Recommended placement:
 
 This keeps the feature isolated to the place that already powers the slider.
 
-Also ensure the slider caller has an authoritative nullable
-`activeListingAskingPrice` for active sale listings. This can come from an
-existing property-detail field if it is already sale-only, or from the
-price-guess response if the existing field cannot distinguish sale from rent. Do
-not overload `priceGuessStart` for active listings.
+Also add an authoritative nullable `activeListingAskingPrice` for active sale
+listings. Prefer returning it in the same price-guess response so both the
+bottom-sheet slider and the dedicated guesses route use the same source of
+truth:
+
+```ts
+type GetPropertyGuessesResponse = {
+  data: PriceGuessWithUser[];
+  meta: PaginationMeta;
+  fmv: FmvResponse;
+  activeListingAskingPrice?: number | null;
+  priceGuessStart?: PriceGuessStart;
+};
+```
+
+`activeListingAskingPrice` must come from canonical listing facts filtered to
+active sale listings. Do not derive it from `fmv.askingPrice`, and do not treat
+`property.askingPrice` as sale-only unless the same read proves `marketState =
+'for-sale'`. Do not overload `priceGuessStart` for active listings.
+
+The response shape change must update:
+
+- route schema and API tests
+- generated API client/OpenAPI contract
+- app-local `usePriceGuess` types and mapping
+- shared API types
+- mocks and test fixtures, including the current mock guesses handler shape
+- both slider entry points: bottom sheet and `/guesses` route
 
 ## Heuristic
 
@@ -169,22 +233,30 @@ If neither exists, return the country default.
 
 ### Step 2: Read Local Market Summary Rows
 
-Use recent sale-listing rows from existing data, not external calls, but compute
-the comparable medians in the background worker rather than during the API
-request.
+Use sale-listing rows from existing persisted data, not external calls, but
+compute the comparable medians in the background worker rather than during the
+API request.
 
 Summary-source filters, applied to the canonical reconciled listing read model:
 
 - same `country_code`
-- `price_type = 'sale'` or null if old rows lack `price_type`
+- source is Funda
+- normalized price type is sale; treat legacy Funda `buy` as sale
+- do not include Pararius rows
 - `asking_price > 0`
-- prefer statuses in `('active', 'sold', 'withdrawn')`
+- use active canonical listings only
 - property has either `official_valuation > 0` or a usable floor-area value
 - exclude extreme asking prices outside the slider-supported range
 
+Do not include `sold`, `withdrawn`, or `price_history` rows in the summary.
+Current scraper coverage is not reliable enough for this feature: Funda sold
+rows mostly come from detail/backward-scan paths, Funda has no withdrawn status,
+Pararius status handling is rent-oriented, and live scraper sync does not
+reliably send `priceHistory`.
+
 Postal-scope normalization must be country-aware. Add a shared helper such as
 `getPriceGuessPostalScope(countryCode, postalCode)` and use it in both summary
-generation and API lookup. Initial behavior can be:
+generation and API lookup. Behavior:
 
 - `NL`: postcode4, e.g. `5611`
 - countries without a reliable postal-prefix rule: skip postal scope and fall
@@ -271,10 +343,10 @@ officialValuation ?? countryDefaultGuessStart
 
 Use conservative defaults only as the last fallback.
 
-Initial defaults:
+Defaults:
 
 - `NL`: `350000`
-- other countries: `350000` until enough local data exists
+- other countries: `350000`
 
 Keep this config-driven through country config or a small shared helper. Do not
 hardcode Dutch-only assumptions inside the component.
@@ -294,7 +366,12 @@ measurement.
 
 ## Background Summary Design
 
-Create one small summary materialized view:
+Create one small summary materialized view. Do not
+reuse `mv_latest_active_listings`: that view is intentionally narrow, active
+status-only, and lacks the country, price-type, source, area, and sample data
+needed here.
+
+Relation name:
 
 ```text
 mv_price_guess_start_market_summaries
@@ -320,35 +397,47 @@ unique(country_code, scope_type, scope_key)
 index(country_code, scope_type, scope_key)
 ```
 
+For concurrent refresh, all indexed key columns must be non-null and the unique
+index must cover every row. When a scope cannot produce a valid `scope_key`,
+skip that row rather than inserting a null key.
+
 Refresh policy:
 
 - Refresh after listing ingest or listing submission through the existing
   maintenance worker path.
 - Also refresh on worker startup/recovery sweep if a previous refresh was
   requested but not completed.
-- Use `REFRESH MATERIALIZED VIEW CONCURRENTLY` if implemented as a materialized
-  view, matching the existing `mv_latest_active_listings` pattern.
-- If refresh time is too high, replace the view with an upserted summary table
-  without changing the API contract.
+- Use `REFRESH MATERIALIZED VIEW CONCURRENTLY`, matching the existing
+  `mv_latest_active_listings` pattern.
 
 This is still light and cheap: the worker computes coarse market anchors once
 per listing-data update instead of every slider open.
 
-Sequence this after the listing reconciliation plan is implemented. The summary
-should read from the canonical reconciled listing read model, not from legacy raw
-`listings` writes. If this feature is prototyped earlier, keep that dependency
-explicit and do not bake direct raw-listing assumptions into long-lived service
-interfaces.
+The summary reads from canonical sale-listing facts, not directly from legacy
+raw `listings` writes. The sprint must either consume the broad listing read
+model or add the narrow compatibility adapter described above and use it
+consistently from the API and worker.
+
+The worker hook point is the existing durable maintenance path. Generalize the
+maintenance job so the listing maintenance refresh and price-guess summary
+refresh must both succeed before pending maintenance rows are marked complete.
 
 ## Implementation Plan
 
 ### Step 1: Summary Relation And Worker Refresh
 
-- After listing reconciliation lands, add the summary materialized view
-  migration over the canonical listing read model.
+- Add or consume the narrow canonical active-sale listing read model required by
+  this feature.
+- Add the summary materialized view migration over that canonical read model.
+- Add a shared helper, e.g. `getPriceGuessPostalScope(countryCode, postalCode)`,
+  beside country config/shared formatting utilities so the API and worker use
+  identical country-aware postal normalization.
 - Add a refresh helper beside the existing listing maintenance view refresh.
 - Wire the worker maintenance job to refresh the price-guess summary after
   listing-data changes.
+- Keep the source filter to active Funda sale listings, with `buy` normalized to
+  `sale`; do not include Pararius rent listings, unverified sold rows, or sparse
+  `price_history` rows in the summary.
 - Add unit/integration coverage for the refresh helper and lookup behavior.
 
 ### Step 2: Pure Service And API Wiring
@@ -357,12 +446,14 @@ interfaces.
   `services/api/src/services/price-guess-start.ts`.
 - Implement a pure function for choosing the final start price from:
   property facts, active listing asking price, summary row, and country default.
+- Query active sale asking price explicitly from canonical listing facts. Do not
+  reuse `fmv.askingPrice`.
 - Add a repository/query helper that does indexed summary lookups by postal
   prefix, city, region, and country.
 - Extend the price-guess read response with optional `priceGuessStart`.
-- Ensure the client has a sale-only `activeListingAskingPrice` available in the
-  same read path or the enclosing property-detail payload.
-- Add shared/API-client type updates and mock response updates.
+- Add nullable `activeListingAskingPrice` to the same response.
+- Add shared/API-client type updates, OpenAPI generation, app hook type updates,
+  mock response updates, and route-specific test-fixture updates.
 
 ### Step 3: Slider Prop
 
@@ -370,8 +461,13 @@ interfaces.
   `PriceGuessSlider`.
 - Keep `userGuess` as the strongest initializer.
 - Use active sale asking price as the second initializer.
-- In `PriceGuessSection`, pass a single initializer that follows the desired
-  order after `userGuess`, for example:
+- Make the slider handle asynchronously loaded initializers without overwriting
+  a user who already dragged or typed a price. The existing sync effect only
+  watches `userGuess`; extend it with a "has user interacted" guard or remount
+  key so late `activeListingAskingPrice` / `priceGuessStart` data can initialize
+  the thumb exactly once.
+- In `PriceGuessSection` and `GuessesRouteScreen`, pass a single initializer
+  that follows the desired order after `userGuess`, for example:
 
 ```ts
 activeListingAskingPrice ?? guessData.priceGuessStart?.price
@@ -382,7 +478,14 @@ activeListingAskingPrice ?? guessData.priceGuessStart?.price
 
 ### Step 4: Instrumentation
 
-Log lightweight analytics when the slider is shown and submitted:
+Choose one instrumentation mode before implementation:
+
+- client-only diagnostic events, matching existing lightweight analytics event
+  patterns
+- persisted product analytics, matching API-backed event tables such as property
+  views
+
+Then log when the slider is shown and submitted:
 
 - start source
 - start confidence
@@ -423,7 +526,9 @@ select
 from <canonical_listing_read_model> l
 join properties p on p.id = l.property_id
 where l.asking_price between 50000 and 2000000
-  and (l.price_type = 'sale' or l.price_type is null)
+  and l.source_name = 'funda'
+  and normalize_price_type(l.price_type) = 'sale'
+  and l.status = 'active'
 group by p.country_code, <normalized postal prefix>
 having
   count(*) filter (where p.official_valuation > 0) >= 8
@@ -438,30 +543,52 @@ by exact `(country_code, scope_type, scope_key)` keys in cascade order.
 Keep the implementation readable rather than clever. This is a bounded slider
 initialization feature, not a reusable valuation engine.
 
+`normalize_price_type` is conceptual here: implement it as a shared adapter or
+SQL expression that maps explicit legacy Funda `buy` to `sale`. Do not treat
+blank or missing `price_type` as sale for the summary.
+
+The implemented query should use canonical status, verification-state, source,
+and normalized-price-type fields. The `source_name`, `price_type`, and `status`
+names in the SQL above are placeholders only if the sprint uses a compatibility
+adapter over legacy rows.
+
 ## Validation
 
 Unit tests:
 
 - uses user guess before any suggestion
+- uses active sale asking price before any market-summary hint
+- ignores active rent asking price for sale price guesses
 - uses adjusted official valuation when local ratio samples are available
 - shrinks sparse ratios toward official valuation
 - falls back to comparable EUR/m2 when official valuation is missing
 - falls back to official valuation when comparables are too sparse
 - falls back to country default when no useful property data exists
 - clamps extreme outputs to the slider range
+- normalizes Funda `buy` to sale for summary generation
+- excludes Pararius rent rows from sale market summaries
 
 Component tests:
 
 - `PriceGuessSlider` initializes from `initialPrice` when no user guess exists
 - `userGuess` still wins over `initialPrice`
+- asynchronously loaded `initialPrice` moves the thumb if the user has not
+  interacted yet
+- asynchronously loaded `initialPrice` does not overwrite an in-progress user
+  edit
 - active sale asking price wins over `priceGuessStart`
+- active rent asking price does not initialize the sale slider
 - `PriceGuessSection` passes the combined start initializer to the slider
+- `GuessesRouteScreen` passes the same combined start initializer to the slider
 - no new visible "HuisHype estimate" text is rendered
 
 API tests:
 
 - price-guess fetch includes `priceGuessStart` for a property with no active
   listing
+- price-guess fetch includes `activeListingAskingPrice` only for active sale
+  listings
+- active rent listings return `activeListingAskingPrice: null`
 - response remains backward-compatible when no hint can be produced
 - active listing responses omit or ignore `priceGuessStart`, and the client uses
   active sale asking price before any hint
@@ -470,8 +597,13 @@ Worker/API integration tests:
 
 - summary refresh writes or refreshes postal-prefix, city, region, and country
   rows from listing fixtures
+- summary refresh uses only active Funda sale-compatible fixtures
+- summary refresh excludes Pararius rent fixtures and Funda rows with non-sale
+  normalized price types
 - API lookup chooses the most local qualifying summary row
 - API falls back through the cascade when local rows are sparse or missing
+- maintenance marks pending refresh rows complete only after all required
+  listing and price-guess summary refreshes succeed
 
 Full verification before merge:
 
@@ -484,14 +616,12 @@ price-guess visual E2E wrapper that covers the slider.
 
 ## Explicitly Out Of Scope
 
-These are not deferred work for this feature. They are different product or
-architecture choices and should only be considered under a separate decision to
-build a valuation product instead of a slider-start helper:
+These are separate product or architecture choices and are not part of this
+slider-start feature:
 
-- segment-specific ratios by property type if reliable type data exists
+- segment-specific ratios by property type
 - use recent sold/withdrawn lifecycle outcomes from mirror history
 - use listing price-change history for active-listing slider starts
 - train an asking-price model for internal anchoring
 
-None of these should be presented as a standalone valuation product unless
-HuisHype deliberately decides to enter that product category.
+Do not present any slider-start behavior as a standalone valuation product.
