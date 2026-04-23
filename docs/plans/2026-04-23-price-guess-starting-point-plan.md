@@ -87,7 +87,7 @@ The useful lesson from Woningstats is architectural, not the full product:
 - fall back when data is sparse instead of inventing precision
 
 Do not copy their detailed expected-sale model for this feature. Days on market,
-price drops, overbidding, condition, and "other m2" are listing-specific and are
+price drops, overbidding, condition are listing-specific and are
 out of scope for a non-listing slider starting point.
 
 ## Proposed Behavior
@@ -481,24 +481,6 @@ pnpm test
 
 If UI rendering changes beyond the initial thumb position, also run the
 price-guess visual E2E wrapper that covers the slider.
-
-## Rollout
-
-Ship behind a simple server-side flag or env variable:
-
-```text
-PRICE_GUESS_START_HINTS=true
-```
-
-If disabled, omit `priceGuessStart` and preserve current slider behavior.
-
-Rollout steps:
-
-1. Enable locally and verify slider starts closer to local anchors.
-2. Enable in production for anonymous and logged-in users.
-3. Monitor guess submission delta from start price.
-4. Watch for anchoring bias. If too many guesses cluster tightly around the
-   hint, reduce the adjustment strength or fall back to official valuation only.
 
 ## Explicitly Out Of Scope
 
