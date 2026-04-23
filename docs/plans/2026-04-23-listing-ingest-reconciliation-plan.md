@@ -63,6 +63,8 @@ observation storage and a canonical read model derived from reconciliation.
 - Merge user discovery and mirror validation into one canonical listing.
 - Let user submissions expand mirror coverage without treating user input as
   trusted mirror data.
+- Make accepted user submissions visible immediately on the selected property
+  and in price-aware read surfaces while source validation is still pending.
 - Accept real supported marketplace URLs reliably, including supported
   canonical pages, shared links, tracked variants, and Funda ID-style detail
   URLs that point to the same listing.
@@ -88,6 +90,10 @@ observation storage and a canonical read model derived from reconciliation.
   visible canonical listing identity.
 - Mirror validation/watch state is persisted in the main app database and
   exposed through read APIs.
+- A provisional canonical listing is a real read-model row. Property details,
+  listing cards, map/grouping/feed reads, and price-start logic may use it
+  immediately, with clear provisional verification state, until mirror evidence
+  confirms, corrects, blocks, or invalidates it.
 - Existing ingest runs, ingest batches, ingest sources, and BullMQ worker paths
   remain the backbone of batch acceptance and asynchronous reconciliation.
 
@@ -377,6 +383,21 @@ Canonical listing selection:
    property, mark the watch and observation `invalid` and do not attach that
    evidence to the user's property listing.
 
+Mirror invalidation policy:
+
+- A mirror/source service may invalidate a user-submitted provisional listing
+  only with source-owned negative evidence: confirmed address/property mismatch,
+  confirmed source listing not found for a resolvable source identity, confirmed
+  invalid listing URL, or confirmed unsupported URL shape for that source.
+- `blocked`, `parser_error`, `mirror_unavailable`, and `retryable_error` are not
+  invalidation evidence by themselves. They move the watch/canonical listing to
+  blocked or failed validation states, keep the user-originated observation
+  durable, and remove or de-emphasize provisional market impact according to
+  read-surface policy only after configured retries/backoff are exhausted.
+- If a source later emits positive mirror evidence for the same URL, source
+  identity, alias, or watch, reconciliation can recover the same canonical
+  listing instead of creating a replacement row.
+
 Canonical field precedence:
 
 - Status comes from the freshest mirror observation with lifecycle evidence.
@@ -384,6 +405,12 @@ Canonical field precedence:
   lifecycle evidence.
 - Price comes from the freshest mirror observation with a price; user price is
   used only while provisional.
+- User/client-assisted asking price evidence is projected to
+  `listing_price_observations` with `event_type: user_submission` when no mirror
+  price exists yet, so the listing immediately affects property asking price,
+  price-start, filters, grouping, and feed surfaces. Once mirror price evidence
+  arrives, mirror data becomes authoritative and any discrepancy remains
+  explainable through observation provenance.
 - URL display prefers source canonical URL, then the user-submitted supported
   URL.
 - Thumbnail, title, and description prefer mirror data, then server-fetched
@@ -419,6 +446,9 @@ Response:
 - `title`
 - `description`
 - `imageUrl`
+- `askingPrice`
+- `priceType`: `sale`, `rent`, `unknown`
+- `currency`
 - `address`
 - `submittedPropertyId`
 - `matchedPropertyId`
@@ -449,6 +479,13 @@ Submit behavior:
   the canonical listing, and record mirror-backed verification.
 - Provisional submissions write a user observation, create a provisional
   canonical listing, and enqueue a `mirror_listing_watches` record.
+- That watch enqueue is the scraper/source-service nudge for the submitted URL.
+  It must be durable and retryable, and validation outcomes must post back
+  through `/api/ingest/listing-validation-outcomes`.
+- When preview or submit has provisional asking-price evidence, submit stores it
+  on the user observation and projects it into the canonical listing and price
+  observation model immediately. This provisional price is replaced for
+  canonical display by mirror price evidence once validation succeeds.
 - The response includes the canonical listing id, verification state, watch
   state, and the validation reason code.
 
@@ -574,6 +611,13 @@ The materialized view becomes a view over `canonical_listings` filtered by
 canonical status and verification state. It no longer reads raw observation
 rows or legacy mixed listing rows.
 
+Accepted provisional listings are included in read surfaces that represent
+current user-visible market state. They are not hidden behind validation unless
+the source service has confirmed a mismatch, invalid URL/listing, unsupported
+source, or terminal lifecycle state. Read responses expose verification and
+watch state so the UI can label provisional data without delaying the listing's
+appearance on the property.
+
 The price history route reads the rebuilt `price_history` projection or a
 compatibility view over `listing_price_observations`; it does not read price
 events that lack canonical listing and observation provenance.
@@ -649,6 +693,9 @@ Required validation outcomes:
 - A confirmed property mismatch is rejected on preview and submit.
 - A provisional submission creates a canonical listing immediately and records
   a mirror watch.
+- A provisional submission with asking-price evidence immediately affects
+  property asking price, price-start, listing reads, map/grouping/feed reads,
+  and price filters while labeled with provisional verification state.
 - A later mirror validation result promotes the same canonical listing without
   duplication.
 - Mirror lifecycle updates change canonical status according to source
