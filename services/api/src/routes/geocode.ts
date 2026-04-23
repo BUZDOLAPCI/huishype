@@ -41,6 +41,9 @@ interface PhotonResponse {
 
 const PHOTON_COUNTRY_FILTER_MULTIPLIER = 5;
 const PHOTON_COUNTRY_FILTER_MAX_LIMIT = 20;
+const REVERSE_GEOCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
+const REVERSE_GEOCODE_CACHE_MAX_ENTRIES = 2_048;
+const REVERSE_GEOCODE_CACHE_CONTROL = 'public, max-age=86400, stale-while-revalidate=604800';
 
 const searchQuerySchema = z.object({
   q: z.string().min(1),
@@ -78,6 +81,62 @@ const reverseGeocodeResponseSchema = z.nullable(
     countryCode: z.string().nullable(),
   })
 );
+
+type ReverseGeocodeResponse = z.infer<typeof reverseGeocodeResponseSchema>;
+
+type ReverseGeocodeCacheEntry = {
+  expiresAt: number;
+  value: ReverseGeocodeResponse;
+};
+
+const reverseGeocodeCache = new Map<string, ReverseGeocodeCacheEntry>();
+
+export function resetReverseGeocodeCacheForTests(): void {
+  reverseGeocodeCache.clear();
+}
+
+function buildReverseGeocodeCacheKey(lon: number, lat: number, lang: string | undefined): string {
+  return `${lon.toFixed(5)}:${lat.toFixed(5)}:${lang ?? ''}`;
+}
+
+function getCachedReverseGeocode(cacheKey: string): ReverseGeocodeResponse | undefined {
+  const entry = reverseGeocodeCache.get(cacheKey);
+  const now = Date.now();
+
+  if (!entry) {
+    return undefined;
+  }
+
+  if (entry.expiresAt <= now) {
+    reverseGeocodeCache.delete(cacheKey);
+    return undefined;
+  }
+
+  reverseGeocodeCache.delete(cacheKey);
+  reverseGeocodeCache.set(cacheKey, entry);
+  return entry.value;
+}
+
+function setCachedReverseGeocode(cacheKey: string, value: ReverseGeocodeResponse): void {
+  const now = Date.now();
+
+  for (const [key, entry] of reverseGeocodeCache) {
+    if (entry.expiresAt <= now) {
+      reverseGeocodeCache.delete(key);
+    }
+  }
+
+  while (reverseGeocodeCache.size >= REVERSE_GEOCODE_CACHE_MAX_ENTRIES) {
+    const oldestKey = reverseGeocodeCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    reverseGeocodeCache.delete(oldestKey);
+  }
+
+  reverseGeocodeCache.set(cacheKey, {
+    expiresAt: now + REVERSE_GEOCODE_CACHE_TTL_MS,
+    value,
+  });
+}
 
 /**
  * Format a Photon feature into a human-readable display name.
@@ -134,7 +193,7 @@ function normalizeCountryCode(countrycode: string | undefined): CountryCode | un
 
 function matchesCountryCode(
   feature: PhotonFeature,
-  requestedCountryCode: CountryCode | undefined,
+  requestedCountryCode: CountryCode | undefined
 ): boolean {
   if (!requestedCountryCode) {
     return true;
@@ -169,7 +228,7 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
       const photonLimit = requestedCountryCode
         ? Math.min(
             Math.max(limit * PHOTON_COUNTRY_FILTER_MULTIPLIER, limit),
-            PHOTON_COUNTRY_FILTER_MAX_LIMIT,
+            PHOTON_COUNTRY_FILTER_MAX_LIMIT
           )
         : limit;
 
@@ -194,7 +253,7 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
           return reply.send([]);
         }
 
-        const data = await response.json() as PhotonResponse;
+        const data = (await response.json()) as PhotonResponse;
         const suggestions = data.features
           .filter((feature) => matchesCountryCode(feature, requestedCountryCode))
           .slice(0, limit)
@@ -231,6 +290,15 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { lon, lat, lang } = request.query;
+      const cacheKey = buildReverseGeocodeCacheKey(lon, lat, lang);
+      const cached = getCachedReverseGeocode(cacheKey);
+
+      if (cached !== undefined) {
+        return reply
+          .header('Cache-Control', REVERSE_GEOCODE_CACHE_CONTROL)
+          .header('X-Geocode-Cache', 'hit')
+          .send(cached);
+      }
 
       const photonParams = new URLSearchParams({
         lon: String(lon),
@@ -249,13 +317,17 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
           return reply.send(null);
         }
 
-        const data = await response.json() as PhotonResponse;
+        const data = (await response.json()) as PhotonResponse;
         if (!data.features || data.features.length === 0) {
-          return reply.send(null);
+          setCachedReverseGeocode(cacheKey, null);
+          return reply
+            .header('Cache-Control', REVERSE_GEOCODE_CACHE_CONTROL)
+            .header('X-Geocode-Cache', 'miss')
+            .send(null);
         }
 
         const props = data.features[0].properties;
-        return reply.send({
+        const result: ReverseGeocodeResponse = {
           locality: props.locality || null,
           district: props.district || null,
           county: props.county || null,
@@ -263,7 +335,12 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
           state: props.state || null,
           country: props.country || null,
           countryCode: props.countrycode || null,
-        });
+        };
+        setCachedReverseGeocode(cacheKey, result);
+        return reply
+          .header('Cache-Control', REVERSE_GEOCODE_CACHE_CONTROL)
+          .header('X-Geocode-Cache', 'miss')
+          .send(result);
       } catch (error) {
         app.log.warn({ err: error }, 'Photon reverse geocoder unreachable');
         return reply.send(null);

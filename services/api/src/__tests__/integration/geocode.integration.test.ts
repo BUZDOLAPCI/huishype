@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
+import { resetReverseGeocodeCacheForTests } from '../../routes/geocode.js';
 import type { FastifyInstance } from 'fastify';
 
 // Mock global fetch to simulate Photon responses
@@ -68,6 +69,7 @@ describe('GET /geocode/search', () => {
 
   beforeEach(() => {
     mockFetchFn.mockReset();
+    resetReverseGeocodeCacheForTests();
   });
 
   it('returns 400 when q parameter is missing', async () => {
@@ -143,19 +145,20 @@ describe('GET /geocode/search', () => {
   it('forwards countrycode to Photon and still filters results locally', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({
-        type: 'FeatureCollection',
-        features: [
-          MOCK_PHOTON_RESPONSE.features[0],
-          {
-            ...MOCK_PHOTON_RESPONSE.features[1],
-            properties: {
-              ...MOCK_PHOTON_RESPONSE.features[1].properties,
-              countrycode: 'de',
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            MOCK_PHOTON_RESPONSE.features[0],
+            {
+              ...MOCK_PHOTON_RESPONSE.features[1],
+              properties: {
+                ...MOCK_PHOTON_RESPONSE.features[1].properties,
+                countrycode: 'de',
+              },
             },
-          },
-        ],
-      }),
+          ],
+        }),
     } as unknown as Response);
 
     const response = await app.inject({
@@ -326,31 +329,33 @@ describe('GET /geocode/reverse', () => {
 
   beforeEach(() => {
     mockFetchFn.mockReset();
+    resetReverseGeocodeCacheForTests();
   });
 
   it('returns the location hierarchy from Photon without falling back to arbitrary names', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [4.8952, 52.3702] },
-            properties: {
-              name: 'Sint Agnietenstraat 14',
-              locality: 'Burgwallen-Oude Zijde',
-              district: 'Centrum',
-              county: 'Amsterdam',
-              city: 'Amsterdam',
-              state: 'Noord-Holland',
-              country: 'Nederland',
-              countrycode: 'NL',
-              type: 'house',
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [4.8952, 52.3702] },
+              properties: {
+                name: 'Sint Agnietenstraat 14',
+                locality: 'Burgwallen-Oude Zijde',
+                district: 'Centrum',
+                county: 'Amsterdam',
+                city: 'Amsterdam',
+                state: 'Noord-Holland',
+                country: 'Nederland',
+                countrycode: 'NL',
+                type: 'house',
+              },
             },
-          },
-        ],
-      }),
+          ],
+        }),
     } as unknown as Response);
 
     const response = await app.inject({
@@ -359,6 +364,10 @@ describe('GET /geocode/reverse', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800'
+    );
+    expect(response.headers['x-geocode-cache']).toBe('miss');
     expect(JSON.parse(response.body)).toEqual({
       locality: 'Burgwallen-Oude Zijde',
       district: 'Centrum',
@@ -368,6 +377,43 @@ describe('GET /geocode/reverse', () => {
       country: 'Nederland',
       countryCode: 'NL',
     });
+  });
+
+  it('caches repeated reverse geocode lookups by normalized coordinate', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [4.8952, 52.3702] },
+              properties: {
+                city: 'Amsterdam',
+                state: 'Noord-Holland',
+                country: 'Nederland',
+                countrycode: 'NL',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const firstResponse = await app.inject({
+      method: 'GET',
+      url: '/geocode/reverse?lon=4.8952&lat=52.3702',
+    });
+    const secondResponse = await app.inject({
+      method: 'GET',
+      url: '/geocode/reverse?lon=4.8952001&lat=52.3702001',
+    });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(firstResponse.headers['x-geocode-cache']).toBe('miss');
+    expect(secondResponse.statusCode).toBe(200);
+    expect(secondResponse.headers['x-geocode-cache']).toBe('hit');
+    expect(mockFetchFn).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when Photon reverse returns no features', async () => {
@@ -382,6 +428,9 @@ describe('GET /geocode/reverse', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800'
+    );
     expect(JSON.parse(response.body)).toBeNull();
   });
 });

@@ -18,11 +18,13 @@ describe('Tree tiles endpoint', () => {
   it('GET /tiles/trees/:z/:x/:y.pbf returns 204 below minzoom', async () => {
     const res = await app.inject({ method: 'GET', url: '/tiles/trees/10/527/340.pbf' });
     expect(res.statusCode).toBe(204);
+    expect(res.headers['cache-control']).toBe('public, max-age=3600');
   });
 
   it('GET /tiles/trees/:z/:x/:y.pbf returns 204 above maxzoom', async () => {
     const res = await app.inject({ method: 'GET', url: '/tiles/trees/21/0/0.pbf' });
     expect(res.statusCode).toBe(204);
+    expect(res.headers['cache-control']).toBe('public, max-age=3600');
   });
 
   it('GET /tiles/trees/:z/:x/:y.pbf returns MVT or 204 at z15', async () => {
@@ -45,11 +47,9 @@ describe('Tree tiles endpoint', () => {
     }
   });
 
-  it('tree tiles have cache headers when 200', async () => {
+  it('tree tiles have cache headers', async () => {
     const res = await app.inject({ method: 'GET', url: '/tiles/trees/15/16892/10898.pbf' });
-    if (res.statusCode === 200) {
-      expect(res.headers['cache-control']).toContain('max-age');
-    }
+    expect(res.headers['cache-control']).toContain('max-age');
   });
 
   it('style.json includes tree-source', async () => {
@@ -61,8 +61,12 @@ describe('Tree tiles endpoint', () => {
     expect(style.sources['tree-source'].tiles[0]).toContain('/tiles/trees/{z}/{x}/{y}.pbf');
     expect(style.sources['tree-source'].minzoom).toBe(15);
     expect(style.sources['tree-source'].maxzoom).toBe(20);
-    const treeLayerIndex = style.layers.findIndex((layer: { id?: string }) => layer.id === 'paper-trees');
-    const buildings3DIndex = style.layers.findIndex((layer: { id?: string }) => layer.id === '3d-buildings');
+    const treeLayerIndex = style.layers.findIndex(
+      (layer: { id?: string }) => layer.id === 'paper-trees'
+    );
+    const buildings3DIndex = style.layers.findIndex(
+      (layer: { id?: string }) => layer.id === '3d-buildings'
+    );
     expect(treeLayerIndex).toBeGreaterThanOrEqual(0);
     expect(buildings3DIndex).toBeGreaterThanOrEqual(0);
     expect(treeLayerIndex).toBeGreaterThan(buildings3DIndex);
@@ -86,5 +90,4 @@ describe('Tree tiles endpoint', () => {
     `);
     expect(result.length).toBeGreaterThan(0);
   });
-
 });

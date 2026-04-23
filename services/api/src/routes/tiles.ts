@@ -42,6 +42,7 @@ import {
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,11 +83,29 @@ import {
  */
 
 // Tile coordinate schema
-const tileParamsSchema = z.object({
-  z: z.coerce.number().int().min(0).max(22),
-  x: z.coerce.number().int().min(0),
-  y: z.coerce.number().int().min(0),
-});
+const tileParamsSchema = z
+  .object({
+    z: z.coerce.number().int().min(0).max(22),
+    x: z.coerce.number().int().min(0),
+    y: z.coerce.number().int().min(0),
+  })
+  .superRefine(({ z: tileZ, x, y }, ctx) => {
+    const maxTileCoord = Math.pow(2, tileZ);
+    if (x >= maxTileCoord) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['x'],
+        message: `x must be less than ${maxTileCoord} for zoom ${tileZ}`,
+      });
+    }
+    if (y >= maxTileCoord) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['y'],
+        message: `y must be less than ${maxTileCoord} for zoom ${tileZ}`,
+      });
+    }
+  });
 
 // Font file path schema
 const fontParamsSchema = z.object({
@@ -146,16 +165,43 @@ const tileJsonResponseSchema = z.object({
   bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
 });
 
-const PROPERTY_TILE_CACHE_TTL_MS = 30_000;
+const PROPERTY_TILE_CACHE_TTL_SECONDS = 300;
+const PROPERTY_TILE_CACHE_TTL_MS = PROPERTY_TILE_CACHE_TTL_SECONDS * 1_000;
 const PROPERTY_TILE_CACHE_MAX_ENTRIES = 1_024;
+const PROPERTY_TILE_CACHE_CONTROL = `public, max-age=${PROPERTY_TILE_CACHE_TTL_SECONDS}, stale-while-revalidate=300`;
+const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
+const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 
 type PropertyTileCacheEntry = {
   expiresAt: number;
   payload: Buffer | null;
   statusCode: 200 | 204;
+  etag: string;
+};
+
+type PropertyTileBuildResult = {
+  entry: PropertyTileCacheEntry;
+  generationTimeMs: number;
 };
 
 const propertyTileCache = new Map<string, PropertyTileCacheEntry>();
+const pendingPropertyTileBuilds = new Map<string, Promise<PropertyTileBuildResult>>();
+
+export function resetPropertyTileCacheForTests(): void {
+  propertyTileCache.clear();
+  pendingPropertyTileBuilds.clear();
+}
+
+function buildPropertyTileEtag(cacheKey: string, payload: Buffer | null): string {
+  const hash = createHash('sha1');
+  hash.update(cacheKey);
+  if (payload) {
+    hash.update(payload);
+  } else {
+    hash.update('empty');
+  }
+  return `"${hash.digest('hex')}"`;
+}
 
 function prunePropertyTileCache(now = Date.now()): void {
   for (const [key, entry] of propertyTileCache) {
@@ -190,7 +236,10 @@ function setPropertyTileCache(
   propertyTileCache.set(cacheKey, entry);
 }
 
-function buildReadPropertyTileTemplateUrl(baseUrl: string, filters: ReturnType<typeof parseMapFiltersQuery>): string {
+function buildReadPropertyTileTemplateUrl(
+  baseUrl: string,
+  filters: ReturnType<typeof parseMapFiltersQuery>
+): string {
   const query = serializeMapFilterQuery(filters);
   return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
 }
@@ -1456,7 +1505,7 @@ export async function tileRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
 
       if (!viewer) {
@@ -1518,9 +1567,20 @@ export async function tileRoutes(app: FastifyInstance) {
       if (cachedTile && cachedTile.expiresAt > now) {
         touchPropertyTileCache(cacheKey, cachedTile);
 
+        if (request.headers['if-none-match'] === cachedTile.etag) {
+          return reply
+            .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+            .header('ETag', cachedTile.etag)
+            .header('X-Tile-Generation-Time', '0ms')
+            .header('X-Tile-Cache', 'hit')
+            .status(304)
+            .send();
+        }
+
         if (cachedTile.statusCode === 204) {
           return reply
-            .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+            .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+            .header('ETag', cachedTile.etag)
             .header('X-Tile-Generation-Time', '0ms')
             .header('X-Tile-Cache', 'hit')
             .status(204)
@@ -1529,7 +1589,8 @@ export async function tileRoutes(app: FastifyInstance) {
 
         return reply
           .header('Content-Type', 'application/x-protobuf')
-          .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+          .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+          .header('ETag', cachedTile.etag)
           .header('X-Tile-Generation-Time', '0ms')
           .header('X-Tile-Cache', 'hit')
           .send(cachedTile.payload);
@@ -1539,12 +1600,37 @@ export async function tileRoutes(app: FastifyInstance) {
         propertyTileCache.delete(cacheKey);
       }
 
-      // Track query time for performance monitoring
-      const startTime = Date.now();
+      const pendingBuild = pendingPropertyTileBuilds.get(cacheKey);
+      const cacheState = pendingBuild ? 'hit' : 'miss';
+      const buildResult = pendingBuild
+        ? await pendingBuild
+        : await (async () => {
+            const buildPromise = (async (): Promise<PropertyTileBuildResult> => {
+              const startTime = Date.now();
+              const mvtBuffer = await buildMvtForTile({ z, x, y }, filters);
+              const queryTime = Date.now() - startTime;
+              const payload = mvtBuffer && mvtBuffer.length > 0 ? mvtBuffer : null;
+              const entry: PropertyTileCacheEntry = {
+                expiresAt: Date.now() + PROPERTY_TILE_CACHE_TTL_MS,
+                payload,
+                statusCode: payload ? 200 : 204,
+                etag: buildPropertyTileEtag(cacheKey, payload),
+              };
 
-      const mvtBuffer = await buildMvtForTile({ z, x, y }, filters);
+              setPropertyTileCache(cacheKey, entry);
+              return { entry, generationTimeMs: queryTime };
+            })();
 
-      const queryTime = Date.now() - startTime;
+            pendingPropertyTileBuilds.set(cacheKey, buildPromise);
+            try {
+              return await buildPromise;
+            } finally {
+              pendingPropertyTileBuilds.delete(cacheKey);
+            }
+          })();
+
+      const { entry } = buildResult;
+      const queryTime = cacheState === 'hit' ? 0 : buildResult.generationTimeMs;
 
       // Log slow queries for monitoring
       if (queryTime > 100) {
@@ -1552,34 +1638,24 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       // Empty tile
-      if (!mvtBuffer || mvtBuffer.length === 0) {
-        setPropertyTileCache(cacheKey, {
-          expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
-          payload: null,
-          statusCode: 204,
-        });
-
+      if (entry.statusCode === 204) {
         return reply
-          .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+          .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+          .header('ETag', entry.etag)
           .header('X-Tile-Generation-Time', `${queryTime}ms`)
-          .header('X-Tile-Cache', 'miss')
+          .header('X-Tile-Cache', cacheState)
           .status(204)
           .send();
       }
 
-      setPropertyTileCache(cacheKey, {
-        expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
-        payload: mvtBuffer,
-        statusCode: 200,
-      });
-
       // Set appropriate headers for MVT
       return reply
         .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+        .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+        .header('ETag', entry.etag)
         .header('X-Tile-Generation-Time', `${queryTime}ms`)
-        .header('X-Tile-Cache', 'miss')
-        .send(mvtBuffer);
+        .header('X-Tile-Cache', cacheState)
+        .send(entry.payload!);
     }
   );
 
@@ -1600,7 +1676,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const { z, x, y } = request.params;
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
 
       if (!viewer) {
@@ -1707,14 +1783,14 @@ export async function tileRoutes(app: FastifyInstance) {
       const { z, x, y } = request.params;
 
       if (z < TREE_MIN_ZOOM || z > TREE_MAX_ZOOM) {
-        return reply.status(204).send();
+        return reply.header('Cache-Control', TREE_TILE_CACHE_CONTROL).status(204).send();
       }
 
       const bbox = tileToBBox({ z, x, y });
       const candidates = generateTreeCandidates(z, x, y, bbox, TREE_VARIANTS);
 
       if (candidates.length === 0) {
-        return reply.status(204).send();
+        return reply.header('Cache-Control', TREE_TILE_CACHE_CONTROL).status(204).send();
       }
 
       // Build VALUES clause for candidate points
@@ -1761,14 +1837,14 @@ export async function tileRoutes(app: FastifyInstance) {
       const mvt = rows[0]?.mvt;
 
       if (!mvt || mvt.length === 0) {
-        return reply.status(204).send();
+        return reply.header('Cache-Control', TREE_TILE_CACHE_CONTROL).status(204).send();
       }
 
       const mvtBuffer = Buffer.isBuffer(mvt) ? mvt : Buffer.from(mvt);
 
       return reply
         .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'public, max-age=3600')
+        .header('Cache-Control', TREE_TILE_CACHE_CONTROL)
         .send(mvtBuffer);
     }
   );
@@ -1796,7 +1872,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const { z, x, y } = request.params;
 
       if (z < BUILDINGS_TILE_CONFIG.minZoom || z > BUILDINGS_TILE_CONFIG.maxZoom) {
-        return reply.status(204).send();
+        return reply.header('Cache-Control', BUILDING_TILE_CACHE_CONTROL).status(204).send();
       }
 
       const startTime = Date.now();
@@ -1826,14 +1902,14 @@ export async function tileRoutes(app: FastifyInstance) {
       const elapsed = Date.now() - startTime;
 
       if (!mvt || mvt.length === 0) {
-        return reply.status(204).send();
+        return reply.header('Cache-Control', BUILDING_TILE_CACHE_CONTROL).status(204).send();
       }
 
       const mvtBuffer = Buffer.isBuffer(mvt) ? mvt : Buffer.from(mvt);
 
       return reply
         .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'public, max-age=86400')
+        .header('Cache-Control', BUILDING_TILE_CACHE_CONTROL)
         .header('X-Tile-Generation-Time', `${elapsed}ms`)
         .send(mvtBuffer);
     }

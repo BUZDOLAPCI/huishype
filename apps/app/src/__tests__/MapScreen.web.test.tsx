@@ -8,6 +8,8 @@ type MockMapEventHandler = (...args: unknown[]) => void;
 type MockMapInstance = {
   options: {
     container: HTMLDivElement;
+    center?: [number, number];
+    zoom?: number;
     style: {
       sources?: Record<string, { promoteId?: string; tiles?: string[] }>;
     };
@@ -78,6 +80,19 @@ const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
+let mockResolvedMapRouteState: {
+  isLoading: boolean;
+  pathname: string;
+  resolvedRoute: null | {
+    kind: 'camera';
+    canonicalPath: string;
+    camera: { lat: number; lng: number; zoom: number };
+  };
+} = {
+  isLoading: true,
+  pathname: '/',
+  resolvedRoute: null,
+};
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
   followingActivity?: 'today' | '10d' | '30d' | 'all-time';
@@ -339,11 +354,7 @@ jest.mock('@/src/lib/webMapUrlSync', () => ({
 }));
 
 jest.mock('@/src/lib/useResolvedMapRoute', () => ({
-  useResolvedMapRoute: jest.fn(() => ({
-    isLoading: true,
-    pathname: '/',
-    resolvedRoute: null,
-  })),
+  useResolvedMapRoute: jest.fn(() => mockResolvedMapRouteState),
 }));
 
 jest.mock('maplibre-gl', () => {
@@ -533,6 +544,11 @@ describe('MapScreen web grouped Following mode', () => {
     mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
+    mockResolvedMapRouteState = {
+      isLoading: true,
+      pathname: '/',
+      resolvedRoute: null,
+    };
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
@@ -594,6 +610,76 @@ describe('MapScreen web grouped Following mode', () => {
     );
     container.remove();
     document.body.innerHTML = '';
+  });
+
+  it('constructs the web map at the camera route instead of the default viewport', async () => {
+    mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    expect(map.options.center).toEqual([5.3574841, 52.3626765]);
+    expect(map.options.zoom).toBe(6.29);
+    expect(mockOnViewportCenterChanged).toHaveBeenCalledWith(
+      5.3574841,
+      52.3626765,
+      6.29,
+    );
+    expect(mockOnViewportCenterChanged).not.toHaveBeenCalledWith(
+      5.4697,
+      51.4416,
+      13,
+    );
+  });
+
+  it('does not jump again when the resolved camera route matches the initial camera', async () => {
+    mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/@52.3626765,5.3574841,6.29z',
+      resolvedRoute: {
+        kind: 'camera',
+        canonicalPath: '/@52.3626765,5.3574841,6.29z',
+        camera: { lat: 52.3626765, lng: 5.3574841, zoom: 6.29 },
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 5.3574841, lat: 52.3626765 });
+    map.getZoom.mockReturnValue(6.29);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(map.jumpTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps ambient comment bubbles disabled on low-zoom camera routes', async () => {
+    mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(mockAmbientCommentBubbles.clearBubbles).toHaveBeenCalled();
+    expect(mockAmbientCommentBubbles.refreshBubbles).not.toHaveBeenCalled();
   });
 
   it('updates public property source tiles in place when filters change', async () => {

@@ -41,7 +41,7 @@ export default [
   },
   // TypeScript files
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

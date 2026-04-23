@@ -22,10 +22,7 @@ import {
   type MapFilters,
   type MapMarketState,
 } from './map-filters.js';
-import {
-  filterReadCanonicalGroups,
-  type PropertyReadViewer,
-} from './property-read-state.js';
+import { filterReadCanonicalGroups, type PropertyReadViewer } from './property-read-state.js';
 
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
@@ -169,9 +166,11 @@ type CanonicalGroupCacheEntry = {
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
 const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
 const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
+const pendingCanonicalGroupBuilds = new Map<string, Promise<CanonicalPropertyGroup[]>>();
 
 export function resetCanonicalGroupCacheForTests(): void {
   canonicalGroupCache.clear();
+  pendingCanonicalGroupBuilds.clear();
 }
 
 export type TileTransportFeature = {
@@ -358,10 +357,7 @@ function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): n
 }
 
 function isGhostCandidate(candidate: GroupingCandidate): boolean {
-  return (
-    !candidate.hasActiveListing &&
-    candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD
-  );
+  return !candidate.hasActiveListing && candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD;
 }
 
 function hasActiveSocialSignal(candidate: GroupingCandidate): boolean {
@@ -510,7 +506,10 @@ function pruneCanonicalGroupCache(now = Date.now()): void {
   }
 }
 
-function getCachedCanonicalGroups(tile: TileId, filters: MapFilters): CanonicalPropertyGroup[] | null {
+function getCachedCanonicalGroups(
+  tile: TileId,
+  filters: MapFilters
+): CanonicalPropertyGroup[] | null {
   const now = Date.now();
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
   const entry = canonicalGroupCache.get(cacheKey);
@@ -557,7 +556,10 @@ function setCachedCanonicalGroups(
 }
 
 function buildStateList(states: readonly MapMarketState[]): SQL {
-  return sql`(${sql.join(states.map((state) => sql`${state}`), sql`, `)})`;
+  return sql`(${sql.join(
+    states.map((state) => sql`${state}`),
+    sql`, `
+  )})`;
 }
 
 function buildScopedPricePredicate(
@@ -854,7 +856,10 @@ async function fetchGroupingCandidatesInBBoxes(
   const priceFilterPredicate = includeEffectivePrices
     ? buildPriceFilterPredicate(filters, 'lf')
     : sql`TRUE`;
-  const activityCandidateFilter = buildActivityWindowPredicate(sql.raw('activity_at'), filters.activity);
+  const activityCandidateFilter = buildActivityWindowPredicate(
+    sql.raw('activity_at'),
+    filters.activity
+  );
   const candidateScopeCtes = includeGhostCandidates
     ? sql`
         candidate_properties AS MATERIALIZED (
@@ -1120,7 +1125,7 @@ async function fetchGroupingCandidatesInBBoxes(
             LEFT JOIN active_listing ON active_listing.property_id = cp.id
           )
         `
-    : sql`
+      : sql`
         active_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
@@ -1599,11 +1604,26 @@ export async function buildCanonicalGroupsForTile(
     return cachedGroups;
   }
 
-  const groups = await hydrateSinglePropertyDetails(
-    await buildUnhydratedCanonicalGroupsForTile(tile, filters)
-  );
-  setCachedCanonicalGroups(tile, filters, groups);
-  return groups;
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
+  if (pendingBuild) {
+    return pendingBuild;
+  }
+
+  const buildPromise = (async () => {
+    const groups = await hydrateSinglePropertyDetails(
+      await buildUnhydratedCanonicalGroupsForTile(tile, filters)
+    );
+    setCachedCanonicalGroups(tile, filters, groups);
+    return groups;
+  })();
+
+  pendingCanonicalGroupBuilds.set(cacheKey, buildPromise);
+  try {
+    return await buildPromise;
+  } finally {
+    pendingCanonicalGroupBuilds.delete(cacheKey);
+  }
 }
 
 export async function buildFollowingCanonicalGroupsForTile(

@@ -6,15 +6,20 @@ export const BENCHMARK_RESULT_DIR = path.join(
   process.env.BENCHMARK_RESULT_DIR || 'test-results/benchmark',
 );
 export const BENCHMARK_ROUTES = {
-  map: '/map/eindhoven/5651ha/beeldbuisring/41',
-  feed: '/feed',
+  lowZoom795: '/@52.114544,4.9239009,7.95z',
+  lowZoom629: '/@52.3626765,5.3574841,6.29z',
+  lowZoom498: '/@52.1247641,5.0314279,4.98z',
+  lowZoom392: '/@51.0394976,4.4103663,3.92z',
 } as const;
 
 const VOLATILE_QUERY_KEYS = new Set(['access_token', 'token', 'ts', 'timestamp']);
 
 export type RouteKey = keyof typeof BENCHMARK_ROUTES;
+export type BenchmarkCacheMode = 'cold-cache' | 'warm-cache';
 
 export type RequestMetric = {
+  routeKey?: string;
+  cacheMode?: BenchmarkCacheMode;
   url: string;
   normalizedUrl: string;
   normalizedEndpoint: string;
@@ -23,20 +28,54 @@ export type RequestMetric = {
   status: number | null;
   ok: boolean;
   failed: boolean;
+  failureText: string | null;
   durationMs: number;
   responseBytes: number | null;
   startedAt: string;
+  cache: {
+    browserCacheHit: boolean;
+    serviceWorker: boolean;
+  };
   headers: {
     age: string | null;
     cacheControl: string | null;
+    cfCacheStatus: string | null;
     contentLength: string | null;
+    contentType: string | null;
+    etag: string | null;
+    lastModified: string | null;
+    server: string | null;
+    vary: string | null;
+    via: string | null;
+    xCache: string | null;
     xTileCache: string | null;
     xTileGenerationTime: string | null;
   };
 };
 
+export type FailedRequestDetail = {
+  routeKey: string;
+  cacheMode: BenchmarkCacheMode;
+  rawUrl: string;
+  normalizedUrl: string;
+  normalizedEndpoint: string;
+  method: string;
+  resourceType: string;
+  status: number | null;
+  ok: boolean;
+  failed: boolean;
+  failureText: string | null;
+  durationMs: number;
+  responseBytes: number | null;
+  cache: RequestMetric['cache'];
+  startedAt: string;
+  headers: RequestMetric['headers'];
+};
+
 export type TileRequestSummary = {
   totalRequests: number;
+  abortedRequestCount: number;
+  abortedRequestDetails: FailedRequestDetail[];
   duplicateRequestCount: number;
   duplicateRequestKeys: string[];
   payloadBytes: {
@@ -51,6 +90,10 @@ export type TileRequestSummary = {
     avg: number | null;
     sum: number;
   };
+  browserCacheHits: number;
+  serviceWorkerResponses: number;
+  age: Record<string, number>;
+  cacheControl: Record<string, number>;
   xTileCache: Record<string, number>;
 };
 
@@ -63,7 +106,9 @@ export type FeedScrollSummary = {
 };
 
 export type RouteBenchmarkSample = {
+  routeKey: string;
   route: string;
+  cacheMode: BenchmarkCacheMode;
   navigation: {
     gotoMs: number;
     domContentLoadedMs: number | null;
@@ -79,15 +124,20 @@ export type RouteBenchmarkSample = {
       withKnownSize: number;
       unknownSizeCount: number;
     };
+    failedDetails: FailedRequestDetail[];
   };
   tiles: TileRequestSummary;
   criticalRequests: RequestGroupSummary[];
   consoleErrors: string[];
   map?: {
     usableMs: number;
+    initialIdleMs: number | null;
+    initialIdleTimedOut: boolean;
     settle: {
-      panMs: number;
-      zoomMs: number;
+      panMs: number | null;
+      panTimedOut: boolean;
+      zoomMs: number | null;
+      zoomTimedOut: boolean;
     };
   };
   feed?: {
@@ -110,6 +160,8 @@ export type RequestGroupSummary = {
   key: string;
   requestCount: number;
   failedCount: number;
+  browserCacheHits: number;
+  serviceWorkerResponses: number;
   durationMs: NumberSummary;
   payloadBytes: {
     total: number;
@@ -122,7 +174,9 @@ export type RequestGroupSummary = {
 };
 
 export type RouteBenchmarkResult = {
+  routeKey: string;
   route: string;
+  cacheMode: BenchmarkCacheMode;
   warmupRuns: number;
   measuredRuns: number;
   samples: RouteBenchmarkSample[];
@@ -138,21 +192,35 @@ export type RouteBenchmarkResult = {
       failed: NumberSummary;
       payloadTotalBytes: NumberSummary;
       byResourceType: Record<string, number>;
+      failedDetails: FailedRequestDetail[];
     };
     tiles: {
       totalRequests: NumberSummary;
+      abortedRequestCount: NumberSummary;
+      abortedRequestDetails: FailedRequestDetail[];
       duplicateRequestCount: NumberSummary;
       duplicateRequestRatio: NumberSummary;
       payloadTotalBytes: NumberSummary;
       xTileGenerationTimeAvgMs: NumberSummary;
+      browserCacheHits: NumberSummary;
+      serviceWorkerResponses: NumberSummary;
+      age: Record<string, number>;
+      cacheControl: Record<string, number>;
       xTileCache: Record<string, number>;
     };
     consoleErrorsPerRun: NumberSummary;
     criticalRequests: RequestGroupSummary[];
     map?: {
       usableMs: NumberSummary;
+      initialIdleMs: NumberSummary;
+      initialIdleTimeouts: number;
+      initialIdleTimeoutRate: number;
       settlePanMs: NumberSummary;
+      settlePanTimeouts: number;
+      settlePanTimeoutRate: number;
       settleZoomMs: NumberSummary;
+      settleZoomTimeouts: number;
+      settleZoomTimeoutRate: number;
     };
     feed?: {
       renderMs: NumberSummary;
@@ -180,7 +248,7 @@ export type BenchmarkRun = {
     measuredRuns: number;
     warmupRuns: number;
   };
-  routes: Record<RouteKey, RouteBenchmarkResult>;
+  routes: Record<string, RouteBenchmarkResult>;
 };
 
 export function getBenchmarkWarmupRuns(): number {
@@ -272,7 +340,7 @@ export function summarizeRequests(requests: RequestMetric[]): RouteBenchmarkSamp
 
   for (const request of requests) {
     byResourceType[request.resourceType] = (byResourceType[request.resourceType] || 0) + 1;
-    if (request.failed || (request.status !== null && request.status >= 400)) {
+    if (isFailedRequest(request)) {
       failed += 1;
     }
 
@@ -293,12 +361,58 @@ export function summarizeRequests(requests: RequestMetric[]): RouteBenchmarkSamp
       withKnownSize,
       unknownSizeCount,
     },
+    failedDetails: collectFailedRequestDetails(requests),
+  };
+}
+
+export function collectFailedRequestDetails(requests: RequestMetric[]): FailedRequestDetail[] {
+  return requests
+    .filter(isFailedRequest)
+    .map(toRequestDetail);
+}
+
+function isFailedRequest(request: RequestMetric): boolean {
+  return !isTileAbort(request) && (request.failed || (request.status !== null && request.status >= 400));
+}
+
+function isTileAbort(request: RequestMetric): boolean {
+  return (
+    isTileRequest(request.url) &&
+    request.failed &&
+    (request.status === null || request.status < 400) &&
+    request.failureText === 'net::ERR_ABORTED'
+  );
+}
+
+function toRequestDetail(request: RequestMetric): FailedRequestDetail {
+  return {
+    routeKey: request.routeKey || 'unknown',
+    cacheMode: request.cacheMode || 'cold-cache',
+    rawUrl: request.url,
+    normalizedUrl: request.normalizedUrl,
+    normalizedEndpoint: request.normalizedEndpoint,
+    method: request.method,
+    resourceType: request.resourceType,
+    status: request.status,
+    ok: request.ok,
+    failed: request.failed,
+    failureText: request.failureText,
+    durationMs: request.durationMs,
+    responseBytes: request.responseBytes,
+    cache: { ...request.cache },
+    startedAt: request.startedAt,
+    headers: { ...request.headers },
   };
 }
 
 export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSummary {
   const tileRequests = requests.filter((request) => isTileRequest(request.url));
+  const abortedRequestDetails = tileRequests
+    .filter(isTileAbort)
+    .map(toRequestDetail);
   const duplicates = new Map<string, number>();
+  const age: Record<string, number> = {};
+  const cacheControl: Record<string, number> = {};
   const xTileCache: Record<string, number> = {};
   let totalBytes = 0;
   let withKnownSize = 0;
@@ -307,9 +421,25 @@ export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSum
   let generationTimeCount = 0;
   let minGenerationTime = Number.POSITIVE_INFINITY;
   let maxGenerationTime = Number.NEGATIVE_INFINITY;
+  let browserCacheHits = 0;
+  let serviceWorkerResponses = 0;
 
   for (const request of tileRequests) {
     duplicates.set(request.normalizedUrl, (duplicates.get(request.normalizedUrl) || 0) + 1);
+
+    if (request.cache.browserCacheHit) {
+      browserCacheHits += 1;
+    }
+
+    if (request.cache.serviceWorker) {
+      serviceWorkerResponses += 1;
+    }
+
+    const cacheControlValue = request.headers.cacheControl || 'none';
+    cacheControl[cacheControlValue] = (cacheControl[cacheControlValue] || 0) + 1;
+
+    const ageValue = request.headers.age || 'none';
+    age[ageValue] = (age[ageValue] || 0) + 1;
 
     if (request.responseBytes == null) {
       unknownSizeCount += 1;
@@ -346,6 +476,8 @@ export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSum
 
   return {
     totalRequests: tileRequests.length,
+    abortedRequestCount: abortedRequestDetails.length,
+    abortedRequestDetails,
     duplicateRequestCount,
     duplicateRequestKeys,
     payloadBytes: {
@@ -360,6 +492,10 @@ export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSum
       avg: generationTimeCount > 0 ? sumGenerationTime / generationTimeCount : null,
       sum: sumGenerationTime,
     },
+    browserCacheHits,
+    serviceWorkerResponses,
+    age,
+    cacheControl,
     xTileCache,
   };
 }
@@ -398,6 +534,8 @@ function summarizeRequestGroup(key: string, group: RequestMetric[]): RequestGrou
   const age: Record<string, number> = {};
   const durations: number[] = [];
   let failedCount = 0;
+  let browserCacheHits = 0;
+  let serviceWorkerResponses = 0;
   let knownResponseCount = 0;
   let totalBytes = 0;
   let unknownSizeCount = 0;
@@ -409,6 +547,14 @@ function summarizeRequestGroup(key: string, group: RequestMetric[]): RequestGrou
 
     if (request.failed || (request.status !== null && request.status >= 400)) {
       failedCount += 1;
+    }
+
+    if (request.cache.browserCacheHit) {
+      browserCacheHits += 1;
+    }
+
+    if (request.cache.serviceWorker) {
+      serviceWorkerResponses += 1;
     }
 
     statusCounts[String(request.status ?? 'null')] = (statusCounts[String(request.status ?? 'null')] || 0) + 1;
@@ -431,6 +577,8 @@ function summarizeRequestGroup(key: string, group: RequestMetric[]): RequestGrou
     key,
     requestCount: group.length,
     failedCount,
+    browserCacheHits,
+    serviceWorkerResponses,
     durationMs: summarizeNumbers(durations),
     payloadBytes: {
       total: totalBytes,
@@ -444,20 +592,29 @@ function summarizeRequestGroup(key: string, group: RequestMetric[]): RequestGrou
 }
 
 export function aggregateRouteBenchmark(
+  routeKey: string,
   route: string,
+  cacheMode: BenchmarkCacheMode,
   samples: RouteBenchmarkSample[],
   warmupRuns: number,
   measuredRuns: number,
 ): RouteBenchmarkResult {
   const mergedResourceTypes: Record<string, number> = {};
+  const mergedTileAge: Record<string, number> = {};
+  const mergedTileCacheControl: Record<string, number> = {};
   const mergedTileCache: Record<string, number> = {};
   const mergedFeedStates: Record<string, number> = {};
   const allCriticalRequests = new Map<string, RequestGroupSummary[]>();
+  const failedDetails = samples.flatMap((sample) => sample.requests.failedDetails);
+  const tileAbortDetails = samples.flatMap((sample) => sample.tiles.abortedRequestDetails);
 
   for (const sample of samples) {
     for (const [resourceType, count] of Object.entries(sample.requests.byResourceType)) {
       mergedResourceTypes[resourceType] = (mergedResourceTypes[resourceType] || 0) + count;
     }
+
+    mergeCounts(mergedTileAge, sample.tiles.age);
+    mergeCounts(mergedTileCacheControl, sample.tiles.cacheControl);
 
     for (const [key, count] of Object.entries(sample.tiles.xTileCache)) {
       mergedTileCache[key] = (mergedTileCache[key] || 0) + count;
@@ -499,9 +656,12 @@ export function aggregateRouteBenchmark(
       failed: summarizeNumbers(samples.map((sample) => sample.requests.failed)),
       payloadTotalBytes: summarizeNumbers(samples.map((sample) => sample.requests.payloadBytes.total)),
       byResourceType: mergedResourceTypes,
+      failedDetails,
     },
     tiles: {
       totalRequests: summarizeNumbers(samples.map((sample) => sample.tiles.totalRequests)),
+      abortedRequestCount: summarizeNumbers(samples.map((sample) => sample.tiles.abortedRequestCount)),
+      abortedRequestDetails: tileAbortDetails,
       duplicateRequestCount: summarizeNumbers(samples.map((sample) => sample.tiles.duplicateRequestCount)),
       duplicateRequestRatio: summarizeNumbers(
         samples.map((sample) => {
@@ -513,6 +673,10 @@ export function aggregateRouteBenchmark(
       ),
       payloadTotalBytes: summarizeNumbers(samples.map((sample) => sample.tiles.payloadBytes.total)),
       xTileGenerationTimeAvgMs: summarizeNumbers(samples.map((sample) => sample.tiles.xTileGenerationTimeMs.avg)),
+      browserCacheHits: summarizeNumbers(samples.map((sample) => sample.tiles.browserCacheHits)),
+      serviceWorkerResponses: summarizeNumbers(samples.map((sample) => sample.tiles.serviceWorkerResponses)),
+      age: mergedTileAge,
+      cacheControl: mergedTileCacheControl,
       xTileCache: mergedTileCache,
     },
     consoleErrorsPerRun: summarizeNumbers(samples.map((sample) => sample.consoleErrors.length)),
@@ -521,10 +685,21 @@ export function aggregateRouteBenchmark(
 
   const mapSamples = samples.filter((sample): sample is RouteBenchmarkSample & { map: NonNullable<RouteBenchmarkSample['map']> } => Boolean(sample.map));
   if (mapSamples.length > 0) {
+    const initialIdleTimeouts = mapSamples.filter((sample) => sample.map.initialIdleTimedOut).length;
+    const settlePanTimeouts = mapSamples.filter((sample) => sample.map.settle.panTimedOut).length;
+    const settleZoomTimeouts = mapSamples.filter((sample) => sample.map.settle.zoomTimedOut).length;
+
     summary.map = {
       usableMs: summarizeNumbers(mapSamples.map((sample) => sample.map.usableMs)),
+      initialIdleMs: summarizeNumbers(mapSamples.map((sample) => sample.map.initialIdleMs)),
+      initialIdleTimeouts,
+      initialIdleTimeoutRate: initialIdleTimeouts / mapSamples.length,
       settlePanMs: summarizeNumbers(mapSamples.map((sample) => sample.map.settle.panMs)),
+      settlePanTimeouts,
+      settlePanTimeoutRate: settlePanTimeouts / mapSamples.length,
       settleZoomMs: summarizeNumbers(mapSamples.map((sample) => sample.map.settle.zoomMs)),
+      settleZoomTimeouts,
+      settleZoomTimeoutRate: settleZoomTimeouts / mapSamples.length,
     };
   }
 
@@ -552,7 +727,9 @@ export function aggregateRouteBenchmark(
   }
 
   return {
+    routeKey,
     route,
+    cacheMode,
     warmupRuns,
     measuredRuns,
     samples,
@@ -575,6 +752,8 @@ function aggregateRequestGroups(key: string, groups: RequestGroupSummary[]): Req
     key,
     requestCount: groups.reduce((sum, group) => sum + group.requestCount, 0),
     failedCount: groups.reduce((sum, group) => sum + group.failedCount, 0),
+    browserCacheHits: groups.reduce((sum, group) => sum + group.browserCacheHits, 0),
+    serviceWorkerResponses: groups.reduce((sum, group) => sum + group.serviceWorkerResponses, 0),
     durationMs: summarizeNumbers(groups.map((group) => group.durationMs.median)),
     payloadBytes: {
       total: groups.reduce((sum, group) => sum + group.payloadBytes.total, 0),
@@ -636,9 +815,10 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
     '',
   ];
 
-  for (const [routeKey, route] of Object.entries(benchmarkRun.routes) as [RouteKey, RouteBenchmarkResult][]) {
+  for (const [routeKey, route] of Object.entries(benchmarkRun.routes)) {
     lines.push(`## ${routeKey} (${route.route})`);
     lines.push('');
+    lines.push(`- cache mode: ${route.cacheMode}`);
     lines.push(`- goto median: ${formatSummaryMs(route.summary.navigation.gotoMs)}`);
     lines.push(`- domContentLoaded median: ${formatSummaryMs(route.summary.navigation.domContentLoadedMs)}`);
     lines.push(`- loadEvent median: ${formatSummaryMs(route.summary.navigation.loadEventMs)}`);
@@ -647,16 +827,25 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
     lines.push(`- failed requests median: ${formatSummaryNumber(route.summary.requests.failed)}`);
     lines.push(`- request bytes median: ${formatSummaryBytes(route.summary.requests.payloadTotalBytes)}`);
     lines.push(`- tile requests median: ${formatSummaryNumber(route.summary.tiles.totalRequests)}`);
+    lines.push(`- tile aborts median: ${formatSummaryNumber(route.summary.tiles.abortedRequestCount)}`);
     lines.push(`- duplicate tile requests median: ${formatSummaryNumber(route.summary.tiles.duplicateRequestCount)}`);
     lines.push(`- duplicate tile ratio median: ${formatPercent(route.summary.tiles.duplicateRequestRatio.median)}`);
     lines.push(`- tile generation avg median: ${formatSummaryMs(route.summary.tiles.xTileGenerationTimeAvgMs)}`);
+    lines.push(`- tile browser cache hits median: ${formatSummaryNumber(route.summary.tiles.browserCacheHits)}`);
+    lines.push(`- tile service worker responses median: ${formatSummaryNumber(route.summary.tiles.serviceWorkerResponses)}`);
+    lines.push(`- tile cache-control headers: ${formatRecord(route.summary.tiles.cacheControl)}`);
+    lines.push(`- tile age headers: ${formatRecord(route.summary.tiles.age)}`);
     lines.push(`- tile cache headers: ${formatRecord(route.summary.tiles.xTileCache)}`);
     lines.push(`- console errors per run median: ${formatSummaryNumber(route.summary.consoleErrorsPerRun)}`);
 
     if (route.summary.map) {
       lines.push(`- map usable median: ${formatSummaryMs(route.summary.map.usableMs)}`);
+      lines.push(`- initial map idle median: ${formatSummaryMs(route.summary.map.initialIdleMs)}`);
+      lines.push(`- initial map idle timeouts: ${route.summary.map.initialIdleTimeouts} (${formatPercent(route.summary.map.initialIdleTimeoutRate)})`);
       lines.push(`- map settle pan median: ${formatSummaryMs(route.summary.map.settlePanMs)}`);
+      lines.push(`- map settle pan timeouts: ${route.summary.map.settlePanTimeouts} (${formatPercent(route.summary.map.settlePanTimeoutRate)})`);
       lines.push(`- map settle zoom median: ${formatSummaryMs(route.summary.map.settleZoomMs)}`);
+      lines.push(`- map settle zoom timeouts: ${route.summary.map.settleZoomTimeouts} (${formatPercent(route.summary.map.settleZoomTimeoutRate)})`);
     }
 
     if (route.summary.feed) {
@@ -675,8 +864,32 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push('- critical requests:');
       for (const request of route.summary.criticalRequests.slice(0, 6)) {
         lines.push(
-          `  - ${request.key}: duration median ${formatSummaryMs(request.durationMs)}, count ${request.requestCount}, payload ${formatBytes(request.payloadBytes.total)}, cache-control ${formatRecord(request.cacheControl)}`,
+          `  - ${request.key}: duration median ${formatSummaryMs(request.durationMs)}, count ${request.requestCount}, payload ${formatBytes(request.payloadBytes.total)}, browser-cache ${request.browserCacheHits}, service-worker ${request.serviceWorkerResponses}, cache-control ${formatRecord(request.cacheControl)}`,
         );
+      }
+    }
+
+    if (route.summary.requests.failedDetails.length > 0) {
+      lines.push('- failed request details:');
+      for (const request of route.summary.requests.failedDetails.slice(0, 10)) {
+        lines.push(
+          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: status ${request.status ?? 'none'}, failed ${request.failed ? 'yes' : 'no'}, error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, bytes ${request.responseBytes ?? 'unknown'}, browser-cache ${request.cache.browserCacheHit ? 'yes' : 'no'}, service-worker ${request.cache.serviceWorker ? 'yes' : 'no'}, raw ${request.rawUrl}, headers ${formatFailedRequestHeaders(request.headers)}`,
+        );
+      }
+      if (route.summary.requests.failedDetails.length > 10) {
+        lines.push(`  - ... ${route.summary.requests.failedDetails.length - 10} more failed request(s) in JSON artifact`);
+      }
+    }
+
+    if (route.summary.tiles.abortedRequestDetails.length > 0) {
+      lines.push('- tile abort details:');
+      for (const request of route.summary.tiles.abortedRequestDetails.slice(0, 10)) {
+        lines.push(
+          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, raw ${request.rawUrl}`,
+        );
+      }
+      if (route.summary.tiles.abortedRequestDetails.length > 10) {
+        lines.push(`  - ... ${route.summary.tiles.abortedRequestDetails.length - 10} more tile abort(s) in JSON artifact`);
       }
     }
 
@@ -754,6 +967,30 @@ function formatRecord(record: Record<string, number>): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join(', ');
+}
+
+function formatFailedRequestHeaders(headers: RequestMetric['headers']): string {
+  const entries = [
+    ['age', headers.age],
+    ['cache-control', headers.cacheControl],
+    ['cf-cache-status', headers.cfCacheStatus],
+    ['content-length', headers.contentLength],
+    ['content-type', headers.contentType],
+    ['etag', headers.etag],
+    ['last-modified', headers.lastModified],
+    ['server', headers.server],
+    ['vary', headers.vary],
+    ['via', headers.via],
+    ['x-cache', headers.xCache],
+    ['x-tile-cache', headers.xTileCache],
+    ['x-tile-generation-time', headers.xTileGenerationTime],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+  if (entries.length === 0) {
+    return 'none';
+  }
+
+  return entries.map(([key, value]) => `${key}=${value}`).join(', ');
 }
 
 function formatBytes(bytes: number): string {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
@@ -6,6 +6,8 @@ import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
+import { resetPropertyTileCacheForTests } from '../../routes/tiles.js';
+import { resetCanonicalGroupCacheForTests } from '../../services/property-grouping.js';
 import {
   createIntegrationFollow,
   createIntegrationListing,
@@ -99,6 +101,11 @@ describe('Tile routes', () => {
     app = await buildApp({ logger: false });
   });
 
+  beforeEach(() => {
+    resetPropertyTileCacheForTests();
+    resetCanonicalGroupCacheForTests();
+  });
+
   afterAll(async () => {
     await app.close();
   });
@@ -128,8 +135,14 @@ describe('Tile routes', () => {
       });
 
       const style = JSON.parse(response.body) as StyleJson;
-      const propertiesSource = requireValue(style.sources['properties-source'], 'properties-source missing from style.json');
-      const propertiesTiles = requireValue(propertiesSource.tiles, 'properties-source tiles missing from style.json');
+      const propertiesSource = requireValue(
+        style.sources['properties-source'],
+        'properties-source missing from style.json'
+      );
+      const propertiesTiles = requireValue(
+        propertiesSource.tiles,
+        'properties-source tiles missing from style.json'
+      );
       expect(style.sources).toHaveProperty('properties-source');
       expect(propertiesSource.type).toBe('vector');
       expect(propertiesTiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
@@ -143,15 +156,28 @@ describe('Tile routes', () => {
 
       expect(response.statusCode).toBe(200);
       const style = JSON.parse(response.body) as StyleJson;
-      const propertiesSource = requireValue(style.sources['properties-source'], 'properties-source missing from style.json');
-      const propertiesTiles = requireValue(propertiesSource.tiles, 'properties-source tiles missing from style.json');
-      const treeSource = requireValue(style.sources['tree-source'], 'tree-source missing from style.json');
-      const treeTiles = requireValue(treeSource.tiles, 'tree-source tiles missing from style.json');
-      const buildingsSource = requireValue(style.sources['buildings-source'], 'buildings-source missing from style.json');
-      const buildingsTiles = requireValue(buildingsSource.tiles, 'buildings-source tiles missing from style.json');
-      expect(propertiesTiles[0]).toContain(
-        '/tiles/properties/{z}/{x}/{y}.pbf',
+      const propertiesSource = requireValue(
+        style.sources['properties-source'],
+        'properties-source missing from style.json'
       );
+      const propertiesTiles = requireValue(
+        propertiesSource.tiles,
+        'properties-source tiles missing from style.json'
+      );
+      const treeSource = requireValue(
+        style.sources['tree-source'],
+        'tree-source missing from style.json'
+      );
+      const treeTiles = requireValue(treeSource.tiles, 'tree-source tiles missing from style.json');
+      const buildingsSource = requireValue(
+        style.sources['buildings-source'],
+        'buildings-source missing from style.json'
+      );
+      const buildingsTiles = requireValue(
+        buildingsSource.tiles,
+        'buildings-source tiles missing from style.json'
+      );
+      expect(propertiesTiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
       expect(propertiesTiles[0]).not.toContain('rentPriceTo=');
       expect(propertiesTiles[0]).not.toContain('marketState=');
       expect(treeTiles[0]).not.toContain('marketState=');
@@ -189,7 +215,9 @@ describe('Tile routes', () => {
       const style = JSON.parse(response.body) as StyleJson;
       const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
       const activeClusterFill = style.layers.find((layer) => layer.id === 'property-cluster-fill');
-      const activeClusterPulse = style.layers.find((layer) => layer.id === 'property-cluster-pulse');
+      const activeClusterPulse = style.layers.find(
+        (layer) => layer.id === 'property-cluster-pulse'
+      );
       const activeNodes = style.layers.find((layer) => layer.id === 'active-nodes');
       const activeNodeFill = style.layers.find((layer) => layer.id === 'active-node-fill');
       const activeNodePulse = style.layers.find((layer) => layer.id === 'active-node-pulse');
@@ -205,19 +233,43 @@ describe('Tile routes', () => {
         throw new Error('Expected additive active property layers missing from style.json');
       }
 
-      const activeClusterPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
-      const activeClusterFillPaint = requireValue(activeClusterFill.paint, 'property-cluster-fill paint missing from style.json');
-      const activeClusterPulsePaint = requireValue(activeClusterPulse.paint, 'property-cluster-pulse paint missing from style.json');
-      const activeNodePaint = requireValue(activeNodes.paint, 'active-nodes paint missing from style.json');
-      const activeNodeFillPaint = requireValue(activeNodeFill.paint, 'active-node-fill paint missing from style.json');
-      const activeNodePulsePaint = requireValue(activeNodePulse.paint, 'active-node-pulse paint missing from style.json');
+      const activeClusterPaint = requireValue(
+        activeClusters.paint,
+        'property-clusters paint missing from style.json'
+      );
+      const activeClusterFillPaint = requireValue(
+        activeClusterFill.paint,
+        'property-cluster-fill paint missing from style.json'
+      );
+      const activeClusterPulsePaint = requireValue(
+        activeClusterPulse.paint,
+        'property-cluster-pulse paint missing from style.json'
+      );
+      const activeNodePaint = requireValue(
+        activeNodes.paint,
+        'active-nodes paint missing from style.json'
+      );
+      const activeNodeFillPaint = requireValue(
+        activeNodeFill.paint,
+        'active-node-fill paint missing from style.json'
+      );
+      const activeNodePulsePaint = requireValue(
+        activeNodePulse.paint,
+        'active-node-pulse paint missing from style.json'
+      );
 
       const clusterRingFields = collectExpressionStrings(activeClusterPaint['circle-stroke-color']);
       const clusterFillFields = collectExpressionStrings(activeClusterFillPaint['circle-color']);
-      const clusterPulseFields = collectExpressionStrings(activeClusterPulsePaint['circle-opacity']);
-      const clusterPulseColorFields = collectExpressionStrings(activeClusterPulsePaint['circle-color']);
+      const clusterPulseFields = collectExpressionStrings(
+        activeClusterPulsePaint['circle-opacity']
+      );
+      const clusterPulseColorFields = collectExpressionStrings(
+        activeClusterPulsePaint['circle-color']
+      );
       const clusterRadiusFields = collectExpressionStrings(activeClusterPaint['circle-radius']);
-      const clusterFillRadiusFields = collectExpressionStrings(activeClusterFillPaint['circle-radius']);
+      const clusterFillRadiusFields = collectExpressionStrings(
+        activeClusterFillPaint['circle-radius']
+      );
       const nodeRingFields = collectExpressionStrings(activeNodePaint['circle-stroke-color']);
       const nodeRadiusFields = collectExpressionStrings(activeNodePaint['circle-radius']);
       const nodeFillFields = collectExpressionStrings(activeNodeFillPaint['circle-color']);
@@ -229,23 +281,19 @@ describe('Tile routes', () => {
       expect(clusterRadiusFields).toContain('activeListingCount');
       expect(clusterFillRadiusFields).not.toContain('activeListingCount');
       expect(clusterRingFields).toEqual(
-        expect.arrayContaining(['activeListingCount', 'point_count']),
+        expect.arrayContaining(['activeListingCount', 'point_count'])
       );
-      expect(clusterFillFields).toEqual(
-        expect.arrayContaining(['socialCount']),
-      );
+      expect(clusterFillFields).toEqual(expect.arrayContaining(['socialCount']));
       expect(clusterPulseFields).toEqual(
-        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal'])
       );
       expect(clusterPulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
       expect(nodeRingFields).toEqual(expect.arrayContaining(['activeListingCount']));
       expect(nodeRadiusFields).toContain('activeListingCount');
       expect(nodeFillRadiusFields).not.toContain('activeListingCount');
-      expect(nodeFillFields).toEqual(
-        expect.arrayContaining(['socialCount']),
-      );
+      expect(nodeFillFields).toEqual(expect.arrayContaining(['socialCount']));
       expect(nodePulseFields).toEqual(
-        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal']),
+        expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal'])
       );
       expect(nodePulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
 
@@ -285,8 +333,14 @@ describe('Tile routes', () => {
       });
 
       const style = JSON.parse(response.body) as StyleJson;
-      const buildingsSource = requireValue(style.sources['buildings-source'], 'buildings-source missing from style.json');
-      const buildingsTiles = requireValue(buildingsSource.tiles, 'buildings-source tiles missing from style.json');
+      const buildingsSource = requireValue(
+        style.sources['buildings-source'],
+        'buildings-source missing from style.json'
+      );
+      const buildingsTiles = requireValue(
+        buildingsSource.tiles,
+        'buildings-source tiles missing from style.json'
+      );
       expect(buildingsSource.type).toBe('vector');
       expect(buildingsTiles[0]).toContain('/tiles/buildings/');
     });
@@ -302,8 +356,14 @@ describe('Tile routes', () => {
       if (!clusterCount) {
         throw new Error('cluster-count layer missing from style.json');
       }
-      const clusterCountLayout = requireValue(clusterCount.layout, 'cluster-count layout missing from style.json');
-      const clusterCountPaint = requireValue(clusterCount.paint, 'cluster-count paint missing from style.json');
+      const clusterCountLayout = requireValue(
+        clusterCount.layout,
+        'cluster-count layout missing from style.json'
+      );
+      const clusterCountPaint = requireValue(
+        clusterCount.paint,
+        'cluster-count paint missing from style.json'
+      );
       expect(clusterCount.type).toBe('symbol');
       expect(clusterCountLayout).toHaveProperty('text-field');
       expect(clusterCountLayout).toHaveProperty('text-font');
@@ -331,19 +391,60 @@ describe('Tile routes', () => {
       }
       expect(ghostClusters.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
       expect(ghostClusterCount.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
-      const ghostClustersPaint = requireValue(ghostClusters.paint, 'ghost-clusters paint missing from style.json');
-      const activeClustersPaint = requireValue(activeClusters.paint, 'property-clusters paint missing from style.json');
-      const ghostClusterCountPaint = requireValue(ghostClusterCount.paint, 'ghost-cluster-count paint missing from style.json');
-      const activeClusterCountLayout = requireValue(activeClusterCount.layout, 'cluster-count layout missing from style.json');
-      const ghostClusterCountLayout = requireValue(ghostClusterCount.layout, 'ghost-cluster-count layout missing from style.json');
-
-      expect(requireComparableNumber(ghostClustersPaint['circle-opacity'], 'ghost-clusters circle-opacity missing')).toBeLessThan(
-        requireComparableNumber(activeClustersPaint['circle-opacity'], 'property-clusters circle-opacity missing'),
+      const ghostClustersPaint = requireValue(
+        ghostClusters.paint,
+        'ghost-clusters paint missing from style.json'
       );
-      expect(requireComparableNumber(activeClustersPaint['circle-stroke-width'], 'property-clusters circle-stroke-width missing')).toBe(0);
-      expect(requireComparableNumber(ghostClustersPaint['circle-stroke-width'], 'ghost-clusters circle-stroke-width missing')).toBeGreaterThan(0);
-      expect(requireComparableNumber(ghostClusterCountLayout['text-size'], 'ghost-cluster-count text-size missing')).toBeLessThan(
-        requireComparableNumber(activeClusterCountLayout['text-size'], 'cluster-count text-size missing'),
+      const activeClustersPaint = requireValue(
+        activeClusters.paint,
+        'property-clusters paint missing from style.json'
+      );
+      const ghostClusterCountPaint = requireValue(
+        ghostClusterCount.paint,
+        'ghost-cluster-count paint missing from style.json'
+      );
+      const activeClusterCountLayout = requireValue(
+        activeClusterCount.layout,
+        'cluster-count layout missing from style.json'
+      );
+      const ghostClusterCountLayout = requireValue(
+        ghostClusterCount.layout,
+        'ghost-cluster-count layout missing from style.json'
+      );
+
+      expect(
+        requireComparableNumber(
+          ghostClustersPaint['circle-opacity'],
+          'ghost-clusters circle-opacity missing'
+        )
+      ).toBeLessThan(
+        requireComparableNumber(
+          activeClustersPaint['circle-opacity'],
+          'property-clusters circle-opacity missing'
+        )
+      );
+      expect(
+        requireComparableNumber(
+          activeClustersPaint['circle-stroke-width'],
+          'property-clusters circle-stroke-width missing'
+        )
+      ).toBe(0);
+      expect(
+        requireComparableNumber(
+          ghostClustersPaint['circle-stroke-width'],
+          'ghost-clusters circle-stroke-width missing'
+        )
+      ).toBeGreaterThan(0);
+      expect(
+        requireComparableNumber(
+          ghostClusterCountLayout['text-size'],
+          'ghost-cluster-count text-size missing'
+        )
+      ).toBeLessThan(
+        requireComparableNumber(
+          activeClusterCountLayout['text-size'],
+          'cluster-count text-size missing'
+        )
       );
       expect(ghostClusterCountPaint['text-color']).toBe('#475569');
       expect(ghostClusterCountPaint['text-halo-color']).toBe('rgba(255, 255, 255, 0.85)');
@@ -387,7 +488,7 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.tiles[0]).toContain(
-        '/tiles/properties/{z}/{x}/{y}.pbf?salePriceTo=500000&marketState=for-sale%2Cnot-listed',
+        '/tiles/properties/{z}/{x}/{y}.pbf?salePriceTo=500000&marketState=for-sale%2Cnot-listed'
       );
     });
   });
@@ -526,6 +627,11 @@ describe('Tile routes', () => {
 
       // Should be 204 (No Content) for empty tiles
       expect(response.statusCode).toBe(204);
+      expect(response.headers['cache-control']).toBe(
+        'public, max-age=300, stale-while-revalidate=300'
+      );
+      expect(response.headers.etag).toBeDefined();
+      expect(response.headers['x-tile-cache']).toBe('miss');
     });
 
     it('should return MVT data for Eindhoven area at zoom 10 (clustered)', async () => {
@@ -600,6 +706,41 @@ describe('Tile routes', () => {
       expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
     });
 
+    it('coalesces concurrent repeated property tile requests', async () => {
+      const tileUrl = '/tiles/properties/13/4208/2686.pbf';
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        app.inject({ method: 'GET', url: tileUrl }),
+        app.inject({ method: 'GET', url: tileUrl }),
+      ]);
+
+      expect([200, 204]).toContain(firstResponse.statusCode);
+      expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
+      expect([
+        firstResponse.headers['x-tile-cache'],
+        secondResponse.headers['x-tile-cache'],
+      ]).toContain('hit');
+    });
+
+    it('returns 304 when a cached public property tile ETag matches', async () => {
+      const tileUrl = '/tiles/properties/10/0/0.pbf';
+      const firstResponse = await app.inject({ method: 'GET', url: tileUrl });
+      const etag = firstResponse.headers.etag;
+
+      expect(firstResponse.statusCode).toBe(204);
+      expect(etag).toBeDefined();
+
+      const secondResponse = await app.inject({
+        method: 'GET',
+        url: tileUrl,
+        headers: { 'if-none-match': String(etag) },
+      });
+
+      expect(secondResponse.statusCode).toBe(304);
+      expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+      expect(secondResponse.headers.etag).toBe(etag);
+    });
+
     it('keeps public property tile cache viewer-agnostic even when request identity headers differ', async () => {
       const property = await createIntegrationProperty({
         street: 'Viewer Agnostic Tile Street',
@@ -648,8 +789,7 @@ describe('Tile routes', () => {
       const x = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
       const latRad = (lat * Math.PI) / 180;
       const y = Math.floor(
-        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-          Math.pow(2, z),
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
       );
 
       await db.execute(sql`
@@ -732,6 +872,15 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(400);
     });
 
+    it('should reject tile coordinates outside the zoom range', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/4/16/0.pbf',
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
     it('should return non-empty clustered tiles with bbox properties at z13 for Eindhoven', async () => {
       // Eindhoven center ≈ 51.4416, 5.4697 — compute z13 tile coordinates
       const lon = 5.4697;
@@ -740,8 +889,7 @@ describe('Tile routes', () => {
       const x = Math.floor(((lon + 180) / 360) * Math.pow(2, z));
       const latRad = (lat * Math.PI) / 180;
       const y = Math.floor(
-        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-          Math.pow(2, z)
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
       );
 
       // Try the computed tile and neighbors to find one with data
@@ -903,7 +1051,9 @@ describe('Tile routes', () => {
         expect(fullyReadResponse.statusCode).toBe(200);
         expect(fullyReadResponse.rawPayload.length).toBeGreaterThan(0);
       } finally {
-        await db.execute(sql`DELETE FROM listings WHERE property_id IN (${first.id}, ${second.id})`);
+        await db.execute(
+          sql`DELETE FROM listings WHERE property_id IN (${first.id}, ${second.id})`
+        );
         await db.execute(sql`DELETE FROM properties WHERE id IN (${first.id}, ${second.id})`);
       }
     });
@@ -1032,8 +1182,8 @@ describe('Tile routes', () => {
         await db.execute(
           sql`DELETE FROM users WHERE id IN (${sql.join(
             [sql`${viewer.userId}`, sql`${actor.userId}`],
-            sql`, `,
-          )})`,
+            sql`, `
+          )})`
         );
       }
     });
@@ -1125,9 +1275,10 @@ describe('Tile routes', () => {
     it('returns 204 below minzoom', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: `/tiles/buildings/14/${EINDHOVEN_Z15.x}/${EINDHOVEN_Z15.y}.pbf`,
+        url: `/tiles/buildings/14/${Math.floor(EINDHOVEN_Z15.x / 2)}/${Math.floor(EINDHOVEN_Z15.y / 2)}.pbf`,
       });
       expect(res.statusCode).toBe(204);
+      expect(res.headers['cache-control']).toBe('public, max-age=86400');
     });
 
     it('returns 204 above maxzoom', async () => {
@@ -1136,6 +1287,7 @@ describe('Tile routes', () => {
         url: `/tiles/buildings/20/${EINDHOVEN_Z15.x}/${EINDHOVEN_Z15.y}.pbf`,
       });
       expect(res.statusCode).toBe(204);
+      expect(res.headers['cache-control']).toBe('public, max-age=86400');
     });
 
     it('returns 204 for empty ocean tile', async () => {
@@ -1144,6 +1296,7 @@ describe('Tile routes', () => {
         url: `/tiles/buildings/${OCEAN_TILE.z}/${OCEAN_TILE.x}/${OCEAN_TILE.y}.pbf`,
       });
       expect(res.statusCode).toBe(204);
+      expect(res.headers['cache-control']).toBe('public, max-age=86400');
     });
 
     it('returns MVT for Eindhoven at z15', async () => {

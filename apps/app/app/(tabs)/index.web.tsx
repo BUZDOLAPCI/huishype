@@ -36,6 +36,7 @@ import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
   getPersistedMapSocialScope,
+  parseMapRoutePath,
   persistMapSocialScope,
   registerLocalPreviewRoute,
   type ResolvedMapRoute,
@@ -111,6 +112,9 @@ const PREVIEW_CARD_MARKER_OFFSET_PX =
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
+const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
+const CAMERA_EPSILON = 0.000001;
+const ZOOM_EPSILON = 0.001;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -316,6 +320,48 @@ interface PassiveCameraPathSyncResult {
   browserPathname: string;
   lockedAreaPath: string | null;
   skipNextPassiveUrlSync: boolean;
+}
+
+interface InitialWebMapCamera {
+  center: [number, number];
+  zoom: number;
+  cameraPath: string;
+}
+
+function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
+  const parsedRoute = parseMapRoutePath(pathname);
+
+  if (parsedRoute.kind === 'camera') {
+    return {
+      center: [parsedRoute.camera.lng, parsedRoute.camera.lat],
+      zoom: parsedRoute.camera.zoom,
+      cameraPath: parsedRoute.pathname,
+    };
+  }
+
+  return {
+    center: DEFAULT_CENTER,
+    zoom: DEFAULT_ZOOM,
+    cameraPath: serializeCanonicalCameraPath({
+      lat: DEFAULT_CENTER[1],
+      lng: DEFAULT_CENTER[0],
+      zoom: DEFAULT_ZOOM,
+    }),
+  };
+}
+
+function isMapAlreadyAtCamera(
+  map: maplibregl.Map,
+  camera: { lng: number; lat: number; zoom: number },
+): boolean {
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+
+  return (
+    Math.abs(center.lng - camera.lng) <= CAMERA_EPSILON &&
+    Math.abs(center.lat - camera.lat) <= CAMERA_EPSILON &&
+    Math.abs(zoom - camera.zoom) <= ZOOM_EPSILON
+  );
 }
 
 export function syncPassiveCameraPathOnMoveEnd({
@@ -888,12 +934,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const currentZoomRef = useRef(DEFAULT_ZOOM);
+  const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
+  const [initialMapCamera] = useState(() =>
+    getInitialWebMapCamera(initialRoutePathname),
+  );
+  const currentZoomRef = useRef(initialMapCamera.zoom);
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
-  const [visibleZoom, setVisibleZoom] = useState(DEFAULT_ZOOM);
+  const [visibleZoom, setVisibleZoom] = useState(initialMapCamera.zoom);
   const [searchResetToken, setSearchResetToken] = useState(0);
   const isMapTabActive = isFocused;
-  const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
   const appliedRoutePathRef = useRef<string | null>(null);
@@ -954,6 +1003,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const maxVisibleAmbientCommentBubbles = webViewportSize.width < 560 ? 2 : 3;
   const ambientBubblesEnabled =
     mapLoaded &&
+    currentZoomRef.current >= AMBIENT_COMMENT_BUBBLE_MIN_ZOOM &&
     socialScope !== 'following' &&
     !interaction.previewGroup &&
     interaction.sheetIndex < 0;
@@ -1250,9 +1300,17 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
 
-    if (__DEV__) {
-      setVisibleZoom((prev) => (Math.abs(prev - zoom) < 0.05 ? prev : zoom));
-    }
+    setVisibleZoom((prev) => {
+      const crossedAmbientThreshold =
+        (prev >= AMBIENT_COMMENT_BUBBLE_MIN_ZOOM) !==
+        (zoom >= AMBIENT_COMMENT_BUBBLE_MIN_ZOOM);
+
+      if (!__DEV__ && !crossedAmbientThreshold) {
+        return prev;
+      }
+
+      return Math.abs(prev - zoom) < 0.05 ? prev : zoom;
+    });
   }, []);
 
   // Dynamic city name for the map header
@@ -1590,9 +1648,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
         style,
-        center: DEFAULT_CENTER,
-        zoom: DEFAULT_ZOOM,
-        pitch: getPitchForZoom(DEFAULT_ZOOM),
+        center: initialMapCamera.center,
+        zoom: initialMapCamera.zoom,
+        pitch: getPitchForZoom(initialMapCamera.zoom),
         bearing: DEFAULT_BEARING,
         maxPitch: 70,
         touchPitch: false,
@@ -1635,7 +1693,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           pitch: getPitchForZoom(Number.isFinite(zoom) ? zoom : DEFAULT_ZOOM),
         }),
       });
-      lastSettledAmbientBubbleZoomRef.current = map.getZoom();
+      lastSettledAmbientBubbleZoomRef.current = initialMapCamera.zoom;
 
       map.keyboard.disableRotation();
 
@@ -1973,13 +2031,13 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         }
       });
 
-      // Trigger initial reverse geocode for the default camera position
-      onViewportCenterChangedRef.current(DEFAULT_CENTER[0], DEFAULT_CENTER[1], DEFAULT_ZOOM);
-      lastCameraPathRef.current = serializeCanonicalCameraPath({
-        lat: DEFAULT_CENTER[1],
-        lng: DEFAULT_CENTER[0],
-        zoom: DEFAULT_ZOOM,
-      });
+      // Trigger initial reverse geocode for the actual startup camera.
+      onViewportCenterChangedRef.current(
+        initialMapCamera.center[0],
+        initialMapCamera.center[1],
+        initialMapCamera.zoom,
+      );
+      lastCameraPathRef.current = initialMapCamera.cameraPath;
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
       map.on('dragstart', () => {
@@ -2091,7 +2149,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     };
   // Build the map once; refs above keep the event-time behavior fresh without
   // tearing down the MapLibre instance on Following/auth/filter state changes.
-  }, []);
+  }, [initialMapCamera.cameraPath, initialMapCamera.center, initialMapCamera.zoom]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {
@@ -2314,10 +2372,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       skipNextPassiveUrlSyncRef.current = true;
       lockedAreaPathRef.current = null;
       canReplaceLockedAreaPathRef.current = true;
-      map.jumpTo({
-        center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat],
-        zoom: resolvedRoute.camera.zoom,
-      });
+      if (!isMapAlreadyAtCamera(map, resolvedRoute.camera)) {
+        map.jumpTo({
+          center: [resolvedRoute.camera.lng, resolvedRoute.camera.lat],
+          zoom: resolvedRoute.camera.zoom,
+        });
+      }
       lastCameraPathRef.current = resolvedRoute.canonicalPath;
       appliedRoutePathRef.current = routeState.pathname;
       return;
