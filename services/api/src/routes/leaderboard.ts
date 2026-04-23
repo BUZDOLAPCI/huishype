@@ -100,11 +100,11 @@ END`;
 
 const featuredThumbnailJoin = sql`LEFT JOIN LATERAL (
   SELECT thumbnail_url
-  FROM listings
+  FROM v_canonical_listing_facts
   WHERE property_id = p.id
     AND status = 'active'
     AND thumbnail_url IS NOT NULL
-  ORDER BY created_at DESC
+  ORDER BY sort_at DESC, listing_created_at DESC, listing_id DESC
   LIMIT 1
 ) lt ON true`;
 

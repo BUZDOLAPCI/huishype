@@ -50,10 +50,21 @@ describe('ListingSourceRow', () => {
   });
 
   it('renders "Expired" status badge', () => {
-    render(
-      <ListingSourceRow listing={{ ...fundaListing, isActive: false }} />
-    );
+    render(<ListingSourceRow listing={{ ...fundaListing, isActive: false }} />);
     expect(screen.getByText('Expired')).toBeTruthy();
+  });
+
+  it('renders provisional verification status', () => {
+    render(
+      <ListingSourceRow
+        listing={{
+          ...fundaListing,
+          verificationState: 'validation_pending',
+          watchState: 'queued',
+        }}
+      />
+    );
+    expect(screen.getByText('Pending check')).toBeTruthy();
   });
 
   it('renders listing type', () => {

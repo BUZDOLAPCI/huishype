@@ -374,7 +374,7 @@ export async function createMaintenanceRefreshRequest(
   tx: DbTransaction,
   request: {
     sourceName: string;
-    requestedBy: 'listing-submit';
+    requestedBy: 'listing-submit' | 'validation-outcome';
     idempotencyKey: string;
     payload: Record<string, unknown>;
   },

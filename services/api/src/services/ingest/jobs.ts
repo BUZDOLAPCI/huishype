@@ -8,6 +8,6 @@ export interface IngestBatchJobData {
 }
 
 export interface MaintenanceRefreshJobData {
-  requestedBy: 'ingest-batch' | 'listing-submit' | 'worker-sweep';
+  requestedBy: 'ingest-batch' | 'listing-submit' | 'validation-outcome' | 'worker-sweep';
   batchId?: string;
 }

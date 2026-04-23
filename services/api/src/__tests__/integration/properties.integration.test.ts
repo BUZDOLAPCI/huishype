@@ -496,14 +496,22 @@ describe('Property routes', () => {
       `);
 
       await db.execute(sql`
-        INSERT INTO listings (
+        INSERT INTO canonical_listings (
           id,
           property_id,
           source_name,
-          source_url,
+          canonical_url,
+          display_url,
           status,
+          status_source,
+          verification_state,
+          origin_summary,
           asking_price,
           thumbnail_url,
+          price_type,
+          first_seen_at,
+          last_seen_at,
+          last_reconciled_at,
           created_at,
           updated_at
         )
@@ -513,9 +521,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/older-listing',
+            'https://example.com/older-listing',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             420000,
             ${thumbnailUrl},
+            'sale',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days'
           ),
@@ -524,9 +540,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/latest-listing',
+            'https://example.com/latest-listing',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             450000,
             NULL,
+            'sale',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day'
           )
@@ -544,7 +568,6 @@ describe('Property routes', () => {
         expect(body.askingPrice).toBe(450000);
         expect(body.thumbnailUrl).toBe(thumbnailUrl);
       } finally {
-        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
     });
@@ -608,14 +631,22 @@ describe('Property routes', () => {
       `);
 
       await db.execute(sql`
-        INSERT INTO listings (
+        INSERT INTO canonical_listings (
           id,
           property_id,
           source_name,
-          source_url,
+          canonical_url,
+          display_url,
           status,
+          status_source,
+          verification_state,
+          origin_summary,
           asking_price,
           thumbnail_url,
+          price_type,
+          first_seen_at,
+          last_seen_at,
+          last_reconciled_at,
           created_at,
           updated_at
         )
@@ -625,9 +656,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/nearby-fallback-older',
+            'https://example.com/nearby-fallback-older',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             410000,
             ${thumbnailUrl},
+            'sale',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days'
           ),
@@ -636,9 +675,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/nearby-fallback-latest',
+            'https://example.com/nearby-fallback-latest',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             435000,
             NULL,
+            'sale',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day'
           )
@@ -657,7 +704,6 @@ describe('Property routes', () => {
         expect(body.thumbnailUrl).toBe(thumbnailUrl);
         expect(body.askingPrice).toBe(435000);
       } finally {
-        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
     });
@@ -820,14 +866,22 @@ describe('Property routes', () => {
       `);
 
       await db.execute(sql`
-        INSERT INTO listings (
+        INSERT INTO canonical_listings (
           id,
           property_id,
           source_name,
-          source_url,
+          canonical_url,
+          display_url,
           status,
+          status_source,
+          verification_state,
+          origin_summary,
           asking_price,
           thumbnail_url,
+          price_type,
+          first_seen_at,
+          last_seen_at,
+          last_reconciled_at,
           created_at,
           updated_at
         )
@@ -837,9 +891,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/property-endpoint-older',
+            'https://example.com/property-endpoint-older',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             510000,
             ${thumbnailUrl},
+            'sale',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days'
           ),
@@ -848,9 +910,17 @@ describe('Property routes', () => {
             ${propertyId},
             'funda',
             'https://example.com/property-endpoint-latest',
+            'https://example.com/property-endpoint-latest',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             545000,
             NULL,
+            'sale',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day'
           )
@@ -877,7 +947,6 @@ describe('Property routes', () => {
 
     afterAll(async () => {
       await db.execute(sql`DELETE FROM saved_properties WHERE property_id = ${propertyId}`);
-      await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
       await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     });

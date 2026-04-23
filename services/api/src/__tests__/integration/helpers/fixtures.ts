@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { db } from '../../../db/index.js';
-import { userFollows, users } from '../../../db/schema.js';
+import { canonicalListings, userFollows, users } from '../../../db/schema.js';
 import { generateAccessToken } from '../../../plugins/auth.js';
 
 // Shared builders for integration suites that create and clean up their own
@@ -44,7 +44,18 @@ interface CreateListingOptions {
   priceType?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
+  verificationState?: 'provisional' | 'validated' | 'invalid' | 'validation_pending' | 'validation_blocked' | 'validation_failed';
+  originSummary?: 'user' | 'mirror' | 'user_and_mirror';
+  submittedBy?: string | null;
 }
+
+interface CreateCanonicalListingOptions extends CreateListingOptions {
+  canonicalUrl?: string | null;
+  displayUrl?: string | null;
+  primarySourceListingId?: string | null;
+}
+
+type CanonicalListingStatusSource = 'mirror' | 'user' | 'system';
 
 interface CreatePriceHistoryOptions {
   id?: string;
@@ -183,6 +194,7 @@ export async function createIntegrationProperty(options: CreatePropertyOptions =
 export async function createIntegrationListing(options: CreateListingOptions) {
   const createdAt = options.createdAt ?? new Date();
   const updatedAt = options.updatedAt ?? createdAt;
+
   const listing = {
     id: options.id ?? crypto.randomUUID(),
     propertyId: options.propertyId,
@@ -224,7 +236,83 @@ export async function createIntegrationListing(options: CreateListingOptions) {
     )
   `);
 
+  await createIntegrationCanonicalListing({
+    ...options,
+    id: listing.id,
+    propertyId: listing.propertyId,
+    sourceName: listing.sourceName,
+    sourceUrl: listing.sourceUrl,
+    status: listing.status,
+    askingPrice: listing.askingPrice,
+    thumbnailUrl: listing.thumbnailUrl,
+    priceType: listing.priceType,
+    createdAt,
+    updatedAt,
+  });
+
   return listing;
+}
+
+export async function createIntegrationCanonicalListing(options: CreateCanonicalListingOptions) {
+  const createdAt = options.createdAt ?? new Date();
+  const updatedAt = options.updatedAt ?? createdAt;
+  const sourceName = options.sourceName ?? 'funda';
+  const canonicalUrl =
+    options.canonicalUrl ??
+    options.sourceUrl ??
+    `https://example.com/canonical-listing-${options.propertyId}-${crypto.randomUUID()}`;
+  const statusSource: CanonicalListingStatusSource =
+    options.originSummary === 'user' ? 'user' : 'mirror';
+
+  const listing = {
+    id: options.id ?? crypto.randomUUID(),
+    propertyId: options.propertyId,
+    sourceName,
+    primarySourceListingId: options.primarySourceListingId ?? null,
+    canonicalUrl,
+    displayUrl: options.displayUrl ?? canonicalUrl,
+    status: options.status ?? 'active',
+    statusSource,
+    verificationState: options.verificationState ?? 'provisional',
+    originSummary: options.originSummary ?? 'mirror',
+    submittedBy: options.submittedBy ?? null,
+    askingPrice: options.askingPrice ?? null,
+    thumbnailUrl: options.thumbnailUrl ?? null,
+    priceCurrency: 'EUR',
+    priceType: options.priceType ?? 'sale',
+    firstSeenAt: createdAt,
+    lastSeenAt: updatedAt,
+    lastMirrorSeenAt: options.originSummary === 'user' ? null : updatedAt,
+    lastUserSeenAt: options.originSummary === 'user' ? updatedAt : null,
+    lastReconciledAt: updatedAt,
+    createdAt,
+    updatedAt,
+  };
+
+  await db
+    .insert(canonicalListings)
+    .values(listing)
+    .onConflictDoUpdate({
+      target: canonicalListings.id,
+      set: {
+        status: listing.status,
+        verificationState: listing.verificationState,
+        askingPrice: listing.askingPrice,
+        thumbnailUrl: listing.thumbnailUrl,
+        priceType: listing.priceType,
+        lastSeenAt: listing.lastSeenAt,
+        lastMirrorSeenAt: listing.lastMirrorSeenAt,
+        lastUserSeenAt: listing.lastUserSeenAt,
+        lastReconciledAt: listing.lastReconciledAt,
+        updatedAt: listing.updatedAt,
+      },
+    });
+
+  return {
+    ...listing,
+    createdAt: createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
+  };
 }
 
 export async function createIntegrationPriceHistory(options: CreatePriceHistoryOptions) {

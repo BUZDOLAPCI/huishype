@@ -2616,15 +2616,23 @@ export interface paths {
                                 id: string;
                                 sourceUrl: string;
                                 sourceName: string;
+                                canonicalUrl: string | null;
+                                sourceListingId: string | null;
                                 askingPrice: number | null;
                                 priceType: string | null;
+                                currency: string | null;
                                 thumbnailUrl: string | null;
                                 ogTitle: string | null;
+                                description: string | null;
                                 livingAreaM2: number | null;
                                 numRooms: number | null;
                                 energyLabel: string | null;
                                 /** @enum {string} */
                                 status: "active" | "sold" | "rented" | "withdrawn";
+                                /** @enum {string} */
+                                verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
+                                watchState: string | null;
+                                reasonCode: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
@@ -2738,6 +2746,14 @@ export interface paths {
                         url: string;
                         /** Format: uuid */
                         propertyId: string;
+                        title?: string;
+                        description?: string;
+                        /** Format: uri */
+                        imageUrl?: string;
+                        askingPrice?: number;
+                        /** @enum {string} */
+                        priceType?: "sale" | "rent" | "unknown";
+                        currency?: string;
                     };
                 };
             };
@@ -2749,12 +2765,30 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            ogTitle: string | null;
-                            ogImage: string | null;
-                            ogDescription: string | null;
                             sourceName: string;
-                            addressMatch: boolean;
-                            warning: string | null;
+                            rawUrl: string;
+                            canonicalUrl: string;
+                            sourceListingId: string | null;
+                            sourceListingIdKind: string | null;
+                            /** @enum {string} */
+                            validationState: "valid" | "invalid" | "provisional";
+                            /** @enum {string} */
+                            matchState: "matched" | "mismatch" | "unverified" | "unsupported";
+                            /** @enum {string} */
+                            watchState: "not_required" | "will_enqueue" | "unsupported";
+                            /** @enum {string} */
+                            reasonCode: "source_identity_match" | "address_match" | "address_mismatch" | "source_not_supported" | "source_not_found" | "mirror_unavailable" | "parser_error" | "og_unavailable" | "validation_pending";
+                            title: string | null;
+                            description: string | null;
+                            imageUrl: string | null;
+                            askingPrice: number | null;
+                            /** @enum {string} */
+                            priceType: "sale" | "rent" | "unknown";
+                            currency: string | null;
+                            address: unknown | null;
+                            /** Format: uuid */
+                            submittedPropertyId: string;
+                            matchedPropertyId: string | null;
                         };
                     };
                 };
@@ -2819,6 +2853,14 @@ export interface paths {
                         propertyId: string;
                         ogTitle?: string;
                         thumbnailUrl?: string;
+                        title?: string;
+                        description?: string;
+                        /** Format: uri */
+                        imageUrl?: string;
+                        askingPrice?: number;
+                        /** @enum {string} */
+                        priceType?: "sale" | "rent" | "unknown";
+                        currency?: string;
                     };
                 };
             };
@@ -2836,8 +2878,16 @@ export interface paths {
                             propertyId: string;
                             sourceUrl: string;
                             sourceName: string;
+                            canonicalUrl: string | null;
+                            sourceListingId: string | null;
                             /** @enum {string} */
                             status: "active" | "sold" | "rented" | "withdrawn";
+                            /** @enum {string} */
+                            verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
+                            /** @enum {string} */
+                            watchState: "not_required" | "will_enqueue" | "unsupported";
+                            watchId: string | null;
+                            reasonCode: string;
                             /** Format: date-time */
                             createdAt: string;
                         };
@@ -2933,19 +2983,31 @@ export interface paths {
                             /** Format: uri */
                             sourceUrl: string;
                             mirrorListingId: string;
+                            sourceListingId?: string;
+                            sourceListingIdKind?: string;
+                            sourceListingAliases?: {
+                                kind: string;
+                                value: string;
+                            }[];
+                            /** Format: uri */
+                            canonicalUrl?: string;
                             askingPrice: number | null;
                             /** @enum {string} */
                             priceType: "sale" | "rent";
+                            currency?: string;
                             livingAreaM2?: number | null;
                             numRooms?: number | null;
                             energyLabel?: string | null;
                             thumbnailUrl?: string | null;
                             ogTitle?: string | null;
+                            description?: string | null;
                             /**
                              * @default active
                              * @enum {string}
                              */
                             status?: "active" | "sold" | "rented" | "withdrawn";
+                            /** @enum {string} */
+                            sourceStatus?: "available" | "sold" | "rented" | "withdrawn" | "not_found" | "blocked" | "invalid" | "parser_error" | "unknown";
                             /** Format: date-time */
                             mirrorFirstSeenAt?: string;
                             /** Format: date-time */
@@ -3006,6 +3068,125 @@ export interface paths {
                 };
                 /** @description Default Response */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest/listing-validation-outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist listing validation outcome
+         * @description Internal callback for source services validating user-submitted listing URLs.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        watchId: string;
+                        /** @enum {string} */
+                        state: "matched" | "not_found" | "blocked" | "invalid" | "parser_error" | "unsupported" | "retryable_error";
+                        sourceName: string;
+                        /** Format: uri */
+                        rawUrl: string;
+                        /** Format: uri */
+                        canonicalUrl: string;
+                        sourceListingId?: string | null;
+                        sourceListingIdKind?: string | null;
+                        aliases?: {
+                            kind: string;
+                            value: string;
+                        }[];
+                        /** @enum {string} */
+                        sourceStatus?: "available" | "sold" | "rented" | "withdrawn" | "not_found" | "blocked" | "invalid" | "parser_error" | "unknown";
+                        address?: {
+                            countryCode?: string;
+                            street?: string;
+                            postalCode?: string;
+                            houseNumber?: string | number;
+                            houseNumberAddition?: string | null;
+                            city?: string;
+                            latitude?: number | null;
+                            longitude?: number | null;
+                        } | null;
+                        matchedPropertyEvidence?: {
+                            propertyId?: string | null;
+                            /** @enum {string} */
+                            matchKind?: "user_selected" | "source_exact" | "source_spatial" | "source_unmatched" | "source_mismatch";
+                        } | null;
+                        price?: number | null;
+                        currency?: string | null;
+                        thumbnailUrl?: string | null;
+                        title?: string | null;
+                        description?: string | null;
+                        firstSeenAt?: string | null;
+                        lastSeenAt?: string | null;
+                        sourceUpdatedAt?: string | null;
+                        payload?: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            canonicalListingId: string;
+                            /** Format: uuid */
+                            observationId: string;
+                            /** Format: uuid */
+                            watchId: string;
+                            state: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };

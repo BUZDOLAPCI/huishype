@@ -31,8 +31,6 @@ import type {
   PropertyResolveResponse,
   SearchUsersRequest,
   SearchUsersResponse,
-  SubmitListingRequest,
-  SubmitListingResponse,
 } from '@huishype/shared';
 import { HuisHypeApiClient, createApiClient, ApiError } from '../client.js';
 
@@ -51,17 +49,121 @@ type Expand<T> = { [K in keyof T]: T[K] };
 type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
 type FeedResponseFromOpenApi =
   paths['/feed']['get']['responses'][200]['content']['application/json'];
+type ListingPreviewRequestFromOpenApi =
+  paths['/listings/preview']['post']['requestBody']['content']['application/json'];
+type ListingPreviewResponseFromOpenApi =
+  paths['/listings/preview']['post']['responses'][200]['content']['application/json'];
 type SubmitListingRequestFromOpenApi =
   paths['/listings/submit']['post']['requestBody']['content']['application/json'];
 type SubmitListingResponseFromOpenApi =
   paths['/listings/submit']['post']['responses'][201]['content']['application/json'];
 type SubmitListingErrorFromOpenApi =
   paths['/listings/submit']['post']['responses'][400]['content']['application/json'];
-type CanonicalSubmitListingRequest = Expand<SubmitListingRequest>;
-type CanonicalSubmitListingResponse = Expand<SubmitListingResponse>;
+type PropertyListingsResponseFromOpenApi =
+  paths['/properties/{id}/listings']['get']['responses'][200]['content']['application/json'];
+type CanonicalListingPriceType = 'sale' | 'rent' | 'unknown';
+type CanonicalListingStatus = 'active' | 'sold' | 'rented' | 'withdrawn';
+type CanonicalListingVerificationState =
+  | 'provisional'
+  | 'validated'
+  | 'invalid'
+  | 'validation_pending'
+  | 'validation_blocked'
+  | 'validation_failed';
+type CanonicalListingPreviewWatchState = 'not_required' | 'will_enqueue' | 'unsupported';
+type CanonicalListingPreviewReasonCode =
+  | 'source_identity_match'
+  | 'address_match'
+  | 'address_mismatch'
+  | 'source_not_supported'
+  | 'source_not_found'
+  | 'mirror_unavailable'
+  | 'parser_error'
+  | 'og_unavailable'
+  | 'validation_pending';
+type CanonicalListingPreviewRequest = {
+  url: string;
+  propertyId: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  askingPrice?: number;
+  priceType?: CanonicalListingPriceType;
+  currency?: string;
+};
+type CanonicalListingPreviewResponse = {
+  sourceName: string;
+  rawUrl: string;
+  canonicalUrl: string;
+  sourceListingId: string | null;
+  sourceListingIdKind: string | null;
+  validationState: 'valid' | 'invalid' | 'provisional';
+  matchState: 'matched' | 'mismatch' | 'unverified' | 'unsupported';
+  watchState: CanonicalListingPreviewWatchState;
+  reasonCode: CanonicalListingPreviewReasonCode;
+  title: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  askingPrice: number | null;
+  priceType: CanonicalListingPriceType;
+  currency: string | null;
+  address: unknown | null;
+  submittedPropertyId: string;
+  matchedPropertyId: string | null;
+};
+type CanonicalSubmitListingRequest = {
+  url: string;
+  propertyId: string;
+  ogTitle?: string;
+  thumbnailUrl?: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  askingPrice?: number;
+  priceType?: CanonicalListingPriceType;
+  currency?: string;
+};
+type CanonicalSubmitListingResponse = {
+  id: string;
+  propertyId: string;
+  sourceUrl: string;
+  sourceName: string;
+  canonicalUrl: string | null;
+  sourceListingId: string | null;
+  status: CanonicalListingStatus;
+  verificationState: CanonicalListingVerificationState;
+  watchState: CanonicalListingPreviewWatchState;
+  watchId: string | null;
+  reasonCode: string;
+  createdAt: string;
+};
 type CanonicalSubmitListingError = {
   error: string;
   message: string;
+};
+type CanonicalPropertyListingReadItem = {
+  id: string;
+  sourceUrl: string;
+  sourceName: string;
+  canonicalUrl: string | null;
+  sourceListingId: string | null;
+  askingPrice: number | null;
+  priceType: string | null;
+  currency: string | null;
+  thumbnailUrl: string | null;
+  ogTitle: string | null;
+  description: string | null;
+  livingAreaM2: number | null;
+  numRooms: number | null;
+  energyLabel: string | null;
+  status: CanonicalListingStatus;
+  verificationState: CanonicalListingVerificationState;
+  watchState: string | null;
+  reasonCode: string | null;
+  createdAt: string;
+};
+type CanonicalPropertyListingsResponse = {
+  data: CanonicalPropertyListingReadItem[];
 };
 type SavedPropertiesQueryFromOpenApi = NonNullable<
   paths['/saved-properties']['get']['parameters']['query']
@@ -206,9 +308,12 @@ type FeedQuery = NonNullable<paths['/feed']['get']['parameters']['query']>;
 const feedContractAssertions = [
   true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
   true as Assert<IsExact<FeedResponseFromOpenApi, GetFeedResponse>>,
+  true as Assert<IsExact<ListingPreviewRequestFromOpenApi, CanonicalListingPreviewRequest>>,
+  true as Assert<IsExact<ListingPreviewResponseFromOpenApi, CanonicalListingPreviewResponse>>,
   true as Assert<IsExact<SubmitListingRequestFromOpenApi, CanonicalSubmitListingRequest>>,
   true as Assert<IsExact<SubmitListingResponseFromOpenApi, CanonicalSubmitListingResponse>>,
   true as Assert<IsExact<SubmitListingErrorFromOpenApi, CanonicalSubmitListingError>>,
+  true as Assert<IsExact<PropertyListingsResponseFromOpenApi, CanonicalPropertyListingsResponse>>,
   true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
   true as Expect<

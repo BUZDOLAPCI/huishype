@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db, ingestBatches, listings } from '../../db/index.js';
-import { users } from '../../db/schema.js';
+import { canonicalListings, mirrorListingWatches, users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { encodeOpaqueIngestCursor } from '../../services/ingest/index.js';
-import { normalizeSourceUrl } from '../../utils/address.js';
 import {
   createIntegrationListing,
   createIntegrationPriceHistory,
@@ -15,17 +14,32 @@ import {
 /**
  * Integration tests for listing routes.
  *
- * Tests GET listings, price history, POST preview (SSRF protection),
- * and POST submit against the real database.
+ * Tests GET listings, price history, POST preview/submit against the real
+ * database while mocking the external source-service boundary.
  */
 describe('Listing routes', () => {
   let app: FastifyInstance;
   let testPropertyId: string;
+  let otherPropertyId: string;
   let testAccessToken: string;
   const testUserIds: string[] = [];
-  const testListingIds: string[] = [];
+  const legacyListingIds: string[] = [];
+  const originalFetch = global.fetch;
+  const originalIngestApiKey = process.env.INGEST_API_KEY;
+  let mockFetchFn: jest.Mock<typeof global.fetch>;
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as Response;
+  }
 
   beforeAll(async () => {
+    process.env.INGEST_API_KEY = 'test-ingest-api-key';
+    mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
+    global.fetch = mockFetchFn;
     app = await buildApp({ logger: false });
 
     const property = await createIntegrationProperty({
@@ -38,6 +52,16 @@ describe('Listing routes', () => {
     });
     testPropertyId = property.id;
 
+    const otherProperty = await createIntegrationProperty({
+      street: 'Listings Mismatch Street',
+      houseNumber: 2,
+      city: 'Listings City',
+      postalCode: '9100AB',
+      lon: 5.472,
+      lat: 51.442,
+    });
+    otherPropertyId = otherProperty.id;
+
     const seededListing = await createIntegrationListing({
       propertyId: testPropertyId,
       askingPrice: 450000,
@@ -45,7 +69,7 @@ describe('Listing routes', () => {
       createdAt: new Date('2026-04-01T10:00:00.000Z'),
       updatedAt: new Date('2026-04-01T10:00:00.000Z'),
     });
-    testListingIds.push(seededListing.id);
+    legacyListingIds.push(seededListing.id);
     await createIntegrationPriceHistory({
       propertyId: testPropertyId,
       listingId: seededListing.id,
@@ -56,7 +80,6 @@ describe('Listing routes', () => {
       createdAt: new Date('2026-04-01T10:00:00.000Z'),
     });
 
-    // Create a test user for authenticated endpoints
     const uniqueId = `listtest${Date.now()}`;
     const authResp = await app.inject({
       method: 'POST',
@@ -70,16 +93,35 @@ describe('Listing routes', () => {
     testUserIds.push(authBody.session.user.id);
   });
 
+  beforeEach(() => {
+    mockFetchFn.mockReset();
+  });
+
   afterAll(async () => {
     try {
-      await db.execute(sql`DELETE FROM price_history WHERE property_id = ${testPropertyId}`);
-      await db.execute(sql`DELETE FROM listings WHERE property_id = ${testPropertyId}`);
-      await db.execute(sql`DELETE FROM properties WHERE id = ${testPropertyId}`);
+      for (const propertyId of [testPropertyId, otherPropertyId]) {
+        await db.execute(sql`
+          DELETE FROM listing_price_observations
+          WHERE property_id = ${propertyId}
+        `);
+        await db.execute(sql`
+          DELETE FROM listing_observation_links
+          WHERE canonical_listing_id IN (
+            SELECT id FROM canonical_listings WHERE property_id = ${propertyId}
+          )
+        `);
+        await db.execute(sql`DELETE FROM mirror_listing_watches WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM listing_observations WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM canonical_listings WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM price_history WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM listings WHERE property_id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
     } catch {
       // Ignore cleanup errors
     }
 
-    for (const listingId of testListingIds) {
+    for (const listingId of legacyListingIds) {
       try {
         await db.delete(listings).where(eq(listings.id, listingId));
       } catch {
@@ -93,6 +135,9 @@ describe('Listing routes', () => {
         // Ignore cleanup errors
       }
     }
+
+    global.fetch = originalFetch;
+    process.env.INGEST_API_KEY = originalIngestApiKey;
     await app.close();
   });
 
@@ -108,7 +153,6 @@ describe('Listing routes', () => {
       expect(body).toHaveProperty('data');
       expect(Array.isArray(body.data)).toBe(true);
 
-      // If there are listings, verify schema
       if (body.data.length > 0) {
         const listing = body.data[0];
         expect(listing).toHaveProperty('id');
@@ -129,8 +173,7 @@ describe('Listing routes', () => {
       });
 
       expect(response.statusCode).toBe(404);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('error', 'NOT_FOUND');
+      expect(JSON.parse(response.body)).toHaveProperty('error', 'NOT_FOUND');
     });
 
     it('should return 400 for invalid UUID', async () => {
@@ -154,7 +197,6 @@ describe('Listing routes', () => {
       const body = JSON.parse(response.body);
       expect(Array.isArray(body)).toBe(true);
 
-      // If there's price history, verify schema
       if (body.length > 0) {
         const entry = body[0];
         expect(entry).toHaveProperty('price');
@@ -177,12 +219,50 @@ describe('Listing routes', () => {
   });
 
   describe('POST /listings/preview', () => {
-    it('should allow unauthenticated requests', async () => {
+    it('should allow unauthenticated requests and use source-service validation', async () => {
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+          canonicalUrl: 'https://www.funda.nl/detail/89779872/',
+          sourceListingId: '89779872',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: '89779872' },
+            { kind: 'detail_id', value: '89779872' },
+          ],
+          listingPath: '/detail/89779872/',
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+          canonicalUrl: 'https://www.funda.nl/detail/89779872/',
+          sourceListingId: '89779872',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: '89779872' },
+            { kind: 'detail_id', value: '89779872' },
+          ],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          title: 'Validated Funda listing',
+          description: 'Source-owned validation',
+          thumbnailUrl: 'https://cdn.example.com/listing-preview.jpg',
+          price: 487500,
+          currency: 'EUR',
+        }));
+
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
         payload: {
-          url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          url: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
           propertyId: testPropertyId,
         },
       });
@@ -191,12 +271,43 @@ describe('Listing routes', () => {
       const body = JSON.parse(response.body);
       expect(body).toMatchObject({
         sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+        canonicalUrl: 'https://www.funda.nl/detail/89779872/',
+        sourceListingId: '89779872',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'valid',
+        matchState: 'matched',
+        watchState: 'not_required',
+        reasonCode: 'source_identity_match',
+        askingPrice: 487500,
+        currency: 'EUR',
+        submittedPropertyId: testPropertyId,
+        matchedPropertyId: testPropertyId,
       });
-      expect(body).toHaveProperty('ogTitle');
-      expect(body).toHaveProperty('ogImage');
-      expect(body).toHaveProperty('ogDescription');
-      expect(body).toHaveProperty('addressMatch');
-      expect(body).toHaveProperty('warning');
+      expect(body.title).toBe('Validated Funda listing');
+      expect(body.description).toBe('Source-owned validation');
+      expect(body.imageUrl).toBe('https://cdn.example.com/listing-preview.jpg');
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(mockFetchFn.mock.calls[0]?.[1]?.body))).toEqual({
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+      });
+      expect(JSON.parse(String(mockFetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
+        sourceName: 'funda',
+        sourceListingId: '89779872',
+        sourceListingIdKind: 'tiny_id',
+        property: {
+          id: testPropertyId,
+          countryCode: 'NL',
+          street: 'Listings Fixture Street',
+          postalCode: '9100AA',
+          houseNumber: 1,
+          houseNumberAddition: null,
+          city: 'Listings City',
+          latitude: 51.441,
+          longitude: 5.471,
+        },
+      });
     });
 
     it('should reject non-whitelisted URLs (SSRF protection)', async () => {
@@ -210,8 +321,7 @@ describe('Listing routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('INVALID_URL');
+      expect(JSON.parse(response.body).error).toBe('INVALID_URL');
     });
 
     it('should reject HTTP URLs (non-HTTPS)', async () => {
@@ -241,17 +351,46 @@ describe('Listing routes', () => {
     });
 
     it('should return 404 for non-existent property', async () => {
-      const fakeId = '00000000-0000-0000-0000-000000000000';
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
         payload: {
-          url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          propertyId: fakeId,
+          url: 'https://www.funda.nl/detail/koop/eindhoven/huis-89779872/89779872/',
+          propertyId: '00000000-0000-0000-0000-000000000000',
         },
       });
 
       expect(response.statusCode).toBe(404);
+    });
+
+    it('should surface unsupported Pararius id-style URLs without calling validate', async () => {
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({
+        supported: false,
+        sourceName: 'pararius',
+        rawUrl: 'https://www.pararius.com/87a48057',
+        reasonCode: 'id_only_unsupported',
+      }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: 'https://www.pararius.com/87a48057',
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        sourceName: 'pararius',
+        canonicalUrl: 'https://www.pararius.com/87a48057',
+        sourceListingId: null,
+        validationState: 'provisional',
+        matchState: 'unsupported',
+        watchState: 'unsupported',
+        reasonCode: 'source_not_supported',
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -283,12 +422,10 @@ describe('Listing routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('INVALID_URL');
+      expect(JSON.parse(response.body).error).toBe('INVALID_URL');
     });
 
     it('should return 404 for non-existent property', async () => {
-      const fakeId = '00000000-0000-0000-0000-000000000000';
       const response = await app.inject({
         method: 'POST',
         url: '/listings/submit',
@@ -296,17 +433,56 @@ describe('Listing routes', () => {
           authorization: `Bearer ${testAccessToken}`,
         },
         payload: {
-          url: 'https://www.funda.nl/koop/eindhoven/huis-88888/',
-          propertyId: fakeId,
+          url: 'https://www.funda.nl/detail/koop/eindhoven/huis-88888/88888/',
+          propertyId: '00000000-0000-0000-0000-000000000000',
         },
       });
 
       expect(response.statusCode).toBe(404);
     });
 
-    it('should accept thumbnailUrl payload field and return it via listings read model', async () => {
+    it('should create a validated canonical listing without a watch for matched submissions', async () => {
       const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
-      const submittedUrl = `https://www.funda.nl/koop/eindhoven/huis-${Date.now()}-${Math.floor(Math.random() * 10000)}/`;
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 12);
+      const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-contract-test/${submittedId}/`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: submittedUrl,
+          canonicalUrl: `https://www.funda.nl/detail/${submittedId}/`,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: submittedId },
+            { kind: 'detail_id', value: submittedId },
+          ],
+          listingPath: `/detail/${submittedId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: submittedUrl,
+          canonicalUrl: `https://www.funda.nl/detail/${submittedId}/`,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: submittedId },
+            { kind: 'detail_id', value: submittedId },
+          ],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          thumbnailUrl,
+          title: 'Contract test listing',
+          price: 525000,
+          currency: 'EUR',
+        }));
+
       const response = await app.inject({
         method: 'POST',
         url: '/listings/submit',
@@ -323,7 +499,16 @@ describe('Listing routes', () => {
 
       expect(response.statusCode).toBe(201);
       const created = JSON.parse(response.body);
-      testListingIds.push(created.id);
+      expect(created).toMatchObject({
+        propertyId: testPropertyId,
+        sourceName: 'funda',
+        canonicalUrl: `https://www.funda.nl/detail/${submittedId}/`,
+        sourceListingId: submittedId,
+        verificationState: 'validated',
+        watchState: 'not_required',
+        watchId: null,
+        reasonCode: 'source_identity_match',
+      });
 
       const listingsResponse = await app.inject({
         method: 'GET',
@@ -335,6 +520,7 @@ describe('Listing routes', () => {
       const insertedListing = listingsBody.data.find((item: { id: string }) => item.id === created.id);
       expect(insertedListing).toBeDefined();
       expect(insertedListing.thumbnailUrl).toBe(thumbnailUrl);
+      expect(insertedListing.verificationState).toBe('validated');
 
       const maintenanceIdempotencyKey = `listing-submit:${created.id}`;
       const [maintenanceRow] = await db
@@ -346,17 +532,422 @@ describe('Listing routes', () => {
       expect(maintenanceRow).toBeDefined();
       expect(maintenanceRow?.status).toBe('completed');
       expect(maintenanceRow?.maintenanceRequestedAt).not.toBeNull();
-      if (maintenanceRow?.maintenanceCompletedAt) {
-        expect(
-          new Date(maintenanceRow.maintenanceCompletedAt).getTime(),
-        ).toBeGreaterThanOrEqual(new Date(maintenanceRow.maintenanceRequestedAt as Date).getTime());
-      }
       expect(maintenanceRow?.payloadJson).toMatchObject({
         requestedBy: 'listing-submit',
-        listingId: created.id,
+        canonicalListingId: created.id,
         propertyId: testPropertyId,
-        sourceUrl: normalizeSourceUrl(submittedUrl),
+        sourceUrl: `https://www.funda.nl/detail/${submittedId}/`,
         sourceName: 'funda',
+        sourceListingId: submittedId,
+      });
+
+      const [watch] = await db
+        .select()
+        .from(mirrorListingWatches)
+        .where(eq(mirrorListingWatches.canonicalListingId, created.id))
+        .limit(1);
+      expect(watch).toBeUndefined();
+    });
+
+    it('should reject unsupported Pararius ID-only submissions', async () => {
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({
+        supported: false,
+        sourceName: 'pararius',
+        rawUrl: 'https://www.pararius.com/87a48057',
+        reasonCode: 'id_only_unsupported',
+      }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: 'https://www.pararius.com/87a48057',
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('LISTING_VALIDATION_FAILED');
+    });
+
+    it('should reject confirmed source mismatches without creating a canonical listing', async () => {
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: `https://www.funda.nl/detail/koop/eindhoven/huis-mismatch/${submittedId}/`,
+          canonicalUrl,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: submittedId }],
+          listingPath: `/detail/${submittedId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: `https://www.funda.nl/detail/koop/eindhoven/huis-mismatch/${submittedId}/`,
+          canonicalUrl,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: submittedId }],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: otherPropertyId,
+            matchKind: 'source_mismatch',
+          },
+        }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: `https://www.funda.nl/detail/koop/eindhoven/huis-mismatch/${submittedId}/`,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'LISTING_VALIDATION_FAILED',
+      });
+
+      const [canonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.canonicalUrl, canonicalUrl))
+        .limit(1);
+      expect(canonical).toBeUndefined();
+    });
+
+    it('should create a provisional listing and durable watch on temporary source failures', async () => {
+      const rawUrl = 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan';
+      const canonicalUrl = rawUrl;
+      const sourceListingId = '/apartment-for-rent/eindhoven/87a48057/kathodelaan';
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          listingPath: sourceListingId,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+          ogTitle: 'Temporary failure listing',
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const created = JSON.parse(response.body);
+      expect(created).toMatchObject({
+        sourceName: 'pararius',
+        canonicalUrl,
+        sourceListingId,
+        verificationState: 'provisional',
+        watchState: 'will_enqueue',
+        reasonCode: 'mirror_unavailable',
+      });
+      expect(created.watchId).toBeTruthy();
+
+      const [watch] = await db
+        .select()
+        .from(mirrorListingWatches)
+        .where(eq(mirrorListingWatches.id, created.watchId))
+        .limit(1);
+      expect(watch).toBeDefined();
+      expect(watch?.state).toBe('queued');
+      expect(watch?.sourceName).toBe('pararius');
+      expect(watch?.sourceUrlCanonical).toBe(canonicalUrl);
+    });
+  });
+
+  describe('POST /api/ingest/listing-validation-outcomes', () => {
+    it('should apply a matched validation callback to a provisional listing', async () => {
+      const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/kathodelaan`;
+      const canonicalUrl = rawUrl;
+      const sourceListingId = `/apartment-for-rent/eindhoven/${suffix}/kathodelaan`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          listingPath: sourceListingId,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        }));
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      const submitted = JSON.parse(submitResponse.body);
+      expect(submitted.watchId).toBeTruthy();
+
+      const outcomeResponse = await app.inject({
+        method: 'POST',
+        url: '/api/ingest/listing-validation-outcomes',
+        headers: {
+          'x-api-key': 'test-ingest-api-key',
+        },
+        payload: {
+          watchId: submitted.watchId,
+          state: 'matched',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          price: 2100,
+          currency: 'EUR',
+          thumbnailUrl: 'https://cdn.example.com/pararius-thumb.jpg',
+          title: 'Validated Pararius listing',
+          description: 'Validated after callback',
+        },
+      });
+
+      expect(outcomeResponse.statusCode).toBe(202);
+      expect(JSON.parse(outcomeResponse.body)).toMatchObject({
+        canonicalListingId: submitted.id,
+        watchId: submitted.watchId,
+        state: 'matched',
+      });
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const updatedListing = listingsBody.data.find((item: { id: string }) => item.id === submitted.id);
+      expect(updatedListing).toMatchObject({
+        id: submitted.id,
+        verificationState: 'validated',
+        watchState: 'matched',
+        reasonCode: null,
+        thumbnailUrl: 'https://cdn.example.com/pararius-thumb.jpg',
+      });
+    });
+
+    it('should retain the provisional reason when a validation callback is still retryable', async () => {
+      const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/retryable`;
+      const canonicalUrl = rawUrl;
+      const sourceListingId = `/apartment-for-rent/eindhoven/${suffix}/retryable`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          listingPath: sourceListingId,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        }));
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      const submitted = JSON.parse(submitResponse.body);
+      expect(submitted.watchId).toBeTruthy();
+
+      const outcomeResponse = await app.inject({
+        method: 'POST',
+        url: '/api/ingest/listing-validation-outcomes',
+        headers: {
+          'x-api-key': 'test-ingest-api-key',
+        },
+        payload: {
+          watchId: submitted.watchId,
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        },
+      });
+
+      expect(outcomeResponse.statusCode).toBe(202);
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const updatedListing = listingsBody.data.find((item: { id: string }) => item.id === submitted.id);
+      expect(updatedListing).toMatchObject({
+        id: submitted.id,
+        verificationState: 'validation_pending',
+        watchState: 'retryable_error',
+        reasonCode: 'mirror_unavailable',
+      });
+    });
+
+    it('should clear stale provisional reasons when a callback resolves to a terminal state', async () => {
+      const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/not-found`;
+      const canonicalUrl = rawUrl;
+      const sourceListingId = `/apartment-for-rent/eindhoven/${suffix}/not-found`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          listingPath: sourceListingId,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        }));
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      const submitted = JSON.parse(submitResponse.body);
+      expect(submitted.watchId).toBeTruthy();
+
+      const outcomeResponse = await app.inject({
+        method: 'POST',
+        url: '/api/ingest/listing-validation-outcomes',
+        headers: {
+          'x-api-key': 'test-ingest-api-key',
+        },
+        payload: {
+          watchId: submitted.watchId,
+          state: 'not_found',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          sourceStatus: 'not_found',
+        },
+      });
+
+      expect(outcomeResponse.statusCode).toBe(202);
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const updatedListing = listingsBody.data.find((item: { id: string }) => item.id === submitted.id);
+      expect(updatedListing).toMatchObject({
+        id: submitted.id,
+        verificationState: 'validated',
+        watchState: 'not_found',
+        reasonCode: null,
       });
     });
   });

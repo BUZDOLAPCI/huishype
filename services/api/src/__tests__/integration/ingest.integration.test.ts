@@ -7,7 +7,10 @@ import {
   ingestBatches,
   ingestRuns,
   ingestSources,
+  canonicalListings,
   listings,
+  listingObservations,
+  listingPriceObservations,
   priceHistory,
   properties,
 } from '../../db/schema.js';
@@ -29,6 +32,9 @@ describe('Durable ingest API contract', () => {
   async function resetIngestSourceState(sourceName: string) {
     await db.delete(priceHistory).where(eq(priceHistory.source, sourceName));
     await db.delete(listings).where(eq(listings.sourceName, sourceName));
+    await db.delete(listingPriceObservations).where(eq(listingPriceObservations.sourceName, sourceName));
+    await db.delete(listingObservations).where(eq(listingObservations.sourceName, sourceName));
+    await db.delete(canonicalListings).where(eq(canonicalListings.sourceName, sourceName));
     await db.delete(ingestBatches).where(eq(ingestBatches.sourceName, sourceName));
     await db.delete(ingestRuns).where(eq(ingestRuns.sourceName, sourceName));
     await db.delete(ingestSources).where(eq(ingestSources.sourceName, sourceName));
@@ -48,6 +54,9 @@ describe('Durable ingest API contract', () => {
     try {
       await db.delete(priceHistory).where(inArray(priceHistory.source, cleanupSourceNames));
       await db.delete(listings).where(inArray(listings.sourceName, cleanupSourceNames));
+      await db.delete(listingPriceObservations).where(inArray(listingPriceObservations.sourceName, cleanupSourceNames));
+      await db.delete(listingObservations).where(inArray(listingObservations.sourceName, cleanupSourceNames));
+      await db.delete(canonicalListings).where(inArray(canonicalListings.sourceName, cleanupSourceNames));
       await db.delete(ingestSources).where(inArray(ingestSources.sourceName, cleanupSourceNames));
       await db.delete(ingestBatches).where(inArray(ingestBatches.sourceName, cleanupSourceNames));
       await db.delete(ingestRuns).where(inArray(ingestRuns.sourceName, cleanupSourceNames));
@@ -563,11 +572,11 @@ describe('Durable ingest API contract', () => {
 
     const [storedListing] = await db
       .select()
-      .from(listings)
+      .from(canonicalListings)
       .where(
         and(
-          eq(listings.sourceName, 'fotocasa'),
-          eq(listings.mirrorListingId, firstMirrorListingId),
+          eq(canonicalListings.sourceName, 'fotocasa'),
+          eq(canonicalListings.primarySourceListingId, firstMirrorListingId),
         ),
       )
       .limit(1);
@@ -575,7 +584,14 @@ describe('Durable ingest API contract', () => {
     expect(storedListing).toBeDefined();
     const matchedListing = storedListing;
     expect(matchedListing?.propertyId).toBe(alphaProperty?.id);
-    expect(matchedListing?.sourceUrl).toBe('https://www.fotocasa.es/es/comprar/vivienda/eindhoven/alpha');
+    expect(matchedListing?.canonicalUrl).toBe('https://www.fotocasa.es/es/comprar/vivienda/eindhoven/alpha');
+
+    const [legacyListing] = await db
+      .select()
+      .from(listings)
+      .where(eq(listings.sourceName, 'fotocasa'))
+      .limit(1);
+    expect(legacyListing).toBeUndefined();
 
     const [historyRow] = await db
       .select()
@@ -585,7 +601,7 @@ describe('Durable ingest API contract', () => {
 
     expect(historyRow).toBeDefined();
     expect(historyRow?.propertyId).toBe(alphaProperty?.id);
-    expect(historyRow?.listingId).toBe(matchedListing?.id);
+    expect(historyRow?.listingId).toBeNull();
 
     expect(firstAccepted.runId).toBeTruthy();
     const runId = firstAccepted.runId as string;
@@ -868,7 +884,7 @@ describe('Durable ingest API contract', () => {
     });
   });
 
-  it('marks a terminal ingest failure on the run and source ledger', async () => {
+  it('merges duplicate mirror URL observations without writing legacy listings', async () => {
     const runKey = `fotocasa-failure-run-${Date.now()}`;
     const failureProperty = await db
       .insert(properties)
@@ -937,45 +953,63 @@ describe('Durable ingest API contract', () => {
         maxAttempts: 1,
         enqueueMaintenanceRefresh: async () => {},
       }),
-    ).rejects.toThrow();
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 2,
+      updated: 0,
+      skipped: 0,
+    });
 
-    const [failedBatch] = await db
+    const [completedBatch] = await db
       .select()
       .from(ingestBatches)
       .where(eq(ingestBatches.id, accepted.batchId))
       .limit(1);
 
-    expect(failedBatch?.status).toBe('failed');
-    expect(failedBatch?.errorJson).toBeTruthy();
+    expect(completedBatch?.status).toBe('completed');
+    expect(completedBatch?.errorJson).toBeNull();
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(
+        and(
+          eq(canonicalListings.sourceName, 'fotocasa'),
+          eq(canonicalListings.canonicalUrl, 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/failure'),
+        ),
+      );
+    expect(canonicalRows).toHaveLength(1);
+
+    const [legacyListing] = await db
+      .select()
+      .from(listings)
+      .where(eq(listings.sourceName, 'fotocasa'))
+      .limit(1);
+    expect(legacyListing).toBeUndefined();
 
     expect(accepted.runId).toBeTruthy();
-    const failedRunId = accepted.runId as string;
+    const completedRunId = accepted.runId as string;
 
-    const [failedRun] = await db
+    const [completedRun] = await db
       .select()
       .from(ingestRuns)
-      .where(eq(ingestRuns.id, failedRunId))
+      .where(eq(ingestRuns.id, completedRunId))
       .limit(1);
 
-    expect(failedRun).toBeDefined();
-    expect(failedRun?.status).toBe('failed');
-    expect(failedRun?.processedBatchCount).toBe(1);
-    expect(failedRun?.completedAt).not.toBeNull();
-    expect(failedRun?.errorSummary).toMatchObject({
-      terminalBatchId: accepted.batchId,
-      runId: failedRunId,
-      sourceName: 'fotocasa',
-      status: 'failed',
-    });
+    expect(completedRun).toBeDefined();
+    expect(completedRun?.status).toBe('completed');
+    expect(completedRun?.processedBatchCount).toBe(1);
+    expect(completedRun?.completedAt).not.toBeNull();
+    expect(completedRun?.errorSummary).toBeNull();
 
-    const [failedSource] = await db
+    const [completedSource] = await db
       .select()
       .from(ingestSources)
       .where(eq(ingestSources.sourceName, 'fotocasa'))
       .limit(1);
 
-    expect(failedSource).toBeDefined();
-    expect(failedSource?.lastRunStatus).toBe('failed');
-    expect(failedSource?.lastRunCompletedAt).not.toBeNull();
+    expect(completedSource).toBeDefined();
+    expect(completedSource?.lastRunStatus).toBe('completed');
+    expect(completedSource?.lastRunCompletedAt).not.toBeNull();
   });
 });

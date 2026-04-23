@@ -1,6 +1,7 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice } from '@huishype/shared';
+import type { ListingVerificationState, ListingWatchState } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
 import { SectionCard } from './SectionCard';
 
@@ -55,6 +56,39 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     }
   };
 
+  const getVerificationBadge = (
+    verificationState: ListingVerificationState | null | undefined,
+    watchState: ListingWatchState | null | undefined
+  ) => {
+    if (verificationState === 'validated') {
+      return { text: 'Validated', color: '#16A34A' };
+    }
+    if (verificationState === 'invalid') {
+      return { text: 'Invalid', color: '#EF4444' };
+    }
+    if (verificationState === 'validation_blocked' || watchState === 'blocked') {
+      return { text: 'Blocked', color: '#9C958A' };
+    }
+    if (
+      verificationState === 'validation_failed' ||
+      watchState === 'parser_error' ||
+      watchState === 'retryable_error'
+    ) {
+      return { text: 'Check failed', color: '#D97706' };
+    }
+    if (
+      verificationState === 'provisional' ||
+      verificationState === 'validation_pending' ||
+      watchState === 'will_enqueue' ||
+      watchState === 'pending' ||
+      watchState === 'queued' ||
+      watchState === 'fetching'
+    ) {
+      return { text: 'Pending check', color: '#F59E0B' };
+    }
+    return null;
+  };
+
   return (
     <SectionCard
       title={`Listings${hasListings ? ` (${listings.length})` : ''}`}
@@ -67,19 +101,19 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
             const sourceInfo = getSourceInfo(listing.sourceName);
             const price = formatPrice(listing.askingPrice, listing.priceType);
             const statusBadge = getStatusBadge(listing.status);
+            const verificationBadge = getVerificationBadge(
+              listing.verificationState,
+              listing.watchState
+            );
+            const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
 
             return (
               <Pressable
                 key={listing.id}
-                onPress={() => handleOpenLink(listing.sourceUrl, listing.sourceName)}
-                style={({ pressed }) => [
-                  styles.row,
-                  pressed && styles.rowPressed,
-                ]}
+                onPress={() => handleOpenLink(sourceUrl, listing.sourceName)}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
-                <View
-                  style={[styles.iconTile, { backgroundColor: `${sourceInfo.color}18` }]}
-                >
+                <View style={[styles.iconTile, { backgroundColor: `${sourceInfo.color}18` }]}>
                   <Ionicons name={sourceInfo.icon} size={20} color={sourceInfo.color} />
                 </View>
 
@@ -89,6 +123,13 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
                     {statusBadge ? (
                       <View style={[styles.statusBadge, { backgroundColor: statusBadge.color }]}>
                         <Text style={styles.statusBadgeText}>{statusBadge.text}</Text>
+                      </View>
+                    ) : null}
+                    {verificationBadge ? (
+                      <View
+                        style={[styles.statusBadge, { backgroundColor: verificationBadge.color }]}
+                      >
+                        <Text style={styles.statusBadgeText}>{verificationBadge.text}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -114,10 +155,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
         {onAddListing ? (
           <Pressable
             onPress={onAddListing}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.addButtonPressed,
-            ]}
+            style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
           >
             <Ionicons name="add-circle-outline" size={20} color="#9C958A" />
             <Text style={styles.addButtonText}>Add listing</Text>

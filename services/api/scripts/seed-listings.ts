@@ -1,16 +1,16 @@
 // ---------------------------------------------------------------------------
 // seed-listings.ts
 //
-// Bulk import of listings and price history from the Funda and Pararius mirror
+// Bulk replay of listings and price history from the Funda and Pararius mirror
 // databases into the main HuisHype database.
 //
 // Strategy:
 //   1. Preload ALL property addresses into an in-memory Map for O(1) lookups
-//   2. Drop listing + price_history indexes before bulk inserts
-//   3. Batch INSERT listings with multi-row VALUES (batch size 5000)
-//   4. Batch INSERT price_history similarly
-//   5. Recreate indexes after all inserts
-//   6. ANALYZE affected tables
+//   2. Load matched mirror rows into listing_replay_staging
+//   3. Convert staged rows into replay observations
+//   4. Reconcile canonical_listings and observation links set-wise
+//   5. Project listing_price_observations and compatibility price_history rows
+//   6. Refresh canonical listing views and ANALYZE affected tables
 //
 // Usage:
 //   npx tsx scripts/seed-listings.ts [--dry-run] [--source funda|pararius|both]
@@ -19,6 +19,7 @@
 import postgres from 'postgres';
 import dotenv from 'dotenv';
 import { canonicalizeAddress } from '../src/utils/address.js';
+import { resolveListingSourceUrl, type ListingSourceAlias } from '../src/services/listing-source-resolution.js';
 
 dotenv.config();
 
@@ -75,34 +76,52 @@ interface SourceStats {
   errors: number;
 }
 
-type ListingStatus = 'active' | 'sold' | 'rented' | 'withdrawn';
+type ListingSourceStatus = 'available' | 'sold' | 'rented' | 'withdrawn' | 'not_found' | 'blocked' | 'invalid' | 'parser_error' | 'unknown';
+type ListingSourceIdKind = 'tiny_id' | 'global_id' | 'detail_id' | 'canonical_path' | 'relative_path' | 'url_path' | 'unknown';
+type ListingPropertyMatchKind = 'source_exact' | 'source_spatial';
+type PriceObservationEventType = 'initial' | 'price_change' | 'status_change' | 'mirror_refresh' | 'user_submission';
 type SourceName = 'funda' | 'pararius';
 
-// Batch row types for accumulation before INSERT
-interface ListingRow {
+interface SourceIdentity {
+  sourceListingId: string;
+  sourceListingIdKind: ListingSourceIdKind;
+  sourceUrlCanonical: string;
+  sourceListingAliases: ListingSourceAlias[];
+}
+
+// Batch row types for accumulation before replay
+interface ReplayStagingRow {
   property_id: string;
-  source_url: string;
   source_name: SourceName;
+  source_listing_id: string;
+  source_listing_id_kind: ListingSourceIdKind;
+  source_listing_aliases: ListingSourceAlias[];
+  source_url_raw: string;
+  source_url_canonical: string;
   asking_price: number | null;
   price_type: string | null;
   living_area_m2: number | null;
   num_rooms: number | null;
   energy_label: string | null;
-  status: ListingStatus;
+  source_status: ListingSourceStatus;
+  property_match_kind: ListingPropertyMatchKind;
   mirror_listing_id: string | null;
   thumbnail_url: string | null;
   og_title: string;
+  address: Record<string, unknown>;
   mirror_first_seen_at: Date | null;
   mirror_last_changed_at: Date | null;
   mirror_last_seen_at: Date | null;
 }
 
-interface PriceHistoryRow {
+interface PriceObservationRow {
   property_id: string;
+  source_name: SourceName;
+  source_listing_id: string | null;
   price: number;
   price_date: string;
-  event_type: string;
-  source: string;
+  event_type: PriceObservationEventType;
+  observed_at: Date | string;
 }
 
 // Unmatched listing that needs spatial fallback
@@ -153,25 +172,28 @@ function formatElapsedTime(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-/** Map mirror listing status to main DB listing status. */
-function mapListingStatus(mirrorStatus: string, source: SourceName): ListingStatus {
+/** Map mirror listing status to source observation status. */
+function mapSourceStatus(mirrorStatus: string, source: SourceName): ListingSourceStatus {
   const s = mirrorStatus.toLowerCase();
-  if (s === 'available') return 'active';
+  if (s === 'available' || s === 'active') return 'available';
   if (s === 'sold') return 'sold';
   if (s === 'rented') return 'rented';
   if (s === 'withdrawn') return 'withdrawn';
+  if (s === 'not_found') return 'not_found';
+  if (s === 'blocked') return 'blocked';
+  if (s === 'invalid') return 'invalid';
+  if (s === 'parser_error') return 'parser_error';
   // Fallback
-  console.warn(`  Unknown ${source} listing status: "${mirrorStatus}", defaulting to "active"`);
-  return 'active';
+  console.warn(`  Unknown ${source} listing status: "${mirrorStatus}", defaulting to "unknown"`);
+  return 'unknown';
 }
 
-/** Map mirror price history status to main DB event_type. */
-function mapPriceEventType(mirrorStatus: string): string {
+/** Map mirror price history status to listing_price_observations event_type. */
+function mapPriceEventType(mirrorStatus: string): PriceObservationEventType {
   const s = mirrorStatus.toLowerCase();
-  if (s === 'asking_price') return 'asking_price';
-  if (s === 'sold') return 'sold';
-  if (s === 'rented') return 'rented';
-  return s; // pass through if unknown
+  if (s === 'price_change') return 'price_change';
+  if (s === 'sold' || s === 'rented') return 'status_change';
+  return 'initial';
 }
 
 /** Convert cents (bigint string or number) to whole euros, or null if missing. */
@@ -199,6 +221,100 @@ function buildOgTitle(
 function extractThumbnailUrl(photoUrls: string[] | null): string | null {
   if (!photoUrls || !Array.isArray(photoUrls) || photoUrls.length === 0) return null;
   return photoUrls[0] ?? null;
+}
+
+function normalizePriceType(priceType: string | null): string | null {
+  if (!priceType) return null;
+  const normalized = priceType.trim().toLowerCase();
+  if (normalized === '') return null;
+  return normalized;
+}
+
+function uniqueSourceAliases(aliases: ListingSourceAlias[]): ListingSourceAlias[] {
+  const seen = new Set<string>();
+  return aliases.filter((alias) => {
+    const key = `${alias.kind}:${alias.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function resolveMirrorSourceIdentity(source: SourceName, rawUrl: string, mirrorId: string | null | undefined): SourceIdentity {
+  const resolution = resolveListingSourceUrl(rawUrl, source);
+  const aliases: ListingSourceAlias[] = [];
+
+  if (resolution.supported) {
+    aliases.push(...resolution.aliases);
+    if (mirrorId && !aliases.some((alias) => alias.value === mirrorId)) {
+      aliases.push({ kind: source === 'funda' ? 'tiny_id' : 'url_path', value: mirrorId });
+    }
+    return {
+      sourceListingId: resolution.sourceListingId,
+      sourceListingIdKind: resolution.sourceListingIdKind,
+      sourceUrlCanonical: resolution.canonicalUrl,
+      sourceListingAliases: uniqueSourceAliases(aliases),
+    };
+  }
+
+  const fallbackId = mirrorId?.trim() || rawUrl.trim();
+  if (fallbackId && source === 'funda') {
+    aliases.push({ kind: 'tiny_id', value: fallbackId });
+  }
+  if (rawUrl.trim()) {
+    aliases.push({ kind: 'canonical_url', value: rawUrl.trim() });
+  }
+
+  return {
+    sourceListingId: fallbackId,
+    sourceListingIdKind: mirrorId ? (source === 'funda' ? 'tiny_id' : 'url_path') : 'unknown',
+    sourceUrlCanonical: rawUrl.trim(),
+    sourceListingAliases: uniqueSourceAliases(aliases),
+  };
+}
+
+function buildReplayRow(
+  row: MirrorListing,
+  source: SourceName,
+  propertyId: string,
+  propertyMatchKind: ListingPropertyMatchKind,
+): ReplayStagingRow {
+  const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
+  const identity = resolveMirrorSourceIdentity(source, row.listing_url, mirrorId);
+  const priceType = normalizePriceType(row.price_type);
+
+  return {
+    property_id: propertyId,
+    source_name: source,
+    source_listing_id: identity.sourceListingId,
+    source_listing_id_kind: identity.sourceListingIdKind,
+    source_listing_aliases: identity.sourceListingAliases,
+    source_url_raw: row.listing_url,
+    source_url_canonical: identity.sourceUrlCanonical,
+    asking_price: centsToEuros(row.asking_price_cents),
+    price_type: priceType,
+    living_area_m2: row.living_area_m2,
+    num_rooms: row.num_rooms,
+    energy_label: row.energy_label,
+    source_status: mapSourceStatus(row.status, source),
+    property_match_kind: propertyMatchKind,
+    mirror_listing_id: mirrorId ?? null,
+    thumbnail_url: extractThumbnailUrl(row.photo_urls),
+    og_title: buildOgTitle(row.street, row.house_number, row.house_number_addition, row.city, priceType),
+    address: {
+      countryCode: 'NL',
+      street: row.street,
+      postalCode: row.postal_code,
+      houseNumber: Number.parseInt(row.house_number, 10) || null,
+      houseNumberAddition: row.house_number_addition,
+      city: row.city,
+      latitude: row.latitude,
+      longitude: row.longitude,
+    },
+    mirror_first_seen_at: row.first_seen_at,
+    mirror_last_changed_at: row.last_changed_at,
+    mirror_last_seen_at: row.last_seen_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -329,142 +445,696 @@ async function spatialFallbackBatch(
 }
 
 // ---------------------------------------------------------------------------
-// Index management
+// Replay helpers
 // ---------------------------------------------------------------------------
 
-// Only drop non-unique indexes. Keep unique indexes needed for ON CONFLICT:
-//   listings_source_url_idx (ON CONFLICT source_url)
-//   price_history_dedup_idx (ON CONFLICT property_id, price_date, price, event_type)
-const DROP_INDEXES_SQL = `
-DROP INDEX IF EXISTS listings_property_id_idx;
-DROP INDEX IF EXISTS listings_mirror_dedup_idx;
-DROP INDEX IF EXISTS listings_source_status_idx;
-DROP INDEX IF EXISTS listings_mirror_last_changed_idx;
-DROP INDEX IF EXISTS listings_mirror_last_seen_idx;
-DROP INDEX IF EXISTS price_history_property_date_idx;
-DROP INDEX IF EXISTS price_history_listing_idx;
-`;
-
-const CREATE_INDEXES_SQL = [
-  `CREATE INDEX IF NOT EXISTS listings_property_id_idx ON listings USING btree (property_id)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS listings_mirror_dedup_idx ON listings USING btree (source_name, mirror_listing_id) WHERE mirror_listing_id IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS listings_source_status_idx ON listings USING btree (source_name, status)`,
-  `CREATE INDEX IF NOT EXISTS listings_mirror_last_changed_idx ON listings USING btree (mirror_last_changed_at)`,
-  `CREATE INDEX IF NOT EXISTS listings_mirror_last_seen_idx ON listings USING btree (mirror_last_seen_at) WHERE status = 'active'`,
-  `CREATE INDEX IF NOT EXISTS price_history_property_date_idx ON price_history USING btree (property_id, price_date)`,
-  `CREATE INDEX IF NOT EXISTS price_history_listing_idx ON price_history USING btree (listing_id)`,
-];
-
-async function dropIndexes(mainDb: postgres.Sql): Promise<void> {
-  // Execute each DROP individually since postgres.js unsafe doesn't support multi-statement
-  const statements = DROP_INDEXES_SQL
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && s.startsWith('DROP'));
-
-  for (const stmt of statements) {
-    await mainDb.unsafe(stmt);
-  }
-}
-
-async function createIndexes(mainDb: postgres.Sql): Promise<void> {
-  for (const stmt of CREATE_INDEXES_SQL) {
-    await mainDb.unsafe(stmt);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Batch INSERT helpers
-// ---------------------------------------------------------------------------
-
-async function batchInsertListings(
+async function clearReplayRun(
   mainDb: postgres.Sql,
-  rows: ListingRow[],
-): Promise<{ inserted: number; duplicates: number }> {
-  if (rows.length === 0) return { inserted: 0, duplicates: 0 };
+  source: SourceName,
+  runKey: string,
+): Promise<void> {
+  await mainDb`
+    DELETE FROM listing_replay_staging
+    WHERE source_name = ${source}
+      AND upstream_run_key = ${runKey}
+  `;
+}
 
-  const columns = [
-    'property_id', 'source_url', 'source_name', 'asking_price', 'price_type',
-    'living_area_m2', 'num_rooms', 'energy_label', 'status',
-    'mirror_listing_id', 'thumbnail_url', 'og_title',
-    'mirror_first_seen_at', 'mirror_last_changed_at', 'mirror_last_seen_at',
-  ] as const;
+async function batchInsertReplayStaging(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  runKey: string,
+  rows: ReplayStagingRow[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
 
-  // Build parameterized multi-row VALUES
-  const COLS_PER_ROW = columns.length; // 15
+  const COLS_PER_ROW = 17;
   const valueClauses: string[] = [];
   const params: unknown[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const base = i * COLS_PER_ROW;
-    const placeholders = [];
-    for (let j = 1; j <= COLS_PER_ROW; j++) {
-      placeholders.push(`$${base + j}`);
-    }
-    valueClauses.push(`(${placeholders.join(', ')})`);
+    valueClauses.push(`(
+      $${base + 1},
+      $${base + 2},
+      $${base + 3},
+      $${base + 4}::listing_source_id_kind,
+      $${base + 5}::jsonb,
+      $${base + 6},
+      $${base + 7},
+      $${base + 8}::listing_source_status,
+      $${base + 9}::uuid,
+      $${base + 10}::listing_property_match_kind,
+      $${base + 11},
+      $${base + 12},
+      $${base + 13}::jsonb,
+      $${base + 14},
+      $${base + 15},
+      $${base + 16},
+      $${base + 17}::jsonb
+    )`);
 
-    const r = rows[i];
+    const row = rows[i];
     params.push(
-      r.property_id, r.source_url, r.source_name, r.asking_price, r.price_type,
-      r.living_area_m2, r.num_rooms, r.energy_label, r.status,
-      r.mirror_listing_id, r.thumbnail_url, r.og_title,
-      r.mirror_first_seen_at, r.mirror_last_changed_at, r.mirror_last_seen_at,
+      source,
+      runKey,
+      row.source_listing_id,
+      row.source_listing_id_kind,
+      JSON.stringify(row.source_listing_aliases),
+      row.source_url_raw,
+      row.source_url_canonical,
+      row.source_status,
+      row.property_id,
+      row.property_match_kind,
+      row.asking_price,
+      'EUR',
+      JSON.stringify(row.address),
+      row.mirror_first_seen_at,
+      row.mirror_last_seen_at,
+      row.mirror_last_changed_at,
+      JSON.stringify({
+        mirrorListingId: row.mirror_listing_id,
+        title: row.og_title,
+        imageUrl: row.thumbnail_url,
+        priceType: row.price_type,
+        livingAreaM2: row.living_area_m2,
+        numRooms: row.num_rooms,
+        energyLabel: row.energy_label,
+      }),
     );
   }
 
   const sql = `
-    INSERT INTO listings (${columns.join(', ')})
+    INSERT INTO listing_replay_staging (
+      source_name,
+      upstream_run_key,
+      source_listing_id,
+      source_listing_id_kind,
+      source_listing_aliases,
+      source_url_raw,
+      source_url_canonical,
+      source_status,
+      property_id,
+      property_match_kind,
+      asking_price,
+      price_currency,
+      address_normalized,
+      first_seen_at,
+      last_seen_at,
+      source_updated_at,
+      payload
+    )
     VALUES ${valueClauses.join(',\n')}
-    ON CONFLICT (source_url) DO NOTHING
-    RETURNING property_id
   `;
 
   const result = await mainDb.unsafe(sql, params as (string | number | null | Date)[]);
-  await advancePropertyChangeState(
-    mainDb,
-    result.map((row) => String(row.property_id)),
-  );
-  const inserted = result.count;
-  const duplicates = rows.length - inserted;
-  return { inserted, duplicates };
+  return result.count;
 }
 
-async function batchInsertPriceHistory(
+async function materializeReplayObservations(
   mainDb: postgres.Sql,
-  rows: PriceHistoryRow[],
+  source: SourceName,
+  runKey: string,
+): Promise<number> {
+  const inserted = await mainDb.unsafe(`
+    WITH staged AS (
+      SELECT *
+      FROM listing_replay_staging
+      WHERE source_name = $1
+        AND upstream_run_key = $2
+    ),
+    ins AS (
+      INSERT INTO listing_observations (
+        source_name,
+        source_listing_id,
+        source_listing_id_kind,
+        source_listing_aliases,
+        source_url_raw,
+        source_url_canonical,
+        origin,
+        property_id,
+        property_match_kind,
+        source_status,
+        asking_price,
+        price_currency,
+        address_raw,
+        address_normalized,
+        postal_code,
+        house_number,
+        house_number_addition,
+        listed_at,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        observed_at,
+        payload
+      )
+      SELECT
+        staged.source_name,
+        staged.source_listing_id,
+        staged.source_listing_id_kind,
+        staged.source_listing_aliases,
+        staged.source_url_raw,
+        staged.source_url_canonical,
+        'replay'::listing_observation_origin,
+        staged.property_id,
+        staged.property_match_kind,
+        staged.source_status,
+        staged.asking_price,
+        COALESCE(staged.price_currency, 'EUR'),
+        concat_ws(
+          ' ',
+          staged.address_normalized->>'street',
+          staged.address_normalized->>'houseNumber',
+          staged.address_normalized->>'houseNumberAddition',
+          staged.address_normalized->>'postalCode',
+          staged.address_normalized->>'city'
+        ),
+        staged.address_normalized,
+        staged.address_normalized->>'postalCode',
+        NULLIF(staged.address_normalized->>'houseNumber', '')::integer,
+        NULLIF(staged.address_normalized->>'houseNumberAddition', ''),
+        staged.listed_at,
+        staged.first_seen_at,
+        staged.last_seen_at,
+        staged.source_updated_at,
+        COALESCE(staged.last_seen_at, staged.source_updated_at, staged.first_seen_at, staged.loaded_at, now()),
+        staged.payload
+      FROM staged
+      ON CONFLICT DO NOTHING
+      RETURNING 1
+    )
+    SELECT count(*)::int AS count FROM ins
+  `, [source, runKey]);
+
+  return Number(inserted[0]?.count ?? 0);
+}
+
+async function reconcileReplayRun(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  runKey: string,
+): Promise<number> {
+  const result = await mainDb.unsafe(`
+    WITH staged AS (
+      SELECT *
+      FROM listing_replay_staging
+      WHERE source_name = $1
+        AND upstream_run_key = $2
+    ),
+    alias_rows AS (
+      SELECT DISTINCT
+        staged.source_name,
+        alias.kind AS alias_kind,
+        alias.value AS alias_value,
+        staged.source_listing_id AS primary_source_listing_id,
+        COALESCE(staged.first_seen_at, staged.loaded_at, now()) AS first_seen_at,
+        COALESCE(staged.last_seen_at, staged.source_updated_at, staged.loaded_at, now()) AS last_seen_at
+      FROM staged
+      CROSS JOIN LATERAL jsonb_to_recordset(staged.source_listing_aliases) AS alias(kind text, value text)
+      WHERE staged.source_listing_id IS NOT NULL
+        AND alias.kind IN ('tiny_id', 'global_id', 'detail_id', 'canonical_url', 'relative_path', 'url_path')
+        AND alias.value IS NOT NULL
+        AND alias.value <> ''
+    ),
+    alias_upsert AS (
+      INSERT INTO listing_source_aliases (
+        source_name,
+        alias_kind,
+        alias_value,
+        primary_source_listing_id,
+        first_seen_at,
+        last_seen_at
+      )
+      SELECT
+        source_name,
+        alias_kind::listing_source_alias_kind,
+        alias_value,
+        primary_source_listing_id,
+        first_seen_at,
+        last_seen_at
+      FROM alias_rows
+      ON CONFLICT (source_name, alias_kind, alias_value)
+      DO UPDATE SET
+        primary_source_listing_id = EXCLUDED.primary_source_listing_id,
+        last_seen_at = GREATEST(listing_source_aliases.last_seen_at, EXCLUDED.last_seen_at)
+      RETURNING 1
+    ),
+    candidate_observations AS (
+      SELECT DISTINCT ON (obs.id)
+        obs.id,
+        obs.property_id,
+        obs.source_name,
+        obs.source_listing_id,
+        obs.source_url_canonical,
+        obs.source_url_raw,
+        obs.submitted_by,
+        obs.source_status,
+        obs.asking_price,
+        COALESCE(obs.price_currency, 'EUR') AS price_currency,
+        obs.first_seen_at,
+        obs.last_seen_at,
+        obs.observed_at,
+        obs.payload,
+        staged.property_match_kind
+      FROM staged
+      JOIN listing_observations obs
+        ON obs.source_name = staged.source_name
+       AND obs.origin = 'replay'
+       AND obs.source_listing_id = staged.source_listing_id
+       AND obs.observed_at = COALESCE(staged.last_seen_at, staged.source_updated_at, staged.first_seen_at, staged.loaded_at)
+    ),
+    latest AS (
+      SELECT DISTINCT ON (source_name, source_listing_id)
+        *
+      FROM candidate_observations
+      ORDER BY source_name, source_listing_id, observed_at DESC, id DESC
+    ),
+    url_updates AS (
+      UPDATE canonical_listings AS c
+      SET
+        property_id = latest.property_id,
+        primary_source_listing_id = COALESCE(c.primary_source_listing_id, latest.source_listing_id),
+        canonical_url = COALESCE(latest.source_url_canonical, c.canonical_url),
+        display_url = COALESCE(latest.source_url_canonical, latest.source_url_raw, c.display_url),
+        status = CASE WHEN latest.source_status = 'available' THEN 'active'::canonical_listing_status ELSE latest.source_status::text::canonical_listing_status END,
+        status_source = 'mirror',
+        verification_state = CASE
+          WHEN latest.property_match_kind = 'source_mismatch' OR latest.source_status = 'invalid' THEN 'invalid'
+          WHEN latest.source_status = 'blocked' THEN 'validation_blocked'
+          WHEN latest.source_status = 'parser_error' THEN 'validation_failed'
+          WHEN latest.source_status = 'unknown' THEN 'validation_pending'
+          ELSE 'validated'
+        END,
+        origin_summary = CASE
+          WHEN c.origin_summary IN ('user', 'user_and_mirror') THEN 'user_and_mirror'
+          ELSE 'mirror'
+        END,
+        submitted_by = COALESCE(c.submitted_by, latest.submitted_by),
+        thumbnail_url = COALESCE(latest.payload->>'imageUrl', c.thumbnail_url),
+        title = COALESCE(latest.payload->>'title', c.title),
+        description = COALESCE(latest.payload->>'description', c.description),
+        asking_price = COALESCE(latest.asking_price, c.asking_price),
+        price_currency = COALESCE(latest.price_currency, c.price_currency),
+        price_type = COALESCE(latest.payload->>'priceType', c.price_type),
+        living_area_m2 = COALESCE(NULLIF(latest.payload->>'livingAreaM2', '')::integer, c.living_area_m2),
+        first_seen_at = COALESCE(c.first_seen_at, latest.first_seen_at, latest.observed_at),
+        last_seen_at = GREATEST(COALESCE(c.last_seen_at, latest.observed_at), COALESCE(latest.last_seen_at, latest.observed_at)),
+        last_mirror_seen_at = GREATEST(COALESCE(c.last_mirror_seen_at, latest.observed_at), COALESCE(latest.last_seen_at, latest.observed_at)),
+        last_reconciled_at = now(),
+        updated_at = now()
+      FROM latest
+      WHERE c.source_name = latest.source_name
+        AND c.canonical_url IS NOT NULL
+        AND c.canonical_url = latest.source_url_canonical
+      RETURNING c.id
+    ),
+    inserted AS (
+      INSERT INTO canonical_listings (
+        property_id,
+        source_name,
+        primary_source_listing_id,
+        canonical_url,
+        display_url,
+        status,
+        status_source,
+        verification_state,
+        origin_summary,
+        submitted_by,
+        thumbnail_url,
+        title,
+        description,
+        asking_price,
+        price_currency,
+        price_type,
+        living_area_m2,
+        first_seen_at,
+        last_seen_at,
+        last_mirror_seen_at,
+        last_reconciled_at
+      )
+      SELECT
+        latest.property_id,
+        latest.source_name,
+        latest.source_listing_id,
+        latest.source_url_canonical,
+        COALESCE(latest.source_url_canonical, latest.source_url_raw),
+        CASE WHEN latest.source_status = 'available' THEN 'active'::canonical_listing_status ELSE latest.source_status::text::canonical_listing_status END,
+        'mirror'::canonical_listing_status_source,
+        CASE
+          WHEN latest.property_match_kind = 'source_mismatch' OR latest.source_status = 'invalid' THEN 'invalid'::canonical_listing_verification_state
+          WHEN latest.source_status = 'blocked' THEN 'validation_blocked'::canonical_listing_verification_state
+          WHEN latest.source_status = 'parser_error' THEN 'validation_failed'::canonical_listing_verification_state
+          WHEN latest.source_status = 'unknown' THEN 'validation_pending'::canonical_listing_verification_state
+          ELSE 'validated'::canonical_listing_verification_state
+        END,
+        'mirror'::canonical_listing_origin_summary,
+        latest.submitted_by,
+        latest.payload->>'imageUrl',
+        latest.payload->>'title',
+        latest.payload->>'description',
+        latest.asking_price,
+        latest.price_currency,
+        latest.payload->>'priceType',
+        NULLIF(latest.payload->>'livingAreaM2', '')::integer,
+        COALESCE(latest.first_seen_at, latest.observed_at),
+        COALESCE(latest.last_seen_at, latest.observed_at),
+        COALESCE(latest.last_seen_at, latest.observed_at),
+        now()
+      FROM latest
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM canonical_listings c
+        WHERE c.source_name = latest.source_name
+          AND (
+            (latest.source_listing_id IS NOT NULL AND c.primary_source_listing_id = latest.source_listing_id)
+            OR (latest.source_url_canonical IS NOT NULL AND c.canonical_url = latest.source_url_canonical)
+          )
+      )
+      RETURNING id
+    ),
+    updated AS (
+      UPDATE canonical_listings AS c
+      SET
+        property_id = latest.property_id,
+        canonical_url = COALESCE(latest.source_url_canonical, c.canonical_url),
+        display_url = COALESCE(latest.source_url_canonical, latest.source_url_raw, c.display_url),
+        status = CASE WHEN latest.source_status = 'available' THEN 'active'::canonical_listing_status ELSE latest.source_status::text::canonical_listing_status END,
+        status_source = 'mirror',
+        verification_state = CASE
+          WHEN latest.property_match_kind = 'source_mismatch' OR latest.source_status = 'invalid' THEN 'invalid'
+          WHEN latest.source_status = 'blocked' THEN 'validation_blocked'
+          WHEN latest.source_status = 'parser_error' THEN 'validation_failed'
+          WHEN latest.source_status = 'unknown' THEN 'validation_pending'
+          ELSE 'validated'
+        END,
+        origin_summary = CASE
+          WHEN c.origin_summary IN ('user', 'user_and_mirror') THEN 'user_and_mirror'
+          ELSE 'mirror'
+        END,
+        submitted_by = COALESCE(c.submitted_by, latest.submitted_by),
+        thumbnail_url = COALESCE(latest.payload->>'imageUrl', c.thumbnail_url),
+        title = COALESCE(latest.payload->>'title', c.title),
+        description = COALESCE(latest.payload->>'description', c.description),
+        asking_price = COALESCE(latest.asking_price, c.asking_price),
+        price_currency = COALESCE(latest.price_currency, c.price_currency),
+        price_type = COALESCE(latest.payload->>'priceType', c.price_type),
+        living_area_m2 = COALESCE(NULLIF(latest.payload->>'livingAreaM2', '')::integer, c.living_area_m2),
+        first_seen_at = COALESCE(c.first_seen_at, latest.first_seen_at, latest.observed_at),
+        last_seen_at = GREATEST(COALESCE(c.last_seen_at, latest.observed_at), COALESCE(latest.last_seen_at, latest.observed_at)),
+        last_mirror_seen_at = GREATEST(COALESCE(c.last_mirror_seen_at, latest.observed_at), COALESCE(latest.last_seen_at, latest.observed_at)),
+        last_reconciled_at = now(),
+        updated_at = now()
+      FROM latest
+      WHERE c.source_name = latest.source_name
+        AND c.primary_source_listing_id = latest.source_listing_id
+      RETURNING c.id
+    ),
+    linked AS (
+      INSERT INTO listing_observation_links (
+        canonical_listing_id,
+        listing_observation_id,
+        link_reason
+      )
+      SELECT
+        c.id,
+        obs.id,
+        CASE
+          WHEN c.primary_source_listing_id = obs.source_listing_id THEN 'source_identity'::listing_observation_link_reason
+          WHEN c.canonical_url = obs.source_url_canonical THEN 'canonical_url'::listing_observation_link_reason
+          ELSE 'manual_repair'::listing_observation_link_reason
+        END
+      FROM candidate_observations obs
+      JOIN canonical_listings c
+        ON c.source_name = obs.source_name
+       AND (
+         (obs.source_listing_id IS NOT NULL AND c.primary_source_listing_id = obs.source_listing_id)
+         OR (obs.source_url_canonical IS NOT NULL AND c.canonical_url = obs.source_url_canonical)
+       )
+      ON CONFLICT (listing_observation_id) DO NOTHING
+      RETURNING 1
+    ),
+    price_rows AS (
+      INSERT INTO listing_price_observations (
+        listing_observation_id,
+        canonical_listing_id,
+        property_id,
+        source_name,
+        source_listing_id,
+        origin,
+        price,
+        currency,
+        event_type,
+        price_date,
+        observed_at
+      )
+      SELECT
+        obs.id,
+        c.id,
+        obs.property_id,
+        obs.source_name,
+        obs.source_listing_id,
+        obs.origin,
+        obs.asking_price,
+        COALESCE(obs.price_currency, 'EUR'),
+        'initial'::listing_price_observation_event_type,
+        (COALESCE(obs.observed_at, obs.created_at))::date,
+        COALESCE(obs.observed_at, obs.created_at)
+      FROM candidate_observations obs
+      JOIN canonical_listings c
+        ON c.source_name = obs.source_name
+       AND (
+         (obs.source_listing_id IS NOT NULL AND c.primary_source_listing_id = obs.source_listing_id)
+         OR (obs.source_url_canonical IS NOT NULL AND c.canonical_url = obs.source_url_canonical)
+       )
+      WHERE obs.asking_price IS NOT NULL
+        AND obs.property_id IS NOT NULL
+      ON CONFLICT DO NOTHING
+      RETURNING 1
+    ),
+    marked AS (
+      UPDATE listing_replay_staging
+      SET processed_at = now()
+      WHERE source_name = $1
+        AND upstream_run_key = $2
+      RETURNING 1
+    )
+    SELECT (
+      SELECT count(*) FROM inserted
+    ) + (
+      SELECT count(*) FROM updated
+    ) AS count
+  `, [source, runKey]);
+
+  return Number(result[0]?.count ?? 0);
+}
+
+async function batchInsertPriceObservations(
+  mainDb: postgres.Sql,
+  rows: PriceObservationRow[],
 ): Promise<number> {
   if (rows.length === 0) return 0;
 
-  const columns = ['property_id', 'price', 'price_date', 'event_type', 'source'] as const;
-  const COLS_PER_ROW = columns.length; // 5
+  await mainDb.unsafe('DROP TABLE IF EXISTS _seed_price_input');
+  await mainDb.unsafe(`
+    CREATE TEMP TABLE _seed_price_input (
+      property_id uuid NOT NULL,
+      source_name varchar(50) NOT NULL,
+      source_listing_id varchar(255),
+      price bigint NOT NULL,
+      price_date date NOT NULL,
+      event_type listing_price_observation_event_type NOT NULL,
+      observed_at timestamptz NOT NULL
+    ) ON COMMIT DROP
+  `);
+
+  const COLS_PER_ROW = 7;
   const valueClauses: string[] = [];
   const params: unknown[] = [];
-
   for (let i = 0; i < rows.length; i++) {
     const base = i * COLS_PER_ROW;
-    const placeholders = [];
-    for (let j = 1; j <= COLS_PER_ROW; j++) {
-      placeholders.push(`$${base + j}`);
-    }
-    valueClauses.push(`(${placeholders.join(', ')})`);
-
-    const r = rows[i];
-    params.push(r.property_id, r.price, r.price_date, r.event_type, r.source);
+    valueClauses.push(`(
+      $${base + 1}::uuid,
+      $${base + 2},
+      $${base + 3},
+      $${base + 4},
+      $${base + 5}::date,
+      $${base + 6}::listing_price_observation_event_type,
+      $${base + 7}::timestamptz
+    )`);
+    const row = rows[i];
+    params.push(
+      row.property_id,
+      row.source_name,
+      row.source_listing_id,
+      row.price,
+      row.price_date,
+      row.event_type,
+      row.observed_at,
+    );
   }
 
-  const sql = `
-    INSERT INTO price_history (${columns.join(', ')})
+  await mainDb.unsafe(`
+    INSERT INTO _seed_price_input (
+      property_id,
+      source_name,
+      source_listing_id,
+      price,
+      price_date,
+      event_type,
+      observed_at
+    )
     VALUES ${valueClauses.join(',\n')}
-    ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
-    RETURNING property_id
-  `;
+  `, params as (string | number | null | Date)[]);
 
-  const result = await mainDb.unsafe(sql, params as (string | number | null)[]);
+  const result = await mainDb.unsafe(`
+    WITH linked AS (
+      SELECT
+        input.property_id,
+        input.source_name,
+        input.source_listing_id,
+        input.price,
+        input.price_date,
+        input.event_type,
+        input.observed_at,
+        c.id AS canonical_listing_id,
+        obs.id AS listing_observation_id,
+        obs.origin
+      FROM _seed_price_input input
+      JOIN canonical_listings c
+        ON c.property_id = input.property_id
+       AND c.source_name = input.source_name
+       AND (
+         (input.source_listing_id IS NOT NULL AND c.primary_source_listing_id = input.source_listing_id)
+         OR (
+           input.source_listing_id IS NULL
+           AND c.primary_source_listing_id IS NULL
+         )
+       )
+      JOIN LATERAL (
+        SELECT o.id, o.origin
+        FROM listing_observation_links link
+        JOIN listing_observations o ON o.id = link.listing_observation_id
+        WHERE link.canonical_listing_id = c.id
+          AND (
+            input.source_listing_id IS NULL
+            OR o.source_listing_id = input.source_listing_id
+          )
+        ORDER BY o.observed_at DESC, o.created_at DESC
+        LIMIT 1
+      ) obs ON true
+    ),
+    ins AS (
+      INSERT INTO listing_price_observations (
+        listing_observation_id,
+        canonical_listing_id,
+        property_id,
+        source_name,
+        source_listing_id,
+        origin,
+        price,
+        currency,
+        event_type,
+        price_date,
+        observed_at
+      )
+      SELECT
+        listing_observation_id,
+        canonical_listing_id,
+        property_id,
+        source_name,
+        source_listing_id,
+        origin,
+        price,
+        'EUR',
+        event_type,
+        price_date,
+        observed_at
+      FROM linked
+      ON CONFLICT DO NOTHING
+      RETURNING property_id
+    )
+    SELECT property_id FROM ins
+  `);
+
+  await mainDb.unsafe('DROP TABLE IF EXISTS _seed_price_input');
   await advancePropertyChangeState(
     mainDb,
     result.map((row) => String(row.property_id)),
   );
   return result.count;
+}
+
+async function rebuildLegacyPriceHistoryProjection(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  runKey: string,
+): Promise<number> {
+  const result = await mainDb.unsafe(`
+    WITH staged AS (
+      SELECT DISTINCT source_name, source_listing_id
+      FROM listing_replay_staging
+      WHERE source_name = $1
+        AND upstream_run_key = $2
+    ),
+    relevant AS (
+      SELECT
+        lpo.property_id,
+        NULL::uuid AS listing_id,
+        lpo.price,
+        lpo.price_date,
+        CASE
+          WHEN lpo.event_type = 'status_change' THEN
+            CASE WHEN c.status = 'rented' THEN 'rented' ELSE 'sold' END
+          WHEN lpo.event_type = 'price_change' THEN 'price_change'
+          ELSE 'asking_price'
+        END AS event_type,
+        lpo.source_name AS source
+      FROM listing_price_observations lpo
+      JOIN canonical_listings c ON c.id = lpo.canonical_listing_id
+      JOIN staged
+        ON staged.source_name = lpo.source_name
+       AND (
+         (staged.source_listing_id IS NOT NULL AND staged.source_listing_id = lpo.source_listing_id)
+         OR (staged.source_listing_id IS NULL AND lpo.source_listing_id IS NULL)
+       )
+    ),
+    ins AS (
+      INSERT INTO price_history (
+        property_id,
+        listing_id,
+        price,
+        price_date,
+        event_type,
+        source
+      )
+      SELECT
+        property_id,
+        listing_id,
+        price,
+        price_date,
+        event_type,
+        source
+      FROM relevant
+      ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
+      RETURNING property_id
+    )
+    SELECT property_id FROM ins
+  `, [source, runKey]);
+
+  await advancePropertyChangeState(
+    mainDb,
+    result.map((row) => String(row.property_id)),
+  );
+  return result.count;
+}
+
+async function refreshMaterializedView(mainDb: postgres.Sql, name: string): Promise<void> {
+  const exists = await mainDb`
+    SELECT to_regclass(${`public.${name}`})::text AS name
+  `;
+  if (!exists[0]?.name) return;
+  await mainDb.unsafe(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${name}`);
 }
 
 async function advancePropertyChangeState(
@@ -573,17 +1243,7 @@ async function seedListings() {
     console.log(`\r  \u2713 Loaded ${totalLoaded.toLocaleString()} properties into memory (${formatElapsedTime(cacheElapsed)})`);
     console.log('');
 
-    // ------------------------------------------------------------------
-    // Step 2: Drop indexes (skip in dry run)
-    // ------------------------------------------------------------------
     if (!DRY_RUN) {
-      console.log('Dropping listing/price_history indexes...');
-      const dropStart = Date.now();
-      await dropIndexes(mainDb);
-      console.log(`  \u2713 Indexes dropped (${formatElapsedTime(Date.now() - dropStart)})`);
-      console.log('');
-
-      // Set a generous statement timeout for bulk operations
       await mainDb.unsafe('SET statement_timeout = \'600s\'');
     }
 
@@ -596,9 +1256,10 @@ async function seedListings() {
       mirrorDb: postgres.Sql,
     ): Promise<void> {
       const sourceStats = stats[source];
+      const runKey = `seed-listings:${source}`;
 
       console.log('='.repeat(60));
-      console.log(`Processing ${source} mirror listings...`);
+      console.log(`Processing ${source} mirror replay...`);
       console.log('='.repeat(60));
 
       // Count total listings
@@ -610,12 +1271,16 @@ async function seedListings() {
       const totalListings = Number(countResult[0].count);
       console.log(`Total mirror listings: ${totalListings.toLocaleString()}`);
 
+      if (!DRY_RUN) {
+        await clearReplayRun(mainDb, source, runKey);
+      }
+
       // Fetch and process listings in batches
       let offset = 0;
       const startTime = Date.now();
-      let listingBuffer: ListingRow[] = [];
+      let replayBuffer: ReplayStagingRow[] = [];
       let unmatchedBuffer: UnmatchedListing[] = [];
-      let totalInserted = 0;
+      let totalStaged = 0;
 
       while (offset < totalListings) {
         const batch: MirrorListing[] = await mirrorDb`
@@ -644,25 +1309,7 @@ async function seedListings() {
           );
 
           if (propertyId) {
-            // Prepare listing row for batch insert
-            const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
-            listingBuffer.push({
-              property_id: propertyId,
-              source_url: row.listing_url,
-              source_name: source,
-              asking_price: centsToEuros(row.asking_price_cents),
-              price_type: row.price_type,
-              living_area_m2: row.living_area_m2,
-              num_rooms: row.num_rooms,
-              energy_label: row.energy_label,
-              status: mapListingStatus(row.status, source),
-              mirror_listing_id: mirrorId ?? null,
-              thumbnail_url: extractThumbnailUrl(row.photo_urls),
-              og_title: buildOgTitle(row.street, row.house_number, row.house_number_addition, row.city, row.price_type),
-              mirror_first_seen_at: row.first_seen_at,
-              mirror_last_changed_at: row.last_changed_at,
-              mirror_last_seen_at: row.last_seen_at,
-            });
+            replayBuffer.push(buildReplayRow(row, source, propertyId, 'source_exact'));
             sourceStats.matched++;
           } else if (row.latitude != null && row.longitude != null) {
             // Queue for spatial fallback
@@ -694,21 +1341,19 @@ async function seedListings() {
             sourceStats.skipped++;
           }
 
-          // Flush listing buffer when it hits batch size
-          if (listingBuffer.length >= BATCH_SIZE) {
+          if (replayBuffer.length >= BATCH_SIZE) {
             if (!DRY_RUN) {
               try {
-                const result = await batchInsertListings(mainDb, listingBuffer);
-                totalInserted += result.inserted;
-                sourceStats.duplicates += result.duplicates;
+                const inserted = await batchInsertReplayStaging(mainDb, source, runKey, replayBuffer);
+                totalStaged += inserted;
               } catch (err) {
                 sourceStats.errors++;
                 if (sourceStats.errors <= 5) {
-                  console.error(`\n  Error in batch insert: ${err}`);
+                  console.error(`\n  Error in replay staging batch: ${err}`);
                 }
               }
             }
-            listingBuffer = [];
+            replayBuffer = [];
           }
         }
 
@@ -734,24 +1379,7 @@ async function seedListings() {
           const propertyId = spatialResults.get(item.cacheKey);
           if (propertyId) {
             const row = item.mirrorRow;
-            const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
-            listingBuffer.push({
-              property_id: propertyId,
-              source_url: row.listing_url,
-              source_name: source,
-              asking_price: centsToEuros(row.asking_price_cents),
-              price_type: row.price_type,
-              living_area_m2: row.living_area_m2,
-              num_rooms: row.num_rooms,
-              energy_label: row.energy_label,
-              status: mapListingStatus(row.status, source),
-              mirror_listing_id: mirrorId ?? null,
-              thumbnail_url: extractThumbnailUrl(row.photo_urls),
-              og_title: buildOgTitle(row.street, row.house_number, row.house_number_addition, row.city, row.price_type),
-              mirror_first_seen_at: row.first_seen_at,
-              mirror_last_changed_at: row.last_changed_at,
-              mirror_last_seen_at: row.last_seen_at,
-            });
+            replayBuffer.push(buildReplayRow(row, source, propertyId, 'source_spatial'));
             sourceStats.matched++;
             // Also populate the in-memory cache for price history lookup
             propertyMap.set(item.cacheKey, propertyId);
@@ -763,27 +1391,36 @@ async function seedListings() {
         console.log(`  \u2713 Spatial fallback: ${spatialResults.size} matched, ${unmatchedBuffer.length - spatialResults.size} skipped`);
       }
 
-      // Flush remaining listing buffer (in BATCH_SIZE chunks to avoid parameter limit)
-      while (listingBuffer.length > 0 && !DRY_RUN) {
-        const chunk = listingBuffer.splice(0, BATCH_SIZE);
+      while (replayBuffer.length > 0 && !DRY_RUN) {
+        const chunk = replayBuffer.splice(0, BATCH_SIZE);
         try {
-          const result = await batchInsertListings(mainDb, chunk);
-          totalInserted += result.inserted;
-          sourceStats.duplicates += result.duplicates;
+          const inserted = await batchInsertReplayStaging(mainDb, source, runKey, chunk);
+          totalStaged += inserted;
         } catch (err) {
           sourceStats.errors++;
           if (sourceStats.errors <= 5) {
-            console.error(`\n  Error in final batch insert: ${err}`);
+            console.error(`\n  Error in final replay staging batch: ${err}`);
           }
         }
-        listingBuffer = [];
+        replayBuffer = [];
       }
 
       const listingElapsed = Date.now() - startTime;
-      console.log(`  \u2713 Inserted ${(DRY_RUN ? sourceStats.matched : totalInserted).toLocaleString()} listings in ${formatElapsedTime(listingElapsed)}`);
+      console.log(`  \u2713 ${(DRY_RUN ? sourceStats.matched : totalStaged).toLocaleString()} rows prepared for replay in ${formatElapsedTime(listingElapsed)}`);
+
+      if (!DRY_RUN) {
+        console.log(`\nMaterializing ${source} replay observations...`);
+        const observationsInserted = await materializeReplayObservations(mainDb, source, runKey);
+        sourceStats.duplicates += Math.max(0, totalStaged - observationsInserted);
+        console.log(`  \u2713 Inserted ${observationsInserted.toLocaleString()} replay observations`);
+
+        console.log(`Reconciling ${source} canonical listings...`);
+        const reconciled = await reconcileReplayRun(mainDb, source, runKey);
+        console.log(`  \u2713 Reconciled ${reconciled.toLocaleString()} canonical listing rows`);
+      }
 
       // ----------------------------------------------------------------
-      // Import price history
+      // Import price history as provenance-aware price observations
       // ----------------------------------------------------------------
 
       console.log(`\nImporting ${source} price history...`);
@@ -798,14 +1435,16 @@ async function seedListings() {
 
       let phOffset = 0;
       const phStartTime = Date.now();
-      let priceBuffer: PriceHistoryRow[] = [];
+      let priceBuffer: PriceObservationRow[] = [];
       let totalPHInserted = 0;
 
       while (phOffset < totalPriceHistory) {
         const phBatch: MirrorPriceHistory[] = await mirrorDb`
-          SELECT ph.*, a.postal_code, a.house_number, a.house_number_addition
+          SELECT ph.*, a.postal_code, a.house_number, a.house_number_addition,
+                 l.listing_url, l.funda_id, l.pararius_id
           FROM price_history ph
           JOIN addresses a ON ph.address_id = a.id
+          LEFT JOIN listings l ON ph.listing_id = l.id
           ORDER BY ph.id
           LIMIT ${MIRROR_FETCH_SIZE} OFFSET ${phOffset}
         `;
@@ -826,27 +1465,31 @@ async function seedListings() {
           const price = centsToEuros(row.price_cents);
           if (price == null) continue;
 
-          const eventType = mapPriceEventType(row.status);
+          const linkedMirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
+          const linkedIdentity = row.listing_url
+            ? resolveMirrorSourceIdentity(source, row.listing_url, linkedMirrorId)
+            : null;
 
           priceBuffer.push({
             property_id: propertyId,
+            source_name: source,
+            source_listing_id: linkedIdentity?.sourceListingId ?? linkedMirrorId ?? null,
             price,
             price_date: row.price_date,
-            event_type: eventType,
-            source,
+            event_type: mapPriceEventType(row.status),
+            observed_at: `${row.price_date}T00:00:00Z`,
           });
 
-          // Flush price buffer when it hits batch size
           if (priceBuffer.length >= BATCH_SIZE) {
             if (!DRY_RUN) {
               try {
-                const inserted = await batchInsertPriceHistory(mainDb, priceBuffer);
+                const inserted = await batchInsertPriceObservations(mainDb, priceBuffer);
                 totalPHInserted += inserted;
                 sourceStats.priceHistoryEntries += inserted;
               } catch (err) {
                 sourceStats.errors++;
                 if (sourceStats.errors <= 10) {
-                  console.error(`\n  Error in price history batch: ${err}`);
+                  console.error(`\n  Error in price observation batch: ${err}`);
                 }
               }
             } else {
@@ -870,13 +1513,13 @@ async function seedListings() {
       if (priceBuffer.length > 0) {
         if (!DRY_RUN) {
           try {
-            const inserted = await batchInsertPriceHistory(mainDb, priceBuffer);
+            const inserted = await batchInsertPriceObservations(mainDb, priceBuffer);
             totalPHInserted += inserted;
             sourceStats.priceHistoryEntries += inserted;
           } catch (err) {
             sourceStats.errors++;
             if (sourceStats.errors <= 10) {
-              console.error(`\n  Error in final price history batch: ${err}`);
+              console.error(`\n  Error in final price observation batch: ${err}`);
             }
           }
         } else {
@@ -886,7 +1529,12 @@ async function seedListings() {
       }
 
       const phElapsed = Date.now() - phStartTime;
-      console.log(`\n  \u2713 Inserted ${(DRY_RUN ? sourceStats.priceHistoryEntries : totalPHInserted).toLocaleString()} price history entries in ${formatElapsedTime(phElapsed)}`);
+      console.log(`\n  \u2713 Inserted ${(DRY_RUN ? sourceStats.priceHistoryEntries : totalPHInserted).toLocaleString()} price observations in ${formatElapsedTime(phElapsed)}`);
+
+      if (!DRY_RUN) {
+        const projected = await rebuildLegacyPriceHistoryProjection(mainDb, source, runKey);
+        console.log(`  \u2713 Projected ${projected.toLocaleString()} compatibility price_history rows`);
+      }
     }
 
     // ------------------------------------------------------------------
@@ -904,29 +1552,22 @@ async function seedListings() {
     }
 
     // ------------------------------------------------------------------
-    // Step 5: Recreate indexes (skip in dry run)
-    // ------------------------------------------------------------------
     if (!DRY_RUN) {
-      console.log('Recreating indexes...');
-      const idxStart = Date.now();
-      await createIndexes(mainDb);
-      console.log(`  \u2713 Indexes recreated in ${formatElapsedTime(Date.now() - idxStart)}`);
-      console.log('');
-
-      // Step 6: ANALYZE
       console.log('Running ANALYZE...');
-      await mainDb.unsafe('ANALYZE listings');
+      await mainDb.unsafe('ANALYZE listing_replay_staging');
+      await mainDb.unsafe('ANALYZE listing_observations');
+      await mainDb.unsafe('ANALYZE canonical_listings');
+      await mainDb.unsafe('ANALYZE listing_price_observations');
       await mainDb.unsafe('ANALYZE price_history');
       console.log('  \u2713 ANALYZE complete');
       console.log('');
 
-      // Step 7: Refresh the feed materialized view
-      console.log('Refreshing mv_latest_active_listings...');
-      await mainDb.unsafe('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings');
-      console.log('  \u2713 Materialized view refreshed');
+      console.log('Refreshing canonical listing views...');
+      await refreshMaterializedView(mainDb, 'mv_latest_active_listings');
+      await refreshMaterializedView(mainDb, 'mv_price_guess_start_market_summaries');
+      console.log('  \u2713 Materialized views refreshed');
       console.log('');
 
-      // Reset statement_timeout
       await mainDb.unsafe('RESET statement_timeout');
     }
 
@@ -940,7 +1581,7 @@ async function seedListings() {
 
     if (SOURCE_FILTER === 'funda' || SOURCE_FILTER === 'both') {
       const s = stats.funda;
-      console.log(`Funda: ${s.matched.toLocaleString()} matched, ${s.skipped.toLocaleString()} skipped, ${s.duplicates.toLocaleString()} duplicates, ${s.priceHistoryEntries.toLocaleString()} price_history`);
+      console.log(`Funda: ${s.matched.toLocaleString()} matched, ${s.skipped.toLocaleString()} skipped, ${s.duplicates.toLocaleString()} duplicate observations, ${s.priceHistoryEntries.toLocaleString()} price observations`);
       if (s.errors > 0) {
         console.log(`  Errors: ${s.errors.toLocaleString()}`);
       }
@@ -948,7 +1589,7 @@ async function seedListings() {
 
     if (SOURCE_FILTER === 'pararius' || SOURCE_FILTER === 'both') {
       const s = stats.pararius;
-      console.log(`Pararius: ${s.matched.toLocaleString()} matched, ${s.skipped.toLocaleString()} skipped, ${s.duplicates.toLocaleString()} duplicates, ${s.priceHistoryEntries.toLocaleString()} price_history`);
+      console.log(`Pararius: ${s.matched.toLocaleString()} matched, ${s.skipped.toLocaleString()} skipped, ${s.duplicates.toLocaleString()} duplicate observations, ${s.priceHistoryEntries.toLocaleString()} price observations`);
       if (s.errors > 0) {
         console.log(`  Errors: ${s.errors.toLocaleString()}`);
       }

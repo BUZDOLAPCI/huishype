@@ -6365,6 +6365,26 @@
                           "sourceName": {
                             "type": "string"
                           },
+                          "canonicalUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sourceListingId": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "askingPrice": {
                             "anyOf": [
                               {
@@ -6385,6 +6405,16 @@
                               }
                             ]
                           },
+                          "currency": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "thumbnailUrl": {
                             "anyOf": [
                               {
@@ -6396,6 +6426,16 @@
                             ]
                           },
                           "ogTitle": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "description": {
                             "anyOf": [
                               {
                                 "type": "string"
@@ -6444,6 +6484,37 @@
                               "withdrawn"
                             ]
                           },
+                          "verificationState": {
+                            "type": "string",
+                            "enum": [
+                              "provisional",
+                              "validated",
+                              "invalid",
+                              "validation_pending",
+                              "validation_blocked",
+                              "validation_failed"
+                            ]
+                          },
+                          "watchState": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "reasonCode": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -6454,14 +6525,21 @@
                           "id",
                           "sourceUrl",
                           "sourceName",
+                          "canonicalUrl",
+                          "sourceListingId",
                           "askingPrice",
                           "priceType",
+                          "currency",
                           "thumbnailUrl",
                           "ogTitle",
+                          "description",
                           "livingAreaM2",
                           "numRooms",
                           "energyLabel",
                           "status",
+                          "verificationState",
+                          "watchState",
+                          "reasonCode",
                           "createdAt"
                         ],
                         "additionalProperties": false
@@ -6603,6 +6681,36 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "askingPrice": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "priceType": {
+                    "type": "string",
+                    "enum": [
+                      "sale",
+                      "rent",
+                      "unknown"
+                    ]
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
                   }
                 },
                 "required": [
@@ -6622,46 +6730,151 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "ogTitle": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "ogImage": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "ogDescription": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
                     "sourceName": {
                       "type": "string"
                     },
-                    "addressMatch": {
-                      "type": "boolean"
+                    "rawUrl": {
+                      "type": "string"
                     },
-                    "warning": {
+                    "canonicalUrl": {
+                      "type": "string"
+                    },
+                    "sourceListingId": {
                       "anyOf": [
                         {
                           "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sourceListingIdKind": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "validationState": {
+                      "type": "string",
+                      "enum": [
+                        "valid",
+                        "invalid",
+                        "provisional"
+                      ]
+                    },
+                    "matchState": {
+                      "type": "string",
+                      "enum": [
+                        "matched",
+                        "mismatch",
+                        "unverified",
+                        "unsupported"
+                      ]
+                    },
+                    "watchState": {
+                      "type": "string",
+                      "enum": [
+                        "not_required",
+                        "will_enqueue",
+                        "unsupported"
+                      ]
+                    },
+                    "reasonCode": {
+                      "type": "string",
+                      "enum": [
+                        "source_identity_match",
+                        "address_match",
+                        "address_mismatch",
+                        "source_not_supported",
+                        "source_not_found",
+                        "mirror_unavailable",
+                        "parser_error",
+                        "og_unavailable",
+                        "validation_pending"
+                      ]
+                    },
+                    "title": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "imageUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "askingPrice": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "priceType": {
+                      "type": "string",
+                      "enum": [
+                        "sale",
+                        "rent",
+                        "unknown"
+                      ]
+                    },
+                    "currency": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "address": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "submittedPropertyId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "matchedPropertyId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                         },
                         {
                           "type": "null"
@@ -6670,12 +6883,24 @@
                     }
                   },
                   "required": [
-                    "ogTitle",
-                    "ogImage",
-                    "ogDescription",
                     "sourceName",
-                    "addressMatch",
-                    "warning"
+                    "rawUrl",
+                    "canonicalUrl",
+                    "sourceListingId",
+                    "sourceListingIdKind",
+                    "validationState",
+                    "matchState",
+                    "watchState",
+                    "reasonCode",
+                    "title",
+                    "description",
+                    "imageUrl",
+                    "askingPrice",
+                    "priceType",
+                    "currency",
+                    "address",
+                    "submittedPropertyId",
+                    "matchedPropertyId"
                   ],
                   "additionalProperties": false
                 }
@@ -6758,6 +6983,36 @@
                   },
                   "thumbnailUrl": {
                     "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "askingPrice": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "priceType": {
+                    "type": "string",
+                    "enum": [
+                      "sale",
+                      "rent",
+                      "unknown"
+                    ]
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
                   }
                 },
                 "required": [
@@ -6793,6 +7048,26 @@
                     "sourceName": {
                       "type": "string"
                     },
+                    "canonicalUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sourceListingId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "status": {
                       "type": "string",
                       "enum": [
@@ -6801,6 +7076,40 @@
                         "rented",
                         "withdrawn"
                       ]
+                    },
+                    "verificationState": {
+                      "type": "string",
+                      "enum": [
+                        "provisional",
+                        "validated",
+                        "invalid",
+                        "validation_pending",
+                        "validation_blocked",
+                        "validation_failed"
+                      ]
+                    },
+                    "watchState": {
+                      "type": "string",
+                      "enum": [
+                        "not_required",
+                        "will_enqueue",
+                        "unsupported"
+                      ]
+                    },
+                    "watchId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reasonCode": {
+                      "type": "string"
                     },
                     "createdAt": {
                       "type": "string",
@@ -6813,7 +7122,13 @@
                     "propertyId",
                     "sourceUrl",
                     "sourceName",
+                    "canonicalUrl",
+                    "sourceListingId",
                     "status",
+                    "verificationState",
+                    "watchState",
+                    "watchId",
+                    "reasonCode",
                     "createdAt"
                   ],
                   "additionalProperties": false
@@ -6977,6 +7292,38 @@
                           "type": "string",
                           "minLength": 1
                         },
+                        "sourceListingId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceListingIdKind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceListingAliases": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "value": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "value"
+                            ]
+                          }
+                        },
+                        "canonicalUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        },
                         "askingPrice": {
                           "anyOf": [
                             {
@@ -6993,6 +7340,11 @@
                             "sale",
                             "rent"
                           ]
+                        },
+                        "currency": {
+                          "type": "string",
+                          "minLength": 3,
+                          "maxLength": 3
                         },
                         "livingAreaM2": {
                           "anyOf": [
@@ -7044,6 +7396,16 @@
                             }
                           ]
                         },
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "status": {
                           "default": "active",
                           "type": "string",
@@ -7052,6 +7414,20 @@
                             "sold",
                             "rented",
                             "withdrawn"
+                          ]
+                        },
+                        "sourceStatus": {
+                          "type": "string",
+                          "enum": [
+                            "available",
+                            "sold",
+                            "rented",
+                            "withdrawn",
+                            "not_found",
+                            "blocked",
+                            "invalid",
+                            "parser_error",
+                            "unknown"
                           ]
                         },
                         "mirrorFirstSeenAt": {
@@ -7271,6 +7647,395 @@
             }
           },
           "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ingest/listing-validation-outcomes": {
+      "post": {
+        "summary": "Persist listing validation outcome",
+        "tags": [
+          "ingest"
+        ],
+        "description": "Internal callback for source services validating user-submitted listing URLs.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "watchId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "matched",
+                      "not_found",
+                      "blocked",
+                      "invalid",
+                      "parser_error",
+                      "unsupported",
+                      "retryable_error"
+                    ]
+                  },
+                  "sourceName": {
+                    "type": "string"
+                  },
+                  "rawUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "canonicalUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "sourceListingId": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sourceListingIdKind": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value"
+                      ]
+                    }
+                  },
+                  "sourceStatus": {
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "sold",
+                      "rented",
+                      "withdrawn",
+                      "not_found",
+                      "blocked",
+                      "invalid",
+                      "parser_error",
+                      "unknown"
+                    ]
+                  },
+                  "address": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "countryCode": {
+                            "type": "string"
+                          },
+                          "street": {
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "type": "string"
+                          },
+                          "houseNumber": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "houseNumberAddition": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "city": {
+                            "type": "string"
+                          },
+                          "latitude": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "longitude": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "matchedPropertyEvidence": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "propertyId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "matchKind": {
+                            "type": "string",
+                            "enum": [
+                              "user_selected",
+                              "source_exact",
+                              "source_spatial",
+                              "source_unmatched",
+                              "source_mismatch"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "price": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "currency": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 3
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "thumbnailUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "firstSeenAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lastSeenAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sourceUpdatedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "payload": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "watchId",
+                  "state",
+                  "sourceName",
+                  "rawUrl",
+                  "canonicalUrl"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "canonicalListingId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "observationId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "watchId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "state": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "canonicalListingId",
+                    "observationId",
+                    "watchId",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Default Response",
             "content": {
               "application/json": {

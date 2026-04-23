@@ -141,13 +141,14 @@ describe('Property read-state change advancement', () => {
     const user = await createUser('read-state-listing-submitter');
     const property = await createProperty('Read State Listing Street', 6.103, 52.103);
     const initial = await changeVersion(property.id);
+    const submittedId = `${Date.now()}`.slice(-8);
 
     const response = await app.inject({
       method: 'POST',
       url: '/listings/submit',
       headers: { authorization: `Bearer ${user.accessToken}` },
       payload: {
-        url: `https://www.funda.nl/koop/eindhoven/huis-${Date.now()}-${Math.floor(Math.random() * 10000)}/`,
+        url: `https://www.funda.nl/detail/koop/eindhoven/huis-read-state/${submittedId}/`,
         propertyId: property.id,
         ogTitle: 'Read state listing submit',
       },

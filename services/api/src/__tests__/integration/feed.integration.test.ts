@@ -692,7 +692,7 @@ describe('Feed routes', () => {
       await refreshLatestActiveListingsView();
 
       await db.execute(sql`
-        UPDATE listings
+        UPDATE canonical_listings
         SET status = 'withdrawn', updated_at = NOW()
         WHERE id = ${listing.id}
       `);

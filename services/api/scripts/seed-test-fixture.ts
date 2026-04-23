@@ -32,6 +32,8 @@ const USER_ANNA_ID = 'a0000000-0000-4000-a000-000000000a01';
 const USER_BART_ID = 'b0000000-0000-4000-b000-000000000b02';
 const USER_CARLOS_ID = 'c0000000-0000-4000-a000-000000000c03';
 
+const LISTING_ID = 'e0000000-0000-4000-a000-000000000001';
+
 // Fixed UUIDs for comments (must be valid RFC 4122 v4 UUIDs for Zod 4 validation)
 const COMMENT_1_ID = 'd0000000-0000-4000-a001-000000000001';
 const COMMENT_2_ID = 'd0000000-0000-4000-a001-000000000002';
@@ -144,10 +146,11 @@ async function seedTestFixture() {
 
     await sql`
       INSERT INTO listings (
-        property_id, source_url, source_name, asking_price, status,
+        id, property_id, source_url, source_name, asking_price, status,
         num_rooms, living_area_m2, energy_label, thumbnail_url, og_title, price_type
       )
       VALUES (
+        ${LISTING_ID},
         ${propertyId},
         ${listingSourceUrl},
         'funda',
@@ -161,6 +164,54 @@ async function seedTestFixture() {
         ${'sale'}
       )
       ON CONFLICT (source_url) DO NOTHING
+    `;
+
+    await sql`
+      INSERT INTO canonical_listings (
+        id,
+        property_id,
+        source_name,
+        canonical_url,
+        display_url,
+        status,
+        status_source,
+        verification_state,
+        origin_summary,
+        thumbnail_url,
+        title,
+        asking_price,
+        price_currency,
+        price_type,
+        living_area_m2,
+        first_seen_at,
+        last_seen_at,
+        last_reconciled_at
+      )
+      VALUES (
+        ${LISTING_ID},
+        ${propertyId},
+        'funda',
+        ${listingSourceUrl},
+        ${listingSourceUrl},
+        'active',
+        'mirror',
+        'validated',
+        'mirror',
+        ${null},
+        ${'Te koop: Beeldbuisring 41, Eindhoven'},
+        ${395000},
+        'EUR',
+        'sale',
+        ${144},
+        NOW(),
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        status = EXCLUDED.status,
+        verification_state = EXCLUDED.verification_state,
+        asking_price = EXCLUDED.asking_price,
+        updated_at = NOW()
     `;
     console.log(`  Listing: ${listingSourceUrl} (395000 EUR)`);
     console.log('');

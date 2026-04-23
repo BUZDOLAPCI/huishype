@@ -14,6 +14,11 @@ import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
 import { finalizeIngestRunLifecycle } from './store.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
+import {
+  persistMirrorObservationForIngest,
+  type ListingSourceStatus,
+  type ListingWriteResult,
+} from '../listing-reconciliation.js';
 
 interface CanonicalizedListing {
   item: IngestListing;
@@ -31,14 +36,6 @@ interface CanonicalizedListing {
 interface MatchedListing {
   item: IngestListing;
   propertyId: string;
-}
-
-interface ListingWriteResult {
-  listingId: string;
-  propertyId: string;
-  mirrorListingId: string;
-  inserted: boolean;
-  changed: boolean;
 }
 
 interface ClaimedBatch {
@@ -418,9 +415,17 @@ function dedupeMatchedListings(
   };
 }
 
-async function upsertMatchedListings(
+function toSourceStatus(item: IngestListing): ListingSourceStatus {
+  if (item.sourceStatus) {
+    return item.sourceStatus;
+  }
+  return item.status === 'active' ? 'available' : item.status;
+}
+
+async function persistMatchedListingObservations(
   tx: DbTransaction,
   sourceName: string,
+  batchId: string,
   matched: MatchedListing[],
 ): Promise<ListingWriteResult[]> {
   const results: ListingWriteResult[] = [];
@@ -428,220 +433,50 @@ async function upsertMatchedListings(
 
   for (let offset = 0; offset < matched.length; offset += chunkSize) {
     const chunk = matched.slice(offset, offset + chunkSize);
-    const existingRows = await tx.execute<{
-      id: string;
-      property_id: string;
-      source_url: string;
-      mirror_listing_id: string;
-      asking_price: number | null;
-      price_type: string | null;
-      living_area_m2: number | null;
-      num_rooms: number | null;
-      energy_label: string | null;
-      thumbnail_url: string | null;
-      og_title: string | null;
-      status: string;
-      mirror_last_changed_at: Date | null;
-    }>(sql`
-      SELECT
-        id,
-        property_id,
-        source_url,
-        mirror_listing_id,
-        asking_price,
-        price_type,
-        living_area_m2,
-        num_rooms,
-        energy_label,
-        thumbnail_url,
-        og_title,
-        status,
-        mirror_last_changed_at
-      FROM listings
-      WHERE source_name = ${sourceName}
-        AND mirror_listing_id IN (${sql.join(
-          chunk.map(({ item }) => sql`${item.mirrorListingId}`),
-          sql`, `,
-        )})
-    `);
-    const existingByMirrorId = new Map(
-      Array.from(existingRows).map((row) => [row.mirror_listing_id, row])
-    );
-
-    const valueFragments = chunk.map(({ propertyId, item }) => sql`(
-      ${propertyId}::uuid,
-      ${normalizeSourceUrl(item.sourceUrl)},
-      ${sourceName},
-      ${item.mirrorListingId},
-      ${item.askingPrice}::bigint,
-      ${item.priceType},
-      ${item.livingAreaM2 ?? null}::int,
-      ${item.numRooms ?? null}::int,
-      ${item.energyLabel ?? null},
-      ${item.thumbnailUrl ?? null},
-      ${item.ogTitle ?? null},
-      ${item.status}::listing_status,
-      ${item.mirrorFirstSeenAt ?? null}::timestamptz,
-      ${item.mirrorLastChangedAt ?? null}::timestamptz,
-      ${item.mirrorLastSeenAt ?? null}::timestamptz,
-      NOW()
-    )`);
-
-    const rows = await tx.execute<{
-      id: string;
-      property_id: string;
-      mirror_listing_id: string;
-      inserted: boolean;
-    }>(sql`
-      INSERT INTO listings (
-        property_id,
-        source_url,
-        source_name,
-        mirror_listing_id,
-        asking_price,
-        price_type,
-        living_area_m2,
-        num_rooms,
-        energy_label,
-        thumbnail_url,
-        og_title,
-        status,
-        mirror_first_seen_at,
-        mirror_last_changed_at,
-        mirror_last_seen_at,
-        updated_at
-      )
-      VALUES ${sql.join(valueFragments, sql`, `)}
-      ON CONFLICT (source_name, mirror_listing_id) WHERE mirror_listing_id IS NOT NULL
-      DO UPDATE SET
-        property_id = EXCLUDED.property_id,
-        asking_price = EXCLUDED.asking_price,
-        price_type = EXCLUDED.price_type,
-        living_area_m2 = EXCLUDED.living_area_m2,
-        num_rooms = EXCLUDED.num_rooms,
-        energy_label = EXCLUDED.energy_label,
-        thumbnail_url = EXCLUDED.thumbnail_url,
-        og_title = EXCLUDED.og_title,
-        status = EXCLUDED.status,
-        source_url = EXCLUDED.source_url,
-        mirror_first_seen_at = COALESCE(listings.mirror_first_seen_at, EXCLUDED.mirror_first_seen_at),
-        mirror_last_changed_at = EXCLUDED.mirror_last_changed_at,
-        mirror_last_seen_at = EXCLUDED.mirror_last_seen_at,
-        updated_at = NOW()
-      RETURNING
-        id,
-        property_id,
-        mirror_listing_id,
-        xmax = 0 AS inserted
-    `);
-
-    for (const row of rows) {
-      const matchedListing = chunk.find((entry) => entry.item.mirrorListingId === row.mirror_listing_id);
-      const existing = existingByMirrorId.get(row.mirror_listing_id);
-      const normalizedUrl = matchedListing ? normalizeSourceUrl(matchedListing.item.sourceUrl) : row.mirror_listing_id;
-      const mirrorLastChangedAt = matchedListing?.item.mirrorLastChangedAt
-        ? new Date(matchedListing.item.mirrorLastChangedAt).getTime()
-        : null;
-      const existingMirrorLastChangedAt = existing?.mirror_last_changed_at
-        ? new Date(existing.mirror_last_changed_at).getTime()
-        : null;
-      const existingAskingPrice = existing?.asking_price != null ? Number(existing.asking_price) : null;
-      const changed =
-        !existing ||
-        existing.property_id !== row.property_id ||
-        existing.source_url !== normalizedUrl ||
-        existingAskingPrice !== (matchedListing?.item.askingPrice ?? null) ||
-        existing.price_type !== (matchedListing?.item.priceType ?? null) ||
-        existing.living_area_m2 !== (matchedListing?.item.livingAreaM2 ?? null) ||
-        existing.num_rooms !== (matchedListing?.item.numRooms ?? null) ||
-        existing.energy_label !== (matchedListing?.item.energyLabel ?? null) ||
-        existing.thumbnail_url !== (matchedListing?.item.thumbnailUrl ?? null) ||
-        existing.og_title !== (matchedListing?.item.ogTitle ?? null) ||
-        existing.status !== matchedListing?.item.status ||
-        existingMirrorLastChangedAt !== mirrorLastChangedAt;
-
-      results.push({
-        listingId: row.id,
-        propertyId: row.property_id,
-        mirrorListingId: row.mirror_listing_id,
-        inserted: row.inserted,
-        changed,
+    for (const { propertyId, item } of chunk) {
+      const sourceListingId = item.sourceListingId ?? item.mirrorListingId;
+      const persisted = await persistMirrorObservationForIngest(tx, {
+        batchId,
+        sourceName,
+        sourceUrl: normalizeSourceUrl(item.canonicalUrl ?? item.sourceUrl),
+        sourceListingId,
+        sourceListingIdKind: item.sourceListingIdKind ?? 'unknown',
+        aliases: item.sourceListingAliases,
+        propertyId,
+        propertyMatchKind: 'source_exact',
+        sourceStatus: toSourceStatus(item),
+        askingPrice: item.askingPrice,
+        priceCurrency: item.currency ?? 'EUR',
+        address: {
+          countryCode: item.address.countryCode,
+          street: item.address.street,
+          postalCode: item.address.postalCode,
+          houseNumber: item.address.houseNumber,
+          houseNumberAddition: item.address.houseNumberAddition ?? null,
+          city: item.address.city,
+          latitude: item.address.latitude ?? null,
+          longitude: item.address.longitude ?? null,
+        },
+        title: item.ogTitle ?? null,
+        description: item.description ?? null,
+        imageUrl: item.thumbnailUrl ?? null,
+        firstSeenAt: item.mirrorFirstSeenAt,
+        lastSeenAt: item.mirrorLastSeenAt,
+        sourceUpdatedAt: item.mirrorLastChangedAt,
+        payload: {
+          mirrorListingId: item.mirrorListingId,
+          priceType: item.priceType,
+          livingAreaM2: item.livingAreaM2 ?? null,
+          numRooms: item.numRooms ?? null,
+          energyLabel: item.energyLabel ?? null,
+          priceHistory: item.priceHistory ?? [],
+        },
       });
+      results.push(persisted);
     }
   }
 
   return results;
-}
-
-async function insertPriceHistory(
-  tx: DbTransaction,
-  sourceName: string,
-  matched: MatchedListing[],
-  listingWrites: ListingWriteResult[],
-): Promise<string[]> {
-  const listingByMirrorId = new Map<string, ListingWriteResult>();
-  for (const write of listingWrites) {
-    listingByMirrorId.set(write.mirrorListingId, write);
-  }
-
-  const values: Array<{
-    propertyId: string;
-    listingId: string;
-    price: number;
-    priceDate: string;
-    eventType: string;
-  }> = [];
-
-  for (const matchedListing of matched) {
-    const listingWrite = listingByMirrorId.get(matchedListing.item.mirrorListingId);
-    if (!listingWrite || !matchedListing.item.priceHistory) {
-      continue;
-    }
-
-    for (const priceEntry of matchedListing.item.priceHistory) {
-      values.push({
-        propertyId: listingWrite.propertyId,
-        listingId: listingWrite.listingId,
-        price: priceEntry.price,
-        priceDate: priceEntry.priceDate,
-        eventType: priceEntry.eventType,
-      });
-    }
-  }
-
-  const chunkSize = 5_000;
-  const insertedPropertyIds = new Set<string>();
-  for (let offset = 0; offset < values.length; offset += chunkSize) {
-    const chunk = values.slice(offset, offset + chunkSize);
-    const valueFragments = chunk.map((entry) => sql`(
-      ${entry.propertyId}::uuid,
-      ${entry.listingId}::uuid,
-      ${entry.price}::bigint,
-      ${entry.priceDate},
-      ${entry.eventType},
-      ${sourceName}
-    )`);
-
-    const insertedRows = await tx.execute<{ property_id: string }>(sql`
-      INSERT INTO price_history (
-        property_id,
-        listing_id,
-        price,
-        price_date,
-        event_type,
-        source
-      )
-      VALUES ${sql.join(valueFragments, sql`, `)}
-      ON CONFLICT (property_id, price_date, price, event_type) DO NOTHING
-      RETURNING property_id
-    `);
-
-    for (const row of insertedRows) {
-      insertedPropertyIds.add(row.property_id);
-    }
-  }
-
-  return [...insertedPropertyIds];
 }
 
 async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: string): Promise<void> {
@@ -777,20 +612,16 @@ export async function processIngestBatch(
       await spatialMatchProperties(tx, canonicalized, exactMatches);
 
       const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(canonicalized, exactMatches);
-      const listingWrites = await upsertMatchedListings(tx, claimed.sourceName, matched);
-      const priceHistoryChangedPropertyIds = await insertPriceHistory(
+      const listingWrites = await persistMatchedListingObservations(
         tx,
         claimed.sourceName,
+        claimed.id,
         matched,
-        listingWrites,
       );
       await advancePropertyChangeVersion(
-        [
-          ...listingWrites
-            .filter((row) => row.inserted || row.changed)
-            .map((row) => row.propertyId),
-          ...priceHistoryChangedPropertyIds,
-        ],
+        listingWrites
+          .filter((row) => row.inserted || row.changed)
+          .map((row) => row.propertyId),
         tx,
       );
 

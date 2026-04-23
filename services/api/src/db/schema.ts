@@ -154,6 +154,102 @@ export const ingestBatchStatusEnum = pgEnum('ingest_batch_status', [
   'retryable',
   'failed',
 ]);
+export const listingSourceIdKindEnum = pgEnum('listing_source_id_kind', [
+  'tiny_id',
+  'global_id',
+  'detail_id',
+  'canonical_path',
+  'relative_path',
+  'url_path',
+  'unknown',
+]);
+export const listingObservationOriginEnum = pgEnum('listing_observation_origin', [
+  'user',
+  'mirror',
+  'replay',
+  'validation',
+]);
+export const listingPropertyMatchKindEnum = pgEnum('listing_property_match_kind', [
+  'user_selected',
+  'source_exact',
+  'source_spatial',
+  'source_unmatched',
+  'source_mismatch',
+]);
+export const listingSourceStatusEnum = pgEnum('listing_source_status', [
+  'available',
+  'sold',
+  'rented',
+  'withdrawn',
+  'not_found',
+  'blocked',
+  'invalid',
+  'parser_error',
+  'unknown',
+]);
+export const listingSourceAliasKindEnum = pgEnum('listing_source_alias_kind', [
+  'tiny_id',
+  'global_id',
+  'detail_id',
+  'canonical_url',
+  'relative_path',
+  'url_path',
+]);
+export const canonicalListingStatusEnum = pgEnum('canonical_listing_status', [
+  'active',
+  'sold',
+  'rented',
+  'withdrawn',
+  'not_found',
+  'blocked',
+  'invalid',
+  'parser_error',
+  'unknown',
+]);
+export const canonicalListingStatusSourceEnum = pgEnum('canonical_listing_status_source', [
+  'mirror',
+  'user',
+  'system',
+]);
+export const canonicalListingVerificationStateEnum = pgEnum('canonical_listing_verification_state', [
+  'provisional',
+  'validated',
+  'invalid',
+  'validation_pending',
+  'validation_blocked',
+  'validation_failed',
+]);
+export const canonicalListingOriginSummaryEnum = pgEnum('canonical_listing_origin_summary', [
+  'user',
+  'mirror',
+  'user_and_mirror',
+]);
+export const listingObservationLinkReasonEnum = pgEnum('listing_observation_link_reason', [
+  'source_identity',
+  'source_alias',
+  'canonical_url',
+  'user_provisional',
+  'manual_repair',
+]);
+export const mirrorListingWatchStateEnum = pgEnum('mirror_listing_watch_state', [
+  'pending',
+  'queued',
+  'fetching',
+  'matched',
+  'not_found',
+  'blocked',
+  'invalid',
+  'parser_error',
+  'unsupported',
+  'retryable_error',
+]);
+export const listingPriceObservationEventTypeEnum = pgEnum('listing_price_observation_event_type', [
+  'initial',
+  'price_change',
+  'status_change',
+  'mirror_refresh',
+  'user_submission',
+]);
 
 // Users table
 export const users = pgTable(
@@ -370,6 +466,238 @@ export const ingestSources = pgTable(
   },
   (table) => [
     index('ingest_sources_last_batch_idx').on(table.lastBatchId),
+  ]
+);
+
+export const listingSourceAliases = pgTable(
+  'listing_source_aliases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    aliasKind: listingSourceAliasKindEnum('alias_kind').notNull(),
+    aliasValue: text('alias_value').notNull(),
+    primarySourceListingId: varchar('primary_source_listing_id', { length: 255 }).notNull(),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_source_aliases_source_alias_idx').on(table.sourceName, table.aliasKind, table.aliasValue),
+    uniqueIndex('listing_source_aliases_source_primary_alias_idx').on(
+      table.sourceName,
+      table.primarySourceListingId,
+      table.aliasKind,
+      table.aliasValue
+    ),
+    index('listing_source_aliases_primary_idx').on(table.sourceName, table.primarySourceListingId),
+  ]
+);
+
+export const canonicalListings = pgTable(
+  'canonical_listings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    primarySourceListingId: varchar('primary_source_listing_id', { length: 255 }),
+    canonicalUrl: text('canonical_url'),
+    displayUrl: text('display_url'),
+    status: canonicalListingStatusEnum('status').notNull().default('active'),
+    statusSource: canonicalListingStatusSourceEnum('status_source').notNull().default('system'),
+    verificationState: canonicalListingVerificationStateEnum('verification_state').notNull().default('provisional'),
+    originSummary: canonicalListingOriginSummaryEnum('origin_summary').notNull().default('user'),
+    submittedBy: uuid('submitted_by').references(() => users.id, { onDelete: 'set null' }),
+    thumbnailUrl: text('thumbnail_url'),
+    title: text('title'),
+    description: text('description'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    priceCurrency: varchar('price_currency', { length: 3 }),
+    priceType: varchar('price_type', { length: 10 }),
+    livingAreaM2: integer('living_area_m2'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    lastMirrorSeenAt: timestamp('last_mirror_seen_at', { withTimezone: true }),
+    lastUserSeenAt: timestamp('last_user_seen_at', { withTimezone: true }),
+    lastReconciledAt: timestamp('last_reconciled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('canonical_listings_source_identity_idx')
+      .on(table.sourceName, table.primarySourceListingId)
+      .where(sql`primary_source_listing_id IS NOT NULL`),
+    uniqueIndex('canonical_listings_source_url_idx')
+      .on(table.sourceName, table.canonicalUrl)
+      .where(sql`canonical_url IS NOT NULL`),
+    index('canonical_listings_property_id_idx').on(table.propertyId),
+    index('canonical_listings_property_status_idx').on(table.propertyId, table.status),
+    index('canonical_listings_verification_state_idx').on(table.verificationState),
+  ]
+);
+
+export const mirrorListingWatches = pgTable(
+  'mirror_listing_watches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    submittedBy: uuid('submitted_by').references(() => users.id, { onDelete: 'set null' }),
+    sourceUrlRaw: text('source_url_raw').notNull(),
+    sourceUrlCanonical: text('source_url_canonical').notNull(),
+    sourceListingId: varchar('source_listing_id', { length: 255 }),
+    canonicalListingId: uuid('canonical_listing_id').references(() => canonicalListings.id, { onDelete: 'set null' }),
+    state: mirrorListingWatchStateEnum('state').notNull().default('pending'),
+    stateReason: varchar('state_reason', { length: 100 }),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    lastValidationObservationId: uuid('last_validation_observation_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('mirror_listing_watches_active_url_idx')
+      .on(table.sourceName, table.propertyId, table.sourceUrlCanonical)
+      .where(sql`state IN ('pending', 'queued', 'fetching', 'retryable_error')`),
+    index('mirror_listing_watches_state_next_attempt_idx').on(table.state, table.nextAttemptAt),
+    index('mirror_listing_watches_canonical_listing_idx').on(table.canonicalListingId),
+  ]
+);
+
+export const listingObservations = pgTable(
+  'listing_observations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    sourceListingId: varchar('source_listing_id', { length: 255 }),
+    sourceListingIdKind: listingSourceIdKindEnum('source_listing_id_kind'),
+    sourceListingAliases: jsonb('source_listing_aliases')
+      .$type<Array<{ kind: string; value: string }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    sourceUrlRaw: text('source_url_raw'),
+    sourceUrlCanonical: text('source_url_canonical'),
+    submittedBy: uuid('submitted_by').references(() => users.id, { onDelete: 'set null' }),
+    origin: listingObservationOriginEnum('origin').notNull(),
+    propertyId: uuid('property_id').references(() => properties.id, { onDelete: 'set null' }),
+    propertyMatchKind: listingPropertyMatchKindEnum('property_match_kind').notNull().default('source_unmatched'),
+    sourceStatus: listingSourceStatusEnum('source_status').notNull().default('unknown'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    priceCurrency: varchar('price_currency', { length: 3 }),
+    addressRaw: text('address_raw'),
+    addressNormalized: jsonb('address_normalized').$type<Record<string, unknown> | null>(),
+    postalCode: varchar('postal_code', { length: 20 }),
+    houseNumber: integer('house_number'),
+    houseNumberAddition: varchar('house_number_addition', { length: 50 }),
+    listedAt: timestamp('listed_at', { withTimezone: true }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+    ingestBatchId: uuid('ingest_batch_id').references(() => ingestBatches.id, { onDelete: 'set null' }),
+    validationWatchId: uuid('validation_watch_id'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_observations_mirror_idempotency_idx')
+      .on(table.sourceName, table.sourceListingId, table.origin, table.observedAt)
+      .where(sql`source_listing_id IS NOT NULL`),
+    index('listing_observations_source_identity_idx').on(table.sourceName, table.sourceListingId),
+    index('listing_observations_source_url_idx').on(table.sourceName, table.sourceUrlCanonical),
+    index('listing_observations_property_id_idx').on(table.propertyId),
+    index('listing_observations_ingest_batch_idx').on(table.ingestBatchId),
+    index('listing_observations_validation_watch_idx').on(table.validationWatchId),
+  ]
+);
+
+export const listingObservationLinks = pgTable(
+  'listing_observation_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    canonicalListingId: uuid('canonical_listing_id')
+      .notNull()
+      .references(() => canonicalListings.id, { onDelete: 'cascade' }),
+    listingObservationId: uuid('listing_observation_id')
+      .notNull()
+      .references(() => listingObservations.id, { onDelete: 'cascade' }),
+    linkReason: listingObservationLinkReasonEnum('link_reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_observation_links_observation_idx').on(table.listingObservationId),
+    index('listing_observation_links_canonical_idx').on(table.canonicalListingId),
+  ]
+);
+
+export const listingPriceObservations = pgTable(
+  'listing_price_observations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    listingObservationId: uuid('listing_observation_id')
+      .notNull()
+      .references(() => listingObservations.id, { onDelete: 'cascade' }),
+    canonicalListingId: uuid('canonical_listing_id')
+      .notNull()
+      .references(() => canonicalListings.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    sourceListingId: varchar('source_listing_id', { length: 255 }),
+    origin: listingObservationOriginEnum('origin').notNull(),
+    price: bigint('price', { mode: 'number' }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
+    eventType: listingPriceObservationEventTypeEnum('event_type').notNull(),
+    priceDate: date('price_date', { mode: 'string' }).notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_price_observations_source_dedup_idx')
+      .on(table.canonicalListingId, table.sourceName, table.sourceListingId, table.priceDate, table.price, table.eventType)
+      .where(sql`source_listing_id IS NOT NULL`),
+    index('listing_price_observations_property_idx').on(table.propertyId),
+    index('listing_price_observations_observation_idx').on(table.listingObservationId),
+  ]
+);
+
+export const listingReplayStaging = pgTable(
+  'listing_replay_staging',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    upstreamRunKey: varchar('upstream_run_key', { length: 255 }).notNull(),
+    sourceListingId: varchar('source_listing_id', { length: 255 }),
+    sourceListingIdKind: listingSourceIdKindEnum('source_listing_id_kind'),
+    sourceListingAliases: jsonb('source_listing_aliases')
+      .$type<Array<{ kind: string; value: string }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    sourceUrlRaw: text('source_url_raw'),
+    sourceUrlCanonical: text('source_url_canonical'),
+    sourceStatus: listingSourceStatusEnum('source_status').notNull().default('unknown'),
+    propertyId: uuid('property_id').references(() => properties.id, { onDelete: 'set null' }),
+    propertyMatchKind: listingPropertyMatchKindEnum('property_match_kind').notNull().default('source_unmatched'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    priceCurrency: varchar('price_currency', { length: 3 }),
+    addressNormalized: jsonb('address_normalized').$type<Record<string, unknown> | null>(),
+    listedAt: timestamp('listed_at', { withTimezone: true }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    loadedAt: timestamp('loaded_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('listing_replay_staging_run_idx').on(table.sourceName, table.upstreamRunKey),
+    index('listing_replay_staging_source_identity_idx').on(table.sourceName, table.sourceListingId),
+    index('listing_replay_staging_processed_idx').on(table.processedAt),
   ]
 );
 
@@ -669,6 +997,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   reactions: many(reactions),
   savedProperties: many(savedProperties),
   listings: many(listings),
+  canonicalListings: many(canonicalListings),
+  listingObservations: many(listingObservations),
+  mirrorListingWatches: many(mirrorListingWatches),
   propertyViews: many(propertyViews),
   notifications: many(notifications, { relationName: 'recipientNotifications' }),
   pushTokens: many(pushTokens),
@@ -679,6 +1010,10 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
   listings: many(listings),
+  canonicalListings: many(canonicalListings),
+  listingObservations: many(listingObservations),
+  mirrorListingWatches: many(mirrorListingWatches),
+  listingPriceObservations: many(listingPriceObservations),
   priceGuesses: many(priceGuesses),
   comments: many(comments),
   savedProperties: many(savedProperties),
@@ -708,15 +1043,97 @@ export const priceHistoryRelations = relations(priceHistory, ({ one }) => ({
   }),
 }));
 
+export const listingSourceAliasesRelations = relations(listingSourceAliases, () => ({}));
+
+export const canonicalListingsRelations = relations(canonicalListings, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [canonicalListings.propertyId],
+    references: [properties.id],
+  }),
+  submittedByUser: one(users, {
+    fields: [canonicalListings.submittedBy],
+    references: [users.id],
+  }),
+  observationLinks: many(listingObservationLinks),
+  priceObservations: many(listingPriceObservations),
+  mirrorWatches: many(mirrorListingWatches),
+}));
+
+export const mirrorListingWatchesRelations = relations(mirrorListingWatches, ({ one }) => ({
+  property: one(properties, {
+    fields: [mirrorListingWatches.propertyId],
+    references: [properties.id],
+  }),
+  submittedByUser: one(users, {
+    fields: [mirrorListingWatches.submittedBy],
+    references: [users.id],
+  }),
+  canonicalListing: one(canonicalListings, {
+    fields: [mirrorListingWatches.canonicalListingId],
+    references: [canonicalListings.id],
+  }),
+}));
+
+export const listingObservationsRelations = relations(listingObservations, ({ one, many }) => ({
+  property: one(properties, {
+    fields: [listingObservations.propertyId],
+    references: [properties.id],
+  }),
+  submittedByUser: one(users, {
+    fields: [listingObservations.submittedBy],
+    references: [users.id],
+  }),
+  ingestBatch: one(ingestBatches, {
+    fields: [listingObservations.ingestBatchId],
+    references: [ingestBatches.id],
+  }),
+  observationLink: one(listingObservationLinks),
+  priceObservations: many(listingPriceObservations),
+}));
+
+export const listingObservationLinksRelations = relations(listingObservationLinks, ({ one }) => ({
+  canonicalListing: one(canonicalListings, {
+    fields: [listingObservationLinks.canonicalListingId],
+    references: [canonicalListings.id],
+  }),
+  listingObservation: one(listingObservations, {
+    fields: [listingObservationLinks.listingObservationId],
+    references: [listingObservations.id],
+  }),
+}));
+
+export const listingPriceObservationsRelations = relations(listingPriceObservations, ({ one }) => ({
+  listingObservation: one(listingObservations, {
+    fields: [listingPriceObservations.listingObservationId],
+    references: [listingObservations.id],
+  }),
+  canonicalListing: one(canonicalListings, {
+    fields: [listingPriceObservations.canonicalListingId],
+    references: [canonicalListings.id],
+  }),
+  property: one(properties, {
+    fields: [listingPriceObservations.propertyId],
+    references: [properties.id],
+  }),
+}));
+
+export const listingReplayStagingRelations = relations(listingReplayStaging, ({ one }) => ({
+  property: one(properties, {
+    fields: [listingReplayStaging.propertyId],
+    references: [properties.id],
+  }),
+}));
+
 export const ingestRunsRelations = relations(ingestRuns, ({ many }) => ({
   batches: many(ingestBatches),
 }));
 
-export const ingestBatchesRelations = relations(ingestBatches, ({ one }) => ({
+export const ingestBatchesRelations = relations(ingestBatches, ({ one, many }) => ({
   run: one(ingestRuns, {
     fields: [ingestBatches.runId],
     references: [ingestRuns.id],
   }),
+  listingObservations: many(listingObservations),
 }));
 
 export const ingestSourcesRelations = relations(ingestSources, ({ one }) => ({
@@ -794,6 +1211,27 @@ export type NewProperty = typeof properties.$inferInsert;
 
 export type Listing = typeof listings.$inferSelect;
 export type NewListing = typeof listings.$inferInsert;
+
+export type ListingSourceAlias = typeof listingSourceAliases.$inferSelect;
+export type NewListingSourceAlias = typeof listingSourceAliases.$inferInsert;
+
+export type CanonicalListing = typeof canonicalListings.$inferSelect;
+export type NewCanonicalListing = typeof canonicalListings.$inferInsert;
+
+export type MirrorListingWatch = typeof mirrorListingWatches.$inferSelect;
+export type NewMirrorListingWatch = typeof mirrorListingWatches.$inferInsert;
+
+export type ListingObservation = typeof listingObservations.$inferSelect;
+export type NewListingObservation = typeof listingObservations.$inferInsert;
+
+export type ListingObservationLink = typeof listingObservationLinks.$inferSelect;
+export type NewListingObservationLink = typeof listingObservationLinks.$inferInsert;
+
+export type ListingPriceObservation = typeof listingPriceObservations.$inferSelect;
+export type NewListingPriceObservation = typeof listingPriceObservations.$inferInsert;
+
+export type ListingReplayStaging = typeof listingReplayStaging.$inferSelect;
+export type NewListingReplayStaging = typeof listingReplayStaging.$inferInsert;
 
 export type PriceGuess = typeof priceGuesses.$inferSelect;
 export type NewPriceGuess = typeof priceGuesses.$inferInsert;

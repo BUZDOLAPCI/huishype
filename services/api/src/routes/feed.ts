@@ -142,12 +142,12 @@ export async function feedRoutes(app: FastifyInstance) {
             p.postal_code,
             p.geometry,
             p.official_valuation,
-            l.id AS listing_id,
+            l.listing_id,
             l.asking_price,
             l.thumbnail_url,
-            l.created_at AS listing_created_at,
-            COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) AS active_listing_sort_at
-          FROM listings l
+            l.listing_created_at,
+            l.sort_at AS active_listing_sort_at
+          FROM v_canonical_listing_facts l
           INNER JOIN properties p ON p.id = l.property_id
           WHERE l.status = 'active'
             AND p.status = 'active'

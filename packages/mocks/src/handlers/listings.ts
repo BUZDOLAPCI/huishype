@@ -8,6 +8,12 @@
 import { http, HttpResponse } from 'msw';
 import { getAllListingDomains, getSourceNameForDomain } from '@huishype/shared/config';
 import { previewListingSchema, submitListingSchema } from '@huishype/shared/utils';
+import type {
+  ListingPreviewResponse,
+  ListingReadItem,
+  ListingSubmitResult,
+  ListingValidationState,
+} from '@huishype/shared';
 import { mockListings, mockPropertyDetails, getMockProperty } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 
@@ -23,8 +29,115 @@ function detectSourceName(url: string): string {
   }
 }
 
+function canonicalizeMockUrl(rawUrl: string) {
+  const parsed = new URL(rawUrl);
+  parsed.search = '';
+  parsed.hash = '';
+
+  const sourceName = detectSourceName(rawUrl);
+  if (sourceName === 'funda') {
+    const detailId = parsed.pathname.match(/\/detail(?:\/.*)?\/(\d+)\/?$/)?.[1];
+    return {
+      canonicalUrl: detailId ? `https://www.funda.nl/detail/${detailId}` : parsed.toString(),
+      sourceListingId: detailId ?? null,
+      sourceListingIdKind: detailId ? 'tiny_id' : null,
+    };
+  }
+
+  if (sourceName === 'pararius') {
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+    const sourceListingId = pathParts.find((part) => /^[a-f0-9]{8}$/i.test(part)) ?? null;
+    return {
+      canonicalUrl: parsed.toString(),
+      sourceListingId,
+      sourceListingIdKind: sourceListingId ? 'url_path' : null,
+    };
+  }
+
+  return {
+    canonicalUrl: parsed.toString(),
+    sourceListingId: null,
+    sourceListingIdKind: null,
+  };
+}
+
+function getMockPriceType(rawUrl: string): 'sale' | 'rent' | 'unknown' {
+  const lowerUrl = rawUrl.toLowerCase();
+  if (lowerUrl.includes('/huur/') || lowerUrl.includes('for-rent')) return 'rent';
+  if (lowerUrl.includes('/koop/') || lowerUrl.includes('for-sale')) return 'sale';
+  return 'unknown';
+}
+
+function getMockPreviewState(rawUrl: string): {
+  validationState: ListingValidationState;
+  matchState: ListingPreviewResponse['matchState'];
+  watchState: ListingPreviewResponse['watchState'];
+  reasonCode: ListingPreviewResponse['reasonCode'];
+  matchedPropertyId: string | null;
+} {
+  if (rawUrl.includes('mismatch')) {
+    return {
+      validationState: 'invalid',
+      matchState: 'mismatch',
+      watchState: 'not_required',
+      reasonCode: 'address_mismatch',
+      matchedPropertyId: null,
+    };
+  }
+  if (rawUrl.includes('pending') || rawUrl.includes('unavailable')) {
+    return {
+      validationState: 'provisional',
+      matchState: 'unverified',
+      watchState: 'will_enqueue',
+      reasonCode: 'mirror_unavailable',
+      matchedPropertyId: null,
+    };
+  }
+  return {
+    validationState: 'valid',
+    matchState: 'matched',
+    watchState: 'not_required',
+    reasonCode: 'source_identity_match',
+    matchedPropertyId: null,
+  };
+}
+
+function buildMockPreviewResponse(
+  rawUrl: string,
+  property: NonNullable<ReturnType<typeof getMockProperty>>,
+  submittedPropertyId: string
+): ListingPreviewResponse {
+  const sourceName = detectSourceName(rawUrl);
+  const identity = canonicalizeMockUrl(rawUrl);
+  const state = getMockPreviewState(rawUrl);
+  return {
+    sourceName,
+    rawUrl,
+    canonicalUrl: identity.canonicalUrl,
+    sourceListingId: identity.sourceListingId,
+    sourceListingIdKind: identity.sourceListingIdKind,
+    validationState: state.validationState,
+    matchState: state.matchState,
+    watchState: state.watchState,
+    reasonCode: state.reasonCode,
+    title: `Te koop: ${property.address}`,
+    description: `A mock listing for ${property.address}`,
+    imageUrl: 'https://example.com/listing-preview.jpg',
+    askingPrice: property.activeListing?.askingPrice ?? null,
+    priceType: getMockPriceType(rawUrl),
+    currency: 'EUR',
+    address: `${property.address}, ${property.postalCode} ${property.city}`,
+    submittedPropertyId,
+    matchedPropertyId:
+      state.matchState === 'matched' ? submittedPropertyId : state.matchedPropertyId,
+  };
+}
+
 function resolveMockProperty(propertyId: string) {
-  return getMockProperty(propertyId) ?? (UUID_SHAPE_REGEX.test(propertyId) ? mockPropertyDetails[0] : null);
+  return (
+    getMockProperty(propertyId) ??
+    (UUID_SHAPE_REGEX.test(propertyId) ? mockPropertyDetails[0] : null)
+  );
 }
 
 function validationError(details: unknown) {
@@ -34,7 +147,7 @@ function validationError(details: unknown) {
       message: 'Request validation failed',
       details,
     },
-    { status: 400 },
+    { status: 400 }
   );
 }
 
@@ -53,22 +166,38 @@ export const listingHandlers = [
       );
     }
 
-    const listings = mockListings
+    const listings: ListingReadItem[] = mockListings
       .filter((l) => l.propertyId === property.id)
-      .map((listing) => ({
-        id: listing.id,
-        sourceUrl: listing.sourceUrl,
-        sourceName: listing.sourceName,
-        askingPrice: listing.askingPrice ?? null,
-        priceType: null,
-        thumbnailUrl: listing.thumbnailUrl ?? null,
-        ogTitle: listing.title ?? null,
-        livingAreaM2: null,
-        numRooms: null,
-        energyLabel: null,
-        status: listing.status,
-        createdAt: new Date(listing.discoveredAt).toISOString(),
-      }));
+      .map((listing) => {
+        const identity = canonicalizeMockUrl(listing.sourceUrl);
+        const verificationState = listing.userSubmitted ? 'validation_pending' : 'validated';
+        return {
+          id: listing.id,
+          propertyId: listing.propertyId,
+          sourceUrl: listing.sourceUrl,
+          canonicalUrl: identity.canonicalUrl,
+          displayUrl: identity.canonicalUrl,
+          sourceName: listing.sourceName,
+          sourceListingId: identity.sourceListingId,
+          sourceListingIdKind: identity.sourceListingIdKind,
+          askingPrice: listing.askingPrice ?? null,
+          priceType: listing.priceType ?? null,
+          currency: listing.currency ?? 'EUR',
+          thumbnailUrl: listing.thumbnailUrl ?? null,
+          ogTitle: listing.title ?? null,
+          livingAreaM2: null,
+          numRooms: null,
+          energyLabel: null,
+          status: listing.status,
+          validationState: listing.userSubmitted ? 'provisional' : 'valid',
+          matchState: listing.userSubmitted ? 'unverified' : 'matched',
+          watchState: listing.userSubmitted ? 'queued' : 'not_required',
+          verificationState,
+          originSummary: listing.userSubmitted ? 'user' : 'mirror',
+          reasonCode: listing.userSubmitted ? 'validation_pending' : 'source_identity_match',
+          createdAt: new Date(listing.discoveredAt).toISOString(),
+        };
+      });
 
     return HttpResponse.json({
       data: listings,
@@ -103,7 +232,7 @@ export const listingHandlers = [
    * POST /listings/preview - Preview a listing URL
    */
   http.post('*/listings/preview', async ({ request }) => {
-    const body = await request.json() as unknown;
+    const body = (await request.json()) as unknown;
     const parsed = previewListingSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -127,21 +256,18 @@ export const listingHandlers = [
     }
 
     const hostname = new URL(parsed.data.url).hostname.toLowerCase();
-    if (!ALL_LISTING_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+    if (
+      !ALL_LISTING_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+    ) {
       return HttpResponse.json(
         { error: 'INVALID_URL', message: 'URL must be from a recognized listing platform.' },
         { status: 400 }
       );
     }
 
-    return HttpResponse.json({
-      ogTitle: `Te koop: ${property.address}`,
-      ogImage: 'https://example.com/listing-preview.jpg',
-      ogDescription: `A mock listing for ${property.address}`,
-      sourceName: detectSourceName(parsed.data.url),
-      addressMatch: true,
-      warning: null,
-    });
+    return HttpResponse.json(
+      buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId)
+    );
   }),
 
   /**
@@ -156,7 +282,7 @@ export const listingHandlers = [
       );
     }
 
-    const body = await request.json() as unknown;
+    const body = (await request.json()) as unknown;
     const parsed = submitListingSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -180,20 +306,49 @@ export const listingHandlers = [
     }
 
     const hostname = new URL(parsed.data.url).hostname.toLowerCase();
-    if (!ALL_LISTING_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+    if (
+      !ALL_LISTING_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
+    ) {
       return HttpResponse.json(
         { error: 'INVALID_URL', message: 'URL must be from a recognized listing platform.' },
         { status: 400 }
       );
     }
 
-    return HttpResponse.json({
+    const preview = buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId);
+    if (preview.validationState === 'invalid' || preview.matchState === 'mismatch') {
+      return HttpResponse.json(
+        {
+          error: 'LISTING_VALIDATION_FAILED',
+          message: 'This listing does not match this property.',
+          reasonCode: preview.reasonCode,
+        },
+        { status: 422 }
+      );
+    }
+
+    const response: ListingSubmitResult = {
       id: '11111111-1111-4111-8111-111111111111',
       propertyId: parsed.data.propertyId,
       sourceUrl: parsed.data.url,
-      sourceName: detectSourceName(parsed.data.url),
+      sourceName: preview.sourceName,
       status: 'active',
       createdAt: new Date().toISOString(),
-    }, { status: 201 });
+      canonicalListingId: '11111111-1111-4111-8111-111111111111',
+      canonicalUrl: preview.canonicalUrl,
+      displayUrl: preview.canonicalUrl ?? parsed.data.url,
+      sourceListingId: preview.sourceListingId,
+      sourceListingIdKind: preview.sourceListingIdKind,
+      validationState: preview.validationState,
+      matchState: preview.matchState,
+      watchState: preview.watchState,
+      verificationState:
+        preview.validationState === 'valid' && preview.matchState === 'matched'
+          ? 'validated'
+          : 'validation_pending',
+      reasonCode: preview.reasonCode,
+    };
+
+    return HttpResponse.json(response, { status: 201 });
   }),
 ];

@@ -10,6 +10,7 @@ import { formatDisplayAddress } from '../utils/address.js';
 import {
   ACTIVE_SOCIAL_SCORE_THRESHOLD,
   buildActivityFilterPredicate,
+  canonicalListingFactOrderExpression,
   buildPropertyFollowingSocialFactsJoin,
   buildPropertyListingFactsJoin,
 } from './property-queries.js';
@@ -820,11 +821,7 @@ function buildBoundsFilter(boundsList: TileBBox[], geometryColumn: SQL): SQL {
 }
 
 function buildListingOrderExpression(alias: string): SQL {
-  return sql`COALESCE(${sql.raw(`${alias}.mirror_last_changed_at`)}, ${sql.raw(
-    `${alias}.updated_at`
-  )}, ${sql.raw(`${alias}.created_at`)}) DESC, ${sql.raw(`${alias}.created_at`)} DESC, ${sql.raw(
-    `${alias}.id`
-  )} DESC`;
+  return canonicalListingFactOrderExpression(alias);
 }
 
 async function fetchGroupingCandidatesInBBox(
@@ -886,7 +883,7 @@ async function fetchGroupingCandidatesInBBoxes(
         ),
         active_listing_candidate_ids AS MATERIALIZED (
           SELECT DISTINCT l.property_id
-          FROM listings l
+          FROM v_canonical_listing_facts l
           INNER JOIN bounded_properties bp ON bp.id = l.property_id
           WHERE l.status = 'active'
         ),
@@ -965,7 +962,7 @@ async function fetchGroupingCandidatesInBBoxes(
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.status
-          FROM listings l
+          FROM v_canonical_listing_facts l
           INNER JOIN candidate_properties cp ON cp.id = l.property_id
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
@@ -973,8 +970,8 @@ async function fetchGroupingCandidatesInBBoxes(
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.asking_price,
-            COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
-          FROM listings l
+            l.normalized_price_type AS price_type
+          FROM v_canonical_listing_facts l
           INNER JOIN candidate_properties cp ON cp.id = l.property_id
           WHERE l.status = 'active'
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
@@ -1090,15 +1087,15 @@ async function fetchGroupingCandidatesInBBoxes(
             SELECT DISTINCT ON (l.property_id)
               l.property_id,
               l.status
-            FROM listings l
+            FROM v_canonical_listing_facts l
             INNER JOIN candidate_properties cp ON cp.id = l.property_id
             ORDER BY l.property_id, ${buildListingOrderExpression('l')}
           ),
           active_listing AS MATERIALIZED (
             SELECT DISTINCT ON (l.property_id)
               l.property_id,
-              COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
-            FROM listings l
+              l.normalized_price_type AS price_type
+            FROM v_canonical_listing_facts l
             INNER JOIN candidate_properties cp ON cp.id = l.property_id
             WHERE l.status = 'active'
             ORDER BY l.property_id, ${buildListingOrderExpression('l')}
@@ -1129,8 +1126,8 @@ async function fetchGroupingCandidatesInBBoxes(
         active_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
-            COALESCE(NULLIF(l.price_type, ''), 'sale') AS price_type
-          FROM listings l
+            l.normalized_price_type AS price_type
+          FROM v_canonical_listing_facts l
           INNER JOIN candidate_properties cp ON cp.id = l.property_id
           WHERE l.status = 'active'
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}

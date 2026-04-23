@@ -254,11 +254,23 @@ describe('Mock handler runtime parity', () => {
     const previewBody = await previewResponse.json();
 
     expect(previewResponse.status).toBe(200);
-    expect(previewBody).toHaveProperty('ogTitle');
-    expect(previewBody).toHaveProperty('ogImage');
     expect(previewBody).toHaveProperty('sourceName');
-    expect(previewBody).toHaveProperty('addressMatch');
-    expect(previewBody).toHaveProperty('warning');
+    expect(previewBody).toHaveProperty('rawUrl');
+    expect(previewBody).toHaveProperty('canonicalUrl');
+    expect(previewBody).toHaveProperty('sourceListingId');
+    expect(previewBody).toHaveProperty('sourceListingIdKind');
+    expect(previewBody).toHaveProperty('validationState', 'valid');
+    expect(previewBody).toHaveProperty('matchState', 'matched');
+    expect(previewBody).toHaveProperty('watchState', 'not_required');
+    expect(previewBody).toHaveProperty('reasonCode');
+    expect(previewBody).toHaveProperty('title');
+    expect(previewBody).toHaveProperty('description');
+    expect(previewBody).toHaveProperty('imageUrl');
+    expect(previewBody).toHaveProperty('askingPrice');
+    expect(previewBody).toHaveProperty('priceType');
+    expect(previewBody).toHaveProperty('currency');
+    expect(previewBody).toHaveProperty('submittedPropertyId', listingPropertyId);
+    expect(previewBody).toHaveProperty('matchedPropertyId', listingPropertyId);
 
     const previewInvalidUrlResponse = await fetch('http://localhost/listings/preview', {
       method: 'POST',
@@ -280,8 +292,8 @@ describe('Mock handler runtime parity', () => {
       body: JSON.stringify({
         url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
         propertyId: listingPropertyId,
-        ogTitle: previewBody.ogTitle,
-        thumbnailUrl: previewBody.ogImage,
+        ogTitle: previewBody.title,
+        thumbnailUrl: previewBody.imageUrl,
       }),
     });
     const unauthSubmitBody = await unauthSubmit.json();
@@ -309,8 +321,8 @@ describe('Mock handler runtime parity', () => {
       body: JSON.stringify({
         url: 'https://evil-site.com/listing',
         propertyId: listingPropertyId,
-        ogTitle: previewBody.ogTitle,
-        thumbnailUrl: previewBody.ogImage,
+        ogTitle: previewBody.title,
+        thumbnailUrl: previewBody.imageUrl,
       }),
     });
     expect(invalidSubmitResponse.status).toBe(400);
@@ -328,8 +340,8 @@ describe('Mock handler runtime parity', () => {
       body: JSON.stringify({
         url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
         propertyId: listingPropertyId,
-        ogTitle: previewBody.ogTitle,
-        thumbnailUrl: previewBody.ogImage,
+        ogTitle: previewBody.title,
+        thumbnailUrl: previewBody.imageUrl,
       }),
     });
     const submitBody = await submitResponse.json();
@@ -341,6 +353,46 @@ describe('Mock handler runtime parity', () => {
     expect(submitBody).toHaveProperty('sourceName');
     expect(submitBody).toHaveProperty('status');
     expect(submitBody).toHaveProperty('createdAt');
+    expect(submitBody).toHaveProperty('canonicalListingId');
+    expect(submitBody).toHaveProperty('canonicalUrl');
+    expect(submitBody).toHaveProperty('displayUrl');
+    expect(submitBody).toHaveProperty('sourceListingId');
+    expect(submitBody).toHaveProperty('sourceListingIdKind');
+    expect(submitBody).toHaveProperty('validationState', 'valid');
+    expect(submitBody).toHaveProperty('matchState', 'matched');
+    expect(submitBody).toHaveProperty('watchState', 'not_required');
+    expect(submitBody).toHaveProperty('verificationState', 'validated');
+    expect(submitBody).toHaveProperty('reasonCode');
+
+    const mismatchPreviewResponse = await fetch('http://localhost/listings/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/detail/mismatch-12345',
+        propertyId: listingPropertyId,
+      }),
+    });
+    const mismatchPreviewBody = await mismatchPreviewResponse.json();
+    expect(mismatchPreviewResponse.status).toBe(200);
+    expect(mismatchPreviewBody).toHaveProperty('validationState', 'invalid');
+    expect(mismatchPreviewBody).toHaveProperty('matchState', 'mismatch');
+
+    const mismatchSubmitResponse = await fetch('http://localhost/listings/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/detail/mismatch-12345',
+        propertyId: listingPropertyId,
+      }),
+    });
+    expect(mismatchSubmitResponse.status).toBe(422);
+    expect(await mismatchSubmitResponse.json()).toMatchObject({
+      error: 'LISTING_VALIDATION_FAILED',
+      reasonCode: 'address_mismatch',
+    });
   });
 
   it('matches live /properties/:id/listings response envelope', async () => {
@@ -354,6 +406,16 @@ describe('Mock handler runtime parity', () => {
     if (body.data.length > 0) {
       expect(body.data[0]).toHaveProperty('thumbnailUrl');
       expect(body.data[0]).toHaveProperty('sourceUrl');
+      expect(body.data[0]).toHaveProperty('canonicalUrl');
+      expect(body.data[0]).toHaveProperty('displayUrl');
+      expect(body.data[0]).toHaveProperty('sourceListingId');
+      expect(body.data[0]).toHaveProperty('sourceListingIdKind');
+      expect(body.data[0]).toHaveProperty('validationState');
+      expect(body.data[0]).toHaveProperty('matchState');
+      expect(body.data[0]).toHaveProperty('watchState');
+      expect(body.data[0]).toHaveProperty('verificationState');
+      expect(body.data[0]).toHaveProperty('originSummary');
+      expect(body.data[0]).toHaveProperty('reasonCode');
       expect(body.data[0]).toHaveProperty('createdAt');
     }
   });
@@ -394,7 +456,7 @@ describe('Mock handler runtime parity', () => {
 
   it('matches public resolve and nearby grouped map contracts', async () => {
     const resolveResponse = await fetch(
-      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&countryCode=NL',
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&countryCode=NL'
     );
     const resolveBody = await resolveResponse.json();
 
@@ -404,7 +466,7 @@ describe('Mock handler runtime parity', () => {
     expect(resolveBody).not.toHaveProperty('hasListing');
 
     const nearbySingleResponse = await fetch(
-      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=17',
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=17'
     );
     const nearbySingleBody = await nearbySingleResponse.json();
 
@@ -416,7 +478,7 @@ describe('Mock handler runtime parity', () => {
     expect(Object.keys(nearbySingleBody).sort()).toEqual(nearbySingleKeys);
 
     const nearbyClusterResponse = await fetch(
-      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=13',
+      'http://localhost/properties/nearby?lon=4.8952&lat=52.3702&zoom=13'
     );
     const nearbyClusterBody = await nearbyClusterResponse.json();
 
@@ -426,14 +488,16 @@ describe('Mock handler runtime parity', () => {
     expect(Object.keys(nearbyClusterBody).sort()).toEqual(nearbyClusterKeys);
 
     const nearbyNullResponse = await fetch(
-      'http://localhost/properties/nearby?lon=3.5&lat=55.1&zoom=17',
+      'http://localhost/properties/nearby?lon=3.5&lat=55.1&zoom=17'
     );
     expect(nearbyNullResponse.status).toBe(200);
     expect(await nearbyNullResponse.json()).toBeNull();
   });
 
   it('matches resolve validation and null lookup semantics', async () => {
-    const missingRequiredResponse = await fetch('http://localhost/properties/resolve?postalCode=1016GV');
+    const missingRequiredResponse = await fetch(
+      'http://localhost/properties/resolve?postalCode=1016GV'
+    );
     expect(missingRequiredResponse.status).toBe(400);
     expect(await missingRequiredResponse.json()).toEqual({
       error: 'VALIDATION_ERROR',
@@ -441,7 +505,7 @@ describe('Mock handler runtime parity', () => {
     });
 
     const invalidHouseNumberResponse = await fetch(
-      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=abc&countryCode=NL',
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=abc&countryCode=NL'
     );
     expect(invalidHouseNumberResponse.status).toBe(400);
     expect(await invalidHouseNumberResponse.json()).toEqual({
@@ -450,16 +514,14 @@ describe('Mock handler runtime parity', () => {
     });
 
     const mismatchedAdditionResponse = await fetch(
-      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&houseNumberAddition=A&countryCode=NL',
+      'http://localhost/properties/resolve?postalCode=1016GV&houseNumber=263&houseNumberAddition=A&countryCode=NL'
     );
     expect(mismatchedAdditionResponse.status).toBe(200);
     expect(await mismatchedAdditionResponse.json()).toBeNull();
   });
 
   it('matches Following TileJSON auth split and personalized nearby grouped payloads', async () => {
-    const unauthorizedResponse = await fetch(
-      'http://localhost/tiles/following/properties.json',
-    );
+    const unauthorizedResponse = await fetch('http://localhost/tiles/following/properties.json');
     expect(unauthorizedResponse.status).toBe(401);
 
     const loginResponse = await fetch('http://localhost/auth/google', {
@@ -474,7 +536,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/tiles/following/properties.json',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const omittedActivityTileJsonBody = await omittedActivityTileJsonResponse.json();
 
@@ -485,7 +547,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/tiles/following/properties.json?activity=all',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const legacyAllActivityTileJsonBody = await legacyAllActivityTileJsonResponse.json();
 
@@ -497,7 +559,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/tiles/following/properties.json?marketState=for-sale,sold&activity=10d',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const tileJsonBody = await tileJsonResponse.json();
 
@@ -513,7 +575,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const nearbyBody = await nearbyResponse.json();
 
@@ -528,7 +590,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=10d',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const tenDayNearbyBody = await tenDayNearbyResponse.json();
 
@@ -541,7 +603,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale&activity=today',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
 
     expect(todayNearbyResponse.status).toBe(200);
@@ -557,7 +619,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=13&marketState=for-sale',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const afterFollowBody = await afterFollowResponse.json();
 
@@ -566,7 +628,7 @@ describe('Mock handler runtime parity', () => {
     expect(afterFollowBody).toHaveProperty('isRead', false);
     expect(Object.keys(afterFollowBody).sort()).toEqual(nearbyClusterKeys);
     expect(afterFollowBody.propertyIds).toEqual(
-      expect.arrayContaining([mockPropertyIds.herengracht502, mockPropertyIds.prinsengracht263]),
+      expect.arrayContaining([mockPropertyIds.herengracht502, mockPropertyIds.prinsengracht263])
     );
   });
 
@@ -598,7 +660,7 @@ describe('Mock handler runtime parity', () => {
       `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
       {
         headers: { 'x-session-id': 'mock-session-1' },
-      },
+      }
     );
     expect(sessionDetailResponse.status).toBe(200);
     expect(await sessionDetailResponse.json()).toHaveProperty('isRead', true);
@@ -616,7 +678,7 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/tiles/properties/read.json?marketState=for-sale,sold&activity=10d',
       {
         headers: { 'x-session-id': 'mock-session-tiles' },
-      },
+      }
     );
     const tileJsonBody = await tileJsonResponse.json();
 
@@ -630,7 +692,7 @@ describe('Mock handler runtime parity', () => {
     expect(tileJsonBody.tiles[0]).toContain('activity=10d');
 
     const missingIdentityTileResponse = await fetch(
-      'http://localhost/tiles/properties/read/12/2048/1363.pbf',
+      'http://localhost/tiles/properties/read/12/2048/1363.pbf'
     );
     expect(missingIdentityTileResponse.status).toBe(400);
 
@@ -672,7 +734,7 @@ describe('Mock handler runtime parity', () => {
       `http://localhost/users/${mockUserIds.sophie}/profile`,
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const viewerAwareProfileBody = await viewerAwareProfileResponse.json();
     expect(viewerAwareProfileResponse.status).toBe(200);
@@ -712,7 +774,9 @@ describe('Mock handler runtime parity', () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.session.accessToken as string;
 
-    const exactResponse = await fetch('http://localhost/users/search?q=jandevries&limit=20&offset=0');
+    const exactResponse = await fetch(
+      'http://localhost/users/search?q=jandevries&limit=20&offset=0'
+    );
     const exactBody = await exactResponse.json();
     expect(exactResponse.status).toBe(200);
     expect(exactBody.items[0]).toEqual({
@@ -804,7 +868,7 @@ describe('Mock handler runtime parity', () => {
         limit: 20,
         offset: 0,
         hasMore: expect.any(Boolean),
-      }),
+      })
     );
     expect(publicBody.items[0].actor.id).toMatch(uuidShape);
     expect(publicBody.items[0].property.id).toMatch(uuidShape);
@@ -824,11 +888,13 @@ describe('Mock handler runtime parity', () => {
     expect(
       followingBody.items.every((item: { eventType: string }) => item.eventType !== 'save')
     ).toBe(true);
+    expect(followingBody.items.map((item: { actor: { id: string } }) => item.actor.id)).toEqual(
+      expect.arrayContaining([mockUserIds.maria, mockUserIds.lars])
+    );
     expect(
-      followingBody.items.map((item: { actor: { id: string } }) => item.actor.id)
-    ).toEqual(expect.arrayContaining([mockUserIds.maria, mockUserIds.lars]));
-    expect(
-      followingBody.items.some((item: { actor: { id: string } }) => item.actor.id === mockUserIds.sophie)
+      followingBody.items.some(
+        (item: { actor: { id: string } }) => item.actor.id === mockUserIds.sophie
+      )
     ).toBe(false);
 
     const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
@@ -841,15 +907,15 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/activity?scope=following&limit=20',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const followingAfterFollowBody = await followingAfterFollowResponse.json();
     expect(followingAfterFollowResponse.status).toBe(200);
     expect(
       followingAfterFollowBody.items.some(
         (item: { actor: { id: string }; eventType: string }) =>
-          item.actor.id === mockUserIds.sophie && item.eventType === 'comment',
-      ),
+          item.actor.id === mockUserIds.sophie && item.eventType === 'comment'
+      )
     ).toBe(true);
 
     const selfResponse = await fetch('http://localhost/users/me/activity?limit=20', {
@@ -865,7 +931,7 @@ describe('Mock handler runtime parity', () => {
         limit: 20,
         offset: 0,
         hasMore: expect.any(Boolean),
-      }),
+      })
     );
   });
 
@@ -879,7 +945,7 @@ describe('Mock handler runtime parity', () => {
     const token = loginBody.session.accessToken as string;
 
     const publicResponse = await fetch(
-      'http://localhost/activity/properties?scope=public&limit=20',
+      'http://localhost/activity/properties?scope=public&limit=20'
     );
     const publicBody = await publicResponse.json();
     expect(publicResponse.status).toBe(200);
@@ -888,7 +954,7 @@ describe('Mock handler runtime parity', () => {
         limit: 20,
         offset: 0,
         hasMore: expect.any(Boolean),
-      }),
+      })
     );
     expect(publicBody.items[0]).toHaveProperty('property');
     expect(publicBody.items[0]).toHaveProperty('lastActivityAt');
@@ -900,14 +966,14 @@ describe('Mock handler runtime parity', () => {
         likeCount: expect.any(Number),
         commentCount: expect.any(Number),
         guessCount: expect.any(Number),
-      }),
+      })
     );
     expect(Array.isArray(publicBody.items[0].recentActors)).toBe(true);
     expect(publicBody.items[0].recentActors.length).toBeLessThanOrEqual(3);
     expect(['comment', 'summary']).toContain(publicBody.items[0].preview.kind);
 
     const unauthorizedFollowingResponse = await fetch(
-      'http://localhost/activity/properties?scope=following&limit=20',
+      'http://localhost/activity/properties?scope=following&limit=20'
     );
     expect(unauthorizedFollowingResponse.status).toBe(401);
 
@@ -915,15 +981,15 @@ describe('Mock handler runtime parity', () => {
       'http://localhost/activity/properties?scope=following&limit=20',
       {
         headers: { Authorization: `Bearer ${token}` },
-      },
+      }
     );
     const followingBody = await followingResponse.json();
     expect(followingResponse.status).toBe(200);
     const allowedRecentActorIds = new Set<string>([mockUserIds.maria, mockUserIds.lars]);
     expect(
       followingBody.items.every((item: { recentActors: Array<{ id: string }> }) =>
-        item.recentActors.every(({ id }) => allowedRecentActorIds.has(id)),
-      ),
+        item.recentActors.every(({ id }) => allowedRecentActorIds.has(id))
+      )
     ).toBe(true);
   });
 

@@ -23,12 +23,10 @@ export function buildCanonicalHouseNumberAdditionExpression(column: string): SQL
   return sql`NULLIF(UPPER(BTRIM(${sql.raw(column)})), '')`;
 }
 
-function listingOrderExpression(listingAlias: string): SQL {
-  return sql`COALESCE(${sql.raw(`${listingAlias}.mirror_last_changed_at`)}, ${sql.raw(
-    `${listingAlias}.updated_at`
-  )}, ${sql.raw(`${listingAlias}.created_at`)}) DESC, ${sql.raw(
-    `${listingAlias}.created_at`
-  )} DESC, ${sql.raw(`${listingAlias}.id`)} DESC`;
+export function canonicalListingFactOrderExpression(listingAlias: string): SQL {
+  return sql`${sql.raw(`${listingAlias}.sort_at`)} DESC, ${sql.raw(
+    `${listingAlias}.listing_created_at`
+  )} DESC, ${sql.raw(`${listingAlias}.listing_id`)} DESC`;
 }
 
 export function buildLatestPublicGuessFactsQuery(propertyId: SQL): SQL {
@@ -58,13 +56,13 @@ export function buildPropertyListingFactsJoin(
   const valuationColumn = officialValuationColumn(propertyAlias);
   const activeSalePriceExpression = sql`CASE
     WHEN active_listing.id IS NOT NULL
-      AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'sale'
+      AND active_listing.normalized_price_type = 'sale'
       THEN active_listing.asking_price
     ELSE NULL
   END`;
   const activeRentPriceExpression = sql`CASE
     WHEN active_listing.id IS NOT NULL
-      AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'rent'
+      AND active_listing.normalized_price_type = 'rent'
       THEN active_listing.asking_price
     ELSE NULL
   END`;
@@ -170,7 +168,7 @@ export function buildPropertyListingFactsJoin(
         active_listing.sort_at AS active_listing_sort_at,
         active_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
-          WHEN active_listing.id IS NOT NULL AND COALESCE(NULLIF(active_listing.price_type, ''), 'sale') = 'rent'
+          WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
             THEN 'for-rent'
           WHEN active_listing.id IS NOT NULL
             THEN 'for-sale'
@@ -185,30 +183,30 @@ export function buildPropertyListingFactsJoin(
       FROM (SELECT 1) AS _seed
       LEFT JOIN LATERAL (
         SELECT
-          l.id,
+          l.listing_id AS id,
           l.asking_price,
-          l.price_type,
-          COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) AS sort_at
-        FROM listings l
+          l.normalized_price_type,
+          l.sort_at
+        FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
           AND l.status = 'active'
-        ORDER BY ${listingOrderExpression('l')}
+        ORDER BY ${canonicalListingFactOrderExpression('l')}
         LIMIT 1
       ) active_listing ON TRUE
       LEFT JOIN LATERAL (
         SELECT l.status
-        FROM listings l
+        FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
-        ORDER BY ${listingOrderExpression('l')}
+        ORDER BY ${canonicalListingFactOrderExpression('l')}
         LIMIT 1
       ) latest_listing ON TRUE
       LEFT JOIN LATERAL (
         SELECT l.thumbnail_url
-        FROM listings l
+        FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
           AND l.status = 'active'
           AND l.thumbnail_url IS NOT NULL
-        ORDER BY ${listingOrderExpression('l')}
+        ORDER BY ${canonicalListingFactOrderExpression('l')}
         LIMIT 1
       ) active_thumbnail ON TRUE
       ${soldHistoryJoin}

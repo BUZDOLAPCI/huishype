@@ -63,14 +63,21 @@ async function withHermeticNearbyActiveCluster(
   `);
 
   await db.execute(sql`
-    INSERT INTO listings (
+    INSERT INTO canonical_listings (
       id,
       property_id,
       source_name,
-      source_url,
+      canonical_url,
+      display_url,
       status,
+      status_source,
+      verification_state,
+      origin_summary,
       asking_price,
       price_type,
+      first_seen_at,
+      last_seen_at,
+      last_reconciled_at,
       created_at,
       updated_at
     )
@@ -80,9 +87,16 @@ async function withHermeticNearbyActiveCluster(
         ${propertyIds[0]},
         'funda',
         ${`https://example.com/nearby-fixture-${listingIds[0]}`},
+        ${`https://example.com/nearby-fixture-${listingIds[0]}`},
         'active',
+        'mirror',
+        'validated',
+        'mirror',
         350000,
         'sale',
+        NOW() - INTERVAL '2 days',
+        NOW() - INTERVAL '2 days',
+        NOW() - INTERVAL '2 days',
         NOW() - INTERVAL '2 days',
         NOW() - INTERVAL '2 days'
       ),
@@ -91,9 +105,16 @@ async function withHermeticNearbyActiveCluster(
         ${propertyIds[1]},
         'funda',
         ${`https://example.com/nearby-fixture-${listingIds[1]}`},
+        ${`https://example.com/nearby-fixture-${listingIds[1]}`},
         'active',
+        'mirror',
+        'validated',
+        'mirror',
         360000,
         'sale',
+        NOW() - INTERVAL '1 day',
+        NOW() - INTERVAL '1 day',
+        NOW() - INTERVAL '1 day',
         NOW() - INTERVAL '1 day',
         NOW() - INTERVAL '1 day'
       )
@@ -110,7 +131,6 @@ async function withHermeticNearbyActiveCluster(
     await run({ lon, lat, propertyIds });
   } finally {
     await db.execute(sql`DELETE FROM property_views WHERE id IN (${viewIds[0]}, ${viewIds[1]})`);
-    await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
     await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
   }
 }
@@ -147,14 +167,21 @@ async function withHermeticNearbyListingOnlyProperty(
   `);
 
   await db.execute(sql`
-    INSERT INTO listings (
+    INSERT INTO canonical_listings (
       id,
       property_id,
       source_name,
-      source_url,
+      canonical_url,
+      display_url,
       status,
+      status_source,
+      verification_state,
+      origin_summary,
       asking_price,
       price_type,
+      first_seen_at,
+      last_seen_at,
+      last_reconciled_at,
       created_at,
       updated_at
     )
@@ -163,9 +190,16 @@ async function withHermeticNearbyListingOnlyProperty(
       ${propertyId},
       'funda',
       ${`https://example.com/listing-only-${listingId}`},
+      ${`https://example.com/listing-only-${listingId}`},
       'active',
+      'mirror',
+      'validated',
+      'mirror',
       350000,
       'sale',
+      NOW() - INTERVAL '1 day',
+      NOW() - INTERVAL '1 day',
+      NOW() - INTERVAL '1 day',
       NOW() - INTERVAL '1 day',
       NOW() - INTERVAL '1 day'
     )
@@ -174,7 +208,6 @@ async function withHermeticNearbyListingOnlyProperty(
   try {
     await run({ lon, lat, propertyId });
   } finally {
-    await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
     await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
   }
 }
@@ -691,14 +724,21 @@ describe('GET /properties/nearby', () => {
       `);
 
       await db.execute(sql`
-        INSERT INTO listings (
+        INSERT INTO canonical_listings (
           id,
           property_id,
           source_name,
-          source_url,
+          canonical_url,
+          display_url,
           status,
+          status_source,
+          verification_state,
+          origin_summary,
           asking_price,
           price_type,
+          first_seen_at,
+          last_seen_at,
+          last_reconciled_at,
           created_at,
           updated_at
         )
@@ -708,9 +748,16 @@ describe('GET /properties/nearby', () => {
             ${propertyIds[0]},
             'pararius',
             ${`https://example.com/nearby-filter-${listingIds[0]}`},
+            ${`https://example.com/nearby-filter-${listingIds[0]}`},
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             1750,
             'rent',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days'
           ),
@@ -719,9 +766,16 @@ describe('GET /properties/nearby', () => {
             ${propertyIds[1]},
             'pararius',
             ${`https://example.com/nearby-filter-${listingIds[1]}`},
+            ${`https://example.com/nearby-filter-${listingIds[1]}`},
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             2750,
             'rent',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day'
           )
@@ -742,7 +796,6 @@ describe('GET /properties/nearby', () => {
         expect(body.propertyIds).toEqual([propertyIds[0]]);
         expect(body.askingPrice).toBe(1750);
       } finally {
-        await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
         await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
       }
     });

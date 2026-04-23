@@ -185,11 +185,11 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         INNER JOIN properties p ON p.id = r.target_id
         LEFT JOIN LATERAL (
           SELECT l.thumbnail_url
-          FROM listings l
+          FROM v_canonical_listing_facts l
           WHERE l.property_id = p.id
             AND l.status = 'active'
             AND l.thumbnail_url IS NOT NULL
-          ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
+          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
           LIMIT 1
         ) lt ON TRUE
         WHERE r.target_type = 'property'
@@ -222,11 +222,11 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         INNER JOIN properties p ON p.id = c.property_id
         LEFT JOIN LATERAL (
           SELECT l.thumbnail_url
-          FROM listings l
+          FROM v_canonical_listing_facts l
           WHERE l.property_id = p.id
             AND l.status = 'active'
             AND l.thumbnail_url IS NOT NULL
-          ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
+          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
           LIMIT 1
         ) lt ON TRUE
         WHERE ${commentActorPredicate}
@@ -257,11 +257,11 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         INNER JOIN properties p ON p.id = pg.property_id
         LEFT JOIN LATERAL (
           SELECT l.thumbnail_url
-          FROM listings l
+          FROM v_canonical_listing_facts l
           WHERE l.property_id = p.id
             AND l.status = 'active'
             AND l.thumbnail_url IS NOT NULL
-          ORDER BY COALESCE(l.mirror_last_changed_at, l.updated_at, l.created_at) DESC, l.created_at DESC, l.id DESC
+          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
           LIMIT 1
         ) lt ON TRUE
         WHERE ${priceGuessActorPredicate}

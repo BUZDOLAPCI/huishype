@@ -1,5 +1,5 @@
 import { db } from '../db/index.js';
-import { priceGuesses, properties, users, listings } from '../db/schema.js';
+import { priceGuesses, properties, users } from '../db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
 
 // --- Types ---
@@ -260,20 +260,18 @@ export async function calculateFmvForProperty(propertyId: string): Promise<FmvRe
 
   const officialValuation = propertyRows[0]?.officialValuation ?? null;
 
-  // Fetch active listing asking price (most recent)
-  const listingRows = await db
-    .select({ askingPrice: listings.askingPrice })
-    .from(listings)
-    .where(
-      and(
-        eq(listings.propertyId, propertyId),
-        eq(listings.status, 'active')
-      )
-    )
-    .orderBy(sql`${listings.createdAt} DESC`)
-    .limit(1);
+  const listingRows = await db.execute<{ asking_price: number | string | null }>(sql`
+    SELECT asking_price
+    FROM v_canonical_listing_facts
+    WHERE property_id = ${propertyId}
+      AND status = 'active'
+      AND asking_price IS NOT NULL
+    ORDER BY sort_at DESC, listing_created_at DESC, listing_id DESC
+    LIMIT 1
+  `);
 
-  const askingPrice = listingRows[0]?.askingPrice ?? null;
+  const listingRow = Array.from(listingRows)[0];
+  const askingPrice = listingRow?.asking_price != null ? Number(listingRow.asking_price) : null;
 
   const guesses = await fetchGuessesWithKarma(propertyId);
 

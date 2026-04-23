@@ -10,7 +10,15 @@ import type {
   PropertyMarketFilters,
   MapActivityFilter,
 } from './property.js';
-import type { ListingSummary, ListingStatus } from './listing.js';
+import type {
+  ListingSummary,
+  ListingStatus,
+  PreviewListingRequest,
+  ListingPreviewResponse,
+  ListingSubmitResult,
+  ListingReadItem,
+  PropertyListingsResponse,
+} from './listing.js';
 import type {
   User,
   UserProfile,
@@ -34,7 +42,14 @@ import type { LeaderboardResponse } from './leaderboard.js';
 
 // Re-export imported types to suppress unused warnings when they're part of the API contract
 export type { PropertyDetail, PropertySummary };
-export type { ListingSummary };
+export type {
+  ListingSummary,
+  PreviewListingRequest,
+  ListingPreviewResponse,
+  ListingSubmitResult,
+  ListingReadItem,
+  PropertyListingsResponse,
+};
 export type {
   User,
   UserProfile,
@@ -526,8 +541,7 @@ export interface PropertyTileJson {
   bounds: [number, number, number, number];
 }
 
-export interface FollowingPropertyTileRequest
-  extends Omit<PropertyMarketFilters, 'marketState'> {
+export interface FollowingPropertyTileRequest extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
   activity?: MapActivityFilter;
 }

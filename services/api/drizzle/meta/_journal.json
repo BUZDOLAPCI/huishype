@@ -78,6 +78,20 @@
       "when": 1776729600003,
       "tag": "0010_price_guess_start_market_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776902399999,
+      "tag": "0011_listing_ingest_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776902400000,
+      "tag": "0012_canonical_listing_read_model",
+      "breakpoints": true
     }
   ]
 }

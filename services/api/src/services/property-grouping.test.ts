@@ -715,14 +715,20 @@ describe('property-grouping', () => {
     `);
 
     await db.execute(sql`
-      INSERT INTO listings (
+      INSERT INTO canonical_listings (
         id,
         property_id,
         source_name,
-        source_url,
+        canonical_url,
+        display_url,
         status,
+        verification_state,
+        origin_summary,
         asking_price,
         price_type,
+        first_seen_at,
+        last_seen_at,
+        last_reconciled_at,
         created_at,
         updated_at
       )
@@ -732,9 +738,15 @@ describe('property-grouping', () => {
           ${propertyIds[0]},
           'funda',
           ${`https://example.com/filter-cluster-${listingIds[0]}`},
+          ${`https://example.com/filter-cluster-${listingIds[0]}`},
           'active',
+          'provisional',
+          'user',
           325000,
           'sale',
+          NOW() - INTERVAL '2 days',
+          NOW() - INTERVAL '2 days',
+          NOW() - INTERVAL '2 days',
           NOW() - INTERVAL '2 days',
           NOW() - INTERVAL '2 days'
         ),
@@ -743,9 +755,15 @@ describe('property-grouping', () => {
           ${propertyIds[1]},
           'funda',
           ${`https://example.com/filter-cluster-${listingIds[1]}`},
+          ${`https://example.com/filter-cluster-${listingIds[1]}`},
           'active',
+          'provisional',
+          'user',
           825000,
           'sale',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day',
           NOW() - INTERVAL '1 day',
           NOW() - INTERVAL '1 day'
         )
@@ -774,7 +792,6 @@ describe('property-grouping', () => {
       expect(filteredGroup?.propertyIds).toEqual([propertyIds[1]]);
       expect(filteredGroups.some((group) => group.propertyIds.includes(propertyIds[0]))).toBe(false);
     } finally {
-      await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
       await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
     }
   }, 30000);

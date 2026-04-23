@@ -1,13 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, properties, listings, priceHistory } from '../db/index.js';
-import { desc, eq } from 'drizzle-orm';
-import { normalizeSourceUrl } from '../utils/address.js';
-import { fetchOgMetadata } from '../services/og-fetcher.js';
-import { checkAddressMatch } from '../services/address-matcher.js';
+import { db, properties, priceHistory } from '../db/index.js';
+import { desc, eq, sql } from 'drizzle-orm';
 import rateLimit from '@fastify/rate-limit';
-import { getAllListingDomains, getSourceNameForDomain, getAllListingSourceNames } from '@huishype/shared/config';
+import { getAllListingDomains, getAllListingSourceNames } from '@huishype/shared/config';
 import {
   acceptIngestBatch,
   createMaintenanceRefreshRequest,
@@ -21,6 +18,16 @@ import {
   requestLatestListingsRefresh,
 } from '../services/ingest/index.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
+import {
+  applyListingValidationOutcome,
+  createUserListingSubmission,
+  listCanonicalListingsForProperty,
+} from '../services/listing-reconciliation.js';
+import {
+  buildListingPreviewPlan,
+  type PropertyValidationContext,
+  toPublicListingPreviewResponse,
+} from '../services/listing-source-resolution.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -43,14 +50,28 @@ const listingResponseSchema = z.object({
   id: z.string().uuid(),
   sourceUrl: z.string(),
   sourceName: z.string(),
+  canonicalUrl: z.string().nullable(),
+  sourceListingId: z.string().nullable(),
   askingPrice: z.number().nullable(),
   priceType: z.string().nullable(),
+  currency: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
   ogTitle: z.string().nullable(),
+  description: z.string().nullable(),
   livingAreaM2: z.number().nullable(),
   numRooms: z.number().nullable(),
   energyLabel: z.string().nullable(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']),
+  verificationState: z.enum([
+    'provisional',
+    'validated',
+    'invalid',
+    'validation_pending',
+    'validation_blocked',
+    'validation_failed',
+  ]),
+  watchState: z.string().nullable(),
+  reasonCode: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
 
@@ -72,15 +93,43 @@ const priceHistoryResponseSchema = z.object({
 const previewRequestSchema = z.object({
   url: z.string().url(),
   propertyId: z.string().uuid(),
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+  imageUrl: z.string().url().optional(),
+  askingPrice: z.number().int().positive().optional(),
+  priceType: z.enum(['sale', 'rent', 'unknown']).optional(),
+  currency: z.string().trim().min(3).max(3).optional(),
 });
 
 const previewResponseSchema = z.object({
-  ogTitle: z.string().nullable(),
-  ogImage: z.string().nullable(),
-  ogDescription: z.string().nullable(),
   sourceName: z.string(),
-  addressMatch: z.boolean(),
-  warning: z.string().nullable(),
+  rawUrl: z.string(),
+  canonicalUrl: z.string(),
+  sourceListingId: z.string().nullable(),
+  sourceListingIdKind: z.string().nullable(),
+  validationState: z.enum(['valid', 'invalid', 'provisional']),
+  matchState: z.enum(['matched', 'mismatch', 'unverified', 'unsupported']),
+  watchState: z.enum(['not_required', 'will_enqueue', 'unsupported']),
+  reasonCode: z.enum([
+    'source_identity_match',
+    'address_match',
+    'address_mismatch',
+    'source_not_supported',
+    'source_not_found',
+    'mirror_unavailable',
+    'parser_error',
+    'og_unavailable',
+    'validation_pending',
+  ]),
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  askingPrice: z.number().nullable(),
+  priceType: z.enum(['sale', 'rent', 'unknown']),
+  currency: z.string().nullable(),
+  address: z.unknown().nullable(),
+  submittedPropertyId: z.string().uuid(),
+  matchedPropertyId: z.string().uuid().nullable(),
 });
 
 // ---------------------------------------------------------------------------
@@ -92,6 +141,12 @@ const submitRequestSchema = z.object({
   propertyId: z.string().uuid(),
   ogTitle: z.string().optional(),
   thumbnailUrl: z.string().optional(),
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+  imageUrl: z.string().url().optional(),
+  askingPrice: z.number().int().positive().optional(),
+  priceType: z.enum(['sale', 'rent', 'unknown']).optional(),
+  currency: z.string().trim().min(3).max(3).optional(),
 });
 
 const submitResponseSchema = z.object({
@@ -99,7 +154,20 @@ const submitResponseSchema = z.object({
   propertyId: z.string().uuid(),
   sourceUrl: z.string(),
   sourceName: z.string(),
+  canonicalUrl: z.string().nullable(),
+  sourceListingId: z.string().nullable(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']),
+  verificationState: z.enum([
+    'provisional',
+    'validated',
+    'invalid',
+    'validation_pending',
+    'validation_blocked',
+    'validation_failed',
+  ]),
+  watchState: z.enum(['not_required', 'will_enqueue', 'unsupported']),
+  watchId: z.string().uuid().nullable(),
+  reasonCode: z.string(),
   createdAt: z.string().datetime(),
 });
 
@@ -117,27 +185,78 @@ const watermarkQuerySchema = z.object({
   ),
 });
 
+const validationOutcomeSchema = z.object({
+  watchId: z.string().uuid(),
+  state: z.enum([
+    'matched',
+    'not_found',
+    'blocked',
+    'invalid',
+    'parser_error',
+    'unsupported',
+    'retryable_error',
+  ]),
+  sourceName: z.string(),
+  rawUrl: z.string().url(),
+  canonicalUrl: z.string().url(),
+  sourceListingId: z.string().nullable().optional(),
+  sourceListingIdKind: z.string().nullable().optional(),
+  aliases: z.array(z.object({ kind: z.string(), value: z.string() })).optional(),
+  sourceStatus: z.enum([
+    'available',
+    'sold',
+    'rented',
+    'withdrawn',
+    'not_found',
+    'blocked',
+    'invalid',
+    'parser_error',
+    'unknown',
+  ]).optional(),
+  address: z.object({
+    countryCode: z.string().optional(),
+    street: z.string().optional(),
+    postalCode: z.string().optional(),
+    houseNumber: z.union([z.string(), z.number()]).optional(),
+    houseNumberAddition: z.string().nullable().optional(),
+    city: z.string().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+  }).nullable().optional(),
+  matchedPropertyEvidence: z.object({
+    propertyId: z.string().uuid().nullable().optional(),
+    matchKind: z.enum([
+      'user_selected',
+      'source_exact',
+      'source_spatial',
+      'source_unmatched',
+      'source_mismatch',
+    ]).optional(),
+  }).nullable().optional(),
+  price: z.number().int().positive().nullable().optional(),
+  currency: z.string().trim().min(3).max(3).nullable().optional(),
+  thumbnailUrl: z.string().url().nullable().optional(),
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  firstSeenAt: z.string().datetime().nullable().optional(),
+  lastSeenAt: z.string().datetime().nullable().optional(),
+  sourceUpdatedAt: z.string().datetime().nullable().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+});
+
+const validationOutcomeResponseSchema = z.object({
+  canonicalListingId: z.string().uuid(),
+  observationId: z.string().uuid(),
+  watchId: z.string().uuid(),
+  state: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** All listing domains from the country-config registry (cached at import time). */
 const ALL_LISTING_DOMAINS = getAllListingDomains();
-
-/**
- * Detect listing source from a URL domain.
- * Uses the country-config registry for domain→source mapping.
- * Returns the config-derived source name (e.g. 'funda', 'immobilienscout24'),
- * or 'other' if the domain is not recognized.
- */
-function detectSourceName(url: string): string {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return getSourceNameForDomain(hostname) ?? 'other';
-  } catch {
-    return 'other';
-  }
-}
 
 /**
  * Validate that a URL is an allowed listing domain (SSRF protection at route level).
@@ -164,6 +283,33 @@ function isValidApiKey(apiKey: string | undefined): boolean {
   const expected = process.env.INGEST_API_KEY;
   if (!expected) return false;
   return apiKey === expected;
+}
+
+function toPublicListingStatus(status: string): 'active' | 'sold' | 'rented' | 'withdrawn' {
+  if (status === 'active' || status === 'sold' || status === 'rented' || status === 'withdrawn') {
+    return status;
+  }
+  return 'withdrawn';
+}
+
+async function getPropertyValidationContext(propertyId: string): Promise<PropertyValidationContext | null> {
+  const rows = await db
+    .select({
+      id: properties.id,
+      countryCode: properties.countryCode,
+      street: properties.street,
+      postalCode: properties.postalCode,
+      houseNumber: properties.houseNumber,
+      houseNumberAddition: properties.houseNumberAddition,
+      city: properties.city,
+      latitude: sql<number | null>`CASE WHEN ${properties.geometry} IS NULL THEN NULL ELSE ST_Y(${properties.geometry}) END`,
+      longitude: sql<number | null>`CASE WHEN ${properties.geometry} IS NULL THEN NULL ELSE ST_X(${properties.geometry}) END`,
+    })
+    .from(properties)
+    .where(eq(properties.id, propertyId))
+    .limit(1);
+
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,26 +361,29 @@ export async function listingRoutes(app: FastifyInstance) {
         });
       }
 
-      const results = await db
-        .select()
-        .from(listings)
-        .where(eq(listings.propertyId, propertyId))
-        .orderBy(desc(listings.createdAt));
+      const canonicalListings = await listCanonicalListingsForProperty(propertyId);
 
       return reply.send({
-        data: results.map((l) => ({
+        data: canonicalListings.map((l) => ({
           id: l.id,
-          sourceUrl: l.sourceUrl,
+          sourceUrl: l.displayUrl,
           sourceName: l.sourceName,
-          askingPrice: l.askingPrice != null ? Number(l.askingPrice) : null,
-          priceType: l.priceType,
+          canonicalUrl: l.canonicalUrl,
+          sourceListingId: l.primarySourceListingId,
+          askingPrice: l.askingPrice,
+          priceType: null,
+          currency: l.priceCurrency,
           thumbnailUrl: l.thumbnailUrl,
-          ogTitle: l.ogTitle,
-          livingAreaM2: l.livingAreaM2,
-          numRooms: l.numRooms,
-          energyLabel: l.energyLabel,
-          status: l.status,
-          createdAt: l.createdAt.toISOString(),
+          ogTitle: l.title,
+          description: l.description,
+          livingAreaM2: null,
+          numRooms: null,
+          energyLabel: null,
+          status: toPublicListingStatus(l.status),
+          verificationState: l.verificationState,
+          watchState: l.watchState,
+          reasonCode: l.reasonCode,
+          createdAt: l.createdAt,
         })),
       });
     },
@@ -327,41 +476,29 @@ export async function listingRoutes(app: FastifyInstance) {
       }
 
       // Fetch property to get address info
-      const propertyResult = await db
-        .select()
-        .from(properties)
-        .where(eq(properties.id, propertyId))
-        .limit(1);
+      const propertyContext = await getPropertyValidationContext(propertyId);
 
-      if (propertyResult.length === 0) {
+      if (!propertyContext) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
         });
       }
 
-      const property = propertyResult[0];
-      const sourceName = detectSourceName(url);
-
-      // Fetch OG metadata from the URL (never throws — returns nulls on failure)
-      const ogData = await fetchOgMetadata(url);
-      const ogTitle = ogData.ogTitle;
-      const ogImage = ogData.ogImage;
-      const ogDescription = ogData.ogDescription;
-
-      // Check if the OG title contains the property address
-      const matchResult = checkAddressMatch(ogTitle, property);
-      const addressMatch = matchResult.match;
-      const warning = matchResult.warning;
-
-      return reply.send({
-        ogTitle,
-        ogImage,
-        ogDescription,
-        sourceName,
-        addressMatch,
-        warning,
+      const plan = await buildListingPreviewPlan({
+        rawUrl: url,
+        property: propertyContext,
+        display: {
+          title: request.body.title,
+          description: request.body.description,
+          imageUrl: request.body.imageUrl,
+          askingPrice: request.body.askingPrice,
+          priceType: request.body.priceType,
+          currency: request.body.currency,
+        },
       });
+
+      return reply.send(toPublicListingPreviewResponse(plan));
     },
   );
 
@@ -387,7 +524,7 @@ export async function listingRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { url, propertyId, ogTitle, thumbnailUrl } = request.body;
+      const { url, propertyId } = request.body;
 
       // SSRF protection: only allow whitelisted domains
       if (!isAllowedListingUrl(url)) {
@@ -398,60 +535,70 @@ export async function listingRoutes(app: FastifyInstance) {
       }
 
       // Check property exists
-      const propertyExists = await db
-        .select({ id: properties.id })
-        .from(properties)
-        .where(eq(properties.id, propertyId))
-        .limit(1);
+      const propertyContext = await getPropertyValidationContext(propertyId);
 
-      if (propertyExists.length === 0) {
+      if (!propertyContext) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
         });
       }
 
-      const normalizedUrl = normalizeSourceUrl(url);
-      const sourceName = detectSourceName(url);
+      const plan = await buildListingPreviewPlan({
+        rawUrl: url,
+        property: propertyContext,
+        display: {
+          title: request.body.title ?? request.body.ogTitle,
+          description: request.body.description,
+          imageUrl: request.body.imageUrl ?? request.body.thumbnailUrl,
+          askingPrice: request.body.askingPrice,
+          priceType: request.body.priceType,
+          currency: request.body.currency,
+        },
+      });
+
+      if (
+        plan.validationState === 'invalid' ||
+        plan.matchState === 'mismatch' ||
+        plan.matchState === 'unsupported'
+      ) {
+        return reply.status(400).send({
+          error: 'LISTING_VALIDATION_FAILED',
+          message: `Listing validation failed: ${plan.reasonCode}`,
+        });
+      }
 
       try {
-        const { created, maintenanceRequest } = await db.transaction(async (tx) => {
-          const result = await tx
-            .insert(listings)
-            .values({
-              propertyId,
-              sourceUrl: normalizedUrl,
-              sourceName,
-              ogTitle: ogTitle ?? null,
-              thumbnailUrl: thumbnailUrl ?? null,
-              submittedBy: request.userId,
-              status: 'active',
-            })
-            .returning();
+        const userId = request.userId;
+        if (!userId) {
+          return reply.status(401).send({
+            error: 'UNAUTHORIZED',
+            message: 'Authentication required',
+          });
+        }
 
-          const createdListing = result[0];
-          if (!createdListing) {
-            throw new Error('Failed to create listing');
-          }
+        const submission = await createUserListingSubmission(db, {
+          userId,
+          plan,
+        });
 
+        const maintenanceRequest = await db.transaction(async (tx) => {
           await advancePropertyChangeVersion(propertyId, tx);
 
-          const maintenance = await createMaintenanceRefreshRequest(tx, {
-            sourceName,
+          return createMaintenanceRefreshRequest(tx, {
+            sourceName: plan.sourceName,
             requestedBy: 'listing-submit',
-            idempotencyKey: `listing-submit:${createdListing.id}`,
+            idempotencyKey: `listing-submit:${submission.canonicalListing.id}`,
             payload: {
-              listingId: createdListing.id,
+              canonicalListingId: submission.canonicalListing.id,
+              observationId: submission.observationId,
+              watchId: submission.watchId,
               propertyId,
-              sourceUrl: normalizedUrl,
-              sourceName,
+              sourceUrl: plan.canonicalUrl,
+              sourceName: plan.sourceName,
+              sourceListingId: plan.sourceListingId,
             },
           });
-
-          return {
-            created: createdListing,
-            maintenanceRequest: maintenance,
-          };
         });
 
         requestLatestListingsRefresh({
@@ -459,21 +606,30 @@ export async function listingRoutes(app: FastifyInstance) {
           batchId: maintenanceRequest.batchId,
         }).catch((err) =>
           request.log.warn(
-            { err, listingId: created.id, maintenanceBatchId: maintenanceRequest.batchId },
+            {
+              err,
+              canonicalListingId: submission.canonicalListing.id,
+              maintenanceBatchId: maintenanceRequest.batchId,
+            },
             'Failed to enqueue latest listings refresh after submit',
           ),
         );
 
         return reply.status(201).send({
-          id: created.id,
-          propertyId: created.propertyId,
-          sourceUrl: created.sourceUrl,
-          sourceName: created.sourceName,
-          status: created.status,
-          createdAt: created.createdAt.toISOString(),
+          id: submission.canonicalListing.id,
+          propertyId: submission.canonicalListing.propertyId,
+          sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? plan.rawUrl,
+          sourceName: submission.canonicalListing.sourceName,
+          canonicalUrl: submission.canonicalListing.canonicalUrl,
+          sourceListingId: submission.canonicalListing.primarySourceListingId,
+          status: toPublicListingStatus(submission.canonicalListing.status),
+          verificationState: submission.canonicalListing.verificationState,
+          watchState: submission.watchState,
+          watchId: submission.watchId,
+          reasonCode: submission.reasonCode,
+          createdAt: submission.canonicalListing.createdAt.toISOString(),
         });
       } catch (err: unknown) {
-        // Handle unique constraint violation on source_url
         const pgError = err as { code?: string };
         if (pgError.code === '23505') {
           return reply.status(409).send({
@@ -549,7 +705,107 @@ export async function listingRoutes(app: FastifyInstance) {
   );
 
   // =========================================================================
-  // 6. GET /api/ingest/watermark
+  // 6. POST /api/ingest/listing-validation-outcomes
+  // =========================================================================
+  typedApp.post(
+    '/api/ingest/listing-validation-outcomes',
+    {
+      schema: {
+        tags: ['ingest'],
+        summary: 'Persist listing validation outcome',
+        description: 'Internal callback for source services validating user-submitted listing URLs.',
+        body: validationOutcomeSchema,
+        response: {
+          202: validationOutcomeResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const apiKey = request.headers['x-api-key'] as string | undefined;
+      if (!isValidApiKey(apiKey)) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Invalid API key',
+        });
+      }
+
+      try {
+        const { outcome, maintenanceRequest } = await db.transaction(async (tx) => {
+          const applied = await applyListingValidationOutcome(tx, {
+            watchId: request.body.watchId,
+            state: request.body.state,
+            sourceName: request.body.sourceName,
+            rawUrl: request.body.rawUrl,
+            canonicalUrl: request.body.canonicalUrl,
+            sourceListingId: request.body.sourceListingId ?? null,
+            sourceListingIdKind: request.body.sourceListingIdKind ?? null,
+            aliases: request.body.aliases,
+            sourceStatus: request.body.sourceStatus,
+            address: request.body.address,
+            matchedPropertyEvidence: request.body.matchedPropertyEvidence,
+            price: request.body.price,
+            currency: request.body.currency,
+            thumbnailUrl: request.body.thumbnailUrl,
+            title: request.body.title,
+            description: request.body.description,
+            firstSeenAt: request.body.firstSeenAt,
+            lastSeenAt: request.body.lastSeenAt,
+            sourceUpdatedAt: request.body.sourceUpdatedAt,
+            payload: request.body.payload,
+          });
+
+          await advancePropertyChangeVersion(applied.canonicalListing.propertyId, tx);
+          const maintenance = await createMaintenanceRefreshRequest(tx, {
+            sourceName: request.body.sourceName,
+            requestedBy: 'validation-outcome',
+            idempotencyKey: `validation-outcome:${request.body.watchId}:${applied.observationId}`,
+            payload: {
+              watchId: request.body.watchId,
+              canonicalListingId: applied.canonicalListing.id,
+              observationId: applied.observationId,
+              state: request.body.state,
+            },
+          });
+
+          return { outcome: applied, maintenanceRequest: maintenance };
+        });
+
+        requestLatestListingsRefresh({
+          requestedBy: 'validation-outcome',
+          batchId: maintenanceRequest.batchId,
+        }).catch((err) =>
+          request.log.warn(
+            {
+              err,
+              watchId: request.body.watchId,
+              maintenanceBatchId: maintenanceRequest.batchId,
+            },
+            'Failed to enqueue latest listings refresh after validation outcome',
+          ),
+        );
+
+        return reply.status(202).send({
+          canonicalListingId: outcome.canonicalListing.id,
+          observationId: outcome.observationId,
+          watchId: request.body.watchId,
+          state: request.body.state,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('not found')) {
+          return reply.status(404).send({
+            error: 'NOT_FOUND',
+            message: err.message,
+          });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // =========================================================================
+  // 7. GET /api/ingest/watermark
   // =========================================================================
   typedApp.get(
     '/api/ingest/watermark',
@@ -595,3 +851,4 @@ export type SubmitResponse = z.infer<typeof submitResponseSchema>;
 export type IngestRequest = z.infer<typeof ingestBatchRequestSchema>;
 export type IngestResponse = z.infer<typeof ingestAcceptedResponseSchema>;
 export type WatermarkResponse = z.infer<typeof ingestWatermarkResponseSchema>;
+export type ValidationOutcomeRequest = z.infer<typeof validationOutcomeSchema>;

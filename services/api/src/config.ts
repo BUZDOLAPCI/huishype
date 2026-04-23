@@ -82,6 +82,10 @@ export const config = {
   photon: {
     url: process.env.PHOTON_URL || 'http://localhost:2322',
   },
+  sourceServices: {
+    fundaBaseUrl: process.env.FUNDA_SOURCE_SERVICE_URL || 'http://localhost:8100',
+    parariusBaseUrl: process.env.PARARIUS_SOURCE_SERVICE_URL || 'http://localhost:8101',
+  },
   env,
   isDev,
   isTest: env === 'test',

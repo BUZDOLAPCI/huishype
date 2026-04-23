@@ -11,18 +11,106 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type {
+  ListingPreviewResponse,
+  ListingSubmitResult,
+  ListingValidationState,
+  ListingWatchState,
+} from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
-interface PreviewData {
-  url: string;
-  ogTitle: string | null;
-  ogImage: string | null;
-  ogDescription: string | null;
-  sourceName: string;
-  addressMatch: boolean;
-  warning: string | null;
+type LegacyPreviewResponse = Partial<ListingPreviewResponse> & {
+  url?: string;
+  ogTitle?: string | null;
+  ogImage?: string | null;
+  ogDescription?: string | null;
+  addressMatch?: boolean;
+  warning?: string | null;
+};
+
+function normalizePreviewResponse(
+  payload: LegacyPreviewResponse,
+  submittedUrl: string,
+  propertyId: string
+): ListingPreviewResponse {
+  const validationState: ListingValidationState = payload.validationState ?? 'provisional';
+  const watchState =
+    payload.watchState ?? (validationState === 'valid' ? 'not_required' : 'will_enqueue');
+
+  return {
+    sourceName: payload.sourceName ?? 'other',
+    rawUrl: payload.rawUrl ?? payload.url ?? submittedUrl,
+    canonicalUrl: payload.canonicalUrl ?? null,
+    sourceListingId: payload.sourceListingId ?? null,
+    sourceListingIdKind: payload.sourceListingIdKind ?? null,
+    validationState,
+    matchState: payload.matchState ?? 'unverified',
+    watchState,
+    reasonCode: payload.reasonCode ?? 'validation_pending',
+    title: payload.title ?? payload.ogTitle ?? null,
+    description: payload.description ?? payload.ogDescription ?? null,
+    imageUrl: payload.imageUrl ?? payload.ogImage ?? null,
+    askingPrice: payload.askingPrice ?? null,
+    priceType: payload.priceType ?? 'unknown',
+    currency: payload.currency ?? null,
+    address: payload.address ?? null,
+    submittedPropertyId: payload.submittedPropertyId ?? propertyId,
+    matchedPropertyId: payload.matchedPropertyId ?? null,
+  };
+}
+
+function getSourceLabel(sourceName: string) {
+  return sourceName === 'funda' ? 'Funda' : sourceName === 'pararius' ? 'Pararius' : 'Listing';
+}
+
+function getSourceColor(sourceName: string) {
+  return sourceName === 'funda' ? '#F97316' : sourceName === 'pararius' ? '#DE911D' : '#9C958A';
+}
+
+function getValidationBadge(preview: ListingPreviewResponse) {
+  if (preview.validationState === 'invalid' || preview.matchState === 'mismatch') {
+    return { label: 'Mismatch', color: '#EF4444', icon: 'alert-circle' as const };
+  }
+  if (preview.validationState === 'valid' && preview.matchState === 'matched') {
+    return { label: 'Validated', color: '#22C55E', icon: 'checkmark-circle' as const };
+  }
+  return { label: 'Pending validation', color: '#F59E0B', icon: 'time-outline' as const };
+}
+
+function getWatchLabel(
+  watchState: ListingPreviewResponse['watchState'] | ListingWatchState | null
+) {
+  switch (watchState) {
+    case 'will_enqueue':
+    case 'pending':
+    case 'queued':
+    case 'fetching':
+      return 'Watch queued';
+    case 'unsupported':
+      return 'Unsupported';
+    case 'blocked':
+      return 'Blocked';
+    case 'parser_error':
+    case 'retryable_error':
+      return 'Check failed';
+    default:
+      return null;
+  }
+}
+
+function getInvalidPreviewMessage(preview: ListingPreviewResponse) {
+  if (preview.reasonCode === 'source_not_supported') {
+    return 'This listing source is not supported.';
+  }
+  if (preview.reasonCode === 'source_not_found') {
+    return 'This listing could not be found.';
+  }
+  if (preview.matchState === 'mismatch' || preview.reasonCode === 'address_mismatch') {
+    return 'This listing does not match this property.';
+  }
+  return 'This listing cannot be linked to this property.';
 }
 
 interface ListingSubmissionSheetProps {
@@ -44,7 +132,8 @@ export function ListingSubmissionSheet({
 }: ListingSubmissionSheetProps) {
   const [url, setUrl] = useState('');
   const [step, setStep] = useState<Step>('input');
-  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
+  const [previewData, setPreviewData] = useState<ListingPreviewResponse | null>(null);
+  const [submitResult, setSubmitResult] = useState<ListingSubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
@@ -64,6 +153,7 @@ export function ListingSubmissionSheet({
     setUrl('');
     setStep('input');
     setPreviewData(null);
+    setSubmitResult(null);
     setError(null);
     setIsLoadingPreview(false);
   }, []);
@@ -93,7 +183,9 @@ export function ListingSubmissionSheet({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to load preview' }));
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: 'Failed to load preview' }));
         if (response.status === 409) {
           setError('This listing has already been added');
         } else {
@@ -103,8 +195,11 @@ export function ListingSubmissionSheet({
         return;
       }
 
-      const data: PreviewData = await response.json();
-      data.url = trimmedUrl;
+      const data = normalizePreviewResponse(
+        (await response.json()) as LegacyPreviewResponse,
+        trimmedUrl,
+        propertyId
+      );
       setPreviewData(data);
       setStep('preview');
     } catch {
@@ -121,6 +216,7 @@ export function ListingSubmissionSheet({
     }
 
     if (!previewData) return;
+    if (previewData.validationState === 'invalid' || previewData.matchState === 'mismatch') return;
 
     setStep('submitting');
     setError(null);
@@ -130,15 +226,23 @@ export function ListingSubmissionSheet({
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          url: previewData.url,
+          url: previewData.rawUrl,
           propertyId,
-          ogTitle: previewData.ogTitle,
-          thumbnailUrl: previewData.ogImage,
+          ogTitle: previewData.title ?? undefined,
+          thumbnailUrl: previewData.imageUrl ?? undefined,
+          title: previewData.title ?? undefined,
+          description: previewData.description ?? undefined,
+          imageUrl: previewData.imageUrl ?? undefined,
+          askingPrice: previewData.askingPrice ?? undefined,
+          priceType: previewData.priceType,
+          currency: previewData.currency ?? undefined,
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to submit listing' }));
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: 'Failed to submit listing' }));
         if (response.status === 401) {
           onAuthRequired?.();
           setStep('preview');
@@ -153,6 +257,7 @@ export function ListingSubmissionSheet({
         return;
       }
 
+      setSubmitResult((await response.json()) as ListingSubmitResult);
       setStep('success');
       // Brief delay to show success state, then close
       setTimeout(() => {
@@ -163,7 +268,15 @@ export function ListingSubmissionSheet({
       setError('Network error. Please check your connection and try again.');
       setStep('error');
     }
-  }, [isAuthenticated, previewData, propertyId, getAuthHeaders, onAuthRequired, onSubmitted, reset]);
+  }, [
+    isAuthenticated,
+    previewData,
+    propertyId,
+    getAuthHeaders,
+    onAuthRequired,
+    onSubmitted,
+    reset,
+  ]);
 
   const handleBack = useCallback(() => {
     setStep('input');
@@ -253,66 +366,104 @@ export function ListingSubmissionSheet({
 
               {/* Preview Card */}
               <View className="bg-warm-50 rounded-xl overflow-hidden border border-warm-200">
-                {previewData.ogImage && (
+                {previewData.imageUrl && (
                   <Image
-                    source={{ uri: previewData.ogImage }}
+                    source={{ uri: previewData.imageUrl }}
                     className="w-full h-40"
                     resizeMode="cover"
                   />
                 )}
                 <View className="p-3">
-                  {previewData.ogTitle && (
+                  {previewData.title && (
                     <Text className="text-base font-semibold text-warm-900 mb-1">
-                      {previewData.ogTitle}
+                      {previewData.title}
                     </Text>
                   )}
-                  <View className="flex-row items-center">
+                  <View className="flex-row items-center flex-wrap gap-2">
                     <View
-                      style={{
-                        backgroundColor:
-                          previewData.sourceName === 'funda'
-                            ? '#F97316'
-                            : previewData.sourceName === 'pararius'
-                              ? '#DE911D'
-                              : '#9C958A',
-                      }}
+                      style={{ backgroundColor: getSourceColor(previewData.sourceName) }}
                       className="px-2 py-0.5 rounded-full"
                     >
                       <Text className="text-xs text-white font-medium">
-                        {previewData.sourceName === 'funda'
-                          ? 'Funda'
-                          : previewData.sourceName === 'pararius'
-                            ? 'Pararius'
-                            : 'Other'}
+                        {getSourceLabel(previewData.sourceName)}
                       </Text>
                     </View>
+                    {(() => {
+                      const validationBadge = getValidationBadge(previewData);
+                      return (
+                        <View
+                          style={{ backgroundColor: validationBadge.color }}
+                          className="px-2 py-0.5 rounded-full flex-row items-center"
+                        >
+                          <Ionicons name={validationBadge.icon} size={12} color="white" />
+                          <Text className="text-xs text-white font-medium ml-1">
+                            {validationBadge.label}
+                          </Text>
+                        </View>
+                      );
+                    })()}
+                    {getWatchLabel(previewData.watchState) ? (
+                      <View className="px-2 py-0.5 rounded-full bg-warm-200">
+                        <Text className="text-xs text-warm-700 font-medium">
+                          {getWatchLabel(previewData.watchState)}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
               </View>
 
-              {/* Address Match Warning */}
-              {!previewData.addressMatch && previewData.warning && (
-                <View className="flex-row items-start mt-3 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
-                  <Ionicons name="warning" size={20} color="#F59E0B" />
-                  <View className="ml-2 flex-1">
-                    <Text className="text-sm text-amber-600">{previewData.warning}</Text>
-                  </View>
+              {previewData.validationState === 'valid' && previewData.matchState === 'matched' && (
+                <View className="flex-row items-center mt-3 p-3 bg-green-50 rounded-xl border border-green-200">
+                  <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+                  <Text className="text-sm text-green-700 ml-2">Source validation matched</Text>
                 </View>
               )}
 
-              {previewData.addressMatch === true && (
-                <View className="flex-row items-center mt-3 p-3 bg-green-50 rounded-xl border border-green-200">
-                  <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
-                  <Text className="text-sm text-green-700 ml-2">Address matches this property</Text>
+              {previewData.validationState === 'provisional' && (
+                <View className="flex-row items-center mt-3 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
+                  <Ionicons name="time-outline" size={20} color="#F59E0B" />
+                  <Text className="text-sm text-amber-700 ml-2">Pending source validation</Text>
+                </View>
+              )}
+
+              {(previewData.validationState === 'invalid' ||
+                previewData.matchState === 'mismatch') && (
+                <View className="flex-row items-start mt-3 p-3 bg-red-50 rounded-xl border border-red-200">
+                  <Ionicons name="alert-circle" size={20} color="#EF4444" />
+                  <View className="ml-2 flex-1">
+                    <Text className="text-sm text-red-600">
+                      {getInvalidPreviewMessage(previewData)}
+                    </Text>
+                  </View>
                 </View>
               )}
 
               {/* Confirm Button */}
               <Pressable
                 onPress={handleSubmit}
-                className="mt-4 py-3 rounded-xl items-center bg-primary-500 active:bg-primary-600"
+                disabled={
+                  previewData.validationState === 'invalid' || previewData.matchState === 'mismatch'
+                }
+                className={`mt-4 py-3 rounded-xl items-center ${
+                  previewData.validationState === 'invalid' || previewData.matchState === 'mismatch'
+                    ? 'bg-warm-200'
+                    : 'bg-primary-500 active:bg-primary-600'
+                }`}
               >
-                <Text className="text-white font-semibold text-base">Confirm & Add Listing</Text>
+                <Text
+                  className={`font-semibold text-base ${
+                    previewData.validationState === 'invalid' ||
+                    previewData.matchState === 'mismatch'
+                      ? 'text-warm-500'
+                      : 'text-white'
+                  }`}
+                >
+                  {previewData.validationState === 'invalid' ||
+                  previewData.matchState === 'mismatch'
+                    ? 'Cannot Add Listing'
+                    : 'Confirm & Add Listing'}
+                </Text>
               </Pressable>
             </View>
           )}
@@ -333,7 +484,9 @@ export function ListingSubmissionSheet({
               </View>
               <Text className="text-lg font-semibold text-warm-900">Listing Added</Text>
               <Text className="text-sm text-warm-500 mt-1">
-                The listing has been linked to this property.
+                {submitResult?.verificationState === 'validated'
+                  ? 'Source validation matched.'
+                  : 'Pending source validation.'}
               </Text>
             </View>
           )}

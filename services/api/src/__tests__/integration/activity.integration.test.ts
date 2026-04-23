@@ -493,14 +493,22 @@ describe('Activity routes', () => {
       `);
 
       await db.execute(sql`
-        INSERT INTO listings (
+        INSERT INTO canonical_listings (
           id,
           property_id,
           source_name,
-          source_url,
+          canonical_url,
+          display_url,
           status,
+          status_source,
+          verification_state,
+          origin_summary,
           asking_price,
           thumbnail_url,
+          price_type,
+          first_seen_at,
+          last_seen_at,
+          last_reconciled_at,
           created_at,
           updated_at
         )
@@ -510,9 +518,17 @@ describe('Activity routes', () => {
             ${syntheticPropertyId},
             'funda',
             'https://example.com/activity-older',
+            'https://example.com/activity-older',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             310000,
             ${thumbnailUrl},
+            'sale',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
+            NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days',
             NOW() - INTERVAL '2 days'
           ),
@@ -521,9 +537,17 @@ describe('Activity routes', () => {
             ${syntheticPropertyId},
             'funda',
             'https://example.com/activity-latest',
+            'https://example.com/activity-latest',
             'active',
+            'mirror',
+            'validated',
+            'mirror',
             335000,
             NULL,
+            'sale',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day',
             NOW() - INTERVAL '1 day'
           )
@@ -557,7 +581,6 @@ describe('Activity routes', () => {
             AND target_id = ${syntheticPropertyId}
             AND user_id = ${viewerUserId}
         `);
-        await db.execute(sql`DELETE FROM listings WHERE property_id = ${syntheticPropertyId}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${syntheticPropertyId}`);
       }
     });
