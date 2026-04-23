@@ -36,6 +36,15 @@ describe('Listing routes', () => {
     } as Response;
   }
 
+  function htmlResponse(html: string): Response {
+    return new Response(html, {
+      headers: {
+        'content-type': 'text/html',
+        'content-length': String(Buffer.byteLength(html)),
+      },
+    });
+  }
+
   beforeAll(async () => {
     process.env.INGEST_API_KEY = 'test-ingest-api-key';
     mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
@@ -264,6 +273,9 @@ describe('Listing routes', () => {
         payload: {
           url: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
           propertyId: testPropertyId,
+          title: 'Caller supplied title',
+          description: 'Caller supplied description',
+          imageUrl: 'https://cdn.example.com/caller-preview.jpg',
         },
       });
 
@@ -308,6 +320,139 @@ describe('Listing routes', () => {
           longitude: 5.471,
         },
       });
+    });
+
+    it('should use OG metadata when validation and request display are empty', async () => {
+      const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-og-fallback/90210011/';
+      const canonicalUrl = 'https://www.funda.nl/detail/90210011/';
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210011',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210011' }],
+          listingPath: '/detail/90210011/',
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210011',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210011' }],
+        }))
+        .mockResolvedValueOnce(htmlResponse(`
+          <html>
+            <head>
+              <meta property="og:title" content="OG Fallback Title">
+              <meta property="og:description" content="OG fallback description">
+              <meta property="og:image" content="https://cdn.example.com/og-fallback.jpg">
+            </head>
+          </html>
+        `));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({
+        validationState: 'provisional',
+        matchState: 'unverified',
+        watchState: 'will_enqueue',
+        reasonCode: 'mirror_unavailable',
+        title: 'OG Fallback Title',
+        description: 'OG fallback description',
+        imageUrl: 'https://cdn.example.com/og-fallback.jpg',
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(3);
+      expect(String(mockFetchFn.mock.calls[2]?.[0])).toBe(canonicalUrl);
+    });
+
+    it('should keep request display ahead of OG fallback when validation has no display', async () => {
+      const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-request-display/90210013/';
+      const canonicalUrl = 'https://www.funda.nl/detail/90210013/';
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210013',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210013' }],
+          listingPath: '/detail/90210013/',
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210013',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210013' }],
+        }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+          title: 'Request title',
+          description: 'Request description',
+          imageUrl: 'https://cdn.example.com/request-display.jpg',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        title: 'Request title',
+        description: 'Request description',
+        imageUrl: 'https://cdn.example.com/request-display.jpg',
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('should return deterministic display fallback when OG metadata is unavailable', async () => {
+      const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-no-og/90210012/';
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({}, 503))
+        .mockRejectedValueOnce(new Error('OG fetch unavailable'));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        validationState: 'provisional',
+        reasonCode: 'mirror_unavailable',
+        title: 'Funda listing',
+        description: 'Listing submitted from funda.nl',
+        imageUrl: null,
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });
 
     it('should reject non-whitelisted URLs (SSRF protection)', async () => {
@@ -389,8 +534,10 @@ describe('Listing routes', () => {
         matchState: 'unsupported',
         watchState: 'unsupported',
         reasonCode: 'source_not_supported',
+        title: 'Pararius listing',
+        description: 'Listing submitted from pararius.com',
       });
-      expect(mockFetchFn).toHaveBeenCalledTimes(1);
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -690,6 +837,75 @@ describe('Listing routes', () => {
       expect(watch?.state).toBe('queued');
       expect(watch?.sourceName).toBe('pararius');
       expect(watch?.sourceUrlCanonical).toBe(canonicalUrl);
+    });
+
+    it('should persist OG fallback display for provisional submissions', async () => {
+      const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/og-submit`;
+      const canonicalUrl = rawUrl;
+      const sourceListingId = `/apartment-for-rent/eindhoven/${suffix}/og-submit`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+          listingPath: sourceListingId,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'retryable_error',
+          sourceName: 'pararius',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'canonical_path',
+          aliases: [{ kind: 'url_path', value: sourceListingId }],
+        }))
+        .mockResolvedValueOnce(htmlResponse(`
+          <html>
+            <head>
+              <meta property="og:title" content="Submitted OG title">
+              <meta property="og:description" content="Submitted OG description">
+              <meta property="og:image" content="https://cdn.example.com/submitted-og.jpg">
+            </head>
+          </html>
+        `));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const created = JSON.parse(response.body);
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const insertedListing = listingsBody.data.find((item: { id: string }) => item.id === created.id);
+      expect(insertedListing).toMatchObject({
+        id: created.id,
+        ogTitle: 'Submitted OG title',
+        description: 'Submitted OG description',
+        thumbnailUrl: 'https://cdn.example.com/submitted-og.jpg',
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(3);
     });
   });
 

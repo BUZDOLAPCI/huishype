@@ -2730,7 +2730,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a listing URL
-         * @description Fetches OG metadata from a URL and checks if the address matches the property.
+         * @description Validates a listing URL against source services and enriches display metadata from caller input or Open Graph fallback.
          */
         post: {
             parameters: {

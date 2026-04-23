@@ -84,6 +84,7 @@ describe('ListingSubmissionSheet', () => {
 
     await screen.findByText('Confirm & Add Listing');
     expect(screen.getByText('Validated')).toBeTruthy();
+    expect(screen.getByText(/€\s?495[,.]000/)).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [previewUrl, previewOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -115,6 +116,60 @@ describe('ListingSubmissionSheet', () => {
       currency: 'EUR',
     });
     expect(submitPayload).not.toHaveProperty('ogImage');
+  });
+
+  it('renders structured preview addresses without throwing and shows asking price', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-structured/',
+        canonicalUrl: 'https://www.funda.nl/detail/structured',
+        sourceListingId: 'structured',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'valid',
+        matchState: 'matched',
+        watchState: 'not_required',
+        reasonCode: 'source_identity_match',
+        title: 'Structured Address Listing',
+        description: 'Fallback description',
+        imageUrl: null,
+        askingPrice: 487500,
+        priceType: 'sale',
+        currency: 'EUR',
+        address: {
+          street: 'Beeldbuisring',
+          houseNumber: 41,
+          houseNumberAddition: 'A',
+          postalCode: '5651 HA',
+          city: 'Eindhoven',
+        },
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+      }),
+    } as Response);
+
+    render(
+      <ListingSubmissionSheet
+        propertyId="11111111-1111-4111-8111-111111111111"
+        visible
+        onClose={jest.fn()}
+        onSubmitted={jest.fn()}
+      />
+    );
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://www.funda.nl/koop/eindhoven/huis-structured/'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Confirm & Add Listing');
+    expect(screen.getByText('Structured Address Listing')).toBeTruthy();
+    expect(screen.getByText('Beeldbuisring 41 A, 5651 HA Eindhoven')).toBeTruthy();
+    expect(screen.getByText(/€\s?487[,.]500/)).toBeTruthy();
+    expect(screen.queryByText('Fallback description')).toBeNull();
   });
 
   it('treats legacy OG-only preview data as provisional instead of proof', async () => {
@@ -237,11 +292,112 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
+    expect(screen.getByText('Will check after submit')).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByText('Confirm & Add Listing'));
 
     expect(onAuthRequired).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows fallback confirmation content when preview title and image are missing', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        canonicalUrl: null,
+        sourceListingId: '12345',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'provisional',
+        matchState: 'unverified',
+        watchState: 'will_enqueue',
+        reasonCode: 'validation_pending',
+        title: null,
+        description: null,
+        imageUrl: null,
+        askingPrice: null,
+        priceType: 'unknown',
+        currency: null,
+        address: null,
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: null,
+      }),
+    } as Response);
+
+    render(
+      <ListingSubmissionSheet
+        propertyId="11111111-1111-4111-8111-111111111111"
+        visible
+        onClose={jest.fn()}
+        onSubmitted={jest.fn()}
+      />
+    );
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://www.funda.nl/koop/eindhoven/huis-12345/'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Confirm & Add Listing');
+    expect(screen.getByText('Funda listing')).toBeTruthy();
+    expect(screen.getByText('https://www.funda.nl/koop/eindhoven/huis-12345/')).toBeTruthy();
+    expect(screen.getByText('No preview image')).toBeTruthy();
+    expect(screen.getByText('Will check after submit')).toBeTruthy();
+    expect(screen.queryByText('Watch queued')).toBeNull();
+  });
+
+  it('disables confirmation for unsupported previews', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        sourceName: 'other',
+        rawUrl: 'https://example.com/listing/123',
+        canonicalUrl: 'https://example.com/listing/123',
+        sourceListingId: null,
+        sourceListingIdKind: null,
+        validationState: 'provisional',
+        matchState: 'unsupported',
+        watchState: 'unsupported',
+        reasonCode: 'source_not_supported',
+        title: null,
+        description: null,
+        imageUrl: null,
+        askingPrice: null,
+        priceType: 'unknown',
+        currency: null,
+        address: null,
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: null,
+      }),
+    } as Response);
+
+    render(
+      <ListingSubmissionSheet
+        propertyId="11111111-1111-4111-8111-111111111111"
+        visible
+        onClose={jest.fn()}
+        onSubmitted={jest.fn()}
+      />
+    );
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://example.com/listing/123'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Cannot Add Listing');
+    expect(screen.getByText('Listing preview')).toBeTruthy();
+    expect(screen.getByText('Unsupported')).toBeTruthy();
+    expect(screen.getByText('This listing source is not supported.')).toBeTruthy();
+    expect(screen.queryByText('Pending source validation')).toBeNull();
+
+    fireEvent.press(screen.getByText('Cannot Add Listing'));
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 

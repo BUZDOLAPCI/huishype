@@ -179,6 +179,20 @@ export interface SubmitListingResponse {
 export interface PreviewListingRequest {
   url: string;
   propertyId: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  askingPrice?: number;
+  priceType?: ListingPriceType;
+  currency?: string;
+}
+
+export interface ListingPreviewAddress {
+  street?: string | null;
+  postalCode?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
+  city?: string | null;
 }
 
 export interface ListingPreviewResponse {
@@ -197,7 +211,7 @@ export interface ListingPreviewResponse {
   askingPrice: number | null;
   priceType: ListingPriceType;
   currency: string | null;
-  address: string | null;
+  address: string | ListingPreviewAddress | null;
   submittedPropertyId: string;
   matchedPropertyId: string | null;
 }

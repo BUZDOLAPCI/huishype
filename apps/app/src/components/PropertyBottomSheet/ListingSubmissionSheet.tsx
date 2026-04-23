@@ -21,14 +21,25 @@ import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
-type LegacyPreviewResponse = Partial<ListingPreviewResponse> & {
+type LegacyPreviewResponse = Omit<Partial<ListingPreviewResponse>, 'address'> & {
   url?: string;
   ogTitle?: string | null;
   ogImage?: string | null;
   ogDescription?: string | null;
+  address?: PreviewAddressInput;
   addressMatch?: boolean;
   warning?: string | null;
 };
+
+type PreviewAddressObject = {
+  street?: unknown;
+  postalCode?: unknown;
+  houseNumber?: unknown;
+  houseNumberAddition?: unknown;
+  city?: unknown;
+};
+
+type PreviewAddressInput = string | PreviewAddressObject | null | undefined;
 
 function normalizePreviewResponse(
   payload: LegacyPreviewResponse,
@@ -55,7 +66,7 @@ function normalizePreviewResponse(
     askingPrice: payload.askingPrice ?? null,
     priceType: payload.priceType ?? 'unknown',
     currency: payload.currency ?? null,
-    address: payload.address ?? null,
+    address: (payload.address ?? null) as ListingPreviewResponse['address'],
     submittedPropertyId: payload.submittedPropertyId ?? propertyId,
     matchedPropertyId: payload.matchedPropertyId ?? null,
   };
@@ -84,6 +95,7 @@ function getWatchLabel(
 ) {
   switch (watchState) {
     case 'will_enqueue':
+      return 'Will check after submit';
     case 'pending':
     case 'queued':
     case 'fetching':
@@ -113,6 +125,99 @@ function getInvalidPreviewMessage(preview: ListingPreviewResponse) {
   return 'This listing cannot be linked to this property.';
 }
 
+function isPreviewUnsupported(preview: ListingPreviewResponse) {
+  return (
+    preview.watchState === 'unsupported' ||
+    preview.matchState === 'unsupported' ||
+    preview.reasonCode === 'source_not_supported'
+  );
+}
+
+function canSubmitPreview(preview: ListingPreviewResponse) {
+  return (
+    preview.validationState !== 'invalid' &&
+    preview.matchState !== 'mismatch' &&
+    !isPreviewUnsupported(preview)
+  );
+}
+
+function getPreviewTitle(preview: ListingPreviewResponse) {
+  const sourceLabel = getSourceLabel(preview.sourceName);
+  return (
+    preview.title?.trim() ||
+    (sourceLabel === 'Listing' ? 'Listing preview' : `${sourceLabel} listing`)
+  );
+}
+
+function formatPreviewAddressPart(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+
+function formatPreviewAddress(address: PreviewAddressInput) {
+  if (typeof address === 'string') {
+    return address.trim();
+  }
+  if (!address || typeof address !== 'object') {
+    return '';
+  }
+
+  const streetLine = [
+    formatPreviewAddressPart(address.street),
+    formatPreviewAddressPart(address.houseNumber),
+    formatPreviewAddressPart(address.houseNumberAddition),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const localityLine = [
+    formatPreviewAddressPart(address.postalCode),
+    formatPreviewAddressPart(address.city),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return [streetLine, localityLine].filter(Boolean).join(', ');
+}
+
+function getPreviewDetail(preview: ListingPreviewResponse) {
+  const previewAddress = formatPreviewAddress(
+    (preview as ListingPreviewResponse & { address?: PreviewAddressInput }).address
+  );
+
+  return (
+    previewAddress ||
+    preview.description?.trim() ||
+    preview.canonicalUrl?.trim() ||
+    preview.rawUrl.trim()
+  );
+}
+
+function getPreviewPriceLabel(preview: ListingPreviewResponse) {
+  const price = preview.askingPrice;
+  const currency = preview.currency?.trim().toUpperCase();
+  if (price == null || !Number.isFinite(price) || !currency) {
+    return null;
+  }
+
+  let label: string;
+  try {
+    label = new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(price);
+  } catch {
+    label = `${currency} ${Math.round(price).toLocaleString()}`;
+  }
+
+  return preview.priceType === 'rent' ? `${label}/mo` : label;
+}
+
 interface ListingSubmissionSheetProps {
   propertyId: string;
   visible: boolean;
@@ -138,6 +243,9 @@ export function ListingSubmissionSheet({
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const { accessToken, isAuthenticated } = useAuthContext();
+  const previewCanSubmit = previewData ? canSubmitPreview(previewData) : false;
+  const previewDetail = previewData ? getPreviewDetail(previewData) : '';
+  const previewPriceLabel = previewData ? getPreviewPriceLabel(previewData) : null;
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = {
@@ -216,7 +324,7 @@ export function ListingSubmissionSheet({
     }
 
     if (!previewData) return;
-    if (previewData.validationState === 'invalid' || previewData.matchState === 'mismatch') return;
+    if (!canSubmitPreview(previewData)) return;
 
     setStep('submitting');
     setError(null);
@@ -366,19 +474,30 @@ export function ListingSubmissionSheet({
 
               {/* Preview Card */}
               <View className="bg-warm-50 rounded-xl overflow-hidden border border-warm-200">
-                {previewData.imageUrl && (
+                {previewData.imageUrl ? (
                   <Image
                     source={{ uri: previewData.imageUrl }}
                     className="w-full h-40"
                     resizeMode="cover"
                   />
+                ) : (
+                  <View className="h-28 bg-warm-100 items-center justify-center">
+                    <Ionicons name="image-outline" size={28} color="#9C958A" />
+                    <Text className="text-xs text-warm-500 mt-1">No preview image</Text>
+                  </View>
                 )}
                 <View className="p-3">
-                  {previewData.title && (
-                    <Text className="text-base font-semibold text-warm-900 mb-1">
-                      {previewData.title}
+                  <Text className="text-base font-semibold text-warm-900 mb-1">
+                    {getPreviewTitle(previewData)}
+                  </Text>
+                  {previewPriceLabel ? (
+                    <Text className="text-sm font-semibold text-warm-800 mb-1">
+                      {previewPriceLabel}
                     </Text>
-                  )}
+                  ) : null}
+                  <Text className="text-sm text-warm-600 mb-2" numberOfLines={2}>
+                    {previewDetail}
+                  </Text>
                   <View className="flex-row items-center flex-wrap gap-2">
                     <View
                       style={{ backgroundColor: getSourceColor(previewData.sourceName) }}
@@ -420,15 +539,15 @@ export function ListingSubmissionSheet({
                 </View>
               )}
 
-              {previewData.validationState === 'provisional' && (
-                <View className="flex-row items-center mt-3 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
-                  <Ionicons name="time-outline" size={20} color="#F59E0B" />
-                  <Text className="text-sm text-amber-700 ml-2">Pending source validation</Text>
-                </View>
-              )}
+              {previewData.validationState === 'provisional' &&
+                !isPreviewUnsupported(previewData) && (
+                  <View className="flex-row items-center mt-3 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
+                    <Ionicons name="time-outline" size={20} color="#F59E0B" />
+                    <Text className="text-sm text-amber-700 ml-2">Pending source validation</Text>
+                  </View>
+                )}
 
-              {(previewData.validationState === 'invalid' ||
-                previewData.matchState === 'mismatch') && (
+              {!previewCanSubmit && (
                 <View className="flex-row items-start mt-3 p-3 bg-red-50 rounded-xl border border-red-200">
                   <Ionicons name="alert-circle" size={20} color="#EF4444" />
                   <View className="ml-2 flex-1">
@@ -442,27 +561,17 @@ export function ListingSubmissionSheet({
               {/* Confirm Button */}
               <Pressable
                 onPress={handleSubmit}
-                disabled={
-                  previewData.validationState === 'invalid' || previewData.matchState === 'mismatch'
-                }
+                disabled={!previewCanSubmit}
                 className={`mt-4 py-3 rounded-xl items-center ${
-                  previewData.validationState === 'invalid' || previewData.matchState === 'mismatch'
-                    ? 'bg-warm-200'
-                    : 'bg-primary-500 active:bg-primary-600'
+                  previewCanSubmit ? 'bg-primary-500 active:bg-primary-600' : 'bg-warm-200'
                 }`}
               >
                 <Text
                   className={`font-semibold text-base ${
-                    previewData.validationState === 'invalid' ||
-                    previewData.matchState === 'mismatch'
-                      ? 'text-warm-500'
-                      : 'text-white'
+                    previewCanSubmit ? 'text-white' : 'text-warm-500'
                   }`}
                 >
-                  {previewData.validationState === 'invalid' ||
-                  previewData.matchState === 'mismatch'
-                    ? 'Cannot Add Listing'
-                    : 'Confirm & Add Listing'}
+                  {previewCanSubmit ? 'Confirm & Add Listing' : 'Cannot Add Listing'}
                 </Text>
               </Pressable>
             </View>

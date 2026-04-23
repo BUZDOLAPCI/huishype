@@ -25,9 +25,11 @@ import {
 } from '../services/listing-reconciliation.js';
 import {
   buildListingPreviewPlan,
+  type ListingPreviewPlan,
   type PropertyValidationContext,
   toPublicListingPreviewResponse,
 } from '../services/listing-source-resolution.js';
+import { fetchOgMetadata } from '../services/og-fetcher.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -312,6 +314,54 @@ async function getPropertyValidationContext(propertyId: string): Promise<Propert
   return rows[0] ?? null;
 }
 
+function toSourceDisplayName(sourceName: string): string {
+  if (sourceName.length === 0) return 'listing platform';
+  return sourceName
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function buildDeterministicDisplayFallback(plan: ListingPreviewPlan): {
+  title: string;
+  description: string;
+} {
+  const sourceDisplayName = toSourceDisplayName(plan.sourceName);
+  let host = plan.sourceName;
+
+  try {
+    host = new URL(plan.canonicalUrl || plan.rawUrl).hostname.replace(/^www\./, '');
+  } catch {
+    // Keep the source name fallback when URL parsing unexpectedly fails.
+  }
+
+  return {
+    title: `${sourceDisplayName} listing`,
+    description: `Listing submitted from ${host}`,
+  };
+}
+
+async function enrichListingPreviewDisplay(plan: ListingPreviewPlan): Promise<ListingPreviewPlan> {
+  const needsOgMetadata = plan.title == null || plan.description == null || plan.imageUrl == null;
+  if (!needsOgMetadata) return plan;
+
+  const ogMetadata = await fetchOgMetadata(plan.canonicalUrl || plan.rawUrl).catch(() => ({
+    ogTitle: null,
+    ogDescription: null,
+    ogImage: null,
+  }));
+
+  const fallback = buildDeterministicDisplayFallback(plan);
+
+  return {
+    ...plan,
+    title: plan.title ?? ogMetadata.ogTitle ?? fallback.title,
+    description: plan.description ?? ogMetadata.ogDescription ?? fallback.description,
+    imageUrl: plan.imageUrl ?? ogMetadata.ogImage ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route plugin
 // ---------------------------------------------------------------------------
@@ -449,7 +499,7 @@ export async function listingRoutes(app: FastifyInstance) {
       schema: {
         tags: ['listings'],
         summary: 'Preview a listing URL',
-        description: 'Fetches OG metadata from a URL and checks if the address matches the property.',
+        description: 'Validates a listing URL against source services and enriches display metadata from caller input or Open Graph fallback.',
         body: previewRequestSchema,
         response: {
           200: previewResponseSchema,
@@ -497,8 +547,9 @@ export async function listingRoutes(app: FastifyInstance) {
           currency: request.body.currency,
         },
       });
+      const enrichedPlan = await enrichListingPreviewDisplay(plan);
 
-      return reply.send(toPublicListingPreviewResponse(plan));
+      return reply.send(toPublicListingPreviewResponse(enrichedPlan));
     },
   );
 
@@ -556,15 +607,16 @@ export async function listingRoutes(app: FastifyInstance) {
           currency: request.body.currency,
         },
       });
+      const enrichedPlan = await enrichListingPreviewDisplay(plan);
 
       if (
-        plan.validationState === 'invalid' ||
-        plan.matchState === 'mismatch' ||
-        plan.matchState === 'unsupported'
+        enrichedPlan.validationState === 'invalid' ||
+        enrichedPlan.matchState === 'mismatch' ||
+        enrichedPlan.matchState === 'unsupported'
       ) {
         return reply.status(400).send({
           error: 'LISTING_VALIDATION_FAILED',
-          message: `Listing validation failed: ${plan.reasonCode}`,
+          message: `Listing validation failed: ${enrichedPlan.reasonCode}`,
         });
       }
 
@@ -579,14 +631,14 @@ export async function listingRoutes(app: FastifyInstance) {
 
         const submission = await createUserListingSubmission(db, {
           userId,
-          plan,
+          plan: enrichedPlan,
         });
 
         const maintenanceRequest = await db.transaction(async (tx) => {
           await advancePropertyChangeVersion(propertyId, tx);
 
           return createMaintenanceRefreshRequest(tx, {
-            sourceName: plan.sourceName,
+            sourceName: enrichedPlan.sourceName,
             requestedBy: 'listing-submit',
             idempotencyKey: `listing-submit:${submission.canonicalListing.id}`,
             payload: {
@@ -594,9 +646,9 @@ export async function listingRoutes(app: FastifyInstance) {
               observationId: submission.observationId,
               watchId: submission.watchId,
               propertyId,
-              sourceUrl: plan.canonicalUrl,
-              sourceName: plan.sourceName,
-              sourceListingId: plan.sourceListingId,
+              sourceUrl: enrichedPlan.canonicalUrl,
+              sourceName: enrichedPlan.sourceName,
+              sourceListingId: enrichedPlan.sourceListingId,
             },
           });
         });
@@ -618,7 +670,7 @@ export async function listingRoutes(app: FastifyInstance) {
         return reply.status(201).send({
           id: submission.canonicalListing.id,
           propertyId: submission.canonicalListing.propertyId,
-          sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? plan.rawUrl,
+          sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? enrichedPlan.rawUrl,
           sourceName: submission.canonicalListing.sourceName,
           canonicalUrl: submission.canonicalListing.canonicalUrl,
           sourceListingId: submission.canonicalListing.primarySourceListingId,
