@@ -33,6 +33,7 @@ const USER_BART_ID = 'b0000000-0000-4000-b000-000000000b02';
 const USER_CARLOS_ID = 'c0000000-0000-4000-a000-000000000c03';
 
 const LISTING_ID = 'e0000000-0000-4000-a000-000000000001';
+const LISTING_ASKING_PRICE = 780000;
 
 // Fixed UUIDs for comments (must be valid RFC 4122 v4 UUIDs for Zod 4 validation)
 const COMMENT_1_ID = 'd0000000-0000-4000-a001-000000000001';
@@ -154,7 +155,7 @@ async function seedTestFixture() {
         ${propertyId},
         ${listingSourceUrl},
         'funda',
-        ${395000},
+        ${LISTING_ASKING_PRICE},
         'active',
         ${3},
         ${144},
@@ -163,7 +164,17 @@ async function seedTestFixture() {
         ${'Te koop: Beeldbuisring 41, Eindhoven'},
         ${'sale'}
       )
-      ON CONFLICT (source_url) DO NOTHING
+      ON CONFLICT (source_url) DO UPDATE SET
+        source_name = EXCLUDED.source_name,
+        asking_price = EXCLUDED.asking_price,
+        status = EXCLUDED.status,
+        num_rooms = EXCLUDED.num_rooms,
+        living_area_m2 = EXCLUDED.living_area_m2,
+        energy_label = EXCLUDED.energy_label,
+        thumbnail_url = EXCLUDED.thumbnail_url,
+        og_title = EXCLUDED.og_title,
+        price_type = EXCLUDED.price_type,
+        updated_at = NOW()
     `;
 
     await sql`
@@ -199,7 +210,7 @@ async function seedTestFixture() {
         'mirror',
         ${null},
         ${'Te koop: Beeldbuisring 41, Eindhoven'},
-        ${395000},
+        ${LISTING_ASKING_PRICE},
         'EUR',
         'sale',
         ${144},
@@ -207,13 +218,24 @@ async function seedTestFixture() {
         NOW(),
         NOW()
       )
-      ON CONFLICT (id) DO UPDATE SET
+      ON CONFLICT (source_name, canonical_url) WHERE canonical_url IS NOT NULL DO UPDATE SET
+        property_id = EXCLUDED.property_id,
+        display_url = EXCLUDED.display_url,
         status = EXCLUDED.status,
+        status_source = EXCLUDED.status_source,
         verification_state = EXCLUDED.verification_state,
+        origin_summary = EXCLUDED.origin_summary,
+        thumbnail_url = EXCLUDED.thumbnail_url,
+        title = EXCLUDED.title,
         asking_price = EXCLUDED.asking_price,
+        price_currency = EXCLUDED.price_currency,
+        price_type = EXCLUDED.price_type,
+        living_area_m2 = EXCLUDED.living_area_m2,
+        last_seen_at = NOW(),
+        last_reconciled_at = NOW(),
         updated_at = NOW()
     `;
-    console.log(`  Listing: ${listingSourceUrl} (395000 EUR)`);
+    console.log(`  Listing: ${listingSourceUrl} (${LISTING_ASKING_PRICE.toLocaleString()} EUR)`);
     console.log('');
 
     // ------------------------------------------------------------------
@@ -329,6 +351,17 @@ async function seedTestFixture() {
     console.log('');
 
     // ------------------------------------------------------------------
+    // Step 8: Refresh listing-backed read models
+    // ------------------------------------------------------------------
+    console.log('Step 8: Refreshing listing read models...');
+
+    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_latest_active_listings`;
+    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_price_guess_start_market_summaries`;
+    console.log('  Refreshed: mv_latest_active_listings');
+    console.log('  Refreshed: mv_price_guess_start_market_summaries');
+    console.log('');
+
+    // ------------------------------------------------------------------
     // Summary
     // ------------------------------------------------------------------
     console.log('='.repeat(60));
@@ -336,7 +369,7 @@ async function seedTestFixture() {
     console.log('='.repeat(60));
     console.log(`  Property: ${property.street} ${property.house_number}, ${property.postal_code} ${property.city}`);
     console.log(`  Users:    3`);
-    console.log(`  Listing:  1 (active, 395,000 EUR)`);
+    console.log(`  Listing:  1 (active, ${LISTING_ASKING_PRICE.toLocaleString()} EUR)`);
     console.log(`  Comments: 5 (1 reply)`);
     console.log(`  Guesses:  3`);
     console.log(`  Reactions: 5`);
