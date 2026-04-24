@@ -53,7 +53,7 @@ export interface PropertyContentProps {
   onScrollToGuess?: () => void;
 
   // Auth
-  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
 
   // Callbacks forwarded from native/web sheets (pass-through to child sections)
   onGuessPress?: (id: string) => void;
@@ -90,7 +90,7 @@ interface PropertyContentSectionsProps {
   onSave?: () => void;
   onScrollToComments?: () => void;
   onScrollToGuess?: () => void;
-  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
   onGuessPress?: (id: string) => void;
   onViewAllComments?: (id: string) => void;
   onGuessSectionLayout?: (y: number) => void;
@@ -232,7 +232,7 @@ function ManagedPropertyInteractions({
   children,
 }: {
   propertyId: string | null;
-  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
   children: (state: ManagedInteractionState) => ReactNode;
 }) {
   const ownLike = usePropertyLike({

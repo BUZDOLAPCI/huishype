@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -223,7 +223,7 @@ interface ListingSubmissionSheetProps {
   visible: boolean;
   onClose: () => void;
   onSubmitted: () => void;
-  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
 }
 
 type Step = 'input' | 'preview' | 'submitting' | 'success' | 'error';
@@ -242,21 +242,30 @@ export function ListingSubmissionSheet({
   const [error, setError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [pendingSubmitAfterAuth, setPendingSubmitAfterAuth] = useState(false);
+  const pendingSubmitAfterAuthRef = useRef(false);
+  const handleSubmitRef = useRef<() => Promise<void>>(async () => {});
 
-  const { accessToken, isAuthenticated } = useAuthContext();
+  const { getAccessToken, isAuthenticated } = useAuthContext();
   const previewCanSubmit = previewData ? canSubmitPreview(previewData) : false;
   const previewDetail = previewData ? getPreviewDetail(previewData) : '';
   const previewPriceLabel = previewData ? getPreviewPriceLabel(previewData) : null;
 
-  const getAuthHeaders = useCallback((): Record<string, string> => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
+  const resumePendingSubmit = useCallback(() => {
+    if (!pendingSubmitAfterAuthRef.current) {
+      return;
     }
-    return headers;
-  }, [accessToken]);
+    pendingSubmitAfterAuthRef.current = false;
+    setPendingSubmitAfterAuth(false);
+    setTimeout(() => {
+      void handleSubmitRef.current();
+    }, 0);
+  }, []);
+
+  const requestAuthForSubmit = useCallback(() => {
+    pendingSubmitAfterAuthRef.current = true;
+    setPendingSubmitAfterAuth(true);
+    onAuthRequired?.('Sign in to add this listing', resumePendingSubmit);
+  }, [onAuthRequired, resumePendingSubmit]);
 
   const reset = useCallback(() => {
     setUrl('');
@@ -265,6 +274,7 @@ export function ListingSubmissionSheet({
     setSubmitResult(null);
     setError(null);
     setIsLoadingPreview(false);
+    pendingSubmitAfterAuthRef.current = false;
     setPendingSubmitAfterAuth(false);
   }, []);
 
@@ -320,22 +330,27 @@ export function ListingSubmissionSheet({
   }, [url, propertyId]);
 
   const handleSubmit = useCallback(async () => {
-    if (!isAuthenticated) {
-      setPendingSubmitAfterAuth(true);
-      onAuthRequired?.('Sign in to add this listing');
-      return;
-    }
-
     if (!previewData) return;
     if (!canSubmitPreview(previewData)) return;
 
+    const currentAccessToken = await getAccessToken();
+    if (!currentAccessToken) {
+      requestAuthForSubmit();
+      return;
+    }
+
     setStep('submitting');
     setError(null);
+    pendingSubmitAfterAuthRef.current = false;
+    setPendingSubmitAfterAuth(false);
 
     try {
       const response = await fetch(`${API_URL}/listings/submit`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
         body: JSON.stringify({
           url: previewData.rawUrl,
           propertyId,
@@ -355,8 +370,7 @@ export function ListingSubmissionSheet({
           .json()
           .catch(() => ({ message: 'Failed to submit listing' }));
         if (response.status === 401) {
-          setPendingSubmitAfterAuth(true);
-          onAuthRequired?.('Sign in to add this listing');
+          requestAuthForSubmit();
           setStep('preview');
           return;
         }
@@ -381,23 +395,23 @@ export function ListingSubmissionSheet({
       setStep('error');
     }
   }, [
-    isAuthenticated,
     previewData,
     propertyId,
-    getAuthHeaders,
-    onAuthRequired,
+    getAccessToken,
+    requestAuthForSubmit,
     onSubmitted,
     reset,
   ]);
+
+  handleSubmitRef.current = handleSubmit;
 
   useEffect(() => {
     if (!pendingSubmitAfterAuth || !isAuthenticated) {
       return;
     }
 
-    setPendingSubmitAfterAuth(false);
-    void handleSubmit();
-  }, [handleSubmit, isAuthenticated, pendingSubmitAfterAuth]);
+    resumePendingSubmit();
+  }, [isAuthenticated, pendingSubmitAfterAuth, resumePendingSubmit]);
 
   const handleBack = useCallback(() => {
     setStep('input');

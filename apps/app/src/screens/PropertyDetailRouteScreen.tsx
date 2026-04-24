@@ -75,9 +75,26 @@ export function PropertyDetailRouteScreen({
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authCopy, setAuthCopy] = useState(DEFAULT_AUTH_MODAL_COPY);
-  const handleAuthRequired = useCallback((copy?: AuthModalCopyInput) => {
+  const pendingAuthSuccessRef = useRef<(() => void) | null>(null);
+  const handleAuthRequired = useCallback((
+    copy?: AuthModalCopyInput,
+    onAuthenticated?: () => void,
+  ) => {
+    pendingAuthSuccessRef.current = onAuthenticated ?? null;
     setAuthCopy(resolveAuthModalCopy(copy, DEFAULT_AUTH_MODAL_COPY));
     setShowAuthModal(true);
+  }, []);
+  const handleAuthModalClose = useCallback(() => {
+    pendingAuthSuccessRef.current = null;
+    setShowAuthModal(false);
+  }, []);
+  const handleAuthSuccess = useCallback(() => {
+    const pendingAction = pendingAuthSuccessRef.current;
+    pendingAuthSuccessRef.current = null;
+    setShowAuthModal(false);
+    if (pendingAction) {
+      setTimeout(pendingAction, 0);
+    }
   }, []);
 
   const handleViewAllComments = useCallback(
@@ -276,8 +293,9 @@ export function PropertyDetailRouteScreen({
 
       <AuthModal
         visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
+        onClose={handleAuthModalClose}
         copy={authCopy}
+        onSuccess={handleAuthSuccess}
       />
     </>
   );

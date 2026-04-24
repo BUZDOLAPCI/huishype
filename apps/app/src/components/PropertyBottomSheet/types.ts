@@ -55,7 +55,7 @@ export interface PropertyBottomSheetProps {
   onLike?: (propertyId: string) => void;
   onGuessPress?: (propertyId: string) => void;
   onCommentPress?: (propertyId: string) => void;
-  onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+  onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
 }
 
 export interface PropertyBottomSheetRef {
