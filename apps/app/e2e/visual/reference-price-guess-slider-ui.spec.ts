@@ -130,6 +130,18 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Price slider visible on property page: ${isSliderVisible}`);
 
     if (isSliderVisible) {
+      const thumb = page.locator('[data-testid="slider-thumb"]').first();
+      const thumbBox = await thumb.boundingBox();
+      if (thumbBox) {
+        const startX = thumbBox.x + thumbBox.width / 2;
+        const startY = thumbBox.y + thumbBox.height / 2;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        await page.mouse.move(startX + 90, startY, { steps: 10 });
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+      }
+
       const sectionBox = await priceSection.boundingBox();
 
       if (sectionBox) {
@@ -217,6 +229,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const priceDisplay = page.locator('[data-testid="price-display"]');
     const hasPriceDisplay = await priceDisplay.first().isVisible().catch(() => false);
     console.log(`Price display visible: ${hasPriceDisplay}`);
+    const initialUserMarker = page.locator('[data-testid="user-guess-marker"]');
+    const hasInitialUserMarker = await initialUserMarker.first().isVisible().catch(() => false);
+    console.log(`User marker hidden before interaction: ${!hasInitialUserMarker}`);
 
     // Check for WOZ/Asking markers in the embedded slider
     if (selection.property.officialValuation) {
@@ -239,6 +254,20 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const hasSliderThumb = await sliderThumb.isVisible().catch(() => false);
     console.log(`Slider thumb visible: ${hasSliderThumb}`);
 
+    const thumbBox = await sliderThumb.first().boundingBox();
+    if (thumbBox) {
+      const startX = thumbBox.x + thumbBox.width / 2;
+      const startY = thumbBox.y + thumbBox.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 90, startY, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    }
+
+    const hasInteractedUserMarker = await initialUserMarker.first().isVisible().catch(() => false);
+    console.log(`User marker visible after interaction: ${hasInteractedUserMarker}`);
+
     // Range labels were intentionally removed; reference values are shown on staggered markers.
     const minLabel = page.locator('[data-testid="price-range-min"]');
     const maxLabel = page.locator('[data-testid="price-range-max"]');
@@ -255,6 +284,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(hasCrowdEstimate).toBe(true);
     expect(hasPriceDisplay).toBe(true);
     expect(hasSubmitButton).toBe(true);
+    expect(hasInitialUserMarker).toBe(false);
+    expect(hasInteractedUserMarker).toBe(true);
     expect(hasMinLabel || hasMaxLabel).toBe(false);
 
     // Verify page is functional

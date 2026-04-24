@@ -132,7 +132,7 @@ test.describe('Price Guess Flow', () => {
     const priceDisplay = page.locator('[data-testid="price-display"]');
     await expect(priceDisplay).toBeVisible();
     const priceText = await priceDisplay.textContent();
-    expect(priceText).toContain('\u20AC');
+    expect(priceText).toContain('%');
 
     // Verify slider thumb
     const thumb = page.locator('[data-testid="slider-thumb"]');
@@ -164,7 +164,7 @@ test.describe('Price Guess Flow', () => {
     await expect(priceDisplay).toBeVisible();
 
     const initialPrice = await readNormalizedText(priceDisplay);
-    expect(initialPrice).toContain('€');
+    expect(initialPrice).toContain('%');
 
     await dragSliderThumb(page, 120);
 
@@ -192,6 +192,7 @@ test.describe('Price Guess Flow', () => {
     await submitBtn.scrollIntoViewIfNeeded();
     await expect(submitBtn).toBeVisible();
 
+    await dragSliderThumb(page, 90);
     await submitBtn.click();
 
     await expect(page.locator('[data-testid="auth-modal-overlay"]')).toBeVisible();

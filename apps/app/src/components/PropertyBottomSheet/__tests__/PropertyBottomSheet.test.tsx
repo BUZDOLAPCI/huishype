@@ -95,19 +95,30 @@ jest.mock('@gorhom/bottom-sheet', () => {
 
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
-  const { View } = require('react-native');
+  const { View, Text } = require('react-native');
   return {
     __esModule: true,
     default: {
       View,
+      Text,
     },
     useSharedValue: (value: unknown) => ({ value }),
     useAnimatedStyle: (fn: () => unknown) => fn(),
     withSpring: (value: unknown) => value,
     withTiming: (value: unknown) => value,
+    withSequence: (...values: unknown[]) => values[values.length - 1],
+    runOnJS: (fn: unknown) => fn,
     interpolate: () => 1,
+    interpolateColor: (_value: unknown, _inputRange: unknown, outputRange: unknown[]) =>
+      outputRange[0],
     Extrapolation: { CLAMP: 'clamp' },
-    Easing: { inOut: () => {}, ease: {} },
+    Easing: {
+      bezier: () => (value: unknown) => value,
+      cubic: (value: unknown) => value,
+      ease: (value: unknown) => value,
+      inOut: (easing: unknown) => easing,
+      out: (easing: unknown) => easing,
+    },
   };
 });
 
@@ -360,16 +371,15 @@ describe('PropertyBottomSheet', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.getByText('Guess the Price')).toBeTruthy();
-    expect(screen.getByText('Submit Guess')).toBeTruthy();
+    expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
   });
 
-  it('renders Submit Guess button in price guess section', () => {
+  it('renders the initial price guess button prompt in the price guess section', () => {
     renderWithProviders(
       <PropertyBottomSheet property={mockProperty} isPreviewCardVisible />
     );
 
-    // The Submit Guess button should be visible in the PriceGuessSlider
-    expect(screen.getByText('Submit Guess')).toBeTruthy();
+    expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
   });
 
   it('renders comments section', () => {

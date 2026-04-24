@@ -29,6 +29,7 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByText('What do you think this property is worth?')).toBeTruthy();
     expect(screen.getByTestId('price-guess-slider')).toBeTruthy();
     expect(screen.getByTestId('submit-guess-button')).toBeTruthy();
+    expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
   });
 
   it('displays official valuation when provided', () => {
@@ -201,6 +202,7 @@ describe('PriceGuessSlider', () => {
     const onGuessSubmit = jest.fn();
     render(<PriceGuessSlider {...defaultProps} onGuessSubmit={onGuessSubmit} />);
 
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
     const submitButton = screen.getByTestId('submit-guess-button');
     fireEvent.press(submitButton);
 
@@ -242,6 +244,8 @@ describe('PriceGuessSlider', () => {
       );
     });
 
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+    expect(screen.getByText('Submit Guess')).toBeTruthy();
     fireEvent.press(screen.getByTestId('submit-guess-button'));
 
     await waitFor(() => {
@@ -269,6 +273,40 @@ describe('PriceGuessSlider', () => {
     // Check that submit button shows disabled state
     const submitButton = screen.getByTestId('submit-guess-button');
     expect(submitButton).toBeTruthy();
+  });
+
+  it('does not submit until the slider has been interacted with', async () => {
+    const onGuessSubmit = jest.fn();
+    render(<PriceGuessSlider {...defaultProps} onGuessSubmit={onGuessSubmit} />);
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+
+    expect(onGuessSubmit).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+
+    await waitFor(() => {
+      expect(onGuessSubmit).toHaveBeenCalled();
+    });
+  });
+
+  it('shows an embedded percentage bubble and hides the user price marker before interaction', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        initialPrice={400000}
+        currentFMV={410000}
+      />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toBe('0%');
+    expect(screen.queryByTestId('user-guess-marker')).toBeNull();
+    expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
+    expect(screen.getByTestId('guess-reference-labels').props.style).toMatchObject({
+      height: 76,
+    });
   });
 
   it('shows submitting state when isSubmitting is true', () => {
@@ -320,7 +358,9 @@ describe('PriceGuessSlider', () => {
     expect(screen.queryByText('Val.')).toBeNull();
     expect(screen.getByTestId('woz-track-marker')).toBeTruthy();
     // Check for Asking marker label with value
-    expect(screen.getByText(/Asking.*350/)).toBeTruthy();
+    expect(screen.getByText(/Asking.*350/).props.style).toEqual({
+      color: '#4A40D4',
+    });
     expect(screen.getByTestId('asking-track-marker')).toBeTruthy();
     // Check for Crowd marker label with value
     expect(screen.getByText(/Crowd.*320/)).toBeTruthy();

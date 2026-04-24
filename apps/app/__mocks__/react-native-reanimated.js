@@ -54,6 +54,18 @@ const interpolate = (value, inputRange, outputRange) => {
   return outputRange[0];
 };
 
+const interpolateColor = (value, inputRange, outputRange) => {
+  if (value <= inputRange[0]) {
+    return outputRange[0];
+  }
+  for (let index = 1; index < inputRange.length; index += 1) {
+    if (value <= inputRange[index]) {
+      return outputRange[index];
+    }
+  }
+  return outputRange[outputRange.length - 1];
+};
+
 const Extrapolate = {
   EXTEND: 'extend',
   CLAMP: 'clamp',
@@ -96,6 +108,7 @@ module.exports = {
   runOnJS,
   runOnUI,
   interpolate,
+  interpolateColor,
   Extrapolate,
   Easing,
   useAnimatedProps: (props) => props,

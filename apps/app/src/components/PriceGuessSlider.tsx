@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
 import { Icon } from './ui/Icon';
 import Animated, {
+  Easing,
+  interpolateColor,
+  type WithSpringConfig,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -78,6 +81,52 @@ const RANGE_ABOVE_START_PRICE = 400000;
 const MINIMUM_RANGE_WIDTH = 50000;
 const DEFAULT_GUESS_START = 350000;
 const PRICE_BUCKET_SIZE = 50000;
+const COLOR_SWITCH_TIMING = {
+  duration: 300,
+  easing: Easing.out(Easing.cubic),
+};
+const FLOAT_REVEAL_TIMING = {
+  duration: 220,
+  easing: Easing.bezier(0.33, 1, 0.68, 1),
+};
+const HOVER_TIMING = {
+  duration: 200,
+  easing: Easing.out(Easing.cubic),
+};
+const SLIDER_SPRING_CONFIG: WithSpringConfig = {
+  damping: 18,
+  stiffness: 165,
+  mass: 0.85,
+};
+const THUMB_PRESS_SPRING_CONFIG: WithSpringConfig = {
+  damping: 20,
+  stiffness: 220,
+  mass: 0.7,
+};
+const POSITIVE_GUESS_COLOR = '#3D8A5A';
+const POSITIVE_GUESS_FILL_COLOR = POSITIVE_GUESS_COLOR;
+const POSITIVE_GUESS_THUMB_COLOR = '#F0FAF4';
+const NEUTRAL_GUESS_COLOR = '#4A40D4';
+const NEUTRAL_GUESS_FILL_COLOR = NEUTRAL_GUESS_COLOR;
+const NEUTRAL_GUESS_THUMB_COLOR = '#E5E2F9';
+const NEGATIVE_GUESS_COLOR = '#A4493D';
+const NEGATIVE_GUESS_FILL_COLOR = NEGATIVE_GUESS_COLOR;
+const NEGATIVE_GUESS_THUMB_COLOR = '#FFF1F0';
+const SLIDER_TRACK_COLOR = '#D7DADA';
+const ASKING_REFERENCE_COLOR = NEUTRAL_GUESS_COLOR;
+const YOU_REFERENCE_COLOR = '#FDAE10';
+const GUESS_TONE_INPUT_RANGE = [0, 0.5, 1];
+const SLIDER_TRACK_HEIGHT = 6;
+const TRACK_MARKER_HEIGHT = 18;
+const SLIDER_THUMB_SIZE = 32;
+const SLIDER_THUMB_RADIUS = SLIDER_THUMB_SIZE / 2;
+const EMBEDDED_SLIDER_LANE_HEIGHT = SLIDER_THUMB_SIZE;
+const EMBEDDED_TRACK_TOP = 13;
+const EMBEDDED_TRACK_CENTER_Y = EMBEDDED_TRACK_TOP + SLIDER_TRACK_HEIGHT / 2;
+const EMBEDDED_TRACK_MARKER_TOP = EMBEDDED_TRACK_CENTER_Y - TRACK_MARKER_HEIGHT / 2;
+const EMBEDDED_THUMB_TOP = EMBEDDED_TRACK_CENTER_Y;
+const EMBEDDED_THUMB_TRANSLATE_Y = -SLIDER_THUMB_RADIUS;
+const EMBEDDED_REFERENCE_LABELS_HEIGHT = 76;
 
 interface PriceGuessSliderRange {
   min: number;
@@ -97,8 +146,8 @@ function resolveSliderRange({
 }): PriceGuessSliderRange {
   const validOfficialValuation =
     typeof officialValuation === 'number' &&
-    Number.isFinite(officialValuation) &&
-    officialValuation > 0
+      Number.isFinite(officialValuation) &&
+      officialValuation > 0
       ? officialValuation
       : undefined;
   const min = validOfficialValuation
@@ -159,6 +208,24 @@ function formatBubblePrice(price: number, countryCode?: string): string {
 
 function formatMarkerLabel(label: string, price: number, countryCode?: string): string {
   return `${label} ${formatCompactPrice(price, countryCode)}`;
+}
+
+function formatDeltaPercentageLabel(price: number, startPrice: number): string {
+  if (startPrice <= 0) {
+    return '0%';
+  }
+
+  const percentage = ((price - startPrice) / startPrice) * 100;
+  const rounded = Math.round(Math.abs(percentage) * 10) / 10;
+  const formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+
+  if (percentage > 0) {
+    return `+${formatted}% overbid`;
+  }
+  if (percentage < 0) {
+    return `-${formatted}% underbid`;
+  }
+  return '0%';
 }
 
 function hasSamePrice(left?: number, right?: number): boolean {
@@ -311,6 +378,7 @@ function ReferenceMarker({
   position,
   label,
   color,
+  textColor,
   isActive,
   top,
   connectorHeight,
@@ -318,6 +386,7 @@ function ReferenceMarker({
   position: number;
   label: string;
   color: string;
+  textColor?: string;
   isActive?: boolean;
   top: number;
   connectorHeight: number;
@@ -358,7 +427,11 @@ function ReferenceMarker({
           backgroundColor: '#D9D4CC',
         }}
       />
-      <Text className={`text-xs text-center ${color}`} numberOfLines={1}>
+      <Text
+        className={`text-xs text-center ${color}`}
+        numberOfLines={1}
+        style={textColor ? { color: textColor } : undefined}
+      >
         {label}
       </Text>
     </Animated.View>
@@ -370,19 +443,32 @@ function InlineReferenceLabel({
   label,
   color,
   connectorHeight,
+  connectorColor = '#D9D4CC',
+  connectorTopGap = 0,
+  fontSize = 12,
+  lineHeight = 16,
+  testID,
 }: {
   position: number | null;
   label: string;
   color: string;
   connectorHeight: number;
+  connectorColor?: string;
+  connectorTopGap?: number;
+  fontSize?: number;
+  lineHeight?: number;
+  testID?: string;
 }) {
   if (position === null) {
     return null;
   }
 
+  const visibleConnectorHeight = Math.max(0, connectorHeight - connectorTopGap);
+
   return (
     <View
       className="absolute items-center"
+      testID={testID}
       style={{
         left: `${position * 100}%`,
         top: 0,
@@ -390,18 +476,21 @@ function InlineReferenceLabel({
         transform: [{ translateX: -56 }],
       }}
     >
+      {connectorTopGap > 0 ? <View style={{ height: connectorTopGap }} /> : null}
       <View
         style={{
           width: 1,
-          height: connectorHeight,
-          backgroundColor: '#D9D4CC',
+          height: visibleConnectorHeight,
+          backgroundColor: connectorColor,
         }}
       />
       <Text
-        className="font-display text-xs"
+        className="font-display"
         numberOfLines={1}
         style={{
           color,
+          fontSize,
+          lineHeight,
           textAlign: 'center',
         }}
       >
@@ -431,9 +520,10 @@ function TrackMarker({
       className="absolute"
       style={{
         left: `${position * 100}%`,
+        position: 'absolute',
         top,
         width: 2,
-        height: 18,
+        height: TRACK_MARKER_HEIGHT,
         marginLeft: -1,
         borderRadius: 999,
         backgroundColor: color,
@@ -492,6 +582,7 @@ export function PriceGuessSlider({
   });
   const [guessedPrice, setGuessedPrice] = useState(resolvedInitialPrice);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   // Animation values - use shared value for slider width for proper animated style updates
   const sliderWidthShared = useSharedValue(300);
@@ -499,6 +590,10 @@ export function PriceGuessSlider({
   const thumbPosition = useSharedValue(priceToPosition(resolvedInitialPrice, sliderRange));
   const thumbScale = useSharedValue(1);
   const thumbPulse = useSharedValue(1);
+  const thumbHoverProgress = useSharedValue(0);
+  const thumbPressProgress = useSharedValue(0);
+  const floatingLabelProgress = useSharedValue(0);
+  const guessToneProgress = useSharedValue(0.5);
   const priceDisplayScale = useSharedValue(1);
   const submitButtonScale = useSharedValue(1);
   const isDragging = useSharedValue(false);
@@ -539,6 +634,7 @@ export function PriceGuessSlider({
 
   const markUserInteracted = useCallback(() => {
     hasUserInteracted.current = true;
+    setHasInteracted(true);
   }, []);
 
   // Throttled haptic feedback
@@ -635,7 +731,9 @@ export function PriceGuessSlider({
     .onBegin(() => {
       runOnJS(markUserInteracted)();
       isDragging.value = true;
-      thumbScale.value = withSpring(1.3, { damping: 10 });
+      thumbPressProgress.value = withTiming(1, HOVER_TIMING);
+      floatingLabelProgress.value = withTiming(1, FLOAT_REVEAL_TIMING);
+      thumbScale.value = withSpring(1.18, THUMB_PRESS_SPRING_CONFIG);
     })
     .onUpdate((event) => {
       const newPosition = Math.max(0, Math.min(1, event.x / sliderWidth));
@@ -644,22 +742,49 @@ export function PriceGuessSlider({
     })
     .onEnd(() => {
       isDragging.value = false;
-      thumbScale.value = withSpring(1, { damping: 12 });
+      thumbPressProgress.value = withTiming(0, HOVER_TIMING);
+      if (thumbHoverProgress.value === 0) {
+        floatingLabelProgress.value = withTiming(0, FLOAT_REVEAL_TIMING);
+      }
+      thumbScale.value = withSpring(1, THUMB_PRESS_SPRING_CONFIG);
     });
 
   // Tap gesture for track
   const tapGesture = Gesture.Tap()
     .enabled(!disabled)
+    .onBegin(() => {
+      thumbPressProgress.value = withTiming(1, HOVER_TIMING);
+      floatingLabelProgress.value = withTiming(1, FLOAT_REVEAL_TIMING);
+    })
     .onEnd((event) => {
       runOnJS(markUserInteracted)();
       const newPosition = Math.max(0, Math.min(1, event.x / sliderWidth));
-      thumbPosition.value = withSpring(newPosition, { damping: 15 });
+      thumbPosition.value = withSpring(newPosition, SLIDER_SPRING_CONFIG);
       runOnJS(updatePrice)(newPosition);
       runOnJS(triggerSelectionHaptic)();
+    })
+    .onFinalize(() => {
+      thumbPressProgress.value = withTiming(0, HOVER_TIMING);
+      if (!isDragging.value && thumbHoverProgress.value === 0) {
+        floatingLabelProgress.value = withTiming(0, FLOAT_REVEAL_TIMING);
+      }
+    });
+
+  const hoverGesture = Gesture.Hover()
+    .enabled(!disabled)
+    .onBegin(() => {
+      thumbHoverProgress.value = withTiming(1, HOVER_TIMING);
+      floatingLabelProgress.value = withTiming(1, FLOAT_REVEAL_TIMING);
+    })
+    .onFinalize(() => {
+      thumbHoverProgress.value = withTiming(0, HOVER_TIMING);
+      if (!isDragging.value && thumbPressProgress.value === 0) {
+        floatingLabelProgress.value = withTiming(0, FLOAT_REVEAL_TIMING);
+      }
     });
 
   // Combined gestures
-  const composedGestures = Gesture.Simultaneous(panGesture, tapGesture);
+  const composedGestures = Gesture.Simultaneous(panGesture, tapGesture, hoverGesture);
 
   // Thumb animated styles - use pixel positioning for web compatibility
   const thumbAnimatedStyle = useAnimatedStyle(() => {
@@ -667,19 +792,135 @@ export function PriceGuessSlider({
     return {
       left: leftPx,
       transform: [
-        { translateX: -16 },
+        { translateX: -SLIDER_THUMB_RADIUS },
         { scale: thumbScale.value * thumbPulse.value },
       ],
     };
   });
 
-  // Track fill animated style - use pixel width for web compatibility
-  const fillAnimatedStyle = useAnimatedStyle(() => {
-    const widthPx = thumbPosition.value * sliderWidthShared.value;
+  const embeddedThumbAnimatedStyle = useAnimatedStyle(() => {
+    const leftPx = thumbPosition.value * sliderWidthShared.value;
     return {
+      left: leftPx,
+      transform: [
+        { translateX: -SLIDER_THUMB_RADIUS },
+        { translateY: EMBEDDED_THUMB_TRANSLATE_Y },
+        { scale: thumbScale.value * thumbPulse.value },
+      ],
+    };
+  });
+
+  const startPosition = priceToPosition(sliderStartPrice, sliderRange);
+  const guessedPosition = priceToPosition(guessedPrice, sliderRange);
+  const guessedDelta = guessedPrice - sliderStartPrice;
+  const guessTone =
+    guessedDelta > 0 ? 'positive' : guessedDelta < 0 ? 'negative' : 'neutral';
+  const guessToneTarget =
+    guessTone === 'positive' ? 1 : guessTone === 'negative' ? 0 : 0.5;
+  const percentageLabel = formatDeltaPercentageLabel(guessedPrice, sliderStartPrice);
+  const submitDisabled = disabled || isSubmitting || !hasInteracted;
+  const needsSliderInteraction = !disabled && !isSubmitting && !hasInteracted;
+  const submitButtonLabel = needsSliderInteraction
+    ? 'Drag Slider to Adjust Guess'
+    : 'Submit Guess';
+
+  useEffect(() => {
+    guessToneProgress.value = withTiming(guessToneTarget, COLOR_SWITCH_TIMING);
+  }, [guessToneProgress, guessToneTarget]);
+
+  // Track fill animated style - use pixel offsets for web compatibility.
+  const fillAnimatedStyle = useAnimatedStyle(() => {
+    const startPx = startPosition * sliderWidthShared.value;
+    const thumbPx = thumbPosition.value * sliderWidthShared.value;
+    const leftPx = Math.min(startPx, thumbPx);
+    const widthPx = Math.abs(thumbPx - startPx);
+    return {
+      left: leftPx,
       width: widthPx,
     };
   });
+
+  const fillColorAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: disabled
+      ? '#BFC6C1'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [
+          NEGATIVE_GUESS_FILL_COLOR,
+          NEUTRAL_GUESS_FILL_COLOR,
+          POSITIVE_GUESS_FILL_COLOR,
+        ],
+      ),
+  }));
+
+  const percentageBubbleColorAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: disabled
+      ? '#6D6C6A'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+      ),
+  }));
+
+  const percentageBubbleCaretAnimatedStyle = useAnimatedStyle(() => ({
+    borderTopColor: disabled
+      ? '#6D6C6A'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+      ),
+  }));
+
+  const thumbNubAnimatedStyle = useAnimatedStyle(() => ({
+    borderColor: disabled
+      ? '#BFC6C1'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+      ),
+    backgroundColor: disabled
+      ? '#F4F3F0'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [
+          NEGATIVE_GUESS_THUMB_COLOR,
+          NEUTRAL_GUESS_THUMB_COLOR,
+          POSITIVE_GUESS_THUMB_COLOR,
+        ],
+      ),
+  }));
+
+  const thumbHaloAnimatedStyle = useAnimatedStyle(() => {
+    const hoverOpacity = thumbHoverProgress.value * 0.2;
+    const pressOpacity = thumbPressProgress.value * 0.4;
+    const hoverScale = 1 + thumbHoverProgress.value * 0.5;
+    const pressScale = 1 + thumbPressProgress.value * 0.75;
+
+    return {
+      opacity: Math.max(hoverOpacity, pressOpacity),
+      transform: [{ scale: Math.max(hoverScale, pressScale) }],
+      backgroundColor: interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+      ),
+    };
+  });
+
+  const percentageBubblePositionAnimatedStyle = useAnimatedStyle(() => ({
+    left: thumbPosition.value * sliderWidthShared.value,
+    opacity: 1,
+    transform: [
+      { translateX: -58 },
+      { translateY: -8 + floatingLabelProgress.value * 8 },
+      { scale: priceDisplayScale.value },
+    ],
+  }));
 
   // Price display animated style
   const priceAnimatedStyle = useAnimatedStyle(() => ({
@@ -693,7 +934,7 @@ export function PriceGuessSlider({
 
   // Handle submit
   const handleSubmit = useCallback(() => {
-    if (disabled || isSubmitting) return;
+    if (submitDisabled) return;
 
     submitButtonScale.value = withSequence(
       withTiming(0.95, { duration: 100 }),
@@ -715,10 +956,9 @@ export function PriceGuessSlider({
   }, [
     _propertyId,
     countryCode,
-    disabled,
-    isSubmitting,
     guessedPrice,
     onGuessSubmit,
+    submitDisabled,
     submitButtonScale,
     triggerSuccessHaptic,
   ]);
@@ -732,7 +972,7 @@ export function PriceGuessSlider({
       const newPrice = clampPriceToRange(guessedPrice + delta, sliderRange);
       const newPosition = priceToPosition(newPrice, sliderRange);
 
-      thumbPosition.value = withSpring(newPosition, { damping: 15 });
+      thumbPosition.value = withSpring(newPosition, SLIDER_SPRING_CONFIG);
       updatePrice(newPosition);
       triggerSelectionHaptic();
     },
@@ -757,8 +997,9 @@ export function PriceGuessSlider({
     lastHapticPrice.current = userGuess;
     setSliderStartPrice(userGuess);
     setGuessedPrice(userGuess);
+    setHasInteracted(false);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: userGuess });
-    thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), { damping: 15 });
+    thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), SLIDER_SPRING_CONFIG);
     startAnalytics.current = buildStartAnalytics({
       price: userGuess,
       source: 'user_guess',
@@ -792,7 +1033,7 @@ export function PriceGuessSlider({
     setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
-    thumbPosition.value = withSpring(priceToPosition(initialPrice, nextRange), { damping: 15 });
+    thumbPosition.value = withSpring(priceToPosition(initialPrice, nextRange), SLIDER_SPRING_CONFIG);
     startAnalytics.current = buildStartAnalytics({
       price: initialPrice,
       source,
@@ -858,62 +1099,92 @@ export function PriceGuessSlider({
                   </View>
                 </View>
               ) : null}
-              <View
+              <Animated.View
                 className="absolute bottom-0 items-center"
-                style={{
-                  left: `${priceToPosition(guessedPrice, sliderRange) * 100}%`,
-                  transform: [{ translateX: -32 }],
-                }}
+                style={[
+                  {
+                    alignItems: 'center',
+                    bottom: 0,
+                    position: 'absolute',
+                    width: 116,
+                  },
+                  percentageBubblePositionAnimatedStyle,
+                ]}
+                testID="price-percentage-bubble"
               >
-                <View
-                  className="rounded-xl px-3.5 py-1.5"
-                  style={{ backgroundColor: disabled ? '#6D6C6A' : '#3D8A5A' }}
+                <Animated.View
+                  style={[
+                    {
+                      alignSelf: 'center',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 74,
+                      minHeight: 30,
+                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                      borderRadius: 12,
+                    },
+                    percentageBubbleColorAnimatedStyle,
+                  ]}
                 >
-                  <Text
-                    className="font-display-semibold text-sm text-white"
+                  <Animated.Text
+                    className="font-display-semibold"
                     numberOfLines={1}
                     testID="price-display"
+                    style={{
+                      color: '#FFFFFF',
+                      fontSize: 14,
+                      lineHeight: 18,
+                      textAlign: 'center',
+                    }}
                   >
-                    {formatBubblePrice(guessedPrice, countryCode)}
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    width: 0,
-                    height: 0,
-                    borderLeftWidth: 6,
-                    borderRightWidth: 6,
-                    borderTopWidth: 7,
-                    borderLeftColor: 'transparent',
-                    borderRightColor: 'transparent',
-                    borderTopColor: disabled ? '#6D6C6A' : '#3D8A5A',
-                    marginTop: -1,
-                  }}
+                    {percentageLabel}
+                  </Animated.Text>
+                </Animated.View>
+                <Animated.View
+                  style={[
+                    {
+                      alignSelf: 'center',
+                      width: 0,
+                      height: 0,
+                      borderLeftWidth: 6,
+                      borderRightWidth: 6,
+                      borderTopWidth: 7,
+                      borderLeftColor: 'transparent',
+                      borderRightColor: 'transparent',
+                      marginTop: -1,
+                    },
+                    percentageBubbleCaretAnimatedStyle,
+                  ]}
                 />
-              </View>
+              </Animated.View>
             </View>
 
             <GestureDetector gesture={composedGestures}>
               <View
                 className="relative"
-                style={{ height: 28, overflow: 'visible' }}
+                style={{ height: EMBEDDED_SLIDER_LANE_HEIGHT, overflow: 'visible' }}
               >
                 <View
                   className="absolute left-0 right-0 rounded-full"
                   style={{
-                    top: 10,
-                    height: 8,
-                    backgroundColor: '#E5E4E1',
+                    left: 0,
+                    position: 'absolute',
+                    right: 0,
+                    top: EMBEDDED_TRACK_TOP,
+                    height: SLIDER_TRACK_HEIGHT,
+                    backgroundColor: SLIDER_TRACK_COLOR,
                   }}
                 />
                 <Animated.View
-                  className="absolute left-0 rounded-l-full"
+                  className="absolute rounded-full"
                   style={[
                     fillAnimatedStyle,
+                    fillColorAnimatedStyle,
                     {
-                      top: 10,
-                      height: 8,
-                      backgroundColor: disabled ? '#BFC6C1' : '#9BD2B2',
+                      height: SLIDER_TRACK_HEIGHT,
+                      position: 'absolute',
+                      top: EMBEDDED_TRACK_TOP,
                     },
                   ]}
                 />
@@ -922,75 +1193,115 @@ export function PriceGuessSlider({
                   position={wozPosition}
                   color="#9C9B99"
                   testID="woz-track-marker"
-                  top={5}
+                  top={EMBEDDED_TRACK_MARKER_TOP}
                 />
                 <TrackMarker
                   position={askingPosition}
-                  color="#9C9B99"
+                  color={ASKING_REFERENCE_COLOR}
                   testID="asking-track-marker"
-                  top={5}
+                  top={EMBEDDED_TRACK_MARKER_TOP}
                 />
                 <TrackMarker
                   position={fmvPosition}
                   color="#3D8A5A"
                   testID="crowd-track-marker"
-                  top={5}
+                  top={EMBEDDED_TRACK_MARKER_TOP}
                 />
 
                 <Animated.View
-                  className="absolute rounded-full"
+                  className="absolute"
                   style={[
-                    thumbAnimatedStyle,
+                    embeddedThumbAnimatedStyle,
                     {
-                      top: 0,
-                      width: 28,
-                      height: 28,
-                      borderWidth: 3,
-                      borderColor: disabled ? '#BFC6C1' : '#3D8A5A',
-                      backgroundColor: '#FFFFFF',
-                      shadowColor: '#1A1918',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.12,
-                      shadowRadius: 8,
-                      elevation: 4,
+                      position: 'absolute',
+                      top: EMBEDDED_THUMB_TOP,
+                      width: SLIDER_THUMB_SIZE,
+                      height: SLIDER_THUMB_SIZE,
                     },
                   ]}
                   testID="slider-thumb"
-                />
+                >
+                  <Animated.View
+                    pointerEvents="none"
+                    className="absolute rounded-full"
+                    style={[
+                      {
+                        left: 0,
+                        position: 'absolute',
+                        top: 0,
+                        width: SLIDER_THUMB_SIZE,
+                        height: SLIDER_THUMB_SIZE,
+                        borderRadius: SLIDER_THUMB_RADIUS,
+                      },
+                      thumbHaloAnimatedStyle,
+                    ]}
+                  />
+                  <Animated.View
+                    className="absolute rounded-full"
+                    style={[
+                      {
+                        left: 0,
+                        position: 'absolute',
+                        top: 0,
+                        width: SLIDER_THUMB_SIZE,
+                        height: SLIDER_THUMB_SIZE,
+                        borderRadius: SLIDER_THUMB_RADIUS,
+                        borderWidth: 5,
+                      },
+                      thumbNubAnimatedStyle,
+                    ]}
+                  />
+                </Animated.View>
               </View>
             </GestureDetector>
 
-            {(wozPosition !== null || askingPosition !== null || fmvPosition !== null) ? (
-              <View className="relative h-14">
+            <View
+              className="relative"
+              testID="guess-reference-labels"
+              style={{ height: EMBEDDED_REFERENCE_LABELS_HEIGHT }}
+            >
+              <InlineReferenceLabel
+                position={wozPosition}
+                label={wozMarkerLabel}
+                color="#9C9B99"
+                connectorHeight={8}
+              />
+              <InlineReferenceLabel
+                position={askingPosition}
+                label={askingMarkerLabel}
+                color={ASKING_REFERENCE_COLOR}
+                connectorColor={ASKING_REFERENCE_COLOR}
+                connectorHeight={24}
+              />
+              <InlineReferenceLabel
+                position={fmvPosition}
+                label={crowdMarkerLabel}
+                color="#3D8A5A"
+                connectorHeight={40}
+              />
+              {hasInteracted ? (
                 <InlineReferenceLabel
-                  position={wozPosition}
-                  label={wozMarkerLabel}
-                  color="#9C9B99"
-                  connectorHeight={8}
+                  position={guessedPosition}
+                  label={`You ${formatBubblePrice(guessedPrice, countryCode)}`}
+                  color={YOU_REFERENCE_COLOR}
+                  connectorColor={YOU_REFERENCE_COLOR}
+                  connectorHeight={60}
+                  connectorTopGap={4}
+                  fontSize={13}
+                  lineHeight={17}
+                  testID="user-guess-marker"
                 />
-                <InlineReferenceLabel
-                  position={askingPosition}
-                  label={askingMarkerLabel}
-                  color="#9C9B99"
-                  connectorHeight={24}
-                />
-                <InlineReferenceLabel
-                  position={fmvPosition}
-                  label={crowdMarkerLabel}
-                  color="#3D8A5A"
-                  connectorHeight={40}
-                />
-              </View>
-            ) : null}
+              ) : null}
+            </View>
           </View>
 
           <Pressable
             onPress={handleSubmit}
-            disabled={disabled || isSubmitting}
+            disabled={submitDisabled}
             testID="submit-guess-button"
             className="w-full overflow-hidden rounded-xl"
             style={{
-              backgroundColor: disabled || isSubmitting ? '#C8D9D0' : '#3D8A5A',
+              backgroundColor: submitDisabled ? '#C8D9D0' : '#3D8A5A',
             }}
           >
             <View className="flex-row items-center justify-center py-3.5">
@@ -1004,7 +1315,7 @@ export function PriceGuessSlider({
                   </View>
                 ) : (
                   <Text className="font-display-semibold text-base text-white">
-                    Submit Guess
+                    {submitButtonLabel}
                   </Text>
                 )}
               </Animated.View>
@@ -1076,6 +1387,7 @@ export function PriceGuessSlider({
               position={askingPosition}
               label={askingMarkerLabel}
               color="text-orange-500"
+              textColor={ASKING_REFERENCE_COLOR}
               top={15}
               connectorHeight={24}
             />
@@ -1089,6 +1401,15 @@ export function PriceGuessSlider({
               connectorHeight={40}
             />
           )}
+          {hasInteracted && (
+            <ReferenceMarker
+              position={guessedPosition}
+              label={`You ${formatBubblePrice(guessedPrice, countryCode)}`}
+              color="text-primary-500"
+              top={15}
+              connectorHeight={56}
+            />
+          )}
 
           {/* Slider track container - overflow visible for thumb */}
           <GestureDetector gesture={composedGestures}>
@@ -1097,7 +1418,8 @@ export function PriceGuessSlider({
               style={{
                 overflow: 'visible',
                 position: 'relative',
-                height: 12,
+                height: 6,
+                backgroundColor: SLIDER_TRACK_COLOR,
               }}
             >
               {/* Fill */}
@@ -1105,47 +1427,64 @@ export function PriceGuessSlider({
                 className="rounded-full"
                 style={[
                   fillAnimatedStyle,
-                  {
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    height: 12,
-                    backgroundColor: disabled ? '#E8E0D4' : '#F5A623',
-                  },
+                  fillColorAnimatedStyle,
+                  { position: 'absolute', top: 0, height: 6 },
                 ]}
               />
 
               <TrackMarker position={wozPosition} color="#9C9B99" testID="woz-track-marker" />
               <TrackMarker
                 position={askingPosition}
-                color="#F97316"
+                color={ASKING_REFERENCE_COLOR}
                 testID="asking-track-marker"
               />
               <TrackMarker position={fmvPosition} color="#3D8A5A" testID="crowd-track-marker" />
 
               {/* Thumb */}
               <Animated.View
-                className="rounded-full shadow-lg"
+                className="shadow-lg"
                 style={[
                   thumbAnimatedStyle,
                   {
                     position: 'absolute',
-                    top: -10,
+                    top: -13,
                     width: 32,
                     height: 32,
                     zIndex: 10,
-                    backgroundColor: disabled
-                      ? '#C7BFB3'
-                      : isNearWOZ
-                        ? '#9C9B99'
-                        : '#DE911D',
                   },
                 ]}
                 testID="slider-thumb"
               >
-                <View className="flex-1 items-center justify-center">
-                  <View className="w-1 h-3 bg-surface-card/50 rounded-full" />
-                </View>
+                <Animated.View
+                  pointerEvents="none"
+                  className="absolute rounded-full"
+                  style={[
+                    {
+                      left: 0,
+                      position: 'absolute',
+                      top: 0,
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                    },
+                    thumbHaloAnimatedStyle,
+                  ]}
+                />
+                <Animated.View
+                  className="absolute rounded-full"
+                  style={[
+                    {
+                      left: 0,
+                      position: 'absolute',
+                      top: 0,
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      borderWidth: 5,
+                    },
+                    thumbNubAnimatedStyle,
+                  ]}
+                />
               </Animated.View>
             </View>
           </GestureDetector>
@@ -1158,9 +1497,8 @@ export function PriceGuessSlider({
               key={delta}
               onPress={() => handleQuickAdjust(delta)}
               disabled={disabled}
-              className={`px-3 py-2 rounded-lg ${
-                disabled ? 'bg-warm-100' : 'bg-warm-100 active:bg-warm-200'
-              }`}
+              className={`px-3 py-2 rounded-lg ${disabled ? 'bg-warm-100' : 'bg-warm-100 active:bg-warm-200'
+                }`}
               testID={`adjust-${delta > 0 ? 'plus' : 'minus'}-${Math.abs(delta / 1000)}k`}
             >
               <Text
@@ -1176,13 +1514,12 @@ export function PriceGuessSlider({
         {/* Submit button */}
         <Pressable
           onPress={handleSubmit}
-          disabled={disabled || isSubmitting}
+          disabled={submitDisabled}
           testID="submit-guess-button"
-          className={`w-full rounded-xl overflow-hidden flex-row items-center justify-center py-3.5 ${
-            disabled || isSubmitting
-              ? 'bg-warm-200'
-              : 'bg-primary-500 active:bg-primary-600'
-          }`}
+          className={`w-full rounded-xl overflow-hidden flex-row items-center justify-center py-3.5 ${submitDisabled
+            ? 'bg-warm-200'
+            : 'bg-primary-500 active:bg-primary-600'
+            }`}
         >
           <Animated.View style={submitAnimatedStyle}>
             {isSubmitting ? (
@@ -1194,11 +1531,10 @@ export function PriceGuessSlider({
               </View>
             ) : (
               <Text
-                className={`font-semibold text-base ${
-                  disabled ? 'text-warm-400' : 'text-white'
-                }`}
+                className={`font-semibold text-base ${submitDisabled ? 'text-warm-400' : 'text-white'
+                  }`}
               >
-                Submit Guess
+                {submitButtonLabel}
               </Text>
             )}
           </Animated.View>
