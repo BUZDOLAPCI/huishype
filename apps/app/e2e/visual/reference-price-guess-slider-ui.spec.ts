@@ -239,12 +239,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const hasSliderThumb = await sliderThumb.isVisible().catch(() => false);
     console.log(`Slider thumb visible: ${hasSliderThumb}`);
 
-    // Check for min/max labels
+    // Range labels were intentionally removed; reference values are shown on staggered markers.
     const minLabel = page.locator('[data-testid="price-range-min"]');
     const maxLabel = page.locator('[data-testid="price-range-max"]');
     const hasMinLabel = await minLabel.first().isVisible().catch(() => false);
     const hasMaxLabel = await maxLabel.first().isVisible().catch(() => false);
-    console.log(`Min/Max labels: min=${hasMinLabel}, max=${hasMaxLabel}`);
+    console.log(`Range labels removed: min=${!hasMinLabel}, max=${!hasMaxLabel}`);
 
     const consensusBlock = page.locator('[data-testid="consensus-alignment"]');
     const hasConsensus = await consensusBlock.isVisible().catch(() => false);
@@ -255,7 +255,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(hasCrowdEstimate).toBe(true);
     expect(hasPriceDisplay).toBe(true);
     expect(hasSubmitButton).toBe(true);
-    expect(hasMinLabel && hasMaxLabel).toBe(true);
+    expect(hasMinLabel || hasMaxLabel).toBe(false);
 
     // Verify page is functional
     await expect(page.locator('body')).toBeVisible();

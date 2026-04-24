@@ -148,15 +148,8 @@ test.describe('Price Guess Flow', () => {
     expect(submitBackground).not.toBe('rgba(0, 0, 0, 0)');
     expect(submitBackground).not.toBe('transparent');
 
-    const minLabel = page.locator('[data-testid="price-range-min"]').first();
-    const maxLabel = page.locator('[data-testid="price-range-max"]').first();
-    await expect(minLabel).toBeVisible();
-    await expect(maxLabel).toBeVisible();
-
-    const normalizedMin = await readNormalizedText(minLabel);
-    const normalizedMax = await readNormalizedText(maxLabel);
-    expect(normalizedMin).toBe('€50k');
-    expect(normalizedMax).toMatch(/^€2(m|mln)$/);
+    await expect(page.locator('[data-testid="price-range-min"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="price-range-max"]')).toHaveCount(0);
   });
 
   test('dragging the slider thumb changes the displayed price', async ({ page, request }) => {

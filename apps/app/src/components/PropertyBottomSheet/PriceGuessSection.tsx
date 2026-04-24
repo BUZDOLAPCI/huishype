@@ -140,16 +140,12 @@ export function PriceGuessSection({
 
   const hasExistingGuess = !!guessData?.userGuess;
   const activeUserGuess = submittedPrice ?? guessData?.userGuess?.guessedPrice ?? null;
-  const initialPrice =
-    guessData?.activeListingAskingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
+  const askingPrice = guessData?.activeListingAskingPrice ?? property.askingPrice ?? null;
+  const initialPrice = askingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
   const initialPriceSource =
-    guessData?.activeListingAskingPrice != null
-      ? 'active_listing_asking_price'
-      : guessData?.priceGuessStart?.source;
+    askingPrice != null ? 'active_listing_asking_price' : guessData?.priceGuessStart?.source;
   const initialPriceConfidence =
-    guessData?.activeListingAskingPrice != null
-      ? 'known'
-      : guessData?.priceGuessStart?.confidence;
+    askingPrice != null ? 'known' : guessData?.priceGuessStart?.confidence;
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -202,7 +198,7 @@ export function PriceGuessSection({
             propertyId={property.id}
             officialValuation={property.officialValuation ?? undefined}
             officialValuationYear={property.officialValuationYear}
-            askingPrice={property.askingPrice}
+            askingPrice={askingPrice ?? undefined}
             initialPrice={initialPrice}
             initialPriceSource={initialPriceSource}
             initialPriceConfidence={initialPriceConfidence}

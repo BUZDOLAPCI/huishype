@@ -39,7 +39,9 @@ jest.mock('../../PriceGuessSlider', () => ({
         <Text testID="price-guess-slider-disabled">{String(!!disabled)}</Text>
         <Text testID="price-guess-slider-initial-price">{String(initialPrice ?? '')}</Text>
         <Text testID="price-guess-slider-initial-source">{String(initialPriceSource ?? '')}</Text>
-        <Text testID="price-guess-slider-initial-confidence">{String(initialPriceConfidence ?? '')}</Text>
+        <Text testID="price-guess-slider-initial-confidence">
+          {String(initialPriceConfidence ?? '')}
+        </Text>
         <Pressable testID="price-guess-slider-submit" onPress={() => onGuessSubmit(345000)}>
           <Text>Submit Guess</Text>
         </Pressable>
@@ -226,7 +228,7 @@ describe('PriceGuessSection', () => {
     );
   });
 
-  it('falls back to priceGuessStart as the slider initializer without using property askingPrice', () => {
+  it('uses property asking price before priceGuessStart as the slider initializer', () => {
     mockUseFetchPriceGuess.mockReturnValue({
       data: {
         userGuess: null,
@@ -256,12 +258,12 @@ describe('PriceGuessSection', () => {
 
     const screen = render(<PriceGuessSection property={property} />);
 
-    expect(screen.getByTestId('price-guess-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('price-guess-slider-initial-price').props.children).toBe('365000');
     expect(screen.getByTestId('price-guess-slider-initial-source').props.children).toBe(
-      'local_comparable_price_per_m2'
+      'active_listing_asking_price'
     );
     expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
-      'usable'
+      'known'
     );
   });
 });

@@ -71,27 +71,63 @@ export interface PriceGuessSliderProps {
 }
 
 // Price range constants
-const MIN_PRICE = 50000;
-const MAX_PRICE = 2000000;
+const FALLBACK_MIN_PRICE = 50000;
+const ABSOLUTE_MIN_PRICE = 10000;
+const RANGE_BELOW_OFFICIAL_VALUATION = 50000;
+const RANGE_ABOVE_START_PRICE = 400000;
+const MINIMUM_RANGE_WIDTH = 50000;
 const DEFAULT_GUESS_START = 350000;
 const PRICE_BUCKET_SIZE = 50000;
+
+interface PriceGuessSliderRange {
+  min: number;
+  max: number;
+}
 
 function getCountryDefaultGuessStart(_countryCode?: string): number {
   return DEFAULT_GUESS_START;
 }
 
+function resolveSliderRange({
+  officialValuation,
+  startPrice,
+}: {
+  officialValuation?: number;
+  startPrice: number;
+}): PriceGuessSliderRange {
+  const validOfficialValuation =
+    typeof officialValuation === 'number' &&
+    Number.isFinite(officialValuation) &&
+    officialValuation > 0
+      ? officialValuation
+      : undefined;
+  const min = validOfficialValuation
+    ? Math.max(ABSOLUTE_MIN_PRICE, validOfficialValuation - RANGE_BELOW_OFFICIAL_VALUATION)
+    : FALLBACK_MIN_PRICE;
+  const requestedMax = startPrice + RANGE_ABOVE_START_PRICE;
+
+  return {
+    min,
+    max: Math.max(requestedMax, min + MINIMUM_RANGE_WIDTH),
+  };
+}
+
+function clampPriceToRange(price: number, range: PriceGuessSliderRange): number {
+  return Math.max(range.min, Math.min(range.max, price));
+}
+
 // Logarithmic scale helpers
 // Using log scale: most houses are in the 150k-600k range, so we want more precision there
-function priceToPosition(price: number): number {
-  const minLog = Math.log(MIN_PRICE);
-  const maxLog = Math.log(MAX_PRICE);
-  const priceLog = Math.log(Math.max(MIN_PRICE, Math.min(MAX_PRICE, price)));
+function priceToPosition(price: number, range: PriceGuessSliderRange): number {
+  const minLog = Math.log(range.min);
+  const maxLog = Math.log(range.max);
+  const priceLog = Math.log(clampPriceToRange(price, range));
   return (priceLog - minLog) / (maxLog - minLog);
 }
 
-function positionToPrice(position: number): number {
-  const minLog = Math.log(MIN_PRICE);
-  const maxLog = Math.log(MAX_PRICE);
+function positionToPrice(position: number, range: PriceGuessSliderRange): number {
+  const minLog = Math.log(range.min);
+  const maxLog = Math.log(range.max);
   const clampedPosition = Math.max(0, Math.min(1, position));
   const priceLog = minLog + clampedPosition * (maxLog - minLog);
   // Round to nearest 1000 for cleaner values
@@ -108,11 +144,6 @@ function formatValuationLabel(countryCode?: string, year?: number | null): strin
   return year ? `${label} (${year})` : label;
 }
 
-function formatLabelPrice(price: number, countryCode?: string): string {
-  // Keep the compact labels easy to match in the UI and tests.
-  return formatPrice(price, countryCode).replace(/[\s\u00A0\u202F]/g, '');
-}
-
 function formatCompactPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode, { compact: true })
     .replace(/[\u00A0\u202F]/g, ' ')
@@ -126,18 +157,15 @@ function formatBubblePrice(price: number, countryCode?: string): string {
     .trim();
 }
 
+function formatMarkerLabel(label: string, price: number, countryCode?: string): string {
+  return `${label} ${formatCompactPrice(price, countryCode)}`;
+}
+
 function hasSamePrice(left?: number, right?: number): boolean {
   return left !== undefined && right !== undefined && left === right;
 }
 
 function bucketPrice(price: number): string {
-  if (price < MIN_PRICE) {
-    return `<${MIN_PRICE / 1000}k`;
-  }
-  if (price >= MAX_PRICE) {
-    return `${MAX_PRICE / 1000}k+`;
-  }
-
   const lower = Math.floor(price / PRICE_BUCKET_SIZE) * PRICE_BUCKET_SIZE;
   const upper = lower + PRICE_BUCKET_SIZE - 1;
   return `${Math.round(lower / 1000)}k-${Math.round(upper / 1000)}k`;
@@ -190,14 +218,19 @@ function resolveStartSource({
   initialPrice,
   initialPriceSource,
   officialValuation,
+  askingPrice,
 }: {
   userGuess?: number;
   initialPrice?: number;
   initialPriceSource?: PriceGuessSliderStartSource;
   officialValuation?: number;
+  askingPrice?: number;
 }): PriceGuessSliderStartSource {
   if (userGuess !== undefined) {
     return 'user_guess';
+  }
+  if (askingPrice !== undefined) {
+    return 'active_listing_asking_price';
   }
   if (initialPrice !== undefined) {
     return initialPriceSource ?? 'initial_price';
@@ -279,11 +312,15 @@ function ReferenceMarker({
   label,
   color,
   isActive,
+  top,
+  connectorHeight,
 }: {
   position: number;
   label: string;
   color: string;
   isActive?: boolean;
+  top: number;
+  connectorHeight: number;
 }) {
   const opacity = useSharedValue(0.7);
   const scale = useSharedValue(1);
@@ -303,20 +340,106 @@ function ReferenceMarker({
 
   const markerStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    transform: [{ translateX: -56 }, { scale: scale.value }],
   }));
 
   return (
     <Animated.View
-      className="absolute -top-8 items-center"
+      className="absolute items-center"
       style={[
-        { left: `${position * 100}%`, transform: [{ translateX: -20 }] },
+        { left: `${position * 100}%`, top, width: 112 },
         markerStyle,
       ]}
     >
-      <Text className={`text-xs font-medium ${color}`}>{label}</Text>
-      <View className={`w-0.5 h-3 ${color.replace('text-', 'bg-')}`} />
+      <View
+        style={{
+          width: 1,
+          height: connectorHeight,
+          backgroundColor: '#D9D4CC',
+        }}
+      />
+      <Text className={`text-xs text-center ${color}`} numberOfLines={1}>
+        {label}
+      </Text>
     </Animated.View>
+  );
+}
+
+function InlineReferenceLabel({
+  position,
+  label,
+  color,
+  connectorHeight,
+}: {
+  position: number | null;
+  label: string;
+  color: string;
+  connectorHeight: number;
+}) {
+  if (position === null) {
+    return null;
+  }
+
+  return (
+    <View
+      className="absolute items-center"
+      style={{
+        left: `${position * 100}%`,
+        top: 0,
+        width: 112,
+        transform: [{ translateX: -56 }],
+      }}
+    >
+      <View
+        style={{
+          width: 1,
+          height: connectorHeight,
+          backgroundColor: '#D9D4CC',
+        }}
+      />
+      <Text
+        className="font-display text-xs"
+        numberOfLines={1}
+        style={{
+          color,
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function TrackMarker({
+  position,
+  color,
+  testID,
+  top = -3,
+}: {
+  position: number | null;
+  color: string;
+  testID: string;
+  top?: number;
+}) {
+  if (position === null) {
+    return null;
+  }
+
+  return (
+    <View
+      className="absolute"
+      style={{
+        left: `${position * 100}%`,
+        top,
+        width: 2,
+        height: 18,
+        marginLeft: -1,
+        borderRadius: 999,
+        backgroundColor: color,
+      }}
+      testID={testID}
+    />
   );
 }
 
@@ -340,14 +463,28 @@ export function PriceGuessSlider({
   testID = 'price-guess-slider',
 }: PriceGuessSliderProps) {
   const countryDefaultGuessStart = getCountryDefaultGuessStart(countryCode);
-  // Initial price - prefer user's existing guess, API initializer, WOZ/valuation, then country default.
+  const resolvedAskingPrice =
+    typeof askingPrice === 'number' && Number.isFinite(askingPrice) && askingPrice > 0
+      ? askingPrice
+      : undefined;
+  // Initial price - prefer user's existing guess, asking, API initializer, WOZ/valuation, then country default.
   const resolvedInitialPrice =
-    userGuess ?? initialPrice ?? officialValuation ?? countryDefaultGuessStart;
+    userGuess ??
+    resolvedAskingPrice ??
+    initialPrice ??
+    officialValuation ??
+    countryDefaultGuessStart;
+  const [sliderStartPrice, setSliderStartPrice] = useState(resolvedInitialPrice);
+  const sliderRange = useMemo(
+    () => resolveSliderRange({ officialValuation, startPrice: sliderStartPrice }),
+    [officialValuation, sliderStartPrice],
+  );
   const resolvedStartSource = resolveStartSource({
     userGuess,
     initialPrice,
     initialPriceSource,
     officialValuation,
+    askingPrice: resolvedAskingPrice,
   });
   const resolvedStartConfidence = resolveStartConfidence({
     source: resolvedStartSource,
@@ -359,7 +496,7 @@ export function PriceGuessSlider({
   // Animation values - use shared value for slider width for proper animated style updates
   const sliderWidthShared = useSharedValue(300);
   const [sliderWidth, setSliderWidth] = useState(300);
-  const thumbPosition = useSharedValue(priceToPosition(resolvedInitialPrice));
+  const thumbPosition = useSharedValue(priceToPosition(resolvedInitialPrice, sliderRange));
   const thumbScale = useSharedValue(1);
   const thumbPulse = useSharedValue(1);
   const priceDisplayScale = useSharedValue(1);
@@ -368,7 +505,9 @@ export function PriceGuessSlider({
 
   // Refs
   const hasUserInteracted = useRef(false);
-  const initialPriceSyncDone = useRef(initialPrice !== undefined);
+  const initialPriceSyncDone = useRef(
+    initialPrice !== undefined || resolvedAskingPrice !== undefined
+  );
   const hasLoggedShown = useRef(false);
   const startAnalytics = useRef(
     buildStartAnalytics({
@@ -429,12 +568,12 @@ export function PriceGuessSlider({
   // Update price and trigger callbacks
   const updatePrice = useCallback(
     (position: number) => {
-      const newPrice = positionToPrice(position);
+      const newPrice = positionToPrice(position, sliderRange);
 
       // Check if we crossed the WOZ value
       if (officialValuation) {
-        const wozPosition = priceToPosition(officialValuation);
-        const wasAboveWOZ = priceToPosition(guessedPrice) > wozPosition;
+        const wozPosition = priceToPosition(officialValuation, sliderRange);
+        const wasAboveWOZ = priceToPosition(guessedPrice, sliderRange) > wozPosition;
         const isAboveWOZ = position > wozPosition;
 
         if (wasAboveWOZ !== isAboveWOZ && lastWOZCrossing.current !== newPrice) {
@@ -475,6 +614,7 @@ export function PriceGuessSlider({
       officialValuation,
       isNearWOZ,
       onGuessChange,
+      sliderRange,
       thumbPulse,
       priceDisplayScale,
       triggerSelectionHaptic,
@@ -589,14 +729,22 @@ export function PriceGuessSlider({
       if (disabled) return;
 
       markUserInteracted();
-      const newPrice = Math.max(MIN_PRICE, Math.min(MAX_PRICE, guessedPrice + delta));
-      const newPosition = priceToPosition(newPrice);
+      const newPrice = clampPriceToRange(guessedPrice + delta, sliderRange);
+      const newPosition = priceToPosition(newPrice, sliderRange);
 
       thumbPosition.value = withSpring(newPosition, { damping: 15 });
       updatePrice(newPosition);
       triggerSelectionHaptic();
     },
-    [disabled, guessedPrice, markUserInteracted, thumbPosition, updatePrice, triggerSelectionHaptic]
+    [
+      disabled,
+      guessedPrice,
+      markUserInteracted,
+      sliderRange,
+      thumbPosition,
+      updatePrice,
+      triggerSelectionHaptic,
+    ]
   );
 
   // Only sync when the server-side submitted guess itself changes.
@@ -607,18 +755,25 @@ export function PriceGuessSlider({
 
     lastSyncedUserGuess.current = userGuess;
     lastHapticPrice.current = userGuess;
+    setSliderStartPrice(userGuess);
     setGuessedPrice(userGuess);
-    thumbPosition.value = withSpring(priceToPosition(userGuess), { damping: 15 });
+    const nextRange = resolveSliderRange({ officialValuation, startPrice: userGuess });
+    thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), { damping: 15 });
     startAnalytics.current = buildStartAnalytics({
       price: userGuess,
       source: 'user_guess',
       confidence: 'submitted',
     });
-  }, [userGuess, thumbPosition]);
+  }, [officialValuation, userGuess, thumbPosition]);
 
   // Sync an asynchronously loaded initializer exactly once if the user has not interacted.
   useEffect(() => {
-    if (initialPrice === undefined || initialPriceSyncDone.current || userGuess !== undefined) {
+    if (
+      initialPrice === undefined ||
+      initialPriceSyncDone.current ||
+      userGuess !== undefined ||
+      resolvedAskingPrice !== undefined
+    ) {
       return;
     }
 
@@ -634,8 +789,10 @@ export function PriceGuessSlider({
     });
 
     lastHapticPrice.current = initialPrice;
+    setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
-    thumbPosition.value = withSpring(priceToPosition(initialPrice), { damping: 15 });
+    const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
+    thumbPosition.value = withSpring(priceToPosition(initialPrice, nextRange), { damping: 15 });
     startAnalytics.current = buildStartAnalytics({
       price: initialPrice,
       source,
@@ -647,6 +804,8 @@ export function PriceGuessSlider({
     initialPriceConfidence,
     initialPriceSampleSize,
     initialPriceSource,
+    officialValuation,
+    resolvedAskingPrice,
     thumbPosition,
     userGuess,
   ]);
@@ -654,9 +813,18 @@ export function PriceGuessSlider({
   const showPreviousGuessReference = !hasSamePrice(userGuess, guessedPrice);
 
   // Calculate reference marker positions
-  const wozPosition = officialValuation ? priceToPosition(officialValuation) : null;
-  const askingPosition = askingPrice ? priceToPosition(askingPrice) : null;
-  const fmvPosition = currentFMV ? priceToPosition(currentFMV) : null;
+  const wozPosition = officialValuation ? priceToPosition(officialValuation, sliderRange) : null;
+  const askingPosition = askingPrice ? priceToPosition(askingPrice, sliderRange) : null;
+  const fmvPosition = currentFMV ? priceToPosition(currentFMV, sliderRange) : null;
+  const wozMarkerLabel = officialValuation
+    ? formatMarkerLabel('WOZ', officialValuation, countryCode)
+    : '';
+  const askingMarkerLabel = askingPrice
+    ? formatMarkerLabel('Asking', askingPrice, countryCode)
+    : '';
+  const crowdMarkerLabel = currentFMV
+    ? formatMarkerLabel('Crowd', currentFMV, countryCode)
+    : '';
 
   if (variant === 'embedded') {
     return (
@@ -668,7 +836,7 @@ export function PriceGuessSlider({
                 <View
                   className="absolute top-0 items-center"
                   style={{
-                    left: `${priceToPosition(userGuess) * 100}%`,
+                    left: `${priceToPosition(userGuess, sliderRange) * 100}%`,
                     transform: [{ translateX: -28 }],
                   }}
                   testID="previous-guess-bubble"
@@ -693,7 +861,7 @@ export function PriceGuessSlider({
               <View
                 className="absolute bottom-0 items-center"
                 style={{
-                  left: `${priceToPosition(guessedPrice) * 100}%`,
+                  left: `${priceToPosition(guessedPrice, sliderRange) * 100}%`,
                   transform: [{ translateX: -32 }],
                 }}
               >
@@ -750,34 +918,24 @@ export function PriceGuessSlider({
                   ]}
                 />
 
-                {wozPosition !== null ? (
-                  <View
-                    className="absolute"
-                    style={{
-                      left: `${wozPosition * 100}%`,
-                      top: 5,
-                      width: 2,
-                      height: 18,
-                      marginLeft: -1,
-                      borderRadius: 999,
-                      backgroundColor: '#D89575',
-                    }}
-                  />
-                ) : null}
-                {askingPosition !== null ? (
-                  <View
-                    className="absolute"
-                    style={{
-                      left: `${askingPosition * 100}%`,
-                      top: 5,
-                      width: 2,
-                      height: 18,
-                      marginLeft: -1,
-                      borderRadius: 999,
-                      backgroundColor: '#9C9B99',
-                    }}
-                  />
-                ) : null}
+                <TrackMarker
+                  position={wozPosition}
+                  color="#9C9B99"
+                  testID="woz-track-marker"
+                  top={5}
+                />
+                <TrackMarker
+                  position={askingPosition}
+                  color="#9C9B99"
+                  testID="asking-track-marker"
+                  top={5}
+                />
+                <TrackMarker
+                  position={fmvPosition}
+                  color="#3D8A5A"
+                  testID="crowd-track-marker"
+                  top={5}
+                />
 
                 <Animated.View
                   className="absolute rounded-full"
@@ -802,47 +960,26 @@ export function PriceGuessSlider({
               </View>
             </GestureDetector>
 
-            <View className="mt-3 flex-row justify-between">
-              <Text
-                className="font-display text-xs text-[#9C9B99]"
-                testID="price-range-min"
-              >
-                {formatCompactPrice(MIN_PRICE, countryCode)}
-              </Text>
-              <Text
-                className="font-display text-xs text-[#9C9B99]"
-                testID="price-range-max"
-              >
-                {formatCompactPrice(MAX_PRICE, countryCode)}
-              </Text>
-            </View>
-
             {(wozPosition !== null || askingPosition !== null || fmvPosition !== null) ? (
-              <View className="relative mt-2 h-4">
-                {wozPosition !== null ? (
-                  <Text
-                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#D89575]"
-                    style={{ left: `${wozPosition * 100}%`, transform: [{ translateX: -12 }] }}
-                  >
-                    {countryCode === 'NL' ? 'WOZ' : 'Val.'}
-                  </Text>
-                ) : null}
-                {askingPosition !== null ? (
-                  <Text
-                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#9C9B99]"
-                    style={{ left: `${askingPosition * 100}%`, transform: [{ translateX: -18 }] }}
-                  >
-                    Asking
-                  </Text>
-                ) : null}
-                {askingPosition === null && fmvPosition !== null ? (
-                  <Text
-                    className="absolute font-display-semibold text-[10px] uppercase tracking-[0.8px] text-[#9C9B99]"
-                    style={{ left: `${fmvPosition * 100}%`, transform: [{ translateX: -12 }] }}
-                  >
-                    FMV
-                  </Text>
-                ) : null}
+              <View className="relative h-14">
+                <InlineReferenceLabel
+                  position={wozPosition}
+                  label={wozMarkerLabel}
+                  color="#9C9B99"
+                  connectorHeight={8}
+                />
+                <InlineReferenceLabel
+                  position={askingPosition}
+                  label={askingMarkerLabel}
+                  color="#9C9B99"
+                  connectorHeight={24}
+                />
+                <InlineReferenceLabel
+                  position={fmvPosition}
+                  label={crowdMarkerLabel}
+                  color="#3D8A5A"
+                  connectorHeight={40}
+                />
               </View>
             ) : null}
           </View>
@@ -922,29 +1059,34 @@ export function PriceGuessSlider({
         </Animated.View>
 
         {/* Slider */}
-        <View className="mb-8 pt-8 relative" onLayout={handleSliderLayout}>
+        <View className="mb-8 relative" style={{ paddingBottom: 74 }} onLayout={handleSliderLayout}>
           {/* Reference markers */}
           {wozPosition !== null && (
             <ReferenceMarker
               position={wozPosition}
-              label={countryCode === 'NL' ? 'WOZ' : 'Val.'}
-
-              color="text-purple-600"
+              label={wozMarkerLabel}
+              color="text-warm-400"
               isActive={isNearWOZ}
+              top={15}
+              connectorHeight={8}
             />
           )}
           {askingPosition !== null && (
             <ReferenceMarker
               position={askingPosition}
-              label="Ask"
+              label={askingMarkerLabel}
               color="text-orange-500"
+              top={15}
+              connectorHeight={24}
             />
           )}
           {fmvPosition !== null && (
             <ReferenceMarker
               position={fmvPosition}
-              label="FMV"
+              label={crowdMarkerLabel}
               color="text-primary-500"
+              top={15}
+              connectorHeight={40}
             />
           )}
 
@@ -969,9 +1111,17 @@ export function PriceGuessSlider({
                     top: 0,
                     height: 12,
                     backgroundColor: disabled ? '#E8E0D4' : '#F5A623',
-                  }
+                  },
                 ]}
               />
+
+              <TrackMarker position={wozPosition} color="#9C9B99" testID="woz-track-marker" />
+              <TrackMarker
+                position={askingPosition}
+                color="#F97316"
+                testID="asking-track-marker"
+              />
+              <TrackMarker position={fmvPosition} color="#3D8A5A" testID="crowd-track-marker" />
 
               {/* Thumb */}
               <Animated.View
@@ -987,7 +1137,7 @@ export function PriceGuessSlider({
                     backgroundColor: disabled
                       ? '#C7BFB3'
                       : isNearWOZ
-                        ? '#8B5CF6'
+                        ? '#9C9B99'
                         : '#DE911D',
                   },
                 ]}
@@ -999,17 +1149,7 @@ export function PriceGuessSlider({
               </Animated.View>
             </View>
           </GestureDetector>
-
-        {/* Min/Max labels */}
-        <View className="flex-row justify-between mt-2">
-            <Text className="text-xs text-warm-400" testID="price-range-min">
-              {formatLabelPrice(MIN_PRICE, countryCode)}
-            </Text>
-            <Text className="text-xs text-warm-400" testID="price-range-max">
-              {formatLabelPrice(MAX_PRICE, countryCode)}
-            </Text>
         </View>
-      </View>
 
         {/* Quick adjustment buttons */}
         <View className="flex-row justify-center gap-2 mb-4">

@@ -78,6 +78,21 @@ describe('PriceGuessSlider', () => {
     );
   });
 
+  it('initializes with asking price before initialPrice', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        askingPrice={475000}
+        initialPrice={425000}
+        officialValuation={350000}
+      />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/475/)
+    );
+  });
+
   it('keeps userGuess stronger than initialPrice', () => {
     render(
       <PriceGuessSlider
@@ -262,11 +277,26 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByText('Submitting...')).toBeTruthy();
   });
 
-  it('formats prices in Dutch locale', () => {
-    render(<PriceGuessSlider {...defaultProps} />);
+  it('does not show separate range labels', () => {
+    render(<PriceGuessSlider {...defaultProps} officialValuation={350000} countryCode="NL" />);
 
-    // Check for min price label (€50.000 in Dutch format) - use getAllByText for multiple matches
-    expect(screen.getAllByText(/50.000/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('price-range-min')).toBeNull();
+    expect(screen.queryByTestId('price-range-max')).toBeNull();
+  });
+
+  it('still derives the slider max from the adopted starting price without rendering range labels', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        officialValuation={350000}
+        initialPrice={425000}
+      />
+    );
+
+    expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect.stringMatching(/425/)
+    );
+    expect(screen.queryByText(/825.000/)).toBeNull();
   });
 
   it('renders slider thumb', () => {
@@ -285,12 +315,16 @@ describe('PriceGuessSlider', () => {
       />
     );
 
-    // Check for Val. marker label (no countryCode defaults to generic)
-    expect(screen.getByText('Val.')).toBeTruthy();
-    // Check for Ask marker label
-    expect(screen.getByText('Ask')).toBeTruthy();
-    // Check for FMV marker label
-    expect(screen.getByText('FMV')).toBeTruthy();
+    // Check for WOZ marker label with value. The slider marker should not use generic valuation copy.
+    expect(screen.getByText(/WOZ.*300/)).toBeTruthy();
+    expect(screen.queryByText('Val.')).toBeNull();
+    expect(screen.getByTestId('woz-track-marker')).toBeTruthy();
+    // Check for Asking marker label with value
+    expect(screen.getByText(/Asking.*350/)).toBeTruthy();
+    expect(screen.getByTestId('asking-track-marker')).toBeTruthy();
+    // Check for Crowd marker label with value
+    expect(screen.getByText(/Crowd.*320/)).toBeTruthy();
+    expect(screen.getByTestId('crowd-track-marker')).toBeTruthy();
   });
 
   it('updates price when quick adjustment buttons are pressed', async () => {

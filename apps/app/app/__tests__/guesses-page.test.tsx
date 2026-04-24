@@ -245,7 +245,7 @@ describe('GuessesPage', () => {
     expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('known');
   });
 
-  it('falls back to priceGuessStart as the slider initializer without using property askingPrice', () => {
+  it('uses property asking price before priceGuessStart as the slider initializer', () => {
     mockUseFetchPriceGuess.mockReturnValue({
       data: {
         userGuess: null,
@@ -277,10 +277,10 @@ describe('GuessesPage', () => {
 
     fireEvent.press(screen.getByTestId('make-guess-button'));
 
-    expect(screen.getByTestId('guesses-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('guesses-slider-initial-price').props.children).toBe('365000');
     expect(screen.getByTestId('guesses-slider-initial-source').props.children).toBe(
-      'local_comparable_price_per_m2'
+      'active_listing_asking_price'
     );
-    expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('usable');
+    expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('known');
   });
 });
