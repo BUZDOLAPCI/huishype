@@ -55,8 +55,11 @@ endpoints for non-NL properties.
 - Add a backend hydration enqueue endpoint. The backend independently fetches,
   validates, rate-limits, deduplicates, and marks cached rows as verified.
 - Add durable hydration job state in Postgres. BullMQ job existence alone is not
-  enough for cooldowns, recently completed dedupe, retry state, or circuit
-  breaker behavior.
+  enough for cooldowns, recently completed dedupe, retry state, source-level
+  rate-limit state, or circuit breaker behavior. Follow the existing durable
+  ingest/maintenance pattern: Postgres is authoritative, BullMQ is dispatch,
+  and workers atomically claim due DB rows instead of using a separate ad-hoc
+  lock model.
 - If server verification returns different source data than the client
   submitted, the server-fetched data simply replaces the cached row. We do not
   persist rejected client-submitted variants.
@@ -67,8 +70,9 @@ endpoints for non-NL properties.
 - Do not store official valuation history in `price_history`. Official
   valuations are not listing price events and need different provenance,
   reference-date, and source-record fields.
-- Keep the schema multi-country. Use country-neutral names in the DB and map
-  country-specific labels like "WOZ Value" through the existing country config.
+- Keep the schema multi-country. Use country-neutral names in the DB. Keep
+  official valuation source behavior in an explicit source registry/config, and
+  keep display labels like "WOZ Value" in country/product copy config.
 - Keep each official source explicitly country-scoped. `source = 'woz'` is
   supported only for `country_code = 'NL'`; non-NL properties must not trigger
   client-side or backend WOZ fetches.
@@ -78,26 +82,37 @@ endpoints for non-NL properties.
 
 ## Current State
 
-`properties` already has:
+`properties` already has the current display-value column:
 
 ```ts
 officialValuation: bigint('official_valuation', { mode: 'number' })
 ```
 
-The shared property type already has:
+Live API/app contracts already expose or consume `officialValuation` on several
+surfaces, including property detail/resolve, feed/leaderboard-style payloads,
+app mappers, mocks, FMV, and price-guess initialization. The missing live
+contract piece is the valuation year/source metadata needed to label and
+hydrate that value correctly.
+
+The broad shared property/domain type already includes an optional year:
 
 ```ts
 officialValuation?: number;
 officialValuationYear?: number;
 ```
 
-That field exists only on the broad shared property/domain type and in some mock
-fixtures. It is not yet part of the live shared API contracts, OpenAPI output,
-generated API client, or app-local property types.
+`officialValuationYear` exists only on broad shared/domain typing and some mock
+fixtures. It is not yet consistently backed by the database, live route schemas,
+OpenAPI output, generated API client, or app-local property types.
 
 The database does not yet have `properties.official_valuation_year` or
 `properties.official_valuation_verified`, and there is no table that preserves
 source metadata, hydration state, or historical official valuation records.
+
+`price_history.source` currently has a schema comment that includes `woz`.
+That comment is stale for this plan. The implementation should remove/update
+that comment and must not add new WOZ/official valuation rows to
+`price_history`.
 
 ## Target Schema
 
@@ -173,8 +188,6 @@ export const propertyOfficialValuationHydrationJobs = pgTable(
     lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
     lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
     lastError: text('last_error'),
-    lockedAt: timestamp('locked_at', { withTimezone: true }),
-    lockedBy: varchar('locked_by', { length: 100 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -189,6 +202,30 @@ export const propertyOfficialValuationHydrationJobs = pgTable(
       table.nextAttemptAt
     ),
   ]
+);
+```
+
+Add source-level runtime state for rate limits and circuit breakers:
+
+```ts
+export const officialValuationSourceStates = pgTable(
+  'official_valuation_source_states',
+  {
+    source: varchar('source', { length: 50 }).primaryKey(),
+    state: varchar('state', { length: 30 }).notNull().default('healthy'),
+    requestsInCurrentMinute: integer('requests_in_current_minute').notNull().default(0),
+    minuteWindowResetAt: timestamp('minute_window_reset_at', { withTimezone: true }),
+    requestsInCurrentDay: integer('requests_in_current_day').notNull().default(0),
+    dayWindowResetAt: timestamp('day_window_reset_at', { withTimezone: true }),
+    circuitOpenedAt: timestamp('circuit_opened_at', { withTimezone: true }),
+    circuitHalfOpenAt: timestamp('circuit_half_open_at', { withTimezone: true }),
+    consecutiveFailureCount: integer('consecutive_failure_count').notNull().default(0),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+    lastRateLimitAt: timestamp('last_rate_limit_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  }
 );
 ```
 
@@ -219,8 +256,44 @@ Notes:
 - Currency is derived from the property country through existing country config
   unless a future source proves this assumption wrong.
 - Hydration job rows are the durable source of truth for queued/running/recently
-  completed state, retry timing, cooldowns, and worker recovery. BullMQ can be
+  completed state, retry timing, cooldowns, and worker recovery. Model this like
+  the existing ingest batch and maintenance refresh ledgers: a worker claims a
+  due row in a DB transaction by moving it from `queued`/`retryable` to
+  `running`, with source-scoped serialization handled by transaction/advisory
+  locking where needed. Do not add a second independent lock table or rely on
+  `locked_at`/`locked_by` fields as an alternate ownership model. BullMQ can be
   used for dispatch, but job existence in Redis must not be the only state.
+
+## Source Registry
+
+Add an official valuation source registry separate from country labels, for
+example under backend/shared config rather than embedded in UI copy:
+
+```ts
+type OfficialValuationSourceConfig = {
+  source: 'woz';
+  countries: ['NL'];
+  authoritativeRank: number;
+  expectedValuationYear: number;
+  supportsClientFetch: {
+    web: boolean;
+    native: boolean;
+  };
+  backendRateLimits: {
+    concurrency: number;
+    requestsPerMinute: number;
+    requestsPerDay: number;
+  };
+  staleAfter?: string;
+};
+```
+
+The registry owns source behavior: supported countries, expected valuation year,
+client runtime support, backend limits, source adapter selection, and
+authoritative source ordering. Country config owns user-facing labels,
+formatting, and copy such as whether the UI calls the value "WOZ" or a generic
+official valuation. The API should send only the minimal hints derived from the
+source registry that the app needs to decide whether hydration is possible.
 
 ## Client-Side Flow
 
@@ -252,6 +325,28 @@ When a user opens a property:
 7. When the property is later fetched again, the value comes from our API as
    cached data. The client displays it the same way before and after backend
    verification.
+
+Frontend state handling:
+
+- Treat the API property detail/resolve response as the authoritative TanStack
+  Query cache entry.
+- When a client source fetch succeeds, optimistically update only the relevant
+  property detail/resolve query data with `officialValuation` and
+  `officialValuationYear`, plus local metadata that the value is a preview from
+  `client_fetched`.
+- Do not fan this preview into broad list, feed, leaderboard, grouped tile, or
+  map caches. Those surfaces should pick up the value from normal API refetches
+  after the backend stores it.
+- If the backend hydrate submission returns the accepted cached value, merge it
+  into the same detail query and drop preview-only metadata.
+- If a later API refetch returns no year/current value while a newer
+  client-fetched preview is still in memory, keep showing the preview in the
+  detail view but mark the query stale and retry/invalidate after the hydrate
+  mutation settles. Do not overwrite a newer preview with an older or null
+  server payload.
+- If a later API refetch returns a different current official value/year from
+  the backend, replace the preview with the server value.
+- Preview state is session-scoped; it is not persisted to local storage.
 
 Client code does not write directly to the database, but it may submit the full
 client-fetched source result to the backend. The backend may cache that payload
@@ -298,6 +393,9 @@ NL WOZ identity resolution:
 1. Only attempt WOZ resolution when the property country is `NL`.
 2. Prefer an existing BAG `nummeraanduidingid` if available and call
    `/wozwaarde/nummeraanduiding/:id` with the 16-digit padded identifier.
+   Normalize numeric or shorter string values by left-padding with zeroes to
+   exactly 16 digits before calling the endpoint. Reject values that are not
+   digits or exceed 16 digits after normalization.
 3. If no usable `nummeraanduidingid` exists, resolve through Kadaster suggest
    endpoints using known address fields, preferably postal code plus
    house-number data or street-level suggestions narrowed locally.
@@ -377,6 +475,24 @@ Backend hydration behavior:
 The server only fetches official source data when a user has requested a
 property that needs hydration. It does not proactively crawl all properties.
 
+Worker/runtime integration:
+
+- Add a third queue beside the existing ingest batch and ingest maintenance
+  queues, e.g. `official-valuation-hydration`.
+- Wire queue construction, enqueue helpers, worker startup, graceful shutdown,
+  and test cleanup through the same service boundary style as
+  `services/ingest/queue.ts` and `services/ingest/index.ts`, including a
+  `close...Queues` path so API shutdown does not leave Redis handles open.
+- The queue job payload should be only a small dispatch pointer
+  (`jobId`/`propertyId`/`source`/`valuationYear`). The durable DB row remains
+  the state machine.
+- On worker startup/recovery, sweep due `queued`/`retryable` hydration rows and
+  enqueue missing dispatch jobs, matching the recoverable ingest-batch pattern.
+- Source-level circuit and rate-limit state must be checked and updated before
+  each source fetch. If the source is in cooldown/open-circuit state, leave the
+  job durable row retryable with `nextAttemptAt` set from source state and do
+  not make an HTTP request.
+
 ## Cache Rule
 
 For each property, `properties.official_valuation`,
@@ -447,6 +563,8 @@ Backend official-source verification fetches must be protected by:
 - a queue rather than direct request-time fetching;
 - durable DB job state for `queued`, `running`, `succeeded`, retryable failure,
   terminal failure, cooldown, and worker recovery;
+- a durable per-source state row for rate-limit windows, daily usage,
+  consecutive failures, 429 responses, and circuit-breaker state;
 - per-source concurrency limit of 1 for NL WOZ to start;
 - per-source request-per-minute limit of 30 for NL WOZ, deliberately below the
   observed 60/minute header;
@@ -473,9 +591,9 @@ collect WOZ values.
 Renewal is lazy, not bulk scheduled by default.
 
 Each official source config should define the currently expected valuation year
-or a rule for deriving it. For NL WOZ, this can be maintained in country/source
-config and updated when a new WOZ year is available. The same source config
-must define supported countries and runtimes; `woz` supports only `NL`.
+or a rule for deriving it. For NL WOZ, maintain this in the official valuation
+source registry and update it when a new WOZ year is available. The same source
+config must define supported countries and runtimes; `woz` supports only `NL`.
 
 When a user opens a property:
 
@@ -513,16 +631,26 @@ not expose `officialValuationVerified` or pending/verified cache status in
 normal client DTOs. The app does not branch display behavior on backend
 verification state.
 
-Update these read surfaces to include `officialValuationYear` where they
-already include `officialValuation`:
+Scope API additions narrowly. Add `officialValuationYear` only to
+client-facing property surfaces that already display or materially use
+`officialValuation` and need the year to label that same value:
 
 - property resolve/detail routes
-- property list, batch, and saved-property payloads
-- feed and leaderboard property payloads when relevant
+- property list, batch, and saved-property payloads only if they currently
+  expose `officialValuation` to the app
+- feed and leaderboard property payloads only where their UI already renders or
+  ranks with `officialValuation`
 - app utility mappers
 - shared API types
 - generated API client
 - mocks and fixtures
+
+Do not add `officialValuationYear`, `source`, or verification fields to every
+internal `officialValuation` usage. FMV calculation, guess acceptance, map
+filters, and other backend-only numeric consumers can continue accepting the
+scalar valuation unless their user-facing response needs the year. Do not add
+source fields to hot property DTOs; source/provenance belongs in the focused
+history endpoint if the UI later needs it.
 
 Do not add the full valuation history to map node payloads or grouped tile
 payloads. Those paths need compact records. Current grouped/tile map payloads
@@ -548,20 +676,25 @@ and stay out of the map/tile read path.
 2. Create `property_official_valuations`.
 3. Create `property_official_valuation_hydration_jobs` for durable source-fetch
    state, retry/cooldown bookkeeping, and worker recovery.
-4. Keep `valuation_year` not null in the child table.
-5. Backfill child rows only when a known source-backed valuation year is
+4. Create `official_valuation_source_states` or an equivalent durable source
+   state table for rate-limit windows and circuit-breaker state.
+5. Keep `valuation_year` not null in the child table.
+6. Remove/update the stale `price_history.source` schema comment that lists
+   `woz`; official valuations move to `property_official_valuations`, not
+   `price_history`.
+7. Backfill child rows only when a known source-backed valuation year is
    available from the source data or fixture. Existing cached values without a
    known year remain on `properties.official_valuation` with
    `official_valuation_verified = false` until hydrated from a proper source.
-6. Add backend hydration endpoint code that accepts optional client-observed
+8. Add backend hydration endpoint code that accepts optional client-observed
    values, writes the child table with `verified = false`, and refreshes the
    cached display columns in one transaction.
-7. Add backend-only enqueue support for cases where client-side source fetch is
+9. Add backend-only enqueue support for cases where client-side source fetch is
    unavailable.
-8. Add client-side cache-miss source fetch for supported sources, starting with
+10. Add client-side cache-miss source fetch for supported sources, starting with
    NL WOZ only when `countryCode === 'NL'` and direct client fetch is allowed by
    the public source runtime.
-9. Regenerate OpenAPI/API client after route schema changes.
+11. Regenerate OpenAPI/API client after route schema changes.
 
 Because historical cached values may not have a known source year, do not invent
 one during migration. If a fixture or seed has an explicit year, backfill it.
@@ -578,22 +711,52 @@ years and child valuation rows.
 4. Add the backend hydration endpoint that stores client-observed data as
    `verified = false`, supports backend-only enqueue, and enqueues verification
    through durable job state.
-5. Implement source-specific backend verification for NL WOZ first, guarded so
+5. Add an official valuation source registry/config and a source-state store for
+   rate limits/circuit breakers.
+6. Implement source-specific backend verification for NL WOZ first, guarded so
    non-NL properties never call Kadaster.
-6. Add client-side cache-miss WOZ fetch for immediate display, guarded so it
+7. Add the official valuation hydration queue/worker runtime integration beside
+   the existing ingest and maintenance queues, including startup recovery and
+   graceful shutdown.
+8. Add client-side cache-miss WOZ fetch for immediate display, guarded so it
    runs only for NL properties and only when source config says the runtime
    supports direct fetch.
-7. Implement WOZ identity resolution using BAG identifiers when available and
+9. Implement WOZ identity resolution using BAG identifiers when available and
    normalized address matching when falling back to suggest endpoints.
-8. Update shared types in `packages/shared` where API/property shapes are
+10. Update TanStack Query merge/invalidation behavior for detail previews and
+    hydrate mutation responses.
+11. Update shared types in `packages/shared` where API/property shapes are
    explicit.
-9. Update generated API client and app-side mappers.
-10. Update mocks, fixtures, and API integration fixture helpers.
-11. Add tests for schema-backed API responses, pending cache submission,
+12. Update generated API client and app-side mappers.
+13. Update mocks, fixtures, and API integration fixture helpers.
+14. Add tests for schema-backed API responses, pending cache submission,
     hydration enqueue behavior, rate-limit/dedupe behavior, mapper behavior,
     server-overwrite behavior, verified-row conflict guards, non-NL WOZ no-op
     behavior, WOZ identity matching, durable job cooldown/retry behavior, and
     backend cache selection.
+
+## Materialized Summary Refresh Policy
+
+Writes to `properties.official_valuation` can affect downstream listing/market
+summaries that use official valuation as an input, including price-guess
+starting-point summaries and any listing-derived market materialized views that
+join property valuation data.
+
+When the hydration endpoint or worker updates the cached `properties` columns:
+
+1. Perform the property/child-table update in the hydration transaction.
+2. After commit, enqueue the existing maintenance refresh path rather than
+   refreshing materialized views inline.
+3. Reuse the coalesced maintenance behavior used for latest-listing and
+   price-guess summary refreshes so repeated property valuation writes collapse
+   into bounded refresh work.
+4. Mark durable hydration success independently from materialized-view refresh
+   success. If maintenance enqueue fails after commit, log it and leave the
+   existing startup/recovery sweep responsible for refreshing stale summaries.
+
+If implementation determines a summary does not read
+`properties.official_valuation`, document that exclusion in the relevant helper
+or test instead of adding unnecessary refresh work.
 
 ## Verification
 
