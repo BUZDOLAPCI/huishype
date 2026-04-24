@@ -73,6 +73,7 @@ import {
   replacePassiveBrowserPath,
 } from '@/src/lib/webMapUrlSync';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
+import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
@@ -113,6 +114,7 @@ const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
 const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
+const ACTIVITY_PULSE_DOM_MIN_ZOOM = 10;
 const CAMERA_EPSILON = 0.000001;
 const ZOOM_EPSILON = 0.001;
 
@@ -845,6 +847,8 @@ const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
+  useBenchmarkRenderProbe('map-screen');
+
   const isFocused = useIsFocused();
   const initialAppliedFilters = useMemo(
     () =>
@@ -1726,6 +1730,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       let activityPulseAnimationFrame: number | null = null;
 
       const syncActivityPulsePositions = () => {
+        if (map.getZoom() < ACTIVITY_PULSE_DOM_MIN_ZOOM) {
+          return;
+        }
+
         activityPulseElements.forEach(({ coordinate, frame }) => {
           const point = map.project(coordinate);
           frame.style.left = `${point.x}px`;
@@ -1739,6 +1747,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         }
 
         hideStaticActivityPulseLayers(map);
+
+        if (map.getZoom() < ACTIVITY_PULSE_DOM_MIN_ZOOM) {
+          activityPulseElements.forEach((element) => element.frame.remove());
+          activityPulseElements.clear();
+          return;
+        }
 
         const mapContainer = map.getContainer();
         if (mapContainer.clientWidth <= 0 || mapContainer.clientHeight <= 0) {

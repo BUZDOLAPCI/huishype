@@ -62,6 +62,20 @@ const CITY_LABEL_MAX_ZOOM = 13;
 const DISTRICT_LABEL_MAX_ZOOM = 15.5;
 const DEFAULT_HEADER_ZOOM = 12;
 
+function isNearReverseGeocodeCoordinate(
+  coordinate: { lon: number; lat: number } | null,
+  lon: number,
+  lat: number,
+): boolean {
+  if (!coordinate) {
+    return false;
+  }
+
+  const dLon = Math.abs(lon - coordinate.lon);
+  const dLat = Math.abs(lat - coordinate.lat);
+  return dLon < REVERSE_GEOCODE_MIN_MOVE_DEG && dLat < REVERSE_GEOCODE_MIN_MOVE_DEG;
+}
+
 function normalizeLabelPart(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -117,6 +131,7 @@ export function useMapCityName(): UseMapCityNameReturn {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastReversedRef = useRef<{ lon: number; lat: number } | null>(null);
+  const pendingReverseRef = useRef<{ lon: number; lat: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
 
@@ -147,18 +162,18 @@ export function useMapCityName(): UseMapCityNameReturn {
         }
       }
 
-      if (lastReversedRef.current) {
-        const dLon = Math.abs(lon - lastReversedRef.current.lon);
-        const dLat = Math.abs(lat - lastReversedRef.current.lat);
-        if (dLon < REVERSE_GEOCODE_MIN_MOVE_DEG && dLat < REVERSE_GEOCODE_MIN_MOVE_DEG) {
-          return;
-        }
+      if (
+        isNearReverseGeocodeCoordinate(lastReversedRef.current, lon, lat) ||
+        isNearReverseGeocodeCoordinate(pendingReverseRef.current, lon, lat)
+      ) {
+        return;
       }
 
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
 
+      pendingReverseRef.current = { lon, lat };
       debounceRef.current = setTimeout(async () => {
         if (abortRef.current) {
           abortRef.current.abort();
@@ -185,6 +200,10 @@ export function useMapCityName(): UseMapCityNameReturn {
           }
         } catch {
           // Silently fail — keep showing the last known label.
+        } finally {
+          if (requestSeq === requestSeqRef.current) {
+            pendingReverseRef.current = null;
+          }
         }
       }, REVERSE_GEOCODE_DEBOUNCE_MS);
     },

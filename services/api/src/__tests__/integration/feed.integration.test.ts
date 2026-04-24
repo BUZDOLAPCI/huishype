@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
+import { resetFeedCacheForTests } from '../../routes/feed.js';
 import {
   createIntegrationListing,
   createIntegrationProperty,
@@ -57,6 +58,10 @@ describe('Feed routes', () => {
   };
   const feedFixtures = {} as Record<FeedFixtureKey, FeedFixture>;
   let noListingPropertyId: string;
+
+  beforeEach(() => {
+    resetFeedCacheForTests();
+  });
 
   function atOffset({
     days = 0,
@@ -436,6 +441,10 @@ describe('Feed routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe(
+        'public, max-age=30, stale-while-revalidate=120'
+      );
+      expect(response.headers['x-feed-cache']).toBe('miss');
       const body = JSON.parse(response.body);
 
       expect(body.pagination).toEqual({
@@ -450,6 +459,27 @@ describe('Feed routes', () => {
         feedFixtures.recent.propertyId,
         feedFixtures.cold.propertyId,
       ]);
+    });
+
+    it('serves repeated public feed queries from the short-lived server cache', async () => {
+      const url = buildFeedUrl({ filter: 'trending', limit: 5 });
+      const firstResponse = await app.inject({
+        method: 'GET',
+        url,
+      });
+      const secondResponse = await app.inject({
+        method: 'GET',
+        url,
+      });
+
+      expect(firstResponse.statusCode).toBe(200);
+      expect(secondResponse.statusCode).toBe(200);
+      expect(firstResponse.headers['x-feed-cache']).toBe('miss');
+      expect(secondResponse.headers['x-feed-cache']).toBe('hit');
+      expect(secondResponse.headers['cache-control']).toBe(
+        'public, max-age=30, stale-while-revalidate=120'
+      );
+      expect(JSON.parse(secondResponse.body)).toEqual(JSON.parse(firstResponse.body));
     });
 
     it('returns deterministic feed fields for the hot fixture', async () => {

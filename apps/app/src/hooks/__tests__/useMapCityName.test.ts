@@ -201,4 +201,38 @@ describe('useMapCityName', () => {
 
     expect(result.current.cityName).toBe('Berlin');
   });
+
+  it('does not queue a duplicate reverse-geocode while a nearby request is pending', async () => {
+    let resolver: ((value: typeof AMSTERDAM_REVERSE_RESULT | null) => void) | null = null;
+
+    mockReverse.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolver = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useMapCityName());
+
+    act(() => {
+      result.current.onViewportCenterChanged(4.8952, 52.3702, 11);
+      jest.advanceTimersByTime(600);
+    });
+
+    expect(mockReverse).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.onViewportCenterChanged(4.89521, 52.37021, 11);
+      jest.advanceTimersByTime(600);
+    });
+
+    expect(mockReverse).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolver?.(AMSTERDAM_REVERSE_RESULT);
+      await Promise.resolve();
+    });
+
+    expect(result.current.cityName).toBe('Amsterdam');
+  });
 });

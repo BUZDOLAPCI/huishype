@@ -42,6 +42,7 @@ import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { getDefaultCenter } from '@/src/lib/mapDefaults';
+import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import {
   buildPropertyRoute,
   toInternalAppHref,
@@ -103,6 +104,8 @@ function FeedHeaderActions() {
 }
 
 export default function FeedScreen() {
+  useBenchmarkRenderProbe('feed-screen');
+
   const { isAuthenticated } = useAuthContext();
   const { data: profile, isLoading: isProfileLoading } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');

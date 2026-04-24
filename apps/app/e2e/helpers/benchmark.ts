@@ -6,15 +6,21 @@ export const BENCHMARK_RESULT_DIR = path.join(
   process.env.BENCHMARK_RESULT_DIR || 'test-results/benchmark',
 );
 export const BENCHMARK_ROUTES = {
-  lowZoom795: '/@52.114544,4.9239009,7.95z',
-  lowZoom629: '/@52.3626765,5.3574841,6.29z',
-  lowZoom498: '/@52.1247641,5.0314279,4.98z',
-  lowZoom392: '/@51.0394976,4.4103663,3.92z',
+  lowZoom795: { route: '/@52.114544,4.9239009,7.95z?hhBenchmark=1', surface: 'map' },
+  lowZoom629: { route: '/@52.3626765,5.3574841,6.29z?hhBenchmark=1', surface: 'map' },
+  lowZoom498: { route: '/@52.1247641,5.0314279,4.98z?hhBenchmark=1', surface: 'map' },
+  lowZoom392: { route: '/@51.0394976,4.4103663,3.92z?hhBenchmark=1', surface: 'map' },
+  feedTrending: { route: '/feed?hhBenchmark=1', surface: 'feed' },
 } as const;
 
 const VOLATILE_QUERY_KEYS = new Set(['access_token', 'token', 'ts', 'timestamp']);
 
 export type RouteKey = keyof typeof BENCHMARK_ROUTES;
+export type BenchmarkRouteSurface = 'map' | 'feed';
+export type BenchmarkRouteConfig = {
+  route: string;
+  surface: BenchmarkRouteSurface;
+};
 export type BenchmarkCacheMode = 'cold-cache' | 'warm-cache';
 
 export type RequestMetric = {
@@ -105,6 +111,26 @@ export type FeedScrollSummary = {
   averageFrameMs: number | null;
 };
 
+export type FeedScrollSettleSummary = {
+  elapsedMs: number;
+  timedOut: boolean;
+  networkIdleTimedOut: boolean;
+};
+
+export type MainThreadLongTaskSummary = {
+  supported: boolean;
+  count: number;
+  totalDurationMs: number;
+  totalBlockingTimeMs: number;
+  worstTaskMs: number | null;
+};
+
+export type RenderProbeSummary = {
+  commitCount: number;
+  firstCommitMs: number | null;
+  lastCommitMs: number | null;
+};
+
 export type RouteBenchmarkSample = {
   routeKey: string;
   route: string;
@@ -129,6 +155,10 @@ export type RouteBenchmarkSample = {
   tiles: TileRequestSummary;
   criticalRequests: RequestGroupSummary[];
   consoleErrors: string[];
+  mainThread: {
+    longTasks: MainThreadLongTaskSummary;
+  };
+  renderProbes: Record<string, RenderProbeSummary>;
   map?: {
     usableMs: number;
     initialIdleMs: number | null;
@@ -144,6 +174,7 @@ export type RouteBenchmarkSample = {
     renderMs: number;
     itemCount: number;
     state: 'cards' | 'empty' | 'error' | 'unknown';
+    scrollSettle?: FeedScrollSettleSummary;
     scroll?: FeedScrollSummary;
   };
 };
@@ -226,6 +257,13 @@ export type RouteBenchmarkResult = {
       renderMs: NumberSummary;
       itemCount: NumberSummary;
       states: Record<string, number>;
+      scrollSettle?: {
+        elapsedMs: NumberSummary;
+        timeouts: number;
+        timeoutRate: number;
+        networkIdleTimeouts: number;
+        networkIdleTimeoutRate: number;
+      };
       scroll?: {
         durationMs: NumberSummary;
         totalFrames: NumberSummary;
@@ -234,6 +272,17 @@ export type RouteBenchmarkResult = {
         averageFrameMs: NumberSummary;
       };
     };
+    mainThread: {
+      longTaskCount: NumberSummary;
+      totalLongTaskDurationMs: NumberSummary;
+      totalLongTaskBlockingTimeMs: NumberSummary;
+      worstLongTaskMs: NumberSummary;
+    };
+    renderProbes: Record<string, {
+      commitCount: NumberSummary;
+      firstCommitMs: NumberSummary;
+      lastCommitMs: NumberSummary;
+    }>;
   };
 };
 
@@ -604,6 +653,7 @@ export function aggregateRouteBenchmark(
   const mergedTileCacheControl: Record<string, number> = {};
   const mergedTileCache: Record<string, number> = {};
   const mergedFeedStates: Record<string, number> = {};
+  const renderProbeSurfaces = new Set<string>();
   const allCriticalRequests = new Map<string, RequestGroupSummary[]>();
   const failedDetails = samples.flatMap((sample) => sample.requests.failedDetails);
   const tileAbortDetails = samples.flatMap((sample) => sample.tiles.abortedRequestDetails);
@@ -622,6 +672,10 @@ export function aggregateRouteBenchmark(
 
     if (sample.feed) {
       mergedFeedStates[sample.feed.state] = (mergedFeedStates[sample.feed.state] || 0) + 1;
+    }
+
+    for (const surface of Object.keys(sample.renderProbes)) {
+      renderProbeSurfaces.add(surface);
     }
 
     for (const requestGroup of sample.criticalRequests) {
@@ -681,7 +735,27 @@ export function aggregateRouteBenchmark(
     },
     consoleErrorsPerRun: summarizeNumbers(samples.map((sample) => sample.consoleErrors.length)),
     criticalRequests: aggregatedCriticalRequests,
+    mainThread: {
+      longTaskCount: summarizeNumbers(samples.map((sample) => sample.mainThread.longTasks.count)),
+      totalLongTaskDurationMs: summarizeNumbers(
+        samples.map((sample) => sample.mainThread.longTasks.totalDurationMs),
+      ),
+      totalLongTaskBlockingTimeMs: summarizeNumbers(
+        samples.map((sample) => sample.mainThread.longTasks.totalBlockingTimeMs),
+      ),
+      worstLongTaskMs: summarizeNumbers(samples.map((sample) => sample.mainThread.longTasks.worstTaskMs)),
+    },
+    renderProbes: {},
   };
+
+  for (const surface of [...renderProbeSurfaces].sort()) {
+    const probeSamples = samples.map((sample) => sample.renderProbes[surface]);
+    summary.renderProbes[surface] = {
+      commitCount: summarizeNumbers(probeSamples.map((probe) => probe?.commitCount)),
+      firstCommitMs: summarizeNumbers(probeSamples.map((probe) => probe?.firstCommitMs)),
+      lastCommitMs: summarizeNumbers(probeSamples.map((probe) => probe?.lastCommitMs)),
+    };
+  }
 
   const mapSamples = samples.filter((sample): sample is RouteBenchmarkSample & { map: NonNullable<RouteBenchmarkSample['map']> } => Boolean(sample.map));
   if (mapSamples.length > 0) {
@@ -715,6 +789,23 @@ export function aggregateRouteBenchmark(
       (sample): sample is RouteBenchmarkSample & { feed: RouteBenchmarkSample['feed'] & { scroll: NonNullable<NonNullable<RouteBenchmarkSample['feed']>['scroll']> } } =>
         Boolean(sample.feed.scroll),
     );
+    const scrollSettleSamples = feedSamples.filter(
+      (sample): sample is RouteBenchmarkSample & { feed: RouteBenchmarkSample['feed'] & { scrollSettle: FeedScrollSettleSummary } } =>
+        Boolean(sample.feed.scrollSettle),
+    );
+    if (scrollSettleSamples.length > 0) {
+      const timeouts = scrollSettleSamples.filter((sample) => sample.feed.scrollSettle.timedOut).length;
+      const networkIdleTimeouts = scrollSettleSamples.filter(
+        (sample) => sample.feed.scrollSettle.networkIdleTimedOut,
+      ).length;
+      summary.feed.scrollSettle = {
+        elapsedMs: summarizeNumbers(scrollSettleSamples.map((sample) => sample.feed.scrollSettle.elapsedMs)),
+        timeouts,
+        timeoutRate: timeouts / scrollSettleSamples.length,
+        networkIdleTimeouts,
+        networkIdleTimeoutRate: networkIdleTimeouts / scrollSettleSamples.length,
+      };
+    }
     if (scrollSamples.length > 0) {
       summary.feed.scroll = {
         durationMs: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.durationMs)),
@@ -837,6 +928,10 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
     lines.push(`- tile age headers: ${formatRecord(route.summary.tiles.age)}`);
     lines.push(`- tile cache headers: ${formatRecord(route.summary.tiles.xTileCache)}`);
     lines.push(`- console errors per run median: ${formatSummaryNumber(route.summary.consoleErrorsPerRun)}`);
+    lines.push(`- long tasks median: ${formatSummaryNumber(route.summary.mainThread.longTaskCount)}`);
+    lines.push(`- long task duration median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskDurationMs)}`);
+    lines.push(`- long task blocking median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskBlockingTimeMs)}`);
+    lines.push(`- worst long task median: ${formatSummaryMs(route.summary.mainThread.worstLongTaskMs)}`);
 
     if (route.summary.map) {
       lines.push(`- map usable median: ${formatSummaryMs(route.summary.map.usableMs)}`);
@@ -852,11 +947,25 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push(`- feed render median: ${formatSummaryMs(route.summary.feed.renderMs)}`);
       lines.push(`- feed items median: ${formatSummaryNumber(route.summary.feed.itemCount)}`);
       lines.push(`- feed states: ${formatRecord(route.summary.feed.states)}`);
+      if (route.summary.feed.scrollSettle) {
+        lines.push(`- feed scroll settle median: ${formatSummaryMs(route.summary.feed.scrollSettle.elapsedMs)}`);
+        lines.push(`- feed scroll settle timeouts: ${route.summary.feed.scrollSettle.timeouts} (${formatPercent(route.summary.feed.scrollSettle.timeoutRate)})`);
+        lines.push(`- feed scroll network-idle timeouts: ${route.summary.feed.scrollSettle.networkIdleTimeouts} (${formatPercent(route.summary.feed.scrollSettle.networkIdleTimeoutRate)})`);
+      }
       if (route.summary.feed.scroll) {
         lines.push(`- feed scroll duration median: ${formatSummaryMs(route.summary.feed.scroll.durationMs)}`);
         lines.push(`- feed scroll frames median: ${formatSummaryNumber(route.summary.feed.scroll.totalFrames)}`);
         lines.push(`- feed long frames median: ${formatSummaryNumber(route.summary.feed.scroll.longFrameCount)}`);
         lines.push(`- feed worst frame median: ${formatSummaryMs(route.summary.feed.scroll.worstFrameMs)}`);
+      }
+    }
+
+    if (Object.keys(route.summary.renderProbes).length > 0) {
+      lines.push('- render probes:');
+      for (const [surface, probe] of Object.entries(route.summary.renderProbes)) {
+        lines.push(
+          `  - ${surface}: commits median ${formatSummaryNumber(probe.commitCount)}, first commit ${formatSummaryMs(probe.firstCommitMs)}, last commit ${formatSummaryMs(probe.lastCommitMs)}`,
+        );
       }
     }
 

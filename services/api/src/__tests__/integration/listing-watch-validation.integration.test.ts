@@ -205,7 +205,8 @@ describe('background listing watch validation', () => {
   it('schedules a retry when validation returns retryable_error', async () => {
     const property = await createProperty();
     const rawUrl = 'https://www.pararius.com/apartment-for-rent/watch-city/92345002/retryable';
-    const now = new Date('2026-04-24T10:00:00.000Z');
+    const now = new Date(Date.UTC(new Date().getUTCFullYear() + 50, 3, 24, 10, 0, 0, 0));
+    const expectedNextAttemptAt = new Date(now.getTime() + 123_000).toISOString();
 
     const watch = await createOrUpdateMirrorWatch({
       sourceName: 'pararius',
@@ -270,7 +271,7 @@ describe('background listing watch validation', () => {
       lastError: 'source_temporarily_blocked',
       lastValidationObservationId: null,
     });
-    expect(persistedWatch?.nextAttemptAt?.toISOString()).toBe('2026-04-24T10:02:03.000Z');
+    expect(persistedWatch?.nextAttemptAt?.toISOString()).toBe(expectedNextAttemptAt);
   });
 
   it('does not claim already-final watches', async () => {

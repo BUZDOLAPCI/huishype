@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
+import benchmarkModule from './benchmark.ts';
+import type {
+  RequestMetric,
+  RouteBenchmarkSample,
+} from './benchmark.ts';
+
+const {
   aggregateRouteBenchmark,
   summarizeCriticalRequests,
   summarizeRequests,
   summarizeTileRequests,
-  type RequestMetric,
-  type RouteBenchmarkSample,
-} from './benchmark.ts';
+} = benchmarkModule as typeof import('./benchmark.ts');
 
 const baseHeaders: RequestMetric['headers'] = {
   age: null,
@@ -251,6 +255,22 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
     tiles: summarizeTileRequests([failedRequest]),
     criticalRequests: summarizeCriticalRequests([failedRequest]),
     consoleErrors: [],
+    mainThread: {
+      longTasks: {
+        supported: true,
+        count: 1,
+        totalDurationMs: 80,
+        totalBlockingTimeMs: 30,
+        worstTaskMs: 80,
+      },
+    },
+    renderProbes: {
+      'map-screen': {
+        commitCount: 3,
+        firstCommitMs: 25,
+        lastCommitMs: 180,
+      },
+    },
     map: {
       usableMs: 200,
       initialIdleMs: null,
@@ -281,4 +301,85 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
   assert.equal(result.summary.requests.failedDetails[0]?.cacheMode, 'cold-cache');
   assert.equal(result.summary.requests.failedDetails[0]?.status, 404);
   assert.equal(result.summary.tiles.abortedRequestDetails.length, 0);
+  assert.equal(result.summary.mainThread.longTaskCount.median, 1);
+  assert.equal(result.summary.mainThread.totalLongTaskBlockingTimeMs.median, 30);
+  assert.equal(result.summary.renderProbes['map-screen']?.commitCount.median, 3);
+  const removedGapKey = 'maxCommit' + 'GapMs';
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(result.summary.renderProbes['map-screen'] || {}, removedGapKey),
+    false,
+  );
+});
+
+test('aggregateRouteBenchmark summarizes feed scroll settle before scripted scroll metrics', () => {
+  const okRequest = requestMetric({
+    routeKey: 'feedTrending',
+    cacheMode: 'cold-cache',
+    url: 'http://localhost:8081/api/feed',
+    normalizedUrl: '/api/feed',
+    normalizedEndpoint: '/api/feed',
+  });
+  const sample: RouteBenchmarkSample = {
+    routeKey: 'feedTrending',
+    route: '/feed?hhBenchmark=1',
+    cacheMode: 'cold-cache',
+    navigation: {
+      gotoMs: 100,
+      domContentLoadedMs: 75,
+      loadEventMs: 120,
+      firstContentfulPaintMs: 80,
+    },
+    requests: summarizeRequests([okRequest]),
+    tiles: summarizeTileRequests([okRequest]),
+    criticalRequests: summarizeCriticalRequests([okRequest]),
+    consoleErrors: [],
+    mainThread: {
+      longTasks: {
+        supported: true,
+        count: 0,
+        totalDurationMs: 0,
+        totalBlockingTimeMs: 0,
+        worstTaskMs: null,
+      },
+    },
+    renderProbes: {
+      'feed-screen': {
+        commitCount: 2,
+        firstCommitMs: 20,
+        lastCommitMs: 90,
+      },
+    },
+    feed: {
+      renderMs: 140,
+      itemCount: 12,
+      state: 'cards',
+      scrollSettle: {
+        elapsedMs: 425,
+        timedOut: false,
+        networkIdleTimedOut: false,
+      },
+      scroll: {
+        durationMs: 1200,
+        totalFrames: 72,
+        longFrameCount: 0,
+        worstFrameMs: 17,
+        averageFrameMs: 16.7,
+      },
+    },
+  };
+
+  const result = aggregateRouteBenchmark(
+    'feedTrending',
+    '/feed?hhBenchmark=1',
+    'cold-cache',
+    [sample],
+    1,
+    1,
+  );
+
+  assert.equal(result.summary.feed?.scrollSettle?.elapsedMs.median, 425);
+  assert.equal(result.summary.feed?.scrollSettle?.timeouts, 0);
+  assert.equal(result.summary.feed?.scrollSettle?.networkIdleTimeouts, 0);
+  assert.equal(result.summary.feed?.scroll?.longFrameCount.median, 0);
+  assert.equal(result.summary.renderProbes['feed-screen']?.commitCount.median, 2);
 });

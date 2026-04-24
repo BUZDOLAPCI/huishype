@@ -70,8 +70,78 @@ interface FeedRow extends Record<string, unknown> {
   last_activity_at: string;
 }
 
-function buildFeedScopedListingFactOrderExpression(scopedAlias: string) {
-  return sql`${sql.raw(`${scopedAlias}.property_id`)}, ${sql.raw(
+const FEED_CACHE_TTL_SECONDS = 30;
+const FEED_CACHE_TTL_MS = FEED_CACHE_TTL_SECONDS * 1_000;
+const FEED_CACHE_MAX_ENTRIES = 512;
+const FEED_CACHE_CONTROL = `public, max-age=${FEED_CACHE_TTL_SECONDS}, stale-while-revalidate=120`;
+
+type FeedCacheEntry = {
+  expiresAt: number;
+  response: FeedResponse;
+};
+
+const feedCache = new Map<string, FeedCacheEntry>();
+
+export function resetFeedCacheForTests(): void {
+  feedCache.clear();
+}
+
+function buildFeedCacheKey(query: FeedQuery): string {
+  return [
+    query.filter,
+    query.page,
+    query.limit,
+    query.country ?? '',
+    query.lat ?? '',
+    query.lon ?? '',
+  ].join('|');
+}
+
+function getCachedFeedResponse(cacheKey: string): FeedResponse | null {
+  const now = Date.now();
+  const entry = feedCache.get(cacheKey);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= now) {
+    feedCache.delete(cacheKey);
+    return null;
+  }
+
+  feedCache.delete(cacheKey);
+  feedCache.set(cacheKey, entry);
+  return entry.response;
+}
+
+function setCachedFeedResponse(cacheKey: string, response: FeedResponse): void {
+  const now = Date.now();
+
+  for (const [key, entry] of feedCache) {
+    if (entry.expiresAt <= now) {
+      feedCache.delete(key);
+    }
+  }
+
+  if (feedCache.has(cacheKey)) {
+    feedCache.delete(cacheKey);
+  }
+
+  while (feedCache.size >= FEED_CACHE_MAX_ENTRIES) {
+    const oldestKey = feedCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    feedCache.delete(oldestKey);
+  }
+
+  feedCache.set(cacheKey, {
+    expiresAt: now + FEED_CACHE_TTL_MS,
+    response,
+  });
+}
+
+function buildFeedScopedListingOrderExpression(scopedAlias: string) {
+  return sql`${sql.raw(
     `${scopedAlias}.active_listing_sort_at`,
   )} DESC, ${sql.raw(`${scopedAlias}.listing_created_at`)} DESC, ${sql.raw(
     `${scopedAlias}.listing_id`,
@@ -82,13 +152,13 @@ function buildFeedOrderExpression(scoreAlias: string, filter: FeedQuery['filter'
   switch (filter) {
     case 'latest':
       return sql`${sql.raw(`${scoreAlias}.last_activity_at`)} DESC, ${sql.raw(
-        `${scoreAlias}.property_id`,
+        `${scoreAlias}.id`,
       )}`;
     case 'trending':
     default:
       return sql`${sql.raw(`${scoreAlias}.trending_score`)} DESC, ${sql.raw(
         `${scoreAlias}.last_activity_at`,
-      )} DESC, ${sql.raw(`${scoreAlias}.property_id`)}`;
+      )} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
   }
 }
 
@@ -115,6 +185,15 @@ export async function feedRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { filter, page, limit, lat, lon, country } = request.query;
       const offset = (page - 1) * limit;
+      const cacheKey = buildFeedCacheKey(request.query);
+      const cached = getCachedFeedResponse(cacheKey);
+
+      if (cached) {
+        return reply
+          .header('Cache-Control', FEED_CACHE_CONTROL)
+          .header('X-Feed-Cache', 'hit')
+          .send(cached);
+      }
 
       // --- Build dynamic query parts ---
 
@@ -129,8 +208,7 @@ export async function feedRoutes(app: FastifyInstance) {
         ? sql`AND p.country_code = ${country}`
         : sql``;
 
-      const scoreOrderExpression = buildFeedOrderExpression('cs', filter);
-      const pageOrderExpression = buildFeedOrderExpression('pc', filter);
+      const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
 
       const rows = await db.execute<FeedRow>(sql`
         WITH scoped_active_listings AS MATERIALIZED (
@@ -159,29 +237,50 @@ export async function feedRoutes(app: FastifyInstance) {
             ${countryCondition}
         ),
         candidate_listing_facts AS MATERIALIZED (
-          SELECT DISTINCT ON (sal.property_id)
+          SELECT
             sal.property_id,
-            sal.country_code,
-            sal.street,
-            sal.house_number,
-            sal.house_number_addition,
-            sal.city,
-            sal.postal_code,
-            sal.geometry,
-            sal.official_valuation,
-            sal.official_valuation_year,
-            sal.asking_price,
-            sal.active_listing_sort_at
+            (array_agg(sal.country_code ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS country_code,
+            (array_agg(sal.street ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS street,
+            (array_agg(sal.house_number ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS house_number,
+            (
+              array_agg(sal.house_number_addition ORDER BY ${buildFeedScopedListingOrderExpression(
+                'sal',
+              )})
+            )[1] AS house_number_addition,
+            (array_agg(sal.city ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS city,
+            (array_agg(sal.postal_code ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS postal_code,
+            (array_agg(sal.geometry ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS geometry,
+            (
+              array_agg(sal.official_valuation ORDER BY ${buildFeedScopedListingOrderExpression(
+                'sal',
+              )})
+            )[1] AS official_valuation,
+            (
+              array_agg(
+                sal.official_valuation_year
+                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+              )
+            )[1] AS official_valuation_year,
+            (array_agg(sal.asking_price ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+              AS asking_price,
+            (
+              array_agg(
+                sal.active_listing_sort_at
+                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+              )
+            )[1] AS active_listing_sort_at,
+            (
+              array_agg(sal.thumbnail_url ORDER BY ${buildFeedScopedListingOrderExpression('sal')})
+              FILTER (WHERE sal.thumbnail_url IS NOT NULL)
+            )[1] AS thumbnail_url
           FROM scoped_active_listings sal
-          ORDER BY ${buildFeedScopedListingFactOrderExpression('sal')}
-        ),
-        candidate_thumbnail_facts AS MATERIALIZED (
-          SELECT DISTINCT ON (sal.property_id)
-            sal.property_id,
-            sal.thumbnail_url
-          FROM scoped_active_listings sal
-          WHERE sal.thumbnail_url IS NOT NULL
-          ORDER BY ${buildFeedScopedListingFactOrderExpression('sal')}
+          GROUP BY sal.property_id
         ),
         candidate_ids AS MATERIALIZED (
           SELECT clf.property_id
@@ -266,9 +365,27 @@ export async function feedRoutes(app: FastifyInstance) {
           INNER JOIN candidate_ids ci ON ci.property_id = pv.property_id
           GROUP BY pv.property_id
         ),
-        candidate_scores AS MATERIALIZED (
+        candidate_feed_rows AS MATERIALIZED (
           SELECT
-            ci.property_id,
+            clf.property_id AS id,
+            clf.country_code,
+            clf.street,
+            clf.house_number,
+            clf.house_number_addition,
+            clf.city,
+            clf.postal_code AS zip_code,
+            ST_X(clf.geometry) AS lon,
+            ST_Y(clf.geometry) AS lat,
+            clf.asking_price,
+            clf.official_valuation,
+            clf.official_valuation_year,
+            clf.thumbnail_url,
+            TRUE AS has_listing,
+            COALESCE(ocf.comment_count, 0)::int AS comment_count,
+            COALESCE(ogf.guess_count, 0)::int AS guess_count,
+            COALESCE(oplf.property_like_count, 0)::int AS like_count,
+            COALESCE(ovf.view_count, 0)::int AS view_count,
+            ogf.fmv,
             (
               (
                 COALESCE(ocf.recent_top_level_comment_count, 0)
@@ -288,51 +405,39 @@ export async function feedRoutes(app: FastifyInstance) {
               ),
               clf.active_listing_sort_at
             ) AS last_activity_at
-          FROM candidate_ids ci
-          INNER JOIN candidate_listing_facts clf ON clf.property_id = ci.property_id
-          LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = ci.property_id
-          LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = ci.property_id
-          LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = ci.property_id
-          LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = ci.property_id
-          LEFT JOIN ordering_view_facts ovf ON ovf.property_id = ci.property_id
-        ),
-        paged_candidates AS MATERIALIZED (
-          SELECT *
-          FROM candidate_scores cs
-          ORDER BY ${scoreOrderExpression}
-          LIMIT ${limit + 1}
-          OFFSET ${offset}
+          FROM candidate_listing_facts clf
+          LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = clf.property_id
+          LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = clf.property_id
+          LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = clf.property_id
+          LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = clf.property_id
+          LEFT JOIN ordering_view_facts ovf ON ovf.property_id = clf.property_id
         )
         SELECT
-          clf.property_id AS id,
-          clf.country_code,
-          clf.street,
-          clf.house_number,
-          clf.house_number_addition,
-          clf.city,
-          clf.postal_code AS zip_code,
-          ST_X(clf.geometry) AS lon,
-          ST_Y(clf.geometry) AS lat,
-          clf.asking_price,
-          clf.official_valuation,
-          clf.official_valuation_year,
-          ctf.thumbnail_url,
-          TRUE AS has_listing,
-          COALESCE(ocf.comment_count, 0)::int AS comment_count,
-          COALESCE(ogf.guess_count, 0)::int AS guess_count,
-          COALESCE(oplf.property_like_count, 0)::int AS like_count,
-          COALESCE(ovf.view_count, 0)::int AS view_count,
-          ogf.fmv,
-          pc.trending_score,
-          pc.last_activity_at
-        FROM paged_candidates pc
-        INNER JOIN candidate_listing_facts clf ON clf.property_id = pc.property_id
-        LEFT JOIN candidate_thumbnail_facts ctf ON ctf.property_id = pc.property_id
-        LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = pc.property_id
-        LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = pc.property_id
-        LEFT JOIN ordering_view_facts ovf ON ovf.property_id = pc.property_id
-        LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = pc.property_id
-        ORDER BY ${pageOrderExpression}
+          cfr.id,
+          cfr.country_code,
+          cfr.street,
+          cfr.house_number,
+          cfr.house_number_addition,
+          cfr.city,
+          cfr.zip_code,
+          cfr.lon,
+          cfr.lat,
+          cfr.asking_price,
+          cfr.official_valuation,
+          cfr.official_valuation_year,
+          cfr.thumbnail_url,
+          cfr.has_listing,
+          cfr.comment_count,
+          cfr.guess_count,
+          cfr.like_count,
+          cfr.view_count,
+          cfr.fmv,
+          cfr.trending_score,
+          cfr.last_activity_at
+        FROM candidate_feed_rows cfr
+        ORDER BY ${feedOrderExpression}
+        LIMIT ${limit + 1}
+        OFFSET ${offset}
       `);
 
       const allRows = Array.from(rows);
@@ -377,14 +482,21 @@ export async function feedRoutes(app: FastifyInstance) {
         hasListing: r.has_listing,
       }));
 
-      return reply.send({
+      const response: FeedResponse = {
         items,
         pagination: {
           page,
           limit,
           hasMore,
         },
-      });
+      };
+
+      setCachedFeedResponse(cacheKey, response);
+
+      return reply
+        .header('Cache-Control', FEED_CACHE_CONTROL)
+        .header('X-Feed-Cache', 'miss')
+        .send(response);
     }
   );
 }
