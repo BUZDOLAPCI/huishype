@@ -314,7 +314,9 @@ export const properties = pgTable(
     yearBuilt: integer('year_built'), // Construction year
     floorAreaM2: integer('floor_area_m2'), // Floor area in m²
     status: propertyStatusEnum('status').notNull().default('active'),
-    officialValuation: bigint('official_valuation', { mode: 'number' }), // Official government valuation (e.g. WOZ for NL)
+    officialValuation: bigint('official_valuation', { mode: 'number' }), // Fast cache of current official valuation
+    officialValuationYear: integer('official_valuation_year'),
+    officialValuationVerified: boolean('official_valuation_verified').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -382,7 +384,7 @@ export const priceHistory = pgTable(
     price: bigint('price', { mode: 'number' }).notNull(), // whole euros
     priceDate: date('price_date', { mode: 'string' }).notNull(),
     eventType: varchar('event_type', { length: 20 }).notNull(), // asking_price / sold / rented / price_change
-    source: varchar('source', { length: 20 }).notNull(), // funda / pararius / observed / woz
+    source: varchar('source', { length: 20 }).notNull(), // funda / pararius / observed
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -390,6 +392,103 @@ export const priceHistory = pgTable(
     uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
     index('price_history_listing_idx').on(table.listingId),
   ]
+);
+
+export const propertyOfficialValuations = pgTable(
+  'property_official_valuations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    valuation: bigint('valuation', { mode: 'number' }).notNull(),
+    valuationYear: integer('valuation_year').notNull(),
+    referenceDate: date('reference_date', { mode: 'string' }),
+    source: varchar('source', { length: 50 }).notNull(),
+    sourceRecordId: varchar('source_record_id', { length: 100 }),
+    sourceDatasetVersion: varchar('source_dataset_version', { length: 100 }),
+    sourceUrl: text('source_url'),
+    rawPayload: jsonb('raw_payload').$type<Record<string, unknown> | null>(),
+    verified: boolean('verified').notNull().default(false),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    origin: varchar('origin', { length: 30 }).notNull().default('server_verified'),
+    submittedByUserId: uuid('submitted_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    clientRuntime: varchar('client_runtime', { length: 20 }),
+    sourceRequestFingerprint: varchar('source_request_fingerprint', { length: 128 }),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_official_valuations_unique_idx').on(
+      table.propertyId,
+      table.valuationYear,
+      table.source
+    ),
+    index('property_official_valuations_property_year_idx').on(
+      table.propertyId,
+      table.valuationYear
+    ),
+    index('property_official_valuations_year_idx').on(table.valuationYear),
+    index('property_official_valuations_source_idx').on(table.source),
+  ]
+);
+
+export const propertyOfficialValuationHydrationJobs = pgTable(
+  'property_official_valuation_hydration_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    source: varchar('source', { length: 50 }).notNull(),
+    valuationYear: integer('valuation_year').notNull(),
+    state: varchar('state', { length: 30 }).notNull().default('queued'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_official_valuation_hydration_unique_idx').on(
+      table.propertyId,
+      table.source,
+      table.valuationYear
+    ),
+    index('property_official_valuation_hydration_due_idx').on(
+      table.state,
+      table.nextAttemptAt
+    ),
+  ]
+);
+
+export const officialValuationSourceStates = pgTable(
+  'official_valuation_source_states',
+  {
+    source: varchar('source', { length: 50 }).primaryKey(),
+    state: varchar('state', { length: 30 }).notNull().default('healthy'),
+    requestsInCurrentMinute: integer('requests_in_current_minute').notNull().default(0),
+    minuteWindowResetAt: timestamp('minute_window_reset_at', { withTimezone: true }),
+    requestsInCurrentDay: integer('requests_in_current_day').notNull().default(0),
+    dayWindowResetAt: timestamp('day_window_reset_at', { withTimezone: true }),
+    requestsInFlight: integer('requests_in_flight').notNull().default(0),
+    requestsInFlightLeaseExpiresAt: timestamp('requests_in_flight_lease_expires_at', {
+      withTimezone: true,
+    }),
+    circuitOpenedAt: timestamp('circuit_opened_at', { withTimezone: true }),
+    circuitHalfOpenAt: timestamp('circuit_half_open_at', { withTimezone: true }),
+    consecutiveFailureCount: integer('consecutive_failure_count').notNull().default(0),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+    lastRateLimitAt: timestamp('last_rate_limit_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  }
 );
 
 // Durable ingest run ledger (optional when upstream provides a stable run identity)
@@ -1006,6 +1105,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   achievements: many(userAchievements),
   followers: many(userFollows, { relationName: 'followedUser' }),
   following: many(userFollows, { relationName: 'followerUser' }),
+  submittedOfficialValuations: many(propertyOfficialValuations),
 }));
 
 export const propertiesRelations = relations(properties, ({ many }) => ({
@@ -1019,6 +1119,8 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   savedProperties: many(savedProperties),
   priceHistory: many(priceHistory),
   propertyViews: many(propertyViews),
+  officialValuations: many(propertyOfficialValuations),
+  officialValuationHydrationJobs: many(propertyOfficialValuationHydrationJobs),
 }));
 
 export const listingsRelations = relations(listings, ({ one }) => ({
@@ -1042,6 +1144,27 @@ export const priceHistoryRelations = relations(priceHistory, ({ one }) => ({
     references: [listings.id],
   }),
 }));
+
+export const propertyOfficialValuationsRelations = relations(propertyOfficialValuations, ({ one }) => ({
+  property: one(properties, {
+    fields: [propertyOfficialValuations.propertyId],
+    references: [properties.id],
+  }),
+  submittedByUser: one(users, {
+    fields: [propertyOfficialValuations.submittedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const propertyOfficialValuationHydrationJobsRelations = relations(
+  propertyOfficialValuationHydrationJobs,
+  ({ one }) => ({
+    property: one(properties, {
+      fields: [propertyOfficialValuationHydrationJobs.propertyId],
+      references: [properties.id],
+    }),
+  })
+);
 
 export const listingSourceAliasesRelations = relations(listingSourceAliases, () => ({}));
 
@@ -1259,6 +1382,17 @@ export type NewIngestBatch = typeof ingestBatches.$inferInsert;
 
 export type IngestSource = typeof ingestSources.$inferSelect;
 export type NewIngestSource = typeof ingestSources.$inferInsert;
+
+export type PropertyOfficialValuation = typeof propertyOfficialValuations.$inferSelect;
+export type NewPropertyOfficialValuation = typeof propertyOfficialValuations.$inferInsert;
+
+export type PropertyOfficialValuationHydrationJob =
+  typeof propertyOfficialValuationHydrationJobs.$inferSelect;
+export type NewPropertyOfficialValuationHydrationJob =
+  typeof propertyOfficialValuationHydrationJobs.$inferInsert;
+
+export type OfficialValuationSourceState = typeof officialValuationSourceStates.$inferSelect;
+export type NewOfficialValuationSourceState = typeof officialValuationSourceStates.$inferInsert;
 
 export type PropertyView = typeof propertyViews.$inferSelect;
 export type NewPropertyView = typeof propertyViews.$inferInsert;

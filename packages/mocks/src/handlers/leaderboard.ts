@@ -120,6 +120,7 @@ const mockFeaturedProperty = {
   geometry: { type: 'Point' as const, coordinates: [4.88373, 52.37315] as [number, number] },
   imageryGeometry: { type: 'Point' as const, coordinates: [4.88373, 52.37315] as [number, number] },
   officialValuation: 2850000,
+  officialValuationYear: 2024,
   thumbnailUrl: 'https://cloud.funda.nl/valentina_media/182/123/thumb_1.jpg',
   commentCount: 15,
   likeCount: 42,

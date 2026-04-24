@@ -45,6 +45,7 @@ export function transformSavedProperty(property: SavedProperty): FeedProperty {
       ? { lon: property.geometry.coordinates[0], lat: property.geometry.coordinates[1] }
       : null,
     officialValuation: property.officialValuation,
+    officialValuationYear: property.officialValuationYear,
     askingPrice: property.askingPrice,
     fmv: null,
     fmvValue: undefined,

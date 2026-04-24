@@ -2281,6 +2281,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     if (!previewSource?.id || !previewSource.address || !previewSource.city) {
       return;
     }
+    const officialValuationYear = 'officialValuationYear' in previewSource
+      ? previewSource.officialValuationYear
+      : null;
+    const officialValuationSourceFetch = 'officialValuationSourceFetch' in previewSource
+      ? previewSource.officialValuationSourceFetch
+      : null;
 
     registerLocalPreviewRoute(
       previewCanonicalPath,
@@ -2298,6 +2304,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         hasActiveListing: previewSource.hasActiveListing ?? undefined,
         marketState: previewSource.marketState ?? null,
         officialValuation: previewSource.officialValuation ?? null,
+        officialValuationYear: officialValuationYear ?? null,
+        officialValuationSourceFetch: officialValuationSourceFetch ?? null,
         askingPrice: previewSource.askingPrice ?? null,
         thumbnailUrl: previewSource.thumbnailUrl ?? null,
         aerialImageUrl: previewSource.aerialImageUrl ?? null,

@@ -25,6 +25,7 @@ export interface PropertyFeedCardProps {
   thumbnailUrl?: string | null;
   aerialImageUrl?: string | null;
   officialValuation?: number | null;
+  officialValuationYear?: number | null;
   askingPrice?: number;
   fmvValue?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
@@ -45,6 +46,11 @@ function formatPrice(
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
+}
+
 const ACTIVITY_CONFIG = {
   hot: { bg: '#FF6B35', label: 'Hot', iconName: 'Flame' as const },
   warm: { bg: '#F5A623', label: 'Active', iconName: 'Flame' as const },
@@ -58,6 +64,7 @@ function PropertyFeedCardComponent({
   thumbnailUrl,
   aerialImageUrl,
   officialValuation,
+  officialValuationYear,
   askingPrice,
   fmvValue,
   activityLevel = 'cold',
@@ -173,7 +180,7 @@ function PropertyFeedCardComponent({
               {!askingPrice && officialValuation != null && officialValuation > 0 && (
                 <>
                   <Text style={styles.priceLabel}>
-                    {getValuationLabel(countryCode)}
+                    {formatValuationLabel(countryCode, officialValuationYear)}
                   </Text>
                   <Text style={styles.askingPrice}>
                     {formatPrice(officialValuation, countryCode)}
@@ -221,6 +228,7 @@ function arePropertyFeedCardPropsEqual(
     prev.thumbnailUrl === next.thumbnailUrl &&
     prev.aerialImageUrl === next.aerialImageUrl &&
     prev.officialValuation === next.officialValuation &&
+    prev.officialValuationYear === next.officialValuationYear &&
     prev.askingPrice === next.askingPrice &&
     prev.fmvValue === next.fmvValue &&
     prev.activityLevel === next.activityLevel &&

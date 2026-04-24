@@ -396,6 +396,7 @@ export function GuessesRouteScreen({
                   fmv={fmvData}
                   askingPrice={property.askingPrice ?? undefined}
                   officialValuation={property.officialValuation ?? undefined}
+                  officialValuationYear={property.officialValuationYear}
                   countryCode={property.countryCode ?? undefined}
                 />
               ) : null}
@@ -435,6 +436,7 @@ export function GuessesRouteScreen({
             propertyId={propertyId ?? ''}
             countryCode={property?.countryCode ?? undefined}
             officialValuation={property?.officialValuation ?? undefined}
+            officialValuationYear={property?.officialValuationYear}
             askingPrice={property?.askingPrice ?? undefined}
             initialPrice={initialPrice}
             initialPriceSource={initialPriceSource}

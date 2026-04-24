@@ -33,6 +33,7 @@ export interface FMVVisualizationProps {
   userGuess?: number;
   askingPrice?: number;
   officialValuation?: number;
+  officialValuationYear?: number | null;
   countryCode?: string;
   isLoading?: boolean;
   /** Display variant. Default 'full'. */
@@ -44,6 +45,11 @@ export interface FMVVisualizationProps {
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
+}
+
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
 }
 
 function getConfidenceInfo(confidence: 'none' | 'low' | 'medium' | 'high', guessCount: number): {
@@ -252,6 +258,7 @@ export function FMVVisualization({
   userGuess,
   askingPrice: askingPriceProp,
   officialValuation: officialValuationProp,
+  officialValuationYear,
   countryCode,
   isLoading = false,
   variant = 'full',
@@ -562,7 +569,8 @@ export function FMVVisualization({
           <View className="flex-row items-center mt-1">
             <Icon name="Buildings" size={14} color="#9C958A" />
             <Text className="text-sm text-warm-500 ml-1">
-              {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
+              {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
+              {formatPrice(officialValuation, countryCode)}
             </Text>
           </View>
         )}

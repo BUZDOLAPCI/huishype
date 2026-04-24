@@ -135,6 +135,20 @@ describe('FMVVisualization', () => {
     expect(screen.getByText('WOZ')).toBeTruthy();
   });
 
+  it('shows the valuation year in compact valuation copy', () => {
+    render(
+      <FMVVisualization
+        fmv={mockFMV}
+        officialValuation={320000}
+        officialValuationYear={2024}
+        countryCode="NL"
+        variant="compact"
+      />,
+    );
+
+    expect(screen.getByText(/WOZ Value \(2024\):/)).toBeTruthy();
+  });
+
   it('uses custom testID when provided', () => {
     render(<FMVVisualization fmv={mockFMV} testID="custom-fmv" />);
 

@@ -6,13 +6,55 @@ export interface IngestJobsModule {
   MAINTENANCE_QUEUE: string;
 }
 
+export interface OfficialValuationJobsModule {
+  OFFICIAL_VALUATION_HYDRATION_QUEUE: string;
+}
+
 export interface IngestQueueModule {
   closeIngestQueues(): Promise<void>;
   enqueueIngestBatch(batchId: string): Promise<void>;
   requestLatestListingsRefresh(data: {
-    requestedBy: 'ingest-batch' | 'listing-submit' | 'validation-outcome' | 'worker-sweep';
+    requestedBy:
+      | 'ingest-batch'
+      | 'listing-submit'
+      | 'validation-outcome'
+      | 'official-valuation'
+      | 'worker-sweep';
     batchId?: string;
   }): Promise<void>;
+}
+
+export interface OfficialValuationQueueModule {
+  closeOfficialValuationQueues(): Promise<void>;
+  enqueueOfficialValuationHydration(data: {
+    jobId: string;
+    propertyId: string;
+    source: 'woz';
+    valuationYear: number;
+  }): Promise<void>;
+}
+
+export interface OfficialValuationStoreModule {
+  collectDueOfficialValuationHydrationJobs(limit?: number): Promise<
+    Array<{
+      id: string;
+      propertyId: string;
+      source: 'woz';
+      valuationYear: number;
+    }>
+  >;
+  markOfficialValuationHydrationJobQueued(jobId: string): Promise<void>;
+}
+
+export interface OfficialValuationProcessorModule {
+  processOfficialValuationHydrationJob(options: {
+    jobId: string;
+    logger?: {
+      info(payload: Record<string, unknown>, message: string): void;
+      warn(payload: Record<string, unknown>, message: string): void;
+      error(payload: Record<string, unknown>, message: string): void;
+    };
+  }): Promise<Record<string, unknown>>;
 }
 
 export interface IngestProcessorModule {
@@ -132,8 +174,24 @@ export function loadIngestJobsModule(): Promise<IngestJobsModule> {
   return importApiModule<IngestJobsModule>('services/ingest/jobs.js');
 }
 
+export function loadOfficialValuationJobsModule(): Promise<OfficialValuationJobsModule> {
+  return importApiModule<OfficialValuationJobsModule>('services/official-valuations/jobs.js');
+}
+
 export function loadIngestQueueModule(): Promise<IngestQueueModule> {
   return importApiModule<IngestQueueModule>('services/ingest/queue.js');
+}
+
+export function loadOfficialValuationQueueModule(): Promise<OfficialValuationQueueModule> {
+  return importApiModule<OfficialValuationQueueModule>('services/official-valuations/queue.js');
+}
+
+export function loadOfficialValuationStoreModule(): Promise<OfficialValuationStoreModule> {
+  return importApiModule<OfficialValuationStoreModule>('services/official-valuations/store.js');
+}
+
+export function loadOfficialValuationProcessorModule(): Promise<OfficialValuationProcessorModule> {
+  return importApiModule<OfficialValuationProcessorModule>('services/official-valuations/processor.js');
 }
 
 export function loadIngestProcessorModule(): Promise<IngestProcessorModule> {

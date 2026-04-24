@@ -43,6 +43,7 @@ export const feedHandlers = [
         askingPrice: p.activeListing?.askingPrice ?? null,
         fmv: p.fmv?.value ?? null,
         officialValuation: p.officialValuation ?? null,
+        officialValuationYear: p.officialValuationYear ?? null,
         thumbnailUrl: p.activeListing?.thumbnailUrl ?? null,
         likeCount: p.activity.likeCount,
         commentCount: p.activity.commentCount,

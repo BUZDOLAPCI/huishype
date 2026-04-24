@@ -24,6 +24,7 @@ const feedItemSchema = z.object({
   askingPrice: z.number().nullable(),
   fmv: z.number().nullable(),
   officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
   thumbnailUrl: z.string().nullable(),
   likeCount: z.number(),
   commentCount: z.number(),
@@ -57,6 +58,7 @@ interface FeedRow extends Record<string, unknown> {
   lat: number | null;
   asking_price: number | null;
   official_valuation: number | null;
+  official_valuation_year: number | null;
   thumbnail_url: string | null;
   has_listing: boolean;
   comment_count: number;
@@ -142,6 +144,7 @@ export async function feedRoutes(app: FastifyInstance) {
             p.postal_code,
             p.geometry,
             p.official_valuation,
+            p.official_valuation_year,
             l.listing_id,
             l.asking_price,
             l.thumbnail_url,
@@ -166,6 +169,7 @@ export async function feedRoutes(app: FastifyInstance) {
             sal.postal_code,
             sal.geometry,
             sal.official_valuation,
+            sal.official_valuation_year,
             sal.asking_price,
             sal.active_listing_sort_at
           FROM scoped_active_listings sal
@@ -311,6 +315,7 @@ export async function feedRoutes(app: FastifyInstance) {
           ST_Y(clf.geometry) AS lat,
           clf.asking_price,
           clf.official_valuation,
+          clf.official_valuation_year,
           ctf.thumbnail_url,
           TRUE AS has_listing,
           COALESCE(ocf.comment_count, 0)::int AS comment_count,
@@ -357,6 +362,8 @@ export async function feedRoutes(app: FastifyInstance) {
         askingPrice: r.asking_price != null ? Number(r.asking_price) : null,
         fmv: r.fmv != null ? Number(r.fmv) : null,
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
+        officialValuationYear:
+          r.official_valuation_year != null ? Number(r.official_valuation_year) : null,
         thumbnailUrl: r.thumbnail_url,
         likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),

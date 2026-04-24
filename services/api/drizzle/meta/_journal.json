@@ -92,6 +92,13 @@
       "when": 1776902400000,
       "tag": "0012_canonical_listing_read_model",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776988800000,
+      "tag": "0013_official_valuations",
+      "breakpoints": true
     }
   ]
 }

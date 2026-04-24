@@ -186,7 +186,17 @@ export type PropertyResolveResult = PropertyResolveResponse & {
   countryCode?: string | null;
   hasActiveListing?: boolean;
   marketState?: MapMarketState | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
 };
+
+export interface OfficialValuationSourceFetch {
+  source: 'woz';
+  expectedValuationYear: number;
+  supportsClientFetch: {
+    web: boolean;
+    native: boolean;
+  };
+}
 
 export type PropertyResolveRequest = Omit<
   SharedPropertyResolveRequest,
@@ -483,6 +493,472 @@ function toNullableBoolean(value: unknown): boolean | null {
     }
   }
   return null;
+}
+
+export interface OfficialValuationSourceFetchInput {
+  propertyId: string;
+  countryCode: string;
+  nationalId: string | null;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  street?: string | null;
+  houseNumber?: number | null;
+  houseNumberAddition?: string | null;
+}
+
+export interface OfficialValuationSourceResult {
+  source: 'woz';
+  valuation: number;
+  valuationYear: number;
+  referenceDate?: string;
+  sourceRecordId?: string;
+  sourceUrl?: string;
+  rawPayload?: unknown;
+}
+
+export interface OfficialValuationHydrateResponse {
+  propertyId: string;
+  source: 'woz';
+  status: 'accepted' | 'queued' | 'already_cached' | 'unsupported';
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+}
+
+type OfficialValuationSourceFetcher = (
+  input: OfficialValuationSourceFetchInput,
+) => Promise<OfficialValuationSourceResult | null>;
+
+let officialValuationSourceFetcher: OfficialValuationSourceFetcher = fetchWozOfficialValuation;
+let wozSourceRateLimitedUntil = 0;
+
+const WOZ_API_BASE_URL = 'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1';
+const DEFAULT_WOZ_RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1_000;
+
+function normalizeBagNumberDesignationId(value: string | null): string | null {
+  const digits = value?.trim();
+  if (!digits || !/^\d{1,16}$/.test(digits)) {
+    return null;
+  }
+  return digits.padStart(16, '0');
+}
+
+function normalizeOfficialValuationText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .replace(/[^A-Za-z0-9]+/g, '')
+    .toUpperCase();
+}
+
+function yearFromDate(value: unknown): number | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const year = Number(value.slice(0, 4));
+  return Number.isInteger(year) ? year : null;
+}
+
+function collectPayloadObjects(value: unknown, output: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectPayloadObjects(item, output);
+    }
+    return output;
+  }
+
+  if (value && typeof value === 'object') {
+    output.push(value as Record<string, unknown>);
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      collectPayloadObjects(nested, output);
+    }
+  }
+
+  return output;
+}
+
+function getPayloadStringField(object: Record<string, unknown>, names: readonly string[]): string | null {
+  for (const name of names) {
+    const value = object[name];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function extractSuggestedWozIdentifier(payload: Record<string, unknown>): {
+  kind: 'nummeraanduiding' | 'wozobjectnummer';
+  id: string;
+} | null {
+  for (const object of collectPayloadObjects(payload)) {
+    const nummeraanduidingId = getPayloadStringField(object, [
+      'nummeraanduidingid',
+      'nummeraanduidingId',
+      'aotid',
+    ]);
+    const normalizedNummeraanduidingId = normalizeBagNumberDesignationId(nummeraanduidingId);
+    if (normalizedNummeraanduidingId) {
+      return { kind: 'nummeraanduiding', id: normalizedNummeraanduidingId };
+    }
+
+    const wozObjectnummer = getPayloadStringField(object, [
+      'wozobjectnummer',
+      'wozObjectnummer',
+      'wozObjectNummer',
+    ]);
+    if (wozObjectnummer) {
+      return { kind: 'wozobjectnummer', id: wozObjectnummer };
+    }
+  }
+
+  return null;
+}
+
+function parseAddressLine(address: string): {
+  street: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
+} {
+  const firstLine = address.split(',')[0]?.trim() ?? '';
+  const match = firstLine.match(/^(.+?)\s+(\d+)\s*([A-Za-z0-9-]+)?$/);
+  if (!match) {
+    return { street: null, houseNumber: null, houseNumberAddition: null };
+  }
+
+  return {
+    street: match[1]?.trim() || null,
+    houseNumber: Number.parseInt(match[2] ?? '', 10),
+    houseNumberAddition: match[3]?.trim() || null,
+  };
+}
+
+function getWozAddressParts(input: OfficialValuationSourceFetchInput): {
+  street: string | null;
+  houseNumber: number | null;
+  houseNumberAddition: string | null;
+} {
+  const parsedAddress = parseAddressLine(input.address);
+  return {
+    street: input.street ?? parsedAddress.street,
+    houseNumber: input.houseNumber ?? parsedAddress.houseNumber,
+    houseNumberAddition: input.houseNumberAddition ?? parsedAddress.houseNumberAddition,
+  };
+}
+
+function payloadMatchesWozInput(
+  payload: Record<string, unknown>,
+  input: OfficialValuationSourceFetchInput,
+): boolean {
+  const addressParts = getWozAddressParts(input);
+  const propertyPostcode = normalizeOfficialValuationText(input.postalCode);
+  const propertyHouseNumber = addressParts.houseNumber;
+  const propertyAddition = normalizeOfficialValuationText(addressParts.houseNumberAddition);
+  const propertyStreet = normalizeOfficialValuationText(addressParts.street);
+  const propertyCity = normalizeOfficialValuationText(input.city);
+
+  if (!propertyPostcode || !propertyHouseNumber) {
+    return true;
+  }
+
+  let sawAddressIdentity = false;
+  for (const object of collectPayloadObjects(payload)) {
+    const postcode = getPayloadStringField(object, ['postcode', 'postCode', 'postalCode']);
+    const houseNumber = getPayloadStringField(object, ['huisnummer', 'houseNumber']);
+    if (!postcode || !houseNumber) {
+      continue;
+    }
+
+    sawAddressIdentity = true;
+    const addition = getPayloadStringField(object, [
+      'huisletter',
+      'huisnummertoevoeging',
+      'toevoeging',
+      'houseNumberAddition',
+    ]);
+    const street = getPayloadStringField(object, [
+      'straat',
+      'straatnaam',
+      'street',
+      'openbareRuimteNaam',
+      'openbareruimtenaam',
+    ]);
+    const city = getPayloadStringField(object, [
+      'woonplaats',
+      'woonplaatsnaam',
+      'plaats',
+      'plaatsnaam',
+      'city',
+    ]);
+    const payloadStreet = normalizeOfficialValuationText(street);
+    const payloadCity = normalizeOfficialValuationText(city);
+
+    if (
+      normalizeOfficialValuationText(postcode) === propertyPostcode &&
+      Number.parseInt(houseNumber, 10) === propertyHouseNumber &&
+      normalizeOfficialValuationText(addition) === propertyAddition &&
+      (!payloadStreet || !propertyStreet || payloadStreet === propertyStreet) &&
+      (!payloadCity || !propertyCity || payloadCity === propertyCity)
+    ) {
+      return true;
+    }
+  }
+
+  return !sawAddressIdentity;
+}
+
+function parseWozRetryUntil(response: Response): number {
+  const retryAfter = response.headers?.get?.('retry-after');
+  if (retryAfter) {
+    const seconds = Number.parseInt(retryAfter, 10);
+    if (Number.isFinite(seconds)) {
+      return Date.now() + seconds * 1_000;
+    }
+
+    const timestamp = Date.parse(retryAfter);
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  const reset =
+    response.headers?.get?.('x-rate-limit-reset') ??
+    response.headers?.get?.('Kadaster-RateLimit-DayLimit-Reset');
+  if (reset) {
+    const resetNumber = Number.parseInt(reset, 10);
+    if (Number.isFinite(resetNumber)) {
+      return resetNumber > 10_000_000_000 ? resetNumber : resetNumber * 1_000;
+    }
+
+    const resetDate = Date.parse(reset);
+    if (Number.isFinite(resetDate)) {
+      return resetDate;
+    }
+  }
+
+  return Date.now() + DEFAULT_WOZ_RATE_LIMIT_BACKOFF_MS;
+}
+
+async function fetchWozJson(path: string): Promise<
+  | { status: 'ok'; payload: Record<string, unknown> }
+  | { status: 'not_found' | 'rate_limited' | 'error' }
+> {
+  const response = await fetch(`${WOZ_API_BASE_URL}${path}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  }).catch(() => null);
+
+  if (!response) {
+    return { status: 'error' };
+  }
+
+  if (response.status === 429) {
+    wozSourceRateLimitedUntil = Math.max(wozSourceRateLimitedUntil, parseWozRetryUntil(response));
+    return { status: 'rate_limited' };
+  }
+
+  if (response.status === 404) {
+    return { status: 'not_found' };
+  }
+
+  if (!response.ok) {
+    return { status: 'error' };
+  }
+
+  const payload = await response.json().catch(() => null);
+  return payload && typeof payload === 'object'
+    ? { status: 'ok', payload: payload as Record<string, unknown> }
+    : { status: 'error' };
+}
+
+function extractWozValuationResult(
+  payload: Record<string, unknown>,
+  sourceUrl: string,
+): OfficialValuationSourceResult | null {
+  const latest = (
+    (payload?.wozWaarden as Array<{ peildatum?: string; vastgesteldeWaarde?: number }> | undefined)
+      ?.filter((row) => typeof row.vastgesteldeWaarde === 'number')
+      .sort((left, right) =>
+        String(right.peildatum ?? '').localeCompare(String(left.peildatum ?? '')),
+      ) ?? []
+  )[0];
+  const valuationYear = yearFromDate(latest?.peildatum);
+
+  const valuation = latest?.vastgesteldeWaarde;
+  if (typeof valuation !== 'number' || valuationYear === null) {
+    return null;
+  }
+
+  const sourceRecordId = getPayloadStringField(
+    (payload.wozObject && typeof payload.wozObject === 'object'
+      ? payload.wozObject
+      : payload) as Record<string, unknown>,
+    ['wozobjectnummer', 'wozObjectnummer', 'wozObjectNummer'],
+  );
+
+  return {
+    source: 'woz',
+    valuation,
+    valuationYear,
+    referenceDate: latest.peildatum,
+    sourceRecordId: sourceRecordId ?? undefined,
+    sourceUrl,
+    rawPayload: payload,
+  };
+}
+
+async function fetchWozValuationPath(
+  input: OfficialValuationSourceFetchInput,
+  sourcePath: string,
+): Promise<OfficialValuationSourceResult | null> {
+  const sourceUrl = `${WOZ_API_BASE_URL}${sourcePath}`;
+  const valueResponse = await fetchWozJson(sourcePath);
+  if (valueResponse.status !== 'ok') {
+    return null;
+  }
+
+  if (!payloadMatchesWozInput(valueResponse.payload, input)) {
+    return null;
+  }
+
+  return extractWozValuationResult(valueResponse.payload, sourceUrl);
+}
+
+function buildWozSuggestQuery(input: OfficialValuationSourceFetchInput): string | null {
+  const addressParts = getWozAddressParts(input);
+  const houseNumberPart = addressParts.houseNumber
+    ? `${addressParts.houseNumber}${addressParts.houseNumberAddition ?? ''}`
+    : null;
+
+  const query = input.postalCode && houseNumberPart
+    ? `${input.postalCode} ${houseNumberPart}`
+    : [addressParts.street, houseNumberPart, input.postalCode, input.city]
+        .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+        .join(' ');
+
+  return query.trim() || null;
+}
+
+async function fetchWozValuationBySuggest(
+  input: OfficialValuationSourceFetchInput,
+): Promise<OfficialValuationSourceResult | null> {
+  const query = buildWozSuggestQuery(input);
+  if (!query) {
+    return null;
+  }
+
+  const suggestionResponse = await fetchWozJson(`/suggest?q=${encodeURIComponent(query)}`);
+  if (suggestionResponse.status !== 'ok') {
+    return null;
+  }
+
+  const suggested = extractSuggestedWozIdentifier(suggestionResponse.payload);
+  if (!suggested) {
+    return null;
+  }
+
+  return fetchWozValuationPath(input, buildWozValuationPath(suggested));
+}
+
+function buildWozValuationPath(identifier: {
+  kind: 'nummeraanduiding' | 'wozobjectnummer';
+  id: string;
+}): string {
+  return identifier.kind === 'nummeraanduiding'
+    ? `/wozwaarde/nummeraanduiding/${identifier.id}`
+    : `/wozwaarde/wozobjectnummer/${encodeURIComponent(identifier.id)}`;
+}
+
+async function fetchWozValuationByValidatedNummeraanduiding(
+  input: OfficialValuationSourceFetchInput,
+  nummeraanduidingId: string,
+): Promise<OfficialValuationSourceResult | null> {
+  const suggestionResponse = await fetchWozJson(
+    `/suggest?aotids=${encodeURIComponent(nummeraanduidingId)}`,
+  );
+  if (suggestionResponse.status !== 'ok') {
+    return null;
+  }
+
+  const suggested = extractSuggestedWozIdentifier(suggestionResponse.payload);
+  if (!suggested) {
+    return null;
+  }
+
+  return fetchWozValuationPath(input, buildWozValuationPath(suggested));
+}
+
+async function fetchWozOfficialValuation(
+  input: OfficialValuationSourceFetchInput,
+): Promise<OfficialValuationSourceResult | null> {
+  if (input.countryCode !== 'NL') {
+    return null;
+  }
+
+  if (Date.now() < wozSourceRateLimitedUntil) {
+    return null;
+  }
+
+  const nummeraanduidingId = normalizeBagNumberDesignationId(input.nationalId);
+  if (nummeraanduidingId) {
+    const result = await fetchWozValuationByValidatedNummeraanduiding(input, nummeraanduidingId);
+    if (result || Date.now() < wozSourceRateLimitedUntil) {
+      return result;
+    }
+  }
+
+  return fetchWozValuationBySuggest(input);
+}
+
+export function setOfficialValuationSourceFetcher(
+  fetcher: OfficialValuationSourceFetcher | null,
+): void {
+  wozSourceRateLimitedUntil = 0;
+  officialValuationSourceFetcher = fetcher ?? fetchWozOfficialValuation;
+}
+
+export async function fetchOfficialValuationFromSource(
+  input: OfficialValuationSourceFetchInput,
+): Promise<OfficialValuationSourceResult | null> {
+  if (input.countryCode !== 'NL') {
+    return null;
+  }
+
+  return officialValuationSourceFetcher(input);
+}
+
+export async function submitOfficialValuationHydration(
+  propertyId: string,
+  result: OfficialValuationSourceResult | null,
+  accessToken?: string | null,
+): Promise<OfficialValuationHydrateResponse> {
+  return api.post<OfficialValuationHydrateResponse>(
+    `/properties/${propertyId}/official-valuations/hydrate`,
+    result
+      ? {
+          source: result.source,
+          valuation: result.valuation,
+          valuationYear: result.valuationYear,
+          referenceDate: result.referenceDate,
+          sourceRecordId: result.sourceRecordId,
+          sourceUrl: result.sourceUrl,
+          rawPayload: result.rawPayload,
+        }
+      : {
+          source: 'woz',
+        },
+    accessToken
+      ? {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      : undefined,
+  );
 }
 
 function toNullableMarketState(value: unknown): MapMarketState | null {
@@ -784,6 +1260,8 @@ export interface BatchProperty {
   floorAreaM2: number | null;
   status: string;
   officialValuation: number | null;
+  officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   hasListing: boolean;
   hasActiveListing?: boolean;
   marketState?: MapMarketState;

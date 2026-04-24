@@ -1,5 +1,6 @@
 const DEFAULT_INGEST_CONCURRENCY = 4;
 const DEFAULT_MAINTENANCE_CONCURRENCY = 1;
+const DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY = 1;
 const DEFAULT_RECOVERY_BATCH_LIMIT = 100;
 const DEFAULT_RECOVERY_SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_HEALTH_LOG_INTERVAL_MS = 60_000;
@@ -12,6 +13,7 @@ const DEFAULT_LISTING_WATCH_RETRY_MAX_DELAY_MS = 6 * 60 * 60_000;
 export interface WorkerConfig {
   ingestConcurrency: number;
   maintenanceConcurrency: number;
+  officialValuationHydrationConcurrency: number;
   recoveryBatchLimit: number;
   recoverySweepIntervalMs: number;
   healthLogIntervalMs: number;
@@ -56,6 +58,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       env.WORKER_MAINTENANCE_CONCURRENCY,
       DEFAULT_MAINTENANCE_CONCURRENCY,
       'WORKER_MAINTENANCE_CONCURRENCY',
+    ),
+    officialValuationHydrationConcurrency: parsePositiveInt(
+      env.WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY,
+      DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY,
+      'WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY',
     ),
     recoveryBatchLimit: parsePositiveInt(
       env.WORKER_RECOVERY_BATCH_LIMIT,

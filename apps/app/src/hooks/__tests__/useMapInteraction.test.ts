@@ -1134,6 +1134,15 @@ describe('useMapInteraction', () => {
         postalCode: '1012AB',
         countryCode: 'NL',
         officialValuation: 250000,
+        officialValuationYear: 2024,
+        officialValuationSourceFetch: {
+          source: 'woz',
+          expectedValuationYear: 2024,
+          supportsClientFetch: {
+            web: true,
+            native: true,
+          },
+        },
         hasActiveListing: true,
         marketState: 'for-sale',
         coordinates: { lon: 4.9, lat: 52.37 },

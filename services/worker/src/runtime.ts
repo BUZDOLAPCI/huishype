@@ -9,11 +9,21 @@ import {
   loadIngestStoreModule,
   loadListingReconciliationModule,
   loadListingsViewModule,
+  loadOfficialValuationJobsModule,
+  loadOfficialValuationProcessorModule,
+  loadOfficialValuationQueueModule,
+  loadOfficialValuationStoreModule,
   type RedisConnectionLike,
 } from './api-runtime.js';
 import { createWorkerLogger, serializeError, type WorkerLogger } from './logger.js';
 
 type TimerHandle = ReturnType<typeof setInterval>;
+type OfficialValuationHydrationJobData = {
+  jobId: string;
+  propertyId: string;
+  source: 'woz';
+  valuationYear: number;
+};
 
 interface RecoverySweepSummary {
   trigger: string;
@@ -26,6 +36,7 @@ interface RecoverySweepSummary {
   listingWatchTerminalCount: number;
   listingWatchRetryableCount: number;
   listingWatchMaintenanceBatchIds: string[];
+  officialValuationHydrationJobIds: string[];
 }
 
 function toIngestLogger(logger: WorkerLogger) {
@@ -88,13 +99,17 @@ export class WorkerRuntime {
 
   private ingestWorker: Worker<{ batchId: string }> | null = null;
   private maintenanceWorker: Worker<{ requestedBy: string; batchId?: string }> | null = null;
+  private officialValuationWorker: Worker<OfficialValuationHydrationJobData> | null = null;
   private ingestQueue: Queue<{ batchId: string }> | null = null;
   private maintenanceQueue: Queue<{ requestedBy: string; batchId?: string }> | null = null;
+  private officialValuationQueue: Queue<OfficialValuationHydrationJobData> | null = null;
 
   private ingestWorkerConnection: RedisConnectionLike | null = null;
   private maintenanceWorkerConnection: RedisConnectionLike | null = null;
+  private officialValuationWorkerConnection: RedisConnectionLike | null = null;
   private ingestQueueConnection: RedisConnectionLike | null = null;
   private maintenanceQueueConnection: RedisConnectionLike | null = null;
+  private officialValuationQueueConnection: RedisConnectionLike | null = null;
 
   private recoveryInterval: TimerHandle | null = null;
   private healthInterval: TimerHandle | null = null;
@@ -108,17 +123,22 @@ export class WorkerRuntime {
   }
 
   async start(): Promise<void> {
-    const [jobs, apiRedis] = await Promise.all([
+    const [jobs, officialValuationJobs, apiRedis] = await Promise.all([
       loadIngestJobsModule(),
+      loadOfficialValuationJobsModule(),
       loadApiRedisModule(),
     ]);
 
     [
       this.ingestWorkerConnection,
       this.maintenanceWorkerConnection,
+      this.officialValuationWorkerConnection,
       this.ingestQueueConnection,
       this.maintenanceQueueConnection,
+      this.officialValuationQueueConnection,
     ] = await Promise.all([
+      apiRedis.createRedisConnection(),
+      apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
@@ -143,26 +163,45 @@ export class WorkerRuntime {
       },
     );
 
+    this.officialValuationWorker = new Worker(
+      officialValuationJobs.OFFICIAL_VALUATION_HYDRATION_QUEUE,
+      (job) => this.processOfficialValuationHydrationJob(job),
+      {
+        connection: this.officialValuationWorkerConnection as never,
+        concurrency: this.config.officialValuationHydrationConcurrency,
+      },
+    );
+
     this.ingestQueue = new Queue(jobs.INGEST_BATCH_QUEUE, {
       connection: this.ingestQueueConnection as never,
     });
     this.maintenanceQueue = new Queue(jobs.MAINTENANCE_QUEUE, {
       connection: this.maintenanceQueueConnection as never,
     });
+    this.officialValuationQueue = new Queue(
+      officialValuationJobs.OFFICIAL_VALUATION_HYDRATION_QUEUE,
+      {
+        connection: this.officialValuationQueueConnection as never,
+      },
+    );
 
     this.attachWorkerLogging('ingest', this.ingestWorker);
     this.attachWorkerLogging('maintenance', this.maintenanceWorker);
+    this.attachWorkerLogging('official-valuation-hydration', this.officialValuationWorker);
 
     await Promise.all([
       this.ingestWorker.waitUntilReady(),
       this.maintenanceWorker.waitUntilReady(),
+      this.officialValuationWorker.waitUntilReady(),
       this.ingestQueue.waitUntilReady(),
       this.maintenanceQueue.waitUntilReady(),
+      this.officialValuationQueue.waitUntilReady(),
     ]);
 
     this.logger.info('Worker runtime started', {
       ingestConcurrency: this.config.ingestConcurrency,
       maintenanceConcurrency: this.config.maintenanceConcurrency,
+      officialValuationHydrationConcurrency: this.config.officialValuationHydrationConcurrency,
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
       healthLogIntervalMs: this.config.healthLogIntervalMs,
@@ -262,6 +301,25 @@ export class WorkerRuntime {
     };
   }
 
+  private async processOfficialValuationHydrationJob(
+    job: Job<OfficialValuationHydrationJobData>,
+  ): Promise<Record<string, unknown>> {
+    const processor = await loadOfficialValuationProcessorModule();
+
+    this.logger.info('Processing official valuation hydration', {
+      jobId: job.id,
+      durableJobId: job.data.jobId,
+      propertyId: job.data.propertyId,
+      source: job.data.source,
+      valuationYear: job.data.valuationYear,
+    });
+
+    return processor.processOfficialValuationHydrationJob({
+      jobId: job.data.jobId,
+      logger: toIngestLogger(this.logger),
+    });
+  }
+
   private attachWorkerLogging(name: string, worker: Worker): void {
     worker.on('active', (job) => {
       this.logger.info('Job started', {
@@ -312,11 +370,14 @@ export class WorkerRuntime {
   }
 
   private async performRecoverySweep(trigger: string): Promise<RecoverySweepSummary> {
-    const [store, queue, reconciliation] = await Promise.all([
-      loadIngestStoreModule(),
-      loadIngestQueueModule(),
-      loadListingReconciliationModule(),
-    ]);
+    const [store, queue, reconciliation, officialValuationStore, officialValuationQueue] =
+      await Promise.all([
+        loadIngestStoreModule(),
+        loadIngestQueueModule(),
+        loadListingReconciliationModule(),
+        loadOfficialValuationStoreModule(),
+        loadOfficialValuationQueueModule(),
+      ]);
 
     const staleProcessingBefore = new Date(Date.now() - this.config.staleProcessingAfterMs);
     const dispatchWork = await store.collectRecoveryDispatchWork(
@@ -399,6 +460,28 @@ export class WorkerRuntime {
       });
     }
 
+    const officialValuationHydrationJobIds: string[] = [];
+    try {
+      const dueHydrationJobs = await officialValuationStore.collectDueOfficialValuationHydrationJobs(
+        this.config.recoveryBatchLimit,
+      );
+      for (const hydrationJob of dueHydrationJobs) {
+        await officialValuationQueue.enqueueOfficialValuationHydration({
+          jobId: hydrationJob.id,
+          propertyId: hydrationJob.propertyId,
+          source: hydrationJob.source,
+          valuationYear: hydrationJob.valuationYear,
+        });
+        await officialValuationStore.markOfficialValuationHydrationJobQueued(hydrationJob.id);
+        officialValuationHydrationJobIds.push(hydrationJob.id);
+      }
+    } catch (error) {
+      this.logger.error('Recovery sweep failed to enqueue official valuation hydration jobs', {
+        trigger,
+        error: serializeError(error),
+      });
+    }
+
     const summary: RecoverySweepSummary = {
       trigger,
       staleProcessingBatchIds: dispatchWork.staleProcessingBatchIds,
@@ -410,6 +493,7 @@ export class WorkerRuntime {
       listingWatchTerminalCount,
       listingWatchRetryableCount,
       listingWatchMaintenanceBatchIds,
+      officialValuationHydrationJobIds,
     };
 
     this.logger.info('Recovery sweep completed', {
@@ -423,20 +507,28 @@ export class WorkerRuntime {
       listingWatchTerminalCount,
       listingWatchRetryableCount,
       listingWatchMaintenanceRequestedCount: listingWatchMaintenanceBatchIds.length,
+      officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
     });
 
     return summary;
   }
 
   private async logHealthSnapshot(trigger: string): Promise<void> {
-    if (!this.ingestQueue || !this.maintenanceQueue) {
+    if (!this.ingestQueue || !this.maintenanceQueue || !this.officialValuationQueue) {
       return;
     }
 
     try {
-      const [ingestCounts, maintenanceCounts] = await Promise.all([
+      const [ingestCounts, maintenanceCounts, officialValuationCounts] = await Promise.all([
         this.ingestQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.maintenanceQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
+        this.officialValuationQueue.getJobCounts(
+          'waiting',
+          'active',
+          'delayed',
+          'failed',
+          'completed',
+        ),
       ]);
 
       const memoryUsage = process.memoryUsage();
@@ -447,6 +539,7 @@ export class WorkerRuntime {
         memoryHeapUsedBytes: memoryUsage.heapUsed,
         ingestQueue: ingestCounts,
         maintenanceQueue: maintenanceCounts,
+        officialValuationHydrationQueue: officialValuationCounts,
       });
     } catch (error) {
       this.logger.warn('Worker health snapshot failed', {
@@ -487,6 +580,20 @@ export class WorkerRuntime {
       );
     }
 
+    if (this.officialValuationWorker) {
+      const worker = this.officialValuationWorker;
+      this.officialValuationWorker = null;
+      closers.push(
+        withTimeout(
+          'official valuation hydration worker close',
+          worker.close().catch(async () => {
+            await worker.close(true);
+          }),
+          this.config.shutdownTimeoutMs,
+        ),
+      );
+    }
+
     if (this.ingestQueue) {
       const queue = this.ingestQueue;
       this.ingestQueue = null;
@@ -499,25 +606,41 @@ export class WorkerRuntime {
       closers.push(withTimeout('maintenance queue close', queue.close(), this.config.shutdownTimeoutMs));
     }
 
+    if (this.officialValuationQueue) {
+      const queue = this.officialValuationQueue;
+      this.officialValuationQueue = null;
+      closers.push(
+        withTimeout(
+          'official valuation hydration queue close',
+          queue.close(),
+          this.config.shutdownTimeoutMs,
+        ),
+      );
+    }
+
     await Promise.allSettled(closers);
 
     await Promise.allSettled([
       this.quitRedisConnection('ingestWorkerConnection'),
       this.quitRedisConnection('maintenanceWorkerConnection'),
+      this.quitRedisConnection('officialValuationWorkerConnection'),
       this.quitRedisConnection('ingestQueueConnection'),
       this.quitRedisConnection('maintenanceQueueConnection'),
+      this.quitRedisConnection('officialValuationQueueConnection'),
     ]);
   }
 
   private async closeApiResources(): Promise<void> {
-    const [apiDb, apiRedis, ingestQueue] = await Promise.all([
+    const [apiDb, apiRedis, ingestQueue, officialValuationQueue] = await Promise.all([
       loadApiDbModule(),
       loadApiRedisModule(),
       loadIngestQueueModule(),
+      loadOfficialValuationQueueModule(),
     ]);
 
     await Promise.allSettled([
       ingestQueue.closeIngestQueues(),
+      officialValuationQueue.closeOfficialValuationQueues(),
       apiRedis.closeRedisConnection(),
       apiDb.closeConnection(),
     ]);
@@ -527,8 +650,10 @@ export class WorkerRuntime {
     key:
       | 'ingestWorkerConnection'
       | 'maintenanceWorkerConnection'
+      | 'officialValuationWorkerConnection'
       | 'ingestQueueConnection'
-      | 'maintenanceQueueConnection',
+      | 'maintenanceQueueConnection'
+      | 'officialValuationQueueConnection',
   ): Promise<void> {
     const connection = this[key];
     this[key] = null;

@@ -186,6 +186,7 @@ export type {
   ResolvedProperty,
   PropertyResolveResponse,
   LatestListingStatus,
+  OfficialValuationSourceFetch,
   PropertyContractBase,
   PropertyFmvResponse,
   GetPropertyRequest,

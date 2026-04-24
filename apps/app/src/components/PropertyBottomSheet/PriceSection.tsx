@@ -10,6 +10,11 @@ function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
 }
 
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
+}
+
 interface ConfidenceBadgeInfo {
   bg: string;
   text: string;
@@ -85,7 +90,14 @@ function MiniPriceCard({
 }
 
 export function PriceSection({ property }: SectionProps) {
-  const { officialValuation, askingPrice, fmv: fmvData, guessCount, countryCode } = property;
+  const {
+    officialValuation,
+    officialValuationYear,
+    askingPrice,
+    fmv: fmvData,
+    guessCount,
+    countryCode,
+  } = property;
   const fmv = fmvData?.fmv ?? undefined;
   const crowdGuessCount = fmvData?.guessCount ?? guessCount;
   const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount);
@@ -141,7 +153,7 @@ export function PriceSection({ property }: SectionProps) {
                   icon="home-outline"
                   iconBg="#E3F2FD"
                   iconColor="#42A5F5"
-                  label={getValuationLabel(countryCode)}
+                  label={formatValuationLabel(countryCode, officialValuationYear)}
                   value={formatPrice(officialValuation, countryCode)}
                 />
               </View>

@@ -29,6 +29,7 @@ import { closeConnection } from './db/index.js';
 import { closeRedisConnection } from './lib/redis.js';
 import { setNotificationLogger } from './services/notifications.js';
 import { closeIngestQueues } from './services/ingest/index.js';
+import { closeOfficialValuationQueues } from './services/official-valuations/index.js';
 import { refreshLatestListingsView } from './services/listings-view.js';
 import { config } from './config.js';
 
@@ -59,6 +60,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     if (startupListingsRefresh) {
       await startupListingsRefresh;
     }
+    await closeOfficialValuationQueues();
     await closeIngestQueues();
     await closeRedisConnection();
     await closeConnection();

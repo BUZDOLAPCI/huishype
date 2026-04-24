@@ -179,6 +179,62 @@ describe('Mock handler runtime parity', () => {
     }
   });
 
+  it('exposes official valuation years and hydrate acceptance on property detail mocks', async () => {
+    const detailResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+    );
+    const detailBody = await detailResponse.json();
+
+    expect(detailResponse.status).toBe(200);
+    expect(detailBody).toMatchObject({
+      officialValuation: 2850000,
+      officialValuationYear: 2024,
+      officialValuationSourceFetch: {
+        source: 'woz',
+        expectedValuationYear: 2024,
+        supportsClientFetch: {
+          web: true,
+          native: true,
+        },
+      },
+    });
+    expect(detailBody).not.toHaveProperty('officialValuationExpectedYear');
+    expect(detailBody).not.toHaveProperty('officialValuationHydrationSupported');
+    expect(detailBody).not.toHaveProperty('officialValuationVerified');
+
+    const hydrateResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/official-valuations/hydrate`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'woz',
+          valuation: 2910000,
+          valuationYear: 2024,
+          referenceDate: '2024-01-01',
+        }),
+      },
+    );
+    const hydrateBody = await hydrateResponse.json();
+
+    expect(hydrateResponse.status).toBe(200);
+    expect(hydrateBody).toEqual({
+      propertyId: mockPropertyIds.prinsengracht263,
+      source: 'woz',
+      status: 'accepted',
+      officialValuation: 2910000,
+      officialValuationYear: 2024,
+    });
+
+    const refreshedDetailResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+    );
+    await expect(refreshedDetailResponse.json()).resolves.toMatchObject({
+      officialValuation: 2910000,
+      officialValuationYear: 2024,
+    });
+  });
+
   it('matches live /properties/:id/guesses envelope and price-start fields', async () => {
     const activeSaleResponse = await fetch(
       `http://localhost/properties/${mockPropertyIds.prinsengracht263}/guesses?page=1&limit=2`
@@ -463,6 +519,15 @@ describe('Mock handler runtime parity', () => {
     expect(resolveResponse.status).toBe(200);
     expect(resolveBody).toHaveProperty('hasActiveListing', true);
     expect(resolveBody).toHaveProperty('marketState', 'for-sale');
+    expect(resolveBody).toHaveProperty('officialValuationSourceFetch');
+    expect(resolveBody.officialValuationSourceFetch).toMatchObject({
+      source: 'woz',
+      expectedValuationYear: 2024,
+      supportsClientFetch: {
+        web: true,
+        native: true,
+      },
+    });
     expect(resolveBody).not.toHaveProperty('hasListing');
 
     const nearbySingleResponse = await fetch(

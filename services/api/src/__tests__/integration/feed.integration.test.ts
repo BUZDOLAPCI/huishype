@@ -46,6 +46,7 @@ describe('Feed routes', () => {
     geometry: { type: 'Point'; coordinates: [number, number] };
     askingPrice: number;
     officialValuation: number | null;
+    officialValuationYear: number | null;
     thumbnailUrl: string | null;
     lastActivityAt: string;
     commentCount: number;
@@ -189,6 +190,7 @@ describe('Feed routes', () => {
         lat: slice.lat,
         askingPrice: 410000,
         officialValuation: 405000,
+        officialValuationYear: 2021,
         thumbnailUrl: 'https://cdn.example.com/feed-recent.jpg',
         listingCreatedAt: atOffset({ minutes: 5 }),
         lastActivityAt: atOffset({ minutes: 5 }),
@@ -208,6 +210,7 @@ describe('Feed routes', () => {
         lat: slice.lat + 0.002,
         askingPrice: 560000,
         officialValuation: 540000,
+        officialValuationYear: 2022,
         thumbnailUrl: 'https://cdn.example.com/feed-hot.jpg',
         listingCreatedAt: atOffset({ days: 2 }),
         lastActivityAt: atOffset({ minutes: 10 }),
@@ -227,6 +230,7 @@ describe('Feed routes', () => {
         lat: slice.lat + 0.004,
         askingPrice: 470000,
         officialValuation: 465000,
+        officialValuationYear: 2023,
         thumbnailUrl: 'https://cdn.example.com/feed-warm.jpg',
         listingCreatedAt: atOffset({ days: 3 }),
         lastActivityAt: atOffset({ minutes: 20 }),
@@ -246,6 +250,7 @@ describe('Feed routes', () => {
         lat: slice.lat + 0.006,
         askingPrice: 390000,
         officialValuation: 388000,
+        officialValuationYear: 2024,
         thumbnailUrl: 'https://cdn.example.com/feed-like.jpg',
         listingCreatedAt: atOffset({ days: 4 }),
         lastActivityAt: atOffset({ minutes: 30 }),
@@ -265,6 +270,7 @@ describe('Feed routes', () => {
         lat: slice.lat + 0.008,
         askingPrice: 315000,
         officialValuation: 310000,
+        officialValuationYear: 2020,
         thumbnailUrl: 'https://cdn.example.com/feed-cold.jpg',
         listingCreatedAt: atOffset({ days: 40 }),
         lastActivityAt: atOffset({ days: 40 }),
@@ -284,6 +290,7 @@ describe('Feed routes', () => {
         lat: slice.lat + 0.4,
         askingPrice: 999000,
         officialValuation: 998000,
+        officialValuationYear: 2019,
         thumbnailUrl: 'https://cdn.example.com/feed-remote.jpg',
         listingCreatedAt: atOffset({ minutes: 15 }),
         lastActivityAt: atOffset({ minutes: 15 }),
@@ -305,6 +312,7 @@ describe('Feed routes', () => {
         lon: definition.lon,
         lat: definition.lat,
         officialValuation: definition.officialValuation,
+        officialValuationYear: definition.officialValuationYear,
       });
       cleanupPropertyIds.push(property.id);
 
@@ -332,6 +340,7 @@ describe('Feed routes', () => {
         },
         askingPrice: definition.askingPrice,
         officialValuation: definition.officialValuation,
+        officialValuationYear: definition.officialValuationYear,
         thumbnailUrl: definition.thumbnailUrl,
         lastActivityAt: definition.lastActivityAt.toISOString(),
         commentCount: definition.commentCount,
@@ -464,6 +473,7 @@ describe('Feed routes', () => {
         askingPrice: feedFixtures.hot.askingPrice,
         fmv: feedFixtures.hot.fmv,
         officialValuation: feedFixtures.hot.officialValuation,
+        officialValuationYear: feedFixtures.hot.officialValuationYear,
         thumbnailUrl: feedFixtures.hot.thumbnailUrl,
         likeCount: feedFixtures.hot.likeCount,
         commentCount: feedFixtures.hot.commentCount,

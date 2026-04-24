@@ -190,6 +190,7 @@ export function PriceGuessSection({
               userGuess={guessData?.userGuess?.guessedPrice}
               askingPrice={property.askingPrice}
               officialValuation={property.officialValuation ?? undefined}
+              officialValuationYear={property.officialValuationYear}
               variant="embedded"
               testID="fmv-visualization"
             />
@@ -200,6 +201,7 @@ export function PriceGuessSection({
           <PriceGuessSlider
             propertyId={property.id}
             officialValuation={property.officialValuation ?? undefined}
+            officialValuationYear={property.officialValuationYear}
             askingPrice={property.askingPrice}
             initialPrice={initialPrice}
             initialPriceSource={initialPriceSource}

@@ -38,6 +38,7 @@ export interface FeaturedProperty {
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
   imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   officialValuation: number | null;
+  officialValuationYear?: number | null;
   thumbnailUrl: string | null;
   aerialImageUrl?: string | null;
   commentCount: number;

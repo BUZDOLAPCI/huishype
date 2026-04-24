@@ -19,6 +19,7 @@ describe('PriceSection', () => {
           floorAreaM2: 118,
           status: 'active',
           officialValuation: 389000,
+          officialValuationYear: 2024,
           askingPrice: 415000,
           fmv: {
             fmv: 400000,
@@ -48,7 +49,7 @@ describe('PriceSection', () => {
 
     expect(within(crowdCard).getByText('Crowd Estimate')).toBeTruthy();
     expect(within(crowdCard).getByText('High confidence (28 guesses)')).toBeTruthy();
-    expect(within(valuationCard).getByText('WOZ Value')).toBeTruthy();
+    expect(within(valuationCard).getByText('WOZ Value (2024)')).toBeTruthy();
     expect(within(askingCard).getByText('Asking Price')).toBeTruthy();
 
     expect(screen.queryByText(/^High confidence$/)).toBeNull();

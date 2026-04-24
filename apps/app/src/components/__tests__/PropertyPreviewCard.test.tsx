@@ -10,6 +10,7 @@ describe('PropertyPreviewCard', () => {
     postalCode: '5600 AA',
     countryCode: 'NL',
     officialValuation: 350000,
+    officialValuationYear: 2024,
     activityLevel: 'warm',
     activityScore: 25,
   };
@@ -45,7 +46,7 @@ describe('PropertyPreviewCard', () => {
 
     // Price is rendered as formatted value (e.g., "€ 350.000")
     expect(screen.getByText(/350/)).toBeTruthy();
-    expect(screen.getByText('WOZ Value')).toBeTruthy();
+    expect(screen.getByText('WOZ Value (2024)')).toBeTruthy();
   });
 
   it('shows activity indicator based on activity level', () => {

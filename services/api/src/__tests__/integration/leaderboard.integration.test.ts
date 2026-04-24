@@ -31,6 +31,8 @@ describe('Leaderboard routes', () => {
       postalCode: '9060AA',
       lon: 5.4706,
       lat: 51.4406,
+      officialValuation: 612000,
+      officialValuationYear: 2024,
     });
     propertyId = property.id;
 
@@ -43,6 +45,18 @@ describe('Leaderboard routes', () => {
     });
     const commentBody = JSON.parse(commentResp.body);
     createdCommentIds.push(commentBody.id);
+
+    await db.execute(sql`
+      INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
+      SELECT
+        gen_random_uuid(),
+        ${propertyId},
+        ${userId},
+        'Leaderboard featured weighting ' || series::text,
+        NOW(),
+        NOW()
+      FROM generate_series(1, 800) AS series
+    `);
 
     await app.inject({
       method: 'POST',
@@ -184,11 +198,16 @@ describe('Leaderboard routes', () => {
       expect(fp).toHaveProperty('countryCode');
       expect(fp).toHaveProperty('geometry');
       expect(fp).toHaveProperty('imageryGeometry');
+      expect(fp).toHaveProperty('officialValuation');
+      expect(fp).toHaveProperty('officialValuationYear');
       expect(fp).toHaveProperty('thumbnailUrl');
       expect(fp).toHaveProperty('commentCount');
       expect(fp).toHaveProperty('likeCount');
       expect(fp).toHaveProperty('engagementScore');
       expect(fp.engagementScore).toBeGreaterThan(0);
+      expect(fp.id).toBe(propertyId);
+      expect(fp.officialValuation).toBe(612000);
+      expect(fp.officialValuationYear).toBe(2024);
       expect(typeof fp.commentCount).toBe('number');
       expect(typeof fp.likeCount).toBe('number');
       expect(fp.geometry).toMatchObject({ type: 'Point' });

@@ -10,6 +10,8 @@ describe('PropertyFeedCard', () => {
     city: 'Amsterdam',
     postalCode: '1015 DV',
     officialValuation: 500000,
+    officialValuationYear: 2024,
+    countryCode: 'NL',
     activityLevel: 'warm' as const,
     commentCount: 15,
     guessCount: 10,
@@ -89,6 +91,12 @@ describe('PropertyFeedCard', () => {
     const { getByTestId } = render(<PropertyFeedCard {...defaultProps} />);
 
     expect(getByTestId('feed-card-stats')).toBeTruthy();
+  });
+
+  it('labels official valuation with the year when it is the visible price', () => {
+    const { getByText } = render(<PropertyFeedCard {...defaultProps} />);
+
+    expect(getByText('WOZ Value (2024)')).toBeTruthy();
   });
 
   it('renders all four stat pills even when counts are zero', () => {

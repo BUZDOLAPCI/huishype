@@ -463,6 +463,16 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "inactive" | "demolished";
                                 officialValuation: number | null;
+                                officialValuationYear: number | null;
+                                officialValuationSourceFetch: {
+                                    /** @enum {string} */
+                                    source: "woz";
+                                    expectedValuationYear: number;
+                                    supportsClientFetch: {
+                                        web: boolean;
+                                        native: boolean;
+                                    };
+                                } | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -557,6 +567,16 @@ export interface paths {
                             /** @enum {string} */
                             marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
                             officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationSourceFetch: {
+                                /** @enum {string} */
+                                source: "woz";
+                                expectedValuationYear: number;
+                                supportsClientFetch: {
+                                    web: boolean;
+                                    native: boolean;
+                                };
+                            } | null;
                         } | null;
                     };
                 };
@@ -769,6 +789,16 @@ export interface paths {
                             /** @enum {string} */
                             status: "active" | "inactive" | "demolished";
                             officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationSourceFetch: {
+                                /** @enum {string} */
+                                source: "woz";
+                                expectedValuationYear: number;
+                                supportsClientFetch: {
+                                    web: boolean;
+                                    native: boolean;
+                                };
+                            } | null;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
@@ -1001,6 +1031,16 @@ export interface paths {
                             /** @enum {string} */
                             status: "active" | "inactive" | "demolished";
                             officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationSourceFetch: {
+                                /** @enum {string} */
+                                source: "woz";
+                                expectedValuationYear: number;
+                                supportsClientFetch: {
+                                    web: boolean;
+                                    native: boolean;
+                                };
+                            } | null;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
@@ -1072,6 +1112,95 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/{id}/official-valuations/hydrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hydrate property official valuation */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /**
+                         * @default woz
+                         * @enum {string}
+                         */
+                        source?: "woz";
+                        valuation?: number;
+                        valuationYear?: number;
+                        /** Format: date */
+                        referenceDate?: string;
+                        sourceRecordId?: string;
+                        sourceDatasetVersion?: string;
+                        /** Format: uri */
+                        sourceUrl?: string;
+                        rawPayload?: unknown;
+                        /** @enum {string} */
+                        clientRuntime?: "web" | "native";
+                        sourceRequestFingerprint?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "unsupported" | "already_cached" | "accepted" | "queued" | "pending";
+                            /** Format: uuid */
+                            propertyId: string;
+                            /** @enum {string} */
+                            source: "woz";
+                            valuationYear: number;
+                            officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationVerified: boolean;
+                            job: {
+                                /** Format: uuid */
+                                id: string;
+                                state: string;
+                                nextAttemptAt: string | null;
+                            } | null;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1264,6 +1393,16 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "inactive" | "demolished";
                                 officialValuation: number | null;
+                                officialValuationYear: number | null;
+                                officialValuationSourceFetch: {
+                                    /** @enum {string} */
+                                    source: "woz";
+                                    expectedValuationYear: number;
+                                    supportsClientFetch: {
+                                        web: boolean;
+                                        native: boolean;
+                                    };
+                                } | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -4026,6 +4165,7 @@ export interface paths {
                                 askingPrice: number | null;
                                 fmv: number | null;
                                 officialValuation: number | null;
+                                officialValuationYear: number | null;
                                 thumbnailUrl: string | null;
                                 likeCount: number;
                                 commentCount: number;
@@ -4554,6 +4694,7 @@ export interface paths {
                                     ];
                                 } | null;
                                 officialValuation: number | null;
+                                officialValuationYear: number | null;
                                 thumbnailUrl: string | null;
                                 commentCount: number;
                                 likeCount: number;

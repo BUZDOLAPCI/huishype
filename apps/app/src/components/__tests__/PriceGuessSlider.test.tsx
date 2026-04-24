@@ -43,6 +43,19 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByText(/WOZ Value:/)).toBeTruthy();
   });
 
+  it('displays the official valuation year when provided', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        officialValuation={350000}
+        officialValuationYear={2024}
+        countryCode="NL"
+      />,
+    );
+
+    expect(screen.getByText(/WOZ Value \(2024\):/)).toBeTruthy();
+  });
+
   it('initializes with user guess when provided', () => {
     render(<PriceGuessSlider {...defaultProps} userGuess={400000} />);
 

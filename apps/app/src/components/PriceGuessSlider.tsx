@@ -53,6 +53,7 @@ export interface PriceGuessSliderProps {
   propertyId: string;
   countryCode?: string;
   officialValuation?: number;
+  officialValuationYear?: number | null;
   askingPrice?: number;
   initialPrice?: number;
   initialPriceSource?: PriceGuessSliderStartSource;
@@ -100,6 +101,11 @@ function positionToPrice(position: number): number {
 // Format price using country config
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
+}
+
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
 }
 
 function formatLabelPrice(price: number, countryCode?: string): string {
@@ -318,6 +324,7 @@ export function PriceGuessSlider({
   propertyId: _propertyId,
   countryCode,
   officialValuation,
+  officialValuationYear,
   askingPrice,
   initialPrice,
   initialPriceSource,
@@ -885,7 +892,8 @@ export function PriceGuessSlider({
         {/* Reference values */}
         {officialValuation && (
           <Text className="text-sm text-warm-500 mb-4">
-            {getValuationLabel(countryCode)}: {formatPrice(officialValuation, countryCode)}
+            {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
+            {formatPrice(officialValuation, countryCode)}
           </Text>
         )}
 

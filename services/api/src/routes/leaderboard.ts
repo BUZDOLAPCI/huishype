@@ -48,6 +48,7 @@ const featuredPropertySchema = z.object({
   geometry: coordinateSchema.nullable(),
   imageryGeometry: imageryCoordinateSchema.nullable().optional(),
   officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
   thumbnailUrl: z.string().nullable(),
   commentCount: z.number(),
   likeCount: z.number(),
@@ -470,6 +471,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
           ${featuredImageryLonSelect} AS imagery_lon,
           ${featuredImageryLatSelect} AS imagery_lat,
           p.official_valuation,
+          p.official_valuation_year,
           lt.thumbnail_url,
           fs.comment_count,
           fs.like_count,
@@ -505,6 +507,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         imagery_lon: number | null;
         imagery_lat: number | null;
         official_valuation: number | null;
+        official_valuation_year: number | null;
         thumbnail_url: string | null;
         comment_count: number;
         like_count: number;
@@ -536,6 +539,10 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
             officialValuation: featuredRow.official_valuation != null
               ? Number(featuredRow.official_valuation)
               : null,
+            officialValuationYear:
+              featuredRow.official_valuation_year != null
+                ? Number(featuredRow.official_valuation_year)
+                : null,
             thumbnailUrl: featuredRow.thumbnail_url,
             commentCount: Number(featuredRow.comment_count),
             likeCount: Number(featuredRow.like_count),

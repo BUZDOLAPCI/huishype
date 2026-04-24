@@ -204,11 +204,22 @@ export interface ResolvedProperty {
   hasActiveListing: boolean;
   marketState: MapMarketState;
   officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
 }
 
 export type PropertyResolveResponse = ResolvedProperty | null;
 
 export type LatestListingStatus = 'active' | 'sold' | 'rented' | 'withdrawn' | null;
+
+export interface OfficialValuationSourceFetch {
+  source: 'woz';
+  expectedValuationYear: number;
+  supportsClientFetch: {
+    web: boolean;
+    native: boolean;
+  };
+}
 
 export interface PropertyContractBase {
   id: string;
@@ -227,6 +238,8 @@ export interface PropertyContractBase {
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   createdAt: string;
   updatedAt: string;
   hasListing: boolean;
@@ -442,6 +455,7 @@ export interface FeedItem {
   askingPrice: number | null;
   fmv: number | null;
   officialValuation: number | null;
+  officialValuationYear: number | null;
   thumbnailUrl: string | null;
   likeCount: number;
   commentCount: number;
@@ -496,6 +510,8 @@ export interface SavedProperty {
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   createdAt: string;
   updatedAt: string;
   hasListing: boolean;

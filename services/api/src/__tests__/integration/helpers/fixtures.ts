@@ -29,6 +29,7 @@ interface CreatePropertyOptions {
   lon?: number;
   lat?: number;
   officialValuation?: number | null;
+  officialValuationYear?: number | null;
   yearBuilt?: number | null;
   floorAreaM2?: number | null;
 }
@@ -149,6 +150,7 @@ export async function createIntegrationProperty(options: CreatePropertyOptions =
     lon: options.lon ?? 5.47,
     lat: options.lat ?? 51.44,
     officialValuation: options.officialValuation ?? null,
+    officialValuationYear: options.officialValuationYear ?? null,
     yearBuilt: options.yearBuilt ?? null,
     floorAreaM2: options.floorAreaM2 ?? null,
   };
@@ -167,6 +169,7 @@ export async function createIntegrationProperty(options: CreatePropertyOptions =
       status,
       geometry,
       official_valuation,
+      official_valuation_year,
       year_built,
       floor_area_m2
     )
@@ -183,6 +186,7 @@ export async function createIntegrationProperty(options: CreatePropertyOptions =
       ${property.status},
       ST_SetSRID(ST_MakePoint(${property.lon}, ${property.lat}), 4326),
       ${property.officialValuation},
+      ${property.officialValuationYear},
       ${property.yearBuilt},
       ${property.floorAreaM2}
     )

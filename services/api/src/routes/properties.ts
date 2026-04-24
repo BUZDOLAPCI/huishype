@@ -30,6 +30,11 @@ import {
   isPropertyReadForViewer,
   resolvePropertyReadViewer,
 } from '../services/property-read-state.js';
+import {
+  getOfficialValuationSourceFetchHint,
+  hydrateOfficialValuationRequestSchema,
+  requestOfficialValuationHydration,
+} from '../services/official-valuations/index.js';
 
 const coordinateSchema = z.object({
   type: z.literal('Point'),
@@ -42,6 +47,16 @@ const imageryCoordinateSchema = coordinateSchema.describe(
 
 const marketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
 const latestListingStatusSchema = z.enum(['active', 'sold', 'rented', 'withdrawn']).nullable();
+const officialValuationSourceFetchSchema = z
+  .object({
+    source: z.literal('woz'),
+    expectedValuationYear: z.number(),
+    supportsClientFetch: z.object({
+      web: z.boolean(),
+      native: z.boolean(),
+    }),
+  })
+  .nullable();
 
 const propertyContractFields = {
   hasListing: z.boolean(),
@@ -87,6 +102,8 @@ const propertyBaseSchema = z.object({
   floorAreaM2: z.number().nullable(),
   status: z.enum(['active', 'inactive', 'demolished']),
   officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  officialValuationSourceFetch: officialValuationSourceFetchSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -154,6 +171,23 @@ const propertyParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+const officialValuationHydrationResponseSchema = z.object({
+  status: z.enum(['unsupported', 'already_cached', 'accepted', 'queued', 'pending']),
+  propertyId: z.string().uuid(),
+  source: z.literal('woz'),
+  valuationYear: z.number(),
+  officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  officialValuationVerified: z.boolean(),
+  job: z
+    .object({
+      id: z.string().uuid(),
+      state: z.string(),
+      nextAttemptAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+});
+
 const saveResponseSchema = z.object({
   saved: z.boolean(),
 });
@@ -198,6 +232,8 @@ const resolveFoundResponseSchema = z.object({
   hasActiveListing: z.boolean(),
   marketState: marketStateSchema,
   officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  officialValuationSourceFetch: officialValuationSourceFetchSchema,
 });
 
 const resolveResponseSchema = z.nullable(resolveFoundResponseSchema);
@@ -277,6 +313,8 @@ type PropertyRow = {
   floor_area_m2: number | null;
   status: string;
   official_valuation: number | null;
+  official_valuation_year: number | null;
+  official_valuation_verified: boolean;
   created_at: string;
   updated_at: string;
   has_listing: boolean;
@@ -405,6 +443,8 @@ function mapPropertyBaseRow(row: {
   floor_area_m2: number | null;
   status: string;
   official_valuation: number | null;
+  official_valuation_year: number | null;
+  official_valuation_verified?: boolean;
   created_at: string;
   updated_at: string;
 }) {
@@ -443,6 +483,9 @@ function mapPropertyBaseRow(row: {
     floorAreaM2: row.floor_area_m2 != null ? Number(row.floor_area_m2) : null,
     status: row.status as 'active' | 'inactive' | 'demolished',
     officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
+    officialValuationYear:
+      row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
+    officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -591,6 +634,8 @@ const PUBLIC_PROPERTY_SELECT = sql`
   p.floor_area_m2,
   p.status,
   p.official_valuation,
+  p.official_valuation_year,
+  p.official_valuation_verified,
   p.created_at,
   p.updated_at,
   lf.has_listing,
@@ -768,6 +813,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         city: string;
         postal_code: string;
         official_valuation: number | null;
+        official_valuation_year: number | null;
         has_active_listing: boolean;
         market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
         lon: number | null;
@@ -783,6 +829,7 @@ export async function propertyRoutes(app: FastifyInstance) {
             p.city,
             p.postal_code,
             p.official_valuation,
+            p.official_valuation_year,
             ST_X(p.geometry) AS lon,
             ST_Y(p.geometry) AS lat
           FROM properties p
@@ -798,6 +845,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           p.city,
           p.postal_code,
           p.official_valuation,
+          p.official_valuation_year,
           lf.has_active_listing,
           lf.market_state,
           p.lon,
@@ -852,6 +900,9 @@ export async function propertyRoutes(app: FastifyInstance) {
         hasActiveListing: row.has_active_listing,
         marketState: row.market_state,
         officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
+        officialValuationYear:
+          row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
+        officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
       });
     }
   );
@@ -1056,6 +1107,49 @@ export async function propertyRoutes(app: FastifyInstance) {
         isLiked: row.is_liked,
         isSaved: row.is_saved,
         fmv: fmvResult,
+      });
+    }
+  );
+
+  typedApp.post(
+    '/properties/:id/official-valuations/hydrate',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['properties'],
+        summary: 'Hydrate property official valuation',
+        params: propertyParamsSchema,
+        body: hydrateOfficialValuationRequestSchema,
+        response: {
+          200: officialValuationHydrationResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await requestOfficialValuationHydration({
+        propertyId: request.params.id,
+        request: request.body,
+        submittedByUserId: request.userId ?? null,
+        logger: request.log,
+      });
+
+      if (!result) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: `Property with ID ${request.params.id} not found`,
+        });
+      }
+
+      return reply.send({
+        status: result.status,
+        propertyId: result.propertyId,
+        source: result.source,
+        valuationYear: result.valuationYear,
+        officialValuation: result.cachedValuation,
+        officialValuationYear: result.cachedValuationYear,
+        officialValuationVerified: result.cachedVerified,
+        job: result.job,
       });
     }
   );

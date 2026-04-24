@@ -74,6 +74,19 @@ function createSavedProperty(
     savedAt: '2026-04-06T12:00:00.000Z',
     isSaved: true,
     ...overrides,
+    officialValuationYear: overrides.officialValuationYear === undefined
+      ? 2024
+      : overrides.officialValuationYear,
+    officialValuationSourceFetch: overrides.officialValuationSourceFetch === undefined
+      ? {
+          source: 'woz',
+          expectedValuationYear: 2024,
+          supportsClientFetch: {
+            web: true,
+            native: true,
+          },
+        }
+      : overrides.officialValuationSourceFetch,
   };
 }
 

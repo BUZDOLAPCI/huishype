@@ -28,6 +28,7 @@ export interface FeedProperty {
   askingPrice: number | null;
   fmv: number | null;
   officialValuation: number | null;
+  officialValuationYear?: number | null;
   thumbnailUrl: string | null;
   aerialImageUrl?: string | null;
   likeCount: number;
@@ -57,6 +58,7 @@ interface FeedApiResponse {
     askingPrice: number | null;
     fmv: number | null;
     officialValuation: number | null;
+    officialValuationYear?: number | null;
     thumbnailUrl: string | null;
     likeCount: number;
     commentCount: number;

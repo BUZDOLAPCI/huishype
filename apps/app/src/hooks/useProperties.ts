@@ -1,5 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../utils/api';
+import { useEffect } from 'react';
+import { Platform } from 'react-native';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  api,
+  fetchOfficialValuationFromSource,
+  submitOfficialValuationHydration,
+  type OfficialValuationHydrateResponse,
+  type OfficialValuationSourceFetch,
+  type OfficialValuationSourceResult,
+} from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
 import {
@@ -23,6 +32,9 @@ export interface Property {
   nationalId: string | null;
   /** ISO 3166-1 alpha-2 country code */
   countryCode: string;
+  street?: string | null;
+  houseNumber?: number | null;
+  houseNumberAddition?: string | null;
   address: string;
   city: string;
   postalCode: string | null;
@@ -32,6 +44,12 @@ export interface Property {
   floorAreaM2: number | null;
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
+  officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  officialValuationPreview?: {
+    source: 'client_fetched';
+    fetchedAt: number;
+  };
   hasListing?: boolean;
   hasActiveListing?: boolean;
   marketState?: MapMarketState | null;
@@ -205,6 +223,8 @@ type PropertyResponseLike = Property &
     likeCount?: number;
   };
 
+type PropertyDetailQueryKey = readonly unknown[];
+
 function normalizePropertyResponse<T extends PropertyResponseLike>(property: T): T {
   const normalized = {
     ...property,
@@ -223,6 +243,101 @@ function normalizePropertyResponse<T extends PropertyResponseLike>(property: T):
   };
 
   return withDerivedPropertyImages(normalized as T);
+}
+
+function hasCurrentOfficialValuation(property: Property): boolean {
+  const expectedYear = property.officialValuationSourceFetch?.expectedValuationYear ?? null;
+  return (
+    property.officialValuation != null &&
+    property.officialValuationYear != null &&
+    (expectedYear == null || property.officialValuationYear >= expectedYear)
+  );
+}
+
+function supportsOfficialValuationSourceFetch(
+  hint: OfficialValuationSourceFetch | null | undefined,
+): boolean {
+  if (!hint) {
+    return false;
+  }
+
+  return Platform.OS === 'web'
+    ? hint.supportsClientFetch.web
+    : hint.supportsClientFetch.native;
+}
+
+function shouldFetchOfficialValuationPreview(property: PropertyDetails): boolean {
+  return (
+    property.countryCode === 'NL' &&
+    property.officialValuationSourceFetch?.source === 'woz' &&
+    supportsOfficialValuationSourceFetch(property.officialValuationSourceFetch) &&
+    !hasCurrentOfficialValuation(property)
+  );
+}
+
+function mergeServerPropertyWithPreview<T extends PropertyDetails | null>(
+  serverProperty: T,
+  previousProperty: PropertyDetails | null | undefined,
+): T {
+  if (!serverProperty || !previousProperty || !hasCurrentOfficialValuation(previousProperty)) {
+    return serverProperty;
+  }
+
+  if (hasCurrentOfficialValuation(serverProperty)) {
+    return {
+      ...serverProperty,
+      officialValuationPreview: undefined,
+    };
+  }
+
+  const serverYear = serverProperty.officialValuationYear;
+  const previousYear = previousProperty.officialValuationYear;
+  const previousIsNewer =
+    previousProperty.officialValuation != null &&
+    previousYear != null &&
+    (serverYear == null || previousYear > serverYear);
+
+  if (!previousIsNewer) {
+    return serverProperty;
+  }
+
+  return {
+    ...serverProperty,
+    officialValuation: previousProperty.officialValuation,
+    officialValuationYear: previousProperty.officialValuationYear,
+    officialValuationPreview: previousProperty.officialValuationPreview,
+  };
+}
+
+function mergeHydrateResponse(
+  property: PropertyDetails,
+  response: OfficialValuationHydrateResponse,
+): PropertyDetails {
+  if (response.officialValuation == null || response.officialValuationYear == null) {
+    return property;
+  }
+
+  return {
+    ...property,
+    officialValuation: response.officialValuation,
+    officialValuationYear: response.officialValuationYear,
+    officialValuationPreview: undefined,
+  };
+}
+
+function applyOfficialValuationPreview(
+  property: PropertyDetails,
+  result: OfficialValuationSourceResult,
+): PropertyDetails {
+  return {
+    ...property,
+    officialValuation: result.valuation,
+    officialValuationYear: result.valuationYear,
+    officialValuationPreview: {
+      source: 'client_fetched',
+      fetchedAt: Date.now(),
+    },
+  };
 }
 
 // Fetch properties from API
@@ -252,6 +367,7 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
 export const fetchPropertyById = async (
   id: string,
   accessToken?: string | null,
+  previousProperty?: PropertyDetails | null,
 ): Promise<PropertyDetails | null> => {
   try {
     const property = await api.get<PropertyDetails>(`/properties/${id}`, accessToken
@@ -261,12 +377,71 @@ export const fetchPropertyById = async (
           },
         }
       : undefined);
-    return normalizePropertyResponse(property);
+    return mergeServerPropertyWithPreview(
+      normalizePropertyResponse(property),
+      previousProperty,
+    );
   } catch (error) {
     console.error('Failed to fetch property:', error);
     return null;
   }
 };
+
+const activeOfficialValuationPreviewFetches = new Set<string>();
+
+async function hydrateOfficialValuationPreview({
+  queryClient,
+  queryKey,
+  property,
+  accessToken,
+}: {
+  queryClient: QueryClient;
+  queryKey: PropertyDetailQueryKey;
+  property: PropertyDetails;
+  accessToken?: string | null;
+}): Promise<void> {
+  if (activeOfficialValuationPreviewFetches.has(property.id)) {
+    return;
+  }
+
+  activeOfficialValuationPreviewFetches.add(property.id);
+
+  try {
+    const sourceResult = await fetchOfficialValuationFromSource({
+      propertyId: property.id,
+      countryCode: property.countryCode,
+      nationalId: property.nationalId,
+      address: property.address,
+      city: property.city,
+      postalCode: property.postalCode,
+      street: property.street,
+      houseNumber: property.houseNumber,
+      houseNumberAddition: property.houseNumberAddition,
+    });
+
+    if (sourceResult) {
+      queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
+        current ? applyOfficialValuationPreview(current, sourceResult) : current,
+      );
+    }
+
+    const hydrateResponse = await submitOfficialValuationHydration(
+      property.id,
+      sourceResult,
+      accessToken,
+    );
+    queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
+      current ? mergeHydrateResponse(current, hydrateResponse) : current,
+    );
+    if (hydrateResponse.officialValuation == null || hydrateResponse.officialValuationYear == null) {
+      queryClient.invalidateQueries({ queryKey });
+    }
+  } catch (error) {
+    console.warn('[HuisHype] official valuation hydration failed:', error);
+  } finally {
+    activeOfficialValuationPreviewFetches.delete(property.id);
+  }
+}
 
 const submitPriceGuess = async (data: { propertyId: string; price: number }): Promise<void> => {
   if (__DEV__) console.log('Submitting price guess:', data);
@@ -342,10 +517,12 @@ export function useAllProperties(limit = 100) {
 // Hook to fetch a single property's details
 export function useProperty(id: string | null) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
+  const queryClient = useQueryClient();
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
+  const queryKey = id ? propertyKeys.detail(id, viewerKey) : propertyKeys.details();
 
-  return useQuery({
-    queryKey: id ? propertyKeys.detail(id, viewerKey) : propertyKeys.details(),
+  const query = useQuery({
+    queryKey,
     queryFn: async () => {
       if (!id) {
         return null;
@@ -356,10 +533,44 @@ export function useProperty(id: string | null) {
         throw new Error('Authenticated property fetch requires an access token');
       }
 
-      return fetchPropertyById(id, accessToken);
+      const previousProperty = queryClient.getQueryData<PropertyDetails | null>(
+        propertyKeys.detail(id, viewerKey),
+      );
+      return fetchPropertyById(id, accessToken, previousProperty);
     },
     enabled: !!id,
   });
+
+  useEffect(() => {
+    const property = query.data;
+    if (
+      !id ||
+      !property ||
+      !shouldFetchOfficialValuationPreview(property)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      const accessToken = await getAccessToken();
+      if (!cancelled) {
+        await hydrateOfficialValuationPreview({
+          queryClient,
+          queryKey: propertyKeys.detail(id, viewerKey),
+          property,
+          accessToken,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessToken, id, query.data, queryClient, viewerKey]);
+
+  return query;
 }
 
 // Hook to submit a price guess

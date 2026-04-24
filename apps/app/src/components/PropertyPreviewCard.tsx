@@ -78,6 +78,7 @@ export interface PropertyPreviewData {
   postalCode?: string | null;
   countryCode?: string;
   officialValuation?: number | null;
+  officialValuationYear?: number | null;
   askingPrice?: number | null;
   fmv?: number | null;
   activityLevel?: 'hot' | 'warm' | 'cold';
@@ -210,6 +211,11 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
+}
+
 function getDisplayPrice(property: PropertyPreviewData): { price: number; label: string } | null {
   if (property.fmv != null) {
     return { price: property.fmv, label: 'Crowd FMV' };
@@ -222,7 +228,7 @@ function getDisplayPrice(property: PropertyPreviewData): { price: number; label:
   if (property.officialValuation != null) {
     return {
       price: property.officialValuation,
-      label: getValuationLabel(property.countryCode),
+      label: formatValuationLabel(property.countryCode, property.officialValuationYear),
     };
   }
 

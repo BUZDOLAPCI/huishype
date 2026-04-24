@@ -35,10 +35,27 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
 const MOCK_FOLLOWING_ACTIVITY_NOW_MS = Date.parse('2026-04-21T12:00:00.000Z');
+const MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR = 2024;
+const MOCK_WOZ_SOURCE_FETCH = {
+  source: 'woz' as const,
+  expectedValuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
+  supportsClientFetch: {
+    web: true,
+    native: true,
+  },
+};
 const mockReadPropertyIdsByViewer = new Map<string, Set<string>>();
+const mockOfficialValuationOverrides = new Map<
+  string,
+  {
+    officialValuation: number;
+    officialValuationYear: number;
+  }
+>();
 
 export function resetMockReadState(): void {
   mockReadPropertyIdsByViewer.clear();
+  mockOfficialValuationOverrides.clear();
 }
 
 function normalizePostalCode(postalCode: string) {
@@ -104,6 +121,21 @@ function getMockMarketState(
   property: (typeof mockPropertyDetails)[number]
 ): 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' {
   return property.activeListing ? ('for-sale' as const) : ('not-listed' as const);
+}
+
+function getMockOfficialValuation(property: (typeof mockPropertyDetails)[number]) {
+  return mockOfficialValuationOverrides.get(property.id) ?? {
+    officialValuation: property.officialValuation ?? null,
+    officialValuationYear: property.officialValuationYear ?? null,
+  };
+}
+
+function supportsMockOfficialValuationHydration(property: (typeof mockPropertyDetails)[number]) {
+  return property.countryCode === 'NL';
+}
+
+function getMockOfficialValuationSourceFetch(property: (typeof mockPropertyDetails)[number]) {
+  return supportsMockOfficialValuationHydration(property) ? MOCK_WOZ_SOURCE_FETCH : null;
 }
 
 function propertyMatchesFollowingFilters(
@@ -284,6 +316,7 @@ function getMockPublicProperty(
   const propertyLikeCount = property.likeCount;
   const socialScore = topLevelCommentCount * 2 + replyCount + propertyLikeCount + property.activity.guessCount;
   const recentSocialScore = Math.min(socialScore, Math.max(1, topLevelCommentCount + replyCount));
+  const valuation = getMockOfficialValuation(property);
 
   return {
     id: property.id,
@@ -307,7 +340,9 @@ function getMockPublicProperty(
     yearBuilt: property.yearBuilt ?? null,
     floorAreaM2: property.floorAreaM2 ?? null,
     status: 'active' as const,
-    officialValuation: property.officialValuation ?? null,
+    officialValuation: valuation.officialValuation,
+    officialValuationYear: valuation.officialValuationYear,
+    officialValuationSourceFetch: getMockOfficialValuationSourceFetch(property),
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-12-01T00:00:00.000Z',
     hasListing,
@@ -371,7 +406,7 @@ function getMockPropertyDetail(
             max: property.fmv.distribution.max,
           }
         : null,
-      officialValuation: property.officialValuation ?? null,
+      officialValuation: base.officialValuation,
       askingPrice: property.activeListing?.askingPrice ?? null,
       divergence:
         property.fmv?.value != null && property.activeListing?.askingPrice != null
@@ -544,7 +579,9 @@ export const propertyHandlers = [
       },
       hasActiveListing: publicProperty.hasActiveListing,
       marketState: publicProperty.marketState,
-      officialValuation: property.officialValuation ?? null,
+      officialValuation: publicProperty.officialValuation,
+      officialValuationYear: publicProperty.officialValuationYear,
+      officialValuationSourceFetch: getMockOfficialValuationSourceFetch(property),
       countryCode,
     };
 
@@ -837,6 +874,65 @@ export const propertyHandlers = [
     }
 
     return HttpResponse.json(getMockPropertyDetail(property, getMockReadViewerKey(request)));
+  }),
+
+  /**
+   * POST /properties/:id/official-valuations/hydrate - Accept client-observed valuation cache.
+   */
+  http.post('*/properties/:propertyId/official-valuations/hydrate', async ({ params, request }) => {
+    const property = getMockProperty(params.propertyId as string);
+
+    if (!property) {
+      return HttpResponse.json(
+        { error: 'NOT_FOUND', message: 'Property not found' },
+        { status: 404 },
+      );
+    }
+
+    if (!supportsMockOfficialValuationHydration(property)) {
+      return HttpResponse.json({
+        propertyId: property.id,
+        source: 'woz',
+        status: 'unsupported',
+        officialValuation: property.officialValuation ?? null,
+        officialValuationYear: property.officialValuationYear ?? null,
+      });
+    }
+
+    const body = await request.json().catch(() => ({})) as {
+      source?: unknown;
+      valuation?: unknown;
+      valuationYear?: unknown;
+    };
+
+    if (body.source !== 'woz') {
+      return validationErrorResponse();
+    }
+
+    const valuation = typeof body.valuation === 'number' && Number.isFinite(body.valuation)
+      ? body.valuation
+      : null;
+    const valuationYear =
+      typeof body.valuationYear === 'number' && Number.isInteger(body.valuationYear)
+        ? body.valuationYear
+        : null;
+
+    if (valuation !== null && valuationYear !== null) {
+      mockOfficialValuationOverrides.set(property.id, {
+        officialValuation: valuation,
+        officialValuationYear: valuationYear,
+      });
+    }
+
+    const accepted = getMockOfficialValuation(property);
+
+    return HttpResponse.json({
+      propertyId: property.id,
+      source: 'woz',
+      status: valuation !== null && valuationYear !== null ? 'accepted' : 'queued',
+      officialValuation: accepted.officialValuation,
+      officialValuationYear: accepted.officialValuationYear,
+    });
   }),
 
   /**

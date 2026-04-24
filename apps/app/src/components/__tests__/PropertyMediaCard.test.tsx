@@ -9,6 +9,7 @@ const baseProperty: PropertyMediaData = {
   postalCode: '1015 CN',
   countryCode: 'NL',
   officialValuation: 389000,
+  officialValuationYear: 2024,
   askingPrice: 415000,
   fmv: 400000,
   activityLevel: 'warm',
@@ -114,7 +115,7 @@ describe('PropertyMediaCard', () => {
       askingPrice: null,
     };
     render(<PropertyMediaCard property={valOnly} />);
-    expect(screen.getByText('WOZ Value')).toBeTruthy();
+    expect(screen.getByText('WOZ Value (2024)')).toBeTruthy();
   });
 
   it('shows generic valuation label for non-NL countries', () => {
@@ -125,7 +126,7 @@ describe('PropertyMediaCard', () => {
       askingPrice: null,
     };
     render(<PropertyMediaCard property={german} />);
-    expect(screen.getByText('Official Valuation')).toBeTruthy();
+    expect(screen.getByText('Official Valuation (2024)')).toBeTruthy();
   });
 
   it('renders no price row when all prices null', () => {

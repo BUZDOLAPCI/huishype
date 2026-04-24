@@ -934,6 +934,59 @@
                               }
                             ]
                           },
+                          "officialValuationYear": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "officialValuationSourceFetch": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "woz"
+                                    ]
+                                  },
+                                  "expectedValuationYear": {
+                                    "type": "number"
+                                  },
+                                  "supportsClientFetch": {
+                                    "type": "object",
+                                    "properties": {
+                                      "web": {
+                                        "type": "boolean"
+                                      },
+                                      "native": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "web",
+                                      "native"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "source",
+                                  "expectedValuationYear",
+                                  "supportsClientFetch"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -1076,6 +1129,8 @@
                           "floorAreaM2",
                           "status",
                           "officialValuation",
+                          "officialValuationYear",
+                          "officialValuationSourceFetch",
                           "createdAt",
                           "updatedAt",
                           "hasListing",
@@ -1280,6 +1335,59 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "officialValuationYear": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "officialValuationSourceFetch": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "woz"
+                                  ]
+                                },
+                                "expectedValuationYear": {
+                                  "type": "number"
+                                },
+                                "supportsClientFetch": {
+                                  "type": "object",
+                                  "properties": {
+                                    "web": {
+                                      "type": "boolean"
+                                    },
+                                    "native": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "web",
+                                    "native"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "source",
+                                "expectedValuationYear",
+                                "supportsClientFetch"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -1291,7 +1399,9 @@
                         "coordinates",
                         "hasActiveListing",
                         "marketState",
-                        "officialValuation"
+                        "officialValuation",
+                        "officialValuationYear",
+                        "officialValuationSourceFetch"
                       ],
                       "additionalProperties": false
                     },
@@ -1971,6 +2081,59 @@
                           }
                         ]
                       },
+                      "officialValuationYear": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "officialValuationSourceFetch": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "woz"
+                                ]
+                              },
+                              "expectedValuationYear": {
+                                "type": "number"
+                              },
+                              "supportsClientFetch": {
+                                "type": "object",
+                                "properties": {
+                                  "web": {
+                                    "type": "boolean"
+                                  },
+                                  "native": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "web",
+                                  "native"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "source",
+                              "expectedValuationYear",
+                              "supportsClientFetch"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "createdAt": {
                         "type": "string",
                         "format": "date-time",
@@ -2113,6 +2276,8 @@
                       "floorAreaM2",
                       "status",
                       "officialValuation",
+                      "officialValuationYear",
+                      "officialValuationSourceFetch",
                       "createdAt",
                       "updatedAt",
                       "hasListing",
@@ -2792,6 +2957,59 @@
                         }
                       ]
                     },
+                    "officialValuationYear": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "officialValuationSourceFetch": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "woz"
+                              ]
+                            },
+                            "expectedValuationYear": {
+                              "type": "number"
+                            },
+                            "supportsClientFetch": {
+                              "type": "object",
+                              "properties": {
+                                "web": {
+                                  "type": "boolean"
+                                },
+                                "native": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "web",
+                                "native"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "source",
+                            "expectedValuationYear",
+                            "supportsClientFetch"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time",
@@ -3059,6 +3277,8 @@
                     "floorAreaM2",
                     "status",
                     "officialValuation",
+                    "officialValuationYear",
+                    "officialValuationSourceFetch",
                     "createdAt",
                     "updatedAt",
                     "hasListing",
@@ -3091,6 +3311,220 @@
                     "likeCount",
                     "uniqueViewers",
                     "fmv"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/properties/{id}/official-valuations/hydrate": {
+      "post": {
+        "summary": "Hydrate property official valuation",
+        "tags": [
+          "properties"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "default": "woz",
+                    "type": "string",
+                    "enum": [
+                      "woz"
+                    ]
+                  },
+                  "valuation": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000000
+                  },
+                  "valuationYear": {
+                    "type": "integer",
+                    "minimum": 1990,
+                    "maximum": 2100
+                  },
+                  "referenceDate": {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  "sourceRecordId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "sourceDatasetVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "sourceUrl": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "format": "uri"
+                  },
+                  "rawPayload": {},
+                  "clientRuntime": {
+                    "type": "string",
+                    "enum": [
+                      "web",
+                      "native"
+                    ]
+                  },
+                  "sourceRequestFingerprint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported",
+                        "already_cached",
+                        "accepted",
+                        "queued",
+                        "pending"
+                      ]
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "woz"
+                      ]
+                    },
+                    "valuationYear": {
+                      "type": "number"
+                    },
+                    "officialValuation": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "officialValuationYear": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "officialValuationVerified": {
+                      "type": "boolean"
+                    },
+                    "job": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "nextAttemptAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "state",
+                            "nextAttemptAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "propertyId",
+                    "source",
+                    "valuationYear",
+                    "officialValuation",
+                    "officialValuationYear",
+                    "officialValuationVerified",
+                    "job"
                   ],
                   "additionalProperties": false
                 }
@@ -3530,6 +3964,59 @@
                               }
                             ]
                           },
+                          "officialValuationYear": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "officialValuationSourceFetch": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "woz"
+                                    ]
+                                  },
+                                  "expectedValuationYear": {
+                                    "type": "number"
+                                  },
+                                  "supportsClientFetch": {
+                                    "type": "object",
+                                    "properties": {
+                                      "web": {
+                                        "type": "boolean"
+                                      },
+                                      "native": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "web",
+                                      "native"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "source",
+                                  "expectedValuationYear",
+                                  "supportsClientFetch"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -3683,6 +4170,8 @@
                           "floorAreaM2",
                           "status",
                           "officialValuation",
+                          "officialValuationYear",
+                          "officialValuationSourceFetch",
                           "createdAt",
                           "updatedAt",
                           "hasListing",
@@ -9764,6 +10253,16 @@
                               }
                             ]
                           },
+                          "officialValuationYear": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "thumbnailUrl": {
                             "anyOf": [
                               {
@@ -9813,6 +10312,7 @@
                           "askingPrice",
                           "fmv",
                           "officialValuation",
+                          "officialValuationYear",
                           "thumbnailUrl",
                           "likeCount",
                           "commentCount",
@@ -10925,6 +11425,16 @@
                                 }
                               ]
                             },
+                            "officialValuationYear": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "thumbnailUrl": {
                               "anyOf": [
                                 {
@@ -10953,6 +11463,7 @@
                             "countryCode",
                             "geometry",
                             "officialValuation",
+                            "officialValuationYear",
                             "thumbnailUrl",
                             "commentCount",
                             "likeCount",

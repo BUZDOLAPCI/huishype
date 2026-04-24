@@ -47,6 +47,8 @@ export interface PropertyMediaData {
   aerialImageUrl?: string | null;
   /** Official government valuation (e.g., WOZ for NL). */
   officialValuation?: number | null;
+  /** Year of the official government valuation. */
+  officialValuationYear?: number | null;
   /** Listing asking price. */
   askingPrice?: number | null;
   /** Crowd FMV estimate. */
@@ -92,6 +94,11 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
   return formatPropertyPrice(value, (countryCode as CountryCode) ?? 'NL');
 }
 
+function formatValuationLabel(countryCode?: string, year?: number | null): string {
+  const label = getValuationLabel(countryCode);
+  return year ? `${label} (${year})` : label;
+}
+
 function getDisplayPrice(
   property: PropertyMediaData
 ): { price: number; label: string } | null {
@@ -104,7 +111,7 @@ function getDisplayPrice(
   if (property.officialValuation) {
     return {
       price: property.officialValuation,
-      label: getValuationLabel(property.countryCode),
+      label: formatValuationLabel(property.countryCode, property.officialValuationYear),
     };
   }
   return null;
@@ -276,7 +283,10 @@ export function PropertyMediaCard({
             {variant !== 'compact' && property.officialValuation && property.fmv && (
               <View>
                 <Text style={styles.priceLabel}>
-                  {getValuationLabel(property.countryCode)}
+                  {formatValuationLabel(
+                    property.countryCode,
+                    property.officialValuationYear,
+                  )}
                 </Text>
                 <Text style={styles.secondaryPrice}>
                   {formatPrice(property.officialValuation, property.countryCode as string)}
