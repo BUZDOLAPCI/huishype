@@ -14,26 +14,43 @@ export function generateUsername(): string {
 const USERNAME_UNIQUE_CONSTRAINTS = new Set([
   'users_username_idx',
   'users_username_key',
+  'users_username_unique',
 ]);
 
 function isUsernameUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
+  const pending: unknown[] = [error];
+
+  while (pending.length > 0) {
+    const candidate = pending.pop();
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+
+    const dbError = candidate as {
+      code?: string;
+      constraint?: string;
+      constraint_name?: string;
+      detail?: string;
+      cause?: unknown;
+    };
+
+    if (dbError.code === '23505') {
+      const constraintName = dbError.constraint_name ?? dbError.constraint ?? '';
+      if (USERNAME_UNIQUE_CONSTRAINTS.has(constraintName)) {
+        return true;
+      }
+
+      if ((dbError.detail ?? '').includes('(username)')) {
+        return true;
+      }
+    }
+
+    if ('cause' in dbError) {
+      pending.push(dbError.cause);
+    }
   }
 
-  const dbError = error as {
-    code?: string;
-    constraint?: string;
-    constraint_name?: string;
-  };
-
-  if (dbError.code !== '23505') {
-    return false;
-  }
-
-  return USERNAME_UNIQUE_CONSTRAINTS.has(
-    dbError.constraint_name ?? dbError.constraint ?? '',
-  );
+  return false;
 }
 
 /**

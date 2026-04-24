@@ -10,7 +10,7 @@ export interface IngestQueueModule {
   closeIngestQueues(): Promise<void>;
   enqueueIngestBatch(batchId: string): Promise<void>;
   requestLatestListingsRefresh(data: {
-    requestedBy: 'ingest-batch' | 'listing-submit' | 'worker-sweep';
+    requestedBy: 'ingest-batch' | 'listing-submit' | 'validation-outcome' | 'worker-sweep';
     batchId?: string;
   }): Promise<void>;
 }
@@ -61,6 +61,33 @@ export interface IngestStoreModule {
 export interface ListingsViewModule {
   refreshLatestListingsView(): Promise<void>;
   refreshPriceGuessStartMarketSummaries(): Promise<void>;
+}
+
+export interface ListingReconciliationModule {
+  processDueListingValidationWatches(options: {
+    limit: number;
+    retryDelayMs?: (attemptCount: number) => number;
+  }): Promise<{
+    claimedCount: number;
+    terminalCount: number;
+    retryableCount: number;
+    results: Array<
+      | {
+          outcome: 'terminal';
+          watchId: string;
+          state: string;
+          maintenanceBatchId: string;
+        }
+      | {
+          outcome: 'retryable';
+          watchId: string;
+          state: 'retryable_error';
+          attemptCount: number;
+          nextAttemptAt: Date;
+          error: string;
+        }
+    >;
+  }>;
 }
 
 export interface ApiDbModule {
@@ -119,6 +146,10 @@ export function loadIngestStoreModule(): Promise<IngestStoreModule> {
 
 export function loadListingsViewModule(): Promise<ListingsViewModule> {
   return importApiModule<ListingsViewModule>('services/listings-view.js');
+}
+
+export function loadListingReconciliationModule(): Promise<ListingReconciliationModule> {
+  return importApiModule<ListingReconciliationModule>('services/listing-reconciliation.js');
 }
 
 export function loadApiDbModule(): Promise<ApiDbModule> {

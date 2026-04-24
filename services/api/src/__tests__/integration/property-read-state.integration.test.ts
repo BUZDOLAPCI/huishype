@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
+import { config } from '../../config.js';
 import { db } from '../../db/index.js';
 import {
   acceptIngestBatch,
@@ -18,10 +19,17 @@ import {
 } from './helpers/fixtures.js';
 
 describe('Property read-state change advancement', () => {
+  type MutableSourceServices = {
+    fundaApiKey: string;
+  };
+
   let app: FastifyInstance;
   const cleanupPropertyIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const cleanupSources = ['idealista'];
+  const originalFetch = global.fetch;
+  const sourceServicesConfig = config.sourceServices as MutableSourceServices;
+  const originalFundaApiKey = config.sourceServices.fundaApiKey;
 
   beforeAll(async () => {
     await db.execute(sql`DELETE FROM price_history WHERE source IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
@@ -30,6 +38,11 @@ describe('Property read-state change advancement', () => {
     await db.execute(sql`DELETE FROM ingest_batches WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     await db.execute(sql`DELETE FROM ingest_runs WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     app = await buildApp({ logger: false });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    sourceServicesConfig.fundaApiKey = originalFundaApiKey;
   });
 
   afterAll(async () => {
@@ -48,6 +61,14 @@ describe('Property read-state change advancement', () => {
 
     await app.close();
   });
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as Response;
+  }
 
   async function createUser(label: string) {
     const user = await createIntegrationUser(app, { label });
@@ -142,20 +163,60 @@ describe('Property read-state change advancement', () => {
     const property = await createProperty('Read State Listing Street', 6.103, 52.103);
     const initial = await changeVersion(property.id);
     const submittedId = `${Date.now()}`.slice(-8);
+    const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-read-state/${submittedId}/`;
+    const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
+    const mockFetchFn = jest.fn<typeof global.fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        supported: true,
+        sourceName: 'funda',
+        rawUrl: submittedUrl,
+        canonicalUrl,
+        sourceListingId: submittedId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [
+          { kind: 'tiny_id', value: submittedId },
+          { kind: 'detail_id', value: submittedId },
+        ],
+        listingPath: `/detail/${submittedId}/`,
+        reasonCode: null,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        state: 'matched',
+        sourceName: 'funda',
+        rawUrl: submittedUrl,
+        canonicalUrl,
+        sourceListingId: submittedId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [
+          { kind: 'tiny_id', value: submittedId },
+          { kind: 'detail_id', value: submittedId },
+        ],
+        sourceStatus: 'available',
+        matchedPropertyEvidence: {
+          propertyId: property.id,
+          matchKind: 'source_exact',
+        },
+        title: 'Read state listing submit',
+      }));
+    sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
+    global.fetch = mockFetchFn;
 
     const response = await app.inject({
       method: 'POST',
       url: '/listings/submit',
       headers: { authorization: `Bearer ${user.accessToken}` },
       payload: {
-        url: `https://www.funda.nl/detail/koop/eindhoven/huis-read-state/${submittedId}/`,
+        url: submittedUrl,
         propertyId: property.id,
         ogTitle: 'Read state listing submit',
+        description: 'Read state listing description',
+        thumbnailUrl: 'https://cdn.example.com/read-state-listing.jpg',
       },
     });
 
     expect(response.statusCode).toBe(201);
     expect(await changeVersion(property.id)).toBe(initial + 1);
+    expect(mockFetchFn).toHaveBeenCalledTimes(2);
   });
 
   it('advances on ingest listing writes and price history inserts', async () => {

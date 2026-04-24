@@ -1,8 +1,22 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { buildListingPreviewPlan } from '../../services/listing-source-resolution.js';
+import { config } from '../../config.js';
+import {
+  buildListingPreviewPlan,
+  resolveListingSourceUrl,
+  SourceServiceTemporaryError,
+} from '../../services/listing-source-resolution.js';
 
 const originalFetch = global.fetch;
 let mockFetchFn: jest.Mock<typeof global.fetch>;
+type MutableSourceServices = {
+  fundaApiKey: string;
+  parariusApiKey: string;
+};
+const sourceServicesConfig = config.sourceServices as MutableSourceServices;
+const originalSourceServiceKeys = {
+  fundaApiKey: config.sourceServices.fundaApiKey,
+  parariusApiKey: config.sourceServices.parariusApiKey,
+};
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -23,7 +37,21 @@ afterAll(() => {
 
 beforeEach(() => {
   mockFetchFn.mockReset();
+  sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
+  sourceServicesConfig.parariusApiKey = 'test-pararius-source-service-key';
 });
+
+afterAll(() => {
+  sourceServicesConfig.fundaApiKey = originalSourceServiceKeys.fundaApiKey;
+  sourceServicesConfig.parariusApiKey = originalSourceServiceKeys.parariusApiKey;
+});
+
+function expectSourceServiceAuthHeader(callIndex: number, token: string): void {
+  const init = mockFetchFn.mock.calls[callIndex]?.[1] as RequestInit | undefined;
+  const headers = new Headers(init?.headers);
+  expect(headers.get('content-type')).toBe('application/json');
+  expect(headers.get('authorization')).toBe(`Bearer ${token}`);
+}
 
 describe('buildListingPreviewPlan', () => {
   const property = {
@@ -100,6 +128,42 @@ describe('buildListingPreviewPlan', () => {
       propertyMatchKind: 'source_exact',
       sourceStatus: 'available',
     });
+    expectSourceServiceAuthHeader(0, 'test-funda-source-service-key');
+    expectSourceServiceAuthHeader(1, 'test-funda-source-service-key');
+  });
+
+  it('returns a provisional backed-service plan when the source-service API key is missing', async () => {
+    sourceServicesConfig.fundaApiKey = '';
+
+    await expect(resolveListingSourceUrl(
+      'https://www.funda.nl/detail/koop/eindhoven/huis-beeldbuisring-61/89779872/',
+      'funda',
+    )).rejects.toThrow(SourceServiceTemporaryError);
+    await expect(resolveListingSourceUrl(
+      'https://www.funda.nl/detail/koop/eindhoven/huis-beeldbuisring-61/89779872/',
+      'funda',
+    )).rejects.toThrow('FUNDA_SOURCE_SERVICE_API_KEY');
+
+    const plan = await buildListingPreviewPlan({
+      rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-beeldbuisring-61/89779872/',
+      property,
+      display: {
+        title: 'Fallback title',
+        priceType: 'sale',
+      },
+    });
+
+    expect(plan).toMatchObject({
+      sourceName: 'funda',
+      canonicalUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-beeldbuisring-61/89779872/',
+      sourceListingId: null,
+      validationState: 'provisional',
+      matchState: 'unverified',
+      watchState: 'will_enqueue',
+      reasonCode: 'mirror_unavailable',
+      title: 'Fallback title',
+    });
+    expect(mockFetchFn).not.toHaveBeenCalled();
   });
 
   it('returns an unsupported response for Pararius id-style URLs', async () => {
@@ -125,6 +189,7 @@ describe('buildListingPreviewPlan', () => {
       reasonCode: 'source_not_supported',
     });
     expect(mockFetchFn).toHaveBeenCalledTimes(1);
+    expectSourceServiceAuthHeader(0, 'test-pararius-source-service-key');
   });
 
   it('returns a provisional plan with a watch when validation fails temporarily', async () => {
@@ -159,5 +224,7 @@ describe('buildListingPreviewPlan', () => {
       reasonCode: 'mirror_unavailable',
       sourceStatus: 'unknown',
     });
+    expectSourceServiceAuthHeader(0, 'test-pararius-source-service-key');
+    expectSourceServiceAuthHeader(1, 'test-pararius-source-service-key');
   });
 });

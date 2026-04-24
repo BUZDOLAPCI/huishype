@@ -78,6 +78,55 @@ describe('Auth routes', () => {
       expect(secondBody.session.user.id).not.toBe(firstBody.session.user.id);
     });
 
+    it('should retry user creation when generated usernames collide', async () => {
+      const randomValues = [
+        0, 0, 0, // First user: happyhuis0
+        0, 0, 0, // Second user first attempt: same username
+        0.2, 0.2, 0.2, // Second user retry: different username
+      ];
+      const randomSpy = jest
+        .spyOn(Math, 'random')
+        .mockImplementation(() => randomValues.shift() ?? 0.2);
+
+      const buildStructuredToken = (label: string) =>
+        `mock-google:${Buffer.from(
+          JSON.stringify({
+            email: `${label}@gmail.com`,
+            googleId: `gid-${label}`,
+            name: label,
+          }),
+          'utf8',
+        ).toString('base64url')}`;
+
+      try {
+        const firstToken = buildStructuredToken(`username-collision-${Date.now()}-a`);
+        const secondToken = buildStructuredToken(`username-collision-${Date.now()}-b`);
+
+        const firstResponse = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: { idToken: firstToken },
+        });
+        expect(firstResponse.statusCode).toBe(200);
+        const firstBody = JSON.parse(firstResponse.body);
+        testUserIds.push(firstBody.session.user.id);
+
+        const secondResponse = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: { idToken: secondToken },
+        });
+        expect(secondResponse.statusCode).toBe(200);
+        const secondBody = JSON.parse(secondResponse.body);
+        testUserIds.push(secondBody.session.user.id);
+
+        expect(secondBody.session.user.id).not.toBe(firstBody.session.user.id);
+        expect(secondBody.session.user.username).not.toBe(firstBody.session.user.username);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
+
     it('should create a new user with mock token and return session', async () => {
       const uniqueId = `authtest${Date.now()}`;
       const response = await app.inject({

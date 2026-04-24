@@ -41,7 +41,7 @@ export type UnsupportedListingSourceResolution = {
 
 export type ListingSourceResolution = SupportedListingSourceResolution | UnsupportedListingSourceResolution;
 
-type ListingValidationState =
+export type ListingValidationState =
   | 'matched'
   | 'not_found'
   | 'blocked'
@@ -164,7 +164,7 @@ const listingValidationResponseSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 
-type ListingValidationResponse = z.infer<typeof listingValidationResponseSchema>;
+export type ListingValidationResponse = z.infer<typeof listingValidationResponseSchema>;
 type PreviewReasonCode =
   | 'source_identity_match'
   | 'address_match'
@@ -218,7 +218,7 @@ export type BuildListingPreviewPlanInput = {
   };
 };
 
-type SourceServiceValidateInput = {
+export type SourceServiceValidateInput = {
   watchId?: string | null;
   sourceName: ListingSourceName;
   rawUrl: string;
@@ -229,7 +229,7 @@ type SourceServiceValidateInput = {
   property: PropertyValidationContext;
 };
 
-class SourceServiceTemporaryError extends Error {}
+export class SourceServiceTemporaryError extends Error {}
 
 function uniqueAliases(aliases: readonly ListingSourceAlias[]): ListingSourceAlias[] {
   const seen = new Set<string>();
@@ -250,7 +250,7 @@ function detectSourceName(rawUrl: string): string {
   }
 }
 
-function isSourceServiceBacked(sourceName: string): sourceName is ListingSourceName {
+export function isSourceServiceBacked(sourceName: string): sourceName is ListingSourceName {
   return sourceName === 'funda' || sourceName === 'pararius';
 }
 
@@ -260,17 +260,37 @@ function getSourceServiceBaseUrl(sourceName: ListingSourceName): string {
     : config.sourceServices.parariusBaseUrl;
 }
 
+function getSourceServiceApiKey(sourceName: ListingSourceName): string {
+  return sourceName === 'funda'
+    ? config.sourceServices.fundaApiKey.trim()
+    : config.sourceServices.parariusApiKey.trim();
+}
+
+function getSourceServiceAuthHeaders(apiKey: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${apiKey}`,
+  };
+}
+
 async function postJson<T>(
   sourceName: ListingSourceName,
   pathname: string,
   body: Record<string, unknown>,
   schema: z.ZodSchema<T>,
 ): Promise<T> {
+  const apiKey = getSourceServiceApiKey(sourceName);
+  if (!apiKey) {
+    throw new SourceServiceTemporaryError(
+      `Source service API key is not configured for ${sourceName}; set ${sourceName.toUpperCase()}_SOURCE_SERVICE_API_KEY`,
+    );
+  }
+
   let response: Response;
   try {
     response = await fetch(`${getSourceServiceBaseUrl(sourceName)}${pathname}`, {
       method: 'POST',
       headers: {
+        ...getSourceServiceAuthHeaders(apiKey),
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),

@@ -13,11 +13,21 @@ import {
   type ListingObservation,
   type NewListingObservation,
 } from '../db/index.js';
+import { createMaintenanceRefreshRequest } from './ingest/store.js';
 import type {
   ListingPreviewPlan,
   ListingSourceAddress,
   ListingSourceAlias,
+  ListingSourceName,
+  ListingValidationResponse,
 } from './listing-source-resolution.js';
+import {
+  isSourceServiceBacked,
+  resolveListingSourceUrl,
+  SourceServiceTemporaryError,
+  validateListingSource,
+} from './listing-source-resolution.js';
+import { advancePropertyChangeVersion } from './property-read-state.js';
 
 type ReconciliationDb = typeof db | DbTransaction;
 
@@ -28,6 +38,27 @@ type StatusSource = CanonicalListing['statusSource'];
 
 type WatchState = 'not_required' | 'will_enqueue' | 'unsupported';
 type SourceListingIdKind = NonNullable<NewListingObservation['sourceListingIdKind']>;
+type MirrorListingWatchState =
+  | 'pending'
+  | 'queued'
+  | 'fetching'
+  | 'matched'
+  | 'not_found'
+  | 'blocked'
+  | 'invalid'
+  | 'parser_error'
+  | 'unsupported'
+  | 'retryable_error';
+type TerminalListingValidationState = Exclude<ListingValidationOutcomeInput['state'], 'retryable_error'>;
+
+export const FINAL_LISTING_VALIDATION_STATES = [
+  'matched',
+  'not_found',
+  'blocked',
+  'invalid',
+  'parser_error',
+  'unsupported',
+] as const satisfies readonly TerminalListingValidationState[];
 
 export type ListingSourceStatus = ListingObservation['sourceStatus'];
 
@@ -98,6 +129,54 @@ export type ListingValidationOutcomeInput = {
   lastSeenAt?: string | null;
   sourceUpdatedAt?: string | null;
   payload?: Record<string, unknown>;
+};
+
+export type ClaimedListingValidationWatch = {
+  id: string;
+  sourceName: string;
+  propertyId: string;
+  sourceUrlRaw: string;
+  sourceUrlCanonical: string;
+  sourceListingId: string | null;
+  attemptCount: number;
+  property: {
+    id: string;
+    countryCode: string;
+    street: string;
+    postalCode: string;
+    houseNumber: number;
+    houseNumberAddition: string | null;
+    city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  };
+};
+
+export type ListingValidationWatchProcessResult =
+  | {
+      watchId: string;
+      outcome: 'terminal';
+      state: TerminalListingValidationState;
+      canonicalListingId: string;
+      observationId: string;
+      propertyId: string;
+      sourceName: string;
+      maintenanceBatchId: string;
+    }
+  | {
+      watchId: string;
+      outcome: 'retryable';
+      state: 'retryable_error';
+      attemptCount: number;
+      nextAttemptAt: Date;
+      error: string;
+    };
+
+export type ListingValidationWatchSweepSummary = {
+  claimedCount: number;
+  terminalCount: number;
+  retryableCount: number;
+  results: ListingValidationWatchProcessResult[];
 };
 
 export type PersistMirrorObservationForIngestInput = {
@@ -603,6 +682,352 @@ export async function createOrUpdateMirrorWatch(
     throw new Error('Mirror listing watch upsert did not return a row');
   }
   return row;
+}
+
+function isTerminalValidationState(state: string): state is TerminalListingValidationState {
+  return FINAL_LISTING_VALIDATION_STATES.includes(state as TerminalListingValidationState);
+}
+
+function retryMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.slice(0, 2_000);
+  }
+  return String(error).slice(0, 2_000);
+}
+
+function retryDelayFromAttempt(attemptCount: number): number {
+  const baseDelayMs = 5 * 60_000;
+  const maxDelayMs = 6 * 60 * 60_000;
+  const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
+  return Math.min(baseDelayMs * 2 ** exponent, maxDelayMs);
+}
+
+function nextRetryAt(
+  attemptCount: number,
+  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
+): Date {
+  const now = options?.now ?? new Date();
+  const delayMs = options?.retryDelayMs?.(attemptCount) ?? retryDelayFromAttempt(attemptCount);
+  return new Date(now.getTime() + delayMs);
+}
+
+function validationRetryReason(validation: ListingValidationResponse): string {
+  return validation.reasonCode ?? 'source service returned retryable_error';
+}
+
+export async function claimDueListingValidationWatches(
+  limit: number,
+  executor?: ReconciliationDb,
+): Promise<ClaimedListingValidationWatch[]> {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return [];
+  }
+
+  const rows = await targetDb(executor).execute<ClaimedListingValidationWatch>(sql`
+    WITH due AS (
+      SELECT w.id
+      FROM mirror_listing_watches w
+      WHERE w.state IN ('pending', 'queued', 'retryable_error')
+        AND (w.next_attempt_at IS NULL OR w.next_attempt_at <= now())
+      ORDER BY COALESCE(w.next_attempt_at, w.created_at), w.created_at, w.id
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    ),
+    claimed AS (
+      UPDATE mirror_listing_watches w
+      SET
+        state = 'fetching'::mirror_listing_watch_state,
+        attempt_count = w.attempt_count + 1,
+        last_attempt_at = now(),
+        last_error = NULL,
+        updated_at = now()
+      FROM due
+      WHERE w.id = due.id
+      RETURNING
+        w.id,
+        w.source_name AS "sourceName",
+        w.property_id AS "propertyId",
+        w.source_url_raw AS "sourceUrlRaw",
+        w.source_url_canonical AS "sourceUrlCanonical",
+        w.source_listing_id AS "sourceListingId",
+        w.attempt_count AS "attemptCount"
+    )
+    SELECT
+      claimed.id,
+      claimed."sourceName",
+      claimed."propertyId",
+      claimed."sourceUrlRaw",
+      claimed."sourceUrlCanonical",
+      claimed."sourceListingId",
+      claimed."attemptCount",
+      json_build_object(
+        'id', p.id,
+        'countryCode', p.country_code,
+        'street', p.street,
+        'postalCode', p.postal_code,
+        'houseNumber', p.house_number,
+        'houseNumberAddition', p.house_number_addition,
+        'city', p.city,
+        'latitude', CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END,
+        'longitude', CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END
+      ) AS property
+    FROM claimed
+    INNER JOIN properties p ON p.id = claimed."propertyId"
+    ORDER BY claimed.id
+  `);
+
+  return Array.from(rows);
+}
+
+export async function markListingValidationWatchRetryable(
+  input: {
+    watchId: string;
+    error: string;
+    nextAttemptAt: Date;
+    sourceListingId?: string | null;
+    canonicalUrl?: string | null;
+  },
+  executor?: ReconciliationDb,
+): Promise<{ id: string; state: MirrorListingWatchState; attemptCount: number; nextAttemptAt: Date }> {
+  const rows = await targetDb(executor).execute<{
+    id: string;
+    state: MirrorListingWatchState;
+    attemptCount: number;
+    nextAttemptAt: Date;
+  }>(sql`
+    UPDATE mirror_listing_watches
+    SET
+      state = 'retryable_error'::mirror_listing_watch_state,
+      source_url_canonical = COALESCE(${input.canonicalUrl ?? null}, source_url_canonical),
+      source_listing_id = COALESCE(${input.sourceListingId ?? null}, source_listing_id),
+      last_error = ${input.error.slice(0, 2_000)},
+      next_attempt_at = ${input.nextAttemptAt.toISOString()}::timestamptz,
+      updated_at = now()
+    WHERE id = ${input.watchId}
+      AND state NOT IN ('matched', 'not_found', 'blocked', 'invalid', 'parser_error', 'unsupported')
+    RETURNING
+      id,
+      state,
+      attempt_count AS "attemptCount",
+      next_attempt_at AS "nextAttemptAt"
+  `);
+
+  const row = Array.from(rows)[0];
+  if (!row) {
+    throw new Error(`Mirror listing watch ${input.watchId} not found or already terminal`);
+  }
+  return row;
+}
+
+async function applyTerminalListingValidationOutcome(
+  outcome: ListingValidationOutcomeInput & { state: TerminalListingValidationState },
+): Promise<Extract<ListingValidationWatchProcessResult, { outcome: 'terminal' }>> {
+  const applied = await db.transaction(async (tx) => {
+    const result = await applyListingValidationOutcome(tx, outcome);
+    await advancePropertyChangeVersion(result.canonicalListing.propertyId, tx);
+    const maintenance = await createMaintenanceRefreshRequest(tx, {
+      sourceName: outcome.sourceName,
+      requestedBy: 'validation-outcome',
+      idempotencyKey: `validation-outcome:${outcome.watchId}:${result.observationId}`,
+      payload: {
+        watchId: outcome.watchId,
+        canonicalListingId: result.canonicalListing.id,
+        observationId: result.observationId,
+        state: outcome.state,
+        requestedByWorker: true,
+      },
+    });
+
+    return {
+      result,
+      maintenance,
+    };
+  });
+
+  return {
+    watchId: outcome.watchId,
+    outcome: 'terminal',
+    state: outcome.state,
+    canonicalListingId: applied.result.canonicalListing.id,
+    observationId: applied.result.observationId,
+    propertyId: applied.result.canonicalListing.propertyId,
+    sourceName: outcome.sourceName,
+    maintenanceBatchId: applied.maintenance.batchId,
+  };
+}
+
+async function markClaimedWatchRetryable(
+  watch: ClaimedListingValidationWatch,
+  error: unknown,
+  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
+  canonicalUrl?: string | null,
+  sourceListingId?: string | null,
+): Promise<Extract<ListingValidationWatchProcessResult, { outcome: 'retryable' }>> {
+  const message = retryMessage(error);
+  const nextAttemptAt = nextRetryAt(watch.attemptCount, options);
+  const updated = await markListingValidationWatchRetryable({
+    watchId: watch.id,
+    error: message,
+    nextAttemptAt,
+    canonicalUrl,
+    sourceListingId,
+  });
+
+  return {
+    watchId: watch.id,
+    outcome: 'retryable',
+    state: 'retryable_error',
+    attemptCount: updated.attemptCount,
+    nextAttemptAt: updated.nextAttemptAt,
+    error: message,
+  };
+}
+
+async function processClaimedListingValidationWatch(
+  watch: ClaimedListingValidationWatch,
+  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
+): Promise<ListingValidationWatchProcessResult> {
+  if (!isSourceServiceBacked(watch.sourceName)) {
+    return applyTerminalListingValidationOutcome({
+      watchId: watch.id,
+      state: 'unsupported',
+      sourceName: watch.sourceName,
+      rawUrl: watch.sourceUrlRaw,
+      canonicalUrl: watch.sourceUrlCanonical,
+      sourceListingId: watch.sourceListingId,
+      sourceListingIdKind: watch.sourceListingId ? 'unknown' : null,
+      aliases: [],
+      sourceStatus: 'unknown',
+      matchedPropertyEvidence: {
+        propertyId: watch.propertyId,
+        matchKind: 'source_unmatched',
+      },
+      payload: {
+        reasonCode: 'source_not_supported',
+      },
+    });
+  }
+
+  let resolution;
+  try {
+    resolution = await resolveListingSourceUrl(watch.sourceUrlRaw, watch.sourceName);
+  } catch (error) {
+    if (error instanceof SourceServiceTemporaryError) {
+      return markClaimedWatchRetryable(watch, error, options);
+    }
+    throw error;
+  }
+
+  if (!resolution.supported) {
+    return applyTerminalListingValidationOutcome({
+      watchId: watch.id,
+      state: 'unsupported',
+      sourceName: resolution.sourceName,
+      rawUrl: resolution.rawUrl,
+      canonicalUrl: watch.sourceUrlCanonical,
+      sourceListingId: watch.sourceListingId,
+      sourceListingIdKind: watch.sourceListingId ? 'unknown' : null,
+      aliases: [],
+      sourceStatus: 'unknown',
+      matchedPropertyEvidence: {
+        propertyId: watch.propertyId,
+        matchKind: 'source_unmatched',
+      },
+      payload: {
+        reasonCode: resolution.reasonCode,
+      },
+    });
+  }
+
+  let validation;
+  try {
+    validation = await validateListingSource({
+      watchId: null,
+      sourceName: resolution.sourceName as ListingSourceName,
+      rawUrl: watch.sourceUrlRaw,
+      canonicalUrl: resolution.canonicalUrl,
+      sourceListingId: resolution.sourceListingId,
+      sourceListingIdKind: resolution.sourceListingIdKind,
+      aliases: resolution.aliases,
+      property: watch.property,
+    });
+  } catch (error) {
+    if (error instanceof SourceServiceTemporaryError) {
+      return markClaimedWatchRetryable(
+        watch,
+        error,
+        options,
+        resolution.canonicalUrl,
+        resolution.sourceListingId,
+      );
+    }
+    throw error;
+  }
+
+  if (validation.state === 'retryable_error') {
+    return markClaimedWatchRetryable(
+      watch,
+      validationRetryReason(validation),
+      options,
+      validation.canonicalUrl || resolution.canonicalUrl,
+      validation.sourceListingId ?? resolution.sourceListingId,
+    );
+  }
+
+  if (!isTerminalValidationState(validation.state)) {
+    return markClaimedWatchRetryable(
+      watch,
+      `Unexpected validation state: ${validation.state}`,
+      options,
+      validation.canonicalUrl || resolution.canonicalUrl,
+      validation.sourceListingId ?? resolution.sourceListingId,
+    );
+  }
+
+  return applyTerminalListingValidationOutcome({
+    watchId: watch.id,
+    state: validation.state,
+    sourceName: validation.sourceName,
+    rawUrl: validation.rawUrl,
+    canonicalUrl: validation.canonicalUrl || resolution.canonicalUrl,
+    sourceListingId: validation.sourceListingId ?? resolution.sourceListingId,
+    sourceListingIdKind: validation.sourceListingIdKind ?? resolution.sourceListingIdKind,
+    aliases: validation.aliases ?? resolution.aliases,
+    sourceStatus: validation.sourceStatus,
+    address: validation.address,
+    matchedPropertyEvidence: validation.matchedPropertyEvidence,
+    price: validation.price,
+    currency: validation.currency,
+    thumbnailUrl: validation.thumbnailUrl,
+    title: validation.title,
+    description: validation.description,
+    firstSeenAt: validation.firstSeenAt,
+    lastSeenAt: validation.lastSeenAt,
+    sourceUpdatedAt: validation.sourceUpdatedAt,
+    payload: validation.payload,
+  });
+}
+
+export async function processDueListingValidationWatches(
+  options: {
+    limit: number;
+    now?: Date;
+    retryDelayMs?: (attemptCount: number) => number;
+  },
+): Promise<ListingValidationWatchSweepSummary> {
+  const claimed = await claimDueListingValidationWatches(options.limit);
+  const results: ListingValidationWatchProcessResult[] = [];
+
+  for (const watch of claimed) {
+    results.push(await processClaimedListingValidationWatch(watch, options));
+  }
+
+  return {
+    claimedCount: claimed.length,
+    terminalCount: results.filter((result) => result.outcome === 'terminal').length,
+    retryableCount: results.filter((result) => result.outcome === 'retryable').length,
+    results,
+  };
 }
 
 export async function createUserListingSubmission(

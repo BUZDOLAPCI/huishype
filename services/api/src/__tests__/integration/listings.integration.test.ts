@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { config } from '../../config.js';
 import { db, ingestBatches, listings } from '../../db/index.js';
 import { canonicalListings, mirrorListingWatches, users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
@@ -18,6 +19,11 @@ import {
  * database while mocking the external source-service boundary.
  */
 describe('Listing routes', () => {
+  type MutableSourceServices = {
+    fundaApiKey: string;
+    parariusApiKey: string;
+  };
+
   let app: FastifyInstance;
   let testPropertyId: string;
   let otherPropertyId: string;
@@ -26,6 +32,11 @@ describe('Listing routes', () => {
   const legacyListingIds: string[] = [];
   const originalFetch = global.fetch;
   const originalIngestApiKey = process.env.INGEST_API_KEY;
+  const sourceServicesConfig = config.sourceServices as MutableSourceServices;
+  const originalSourceServiceKeys = {
+    fundaApiKey: config.sourceServices.fundaApiKey,
+    parariusApiKey: config.sourceServices.parariusApiKey,
+  };
   let mockFetchFn: jest.Mock<typeof global.fetch>;
 
   function jsonResponse(body: unknown, status = 200): Response {
@@ -47,6 +58,8 @@ describe('Listing routes', () => {
 
   beforeAll(async () => {
     process.env.INGEST_API_KEY = 'test-ingest-api-key';
+    sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
+    sourceServicesConfig.parariusApiKey = 'test-pararius-source-service-key';
     mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
     global.fetch = mockFetchFn;
     app = await buildApp({ logger: false });
@@ -147,6 +160,8 @@ describe('Listing routes', () => {
 
     global.fetch = originalFetch;
     process.env.INGEST_API_KEY = originalIngestApiKey;
+    sourceServicesConfig.fundaApiKey = originalSourceServiceKeys.fundaApiKey;
+    sourceServicesConfig.parariusApiKey = originalSourceServiceKeys.parariusApiKey;
     await app.close();
   });
 
