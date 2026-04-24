@@ -99,10 +99,10 @@ export interface UseMapInteractionReturn {
   // ── Auth modal ──────────────────────────────────────────────
   showAuthModal: boolean;
   authCopy: ResolvedAuthModalCopy;
-  handleAuthRequired: (copy?: AuthModalCopyInput) => void;
+  handleAuthRequired: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
   handleAuthModalClose: () => void;
   handleAuthSuccess: () => void;
-  /** Dismiss bottom sheet + clear selection before auth flow starts (prevents crash). */
+  /** Called when the user chooses an auth method. */
   handleAuthStarting: () => void;
   /** Clear transient preview/auth UI when the map surface loses focus. */
   resetTransientUI: () => void;
@@ -581,32 +581,52 @@ export function useMapInteraction(): UseMapInteractionReturn {
     () => resolveAuthModalCopy('Sign in to continue'),
     [],
   );
+  const pendingAuthSuccessRef = useRef<(() => void) | null>(null);
+  const latestToggleLikeRef = useRef<() => void>(() => {});
+  const latestToggleSaveRef = useRef<() => Promise<void> | void>(() => {});
 
-  const handleAuthRequired = useCallback((copy?: AuthModalCopyInput) => {
+  const handleAuthRequired = useCallback((
+    copy?: AuthModalCopyInput,
+    onAuthenticated?: () => void,
+  ) => {
+    pendingAuthSuccessRef.current = onAuthenticated ?? null;
     setAuthCopy(resolveAuthModalCopy(copy, defaultAuthCopy));
     setShowAuthModal(true);
   }, [defaultAuthCopy]);
 
   const { isLiked, toggleLike } = usePropertyLike({
     propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to like this property'),
+    onAuthRequired: () => handleAuthRequired('Sign in to like this property', () => {
+      latestToggleLikeRef.current();
+    }),
   });
 
   const { isSaved, toggleSave } = usePropertySave({
     propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to save this property'),
+    onAuthRequired: () => handleAuthRequired('Sign in to save this property', () => {
+      void latestToggleSaveRef.current();
+    }),
   });
+
+  latestToggleLikeRef.current = toggleLike;
+  latestToggleSaveRef.current = toggleSave;
 
   // ── Auth modal ──────────────────────────────────────────────
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authCopy, setAuthCopy] = useState(defaultAuthCopy);
 
   const handleAuthModalClose = useCallback(() => {
+    pendingAuthSuccessRef.current = null;
     setShowAuthModal(false);
   }, []);
 
   const handleAuthSuccess = useCallback(() => {
+    const pendingAction = pendingAuthSuccessRef.current;
+    pendingAuthSuccessRef.current = null;
     setShowAuthModal(false);
+    if (pendingAction) {
+      setTimeout(pendingAction, 0);
+    }
   }, []);
 
   const clearPreviewSelection = useCallback(() => {
@@ -652,11 +672,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     }
   }, []);
 
-  // Dismiss bottom sheet + clear selection before auth flow starts.
-  // Prevents Reanimated/GestureDetector crash in PriceGuessSlider.
-  const handleAuthStarting = useCallback(() => {
-    resetTransientUI();
-  }, [resetTransientUI]);
+  const handleAuthStarting = useCallback(() => {}, []);
 
   // ── Quick-action handlers ───────────────────────────────────
   const handleLike = useCallback((_property?: string | GroupPreviewProperty | null) => {

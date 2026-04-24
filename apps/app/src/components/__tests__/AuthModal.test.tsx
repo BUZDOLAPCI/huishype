@@ -180,6 +180,34 @@ describe('AuthModal', () => {
       });
     });
 
+    it('keeps the modal open while Google sign in is still pending', async () => {
+      let resolveSignIn: () => void = () => {};
+      mockSignInWithGoogle.mockImplementation(
+        () => new Promise<void>((resolve) => {
+          resolveSignIn = resolve;
+        })
+      );
+      const onSuccess = jest.fn();
+      const { getByLabelText } = render(
+        <AuthModal {...defaultProps} onSuccess={onSuccess} />
+      );
+
+      fireEvent.press(getByLabelText('Sign in with Google'));
+
+      await waitFor(() => {
+        expect(mockSignInWithGoogle).toHaveBeenCalledTimes(1);
+      });
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+      expect(onSuccess).not.toHaveBeenCalled();
+
+      resolveSignIn?.();
+
+      await waitFor(() => {
+        expect(onSuccess).toHaveBeenCalledTimes(1);
+        expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('does not call onSuccess when sign in fails', async () => {
       mockSignInWithGoogle.mockRejectedValue(new Error('Sign in failed'));
       const onSuccess = jest.fn();

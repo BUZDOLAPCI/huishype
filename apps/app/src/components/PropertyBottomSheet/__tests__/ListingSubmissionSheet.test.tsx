@@ -301,6 +301,87 @@ describe('ListingSubmissionSheet', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves preview state and submits after successful login', async () => {
+    mockAuthContext = {
+      accessToken: null,
+      user: null,
+      isAuthenticated: false,
+    };
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          canonicalUrl: null,
+          sourceListingId: '12345',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'valid',
+          matchState: 'matched',
+          watchState: 'not_required',
+          reasonCode: 'source_identity_match',
+          title: 'Example Listing',
+          description: null,
+          imageUrl: 'https://cdn.example.com/thumb.jpg',
+          askingPrice: null,
+          priceType: 'unknown',
+          currency: null,
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'listing-1',
+          verificationState: 'validated',
+        }),
+      } as Response);
+
+    const onAuthRequired = jest.fn();
+    const props = {
+      propertyId: '11111111-1111-4111-8111-111111111111',
+      visible: true,
+      onClose: jest.fn(),
+      onSubmitted: jest.fn(),
+      onAuthRequired,
+    };
+    const { rerender } = render(<ListingSubmissionSheet {...props} />);
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://www.funda.nl/koop/eindhoven/huis-12345/'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Confirm & Add Listing');
+    fireEvent.press(screen.getByText('Confirm & Add Listing'));
+
+    expect(onAuthRequired).toHaveBeenCalledWith('Sign in to add this listing');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    mockAuthContext = {
+      accessToken: 'fresh-access-token',
+      user: { id: 'user-1' },
+      isAuthenticated: true,
+    };
+    rerender(<ListingSubmissionSheet {...props} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    const [submitUrl, submitOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
+    expect(submitUrl).toBe('http://localhost:3100/listings/submit');
+    expect(submitOptions.headers).toMatchObject({
+      Authorization: 'Bearer fresh-access-token',
+    });
+  });
+
   it('shows fallback confirmation content when preview title and image are missing', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

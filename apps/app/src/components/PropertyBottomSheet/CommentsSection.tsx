@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
@@ -27,6 +27,10 @@ export function CommentsSection({
   const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const [showAllComments, setShowAllComments] = useState(false);
+  const [pendingSubmitAfterAuth, setPendingSubmitAfterAuth] = useState<{
+    content: string;
+    parentId?: string;
+  } | null>(null);
 
   const { isAuthenticated } = useAuthContext();
 
@@ -91,15 +95,10 @@ export function CommentsSection({
   }, []);
 
   // Handle submit
-  const handleSubmit = useCallback(
-    (content: string) => {
-      if (!isAuthenticated) {
-        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
-        return;
-      }
-
+  const submitComment = useCallback(
+    (content: string, parentId?: string) => {
       submitMutation.mutate(
-        { content, parentId: replyTo?.id },
+        { content, parentId },
         {
           onSuccess: () => {
             setReplyTo(null);
@@ -107,8 +106,32 @@ export function CommentsSection({
         }
       );
     },
-    [isAuthenticated, onAuthRequired, replyTo?.id, submitMutation]
+    [submitMutation]
   );
+
+  const handleSubmit = useCallback(
+    (content: string) => {
+      if (!isAuthenticated) {
+        setPendingSubmitAfterAuth({ content, parentId: replyTo?.id });
+        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
+        return false;
+      }
+
+      submitComment(content, replyTo?.id);
+      return true;
+    },
+    [isAuthenticated, onAuthRequired, replyTo?.id, submitComment]
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || !pendingSubmitAfterAuth) {
+      return;
+    }
+
+    const pending = pendingSubmitAfterAuth;
+    setPendingSubmitAfterAuth(null);
+    submitComment(pending.content, pending.parentId);
+  }, [isAuthenticated, pendingSubmitAfterAuth, submitComment]);
 
   // Handle sort change
   const handleSortChange = useCallback((newSort: CommentSortBy) => {

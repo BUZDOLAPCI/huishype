@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -76,6 +76,7 @@ export function PriceGuessSection({
   const { user, isAuthenticated } = useAuth();
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number | null>(null);
+  const [pendingPriceAfterAuth, setPendingPriceAfterAuth] = useState<number | null>(null);
 
   const {
     data: guessData,
@@ -88,6 +89,7 @@ export function PriceGuessSection({
   const handleGuessSubmit = useCallback(
     async (price: number) => {
       if (!isAuthenticated) {
+        setPendingPriceAfterAuth(price);
         onLoginRequired?.(LOGIN_REQUIRED_COPY);
         return;
       }
@@ -112,6 +114,16 @@ export function PriceGuessSection({
     },
     [isAuthenticated, onLoginRequired, property.id, refetch, submitGuess]
   );
+
+  useEffect(() => {
+    if (!isAuthenticated || pendingPriceAfterAuth === null) {
+      return;
+    }
+
+    const pendingPrice = pendingPriceAfterAuth;
+    setPendingPriceAfterAuth(null);
+    void handleGuessSubmit(pendingPrice);
+  }, [handleGuessSubmit, isAuthenticated, pendingPriceAfterAuth]);
 
   const fmvData: FMVData | null =
     guessData?.fmv && guessData.fmv.fmv !== null && guessData.fmv.guessCount > 0

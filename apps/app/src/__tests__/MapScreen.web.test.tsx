@@ -932,9 +932,12 @@ describe('MapScreen web grouped Following mode', () => {
 
     expect(capturedMapFilterBarProps?.socialScope).toBe('all');
     expect(container.querySelector('[data-testid="map-following-state-signed-out"]')).toBeNull();
-    expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith({
-      subtitle: 'Sign in to see homes with activity from people you follow.',
-    });
+    expect(mockInteraction.handleAuthRequired).toHaveBeenCalledWith(
+      {
+        subtitle: 'Sign in to see homes with activity from people you follow.',
+      },
+      expect.any(Function),
+    );
   });
 
   it('does not passively rewrite the browser URL while a non-map tab is active', async () => {

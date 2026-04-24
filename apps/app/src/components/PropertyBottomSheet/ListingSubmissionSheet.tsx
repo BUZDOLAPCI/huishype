@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -241,6 +241,7 @@ export function ListingSubmissionSheet({
   const [submitResult, setSubmitResult] = useState<ListingSubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [pendingSubmitAfterAuth, setPendingSubmitAfterAuth] = useState(false);
 
   const { accessToken, isAuthenticated } = useAuthContext();
   const previewCanSubmit = previewData ? canSubmitPreview(previewData) : false;
@@ -264,6 +265,7 @@ export function ListingSubmissionSheet({
     setSubmitResult(null);
     setError(null);
     setIsLoadingPreview(false);
+    setPendingSubmitAfterAuth(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -319,7 +321,8 @@ export function ListingSubmissionSheet({
 
   const handleSubmit = useCallback(async () => {
     if (!isAuthenticated) {
-      onAuthRequired?.();
+      setPendingSubmitAfterAuth(true);
+      onAuthRequired?.('Sign in to add this listing');
       return;
     }
 
@@ -352,7 +355,8 @@ export function ListingSubmissionSheet({
           .json()
           .catch(() => ({ message: 'Failed to submit listing' }));
         if (response.status === 401) {
-          onAuthRequired?.();
+          setPendingSubmitAfterAuth(true);
+          onAuthRequired?.('Sign in to add this listing');
           setStep('preview');
           return;
         }
@@ -385,6 +389,15 @@ export function ListingSubmissionSheet({
     onSubmitted,
     reset,
   ]);
+
+  useEffect(() => {
+    if (!pendingSubmitAfterAuth || !isAuthenticated) {
+      return;
+    }
+
+    setPendingSubmitAfterAuth(false);
+    void handleSubmit();
+  }, [handleSubmit, isAuthenticated, pendingSubmitAfterAuth]);
 
   const handleBack = useCallback(() => {
     setStep('input');

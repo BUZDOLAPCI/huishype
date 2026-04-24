@@ -111,6 +111,7 @@ export function AuthModal({
   onAuthStarting,
 }: AuthModalProps) {
   const {
+    isAuthenticated,
     signInWithGoogle,
     signInWithMockToken,
     requestEmailLink,
@@ -127,6 +128,8 @@ export function AuthModal({
   const reducedMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
   const visibleRef = useRef(visible);
+  const authAttemptStartedRef = useRef(false);
+  const successHandledRef = useRef(false);
 
   // Card entrance animation
   const scale = useSharedValue(visible ? 1 : CARD_ENTER_SCALE);
@@ -237,6 +240,28 @@ export function AuthModal({
   }));
   const resolvedCopy = resolveAuthModalCopy(copy ?? message, DEFAULT_AUTH_MODAL_COPY);
 
+  const completeSuccessfulAuth = useCallback(() => {
+    if (successHandledRef.current) {
+      return;
+    }
+    successHandledRef.current = true;
+    onSuccess?.();
+    onClose();
+  }, [onClose, onSuccess]);
+
+  useEffect(() => {
+    if (visible && authAttemptStartedRef.current && isAuthenticated) {
+      completeSuccessfulAuth();
+    }
+  }, [completeSuccessfulAuth, isAuthenticated, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      authAttemptStartedRef.current = false;
+      successHandledRef.current = false;
+    }
+  }, [visible]);
+
   // Handle Android back button
   useEffect(() => {
     if (!visible) return;
@@ -253,30 +278,36 @@ export function AuthModal({
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGoogleSignIn = useCallback(() => {
+    authAttemptStartedRef.current = true;
+    successHandledRef.current = false;
     onAuthStarting?.();
-    onClose();
-    setTimeout(async () => {
+    void (async () => {
       try {
         await signInWithGoogle();
-        onSuccess?.();
+        completeSuccessfulAuth();
       } catch {
+        authAttemptStartedRef.current = false;
+        successHandledRef.current = false;
         // Error is handled by useAuth
       }
-    }, 100);
-  }, [signInWithGoogle, onAuthStarting, onClose, onSuccess]);
+    })();
+  }, [completeSuccessfulAuth, signInWithGoogle, onAuthStarting]);
 
   const handleDevLogin = useCallback(() => {
+    authAttemptStartedRef.current = true;
+    successHandledRef.current = false;
     onAuthStarting?.();
-    onClose();
-    setTimeout(async () => {
+    void (async () => {
       try {
         await signInWithMockToken('mock-google-maestrotest-gid001');
-        onSuccess?.();
+        completeSuccessfulAuth();
       } catch {
+        authAttemptStartedRef.current = false;
+        successHandledRef.current = false;
         // Error is handled by useAuth
       }
-    }, 100);
-  }, [signInWithMockToken, onAuthStarting, onClose, onSuccess]);
+    })();
+  }, [completeSuccessfulAuth, signInWithMockToken, onAuthStarting]);
 
   const handleEmailSubmit = useCallback(async () => {
     const trimmed = email.trim().toLowerCase();
@@ -287,10 +318,15 @@ export function AuthModal({
     }
     setEmailError(null);
     setIsRequestingEmail(true);
+    authAttemptStartedRef.current = true;
+    successHandledRef.current = false;
+    onAuthStarting?.();
     try {
       await requestEmailLink(trimmed);
       setView('email-sent');
     } catch (err) {
+      authAttemptStartedRef.current = false;
+      successHandledRef.current = false;
       if (err instanceof Error) {
         if (err.message.includes('RATE_LIMITED') || err.message.includes('Too many')) {
           setEmailError('Too many requests. Please try again later.');
@@ -303,7 +339,7 @@ export function AuthModal({
     } finally {
       setIsRequestingEmail(false);
     }
-  }, [email, requestEmailLink]);
+  }, [email, onAuthStarting, requestEmailLink]);
 
   const handleClose = useCallback(() => {
     clearError();

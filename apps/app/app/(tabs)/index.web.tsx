@@ -1050,9 +1050,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }
 
       if (!isAuthenticated) {
-        interaction.handleAuthRequired({
-          subtitle: 'Sign in to see homes with activity from people you follow.',
-        });
+        interaction.handleAuthRequired(
+          {
+            subtitle: 'Sign in to see homes with activity from people you follow.',
+          },
+          () => {
+            setSocialScope('following');
+            emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+              authenticated: true,
+              platform: 'web',
+            });
+          },
+        );
         return currentScope;
       }
 
@@ -2801,9 +2810,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           <FollowingMapStateCard
             mode="signed-out"
             onPrimaryPress={() =>
-              interaction.handleAuthRequired({
-                subtitle: 'Sign in to see homes with activity from people you follow.',
-              })
+              interaction.handleAuthRequired(
+                {
+                  subtitle: 'Sign in to see homes with activity from people you follow.',
+                },
+                () => {
+                  setSocialScope('following');
+                  emitMapFollowingAnalyticsEvent('map_following_filter_enabled', {
+                    authenticated: true,
+                    platform: 'web',
+                  });
+                },
+              )
             }
           />
         ) : null}

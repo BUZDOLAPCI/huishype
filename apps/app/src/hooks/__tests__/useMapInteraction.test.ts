@@ -285,7 +285,7 @@ describe('useMapInteraction', () => {
       expect(result.current.showAuthModal).toBe(false);
     });
 
-    it('handleAuthStarting clears selection and closes sheet', () => {
+    it('handleAuthStarting preserves selection for post-login continuation', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -304,11 +304,14 @@ describe('useMapInteraction', () => {
         result.current.handleAuthStarting();
       });
 
-      expect(result.current.selectedPropertyId).toBeNull();
-      expect(result.current.previewGroup).toBeNull();
+      expect(result.current.selectedPropertyId).toBe('prop-1');
+      expect(result.current.previewGroup).toEqual({
+        properties: [{ id: 'prop-1', address: 'Test', city: 'Test' }],
+        coordinate: [4.9, 52.37],
+      });
     });
 
-    it('suppresses stale sheet content after auth start when query data lingers', () => {
+    it('keeps sheet content available after auth start when query data lingers', () => {
       mockUseProperty.mockReturnValue({
         data: {
           id: 'prop-1',
@@ -336,11 +339,15 @@ describe('useMapInteraction', () => {
       });
 
       act(() => {
+        result.current.setSelectedPropertyId('prop-1');
+      });
+
+      act(() => {
         result.current.handleAuthStarting();
       });
 
-      expect(result.current.selectedPropertyId).toBeNull();
-      expect(result.current.selectedPropertyForSheet).toBeNull();
+      expect(result.current.selectedPropertyId).toBe('prop-1');
+      expect(result.current.selectedPropertyForSheet?.id).toBe('prop-1');
     });
 
     it('resetTransientUI clears modal, preview selection, and sheet index', () => {

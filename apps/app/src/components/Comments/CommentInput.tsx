@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 export interface CommentInputProps {
-  onSubmit: (content: string) => void;
+  onSubmit: (content: string) => boolean | void;
   replyTo?: { id: string; username: string } | null;
   onCancelReply?: () => void;
   isSubmitting?: boolean;
@@ -49,7 +49,10 @@ export function CommentInput({
       return;
     }
 
-    onSubmit(trimmedContent);
+    const submitted = onSubmit(trimmedContent);
+    if (submitted === false) {
+      return;
+    }
     setContent('');
     // Dismiss keyboard after submit (safe call for web/native)
     if (Keyboard?.dismiss) {
