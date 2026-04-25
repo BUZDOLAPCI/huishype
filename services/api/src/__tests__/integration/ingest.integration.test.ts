@@ -230,6 +230,204 @@ describe('Durable ingest API contract', () => {
     });
   });
 
+  it('dispatches only the next cursor batch for a source during recovery', async () => {
+    const stamp = Date.now();
+    const runKey = `idealista-recovery-order-run-${stamp}`;
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T04:00:00.000Z',
+      listingKey: `idealista-recovery-order-1-${stamp}`,
+    });
+    const secondCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T04:30:00.000Z',
+      listingKey: `idealista-recovery-order-2-${stamp}`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-recovery-order-first-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: runKey,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/recovery-order-${stamp}/`,
+          mirrorListingId: `idealista-recovery-order-listing-${stamp}`,
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Recovery',
+            postalCode: '28013',
+            houseNumber: 1,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    const secondAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-recovery-order-second-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursor,
+      cursorEnd: secondCursor,
+      upstreamRunKey: runKey,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/recovery-order-${stamp + 1}/`,
+          mirrorListingId: `idealista-recovery-order-listing-${stamp + 1}`,
+          askingPrice: 530000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Recovery',
+            postalCode: '28013',
+            houseNumber: 2,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    await db
+      .update(ingestBatches)
+      .set({ status: 'queued' })
+      .where(inArray(ingestBatches.id, [firstAccepted.batchId, secondAccepted.batchId]));
+
+    const result = await collectRecoveryDispatchWork(new Date('2026-04-09T05:00:00.000Z'));
+
+    expect(result.recoverableBatchIds).toContain(firstAccepted.batchId);
+    expect(result.recoverableBatchIds).not.toContain(secondAccepted.batchId);
+  });
+
+  it('supersedes queued batches already covered by the committed watermark', async () => {
+    const stamp = Date.now();
+    const runKey = `idealista-superseded-run-${stamp}`;
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T06:00:00.000Z',
+      listingKey: `idealista-superseded-1-${stamp}`,
+    });
+    const committedCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T06:30:00.000Z',
+      listingKey: `idealista-superseded-2-${stamp}`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-superseded-first-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: runKey,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/superseded-${stamp}/`,
+          mirrorListingId: `idealista-superseded-listing-${stamp}`,
+          askingPrice: 540000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Superseded',
+            postalCode: '28013',
+            houseNumber: 3,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    const secondAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-superseded-second-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursor,
+      cursorEnd: committedCursor,
+      upstreamRunKey: runKey,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/superseded-${stamp + 1}/`,
+          mirrorListingId: `idealista-superseded-listing-${stamp + 1}`,
+          askingPrice: 550000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Superseded',
+            postalCode: '28013',
+            houseNumber: 4,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    await db
+      .update(ingestBatches)
+      .set({ status: 'queued' })
+      .where(inArray(ingestBatches.id, [firstAccepted.batchId, secondAccepted.batchId]));
+
+    await db
+      .update(ingestSources)
+      .set({
+        lastCommittedCursor: committedCursor,
+        lastCommittedChangedAt: new Date('2026-04-09T06:30:00.000Z'),
+        lastCommittedListingKey: `idealista-superseded-2-${stamp}`,
+        lastBatchId: secondAccepted.batchId,
+      })
+      .where(eq(ingestSources.sourceName, 'idealista'));
+
+    const result = await collectRecoveryDispatchWork(new Date('2026-04-09T07:00:00.000Z'));
+
+    expect(result.recoverableBatchIds).not.toContain(firstAccepted.batchId);
+    expect(result.recoverableBatchIds).not.toContain(secondAccepted.batchId);
+
+    const batchRows = await db
+      .select({
+        id: ingestBatches.id,
+        status: ingestBatches.status,
+        completedAt: ingestBatches.completedAt,
+        errorJson: ingestBatches.errorJson,
+      })
+      .from(ingestBatches)
+      .where(inArray(ingestBatches.id, [firstAccepted.batchId, secondAccepted.batchId]));
+
+    expect(batchRows).toHaveLength(2);
+    for (const batch of batchRows) {
+      expect(batch.status).toBe('superseded');
+      expect(batch.completedAt).not.toBeNull();
+      expect(batch.errorJson).toMatchObject({
+        message: 'Superseded by committed ingest watermark',
+      });
+    }
+
+    const activeRows = await db
+      .select({ id: ingestBatches.id })
+      .from(ingestBatches)
+      .where(
+        and(
+          eq(ingestBatches.sourceName, 'idealista'),
+          inArray(ingestBatches.status, ['accepted', 'queued', 'processing', 'retryable']),
+        ),
+      );
+
+    expect(activeRows).toHaveLength(0);
+
+    const [runState] = await db
+      .select()
+      .from(ingestRuns)
+      .where(eq(ingestRuns.id, firstAccepted.runId as string))
+      .limit(1);
+
+    expect(runState?.status).toBe('completed');
+    expect(runState?.processedBatchCount).toBe(2);
+    expect(runState?.completedAt).not.toBeNull();
+    expect(runState?.errorSummary).toBeNull();
+  });
+
   it('rejects conflicting idempotency replays before mutating run or source state', async () => {
     const runKey = `idealista-conflict-run-${Date.now()}`;
     const idempotencyKey = `idealista-conflict-${Date.now()}`;

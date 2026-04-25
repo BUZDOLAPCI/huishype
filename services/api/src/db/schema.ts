@@ -152,6 +152,7 @@ export const ingestBatchStatusEnum = pgEnum('ingest_batch_status', [
   'processing',
   'completed',
   'retryable',
+  'superseded',
   'failed',
 ]);
 export const listingSourceIdKindEnum = pgEnum('listing_source_id_kind', [

@@ -84,7 +84,7 @@ export const ingestAcceptedResponseSchema = z.object({
   sourceName: z.string(),
   acceptedAt: z.string().datetime(),
   idempotencyKey: z.string(),
-  status: z.enum(['accepted', 'queued', 'processing', 'completed', 'retryable', 'failed']),
+  status: z.enum(['accepted', 'queued', 'processing', 'completed', 'retryable', 'superseded', 'failed']),
   duplicate: z.boolean(),
 });
 

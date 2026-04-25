@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, ingestBatches, ingestRuns, ingestSources, type DbTransaction } from '../../db/index.js';
 import type { IngestBatchRequest, IngestWatermarkResponse } from './contracts.js';
-import { encodeOpaqueIngestCursor } from './cursor.js';
+import { decodeOpaqueIngestCursor, encodeOpaqueIngestCursor } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 
 type BatchRow = typeof ingestBatches.$inferSelect;
@@ -40,7 +40,21 @@ export interface MaintenanceRefreshRequestRecord {
   maintenanceRequestedAt: string;
 }
 
-const RECOVERABLE_BATCH_STATUSES: BatchStatus[] = ['accepted', 'queued', 'retryable'];
+interface SupersededBatchCandidate {
+  [key: string]: unknown;
+  id: string;
+  cursor_end: string;
+  last_committed_cursor: string | null;
+  last_committed_changed_at: Date | string | null;
+  last_committed_listing_key: string | null;
+}
+
+interface SupersededBatchRow {
+  [key: string]: unknown;
+  id: string;
+  run_id: string | null;
+  source_name: string;
+}
 
 function toIsoString(value: Date | string | null): string | null {
   if (value == null) {
@@ -80,6 +94,39 @@ function serializeError(error: unknown): Record<string, unknown> {
   return {
     message: typeof error === 'string' ? error : 'Unknown ingest run failure',
   };
+}
+
+function isCursorAtOrBeforeCommittedWatermark(candidate: SupersededBatchCandidate): boolean {
+  if (!candidate.last_committed_cursor) {
+    return false;
+  }
+
+  if (candidate.cursor_end === candidate.last_committed_cursor) {
+    return true;
+  }
+
+  try {
+    const cursorEnd = decodeOpaqueIngestCursor(candidate.cursor_end);
+    const committedChangedAt = toIsoString(candidate.last_committed_changed_at);
+    const committed =
+      committedChangedAt && candidate.last_committed_listing_key
+        ? {
+            changedAt: committedChangedAt,
+            listingKey: candidate.last_committed_listing_key,
+          }
+        : decodeOpaqueIngestCursor(candidate.last_committed_cursor);
+
+    const cursorEndChangedAtMs = new Date(cursorEnd.changedAt).getTime();
+    const committedChangedAtMs = new Date(committed.changedAt).getTime();
+
+    if (cursorEndChangedAtMs !== committedChangedAtMs) {
+      return cursorEndChangedAtMs < committedChangedAtMs;
+    }
+
+    return cursorEnd.listingKey <= committed.listingKey;
+  } catch {
+    return false;
+  }
 }
 
 async function ensureRun(
@@ -183,12 +230,14 @@ export async function finalizeIngestRunLifecycle(
   const counts = await tx.execute<{
     total_batch_count: number;
     completed_batch_count: number;
+    superseded_batch_count: number;
     failed_batch_count: number;
     active_batch_count: number;
   }>(sql`
     SELECT
       COUNT(*)::int AS total_batch_count,
       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_batch_count,
+      COUNT(*) FILTER (WHERE status = 'superseded')::int AS superseded_batch_count,
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_batch_count,
       COUNT(*) FILTER (WHERE status IN ('accepted', 'queued', 'processing', 'retryable'))::int AS active_batch_count
     FROM ingest_batches
@@ -198,11 +247,15 @@ export async function finalizeIngestRunLifecycle(
   const batchCounts = Array.from(counts)[0] ?? {
     total_batch_count: 0,
     completed_batch_count: 0,
+    superseded_batch_count: 0,
     failed_batch_count: 0,
     active_batch_count: 0,
   };
 
-  const processedBatchCount = batchCounts.completed_batch_count + batchCounts.failed_batch_count;
+  const processedBatchCount =
+    batchCounts.completed_batch_count +
+    batchCounts.superseded_batch_count +
+    batchCounts.failed_batch_count;
   const nextStatus: RunStatus =
     batchCounts.failed_batch_count > 0
       ? 'failed'
@@ -240,6 +293,7 @@ export async function finalizeIngestRunLifecycle(
             processedBatchCount,
             totalBatchCount: batchCounts.total_batch_count,
             completedBatchCount: batchCounts.completed_batch_count,
+            supersededBatchCount: batchCounts.superseded_batch_count,
             failedBatchCount: batchCounts.failed_batch_count,
             activeBatchCount: batchCounts.active_batch_count,
             terminalError: serializeError(terminalError),
@@ -291,12 +345,78 @@ export async function finalizeIngestRunLifecycle(
             processedBatchCount,
             totalBatchCount: batchCounts.total_batch_count,
             completedBatchCount: batchCounts.completed_batch_count,
+            supersededBatchCount: batchCounts.superseded_batch_count,
             failedBatchCount: batchCounts.failed_batch_count,
             activeBatchCount: batchCounts.active_batch_count,
             terminalError: serializeError(terminalError),
           }
         : null,
   };
+}
+
+async function markSupersededBatchesAfterWatermark(limit: number): Promise<SupersededBatchRow[]> {
+  const candidates = await db.execute<SupersededBatchCandidate>(sql`
+    SELECT
+      b.id,
+      b.cursor_end,
+      s.last_committed_cursor,
+      s.last_committed_changed_at,
+      s.last_committed_listing_key
+    FROM ingest_batches b
+    INNER JOIN ingest_sources s ON s.source_name = b.source_name
+    WHERE (
+        b.status IN ('accepted', 'queued', 'retryable')
+        OR (b.status = 'processing' AND b.started_at IS NULL)
+      )
+      AND s.last_committed_cursor IS NOT NULL
+    ORDER BY b.received_at, b.batch_sequence, b.id
+    LIMIT ${limit}
+  `);
+
+  const supersededIds = Array.from(candidates)
+    .filter((candidate) => isCursorAtOrBeforeCommittedWatermark(candidate))
+    .map((candidate) => candidate.id);
+
+  if (supersededIds.length === 0) {
+    return [];
+  }
+
+  return Array.from(await db.execute<SupersededBatchRow>(sql`
+    UPDATE ingest_batches
+    SET
+      status = 'superseded'::ingest_batch_status,
+      completed_at = COALESCE(completed_at, NOW()),
+      error_json = jsonb_build_object('message', 'Superseded by committed ingest watermark')
+    WHERE id IN (${sql.join(supersededIds.map((id) => sql`${id}`), sql`, `)})
+      AND (
+        status IN ('accepted', 'queued', 'retryable')
+        OR (status = 'processing' AND started_at IS NULL)
+      )
+    RETURNING id, run_id, source_name
+  `));
+}
+
+async function finalizeSupersededRunLifecycles(rows: SupersededBatchRow[]): Promise<void> {
+  const terminalRowsByRun = new Map<string, SupersededBatchRow>();
+
+  for (const row of rows) {
+    if (row.run_id && !terminalRowsByRun.has(row.run_id)) {
+      terminalRowsByRun.set(row.run_id, row);
+    }
+  }
+
+  for (const row of terminalRowsByRun.values()) {
+    await db.transaction(async (tx) => {
+      await finalizeIngestRunLifecycle(
+        tx,
+        {
+          runId: row.run_id as string,
+          sourceName: row.source_name,
+        },
+        row.id,
+      );
+    });
+  }
 }
 
 export async function acceptIngestBatch(
@@ -505,20 +625,29 @@ export async function collectRecoveryDispatchWork(
     RETURNING id
   `);
 
-  const recoverableRows = await db
-    .select({ id: ingestBatches.id })
-    .from(ingestBatches)
-    .where(
-      or(
-        inArray(ingestBatches.status, RECOVERABLE_BATCH_STATUSES),
-        and(
-          eq(ingestBatches.status, 'processing'),
-          isNull(ingestBatches.startedAt),
-        ),
-      ),
+  const supersededRows = await markSupersededBatchesAfterWatermark(Math.max(limit * 10, 100));
+  await finalizeSupersededRunLifecycles(supersededRows);
+
+  const recoverableRows = await db.execute<{ id: string }>(sql`
+    WITH next_recoverable_per_source AS (
+      SELECT DISTINCT ON (b.source_name)
+        b.id,
+        b.received_at,
+        b.batch_sequence
+      FROM ingest_batches b
+      LEFT JOIN ingest_sources s ON s.source_name = b.source_name
+      WHERE (
+          b.status IN ('accepted', 'queued', 'retryable')
+          OR (b.status = 'processing' AND b.started_at IS NULL)
+        )
+        AND b.cursor_start IS NOT DISTINCT FROM s.last_committed_cursor
+      ORDER BY b.source_name, b.received_at, b.batch_sequence, b.id
     )
-    .orderBy(asc(ingestBatches.receivedAt))
-    .limit(limit);
+    SELECT id
+    FROM next_recoverable_per_source
+    ORDER BY received_at, batch_sequence, id
+    LIMIT ${limit}
+  `);
 
   const maintenanceRows = await db
     .select({ id: ingestBatches.id })
@@ -533,7 +662,7 @@ export async function collectRecoveryDispatchWork(
 
   return {
     staleProcessingBatchIds: Array.from(staleRows, (row) => row.id),
-    recoverableBatchIds: recoverableRows.map((row) => row.id),
+    recoverableBatchIds: Array.from(recoverableRows, (row) => row.id),
     maintenancePending: maintenanceRows.length > 0,
   };
 }
