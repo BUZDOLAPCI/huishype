@@ -335,4 +335,24 @@ describe('canonicalizeAddress', () => {
     });
     expect(result).toBeNull();
   });
+
+  it('returns null for non-numeric source house numbers', () => {
+    const result = canonicalizeAddress({
+      street: 'Kalverstraat',
+      houseNumber: 'None',
+      postalCode: '1012 NX',
+      city: 'Amsterdam',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null for empty source house numbers', () => {
+    const result = canonicalizeAddress({
+      street: 'Kalverstraat',
+      houseNumber: '',
+      postalCode: '1012 NX',
+      city: 'Amsterdam',
+    });
+    expect(result).toBeNull();
+  });
 });

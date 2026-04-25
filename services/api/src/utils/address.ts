@@ -151,7 +151,12 @@ export function canonicalizeAddress(input: {
   }
 
   // -- House number (with possible composite parsing) -----------------------
-  const parsed = parseCompositeHouseNumber(input.houseNumber);
+  let parsed: { num: number; addition: string | null };
+  try {
+    parsed = parseCompositeHouseNumber(input.houseNumber);
+  } catch {
+    return null;
+  }
 
   // If the caller *also* provided an explicit addition, it takes precedence
   // over anything extracted from a composite house-number string -- unless it

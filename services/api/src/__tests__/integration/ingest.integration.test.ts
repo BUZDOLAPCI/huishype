@@ -755,6 +755,136 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastBatchId).toBe(accepted.batchId);
   });
 
+  it('skips listings with invalid source house numbers while completing the batch', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = 'Invalid House Numberweg';
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T18:30:00.000Z',
+      listingKey: `fotocasa-invalid-house-number-${stamp}`,
+    });
+    const propertySeed = await db
+      .insert(properties)
+      .values({
+        countryCode: 'NL',
+        street,
+        houseNumber: 18,
+        houseNumberAddition: null,
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        geometry: { type: 'Point', coordinates: [5.123456, 51.123456] },
+        status: 'active',
+      })
+      .returning({ id: properties.id });
+
+    const propertyId = propertySeed[0]?.id;
+    expect(propertyId).toBeTruthy();
+    cleanupPropertyIds.push(propertyId as string);
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-invalid-house-number-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `fotocasa-invalid-house-number-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/valid-${stamp}`,
+          mirrorListingId: `fotocasa-invalid-house-number-valid-${stamp}`,
+          askingPrice: 470000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 18,
+            city: 'Eindhoven',
+            latitude: 51.123456,
+            longitude: 5.123456,
+          },
+        },
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/none-${stamp}`,
+          mirrorListingId: `fotocasa-invalid-house-number-none-${stamp}`,
+          askingPrice: 471000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 'None',
+            city: 'Eindhoven',
+          },
+        },
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/empty-${stamp}`,
+          mirrorListingId: `fotocasa-invalid-house-number-empty-${stamp}`,
+          askingPrice: 472000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: '',
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        maxAttempts: 1,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 2,
+    });
+
+    const [batchState] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, accepted.batchId))
+      .limit(1);
+
+    expect(batchState?.status).toBe('completed');
+    expect(batchState?.ingestedCount).toBe(1);
+    expect(batchState?.updatedCount).toBe(0);
+    expect(batchState?.skippedCount).toBe(2);
+    expect(batchState?.errorJson).toBeNull();
+    expect(batchState?.lastErrorAt).toBeNull();
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.sourceName, sourceName));
+
+    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows[0]?.propertyId).toBe(propertyId);
+    expect(canonicalRows[0]?.primarySourceListingId).toBe(`fotocasa-invalid-house-number-valid-${stamp}`);
+    expect(canonicalRows[0]?.canonicalUrl).toBe(
+      `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/valid-${stamp}`,
+    );
+
+    const [sourceState] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceState?.lastCommittedCursor).toBe(cursorEnd);
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-invalid-house-number-${stamp}`);
+    expect(sourceState?.lastBatchId).toBe(accepted.batchId);
+  });
+
   it('defers out-of-order batches until their predecessor commits', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
