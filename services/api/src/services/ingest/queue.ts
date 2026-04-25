@@ -109,10 +109,11 @@ export async function enqueueIngestBatch(batchId: string): Promise<void> {
 
 export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobData): Promise<void> {
   const queue = await getMaintenanceQueue();
+  const dedupeId = data.batchId ?? randomUUID();
   await queue.add(
     REFRESH_LATEST_LISTINGS_JOB,
     data,
-    { jobId: `${REFRESH_LATEST_LISTINGS_JOB}:${data.batchId ?? randomUUID()}` },
+    { jobId: `${REFRESH_LATEST_LISTINGS_JOB}-${dedupeId}` },
   );
 }
 

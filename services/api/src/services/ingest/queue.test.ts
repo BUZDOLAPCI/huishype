@@ -102,4 +102,22 @@ describe('ingest queue', () => {
     });
     expect(addMock).not.toHaveBeenCalled();
   });
+
+  it('uses a BullMQ-safe maintenance refresh job id', async () => {
+    const { requestLatestListingsRefresh } = await import('./queue.js');
+
+    await requestLatestListingsRefresh({
+      requestedBy: 'ingest-batch',
+      batchId: 'batch-1',
+    });
+
+    expect(addMock).toHaveBeenCalledWith(
+      'refresh-latest-active-listings',
+      {
+        requestedBy: 'ingest-batch',
+        batchId: 'batch-1',
+      },
+      { jobId: 'refresh-latest-active-listings-batch-1' },
+    );
+  });
 });
