@@ -140,7 +140,9 @@ export function PriceGuessSection({
 
   const hasExistingGuess = !!guessData?.userGuess;
   const activeUserGuess = submittedPrice ?? guessData?.userGuess?.guessedPrice ?? null;
-  const askingPrice = guessData?.activeListingAskingPrice ?? property.askingPrice ?? null;
+  const propertySaleAskingPrice =
+    property.marketState === 'for-sale' ? property.askingPrice ?? null : null;
+  const askingPrice = guessData?.activeListingAskingPrice ?? propertySaleAskingPrice;
   const initialPrice = askingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
   const initialPriceSource =
     askingPrice != null ? 'active_listing_asking_price' : guessData?.priceGuessStart?.source;

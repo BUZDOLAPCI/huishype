@@ -87,6 +87,7 @@ const property = {
   status: 'active' as const,
   officialValuation: 350000,
   askingPrice: 365000,
+  marketState: 'for-sale' as const,
   activityLevel: 'warm' as const,
   commentCount: 4,
   guessCount: 2,
@@ -228,7 +229,7 @@ describe('PriceGuessSection', () => {
     );
   });
 
-  it('uses property asking price before priceGuessStart as the slider initializer', () => {
+  it('uses for-sale property asking price before priceGuessStart as the slider initializer', () => {
     mockUseFetchPriceGuess.mockReturnValue({
       data: {
         userGuess: null,
@@ -264,6 +265,51 @@ describe('PriceGuessSection', () => {
     );
     expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
       'known'
+    );
+  });
+
+  it('does not use rent asking price as the slider initializer', () => {
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: null,
+          divergence: null,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const rentProperty = {
+      ...property,
+      askingPrice: 1750,
+      marketState: 'for-rent' as const,
+    };
+
+    const screen = render(<PriceGuessSection property={rentProperty} />);
+
+    expect(screen.getByTestId('price-guess-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('price-guess-slider-initial-source').props.children).toBe(
+      'local_comparable_price_per_m2'
+    );
+    expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
+      'usable'
     );
   });
 });

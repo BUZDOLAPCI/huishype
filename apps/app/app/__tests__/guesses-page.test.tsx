@@ -153,6 +153,7 @@ describe('GuessesPage', () => {
         status: 'active',
         officialValuation: 350000,
         askingPrice: 365000,
+        marketState: 'for-sale',
         activityLevel: 'warm',
         commentCount: 4,
         guessCount: 2,
@@ -245,7 +246,7 @@ describe('GuessesPage', () => {
     expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('known');
   });
 
-  it('uses property asking price before priceGuessStart as the slider initializer', () => {
+  it('uses for-sale property asking price before priceGuessStart as the slider initializer', () => {
     mockUseFetchPriceGuess.mockReturnValue({
       data: {
         userGuess: null,
@@ -282,5 +283,69 @@ describe('GuessesPage', () => {
       'active_listing_asking_price'
     );
     expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('known');
+  });
+
+  it('does not use rent asking price as the slider initializer', () => {
+    mockUseProperty.mockReturnValue({
+      data: {
+        id: 'property-123',
+        nationalId: null,
+        countryCode: 'NL',
+        address: 'Teststraat 42',
+        city: 'Eindhoven',
+        postalCode: '5600 AA',
+        geometry: null,
+        yearBuilt: 1998,
+        floorAreaM2: 112,
+        status: 'active',
+        officialValuation: 350000,
+        askingPrice: 1750,
+        marketState: 'for-rent',
+        activityLevel: 'warm',
+        commentCount: 4,
+        guessCount: 2,
+        viewCount: 10,
+        uniqueViewers: 5,
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+      isLoading: false,
+    });
+    mockUseFetchPriceGuess.mockReturnValue({
+      data: {
+        userGuess: null,
+        fmv: {
+          fmv: 355000,
+          confidence: 'medium',
+          guessCount: 3,
+          distribution: null,
+          officialValuation: 350000,
+          askingPrice: null,
+          divergence: null,
+        },
+        canEdit: true,
+        cooldownEndsAt: null,
+        guesses: [],
+        activeListingAskingPrice: null,
+        priceGuessStart: {
+          price: 340000,
+          source: 'local_comparable_price_per_m2',
+          confidence: 'usable',
+          sampleSize: 12,
+        },
+      },
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+
+    const screen = render(<GuessesRouteScreen propertyId="property-123" />);
+
+    fireEvent.press(screen.getByTestId('make-guess-button'));
+
+    expect(screen.getByTestId('guesses-slider-initial-price').props.children).toBe('340000');
+    expect(screen.getByTestId('guesses-slider-initial-source').props.children).toBe(
+      'local_comparable_price_per_m2'
+    );
+    expect(screen.getByTestId('guesses-slider-initial-confidence').props.children).toBe('usable');
   });
 });
