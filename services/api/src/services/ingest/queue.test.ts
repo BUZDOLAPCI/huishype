@@ -81,6 +81,49 @@ describe('ingest queue', () => {
     expect(addMock).not.toHaveBeenCalled();
   });
 
+  it('retries an existing completed durable job so previously out-of-order noops can run later', async () => {
+    const getStateMock = jest.fn(async () => 'completed');
+    const retryMock = jest.fn(async () => undefined);
+    getJobMock.mockResolvedValueOnce({
+      id: 'ingest-batch-1',
+      getState: getStateMock,
+      retry: retryMock,
+    });
+    const { enqueueIngestBatch } = await import('./queue.js');
+
+    await enqueueIngestBatch('ingest-batch-1');
+
+    expect(getJobMock).toHaveBeenCalledWith('ingest-batch-1');
+    expect(getStateMock).toHaveBeenCalled();
+    expect(retryMock).toHaveBeenCalledWith('completed', {
+      resetAttemptsMade: true,
+      resetAttemptsStarted: true,
+    });
+    expect(addMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces completed-job retry errors so recovery does not mark the batch queued', async () => {
+    const retryError = new Error('completed retry failed');
+    const getStateMock = jest.fn(async () => 'completed');
+    const retryMock = jest.fn(async () => {
+      throw retryError;
+    });
+    getJobMock.mockResolvedValueOnce({
+      id: 'ingest-batch-1',
+      getState: getStateMock,
+      retry: retryMock,
+    });
+    const { enqueueIngestBatch } = await import('./queue.js');
+
+    await expect(enqueueIngestBatch('ingest-batch-1')).rejects.toThrow(retryError);
+
+    expect(retryMock).toHaveBeenCalledWith('completed', {
+      resetAttemptsMade: true,
+      resetAttemptsStarted: true,
+    });
+    expect(addMock).not.toHaveBeenCalled();
+  });
+
   it('surfaces failed-job retry errors so recovery does not mark the batch queued', async () => {
     const retryError = new Error('retry failed');
     const getStateMock = jest.fn(async () => 'failed');

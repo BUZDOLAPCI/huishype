@@ -87,12 +87,12 @@ export async function enqueueIngestBatch(batchId: string): Promise<void> {
 
   if (existingJob) {
     const state = await existingJob.getState?.();
-    if (state === 'failed') {
+    if (state === 'failed' || state === 'completed') {
       if (!existingJob.retry) {
-        throw new Error(`Existing ingest job ${batchId} is failed but cannot be retried`);
+        throw new Error(`Existing ingest job ${batchId} is ${state} but cannot be retried`);
       }
 
-      await existingJob.retry('failed', {
+      await existingJob.retry(state, {
         resetAttemptsMade: true,
         resetAttemptsStarted: true,
       });
