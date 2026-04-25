@@ -15,6 +15,14 @@ type QueueLike<T> = {
   close(): Promise<unknown>;
 };
 
+type ExistingJobLike = {
+  getState?: () => Promise<string>;
+  retry?: (
+    state?: 'failed' | 'completed',
+    options?: { resetAttemptsMade?: boolean; resetAttemptsStarted?: boolean },
+  ) => Promise<void>;
+};
+
 let ingestBatchQueue: QueueLike<IngestBatchJobData> | null = null;
 let maintenanceQueue: QueueLike<MaintenanceRefreshJobData> | null = null;
 
@@ -75,9 +83,20 @@ async function getMaintenanceQueue(): Promise<QueueLike<MaintenanceRefreshJobDat
 
 export async function enqueueIngestBatch(batchId: string): Promise<void> {
   const queue = await getIngestBatchQueue();
-  const existingJob = await queue.getJob(batchId);
+  const existingJob = await queue.getJob(batchId) as ExistingJobLike | null;
 
   if (existingJob) {
+    const state = await existingJob.getState?.();
+    if (state === 'failed') {
+      if (!existingJob.retry) {
+        throw new Error(`Existing ingest job ${batchId} is failed but cannot be retried`);
+      }
+
+      await existingJob.retry('failed', {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+    }
     return;
   }
 
