@@ -38,6 +38,28 @@ docker cp /tmp/huishype.dump <postgres-container>:/tmp/
 docker exec <postgres-container> pg_restore -U huishype -d huishype --clean --if-exists /tmp/huishype.dump
 ```
 
+## Listing Source Services
+
+Production listing resolution and validation depend on separate scraper/source
+services running on a dedicated Hetzner scraper VM. The app/prod VM should call
+the scraper VM over a Hetzner private network:
+
+- Funda source service: `http://10.42.0.2:8100`
+- Pararius source service: `http://10.42.0.2:8101`
+- `FUNDA_SOURCE_SERVICE_API_KEY` and `PARARIUS_SOURCE_SERVICE_API_KEY` are
+  shared secrets accepted by those source services.
+- `INGEST_API_KEY` is the shared secret for scraper callbacks and protected
+  ingest endpoints exposed by the main API.
+
+Keep PostgreSQL and Redis private to the app/prod VM Docker network. Do not
+expose DB or Redis ports publicly for scraper access; scrapers communicate with
+the main API through authenticated HTTP contracts.
+
+Current infrastructure: the app/prod VM is `10.42.0.10` on Hetzner private
+network `huishype-private`; the scraper VM is `10.42.0.2`. The scraper VM
+firewall allows source-service API ports `8100` and `8101` only from
+`10.42.0.10`.
+
 ## Disk Sizing
 
 CPX32 (150GB) is too small. Photon planet DB (~88GB) + PostgreSQL (~51GB) + Docker overhead exceeds it. **CPX42 (240GB) is the minimum.** Disk-full corrupts Photon's OpenSearch index irreparably — requires full re-download.
@@ -116,7 +138,9 @@ curl -X POST "https://api.hetzner.cloud/v1/servers/124870912/actions/change_type
 
 ## Env Vars (set in Coolify)
 
-Required: `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `EXPO_PUBLIC_API_URL`
+Required: `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `EXPO_PUBLIC_API_URL`,
+`INGEST_API_KEY`, `FUNDA_SOURCE_SERVICE_URL`, `FUNDA_SOURCE_SERVICE_API_KEY`,
+`PARARIUS_SOURCE_SERVICE_URL`, `PARARIUS_SOURCE_SERVICE_API_KEY`
 
 Auth:
 - `GOOGLE_CLIENT_ID` — `91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com`
@@ -126,6 +150,13 @@ Auth:
 - `MAGIC_LINK_BASE_URL` — `https://huishype.nl/auth/callback`
 
 Optional: `CORS_ORIGINS`
+
+Listing ingest/source services:
+- `INGEST_API_KEY` — shared secret used by scraper callbacks and protected ingest routes.
+- `FUNDA_SOURCE_SERVICE_URL` — private-network URL, currently `http://10.42.0.2:8100`.
+- `FUNDA_SOURCE_SERVICE_API_KEY` — shared secret accepted by the Funda source service.
+- `PARARIUS_SOURCE_SERVICE_URL` — private-network URL, currently `http://10.42.0.2:8101`.
+- `PARARIUS_SOURCE_SERVICE_API_KEY` — shared secret accepted by the Pararius source service.
 
 Note: web is the first production deployment target, but native stays maintained in parity with web. Apple Sign-In remains disabled for now until the Apple Developer account and related production provisioning are in place.
 

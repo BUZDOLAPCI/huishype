@@ -358,9 +358,10 @@ New designs can be added over time as rewards, seasonal drops, or premium add-on
 
 **Internal Listing Discovery (Separate Service):**
 - This capability is **out of scope for the main application**
-- The listing discovery/scraping system should be a separate microservice with its own repo: `/home/caslan/dev/git_repos/hh/huishype-funda-scraper`
+- The listing discovery/scraping systems should be separate Funda and Pararius source/scraper services, deployed on a separate scraper VM and kept out of the main application runtime
+- The Funda scraper/source service repo is `/home/caslan/dev/git_repos/hh/huishype-funda-scraper`; the Pararius service follows the same separate-service pattern
 - This separation keeps scraping complexity (IP bans, CAPTCHAs, maintenance) from polluting the main application context
-- The main app consumes discovered listings via API, but does not implement discovery logic
+- The main app consumes discovered listings and validation outcomes via authenticated APIs, but does not implement discovery logic
 - just write the necessary spec md files to huishype-funda-scraper folder so we can implement it later.
 
 ### What the Platform Extracts

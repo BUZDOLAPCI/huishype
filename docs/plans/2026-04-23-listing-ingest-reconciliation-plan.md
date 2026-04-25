@@ -99,6 +99,12 @@ observation storage and a canonical read model derived from reconciliation.
 
 ## Service Boundary And Ownership
 
+The Funda and Pararius mirror/scraper source services run outside the main
+application on the separate scraper VM. Production traffic between the app/prod
+VM and scraper VM uses the Hetzner private network, with source-service API
+keys on app-to-scraper calls and `INGEST_API_KEY` on scraper-to-main-API
+callbacks.
+
 The mirror/scraper services own source-specific behavior:
 
 - marketplace crawling, discovery, parser maintenance, anti-bot handling
@@ -119,7 +125,8 @@ The main app backend owns product and persistence behavior:
 - generated API contracts, mocks, and integration tests
 
 Scraper logic does not move into the main monorepo. The main backend calls or
-receives results from source services through explicit contracts.
+receives results from the Funda and Pararius source services through explicit
+authenticated contracts over the private network in production.
 
 ## Data Model
 
@@ -492,7 +499,17 @@ Submit behavior:
 ## Mirror Source Contracts
 
 Each scraper service exposes the same conceptual contract, implemented inside
-the source repo where parser knowledge lives.
+the source repo where parser knowledge lives. In production, both services run
+on the separate scraper VM and are addressed by private-network URLs:
+
+- Funda source service: `http://10.42.0.2:8100`
+- Pararius source service: `http://10.42.0.2:8101`
+
+Main-backend calls include the per-source API key configured as
+`FUNDA_SOURCE_SERVICE_API_KEY` or `PARARIUS_SOURCE_SERVICE_API_KEY`. Scraper
+callbacks to the main backend include `INGEST_API_KEY`. PostgreSQL and Redis
+remain private to the app/prod VM Docker network and are not exposed to the
+scraper VM.
 
 The source services expose:
 
