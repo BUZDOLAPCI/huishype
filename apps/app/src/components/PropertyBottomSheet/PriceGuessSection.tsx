@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -51,16 +51,20 @@ const LOGIN_REQUIRED_COPY = 'Sign in to submit your guess' satisfies AuthModalCo
 function SuccessMessage({ price }: { price: number }) {
   return (
     <Animated.View
+      testID="price-guess-success-toast"
+      pointerEvents="none"
       entering={FadeIn.duration(300)}
       exiting={FadeOut.duration(200)}
-      className="mt-4 flex-row items-center rounded-xl border border-green-200 bg-green-50 p-3"
+      style={styles.successToast}
     >
-      <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
-      <View className="ml-3 flex-1">
-        <Text className="text-sm font-medium text-green-800">
+      <View style={styles.successToastIcon}>
+        <Ionicons name="checkmark" size={18} color="#E7FFF0" />
+      </View>
+      <View style={styles.successToastCopy}>
+        <Text style={styles.successToastTitle}>
           Guess Submitted!
         </Text>
-        <Text className="text-xs text-green-600">
+        <Text style={styles.successToastText}>
           Your guess of {formatPrice(price)} has been recorded.
         </Text>
       </View>
@@ -77,6 +81,7 @@ export function PriceGuessSection({
   const [showSuccess, setShowSuccess] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number | null>(null);
   const [pendingPriceAfterAuth, setPendingPriceAfterAuth] = useState<number | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     data: guessData,
@@ -103,8 +108,13 @@ export function PriceGuessSection({
         setSubmittedPrice(price);
         setShowSuccess(true);
 
-        setTimeout(() => {
+        if (successTimerRef.current) {
+          clearTimeout(successTimerRef.current);
+        }
+
+        successTimerRef.current = setTimeout(() => {
           setShowSuccess(false);
+          successTimerRef.current = null;
         }, 3000);
 
         refetch();
@@ -124,6 +134,14 @@ export function PriceGuessSection({
     setPendingPriceAfterAuth(null);
     void handleGuessSubmit(pendingPrice);
   }, [handleGuessSubmit, isAuthenticated, pendingPriceAfterAuth]);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
 
   const fmvData: FMVData | null =
     guessData?.fmv && guessData.fmv.fmv !== null && guessData.fmv.guessCount > 0
@@ -155,7 +173,7 @@ export function PriceGuessSection({
 
   return (
     <SectionCard style={styles.sectionCard} shadow="card-alt">
-      <View testID="price-guess-section">
+      <View testID="price-guess-section" style={styles.sectionContent}>
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
             <Icon name="Tag" weight="fill" size={18} color="#F5A623" />
@@ -280,5 +298,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1ECE4',
     backgroundColor: '#FFFFFF',
+  },
+  sectionContent: {
+    position: 'relative',
+  },
+  successToast: {
+    position: 'absolute',
+    top: 52,
+    left: 12,
+    right: 12,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    backgroundColor: 'rgba(26, 25, 24, 0.92)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  successToastIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.34)',
+  },
+  successToastCopy: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  successToastTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  successToastText: {
+    marginTop: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.78)',
   },
 });

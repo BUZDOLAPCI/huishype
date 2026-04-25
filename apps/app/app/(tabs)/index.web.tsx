@@ -106,10 +106,9 @@ const STATIC_ACTIVITY_PULSE_LAYER_IDS = [
   'property-cluster-pulse',
   'active-node-pulse',
 ] as const;
-const PREVIEW_ARROW_SIZE_PX = 10;
 const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
-  SELECTED_MARKER_CONTAINER_SIZE_PX + PREVIEW_ARROW_SIZE_PX + PREVIEW_ARROW_MARKER_GAP_PX;
+  SELECTED_MARKER_CONTAINER_SIZE_PX / 2 + PREVIEW_ARROW_MARKER_GAP_PX;
 const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
 const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
@@ -586,7 +585,7 @@ if (typeof document !== 'undefined') {
       }
     }
     .selected-marker-container {
-      position: relative;
+      position: absolute;
       width: ${SELECTED_MARKER_CONTAINER_SIZE_PX}px;
       height: ${SELECTED_MARKER_CONTAINER_SIZE_PX}px;
     }
@@ -2894,6 +2893,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           <WebPreviewMarkerPortal
             map={mapRef.current}
             previewGroup={interaction.previewGroup}
+            anchorCoordinate={selectedMarkerCoordinate}
             currentIndex={interaction.currentPreviewIndex}
             markerOffsetPx={PREVIEW_CARD_MARKER_OFFSET_PX}
             onIndexChange={interaction.setCurrentPreviewIndex}

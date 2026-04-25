@@ -9,6 +9,7 @@ import type { PreviewGroup } from '@/src/hooks/useMapInteraction';
 interface WebPreviewMarkerPortalProps {
   map: maplibregl.Map | null;
   previewGroup: PreviewGroup | null;
+  anchorCoordinate?: [number, number] | null;
   currentIndex: number;
   markerOffsetPx: number;
   onIndexChange: NonNullable<GroupPreviewCardProps['onIndexChange']>;
@@ -23,6 +24,7 @@ interface WebPreviewMarkerPortalProps {
 export function WebPreviewMarkerPortal({
   map,
   previewGroup,
+  anchorCoordinate,
   currentIndex,
   markerOffsetPx,
   onIndexChange,
@@ -36,8 +38,9 @@ export function WebPreviewMarkerPortal({
   const previewMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
   const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
-  const previewLongitude = previewGroup?.coordinate[0] ?? null;
-  const previewLatitude = previewGroup?.coordinate[1] ?? null;
+  const previewAnchorCoordinate = anchorCoordinate ?? previewGroup?.coordinate ?? null;
+  const previewLongitude = previewAnchorCoordinate?.[0] ?? null;
+  const previewLatitude = previewAnchorCoordinate?.[1] ?? null;
 
   useEffect(() => {
     if (previewMarkerRef.current) {
@@ -52,15 +55,24 @@ export function WebPreviewMarkerPortal({
 
     const screenPoint = map.project(previewCoordinate);
     const cardHeight = 200;
-    const topMargin = 80;
-    const shouldShowBelow = screenPoint.y < (cardHeight + topMargin);
+    const bottomMargin = 80;
+    const mapContainerHeight = map.getContainer?.().clientHeight ?? 0;
+    const viewportHeight =
+      mapContainerHeight > 0
+        ? mapContainerHeight
+        : typeof window !== 'undefined'
+          ? window.innerHeight
+          : 0;
+    const shouldShowBelow =
+      viewportHeight <= 0 ||
+      viewportHeight - screenPoint.y >= cardHeight + bottomMargin;
 
     setArrowDirection(shouldShowBelow ? 'up' : 'down');
 
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
     container.style.zIndex = '1000';
-    container.style.position = 'relative';
+    container.style.position = 'absolute';
     container.style.display = 'inline-flex';
     container.style.justifyContent = 'center';
     container.style.alignItems = 'center';

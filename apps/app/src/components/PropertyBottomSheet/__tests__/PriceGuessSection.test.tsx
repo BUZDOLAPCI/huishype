@@ -1,5 +1,6 @@
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { PriceGuessSection } from '../PriceGuessSection';
 
 const mockUseAuth = jest.fn();
@@ -131,6 +132,10 @@ describe('PriceGuessSection', () => {
       id: 'guess-1',
       propertyId: 'property-123',
     });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('keeps the slider enabled for logged-out users and gates only on submit', async () => {
@@ -311,5 +316,47 @@ describe('PriceGuessSection', () => {
     expect(screen.getByTestId('price-guess-slider-initial-confidence').props.children).toBe(
       'usable'
     );
+  });
+
+  it('renders the submit confirmation as an overlay toast and auto-dismisses it', async () => {
+    jest.useFakeTimers();
+    mockUseAuth.mockReturnValue({
+      user: { id: 'user-1' },
+      isAuthenticated: true,
+    });
+
+    const screen = render(<PriceGuessSection property={property} />);
+
+    fireEvent.press(screen.getByTestId('price-guess-slider-submit'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockMutateAsync).toHaveBeenCalledWith({
+      propertyId: 'property-123',
+      guessedPrice: 345000,
+    });
+    expect(screen.getByText('Guess Submitted!')).toBeTruthy();
+    expect(screen.getByText(/Your guess of .* has been recorded\./)).toBeTruthy();
+
+    const toastStyle = StyleSheet.flatten(
+      screen.getByTestId('price-guess-success-toast').props.style
+    );
+    expect(toastStyle).toMatchObject({
+      position: 'absolute',
+      flexDirection: 'row',
+      alignItems: 'center',
+      left: 12,
+      right: 12,
+      zIndex: 10,
+      backgroundColor: 'rgba(26, 25, 24, 0.92)',
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+
+    expect(screen.queryByTestId('price-guess-success-toast')).toBeNull();
   });
 });

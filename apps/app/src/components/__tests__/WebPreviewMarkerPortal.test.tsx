@@ -26,6 +26,11 @@ const mockGroupPreviewCard = jest.fn((props: MockPreviewCardProps) => (
 var mockMarkerInstances: Array<{
   addTo: jest.Mock;
   element: HTMLDivElement;
+  options: {
+    anchor?: string;
+    element: HTMLDivElement;
+    offset?: [number, number];
+  };
   remove: jest.Mock;
   setLngLat: jest.Mock;
 }> = [];
@@ -35,16 +40,22 @@ jest.mock('../GroupPreviewCard', () => ({
 }));
 
 jest.mock('maplibre-gl', () => {
-  const Marker = jest.fn().mockImplementation((options: { element: HTMLDivElement }) => {
+  const Marker = jest.fn().mockImplementation((options: {
+    anchor?: string;
+    element: HTMLDivElement;
+    offset?: [number, number];
+  }) => {
     let instance: {
       addTo: jest.Mock;
       element: HTMLDivElement;
+      options: typeof options;
       remove: jest.Mock;
       setLngLat: jest.Mock;
     };
 
     instance = {
       element: options.element,
+      options,
       setLngLat: jest.fn().mockImplementation(() => instance),
       addTo: jest.fn().mockImplementation(() => {
         globalThis.document.body.appendChild(options.element);
@@ -134,6 +145,7 @@ describe('WebPreviewMarkerPortal', () => {
     );
 
     expect(mockMarkerConstructor).toHaveBeenCalledTimes(1);
+    expect(mockMarkerInstances[0]?.element.style.position).toBe('absolute');
     expect(document.querySelector('[data-testid="mock-address"]')?.textContent).toBe('Damrak 1');
     expect(document.querySelector('[data-testid="mock-thumbnail"]')?.textContent).toBe('no-thumbnail');
 
@@ -213,5 +225,91 @@ describe('WebPreviewMarkerPortal', () => {
     expect(mockMarkerConstructor).toHaveBeenCalledTimes(2);
     expect(mockMarkerInstances[0]?.remove).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('up');
+  });
+
+  it('anchors the card to the selected marker coordinate when provided', () => {
+    const previewCoordinate: [number, number] = [4.9, 52.37];
+    const selectedMarkerCoordinate: [number, number] = [4.92, 52.38];
+    const project = jest.fn().mockReturnValue({ y: 320 });
+    const map = {
+      getContainer: jest.fn(() => ({ clientHeight: 800 })),
+      project,
+    } as unknown as NonNullable<PortalMap>;
+
+    renderToDOM(
+      <WebPreviewMarkerPortal
+        map={map}
+        previewGroup={buildPreviewGroup({ coordinate: previewCoordinate })}
+        anchorCoordinate={selectedMarkerCoordinate}
+        currentIndex={0}
+        markerOffsetPx={18}
+        onIndexChange={jest.fn()}
+        onClose={jest.fn()}
+        onPropertyTap={jest.fn()}
+        onLike={jest.fn()}
+        onComment={jest.fn()}
+        onGuess={jest.fn()}
+        isLiked={false}
+      />
+    );
+
+    expect(project).toHaveBeenCalledWith(selectedMarkerCoordinate);
+    expect(mockMarkerInstances[0]?.setLngLat).toHaveBeenCalledWith(selectedMarkerCoordinate);
+    expect(mockMarkerInstances[0]?.options.anchor).toBe('top');
+    expect(mockMarkerInstances[0]?.options.offset).toEqual([0, 18]);
+    expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('up');
+  });
+
+  it('uses the same visual offset magnitude when the card is placed below the marker', () => {
+    const map = {
+      project: jest.fn().mockReturnValue({ y: 120 }),
+    } as unknown as PortalMap;
+
+    renderToDOM(
+      <WebPreviewMarkerPortal
+        map={map}
+        previewGroup={buildPreviewGroup()}
+        currentIndex={0}
+        markerOffsetPx={18}
+        onIndexChange={jest.fn()}
+        onClose={jest.fn()}
+        onPropertyTap={jest.fn()}
+        onLike={jest.fn()}
+        onComment={jest.fn()}
+        onGuess={jest.fn()}
+        isLiked={false}
+      />
+    );
+
+    expect(mockMarkerInstances[0]?.options.anchor).toBe('top');
+    expect(mockMarkerInstances[0]?.options.offset).toEqual([0, 18]);
+    expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('up');
+  });
+
+  it('places the card above the marker when there is not enough room below', () => {
+    const map = {
+      getContainer: jest.fn(() => ({ clientHeight: 800 })),
+      project: jest.fn().mockReturnValue({ y: 740 }),
+    } as unknown as PortalMap;
+
+    renderToDOM(
+      <WebPreviewMarkerPortal
+        map={map}
+        previewGroup={buildPreviewGroup()}
+        currentIndex={0}
+        markerOffsetPx={18}
+        onIndexChange={jest.fn()}
+        onClose={jest.fn()}
+        onPropertyTap={jest.fn()}
+        onLike={jest.fn()}
+        onComment={jest.fn()}
+        onGuess={jest.fn()}
+        isLiked={false}
+      />
+    );
+
+    expect(mockMarkerInstances[0]?.options.anchor).toBe('bottom');
+    expect(mockMarkerInstances[0]?.options.offset).toEqual([0, -18]);
+    expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('down');
   });
 });

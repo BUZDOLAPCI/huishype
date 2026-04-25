@@ -87,7 +87,7 @@ export function getNativePreviewOverlayLayout(params: {
   const availableBelow = boundedBottom - anchorPoint[1];
   const fitsAbove = cardHeight === 0 || availableAbove >= cardHeight;
   const fitsBelow = cardHeight === 0 || availableBelow >= cardHeight;
-  const placeBelow = !fitsAbove && (fitsBelow || availableBelow > availableAbove);
+  const placeBelow = fitsBelow || (!fitsAbove && availableBelow > availableAbove);
 
   return {
     arrowDirection: placeBelow ? 'up' : 'down',
