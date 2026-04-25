@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, ingestBatches, ingestRuns, ingestSources, type DbTransaction } from '../../db/index.js';
-import type { IngestBatchRequest, IngestWatermarkResponse } from './contracts.js';
+import { ingestBatchRequestSchema, type IngestBatchRequest, type IngestWatermarkResponse } from './contracts.js';
 import { decodeOpaqueIngestCursor, encodeOpaqueIngestCursor } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 
@@ -40,6 +40,17 @@ export interface MaintenanceRefreshRequestRecord {
   maintenanceRequestedAt: string;
 }
 
+export interface SkippedBatchRecoveryCandidate {
+  id: string;
+  sourceName: string;
+  payload: IngestBatchRequest;
+  ingestedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  maintenanceRequestedAt: string | null;
+  maintenanceCompletedAt: string | null;
+}
+
 interface SupersededBatchCandidate {
   [key: string]: unknown;
   id: string;
@@ -55,6 +66,20 @@ interface SupersededBatchRow {
   run_id: string | null;
   source_name: string;
 }
+
+interface SkippedBatchRecoveryCandidateRow {
+  [key: string]: unknown;
+  id: string;
+  source_name: string;
+  payload_json: Record<string, unknown>;
+  ingested_count: number;
+  updated_count: number;
+  skipped_count: number;
+  maintenance_requested_at: Date | string | null;
+  maintenance_completed_at: Date | string | null;
+}
+
+export const SKIPPED_BATCH_RECOVERY_COOLDOWN_MS = 15 * 60 * 1000;
 
 function toIsoString(value: Date | string | null): string | null {
   if (value == null) {
@@ -608,6 +633,51 @@ export async function markMaintenanceRequestsCompletedBefore(cutoff: Date): Prom
   return pendingRows.length;
 }
 
+export async function listSkippedBatchRecoveryCandidates(
+  referenceTime: Date,
+  limit = 100,
+): Promise<SkippedBatchRecoveryCandidate[]> {
+  const dueBefore = new Date(referenceTime.getTime() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS).toISOString();
+  const rows = await db.execute<SkippedBatchRecoveryCandidateRow>(sql`
+    SELECT
+      id,
+      source_name,
+      payload_json,
+      ingested_count,
+      updated_count,
+      skipped_count,
+      maintenance_requested_at,
+      maintenance_completed_at
+    FROM ingest_batches
+    WHERE status = 'completed'
+      AND skipped_count > 0
+      AND jsonb_typeof(payload_json->'listings') = 'array'
+      AND jsonb_array_length(payload_json->'listings') > 0
+      AND (
+        maintenance_completed_at IS NULL
+        OR maintenance_completed_at <= ${dueBefore}
+      )
+    ORDER BY
+      COALESCE(maintenance_completed_at, to_timestamp(0)),
+      COALESCE(completed_at, received_at),
+      received_at,
+      batch_sequence,
+      id
+    LIMIT ${limit}
+  `);
+
+  return Array.from(rows, (row) => ({
+    id: row.id,
+    sourceName: row.source_name,
+    payload: ingestBatchRequestSchema.parse(row.payload_json),
+    ingestedCount: row.ingested_count,
+    updatedCount: row.updated_count,
+    skippedCount: row.skipped_count,
+    maintenanceRequestedAt: toIsoString(row.maintenance_requested_at),
+    maintenanceCompletedAt: toIsoString(row.maintenance_completed_at),
+  }));
+}
+
 export async function collectRecoveryDispatchWork(
   staleProcessingBefore: Date,
   limit = 100,
@@ -660,9 +730,12 @@ export async function collectRecoveryDispatchWork(
     )
     .limit(1);
 
+  const skippedRecoveryRows = await listSkippedBatchRecoveryCandidates(new Date(), 1);
+  const skippedRecoveryPending = skippedRecoveryRows.length > 0;
+
   return {
     staleProcessingBatchIds: Array.from(staleRows, (row) => row.id),
     recoverableBatchIds: Array.from(recoverableRows, (row) => row.id),
-    maintenancePending: maintenanceRows.length > 0,
+    maintenancePending: maintenanceRows.length > 0 || skippedRecoveryPending,
   };
 }

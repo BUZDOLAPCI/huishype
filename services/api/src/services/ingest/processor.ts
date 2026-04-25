@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   db,
   type DbTransaction,
   ingestBatches,
   ingestSources,
+  listingObservations,
 } from '../../db/index.js';
 import type { CountryCode } from '@huishype/shared';
 import { canonicalizeAddress, normalizeSourceUrl } from '../../utils/address.js';
@@ -12,7 +13,12 @@ import { ingestBatchRequestSchema } from './contracts.js';
 import { decodeOpaqueIngestCursor } from './cursor.js';
 import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
-import { finalizeIngestRunLifecycle } from './store.js';
+import {
+  finalizeIngestRunLifecycle,
+  listSkippedBatchRecoveryCandidates,
+  SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
+  type SkippedBatchRecoveryCandidate,
+} from './store.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
 import {
   persistMirrorObservationForIngest,
@@ -36,6 +42,17 @@ interface CanonicalizedListing {
 interface MatchedListing {
   item: IngestListing;
   propertyId: string;
+}
+
+interface RecoveryIdentity {
+  sourceListingId: string;
+  sourceUrl: string;
+  propertyId: string;
+}
+
+interface RecoveredMatchClassification {
+  unresolved: MatchedListing[];
+  resolvedCount: number;
 }
 
 interface ClaimedBatch {
@@ -83,6 +100,10 @@ function buildAddressMatchKey(
   addition: string | null,
 ): string {
   return `${countryCode}|${streetNorm}|${postalCode}|${houseNumber}|${addition ?? ''}`;
+}
+
+function buildRecoveryIdentityKey(propertyId: string, value: string): string {
+  return `${propertyId}|${value}`;
 }
 
 function defaultLogger(): IngestLogger {
@@ -479,6 +500,240 @@ async function persistMatchedListingObservations(
   return results;
 }
 
+function getRecoveryIdentity(match: MatchedListing): RecoveryIdentity {
+  const sourceListingId = match.item.sourceListingId ?? match.item.mirrorListingId;
+  const sourceUrl = normalizeSourceUrl(match.item.canonicalUrl ?? match.item.sourceUrl);
+
+  return {
+    sourceListingId,
+    sourceUrl,
+    propertyId: match.propertyId,
+  };
+}
+
+async function classifyRecoveredMatchedListings(
+  tx: DbTransaction,
+  sourceName: string,
+  batchId: string,
+  matched: MatchedListing[],
+): Promise<RecoveredMatchClassification> {
+  if (matched.length === 0) {
+    return {
+      unresolved: [],
+      resolvedCount: 0,
+    };
+  }
+
+  const propertyIds = new Set<string>();
+  const sourceListingIds = new Set<string>();
+  const sourceUrls = new Set<string>();
+
+  for (const entry of matched) {
+    const identity = getRecoveryIdentity(entry);
+    propertyIds.add(identity.propertyId);
+    sourceListingIds.add(identity.sourceListingId);
+    sourceUrls.add(identity.sourceUrl);
+  }
+
+  const propertyIdList = Array.from(propertyIds);
+  const sourceListingIdList = Array.from(sourceListingIds);
+  const sourceUrlList = Array.from(sourceUrls);
+
+  const rows = await tx
+    .select({
+      propertyId: listingObservations.propertyId,
+      sourceListingId: listingObservations.sourceListingId,
+      sourceUrl: listingObservations.sourceUrlCanonical,
+    })
+    .from(listingObservations)
+    .where(
+      and(
+        eq(listingObservations.sourceName, sourceName),
+        eq(listingObservations.origin, 'mirror'),
+        eq(listingObservations.ingestBatchId, batchId),
+        inArray(listingObservations.propertyId, propertyIdList),
+        or(
+          inArray(listingObservations.sourceListingId, sourceListingIdList),
+          inArray(listingObservations.sourceUrlCanonical, sourceUrlList),
+        ),
+      ),
+    );
+
+  const recoveredKeys = new Set<string>();
+  for (const row of rows) {
+    if (!row.propertyId) {
+      continue;
+    }
+    if (row.sourceListingId) {
+      recoveredKeys.add(buildRecoveryIdentityKey(row.propertyId, row.sourceListingId));
+    }
+    if (row.sourceUrl) {
+      recoveredKeys.add(buildRecoveryIdentityKey(row.propertyId, row.sourceUrl));
+    }
+  }
+
+  let resolvedCount = 0;
+  const unresolved: MatchedListing[] = [];
+
+  for (const entry of matched) {
+    const identity = getRecoveryIdentity(entry);
+    const alreadyObserved =
+      recoveredKeys.has(buildRecoveryIdentityKey(identity.propertyId, identity.sourceListingId))
+      || recoveredKeys.has(buildRecoveryIdentityKey(identity.propertyId, identity.sourceUrl));
+
+    if (alreadyObserved) {
+      resolvedCount += 1;
+      continue;
+    }
+
+    unresolved.push(entry);
+  }
+
+  return {
+    unresolved,
+    resolvedCount,
+  };
+}
+
+async function lockSkippedBatchRecoveryCandidate(
+  tx: DbTransaction,
+  batchId: string,
+  recoveryStartedAt: Date,
+): Promise<SkippedBatchRecoveryCandidate | null> {
+  const dueBefore = new Date(recoveryStartedAt.getTime() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS).toISOString();
+  const rows = await tx.execute<{
+    id: string;
+    source_name: string;
+    payload_json: Record<string, unknown>;
+    ingested_count: number;
+    updated_count: number;
+    skipped_count: number;
+    maintenance_requested_at: Date | string | null;
+    maintenance_completed_at: Date | string | null;
+  }>(sql`
+    SELECT
+      id,
+      source_name,
+      payload_json,
+      ingested_count,
+      updated_count,
+      skipped_count,
+      maintenance_requested_at,
+      maintenance_completed_at
+    FROM ingest_batches
+    WHERE id = ${batchId}
+      AND status = 'completed'
+      AND skipped_count > 0
+      AND (
+        maintenance_completed_at IS NULL
+        OR maintenance_completed_at <= ${dueBefore}
+      )
+    FOR UPDATE SKIP LOCKED
+  `);
+
+  const row = Array.from(rows)[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    sourceName: row.source_name,
+    payload: ingestBatchRequestSchema.parse(row.payload_json),
+    ingestedCount: row.ingested_count,
+    updatedCount: row.updated_count,
+    skippedCount: row.skipped_count,
+    maintenanceRequestedAt:
+      row.maintenance_requested_at == null ? null : new Date(row.maintenance_requested_at).toISOString(),
+    maintenanceCompletedAt:
+      row.maintenance_completed_at == null ? null : new Date(row.maintenance_completed_at).toISOString(),
+  };
+}
+
+async function recoverSkippedCompletedBatch(
+  candidateId: string,
+  recoveryStartedAt: Date,
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    const claimed = await lockSkippedBatchRecoveryCandidate(tx, candidateId, recoveryStartedAt);
+    if (!claimed) {
+      return 0;
+    }
+
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
+
+    const { canonicalized } = canonicalizeListings(claimed.payload.listings);
+    const exactMatches = await exactMatchProperties(tx, canonicalized);
+    await spatialMatchProperties(tx, canonicalized, exactMatches);
+
+    const { matched } = dedupeMatchedListings(canonicalized, exactMatches);
+    const { unresolved, resolvedCount } = await classifyRecoveredMatchedListings(
+      tx,
+      claimed.sourceName,
+      claimed.id,
+      matched,
+    );
+
+    if (unresolved.length === 0) {
+      const skippedCount = Math.max(claimed.skippedCount - resolvedCount, 0);
+      const hasPendingRefresh =
+        claimed.maintenanceRequestedAt !== null && claimed.maintenanceCompletedAt === null;
+      const update: Partial<typeof ingestBatches.$inferInsert> = {
+        skippedCount,
+      };
+
+      if (!hasPendingRefresh) {
+        update.maintenanceRequestedAt = recoveryStartedAt;
+        update.maintenanceCompletedAt = recoveryStartedAt;
+      }
+
+      await tx.update(ingestBatches).set(update).where(eq(ingestBatches.id, claimed.id));
+      return 0;
+    }
+
+    const listingWrites = await persistMatchedListingObservations(
+      tx,
+      claimed.sourceName,
+      claimed.id,
+      unresolved,
+    );
+
+    await advancePropertyChangeVersion(
+      listingWrites
+        .filter((row) => row.inserted || row.changed)
+        .map((row) => row.propertyId),
+      tx,
+    );
+
+    const recoveredCount = resolvedCount + listingWrites.length;
+    await tx
+      .update(ingestBatches)
+      .set({
+        ingestedCount: claimed.ingestedCount + listingWrites.length,
+        skippedCount: Math.max(claimed.skippedCount - recoveredCount, 0),
+        maintenanceRequestedAt: recoveryStartedAt,
+        maintenanceCompletedAt: null,
+      })
+      .where(eq(ingestBatches.id, claimed.id));
+
+    return recoveredCount;
+  });
+}
+
+async function recoverSkippedCompletedIngestBatches(
+  recoveryStartedAt: Date,
+  limit = 100,
+): Promise<number> {
+  const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit);
+  let recoveredCount = 0;
+
+  for (const candidate of candidates) {
+    recoveredCount += await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt);
+  }
+
+  return recoveredCount;
+}
+
 async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: string): Promise<void> {
   const sourceRows = await tx
     .select()
@@ -696,6 +951,9 @@ export async function refreshLatestListingsMaintenance(
   const logger = options.logger ?? defaultLogger();
   const viewRefreshers = Array.isArray(refreshViews) ? refreshViews : [refreshViews];
   const refreshStartedAt = new Date();
+
+  await recoverSkippedCompletedIngestBatches(refreshStartedAt);
+
   const pendingRows = await db
     .select({ id: ingestBatches.id })
     .from(ingestBatches)
@@ -705,6 +963,10 @@ export async function refreshLatestListingsMaintenance(
         AND ${ingestBatches.maintenanceRequestedAt} <= ${refreshStartedAt.toISOString()}`,
     );
 
+  if (pendingRows.length === 0) {
+    return 0;
+  }
+
   try {
     for (const refreshView of viewRefreshers) {
       await refreshView();
@@ -712,10 +974,6 @@ export async function refreshLatestListingsMaintenance(
   } catch (error) {
     logger.error({ error: serializeError(error) }, 'Maintenance refresh failed');
     throw error;
-  }
-
-  if (pendingRows.length === 0) {
-    return 0;
   }
 
   await db
