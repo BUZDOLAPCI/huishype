@@ -621,8 +621,8 @@ async function lockSkippedBatchRecoveryCandidate(
       AND status = 'completed'
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
-      AND EXISTS (
-        SELECT 1
+      AND (
+        SELECT count(*)
         FROM jsonb_array_elements(payload_json->'listings') AS payload_listing(listing)
         WHERE NOT EXISTS (
           SELECT 1
@@ -654,7 +654,7 @@ async function lockSkippedBatchRecoveryCandidate(
               )
             )
         )
-      )
+      ) > GREATEST(skipped_count, 0)
       AND (
         maintenance_completed_at IS NULL
         OR maintenance_completed_at <= ${dueBefore}
@@ -711,6 +711,7 @@ async function recoverSkippedCompletedBatch(
         claimed.maintenanceRequestedAt !== null && claimed.maintenanceCompletedAt === null;
       const update: Partial<typeof ingestBatches.$inferInsert> = {
         ingestedCount: resolvedCount,
+        updatedCount: 0,
         skippedCount,
       };
 
@@ -737,11 +738,14 @@ async function recoverSkippedCompletedBatch(
       tx,
     );
 
-    const ingestedCount = resolvedCount + listingWrites.length;
+    const insertedCount = listingWrites.filter((row) => row.inserted).length;
+    const updatedCount = listingWrites.length - insertedCount;
+    const ingestedCount = resolvedCount + insertedCount;
     await tx
       .update(ingestBatches)
       .set({
         ingestedCount,
+        updatedCount,
         skippedCount,
         maintenanceRequestedAt: recoveryStartedAt,
         maintenanceCompletedAt: null,

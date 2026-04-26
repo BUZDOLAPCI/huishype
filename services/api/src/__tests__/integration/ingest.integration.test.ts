@@ -759,6 +759,10 @@ describe('Durable ingest API contract', () => {
     });
 
     const propertyId = await seedProperty({ street, houseNumber: 61 });
+    await db
+      .update(ingestBatches)
+      .set({ skippedCount: 0 })
+      .where(eq(ingestBatches.id, batchId));
 
     await db.insert(canonicalListings).values({
       propertyId,
@@ -849,6 +853,10 @@ describe('Durable ingest API contract', () => {
     });
 
     const propertyId = await seedProperty({ street, houseNumber: 62 });
+    await db
+      .update(ingestBatches)
+      .set({ skippedCount: 0 })
+      .where(eq(ingestBatches.id, batchId));
     const olderBatchId = await seedCompletedBatchRecord({
       sourceName,
       stamp: stamp + 1,
@@ -968,6 +976,10 @@ describe('Durable ingest API contract', () => {
 
     await seedProperty({ street: firstStreet, houseNumber: 65 });
     await seedProperty({ street: secondStreet, houseNumber: 66 });
+    await db
+      .update(ingestBatches)
+      .set({ skippedCount: 0 })
+      .where(inArray(ingestBatches.id, [firstBatch.batchId, secondBatch.batchId]));
 
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
 
@@ -1011,7 +1023,7 @@ describe('Durable ingest API contract', () => {
       .limit(1);
 
     expect(unrecoveredBatchAfterFirstRefresh?.ingestedCount).toBe(0);
-    expect(unrecoveredBatchAfterFirstRefresh?.skippedCount).toBe(1);
+    expect(unrecoveredBatchAfterFirstRefresh?.skippedCount).toBe(0);
     expect(unrecoveredBatchAfterFirstRefresh?.maintenanceRequestedAt).toBeNull();
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
 
@@ -1339,6 +1351,10 @@ describe('Durable ingest API contract', () => {
     });
 
     await seedProperty({ street, houseNumber: 63 });
+    await db
+      .update(ingestBatches)
+      .set({ skippedCount: 0 })
+      .where(eq(ingestBatches.id, batchId));
 
     let refreshCalls = 0;
     const firstRefreshCount = await refreshLatestListingsMaintenance(async () => {
@@ -1400,7 +1416,7 @@ describe('Durable ingest API contract', () => {
     expect(batchState?.maintenanceCompletedAt).not.toBeNull();
   });
 
-  it('does not call refreshers for a no-op skipped recovery scan and resolves churn', async () => {
+  it('does not select a fully accounted unmatched skipped batch initially or after cooldown', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = `Recoverylaan-${stamp}`;
@@ -1415,7 +1431,7 @@ describe('Durable ingest API contract', () => {
       sourceUrl,
     });
 
-    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
 
     let refreshCalls = 0;
     const refreshedCount = await refreshLatestListingsMaintenance(async () => {
@@ -1434,8 +1450,8 @@ describe('Durable ingest API contract', () => {
     expect(batchState?.ingestedCount).toBe(0);
     expect(batchState?.updatedCount).toBe(0);
     expect(batchState?.skippedCount).toBe(1);
-    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
-    expect(batchState?.maintenanceCompletedAt).not.toBeNull();
+    expect(batchState?.maintenanceRequestedAt).toBeNull();
+    expect(batchState?.maintenanceCompletedAt).toBeNull();
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
 
     const cooldownElapsedAt = new Date(Date.now() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS - 1_000);
@@ -1444,7 +1460,7 @@ describe('Durable ingest API contract', () => {
       .set({ maintenanceCompletedAt: cooldownElapsedAt })
       .where(eq(ingestBatches.id, batchId));
 
-    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
 
     const refreshedCountAfterCooldown = await refreshLatestListingsMaintenance(async () => {
       refreshCalls += 1;
@@ -1452,6 +1468,209 @@ describe('Durable ingest API contract', () => {
 
     expect(refreshedCountAfterCooldown).toBe(0);
     expect(refreshCalls).toBe(0);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+  });
+
+  it('marks an under-accounted unmatched skipped batch and stops recurring', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Recoverylaan-under-accounted-${stamp}`;
+    const mirrorListingId = `idealista-recovery-under-accounted-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/recovery-under-accounted-${stamp}/`;
+    const { batchId } = await createSkippedCompletedBatch({
+      sourceName,
+      stamp,
+      street,
+      houseNumber: 65,
+      mirrorListingId,
+      sourceUrl,
+    });
+
+    const cooldownElapsedAt = new Date(Date.now() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS - 1_000);
+    await db
+      .update(ingestBatches)
+      .set({
+        ingestedCount: 0,
+        updatedCount: 4,
+        skippedCount: 0,
+        maintenanceCompletedAt: cooldownElapsedAt,
+      })
+      .where(eq(ingestBatches.id, batchId));
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    let refreshCalls = 0;
+    const recoveredCount = await refreshLatestListingsMaintenance(async () => {
+      refreshCalls += 1;
+    });
+
+    expect(recoveredCount).toBe(0);
+    expect(refreshCalls).toBe(0);
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.sourceListingId, mirrorListingId),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observations).toHaveLength(0);
+
+    const [batchState] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, batchId))
+      .limit(1);
+
+    expect(batchState?.ingestedCount).toBe(0);
+    expect(batchState?.updatedCount).toBe(0);
+    expect(batchState?.skippedCount).toBe(1);
+    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
+    expect(batchState?.maintenanceCompletedAt).not.toBeNull();
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+
+    await db
+      .update(ingestBatches)
+      .set({ maintenanceCompletedAt: cooldownElapsedAt })
+      .where(eq(ingestBatches.id, batchId));
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+
+    const recoveredCountAfterCooldown = await refreshLatestListingsMaintenance(async () => {
+      refreshCalls += 1;
+    });
+
+    expect(recoveredCountAfterCooldown).toBe(0);
+    expect(refreshCalls).toBe(0);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+  });
+
+  it('recovers only the matchable missing observation from a mixed skipped batch and stops recurring', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const matchedStreet = `Recoverylaan-mixed-match-${stamp}`;
+    const unmatchedStreet = `Recoverylaan-mixed-skip-${stamp}`;
+    const matchedMirrorListingId = `fotocasa-recovery-mixed-match-${stamp}`;
+    const unmatchedMirrorListingId = `fotocasa-recovery-mixed-skip-${stamp}`;
+    const matchedSourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-mixed-match-${stamp}`;
+    const unmatchedSourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-mixed-skip-${stamp}`;
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T16:00:00.000Z',
+      listingKey: `fotocasa-recovery-mixed-${stamp}`,
+    });
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-recovery-mixed-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `fotocasa-recovery-mixed-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: matchedSourceUrl,
+          mirrorListingId: matchedMirrorListingId,
+          askingPrice: 515000,
+          priceType: 'sale',
+          status: 'active',
+          mirrorFirstSeenAt: '2026-04-05T16:00:00.000Z',
+          mirrorLastChangedAt: '2026-04-06T16:00:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T16:10:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: matchedStreet,
+            postalCode: '1234 AB',
+            houseNumber: 66,
+            city: 'Eindhoven',
+          },
+        },
+        {
+          sourceUrl: unmatchedSourceUrl,
+          mirrorListingId: unmatchedMirrorListingId,
+          askingPrice: 525000,
+          priceType: 'sale',
+          status: 'active',
+          mirrorFirstSeenAt: '2026-04-05T16:00:00.000Z',
+          mirrorLastChangedAt: '2026-04-06T16:00:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T16:10:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: unmatchedStreet,
+            postalCode: '1234 AB',
+            houseNumber: 67,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 2,
+    });
+
+    const matchedPropertyId = await seedProperty({ street: matchedStreet, houseNumber: 66 });
+    const cooldownElapsedAt = new Date(Date.now() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS - 1_000);
+    await db
+      .update(ingestBatches)
+      .set({
+        skippedCount: 1,
+        maintenanceCompletedAt: cooldownElapsedAt,
+      })
+      .where(eq(ingestBatches.id, accepted.batchId));
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    let refreshCalls = 0;
+    const refreshedCount = await refreshLatestListingsMaintenance(async () => {
+      refreshCalls += 1;
+    });
+
+    expect(refreshedCount).toBe(1);
+    expect(refreshCalls).toBe(1);
+
+    const observations = await db
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        propertyId: listingObservations.propertyId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          inArray(listingObservations.sourceListingId, [matchedMirrorListingId, unmatchedMirrorListingId]),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.sourceListingId).toBe(matchedMirrorListingId);
+    expect(observations[0]?.propertyId).toBe(matchedPropertyId);
+    expect(observations[0]?.ingestBatchId).toBe(accepted.batchId);
+
+    const [batchState] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, accepted.batchId))
+      .limit(1);
+
+    expect(batchState?.ingestedCount).toBe(1);
+    expect(batchState?.updatedCount).toBe(0);
+    expect(batchState?.skippedCount).toBe(1);
+    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
+    expect(batchState?.maintenanceCompletedAt).not.toBeNull();
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
   });
 

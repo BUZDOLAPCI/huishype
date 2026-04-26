@@ -652,8 +652,8 @@ export async function listSkippedBatchRecoveryCandidates(
     WHERE status = 'completed'
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
-      AND EXISTS (
-        SELECT 1
+      AND (
+        SELECT count(*)
         FROM jsonb_array_elements(payload_json->'listings') AS payload_listing(listing)
         WHERE NOT EXISTS (
           SELECT 1
@@ -685,7 +685,7 @@ export async function listSkippedBatchRecoveryCandidates(
               )
             )
         )
-      )
+      ) > GREATEST(skipped_count, 0)
       AND (
         maintenance_completed_at IS NULL
         OR maintenance_completed_at <= ${dueBefore}
