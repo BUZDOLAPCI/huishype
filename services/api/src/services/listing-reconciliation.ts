@@ -252,6 +252,7 @@ function normalizeSourceAliases(aliases: readonly { kind: string; value: string 
 
 function observationStatusToCanonicalStatus(status: ListingObservation['sourceStatus']): CanonicalStatus {
   if (status === 'available') return 'active';
+  if (status === 'not_found') return 'withdrawn';
   return status;
 }
 

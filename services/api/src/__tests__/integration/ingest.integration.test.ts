@@ -1141,6 +1141,167 @@ describe('Durable ingest API contract', () => {
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
   });
 
+  it('withdraws an existing canonical listing when a later mirror ingest reports withdrawn or not_found', async () => {
+    const sourceName = 'fotocasa';
+
+    for (const terminalSourceStatus of ['withdrawn', 'not_found'] as const) {
+      await resetIngestSourceState(sourceName);
+
+      const stamp = `${Date.now()}-${terminalSourceStatus}`;
+      const street = `Withdrawnlaan-${stamp}`;
+      const mirrorListingId = `fotocasa-withdrawn-${stamp}`;
+      const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/withdrawn-${stamp}`;
+      const runKey = `fotocasa-withdrawn-run-${stamp}`;
+      const propertyId = await seedProperty({ street, houseNumber: 70 });
+
+      const firstCursor = encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T17:00:00.000Z',
+        listingKey: `${mirrorListingId}-active`,
+      });
+
+      const firstAccepted = await acceptIngestBatch({
+        sourceName,
+        idempotencyKey: `fotocasa-withdrawn-active-${stamp}`,
+        batchSequence: 0,
+        cursorStart: null,
+        cursorEnd: firstCursor,
+        upstreamRunKey: runKey,
+        listings: [
+          {
+            sourceUrl,
+            mirrorListingId,
+            askingPrice: 410000,
+            priceType: 'sale',
+            status: 'active',
+            sourceStatus: 'available',
+            mirrorFirstSeenAt: '2026-04-05T17:00:00.000Z',
+            mirrorLastChangedAt: '2026-04-06T17:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-06T17:10:00.000Z',
+            address: {
+              countryCode: 'NL',
+              street,
+              postalCode: '1234 AB',
+              houseNumber: 70,
+              city: 'Eindhoven',
+            },
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: firstAccepted.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 1,
+        updated: 0,
+        skipped: 0,
+      });
+
+      const [activeCanonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(
+          and(
+            eq(canonicalListings.sourceName, sourceName),
+            eq(canonicalListings.primarySourceListingId, mirrorListingId),
+          ),
+        )
+        .limit(1);
+
+      expect(activeCanonical).toBeDefined();
+      expect(activeCanonical?.propertyId).toBe(propertyId);
+      expect(activeCanonical?.status).toBe('active');
+
+      const secondAccepted = await acceptIngestBatch({
+        sourceName,
+        idempotencyKey: `fotocasa-withdrawn-later-${stamp}`,
+        batchSequence: 1,
+        cursorStart: firstCursor,
+        cursorEnd: encodeOpaqueIngestCursor({
+          changedAt: '2026-04-06T18:00:00.000Z',
+          listingKey: `${mirrorListingId}-${terminalSourceStatus}`,
+        }),
+        upstreamRunKey: runKey,
+        listings: [
+          {
+            sourceUrl,
+            mirrorListingId,
+            askingPrice: 410000,
+            priceType: 'sale',
+            status: 'withdrawn',
+            sourceStatus: terminalSourceStatus,
+            mirrorFirstSeenAt: '2026-04-05T17:00:00.000Z',
+            mirrorLastChangedAt: '2026-04-06T18:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-06T18:10:00.000Z',
+            address: {
+              countryCode: 'NL',
+              street,
+              postalCode: '1234 AB',
+              houseNumber: 70,
+              city: 'Eindhoven',
+            },
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: secondAccepted.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 1,
+        updated: 0,
+        skipped: 0,
+      });
+
+      const canonicals = await db
+        .select()
+        .from(canonicalListings)
+        .where(
+          and(
+            eq(canonicalListings.sourceName, sourceName),
+            eq(canonicalListings.primarySourceListingId, mirrorListingId),
+          ),
+        );
+
+      expect(canonicals).toHaveLength(1);
+      expect(canonicals[0]?.id).toBe(activeCanonical?.id);
+      expect(canonicals[0]?.status).toBe('withdrawn');
+      expect(canonicals[0]?.statusSource).toBe('mirror');
+
+      const observations = await db
+        .select({
+          sourceStatus: listingObservations.sourceStatus,
+          ingestBatchId: listingObservations.ingestBatchId,
+        })
+        .from(listingObservations)
+        .where(
+          and(
+            eq(listingObservations.sourceName, sourceName),
+            eq(listingObservations.sourceListingId, mirrorListingId),
+          ),
+        );
+
+      expect(observations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sourceStatus: 'available',
+            ingestBatchId: firstAccepted.batchId,
+          }),
+          expect.objectContaining({
+            sourceStatus: terminalSourceStatus,
+            ingestBatchId: secondAccepted.batchId,
+          }),
+        ]),
+      );
+    }
+  });
+
   it('tracks run lifecycle completion across multiple batches and links price history to listings', async () => {
     const runKey = `fotocasa-run-${Date.now()}`;
     const firstMirrorListingId = `fotocasa-listing-a-${Date.now()}`;
