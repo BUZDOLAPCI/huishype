@@ -26,6 +26,8 @@ type ExistingJobLike = {
 let ingestBatchQueue: QueueLike<IngestBatchJobData> | null = null;
 let maintenanceQueue: QueueLike<MaintenanceRefreshJobData> | null = null;
 
+const WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID = `${REFRESH_LATEST_LISTINGS_JOB}-worker-sweep`;
+
 async function loadQueueConstructor<T>(): Promise<
   new (name: string, options: Record<string, unknown>) => QueueLike<T>
 > {
@@ -109,6 +111,35 @@ export async function enqueueIngestBatch(batchId: string): Promise<void> {
 
 export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobData): Promise<void> {
   const queue = await getMaintenanceQueue();
+
+  if (data.requestedBy === 'worker-sweep' && !data.batchId) {
+    const existingJob = await queue.getJob(WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID) as ExistingJobLike | null;
+
+    if (existingJob) {
+      const state = await existingJob.getState?.();
+      if (state === 'failed' || state === 'completed') {
+        if (!existingJob.retry) {
+          throw new Error(
+            `Existing maintenance refresh job ${WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID} is ${state} but cannot be retried`,
+          );
+        }
+
+        await existingJob.retry(state, {
+          resetAttemptsMade: true,
+          resetAttemptsStarted: true,
+        });
+      }
+      return;
+    }
+
+    await queue.add(
+      REFRESH_LATEST_LISTINGS_JOB,
+      data,
+      { jobId: WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID },
+    );
+    return;
+  }
+
   const dedupeId = data.batchId ?? randomUUID();
   await queue.add(
     REFRESH_LATEST_LISTINGS_JOB,

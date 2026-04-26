@@ -163,4 +163,89 @@ describe('ingest queue', () => {
       { jobId: 'refresh-latest-active-listings-batch-1' },
     );
   });
+
+  it('coalesces worker sweep maintenance refreshes without a batch id into a singleton job id', async () => {
+    const { requestLatestListingsRefresh } = await import('./queue.js');
+
+    await requestLatestListingsRefresh({
+      requestedBy: 'worker-sweep',
+    });
+
+    expect(getJobMock).toHaveBeenCalledWith('refresh-latest-active-listings-worker-sweep');
+    expect(addMock).toHaveBeenCalledWith(
+      'refresh-latest-active-listings',
+      {
+        requestedBy: 'worker-sweep',
+      },
+      { jobId: 'refresh-latest-active-listings-worker-sweep' },
+    );
+  });
+
+  it.each(['active', 'waiting', 'delayed'] as const)(
+    'does not add another worker sweep maintenance refresh when the singleton job is %s',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'refresh-latest-active-listings-worker-sweep',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { requestLatestListingsRefresh } = await import('./queue.js');
+
+      await requestLatestListingsRefresh({
+        requestedBy: 'worker-sweep',
+      });
+
+      expect(getJobMock).toHaveBeenCalledWith('refresh-latest-active-listings-worker-sweep');
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).not.toHaveBeenCalled();
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['completed', 'failed'] as const)(
+    'retries an existing %s worker sweep singleton refresh so pending maintenance can run again',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'refresh-latest-active-listings-worker-sweep',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { requestLatestListingsRefresh } = await import('./queue.js');
+
+      await requestLatestListingsRefresh({
+        requestedBy: 'worker-sweep',
+      });
+
+      expect(getJobMock).toHaveBeenCalledWith('refresh-latest-active-listings-worker-sweep');
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).toHaveBeenCalledWith(state, {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps worker sweep maintenance refreshes with a batch id batch-specific', async () => {
+    const { requestLatestListingsRefresh } = await import('./queue.js');
+
+    await requestLatestListingsRefresh({
+      requestedBy: 'worker-sweep',
+      batchId: 'batch-1',
+    });
+
+    expect(getJobMock).not.toHaveBeenCalled();
+    expect(addMock).toHaveBeenCalledWith(
+      'refresh-latest-active-listings',
+      {
+        requestedBy: 'worker-sweep',
+        batchId: 'batch-1',
+      },
+      { jobId: 'refresh-latest-active-listings-batch-1' },
+    );
+  });
 });
