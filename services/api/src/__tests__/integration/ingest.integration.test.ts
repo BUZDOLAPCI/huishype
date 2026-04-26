@@ -939,7 +939,152 @@ describe('Durable ingest API contract', () => {
     expect(batchState?.skippedCount).toBe(0);
   });
 
-  it('resolves skipped recovery accounting from an existing observation without duplicating it', async () => {
+  it('recovers missing observations from a zero-skipped completed batch without duplicating existing same-batch observations', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const existingStreet = `Recoverylaan-${stamp}`;
+    const existingPriorStreet = `Recoverydreef-${stamp}`;
+    const missingStreet = `Recoveryhof-${stamp}`;
+    const existingMirrorListingId = `fotocasa-recovery-zero-existing-${stamp}`;
+    const missingMirrorListingId = `fotocasa-recovery-zero-missing-${stamp}`;
+    const existingSourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-zero-existing-${stamp}`;
+    const missingSourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-zero-missing-${stamp}`;
+    const existingPriorPropertyId = await seedProperty({ street: existingPriorStreet, houseNumber: 71 });
+    const missingPropertyId = await seedProperty({ street: missingStreet, houseNumber: 72 });
+    await seedProperty({ street: existingStreet, houseNumber: 71 });
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T15:00:00.000Z',
+      listingKey: `fotocasa-recovery-zero-${stamp}`,
+    });
+    const payload = {
+      sourceName,
+      idempotencyKey: `fotocasa-recovery-zero-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `fotocasa-recovery-zero-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: existingSourceUrl,
+          mirrorListingId: existingMirrorListingId,
+          askingPrice: 515000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          mirrorFirstSeenAt: '2026-04-05T15:00:00.000Z',
+          mirrorLastChangedAt: '2026-04-06T15:00:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T15:10:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: existingStreet,
+            postalCode: '1234 AB',
+            houseNumber: 71,
+            city: 'Eindhoven',
+          },
+        },
+        {
+          sourceUrl: missingSourceUrl,
+          mirrorListingId: missingMirrorListingId,
+          askingPrice: 525000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          mirrorFirstSeenAt: '2026-04-05T15:00:00.000Z',
+          mirrorLastChangedAt: '2026-04-06T15:00:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T15:10:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: missingStreet,
+            postalCode: '1234 AB',
+            houseNumber: 72,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    };
+
+    const [batch] = await db
+      .insert(ingestBatches)
+      .values({
+        sourceName,
+        batchSequence: 0,
+        idempotencyKey: payload.idempotencyKey,
+        cursorEnd,
+        payloadJson: payload,
+        status: 'completed',
+        receivedAt: new Date('1999-01-01T00:00:00.000Z'),
+        completedAt: new Date('1999-01-01T00:00:00.000Z'),
+        ingestedCount: 1,
+        skippedCount: 0,
+      })
+      .returning({ id: ingestBatches.id });
+
+    expect(batch?.id).toBeTruthy();
+    const batchId = batch?.id as string;
+
+    await db.insert(listingObservations).values({
+      sourceName,
+      sourceListingId: existingMirrorListingId,
+      sourceListingIdKind: 'unknown',
+      sourceUrlRaw: existingSourceUrl,
+      sourceUrlCanonical: existingSourceUrl,
+      origin: 'mirror',
+      propertyId: existingPriorPropertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 515000,
+      priceCurrency: 'EUR',
+      ingestBatchId: batchId,
+      observedAt: new Date('2026-04-06T15:10:00.000Z'),
+    });
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    let refreshCalls = 0;
+    const refreshedCount = await refreshLatestListingsMaintenance(async () => {
+      refreshCalls += 1;
+    });
+
+    expect(refreshedCount).toBe(1);
+    expect(refreshCalls).toBe(1);
+
+    const observations = await db
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        propertyId: listingObservations.propertyId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          inArray(listingObservations.sourceListingId, [existingMirrorListingId, missingMirrorListingId]),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observations).toHaveLength(2);
+    expect(observations.filter((observation) => observation.sourceListingId === existingMirrorListingId)).toHaveLength(1);
+    expect(observations.filter((observation) => observation.sourceListingId === missingMirrorListingId)).toHaveLength(1);
+    expect(observations.find((observation) => observation.sourceListingId === existingMirrorListingId)?.propertyId)
+      .toBe(existingPriorPropertyId);
+    expect(observations.find((observation) => observation.sourceListingId === missingMirrorListingId)?.propertyId)
+      .toBe(missingPropertyId);
+    expect(observations.every((observation) => observation.ingestBatchId === batchId)).toBe(true);
+
+    const [batchState] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, batchId))
+      .limit(1);
+
+    expect(batchState?.ingestedCount).toBe(2);
+    expect(batchState?.updatedCount).toBe(0);
+    expect(batchState?.skippedCount).toBe(0);
+    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
+    expect(batchState?.maintenanceCompletedAt).not.toBeNull();
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+  });
+
+  it('does not schedule a fully observed batch solely because skipped accounting is stale or only URL identity exists', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = `Recoverylaan-${stamp}`;
@@ -958,7 +1103,7 @@ describe('Durable ingest API contract', () => {
 
     await db.insert(listingObservations).values({
       sourceName,
-      sourceListingId: mirrorListingId,
+      sourceListingId: null,
       sourceListingIdKind: 'unknown',
       sourceUrlRaw: sourceUrl,
       sourceUrlCanonical: sourceUrl,
@@ -972,7 +1117,7 @@ describe('Durable ingest API contract', () => {
       observedAt: new Date('2026-04-06T14:10:00.000Z'),
     });
 
-    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
 
     let refreshCalls = 0;
     const refreshedCount = await refreshLatestListingsMaintenance(async () => {
@@ -988,7 +1133,7 @@ describe('Durable ingest API contract', () => {
       .where(
         and(
           eq(listingObservations.sourceName, sourceName),
-          eq(listingObservations.sourceListingId, mirrorListingId),
+          eq(listingObservations.sourceUrlCanonical, sourceUrl),
         ),
       );
 
@@ -1002,10 +1147,73 @@ describe('Durable ingest API contract', () => {
 
     expect(batchState?.ingestedCount).toBe(0);
     expect(batchState?.updatedCount).toBe(0);
-    expect(batchState?.skippedCount).toBe(0);
-    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
-    expect(batchState?.maintenanceCompletedAt).not.toBeNull();
+    expect(batchState?.skippedCount).toBe(1);
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+  });
+
+  it('does not duplicate same-batch observations when a recovered listing rematches to a different property', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Recoverylaan-${stamp}`;
+    const priorStreet = `Recoverydreef-${stamp}`;
+    const mirrorListingId = `fotocasa-recovery-drift-${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-drift-${stamp}`;
+    const { batchId } = await createSkippedCompletedBatch({
+      sourceName,
+      stamp,
+      street,
+      houseNumber: 73,
+      mirrorListingId,
+      sourceUrl,
+    });
+
+    const priorPropertyId = await seedProperty({ street: priorStreet, houseNumber: 73 });
+    const currentPropertyId = await seedProperty({ street, houseNumber: 73 });
+
+    await db.insert(listingObservations).values({
+      sourceName,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      sourceUrlRaw: sourceUrl,
+      sourceUrlCanonical: sourceUrl,
+      origin: 'mirror',
+      propertyId: priorPropertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 515000,
+      priceCurrency: 'EUR',
+      ingestBatchId: batchId,
+      observedAt: new Date('2026-04-06T14:10:00.000Z'),
+    });
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+
+    let refreshCalls = 0;
+    const refreshedCount = await refreshLatestListingsMaintenance(async () => {
+      refreshCalls += 1;
+    });
+
+    expect(refreshedCount).toBe(0);
+    expect(refreshCalls).toBe(0);
+
+    const observations = await db
+      .select({
+        propertyId: listingObservations.propertyId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.sourceListingId, mirrorListingId),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.propertyId).toBe(priorPropertyId);
+    expect(observations[0]?.propertyId).not.toBe(currentPropertyId);
+    expect(observations[0]?.ingestBatchId).toBe(batchId);
   });
 
   it('does not duplicate a recovered mirror observation when the same batch is retried', async () => {
@@ -1056,7 +1264,6 @@ describe('Durable ingest API contract', () => {
     await db
       .update(ingestBatches)
       .set({
-        skippedCount: 1,
         maintenanceCompletedAt: new Date(Date.now() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS - 1_000),
       })
       .where(eq(ingestBatches.id, batchId));

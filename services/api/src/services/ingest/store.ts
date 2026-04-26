@@ -650,9 +650,42 @@ export async function listSkippedBatchRecoveryCandidates(
       maintenance_completed_at
     FROM ingest_batches
     WHERE status = 'completed'
-      AND skipped_count > 0
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
+      AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(payload_json->'listings') AS payload_listing(listing)
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM listing_observations observation
+          WHERE (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_listing_id = COALESCE(
+                NULLIF(payload_listing.listing->>'sourceListingId', ''),
+                payload_listing.listing->>'mirrorListingId'
+              )
+            )
+            OR (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_url_canonical = regexp_replace(
+                regexp_replace(
+                  COALESCE(
+                    NULLIF(payload_listing.listing->>'canonicalUrl', ''),
+                    payload_listing.listing->>'sourceUrl'
+                  ),
+                  '[?#].*$',
+                  ''
+                ),
+                '/+$',
+                ''
+              )
+            )
+        )
+      )
       AND (
         maintenance_completed_at IS NULL
         OR maintenance_completed_at <= ${dueBefore}

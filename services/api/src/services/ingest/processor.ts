@@ -92,6 +92,10 @@ function normalizeStreetForMatch(street: string): string {
   return street.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function normalizePostalCodeForMatch(postalCode: string): string {
+  return postalCode.replace(/\s+/g, '').toUpperCase();
+}
+
 function buildAddressMatchKey(
   countryCode: string,
   streetNorm: string,
@@ -100,10 +104,6 @@ function buildAddressMatchKey(
   addition: string | null,
 ): string {
   return `${countryCode}|${streetNorm}|${postalCode}|${houseNumber}|${addition ?? ''}`;
-}
-
-function buildRecoveryIdentityKey(propertyId: string, value: string): string {
-  return `${propertyId}|${value}`;
 }
 
 function defaultLogger(): IngestLogger {
@@ -233,7 +233,7 @@ function canonicalizeListings(listings: IngestListing[]): {
         countryCode: item.address.countryCode,
         street: canonical.street,
         streetNorm: normalizeStreetForMatch(canonical.street),
-        postalCode: canonical.postalCode,
+        postalCode: normalizePostalCodeForMatch(canonical.postalCode),
         houseNumber: canonical.houseNumber,
         houseNumberAddition: canonical.houseNumberAddition,
         city: canonical.city,
@@ -304,8 +304,8 @@ async function exactMatchProperties(
       SELECT
         p.id,
         p.country_code,
-        LOWER(REGEXP_REPLACE(BTRIM(p.street), '\s+', ' ', 'g')) AS street_norm,
-        p.postal_code,
+        LOWER(REGEXP_REPLACE(BTRIM(p.street), '\\s+', ' ', 'g')) AS street_norm,
+        UPPER(REGEXP_REPLACE(p.postal_code, '\\s+', '', 'g')) AS postal_code,
         p.house_number,
         p.house_number_addition
       FROM properties p
@@ -313,8 +313,8 @@ async function exactMatchProperties(
         VALUES ${sql.join(valueFragments, sql`, `)}
       ) AS v(country_code, street_norm, postal_code, house_number, addition)
         ON p.country_code = v.country_code
-       AND LOWER(REGEXP_REPLACE(BTRIM(p.street), '\s+', ' ', 'g')) = v.street_norm
-       AND p.postal_code = v.postal_code
+       AND LOWER(REGEXP_REPLACE(BTRIM(p.street), '\\s+', ' ', 'g')) = v.street_norm
+       AND UPPER(REGEXP_REPLACE(p.postal_code, '\\s+', '', 'g')) = v.postal_code
        AND p.house_number = v.house_number
        AND COALESCE(p.house_number_addition, '') = v.addition
     `);
@@ -524,18 +524,15 @@ async function classifyRecoveredMatchedListings(
     };
   }
 
-  const propertyIds = new Set<string>();
   const sourceListingIds = new Set<string>();
   const sourceUrls = new Set<string>();
 
   for (const entry of matched) {
     const identity = getRecoveryIdentity(entry);
-    propertyIds.add(identity.propertyId);
     sourceListingIds.add(identity.sourceListingId);
     sourceUrls.add(identity.sourceUrl);
   }
 
-  const propertyIdList = Array.from(propertyIds);
   const sourceListingIdList = Array.from(sourceListingIds);
   const sourceUrlList = Array.from(sourceUrls);
 
@@ -551,7 +548,6 @@ async function classifyRecoveredMatchedListings(
         eq(listingObservations.sourceName, sourceName),
         eq(listingObservations.origin, 'mirror'),
         eq(listingObservations.ingestBatchId, batchId),
-        inArray(listingObservations.propertyId, propertyIdList),
         or(
           inArray(listingObservations.sourceListingId, sourceListingIdList),
           inArray(listingObservations.sourceUrlCanonical, sourceUrlList),
@@ -559,16 +555,15 @@ async function classifyRecoveredMatchedListings(
       ),
     );
 
-  const recoveredKeys = new Set<string>();
+  const recoveredSourceListingIds = new Set<string>();
+  const recoveredSourceUrls = new Set<string>();
+
   for (const row of rows) {
-    if (!row.propertyId) {
-      continue;
-    }
     if (row.sourceListingId) {
-      recoveredKeys.add(buildRecoveryIdentityKey(row.propertyId, row.sourceListingId));
+      recoveredSourceListingIds.add(row.sourceListingId);
     }
     if (row.sourceUrl) {
-      recoveredKeys.add(buildRecoveryIdentityKey(row.propertyId, row.sourceUrl));
+      recoveredSourceUrls.add(row.sourceUrl);
     }
   }
 
@@ -578,8 +573,8 @@ async function classifyRecoveredMatchedListings(
   for (const entry of matched) {
     const identity = getRecoveryIdentity(entry);
     const alreadyObserved =
-      recoveredKeys.has(buildRecoveryIdentityKey(identity.propertyId, identity.sourceListingId))
-      || recoveredKeys.has(buildRecoveryIdentityKey(identity.propertyId, identity.sourceUrl));
+      recoveredSourceListingIds.has(identity.sourceListingId)
+      || recoveredSourceUrls.has(identity.sourceUrl);
 
     if (alreadyObserved) {
       resolvedCount += 1;
@@ -623,7 +618,42 @@ async function lockSkippedBatchRecoveryCandidate(
     FROM ingest_batches
     WHERE id = ${batchId}
       AND status = 'completed'
-      AND skipped_count > 0
+      AND jsonb_typeof(payload_json->'listings') = 'array'
+      AND jsonb_array_length(payload_json->'listings') > 0
+      AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(payload_json->'listings') AS payload_listing(listing)
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM listing_observations observation
+          WHERE (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_listing_id = COALESCE(
+                NULLIF(payload_listing.listing->>'sourceListingId', ''),
+                payload_listing.listing->>'mirrorListingId'
+              )
+            )
+            OR (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_url_canonical = regexp_replace(
+                regexp_replace(
+                  COALESCE(
+                    NULLIF(payload_listing.listing->>'canonicalUrl', ''),
+                    payload_listing.listing->>'sourceUrl'
+                  ),
+                  '[?#].*$',
+                  ''
+                ),
+                '/+$',
+                ''
+              )
+            )
+        )
+      )
       AND (
         maintenance_completed_at IS NULL
         OR maintenance_completed_at <= ${dueBefore}
@@ -662,23 +692,24 @@ async function recoverSkippedCompletedBatch(
 
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
 
-    const { canonicalized } = canonicalizeListings(claimed.payload.listings);
+    const { canonicalized, skippedCount: canonicalizationSkips } = canonicalizeListings(claimed.payload.listings);
     const exactMatches = await exactMatchProperties(tx, canonicalized);
     await spatialMatchProperties(tx, canonicalized, exactMatches);
 
-    const { matched } = dedupeMatchedListings(canonicalized, exactMatches);
+    const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(canonicalized, exactMatches);
     const { unresolved, resolvedCount } = await classifyRecoveredMatchedListings(
       tx,
       claimed.sourceName,
       claimed.id,
       matched,
     );
+    const skippedCount = canonicalizationSkips + unmatchedSkips;
 
     if (unresolved.length === 0) {
-      const skippedCount = Math.max(claimed.skippedCount - resolvedCount, 0);
       const hasPendingRefresh =
         claimed.maintenanceRequestedAt !== null && claimed.maintenanceCompletedAt === null;
       const update: Partial<typeof ingestBatches.$inferInsert> = {
+        ingestedCount: resolvedCount,
         skippedCount,
       };
 
@@ -705,18 +736,18 @@ async function recoverSkippedCompletedBatch(
       tx,
     );
 
-    const recoveredCount = resolvedCount + listingWrites.length;
+    const ingestedCount = resolvedCount + listingWrites.length;
     await tx
       .update(ingestBatches)
       .set({
-        ingestedCount: claimed.ingestedCount + listingWrites.length,
-        skippedCount: Math.max(claimed.skippedCount - recoveredCount, 0),
+        ingestedCount,
+        skippedCount,
         maintenanceRequestedAt: recoveryStartedAt,
         maintenanceCompletedAt: null,
       })
       .where(eq(ingestBatches.id, claimed.id));
 
-    return recoveredCount;
+    return listingWrites.length;
   });
 }
 
