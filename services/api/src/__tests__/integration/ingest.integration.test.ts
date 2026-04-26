@@ -939,6 +939,113 @@ describe('Durable ingest API contract', () => {
     expect(batchState?.skippedCount).toBe(0);
   });
 
+  it('recovers at most one skipped completed batch per bounded maintenance call', async () => {
+    const firstSourceName = 'fotocasa';
+    const secondSourceName = 'idealista';
+    const stamp = Date.now();
+    const firstStreet = `Recoverylimiet-${stamp}`;
+    const secondStreet = `Recoverylimiet-${stamp + 1}`;
+    const firstMirrorListingId = `fotocasa-recovery-limit-first-${stamp}`;
+    const secondMirrorListingId = `idealista-recovery-limit-second-${stamp}`;
+    const firstSourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/recovery-limit-first-${stamp}`;
+    const secondSourceUrl = `https://www.idealista.com/inmueble/recovery-limit-second-${stamp}/`;
+    const firstBatch = await createSkippedCompletedBatch({
+      sourceName: firstSourceName,
+      stamp,
+      street: firstStreet,
+      houseNumber: 65,
+      mirrorListingId: firstMirrorListingId,
+      sourceUrl: firstSourceUrl,
+    });
+    const secondBatch = await createSkippedCompletedBatch({
+      sourceName: secondSourceName,
+      stamp: stamp + 1,
+      street: secondStreet,
+      houseNumber: 66,
+      mirrorListingId: secondMirrorListingId,
+      sourceUrl: secondSourceUrl,
+    });
+
+    await seedProperty({ street: firstStreet, houseNumber: 65 });
+    await seedProperty({ street: secondStreet, houseNumber: 66 });
+
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    let refreshCalls = 0;
+    const firstRefreshCount = await refreshLatestListingsMaintenance(
+      async () => {
+        refreshCalls += 1;
+      },
+      { skippedBatchRecoveryLimit: 1 },
+    );
+
+    expect(firstRefreshCount).toBeGreaterThanOrEqual(1);
+    expect(refreshCalls).toBe(1);
+
+    const observationsAfterFirstRefresh = await db
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          inArray(listingObservations.sourceName, [firstSourceName, secondSourceName]),
+          inArray(listingObservations.sourceListingId, [firstMirrorListingId, secondMirrorListingId]),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observationsAfterFirstRefresh).toHaveLength(1);
+    expect([firstBatch.batchId, secondBatch.batchId]).toContain(
+      observationsAfterFirstRefresh[0]?.ingestBatchId,
+    );
+
+    const recoveredBatchId = observationsAfterFirstRefresh[0]?.ingestBatchId;
+    const unrecoveredBatchId =
+      recoveredBatchId === firstBatch.batchId ? secondBatch.batchId : firstBatch.batchId;
+    const [unrecoveredBatchAfterFirstRefresh] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, unrecoveredBatchId))
+      .limit(1);
+
+    expect(unrecoveredBatchAfterFirstRefresh?.ingestedCount).toBe(0);
+    expect(unrecoveredBatchAfterFirstRefresh?.skippedCount).toBe(1);
+    expect(unrecoveredBatchAfterFirstRefresh?.maintenanceRequestedAt).toBeNull();
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    refreshCalls = 0;
+    const secondRefreshCount = await refreshLatestListingsMaintenance(
+      async () => {
+        refreshCalls += 1;
+      },
+      { skippedBatchRecoveryLimit: 1 },
+    );
+
+    expect(secondRefreshCount).toBeGreaterThanOrEqual(1);
+    expect(refreshCalls).toBe(1);
+
+    const observationsAfterSecondRefresh = await db
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          inArray(listingObservations.sourceName, [firstSourceName, secondSourceName]),
+          inArray(listingObservations.sourceListingId, [firstMirrorListingId, secondMirrorListingId]),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observationsAfterSecondRefresh).toHaveLength(2);
+    expect(observationsAfterSecondRefresh.map((observation) => observation.ingestBatchId).sort()).toEqual(
+      [firstBatch.batchId, secondBatch.batchId].sort(),
+    );
+  });
+
   it('recovers missing observations from a zero-skipped completed batch without duplicating existing same-batch observations', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();

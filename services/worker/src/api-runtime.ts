@@ -84,6 +84,7 @@ export interface IngestProcessorModule {
         warn(payload: Record<string, unknown>, message: string): void;
         error(payload: Record<string, unknown>, message: string): void;
       };
+      skippedBatchRecoveryLimit?: number;
     },
   ): Promise<number>;
 }

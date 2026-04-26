@@ -26,6 +26,7 @@ test('loadWorkerConfig uses defaults when env vars are missing', () => {
   assert.equal(config.maintenanceConcurrency, 1);
   assert.equal(config.officialValuationHydrationConcurrency, 1);
   assert.equal(config.recoveryBatchLimit, 100);
+  assert.equal(config.skippedBatchRecoveryLimit, 1);
   assert.equal(config.recoverySweepIntervalMs, 30_000);
   assert.equal(config.healthLogIntervalMs, 60_000);
   assert.equal(config.staleProcessingAfterMs, 600_000);
@@ -41,6 +42,7 @@ test('loadWorkerConfig parses explicit overrides', () => {
     WORKER_MAINTENANCE_CONCURRENCY: '2',
     WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY: '1',
     WORKER_RECOVERY_BATCH_LIMIT: '50',
+    WORKER_SKIPPED_BATCH_RECOVERY_LIMIT: '3',
     WORKER_RECOVERY_SWEEP_INTERVAL_MS: '15000',
     WORKER_HEALTH_LOG_INTERVAL_MS: '45000',
     WORKER_STALE_PROCESSING_AFTER_MS: '300000',
@@ -54,6 +56,7 @@ test('loadWorkerConfig parses explicit overrides', () => {
   assert.equal(config.maintenanceConcurrency, 2);
   assert.equal(config.officialValuationHydrationConcurrency, 1);
   assert.equal(config.recoveryBatchLimit, 50);
+  assert.equal(config.skippedBatchRecoveryLimit, 3);
   assert.equal(config.recoverySweepIntervalMs, 15_000);
   assert.equal(config.healthLogIntervalMs, 45_000);
   assert.equal(config.staleProcessingAfterMs, 300_000);

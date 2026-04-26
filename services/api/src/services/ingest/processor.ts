@@ -86,6 +86,7 @@ export interface ProcessIngestBatchOptions {
 
 export interface RefreshMaintenanceOptions {
   logger?: IngestLogger;
+  skippedBatchRecoveryLimit?: number;
 }
 
 function normalizeStreetForMatch(street: string): string {
@@ -982,8 +983,9 @@ export async function refreshLatestListingsMaintenance(
   const logger = options.logger ?? defaultLogger();
   const viewRefreshers = Array.isArray(refreshViews) ? refreshViews : [refreshViews];
   const refreshStartedAt = new Date();
+  const skippedBatchRecoveryLimit = options.skippedBatchRecoveryLimit ?? 1;
 
-  await recoverSkippedCompletedIngestBatches(refreshStartedAt);
+  await recoverSkippedCompletedIngestBatches(refreshStartedAt, skippedBatchRecoveryLimit);
 
   const pendingRows = await db
     .select({ id: ingestBatches.id })

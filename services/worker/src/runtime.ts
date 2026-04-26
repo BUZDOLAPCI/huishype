@@ -202,6 +202,7 @@ export class WorkerRuntime {
       ingestConcurrency: this.config.ingestConcurrency,
       maintenanceConcurrency: this.config.maintenanceConcurrency,
       officialValuationHydrationConcurrency: this.config.officialValuationHydrationConcurrency,
+      skippedBatchRecoveryLimit: this.config.skippedBatchRecoveryLimit,
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
       healthLogIntervalMs: this.config.healthLogIntervalMs,
@@ -293,7 +294,10 @@ export class WorkerRuntime {
         listingsView.refreshLatestListingsView,
         listingsView.refreshPriceGuessStartMarketSummaries,
       ],
-      { logger: toIngestLogger(this.logger) },
+      {
+        logger: toIngestLogger(this.logger),
+        skippedBatchRecoveryLimit: this.config.skippedBatchRecoveryLimit,
+      },
     );
 
     return {
