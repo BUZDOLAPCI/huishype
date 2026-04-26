@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { isValidCountryCode } from '@huishype/shared';
+import { buildPropertyThumbnailLateralJoin } from './property-queries.js';
 
 export type ActivityEventType = 'property_like' | 'comment' | 'price_guess' | 'save';
 export type ActivityFeedScope = 'public' | 'following' | 'self';
@@ -84,7 +85,7 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
           postalCode: row.postal_code,
           city: row.city,
         },
-        isValidCountryCode(row.country_code) ? row.country_code : undefined,
+        isValidCountryCode(row.country_code) ? row.country_code : undefined
       ),
       city: row.city,
       postalCode: row.postal_code,
@@ -106,7 +107,7 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
 export function activityActorPredicate(
   scope: ActivityFeedScope,
   eventUserIdColumn: string,
-  viewerId: string | null,
+  viewerId: string | null
 ) {
   if (scope === 'self') {
     return sql`${sql.raw(eventUserIdColumn)} = ${viewerId}`;
@@ -131,13 +132,21 @@ export async function fetchActivityFeed(params: {
   offset: number;
 }): Promise<ActivityFeedResponse> {
   const includeSave = params.scope === 'self';
-  const propertyLikeActorPredicate = activityActorPredicate(params.scope, 'r.user_id', params.viewerId);
+  const propertyLikeActorPredicate = activityActorPredicate(
+    params.scope,
+    'r.user_id',
+    params.viewerId
+  );
   const commentActorPredicate = activityActorPredicate(params.scope, 'c.user_id', params.viewerId);
-  const priceGuessActorPredicate = activityActorPredicate(params.scope, 'pg.user_id', params.viewerId);
+  const priceGuessActorPredicate = activityActorPredicate(
+    params.scope,
+    'pg.user_id',
+    params.viewerId
+  );
   const savedPropertyActorPredicate = activityActorPredicate(
     params.scope,
     'sp.user_id',
-    params.viewerId,
+    params.viewerId
   );
 
   const rows = await db.execute<ActivityRow>(sql`
@@ -165,15 +174,7 @@ export async function fetchActivityFeed(params: {
         FROM reactions r
         INNER JOIN users u ON u.id = r.user_id
         INNER JOIN properties p ON p.id = r.target_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE r.target_type = 'property'
           AND r.reaction_type = 'like'
           AND ${propertyLikeActorPredicate}
@@ -202,15 +203,7 @@ export async function fetchActivityFeed(params: {
         FROM comments c
         INNER JOIN users u ON u.id = c.user_id
         INNER JOIN properties p ON p.id = c.property_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE ${commentActorPredicate}
       )
       UNION ALL
@@ -237,19 +230,12 @@ export async function fetchActivityFeed(params: {
         FROM price_guesses pg
         INNER JOIN users u ON u.id = pg.user_id
         INNER JOIN properties p ON p.id = pg.property_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE ${priceGuessActorPredicate}
       )
-      ${includeSave
-        ? sql`
+      ${
+        includeSave
+          ? sql`
             UNION ALL
             (
               SELECT
@@ -274,19 +260,12 @@ export async function fetchActivityFeed(params: {
               FROM saved_properties sp
               INNER JOIN users u ON u.id = sp.user_id
               INNER JOIN properties p ON p.id = sp.property_id
-              LEFT JOIN LATERAL (
-                SELECT l.thumbnail_url
-                FROM v_canonical_listing_facts l
-                WHERE l.property_id = p.id
-                  AND l.status = 'active'
-                  AND l.thumbnail_url IS NOT NULL
-                ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-                LIMIT 1
-                ) lt ON TRUE
+              ${buildPropertyThumbnailLateralJoin('p', 'lt')}
                 WHERE ${savedPropertyActorPredicate}
             )
           `
-        : sql``}
+          : sql``
+      }
     )
     SELECT
       event_id,

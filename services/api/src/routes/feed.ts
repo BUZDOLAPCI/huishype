@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
+import { listingThumbnailOrderExpression } from '../services/property-queries.js';
 
 // --- Zod schemas ---
 
@@ -142,22 +143,20 @@ function setCachedFeedResponse(cacheKey: string, response: FeedResponse): void {
 
 function buildFeedScopedListingOrderExpression(scopedAlias: string) {
   return sql`${sql.raw(
-    `${scopedAlias}.active_listing_sort_at`,
+    `${scopedAlias}.active_listing_sort_at`
   )} DESC, ${sql.raw(`${scopedAlias}.listing_created_at`)} DESC, ${sql.raw(
-    `${scopedAlias}.listing_id`,
+    `${scopedAlias}.listing_id`
   )} DESC`;
 }
 
 function buildFeedOrderExpression(scoreAlias: string, filter: FeedQuery['filter']) {
   switch (filter) {
     case 'latest':
-      return sql`${sql.raw(`${scoreAlias}.last_activity_at`)} DESC, ${sql.raw(
-        `${scoreAlias}.id`,
-      )}`;
+      return sql`${sql.raw(`${scoreAlias}.last_activity_at`)} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
     case 'trending':
     default:
       return sql`${sql.raw(`${scoreAlias}.trending_score`)} DESC, ${sql.raw(
-        `${scoreAlias}.last_activity_at`,
+        `${scoreAlias}.last_activity_at`
       )} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
   }
 }
@@ -204,9 +203,7 @@ export async function feedRoutes(app: FastifyInstance) {
           : sql``;
 
       // Country filter condition
-      const countryCondition = country
-        ? sql`AND p.country_code = ${country}`
-        : sql``;
+      const countryCondition = country ? sql`AND p.country_code = ${country}` : sql``;
 
       const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
 
@@ -247,7 +244,7 @@ export async function feedRoutes(app: FastifyInstance) {
               AS house_number,
             (
               array_agg(sal.house_number_addition ORDER BY ${buildFeedScopedListingOrderExpression(
-                'sal',
+                'sal'
               )})
             )[1] AS house_number_addition,
             (array_agg(sal.city ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
@@ -258,7 +255,7 @@ export async function feedRoutes(app: FastifyInstance) {
               AS geometry,
             (
               array_agg(sal.official_valuation ORDER BY ${buildFeedScopedListingOrderExpression(
-                'sal',
+                'sal'
               )})
             )[1] AS official_valuation,
             (
@@ -276,9 +273,13 @@ export async function feedRoutes(app: FastifyInstance) {
               )
             )[1] AS active_listing_sort_at,
             (
-              array_agg(sal.thumbnail_url ORDER BY ${buildFeedScopedListingOrderExpression('sal')})
-              FILTER (WHERE sal.thumbnail_url IS NOT NULL)
-            )[1] AS thumbnail_url
+              SELECT l.thumbnail_url
+              FROM v_canonical_listing_facts l
+              WHERE l.property_id = sal.property_id
+                AND l.thumbnail_url IS NOT NULL
+              ORDER BY ${listingThumbnailOrderExpression('l')}
+              LIMIT 1
+            ) AS thumbnail_url
           FROM scoped_active_listings sal
           GROUP BY sal.property_id
         ),
@@ -455,7 +456,7 @@ export async function feedRoutes(app: FastifyInstance) {
             postalCode: r.zip_code ?? '',
             city: r.city,
           },
-          isValidCountryCode(r.country_code) ? r.country_code : undefined,
+          isValidCountryCode(r.country_code) ? r.country_code : undefined
         ),
         city: r.city,
         zipCode: r.zip_code,
@@ -474,10 +475,7 @@ export async function feedRoutes(app: FastifyInstance) {
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
         viewCount: Number(r.view_count),
-        activityLevel: computeActivityLevel(
-          Number(r.trending_score),
-          new Date(r.last_activity_at),
-        ),
+        activityLevel: computeActivityLevel(Number(r.trending_score), new Date(r.last_activity_at)),
         lastActivityAt: new Date(r.last_activity_at).toISOString(),
         hasListing: r.has_listing,
       }));

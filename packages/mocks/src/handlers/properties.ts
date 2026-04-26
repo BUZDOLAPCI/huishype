@@ -18,6 +18,7 @@ import {
   mockPropertyDetails,
   getMockProperty,
   getMockGuesses,
+  getMockPropertyThumbnailUrl,
 } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
 import { getMockActivityEvents } from './activity.js';
@@ -124,10 +125,12 @@ function getMockMarketState(
 }
 
 function getMockOfficialValuation(property: (typeof mockPropertyDetails)[number]) {
-  return mockOfficialValuationOverrides.get(property.id) ?? {
-    officialValuation: property.officialValuation ?? null,
-    officialValuationYear: property.officialValuationYear ?? null,
-  };
+  return (
+    mockOfficialValuationOverrides.get(property.id) ?? {
+      officialValuation: property.officialValuation ?? null,
+      officialValuationYear: property.officialValuationYear ?? null,
+    }
+  );
 }
 
 function supportsMockOfficialValuationHydration(property: (typeof mockPropertyDetails)[number]) {
@@ -140,7 +143,7 @@ function getMockOfficialValuationSourceFetch(property: (typeof mockPropertyDetai
 
 function propertyMatchesFollowingFilters(
   property: (typeof mockPropertyDetails)[number],
-  searchParams: URLSearchParams,
+  searchParams: URLSearchParams
 ) {
   const marketState = getMockMarketState(property);
   const requestedStates = searchParams.get('marketState')?.split(',').filter(Boolean) ?? [];
@@ -182,7 +185,7 @@ function propertyMatchesFollowingFilters(
 }
 
 function parseFollowingMapFiltersFromSearchParams(
-  searchParams: URLSearchParams,
+  searchParams: URLSearchParams
 ): FollowingPropertyFilters {
   const filters = parseMapFiltersFromSearchParams(searchParams);
   const requestedActivity = searchParams.get('activity');
@@ -308,13 +311,14 @@ function getCommentBreakdown(propertyId: string) {
 
 function getMockPublicProperty(
   property: (typeof mockPropertyDetails)[number],
-  viewerKey: string | null = null,
+  viewerKey: string | null = null
 ) {
   const { topLevelCommentCount, replyCount, commentLikeCount } = getCommentBreakdown(property.id);
   const hasListing = Boolean(property.activeListing);
   const hasActiveListing = hasListing;
   const propertyLikeCount = property.likeCount;
-  const socialScore = topLevelCommentCount * 2 + replyCount + propertyLikeCount + property.activity.guessCount;
+  const socialScore =
+    topLevelCommentCount * 2 + replyCount + propertyLikeCount + property.activity.guessCount;
   const recentSocialScore = Math.min(socialScore, Math.max(1, topLevelCommentCount + replyCount));
   const valuation = getMockOfficialValuation(property);
 
@@ -350,7 +354,7 @@ function getMockPublicProperty(
     marketState: hasActiveListing ? ('for-sale' as const) : ('not-listed' as const),
     latestListingStatus: hasActiveListing ? ('active' as const) : null,
     askingPrice: property.activeListing?.askingPrice ?? null,
-    thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+    thumbnailUrl: getMockPropertyThumbnailUrl(property.id),
     socialScore,
     recentSocialScore,
     lastSocialAt: property.activity.lastActivityAt ?? null,
@@ -374,7 +378,7 @@ function getMockPublicProperty(
 
 function getMockPropertyDetail(
   property: (typeof mockPropertyDetails)[number],
-  viewerKey: string | null = null,
+  viewerKey: string | null = null
 ) {
   const base = getMockPublicProperty(property, viewerKey);
 
@@ -463,8 +467,8 @@ function buildNearbySingleResponse({
     socialScoreMax,
     recentSocialScoreTotal,
     commentCount,
-    askingPrice: hasActiveListing ? property.activeListing?.askingPrice ?? null : null,
-    thumbnailUrl: hasActiveListing ? property.activeListing?.thumbnailUrl ?? null : null,
+    askingPrice: hasActiveListing ? (property.activeListing?.askingPrice ?? null) : null,
+    thumbnailUrl: getMockPropertyThumbnailUrl(id),
     hasActiveListing,
     marketState,
     distanceMeters,
@@ -504,7 +508,8 @@ export const propertyHandlers = [
     const postalCode = url.searchParams.get('postalCode');
     const houseNumberRaw = url.searchParams.get('houseNumber');
     const houseNumber = Number(houseNumberRaw);
-    const houseNumberAddition = url.searchParams.get('houseNumberAddition')?.trim().toUpperCase() || null;
+    const houseNumberAddition =
+      url.searchParams.get('houseNumberAddition')?.trim().toUpperCase() || null;
     const countryCode = (url.searchParams.get('countryCode') || 'NL').toUpperCase();
     const street = url.searchParams.get('street');
     const city = url.searchParams.get('city');
@@ -538,10 +543,7 @@ export const propertyHandlers = [
         return false;
       }
 
-      if (
-        normalizedStreet &&
-        normalizeAddressPart(property.streetName) !== normalizedStreet
-      ) {
+      if (normalizedStreet && normalizeAddressPart(property.streetName) !== normalizedStreet) {
         return false;
       }
 
@@ -560,7 +562,8 @@ export const propertyHandlers = [
       return HttpResponse.json(
         {
           error: 'AMBIGUOUS_ADDRESS',
-          message: 'Multiple properties matched this address. Provide street and city to disambiguate.',
+          message:
+            'Multiple properties matched this address. Provide street and city to disambiguate.',
         },
         { status: 409 }
       );
@@ -601,7 +604,7 @@ export const propertyHandlers = [
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
       return HttpResponse.json(
         { error: 'BAD_REQUEST', message: 'lon and lat are required' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -649,7 +652,7 @@ export const propertyHandlers = [
           commentCount: 0,
           distanceMeters: 9,
           isRead: areAllMockPropertiesRead([MOCK_NEARBY_GHOST_SINGLE_ID], viewerKey),
-        }),
+        })
       );
     }
 
@@ -669,7 +672,7 @@ export const propertyHandlers = [
         commentCount: 4,
         distanceMeters: 12,
         isRead: areAllMockPropertiesRead([MOCK_NEARBY_ACTIVE_SINGLE_ID], viewerKey),
-      }),
+      })
     );
   }),
 
@@ -684,7 +687,7 @@ export const propertyHandlers = [
           error: 'BAD_REQUEST',
           message: 'Authenticated user or x-session-id header is required.',
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -711,7 +714,7 @@ export const propertyHandlers = [
           error: 'BAD_REQUEST',
           message: 'Authenticated user or x-session-id header is required.',
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -726,7 +729,7 @@ export const propertyHandlers = [
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -751,7 +754,7 @@ export const propertyHandlers = [
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -763,7 +766,7 @@ export const propertyHandlers = [
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
       return HttpResponse.json(
         { error: 'BAD_REQUEST', message: 'lon and lat are required' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -801,17 +804,17 @@ export const propertyHandlers = [
         socialScoreTotal: clustered.reduce(
           (sum, { aggregate }) =>
             sum + aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount,
-          0,
+          0
         ),
         socialScoreMax: Math.max(
           ...clustered.map(
             ({ aggregate }) =>
-              aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount,
-          ),
+              aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount
+          )
         ),
         recentSocialScoreTotal: clustered.reduce(
           (sum, { aggregate }) => sum + aggregate.commentCount + aggregate.guessCount,
-          0,
+          0
         ),
         commentCount: clustered.reduce((sum, { aggregate }) => sum + aggregate.commentCount, 0),
         distanceMeters: 12,
@@ -833,13 +836,12 @@ export const propertyHandlers = [
         recentSocialCount: aggregate.actorIds.size,
         socialScoreTotal:
           aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount,
-        socialScoreMax:
-          aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount,
+        socialScoreMax: aggregate.propertyLikeCount + aggregate.commentCount + aggregate.guessCount,
         recentSocialScoreTotal: aggregate.commentCount + aggregate.guessCount,
         commentCount: aggregate.commentCount,
         distanceMeters: 12,
         isRead: isMockPropertyRead(property.id, viewerKey),
-      }),
+      })
     );
   }),
 
@@ -885,7 +887,7 @@ export const propertyHandlers = [
     if (!property) {
       return HttpResponse.json(
         { error: 'NOT_FOUND', message: 'Property not found' },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
@@ -899,7 +901,7 @@ export const propertyHandlers = [
       });
     }
 
-    const body = await request.json().catch(() => ({})) as {
+    const body = (await request.json().catch(() => ({}))) as {
       source?: unknown;
       valuation?: unknown;
       valuationYear?: unknown;
@@ -909,9 +911,8 @@ export const propertyHandlers = [
       return validationErrorResponse();
     }
 
-    const valuation = typeof body.valuation === 'number' && Number.isFinite(body.valuation)
-      ? body.valuation
-      : null;
+    const valuation =
+      typeof body.valuation === 'number' && Number.isFinite(body.valuation) ? body.valuation : null;
     const valuationYear =
       typeof body.valuationYear === 'number' && Number.isInteger(body.valuationYear)
         ? body.valuationYear
@@ -1050,7 +1051,7 @@ export const propertyHandlers = [
     if (!property) {
       return HttpResponse.json(
         { error: 'NOT_FOUND', message: 'Property not found' },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
@@ -1062,7 +1063,7 @@ export const propertyHandlers = [
           error: 'BAD_REQUEST',
           message: 'Authenticated user or x-session-id header is required.',
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -1096,15 +1097,10 @@ export const propertyHandlers = [
       );
     }
 
-    const guess = getMockGuesses(propertyId as string).find(
-      (g) => g.userId === authUser.id
-    );
+    const guess = getMockGuesses(propertyId as string).find((g) => g.userId === authUser.id);
 
     if (!guess) {
-      return HttpResponse.json(
-        { error: 'NOT_FOUND', message: 'No guess found' },
-        { status: 404 }
-      );
+      return HttpResponse.json({ error: 'NOT_FOUND', message: 'No guess found' }, { status: 404 });
     }
 
     return HttpResponse.json({
@@ -1117,5 +1113,4 @@ export const propertyHandlers = [
       updatedFmv: property.fmv,
     });
   }),
-
 ];

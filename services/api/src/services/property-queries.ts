@@ -29,6 +29,25 @@ export function canonicalListingFactOrderExpression(listingAlias: string): SQL {
   )} DESC, ${sql.raw(`${listingAlias}.listing_id`)} DESC`;
 }
 
+export function listingThumbnailOrderExpression(listingAlias: string): SQL {
+  return sql`(${sql.raw(`${listingAlias}.status`)} = 'active') DESC, ${canonicalListingFactOrderExpression(listingAlias)}`;
+}
+
+export function buildPropertyThumbnailLateralJoin(propertyAlias = 'p', alias = 'lt'): SQL {
+  const idColumn = propertyIdColumn(propertyAlias);
+
+  return sql`
+    LEFT JOIN LATERAL (
+      SELECT l.thumbnail_url
+      FROM v_canonical_listing_facts l
+      WHERE l.property_id = ${idColumn}
+        AND l.thumbnail_url IS NOT NULL
+      ORDER BY ${listingThumbnailOrderExpression('l')}
+      LIMIT 1
+    ) ${sql.raw(alias)} ON TRUE
+  `;
+}
+
 export function buildLatestPublicGuessFactsQuery(propertyId: SQL): SQL {
   return sql`
     SELECT DISTINCT ON (pg.user_id)
@@ -166,7 +185,7 @@ export function buildPropertyListingFactsJoin(
         latest_listing.status AS latest_listing_status,
         active_listing.asking_price AS asking_price,
         active_listing.sort_at AS active_listing_sort_at,
-        active_thumbnail.thumbnail_url AS thumbnail_url,
+        listing_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
           WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
             THEN 'for-rent'
@@ -200,15 +219,7 @@ export function buildPropertyListingFactsJoin(
         ORDER BY ${canonicalListingFactOrderExpression('l')}
         LIMIT 1
       ) latest_listing ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT l.thumbnail_url
-        FROM v_canonical_listing_facts l
-        WHERE l.property_id = ${idColumn}
-          AND l.status = 'active'
-          AND l.thumbnail_url IS NOT NULL
-        ORDER BY ${canonicalListingFactOrderExpression('l')}
-        LIMIT 1
-      ) active_thumbnail ON TRUE
+      ${buildPropertyThumbnailLateralJoin(propertyAlias, 'listing_thumbnail')}
       ${soldHistoryJoin}
       ${rentedHistoryJoin}
       ${guessFactsJoin}

@@ -11,6 +11,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import { getKarmaRank } from '../services/karma.js';
+import { buildPropertyThumbnailLateralJoin } from '../services/property-queries.js';
 
 // --- Schemas ---
 
@@ -20,7 +21,7 @@ const coordinateSchema = z.object({
 });
 
 const imageryCoordinateSchema = coordinateSchema.describe(
-  'Geometry used for imagery framing. May snap to a nearby building surface point.',
+  'Geometry used for imagery framing. May snap to a nearby building surface point.'
 );
 
 const leaderboardEntrySchema = z.object({
@@ -39,21 +40,23 @@ const leaderboardEntrySchema = z.object({
   likeCount: z.number(),
 });
 
-const featuredPropertySchema = z.object({
-  id: z.string().uuid(),
-  address: z.string(),
-  city: z.string(),
-  postalCode: z.string().nullable(),
-  countryCode: z.string(),
-  geometry: coordinateSchema.nullable(),
-  imageryGeometry: imageryCoordinateSchema.nullable().optional(),
-  officialValuation: z.number().nullable(),
-  officialValuationYear: z.number().nullable(),
-  thumbnailUrl: z.string().nullable(),
-  commentCount: z.number(),
-  likeCount: z.number(),
-  engagementScore: z.number(),
-}).nullable();
+const featuredPropertySchema = z
+  .object({
+    id: z.string().uuid(),
+    address: z.string(),
+    city: z.string(),
+    postalCode: z.string().nullable(),
+    countryCode: z.string(),
+    geometry: coordinateSchema.nullable(),
+    imageryGeometry: imageryCoordinateSchema.nullable().optional(),
+    officialValuation: z.number().nullable(),
+    officialValuationYear: z.number().nullable(),
+    thumbnailUrl: z.string().nullable(),
+    commentCount: z.number(),
+    likeCount: z.number(),
+    engagementScore: z.number(),
+  })
+  .nullable();
 
 const leaderboardResponseSchema = z.object({
   rankings: z.array(leaderboardEntrySchema),
@@ -99,15 +102,7 @@ const featuredImageryLatSelect = sql`CASE
   ELSE ST_Y(p.geometry)
 END`;
 
-const featuredThumbnailJoin = sql`LEFT JOIN LATERAL (
-  SELECT thumbnail_url
-  FROM v_canonical_listing_facts
-  WHERE property_id = p.id
-    AND status = 'active'
-    AND thumbnail_url IS NOT NULL
-  ORDER BY sort_at DESC, listing_created_at DESC, listing_id DESC
-  LIMIT 1
-) lt ON true`;
+const featuredThumbnailJoin = buildPropertyThumbnailLateralJoin('p', 'lt');
 
 // --- Route ---
 
@@ -123,7 +118,7 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
         summary: 'Get leaderboard rankings',
         description:
           'Rankings by karma (all-time) or by recent engagement activity (week/month). ' +
-          'If authenticated, includes the current user\'s rank.',
+          "If authenticated, includes the current user's rank.",
         querystring: z.object({
           period: z.enum(['week', 'month', 'all']).default('all'),
           limit: z.coerce.number().int().min(1).max(50).default(50),
@@ -533,12 +528,16 @@ export async function leaderboardRoutes(fastify: FastifyInstance) {
               featuredRow.imagery_lon != null && featuredRow.imagery_lat != null
                 ? {
                     type: 'Point' as const,
-                    coordinates: [featuredRow.imagery_lon, featuredRow.imagery_lat] as [number, number],
+                    coordinates: [featuredRow.imagery_lon, featuredRow.imagery_lat] as [
+                      number,
+                      number,
+                    ],
                   }
                 : null,
-            officialValuation: featuredRow.official_valuation != null
-              ? Number(featuredRow.official_valuation)
-              : null,
+            officialValuation:
+              featuredRow.official_valuation != null
+                ? Number(featuredRow.official_valuation)
+                : null,
             officialValuationYear:
               featuredRow.official_valuation_year != null
                 ? Number(featuredRow.official_valuation_year)

@@ -14,6 +14,7 @@ import {
 } from '../../db/schema.js';
 import {
   createIntegrationFollow,
+  createIntegrationListing,
   createIntegrationProperty,
   createIntegrationUser,
 } from './helpers/fixtures.js';
@@ -287,7 +288,7 @@ describe('Activity routes', () => {
             commentCount: 2,
             guessCount: 1,
           },
-        }),
+        })
       );
       expect(groupedItem.recentActors.map((actor: { id: string }) => actor.id)).toEqual([
         otherUserId,
@@ -438,7 +439,9 @@ describe('Activity routes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['cache-control']).toBe('private, no-store');
       const body = JSON.parse(response.body);
-      expect(body.items.map((item: { id: string }) => item.id)).toEqual([activityEventIds.viewerLike]);
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        activityEventIds.viewerLike,
+      ]);
 
       const viewerSaveId = crypto.randomUUID();
       await db.insert(savedProperties).values({
@@ -465,7 +468,7 @@ describe('Activity routes', () => {
       await db.delete(savedProperties).where(eq(savedProperties.id, viewerSaveId));
     });
 
-    it('exposes thumbnailUrl using the newest active non-null listing thumbnail fallback', async () => {
+    it('exposes thumbnailUrl using the listing thumbnail fallback', async () => {
       const syntheticPropertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/activity-fallback-thumb.jpg';
 
@@ -582,6 +585,64 @@ describe('Activity routes', () => {
             AND user_id = ${viewerUserId}
         `);
         await db.execute(sql`DELETE FROM properties WHERE id = ${syntheticPropertyId}`);
+      }
+    });
+
+    it('exposes thumbnailUrl from sold listings when no active thumbnail exists', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Activity Sold Thumbnail Street',
+        houseNumber: 4,
+        city: 'ActivityCity',
+        postalCode: '6666ZY',
+        lon: 5.92,
+        lat: 52.0,
+      });
+      const thumbnailUrl = 'https://cdn.example.com/activity-sold-thumb.jpg';
+
+      await createIntegrationListing({
+        propertyId: property.id,
+        status: 'active',
+        askingPrice: 340000,
+        thumbnailUrl: null,
+        sourceUrl: `https://example.com/activity-active-no-thumb-${property.id}`,
+      });
+      await createIntegrationListing({
+        propertyId: property.id,
+        status: 'sold',
+        askingPrice: 330000,
+        thumbnailUrl,
+        sourceUrl: `https://example.com/activity-sold-thumb-${property.id}`,
+      });
+
+      await app.inject({
+        method: 'POST',
+        url: `/properties/${property.id}/like`,
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/users/me/activity?limit=50',
+          headers: { authorization: `Bearer ${viewerAccessToken}` },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        const event = body.items.find(
+          (item: { property: { id: string } }) => item.property.id === property.id
+        );
+
+        expect(event).toBeDefined();
+        expect(event.property.thumbnailUrl).toBe(thumbnailUrl);
+      } finally {
+        await db.execute(sql`
+          DELETE FROM reactions
+          WHERE target_type = 'property'
+            AND target_id = ${property.id}
+            AND user_id = ${viewerUserId}
+        `);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
   });

@@ -27,14 +27,70 @@ describe('Property routes', () => {
     app = await buildApp({ logger: false });
 
     const fixtureProperties = [
-      { street: 'Fixture Street', houseNumber: 1, city: fixtureCity, postalCode: '9200AA', lon: nearbyFixture.lon, lat: nearbyFixture.lat },
-      { street: 'Fixture Street', houseNumber: 2, city: fixtureCity, postalCode: '9200AA', lon: 5.4702, lat: 51.4418 },
-      { street: 'Fixture Street', houseNumber: 3, city: fixtureCity, postalCode: '9200AA', lon: 5.4704, lat: 51.442 },
-      { street: 'Fixture Street', houseNumber: 4, city: fixtureCity, postalCode: '9200AA', lon: 5.4706, lat: 51.4422 },
-      { street: 'Fixture Street', houseNumber: 5, city: fixtureCity, postalCode: '9200AA', lon: 5.4708, lat: 51.4424 },
-      { street: 'Fixture Street', houseNumber: 6, city: fixtureCity, postalCode: '9200AA', lon: 5.471, lat: 51.4426 },
-      { street: 'Radius Street', houseNumber: 1, city: 'Radius City', postalCode: '9300AA', lon: 4.9041, lat: 52.3676 },
-      { street: 'Radius Street', houseNumber: 2, city: 'Radius City', postalCode: '9300AA', lon: 4.9061, lat: 52.3686 },
+      {
+        street: 'Fixture Street',
+        houseNumber: 1,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: nearbyFixture.lon,
+        lat: nearbyFixture.lat,
+      },
+      {
+        street: 'Fixture Street',
+        houseNumber: 2,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: 5.4702,
+        lat: 51.4418,
+      },
+      {
+        street: 'Fixture Street',
+        houseNumber: 3,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: 5.4704,
+        lat: 51.442,
+      },
+      {
+        street: 'Fixture Street',
+        houseNumber: 4,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: 5.4706,
+        lat: 51.4422,
+      },
+      {
+        street: 'Fixture Street',
+        houseNumber: 5,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: 5.4708,
+        lat: 51.4424,
+      },
+      {
+        street: 'Fixture Street',
+        houseNumber: 6,
+        city: fixtureCity,
+        postalCode: '9200AA',
+        lon: 5.471,
+        lat: 51.4426,
+      },
+      {
+        street: 'Radius Street',
+        houseNumber: 1,
+        city: 'Radius City',
+        postalCode: '9300AA',
+        lon: 4.9041,
+        lat: 52.3676,
+      },
+      {
+        street: 'Radius Street',
+        houseNumber: 2,
+        city: 'Radius City',
+        postalCode: '9300AA',
+        lon: 4.9061,
+        lat: 52.3686,
+      },
     ];
 
     for (const property of fixtureProperties) {
@@ -45,7 +101,12 @@ describe('Property routes', () => {
 
   afterAll(async () => {
     if (seededPropertyIds.length > 0) {
-      await db.execute(sql`DELETE FROM properties WHERE id IN (${sql.join(seededPropertyIds.map((id) => sql`${id}`), sql`, `)})`);
+      await db.execute(
+        sql`DELETE FROM properties WHERE id IN (${sql.join(
+          seededPropertyIds.map((id) => sql`${id}`),
+          sql`, `
+        )})`
+      );
     }
     await app.close();
   });
@@ -293,8 +354,12 @@ describe('Property routes', () => {
         expect(body.meta.total).toBe(1);
       } finally {
         await db.execute(sql`DELETE FROM price_history WHERE id = ${soldHistoryId}`);
-        await db.execute(sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`);
-        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+        await db.execute(
+          sql`DELETE FROM listings WHERE id IN (${listingIds[0]}, ${listingIds[1]})`
+        );
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`
+        );
       }
     });
 
@@ -368,8 +433,15 @@ describe('Property routes', () => {
         });
         expect(body.meta.total).toBe(1);
       } finally {
-        await db.execute(sql`DELETE FROM property_views WHERE id IN (${sql.join(viewIds.map((id) => sql`${id}`), sql`, `)})`);
-        await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+        await db.execute(
+          sql`DELETE FROM property_views WHERE id IN (${sql.join(
+            viewIds.map((id) => sql`${id}`),
+            sql`, `
+          )})`
+        );
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`
+        );
       }
     });
 
@@ -466,11 +538,12 @@ describe('Property routes', () => {
       }
     }, 60000);
 
-    it('returns the latest available active listing thumbnail even when the newest active listing has none', async () => {
+    it('prefers active listing thumbnails before newer sold listing thumbnails', async () => {
       const propertyId = crypto.randomUUID();
       const olderListingId = crypto.randomUUID();
       const latestListingId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/older-listing-thumb.jpg';
+      const soldThumbnailUrl = 'https://cdn.example.com/newer-sold-listing-thumb.jpg';
 
       await db.execute(sql`
         INSERT INTO properties (
@@ -536,6 +609,25 @@ describe('Property routes', () => {
             NOW() - INTERVAL '2 days'
           ),
           (
+            ${crypto.randomUUID()},
+            ${propertyId},
+            'funda',
+            'https://example.com/newer-sold-listing',
+            'https://example.com/newer-sold-listing',
+            'sold',
+            'mirror',
+            'validated',
+            'mirror',
+            455000,
+            ${soldThumbnailUrl},
+            'sale',
+            NOW(),
+            NOW(),
+            NOW(),
+            NOW(),
+            NOW()
+          ),
+          (
             ${latestListingId},
             ${propertyId},
             'funda',
@@ -571,6 +663,41 @@ describe('Property routes', () => {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }
     });
+
+    it('uses a sold listing thumbnail when no active listing thumbnail is available', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Sold Thumbnail Fallback Street',
+        houseNumber: 43,
+        city: 'TestCity',
+        postalCode: '1234AC',
+        lon: 5.471,
+        lat: 51.441,
+      });
+      const soldThumbnailUrl = 'https://cdn.example.com/sold-listing-thumb.jpg';
+
+      await createIntegrationListing({
+        propertyId: property.id,
+        status: 'sold',
+        askingPrice: 430000,
+        thumbnailUrl: soldThumbnailUrl,
+        sourceUrl: `https://example.com/sold-thumbnail-${property.id}`,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/${property.id}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.marketState).toBe('sold');
+        expect(body.thumbnailUrl).toBe(soldThumbnailUrl);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
   });
 
   describe('GET /properties/nearby', () => {
@@ -602,7 +729,7 @@ describe('Property routes', () => {
       expect(body).not.toHaveProperty('floorAreaM2');
     });
 
-    it('should expose thumbnailUrl and fall back to an older active thumbnail when the newest active listing has none', async () => {
+    it('should expose thumbnailUrl and prefer an active thumbnail when the newest active listing has none', async () => {
       const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';
       const isolatedNearbyFixture = { lon: 0.123456, lat: 0.123456 };
@@ -826,8 +953,8 @@ describe('Property routes', () => {
         await db.execute(
           sql`DELETE FROM users WHERE id IN (${sql.join(
             [sql`${viewer.userId}`, sql`${actor.userId}`],
-            sql`, `,
-          )})`,
+            sql`, `
+          )})`
         );
       }
     });
@@ -951,7 +1078,7 @@ describe('Property routes', () => {
       await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     });
 
-    it('includes thumbnailUrl on GET /properties with the same active-thumbnail fallback', async () => {
+    it('includes thumbnailUrl on GET /properties with the listing thumbnail fallback', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/properties?bbox=7.249,53.449,7.251,53.451&limit=10',
@@ -966,7 +1093,7 @@ describe('Property routes', () => {
       expect(property.askingPrice).toBe(545000);
     });
 
-    it('includes thumbnailUrl on GET /properties/batch with the same active-thumbnail fallback', async () => {
+    it('includes thumbnailUrl on GET /properties/batch with the listing thumbnail fallback', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/properties/batch?ids=${propertyId}`,
@@ -980,7 +1107,7 @@ describe('Property routes', () => {
       expect(body[0].askingPrice).toBe(545000);
     });
 
-    it('includes thumbnailUrl on GET /saved-properties with the same active-thumbnail fallback', async () => {
+    it('includes thumbnailUrl on GET /saved-properties with the listing thumbnail fallback', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/saved-properties?limit=10&offset=0',
@@ -1088,7 +1215,9 @@ describe('Property routes', () => {
 
     afterAll(async () => {
       // Clean up in reverse dependency order
-      await db.execute(sql`DELETE FROM reactions WHERE target_type = 'property' AND target_id = ${propertyId}`);
+      await db.execute(
+        sql`DELETE FROM reactions WHERE target_type = 'property' AND target_id = ${propertyId}`
+      );
       await db.execute(sql`DELETE FROM price_guesses WHERE property_id = ${propertyId}`);
       await db.execute(sql`DELETE FROM comments WHERE property_id = ${propertyId}`);
       await db.execute(sql`DELETE FROM property_views WHERE property_id = ${propertyId}`);

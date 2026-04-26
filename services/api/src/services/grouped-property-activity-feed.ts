@@ -11,6 +11,7 @@ import {
 import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { activityActorPredicate } from './activity-feed.js';
+import { buildPropertyThumbnailLateralJoin } from './property-queries.js';
 
 export type GroupedPropertyActivityFeedScope = 'public' | 'following';
 
@@ -63,7 +64,7 @@ function mapActivityProperty(row: GroupedPropertyActivityRow): ActivityProperty 
         postalCode: row.postal_code,
         city: row.city,
       },
-      isValidCountryCode(row.country_code) ? row.country_code : undefined,
+      isValidCountryCode(row.country_code) ? row.country_code : undefined
     ),
     city: row.city,
     postalCode: row.postal_code,
@@ -125,7 +126,7 @@ function mapPreview(row: GroupedPropertyActivityRow): GroupedActivityPreview {
 }
 
 function mapGroupedPropertyActivityRow(
-  row: GroupedPropertyActivityRow,
+  row: GroupedPropertyActivityRow
 ): GroupedPropertyActivityItem {
   return {
     property: mapActivityProperty(row),
@@ -149,13 +150,13 @@ export async function fetchGroupedPropertyActivityFeed(params: {
   const propertyLikeActorPredicate = activityActorPredicate(
     params.scope,
     'r.user_id',
-    params.viewerId,
+    params.viewerId
   );
   const commentActorPredicate = activityActorPredicate(params.scope, 'c.user_id', params.viewerId);
   const priceGuessActorPredicate = activityActorPredicate(
     params.scope,
     'pg.user_id',
-    params.viewerId,
+    params.viewerId
   );
 
   const rows = await db.execute<GroupedPropertyActivityRow>(sql`
@@ -183,15 +184,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM reactions r
         INNER JOIN users u ON u.id = r.user_id
         INNER JOIN properties p ON p.id = r.target_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE r.target_type = 'property'
           AND r.reaction_type = 'like'
           AND ${propertyLikeActorPredicate}
@@ -220,15 +213,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM comments c
         INNER JOIN users u ON u.id = c.user_id
         INNER JOIN properties p ON p.id = c.property_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE ${commentActorPredicate}
       )
       UNION ALL
@@ -255,15 +240,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM price_guesses pg
         INNER JOIN users u ON u.id = pg.user_id
         INNER JOIN properties p ON p.id = pg.property_id
-        LEFT JOIN LATERAL (
-          SELECT l.thumbnail_url
-          FROM v_canonical_listing_facts l
-          WHERE l.property_id = p.id
-            AND l.status = 'active'
-            AND l.thumbnail_url IS NOT NULL
-          ORDER BY l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC
-          LIMIT 1
-        ) lt ON TRUE
+        ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE ${priceGuessActorPredicate}
       )
     ),

@@ -122,32 +122,36 @@ export const mockUserProfiles: UserProfile[] = mockUsers.map((user, index) => ({
   totalGuesses: [45, 23, 8, 112, 0, 67, 31, 19][index] ?? 0,
   resolvedGuesses: [12, 5, 1, 38, 0, 22, 10, 6][index] ?? 0,
   averageAccuracy: [87.5, 72.3, 65.0, 91.2, undefined, 78.1, 70.5, 68.3][index],
-  activeAreas: [
-    ['Amsterdam', 'Amstelveen'],
-    ['Rotterdam', 'Den Haag'],
-    ['Utrecht'],
-    ['Amsterdam', 'Haarlem', 'Zaandam'],
-    [],
-    ['Amsterdam', 'Leiden'],
-    ['Eindhoven', 'Tilburg'],
-    ['Den Haag', 'Delft'],
-  ][index] ?? [],
-  badges: index === 3 ? [
-    {
-      id: 'badge-001',
-      name: 'Early Adopter',
-      description: 'Joined during the first month',
-      iconUrl: 'https://example.com/badges/early-adopter.svg',
-      earnedAt: '2023-11-10T16:45:00Z',
-    },
-    {
-      id: 'badge-002',
-      name: 'Top Predictor',
-      description: 'Achieved 90% accuracy on 25+ properties',
-      iconUrl: 'https://example.com/badges/top-predictor.svg',
-      earnedAt: '2024-06-15T10:00:00Z',
-    },
-  ] : [],
+  activeAreas:
+    [
+      ['Amsterdam', 'Amstelveen'],
+      ['Rotterdam', 'Den Haag'],
+      ['Utrecht'],
+      ['Amsterdam', 'Haarlem', 'Zaandam'],
+      [],
+      ['Amsterdam', 'Leiden'],
+      ['Eindhoven', 'Tilburg'],
+      ['Den Haag', 'Delft'],
+    ][index] ?? [],
+  badges:
+    index === 3
+      ? [
+          {
+            id: 'badge-001',
+            name: 'Early Adopter',
+            description: 'Joined during the first month',
+            iconUrl: 'https://example.com/badges/early-adopter.svg',
+            earnedAt: '2023-11-10T16:45:00Z',
+          },
+          {
+            id: 'badge-002',
+            name: 'Top Predictor',
+            description: 'Achieved 90% accuracy on 25+ properties',
+            iconUrl: 'https://example.com/badges/top-predictor.svg',
+            earnedAt: '2024-06-15T10:00:00Z',
+          },
+        ]
+      : [],
 }));
 
 // ============================================
@@ -164,7 +168,7 @@ export const mockProperties: Property[] = [
     houseNumber: '263',
     city: 'Amsterdam',
     postalCode: '1016 GV',
-    coordinates: { lat: 52.3752, lon: 4.8840 },
+    coordinates: { lat: 52.3752, lon: 4.884 },
     yearBuilt: 1635,
     floorAreaM2: 450,
     officialValuation: 2850000,
@@ -237,96 +241,88 @@ export const mockProperties: Property[] = [
   },
 ];
 
-export const mockPropertyDetails: PropertyDetail[] = mockProperties.map(
-  (prop, index) => ({
-    ...prop,
-    activeListing:
-      index < 3
-        ? {
-            id: `listing-${prop.id}`,
-            sourceUrl: `https://www.funda.nl/koop/amsterdam/huis-${prop.id}`,
-            sourceName: 'funda' as const,
-            askingPrice: [2950000, 2100000, 475000][index],
-            thumbnailUrl: `https://cloud.funda.nl/valentina_media/182/123/thumb_${index}.jpg`,
-            addedAt: '2024-11-15T10:00:00Z',
-            userSubmitted: index === 2,
-          }
-        : undefined,
-    fmv:
-      index < 4
-        ? {
-            value: [2780000, 1850000, 440000, 3100000][index],
-            confidence: (['high', 'medium', 'low', 'high'] as const)[index],
-            guessCount: [42, 18, 6, 35][index],
-            distribution: {
-              min: [2500000, 1600000, 380000, 2800000][index],
-              max: [3200000, 2200000, 520000, 3500000][index],
-              median: [2780000, 1850000, 445000, 3100000][index],
-              p25: [2650000, 1750000, 410000, 2950000][index],
-              p75: [2900000, 1950000, 480000, 3250000][index],
-            },
-            vsAskingPrice:
-              index < 3
-                ? {
-                    difference: [-170000, -250000, -35000][index],
-                    percentageDifference: [-5.8, -11.9, -7.4][index],
-                  }
-                : undefined,
-          }
-        : undefined,
-    activity: {
-      viewCount: [1250, 890, 320, 2100, 45][index],
-      uniqueViewerCount: [780, 520, 210, 1400, 32][index],
-      commentCount: [28, 15, 4, 45, 0][index],
-      guessCount: [42, 18, 6, 35, 0][index],
-      saveCount: [156, 89, 23, 234, 2][index],
-      likeCount: [312, 178, 45, 456, 5][index],
-      trend: (['rising', 'stable', 'falling', 'rising', 'stable'] as const)[
-        index
-      ],
-      lastActivityAt: [
-        '2024-12-20T14:30:00Z',
-        '2024-12-19T09:15:00Z',
-        '2024-12-15T16:45:00Z',
-        '2024-12-20T16:00:00Z',
-        '2024-12-10T11:00:00Z',
-      ][index],
-    },
-    photoUrl: `https://cloud.funda.nl/valentina_media/182/123/main_${index}.jpg`,
-    photoSource: (['listing', 'listing', 'user', 'streetview', 'streetview'] as const)[index],
-    photos: [
-      {
-        id: `photo-${prop.id}-1`,
-        url: `https://cloud.funda.nl/valentina_media/182/123/main_${index}.jpg`,
-        source: 'listing' as const,
-        createdAt: '2024-11-15T10:00:00Z',
-      },
-    ],
+export const mockPropertyDetails: PropertyDetail[] = mockProperties.map((prop, index) => ({
+  ...prop,
+  activeListing:
+    index < 3
+      ? {
+          id: `listing-${prop.id}`,
+          sourceUrl: `https://www.funda.nl/koop/amsterdam/huis-${prop.id}`,
+          sourceName: 'funda' as const,
+          askingPrice: [2950000, 2100000, 475000][index],
+          thumbnailUrl: `https://cloud.funda.nl/valentina_media/182/123/thumb_${index}.jpg`,
+          addedAt: '2024-11-15T10:00:00Z',
+          userSubmitted: index === 2,
+        }
+      : undefined,
+  fmv:
+    index < 4
+      ? {
+          value: [2780000, 1850000, 440000, 3100000][index],
+          confidence: (['high', 'medium', 'low', 'high'] as const)[index],
+          guessCount: [42, 18, 6, 35][index],
+          distribution: {
+            min: [2500000, 1600000, 380000, 2800000][index],
+            max: [3200000, 2200000, 520000, 3500000][index],
+            median: [2780000, 1850000, 445000, 3100000][index],
+            p25: [2650000, 1750000, 410000, 2950000][index],
+            p75: [2900000, 1950000, 480000, 3250000][index],
+          },
+          vsAskingPrice:
+            index < 3
+              ? {
+                  difference: [-170000, -250000, -35000][index],
+                  percentageDifference: [-5.8, -11.9, -7.4][index],
+                }
+              : undefined,
+        }
+      : undefined,
+  activity: {
+    viewCount: [1250, 890, 320, 2100, 45][index],
+    uniqueViewerCount: [780, 520, 210, 1400, 32][index],
+    commentCount: [28, 15, 4, 45, 0][index],
+    guessCount: [42, 18, 6, 35, 0][index],
+    saveCount: [156, 89, 23, 234, 2][index],
     likeCount: [312, 178, 45, 456, 5][index],
-    isLiked: index === 0,
-    isSaved: index < 2,
-  })
-);
+    trend: (['rising', 'stable', 'falling', 'rising', 'stable'] as const)[index],
+    lastActivityAt: [
+      '2024-12-20T14:30:00Z',
+      '2024-12-19T09:15:00Z',
+      '2024-12-15T16:45:00Z',
+      '2024-12-20T16:00:00Z',
+      '2024-12-10T11:00:00Z',
+    ][index],
+  },
+  photoUrl: `https://cloud.funda.nl/valentina_media/182/123/main_${index}.jpg`,
+  photoSource: (['listing', 'listing', 'user', 'streetview', 'streetview'] as const)[index],
+  photos: [
+    {
+      id: `photo-${prop.id}-1`,
+      url: `https://cloud.funda.nl/valentina_media/182/123/main_${index}.jpg`,
+      source: 'listing' as const,
+      createdAt: '2024-11-15T10:00:00Z',
+    },
+  ],
+  likeCount: [312, 178, 45, 456, 5][index],
+  isLiked: index === 0,
+  isSaved: index < 2,
+}));
 
-export const mockPropertySummaries: PropertySummary[] = mockPropertyDetails.map(
-  (prop) => ({
-    id: prop.id,
-    address: prop.address,
-    city: prop.city,
-    postalCode: prop.postalCode,
-    coordinates: prop.coordinates,
-    photoUrl: prop.photoUrl,
-    askingPrice: prop.activeListing?.askingPrice,
-    fmvValue: prop.fmv?.value,
-    activityLevel: (
-      prop.activity.trend === 'rising'
-        ? 'hot'
-        : prop.activity.trend === 'falling'
-          ? 'cold'
-          : 'warm'
-    ) as 'cold' | 'warm' | 'hot',
-  })
-);
+export const mockPropertySummaries: PropertySummary[] = mockPropertyDetails.map((prop) => ({
+  id: prop.id,
+  address: prop.address,
+  city: prop.city,
+  postalCode: prop.postalCode,
+  coordinates: prop.coordinates,
+  photoUrl: prop.photoUrl,
+  askingPrice: prop.activeListing?.askingPrice,
+  fmvValue: prop.fmv?.value,
+  activityLevel: (prop.activity.trend === 'rising'
+    ? 'hot'
+    : prop.activity.trend === 'falling'
+      ? 'cold'
+      : 'warm') as 'cold' | 'warm' | 'hot',
+}));
 
 // ============================================
 // Listings
@@ -349,29 +345,53 @@ export const mockListings: Listing[] = mockPropertyDetails
     userSubmitted: prop.activeListing!.userSubmitted,
   }));
 
-export const mockListingSummaries: ListingSummary[] = mockListings.map(
-  (listing) => {
-    const prop = mockPropertyDetails.find((p) => p.id === listing.propertyId)!;
-    return {
-      id: listing.id,
-      propertyId: listing.propertyId,
-      address: prop.address,
-      city: prop.city,
-      postalCode: prop.postalCode,
-      askingPrice: listing.askingPrice,
-      thumbnailUrl: listing.thumbnailUrl,
-      sourceName: listing.sourceName,
-      sourceUrl: listing.sourceUrl,
-      status: listing.status,
-      fmvValue: prop.fmv?.value,
-      fmvDifference: prop.fmv?.vsAskingPrice?.difference,
-      commentCount: prop.activity.commentCount,
-      guessCount: prop.activity.guessCount,
-      likeCount: prop.activity.likeCount,
-      activityLevel: prop.activity.trend === 'rising' ? 'hot' : 'warm',
-    };
+export const mockListingSummaries: ListingSummary[] = mockListings.map((listing) => {
+  const prop = mockPropertyDetails.find((p) => p.id === listing.propertyId)!;
+  return {
+    id: listing.id,
+    propertyId: listing.propertyId,
+    address: prop.address,
+    city: prop.city,
+    postalCode: prop.postalCode,
+    askingPrice: listing.askingPrice,
+    thumbnailUrl: listing.thumbnailUrl,
+    sourceName: listing.sourceName,
+    sourceUrl: listing.sourceUrl,
+    status: listing.status,
+    fmvValue: prop.fmv?.value,
+    fmvDifference: prop.fmv?.vsAskingPrice?.difference,
+    commentCount: prop.activity.commentCount,
+    guessCount: prop.activity.guessCount,
+    likeCount: prop.activity.likeCount,
+    activityLevel: prop.activity.trend === 'rising' ? 'hot' : 'warm',
+  };
+});
+
+function compareMockListingRecency(a: Listing, b: Listing) {
+  return (
+    new Date(b.lastVerifiedAt).getTime() - new Date(a.lastVerifiedAt).getTime() ||
+    new Date(b.discoveredAt).getTime() - new Date(a.discoveredAt).getTime() ||
+    b.id.localeCompare(a.id)
+  );
+}
+
+export function getMockPropertyThumbnailUrl(propertyId: string): string | null {
+  const property = mockPropertyDetails.find((item) => item.id === propertyId);
+  const activeListingThumbnail = property?.activeListing?.thumbnailUrl ?? null;
+
+  if (activeListingThumbnail) {
+    return activeListingThumbnail;
   }
-);
+
+  const listing = mockListings
+    .filter((item) => item.propertyId === propertyId && item.thumbnailUrl)
+    .sort((a, b) => {
+      const activeDelta = Number(b.status === 'active') - Number(a.status === 'active');
+      return activeDelta || compareMockListingRecency(a, b);
+    })[0];
+
+  return listing?.thumbnailUrl ?? null;
+}
 
 // ============================================
 // Guesses
@@ -463,8 +483,7 @@ export const mockComments: CommentWithReplies[] = [
           id: mockUserIds.maria,
           username: 'mariabakker',
           displayName: 'Maria Bakker',
-          profilePhotoUrl:
-            'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
+          profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
           karma: 850,
           karmaRank: 'Local Expert',
         },
@@ -485,8 +504,7 @@ export const mockComments: CommentWithReplies[] = [
           id: mockUserIds.sophie,
           username: 'sophiemeijer',
           displayName: 'Sophie Meijer',
-          profilePhotoUrl:
-            'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
+          profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
           karma: 5200,
           karmaRank: 'Master',
         },
@@ -507,13 +525,11 @@ export const mockComments: CommentWithReplies[] = [
       id: mockUserIds.pieter,
       username: 'pieterjansen',
       displayName: 'Pieter Jansen',
-      profilePhotoUrl:
-        'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
+      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
       karma: 125,
       karmaRank: 'Contributor',
     },
-    content:
-      'Zou het pand ook voor verhuur geschikt zijn? Lijkt me een goede investering.',
+    content: 'Zou het pand ook voor verhuur geschikt zijn? Lijkt me een goede investering.',
     likes: 3,
     createdAt: '2024-12-19T09:15:00Z',
     isEdited: false,
@@ -528,13 +544,11 @@ export const mockComments: CommentWithReplies[] = [
       id: mockUserIds.sophie,
       username: 'sophiemeijer',
       displayName: 'Sophie Meijer',
-      profilePhotoUrl:
-        'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
+      profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
       karma: 5200,
       karmaRank: 'Master',
     },
-    content:
-      'Let op: de kelderverdieping heeft vocht problemen volgens de buurt WhatsApp.',
+    content: 'Let op: de kelderverdieping heeft vocht problemen volgens de buurt WhatsApp.',
     likes: 45,
     isLikedByCurrentUser: false,
     createdAt: '2024-12-20T08:00:00Z',
@@ -549,18 +563,17 @@ export const mockComments: CommentWithReplies[] = [
 // Map Data
 // ============================================
 
-export const mockMapProperties: MapProperty[] = mockProperties.map(
-  (prop, index) => ({
-    id: prop.id,
-    coordinates: prop.coordinates,
-    isGhost: index >= 3, // Last two are ghost nodes
-    activityLevel: (['hot', 'warm', 'cold', 'cold', 'cold'] as const)[index],
-    showPhotoPreview: index < 2, // Only first two show photos
-    photoUrl: index < 2 ? `https://cloud.funda.nl/valentina_media/182/123/thumb_${index}.jpg` : undefined,
-    askingPrice: [2950000, 2100000, 475000, undefined, undefined][index],
-    fmvValue: [2780000, 1850000, 440000, 3100000, undefined][index],
-  })
-);
+export const mockMapProperties: MapProperty[] = mockProperties.map((prop, index) => ({
+  id: prop.id,
+  coordinates: prop.coordinates,
+  isGhost: index >= 3, // Last two are ghost nodes
+  activityLevel: (['hot', 'warm', 'cold', 'cold', 'cold'] as const)[index],
+  showPhotoPreview: index < 2, // Only first two show photos
+  photoUrl:
+    index < 2 ? `https://cloud.funda.nl/valentina_media/182/123/thumb_${index}.jpg` : undefined,
+  askingPrice: [2950000, 2100000, 475000, undefined, undefined][index],
+  fmvValue: [2780000, 1850000, 440000, 3100000, undefined][index],
+}));
 
 export const mockPropertyClusters: PropertyCluster[] = [
   {
@@ -581,10 +594,10 @@ export const mockPropertyClusters: PropertyCluster[] = [
     count: 890,
     averageActivityLevel: 'warm',
     bounds: {
-      north: 51.9750,
-      south: 51.8700,
-      east: 4.5500,
-      west: 4.4000,
+      north: 51.975,
+      south: 51.87,
+      east: 4.55,
+      west: 4.4,
     },
   },
   {
@@ -593,10 +606,10 @@ export const mockPropertyClusters: PropertyCluster[] = [
     count: 720,
     averageActivityLevel: 'warm',
     bounds: {
-      north: 52.1200,
-      south: 52.0200,
-      east: 4.4000,
-      west: 4.2000,
+      north: 52.12,
+      south: 52.02,
+      east: 4.4,
+      west: 4.2,
     },
   },
 ];

@@ -34,8 +34,8 @@ describe('Feed routes', () => {
     // Keep the feed suite out of the heavily used NL integration fixture
     // space so pagination assertions stay hermetic during the full API gate.
     country: 'FI',
-    lon: -170 + ((coordinateSeed % 100) * 1.5),
-    lat: -70 + ((Math.floor(coordinateSeed / 100) % 80) * 1.5),
+    lon: -170 + (coordinateSeed % 100) * 1.5,
+    lat: -70 + (Math.floor(coordinateSeed / 100) % 80) * 1.5,
   };
 
   type FeedFixtureKey = 'recent' | 'hot' | 'warm' | 'like' | 'cold' | 'outsideRadius';
@@ -73,7 +73,7 @@ describe('Feed routes', () => {
     minutes?: number;
   }) {
     const date = new Date(
-      fixtureBaseTime.getTime() - (((days * 24 + hours) * 60 + minutes) * 60 * 1000)
+      fixtureBaseTime.getTime() - ((days * 24 + hours) * 60 + minutes) * 60 * 1000
     );
     return date;
   }
@@ -102,7 +102,7 @@ describe('Feed routes', () => {
     propertyId: string,
     userId: string,
     createdAt: Date,
-    content: string,
+    content: string
   ) {
     const commentId = crypto.randomUUID();
     await db.execute(sql`
@@ -116,7 +116,7 @@ describe('Feed routes', () => {
     propertyId: string,
     userId: string,
     guessedPrice: number,
-    createdAt: Date,
+    createdAt: Date
   ) {
     await db.execute(sql`
       INSERT INTO price_guesses (
@@ -157,7 +157,7 @@ describe('Feed routes', () => {
   async function insertView(
     propertyId: string,
     createdAt: Date,
-    options: { userId?: string; sessionId?: string } = {},
+    options: { userId?: string; sessionId?: string } = {}
   ) {
     await db.execute(sql`
       INSERT INTO property_views (id, property_id, user_id, session_id, viewed_at)
@@ -335,7 +335,7 @@ describe('Feed routes', () => {
           definition.street,
           definition.houseNumber,
           definition.postalCode,
-          definition.city,
+          definition.city
         ),
         city: definition.city,
         zipCode: definition.postalCode,
@@ -373,40 +373,59 @@ describe('Feed routes', () => {
       feedFixtures.hot.propertyId,
       primaryUser.userId,
       atOffset({ minutes: 10 }),
-      'Feed hot comment',
+      'Feed hot comment'
     );
-    await insertGuess(feedFixtures.hot.propertyId, primaryUser.userId, 500000, atOffset({ hours: 3 }));
+    await insertGuess(
+      feedFixtures.hot.propertyId,
+      primaryUser.userId,
+      500000,
+      atOffset({ hours: 3 })
+    );
     await insertGuess(
       feedFixtures.hot.propertyId,
       secondaryUser.userId,
       550000,
-      atOffset({ hours: 2 }),
+      atOffset({ hours: 2 })
     );
     await insertGuess(
       feedFixtures.hot.propertyId,
       tertiaryUser.userId,
       600000,
-      atOffset({ hours: 1 }),
+      atOffset({ hours: 1 })
     );
-    await insertPropertyLike(feedFixtures.hot.propertyId, primaryUser.userId, atOffset({ hours: 4 }));
-    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 5 }), { userId: primaryUser.userId });
-    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 6 }), { sessionId: `feed-hot-${runId}` });
+    await insertPropertyLike(
+      feedFixtures.hot.propertyId,
+      primaryUser.userId,
+      atOffset({ hours: 4 })
+    );
+    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 5 }), {
+      userId: primaryUser.userId,
+    });
+    await insertView(feedFixtures.hot.propertyId, atOffset({ hours: 6 }), {
+      sessionId: `feed-hot-${runId}`,
+    });
 
     await insertComment(
       feedFixtures.warm.propertyId,
       primaryUser.userId,
       atOffset({ minutes: 21 }),
-      'Feed warm comment 1',
+      'Feed warm comment 1'
     );
     await insertComment(
       feedFixtures.warm.propertyId,
       secondaryUser.userId,
       atOffset({ minutes: 20 }),
-      'Feed warm comment 2',
+      'Feed warm comment 2'
     );
-    await insertView(feedFixtures.warm.propertyId, atOffset({ hours: 7 }), { userId: tertiaryUser.userId });
+    await insertView(feedFixtures.warm.propertyId, atOffset({ hours: 7 }), {
+      userId: tertiaryUser.userId,
+    });
 
-    await insertPropertyLike(feedFixtures.like.propertyId, secondaryUser.userId, atOffset({ minutes: 30 }));
+    await insertPropertyLike(
+      feedFixtures.like.propertyId,
+      secondaryUser.userId,
+      atOffset({ minutes: 30 })
+    );
 
     await refreshLatestActiveListingsView();
   });
@@ -414,7 +433,10 @@ describe('Feed routes', () => {
   afterAll(async () => {
     try {
       if (cleanupPropertyIds.length > 0) {
-        const propertyIds = sql.join(cleanupPropertyIds.map((id) => sql`${id}`), sql`, `);
+        const propertyIds = sql.join(
+          cleanupPropertyIds.map((id) => sql`${id}`),
+          sql`, `
+        );
         await db.execute(sql`
           DELETE FROM reactions
           WHERE target_type = 'property'
@@ -425,7 +447,10 @@ describe('Feed routes', () => {
       }
 
       if (cleanupUserIds.length > 0) {
-        const userIds = sql.join(cleanupUserIds.map((id) => sql`${id}`), sql`, `);
+        const userIds = sql.join(
+          cleanupUserIds.map((id) => sql`${id}`),
+          sql`, `
+        );
         await db.execute(sql`DELETE FROM users WHERE id IN (${userIds})`);
       }
     } finally {
@@ -490,7 +515,9 @@ describe('Feed routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      const item = body.items.find((entry: { id: string }) => entry.id === feedFixtures.hot.propertyId);
+      const item = body.items.find(
+        (entry: { id: string }) => entry.id === feedFixtures.hot.propertyId
+      );
 
       expect(item).toBeDefined();
       expect(item).toMatchObject({
@@ -601,7 +628,7 @@ describe('Feed routes', () => {
           property.id,
           author.userId,
           commentCreatedAt,
-          'Comment that later gets liked',
+          'Comment that later gets liked'
         );
         const commentLikeCreatedAt = atOffset({ minutes: 2 });
         await insertCommentLike(commentId, liker.userId, commentLikeCreatedAt);
@@ -707,7 +734,9 @@ describe('Feed routes', () => {
       ]);
       expect(returnedIds).not.toContain(feedFixtures.outsideRadius.propertyId);
       expect(returnedIds).not.toContain(noListingPropertyId);
-      expect(body.items.every((item: { hasListing: boolean }) => item.hasListing === true)).toBe(true);
+      expect(body.items.every((item: { hasListing: boolean }) => item.hasListing === true)).toBe(
+        true
+      );
     });
 
     it('uses shared listing facts instead of stale mv_latest_active_listings semantics', async () => {
@@ -765,7 +794,7 @@ describe('Feed routes', () => {
       }
     });
 
-    it('falls back to the newest active non-null thumbnail while keeping the latest active asking price', async () => {
+    it('falls back to any listing thumbnail while keeping the latest active asking price', async () => {
       const property = await createIntegrationProperty({
         countryCode: slice.country,
         street: `Feed Thumbnail ${runId}`,
@@ -780,9 +809,10 @@ describe('Feed routes', () => {
 
       await createIntegrationListing({
         propertyId: property.id,
+        status: 'sold',
         askingPrice: 610000,
         thumbnailUrl,
-        sourceUrl: `https://example.com/feed-older-${runId}`,
+        sourceUrl: `https://example.com/feed-sold-thumb-${runId}`,
         createdAt: atOffset({ days: 2 }),
         updatedAt: atOffset({ days: 2 }),
       });

@@ -13,7 +13,7 @@
 
 import { http, HttpResponse } from 'msw';
 import { feedQuerySchema } from '@huishype/shared';
-import { mockPropertyDetails } from '../data/fixtures.js';
+import { getMockPropertyThumbnailUrl, mockPropertyDetails } from '../data/fixtures.js';
 
 export const feedHandlers = [
   /**
@@ -44,13 +44,17 @@ export const feedHandlers = [
         fmv: p.fmv?.value ?? null,
         officialValuation: p.officialValuation ?? null,
         officialValuationYear: p.officialValuationYear ?? null,
-        thumbnailUrl: p.activeListing?.thumbnailUrl ?? null,
+        thumbnailUrl: getMockPropertyThumbnailUrl(p.id),
         likeCount: p.activity.likeCount,
         commentCount: p.activity.commentCount,
         guessCount: p.activity.guessCount,
         viewCount: p.activity.viewCount,
-        activityLevel: p.activity.trend === 'rising' ? 'hot' as const :
-                       p.activity.trend === 'falling' ? 'cold' as const : 'warm' as const,
+        activityLevel:
+          p.activity.trend === 'rising'
+            ? ('hot' as const)
+            : p.activity.trend === 'falling'
+              ? ('cold' as const)
+              : ('warm' as const),
         lastActivityAt: p.activity.lastActivityAt ?? new Date().toISOString(),
         hasListing: true,
       }));
@@ -59,8 +63,9 @@ export const feedHandlers = [
     const sorted = [...feedItems];
     switch (filter) {
       case 'latest':
-        sorted.sort((a, b) =>
-          new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime()
+        sorted.sort(
+          (a, b) =>
+            new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime()
         );
         break;
       case 'trending':

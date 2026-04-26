@@ -14,6 +14,7 @@ import type {
 import { getMockAuthUser } from './auth.js';
 import {
   getMockProperty,
+  getMockPropertyThumbnailUrl,
   getMockUser,
   mockComments,
   mockGuesses,
@@ -130,7 +131,7 @@ function toActivityAddress(propertyId: string) {
       type: 'Point' as const,
       coordinates: [property.coordinates.lon, property.coordinates.lat] as [number, number],
     },
-    thumbnailUrl: property.activeListing?.thumbnailUrl ?? null,
+    thumbnailUrl: getMockPropertyThumbnailUrl(property.id),
   };
 }
 
@@ -163,7 +164,7 @@ export function getMockActivityEvents(): MockActivityEvent[] {
 
 function getScopedActivityEvents(
   scope: 'public' | 'following' | 'self',
-  viewerId: string | null,
+  viewerId: string | null
 ): MockActivityEvent[] {
   const events = getMockActivityEvents();
 
@@ -178,7 +179,7 @@ function getScopedActivityEvents(
 
     const followedUserIds = new Set(getFollowedUserIds(viewerId));
     return events.filter(
-      (event) => event.eventType !== 'save' && followedUserIds.has(event.actorUserId),
+      (event) => event.eventType !== 'save' && followedUserIds.has(event.actorUserId)
     );
   }
 
@@ -186,7 +187,7 @@ function getScopedActivityEvents(
 }
 
 function mapActivityEvent<TEventType extends ActivityEventType>(
-  event: MockActivityEvent & { eventType: TEventType },
+  event: MockActivityEvent & { eventType: TEventType }
 ): ActivityItem<TEventType> | null {
   const actor = getMockUser(event.actorUserId);
   const property = toActivityAddress(event.propertyId);
@@ -223,7 +224,7 @@ function buildActivitySummary(event: MockActivityEvent, actorName: string) {
 }
 
 function buildGroupedPreview(
-  propertyEvents: Array<MockActivityEvent & { eventType: PublicActivityEventType }>,
+  propertyEvents: Array<MockActivityEvent & { eventType: PublicActivityEventType }>
 ): GroupedActivityPreview | null {
   const commentEvent = propertyEvents.find((event) => event.eventType === 'comment');
   if (commentEvent) {
@@ -262,13 +263,16 @@ function buildGroupedPreview(
 
 function getGroupedActivityItems(
   scope: 'public' | 'following',
-  viewerId: string | null,
+  viewerId: string | null
 ): GroupedPropertyActivityItem[] {
   const events = getScopedActivityEvents(scope, viewerId).filter(
     (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
-      event.eventType !== 'save',
+      event.eventType !== 'save'
   );
-  const eventsByProperty = new Map<string, Array<MockActivityEvent & { eventType: PublicActivityEventType }>>();
+  const eventsByProperty = new Map<
+    string,
+    Array<MockActivityEvent & { eventType: PublicActivityEventType }>
+  >();
 
   for (const event of events) {
     const propertyEvents = eventsByProperty.get(event.propertyId);
@@ -337,7 +341,7 @@ function getGroupedActivityItems(
 function sliceActivity<TEventType extends ActivityEventType>(
   events: Array<MockActivityEvent & { eventType: TEventType }>,
   limit: number,
-  offset: number,
+  offset: number
 ) {
   const pagedEvents = events.slice(offset, offset + limit + 1);
   const hasMore = pagedEvents.length > limit;
@@ -361,7 +365,7 @@ export const activityHandlers = [
     if (!authUser) {
       return HttpResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -369,7 +373,8 @@ export const activityHandlers = [
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
     const items = getScopedActivityEvents('self', authUser.id).filter(
-      (event): event is MockActivityEvent & { eventType: ActivityEventType } => event.actorUserId === authUser.id,
+      (event): event is MockActivityEvent & { eventType: ActivityEventType } =>
+        event.actorUserId === authUser.id
     );
 
     return HttpResponse.json(sliceActivity(items, limit, offset));
@@ -386,13 +391,13 @@ export const activityHandlers = [
       if (!authUser) {
         return HttpResponse.json(
           { error: 'UNAUTHORIZED', message: 'Authentication required' },
-          { status: 401 },
+          { status: 401 }
         );
       }
 
       const items = getScopedActivityEvents('following', authUser.id).filter(
         (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
-          event.eventType !== 'save',
+          event.eventType !== 'save'
       );
 
       return HttpResponse.json(sliceActivity(items, limit, offset));
@@ -400,7 +405,7 @@ export const activityHandlers = [
 
     const items = getScopedActivityEvents('public', null).filter(
       (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
-        event.eventType !== 'save',
+        event.eventType !== 'save'
     );
 
     return HttpResponse.json(sliceActivity(items, limit, offset));
@@ -417,7 +422,7 @@ export const activityHandlers = [
       if (!authUser) {
         return HttpResponse.json(
           { error: 'UNAUTHORIZED', message: 'Authentication required' },
-          { status: 401 },
+          { status: 401 }
         );
       }
 
