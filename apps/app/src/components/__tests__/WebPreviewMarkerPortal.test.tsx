@@ -230,10 +230,8 @@ describe('WebPreviewMarkerPortal', () => {
   it('anchors the card to the selected marker coordinate when provided', () => {
     const previewCoordinate: [number, number] = [4.9, 52.37];
     const selectedMarkerCoordinate: [number, number] = [4.92, 52.38];
-    const project = jest.fn().mockReturnValue({ y: 320 });
     const map = {
       getContainer: jest.fn(() => ({ clientHeight: 800 })),
-      project,
     } as unknown as NonNullable<PortalMap>;
 
     renderToDOM(
@@ -253,7 +251,6 @@ describe('WebPreviewMarkerPortal', () => {
       />
     );
 
-    expect(project).toHaveBeenCalledWith(selectedMarkerCoordinate);
     expect(mockMarkerInstances[0]?.setLngLat).toHaveBeenCalledWith(selectedMarkerCoordinate);
     expect(mockMarkerInstances[0]?.options.anchor).toBe('top');
     expect(mockMarkerInstances[0]?.options.offset).toEqual([0, 18]);
@@ -286,7 +283,7 @@ describe('WebPreviewMarkerPortal', () => {
     expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('up');
   });
 
-  it('places the card above the marker when there is not enough room below', () => {
+  it('keeps the card below the marker even when there is not enough room below', () => {
     const map = {
       getContainer: jest.fn(() => ({ clientHeight: 800 })),
       project: jest.fn().mockReturnValue({ y: 740 }),
@@ -308,8 +305,8 @@ describe('WebPreviewMarkerPortal', () => {
       />
     );
 
-    expect(mockMarkerInstances[0]?.options.anchor).toBe('bottom');
-    expect(mockMarkerInstances[0]?.options.offset).toEqual([0, -18]);
-    expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('down');
+    expect(mockMarkerInstances[0]?.options.anchor).toBe('top');
+    expect(mockMarkerInstances[0]?.options.offset).toEqual([0, 18]);
+    expect(document.querySelector('[data-testid="mock-arrow"]')?.textContent).toBe('up');
   });
 });

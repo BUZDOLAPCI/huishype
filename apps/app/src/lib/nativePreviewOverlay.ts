@@ -66,7 +66,6 @@ export function getNativePreviewOverlayLayout(params: {
     margin = DEFAULT_PREVIEW_OVERLAY_MARGIN,
   } = params;
   const viewportWidth = Math.max(viewportSize.width, 0);
-  const viewportHeight = Math.max(viewportSize.height, 0);
 
   if (!isNativePreviewAnchorVisible({ anchorPoint, topBoundary, viewportSize, margin })) {
     return null;
@@ -75,29 +74,18 @@ export function getNativePreviewOverlayLayout(params: {
   const cardWidth = cardSize.width > 0 ? cardSize.width : fallbackWidth;
   const resolvedAnchorOffsetX =
     anchorOffsetX == null ? cardWidth / 2 : clamp(anchorOffsetX, 0, cardWidth);
-  const cardHeight = Math.max(cardSize.height, 0);
-  const boundedTop = Math.max(topBoundary, margin);
-  const boundedBottom = Math.max(margin, viewportHeight - margin);
   const maxLeft = Math.max(
     margin,
     viewportWidth - cardWidth - margin,
   );
-  const maxTop = Math.max(boundedTop, boundedBottom - cardHeight);
-  const availableAbove = anchorPoint[1] - boundedTop;
-  const availableBelow = boundedBottom - anchorPoint[1];
-  const fitsAbove = cardHeight === 0 || availableAbove >= cardHeight;
-  const fitsBelow = cardHeight === 0 || availableBelow >= cardHeight;
-  const placeBelow = fitsBelow || (!fitsAbove && availableBelow > availableAbove);
 
   return {
-    arrowDirection: placeBelow ? 'up' : 'down',
+    arrowDirection: 'up',
     left: clamp(
       anchorPoint[0] - resolvedAnchorOffsetX,
       margin,
       maxLeft,
     ),
-    top: placeBelow
-      ? clamp(anchorPoint[1], boundedTop, maxTop)
-      : clamp(anchorPoint[1] - cardHeight, boundedTop, maxTop),
+    top: anchorPoint[1],
   };
 }

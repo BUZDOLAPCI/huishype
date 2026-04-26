@@ -80,7 +80,7 @@ describe('nativePreviewOverlay', () => {
       });
     });
 
-    it('places the card above the anchor when there is not enough room below', () => {
+    it('keeps the card below the anchor when there is not enough room below', () => {
       expect(
         getNativePreviewOverlayLayout({
           anchorPoint: [200, 720],
@@ -89,9 +89,9 @@ describe('nativePreviewOverlay', () => {
           viewportSize,
         }),
       ).toEqual({
-        arrowDirection: 'down',
+        arrowDirection: 'up',
         left: 60,
-        top: 600,
+        top: 720,
       });
     });
 

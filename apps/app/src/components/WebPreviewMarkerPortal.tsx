@@ -37,7 +37,6 @@ export function WebPreviewMarkerPortal({
 }: WebPreviewMarkerPortalProps) {
   const previewMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
-  const [arrowDirection, setArrowDirection] = useState<'up' | 'down'>('down');
   const previewAnchorCoordinate = anchorCoordinate ?? previewGroup?.coordinate ?? null;
   const previewLongitude = previewAnchorCoordinate?.[0] ?? null;
   const previewLatitude = previewAnchorCoordinate?.[1] ?? null;
@@ -52,22 +51,6 @@ export function WebPreviewMarkerPortal({
     if (!map || previewLongitude == null || previewLatitude == null) return;
 
     const previewCoordinate: [number, number] = [previewLongitude, previewLatitude];
-
-    const screenPoint = map.project(previewCoordinate);
-    const cardHeight = 200;
-    const bottomMargin = 80;
-    const mapContainerHeight = map.getContainer?.().clientHeight ?? 0;
-    const viewportHeight =
-      mapContainerHeight > 0
-        ? mapContainerHeight
-        : typeof window !== 'undefined'
-          ? window.innerHeight
-          : 0;
-    const shouldShowBelow =
-      viewportHeight <= 0 ||
-      viewportHeight - screenPoint.y >= cardHeight + bottomMargin;
-
-    setArrowDirection(shouldShowBelow ? 'up' : 'down');
 
     const container = document.createElement('div');
     container.style.pointerEvents = 'auto';
@@ -100,8 +83,8 @@ export function WebPreviewMarkerPortal({
 
     const marker = new maplibregl.Marker({
       element: container,
-      anchor: shouldShowBelow ? 'top' : 'bottom',
-      offset: [0, shouldShowBelow ? markerOffsetPx : -markerOffsetPx],
+      anchor: 'top',
+      offset: [0, markerOffsetPx],
     })
       .setLngLat(previewCoordinate)
       .addTo(map);
@@ -141,7 +124,7 @@ export function WebPreviewMarkerPortal({
         onGuess={onGuess}
         isLiked={isLiked}
         showArrow
-        arrowDirection={arrowDirection}
+        arrowDirection="up"
       />
     </div>,
     portalTarget
