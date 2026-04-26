@@ -7,7 +7,12 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
 import { resetPropertyTileCacheForTests } from '../../routes/tiles.js';
-import { resetCanonicalGroupCacheForTests } from '../../services/property-grouping.js';
+import {
+  buildCanonicalGroupsForTile,
+  resetCanonicalGroupCacheForTests,
+  type CanonicalPropertyGroup,
+} from '../../services/property-grouping.js';
+import { createDefaultMapFilters, type MapFilters } from '../../services/map-filters.js';
 import {
   createIntegrationFollow,
   createIntegrationListing,
@@ -82,6 +87,40 @@ function collectExpressionNumbers(value: unknown): number[] {
   }
 
   return [];
+}
+
+function createMarketStateFilters(marketState: MapFilters['marketState']): MapFilters {
+  return {
+    ...createDefaultMapFilters(),
+    marketState,
+  };
+}
+
+function findGroupForProperty(
+  groups: CanonicalPropertyGroup[],
+  propertyId: string
+): CanonicalPropertyGroup | undefined {
+  return groups.find((group) => group.propertyIds.includes(propertyId));
+}
+
+function expectCompletedActiveSingleGroup(
+  groups: CanonicalPropertyGroup[],
+  propertyId: string,
+  marketState: 'sold' | 'rented'
+) {
+  const group = requireValue(
+    findGroupForProperty(groups, propertyId),
+    `Expected completed listing group for property ${propertyId}`
+  );
+
+  expect(group.nodeClass).toBe('active');
+  expect(group.groupKind).toBe('single');
+  expect(group.primaryPropertyId).toBe(propertyId);
+  expect(group.propertyIds).toEqual([propertyId]);
+  expect(group.activeListingCount).toBe(0);
+  expect(group.completedListingCount).toBe(1);
+  expect(group.hasActiveListing).toBe(false);
+  expect(group.marketState).toBe(marketState);
 }
 
 /**
@@ -281,17 +320,23 @@ describe('Tile routes', () => {
       expect(clusterRadiusFields).toContain('activeListingCount');
       expect(clusterFillRadiusFields).not.toContain('activeListingCount');
       expect(clusterRingFields).toEqual(
-        expect.arrayContaining(['activeListingCount', 'point_count'])
+        expect.arrayContaining(['activeListingCount', 'completedListingCount', 'point_count'])
       );
-      expect(clusterFillFields).toEqual(expect.arrayContaining(['socialCount']));
+      expect(clusterFillFields).toEqual(
+        expect.arrayContaining(['socialCount', 'activeListingCount', 'completedListingCount'])
+      );
       expect(clusterPulseFields).toEqual(
         expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal'])
       );
       expect(clusterPulseColorFields).toEqual(expect.arrayContaining(['recentSocialCount']));
-      expect(nodeRingFields).toEqual(expect.arrayContaining(['activeListingCount']));
+      expect(nodeRingFields).toEqual(
+        expect.arrayContaining(['activeListingCount', 'completedListingCount'])
+      );
       expect(nodeRadiusFields).toContain('activeListingCount');
       expect(nodeFillRadiusFields).not.toContain('activeListingCount');
-      expect(nodeFillFields).toEqual(expect.arrayContaining(['socialCount']));
+      expect(nodeFillFields).toEqual(
+        expect.arrayContaining(['socialCount', 'activeListingCount', 'completedListingCount'])
+      );
       expect(nodePulseFields).toEqual(
         expect.arrayContaining(['recentSocialCount', 'recentSocialScoreTotal'])
       );
@@ -863,6 +908,141 @@ describe('Tile routes', () => {
       }
     });
 
+    it('emits sold and rented listing-only properties through the public active tile path', async () => {
+      const belowActiveNodeZoom = PROPERTY_GHOST_REVEAL_ZOOM - 1;
+      const activeNodeZoom = PROPERTY_GHOST_REVEAL_ZOOM;
+      const soldProperty = await createIntegrationProperty({
+        street: 'Sold Tile Listing Only Street',
+        houseNumber: 1,
+        city: 'Completedtile',
+        postalCode: '9400SA',
+        lon: -40.2123,
+        lat: -32.2123,
+      });
+      const rentedProperty = await createIntegrationProperty({
+        street: 'Rented Tile Listing Only Street',
+        houseNumber: 2,
+        city: 'Completedtile',
+        postalCode: '9400RB',
+        lon: -41.2123,
+        lat: -33.2123,
+      });
+      const soldTiles = [
+        tileCoordinatesForPoint(soldProperty.lon, soldProperty.lat, belowActiveNodeZoom),
+        tileCoordinatesForPoint(soldProperty.lon, soldProperty.lat, activeNodeZoom),
+      ];
+      const rentedTiles = [
+        tileCoordinatesForPoint(rentedProperty.lon, rentedProperty.lat, belowActiveNodeZoom),
+        tileCoordinatesForPoint(rentedProperty.lon, rentedProperty.lat, activeNodeZoom),
+      ];
+      const completedFilters = createMarketStateFilters(['sold', 'rented']);
+      const soldFilters = createMarketStateFilters(['sold']);
+      const rentedFilters = createMarketStateFilters(['rented']);
+
+      async function expectPublicPropertyTile(
+        tile: ReturnType<typeof tileCoordinatesForPoint>,
+        query: string,
+        expectedStatusCode: 200 | 204
+      ) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf${query}`,
+        });
+
+        expect(response.statusCode).toBe(expectedStatusCode);
+        if (expectedStatusCode === 200) {
+          expect(response.headers['content-type']).toBe('application/x-protobuf');
+          expect(response.rawPayload.length).toBeGreaterThan(0);
+        }
+      }
+
+      try {
+        await createIntegrationListing({
+          propertyId: soldProperty.id,
+          status: 'sold',
+          askingPrice: 410000,
+          priceType: 'sale',
+          sourceUrl: `https://example.com/sold-listing-only-${soldProperty.id}`,
+        });
+        await createIntegrationListing({
+          propertyId: rentedProperty.id,
+          status: 'rented',
+          askingPrice: 1800,
+          priceType: 'rent',
+          sourceUrl: `https://example.com/rented-listing-only-${rentedProperty.id}`,
+        });
+
+        for (const tile of soldTiles) {
+          expectCompletedActiveSingleGroup(
+            await buildCanonicalGroupsForTile(tile),
+            soldProperty.id,
+            'sold'
+          );
+          expectCompletedActiveSingleGroup(
+            await buildCanonicalGroupsForTile(tile, completedFilters),
+            soldProperty.id,
+            'sold'
+          );
+          await expectPublicPropertyTile(tile, '', 200);
+          await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
+        }
+
+        for (const tile of rentedTiles) {
+          expectCompletedActiveSingleGroup(
+            await buildCanonicalGroupsForTile(tile),
+            rentedProperty.id,
+            'rented'
+          );
+          expectCompletedActiveSingleGroup(
+            await buildCanonicalGroupsForTile(tile, completedFilters),
+            rentedProperty.id,
+            'rented'
+          );
+          await expectPublicPropertyTile(tile, '', 200);
+          await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
+        }
+
+        const soldActiveTile = soldTiles[1];
+        const rentedActiveTile = rentedTiles[1];
+        expectCompletedActiveSingleGroup(
+          await buildCanonicalGroupsForTile(soldActiveTile, soldFilters),
+          soldProperty.id,
+          'sold'
+        );
+        expect(
+          findGroupForProperty(
+            await buildCanonicalGroupsForTile(soldActiveTile, rentedFilters),
+            soldProperty.id
+          )
+        ).toBeUndefined();
+        expectCompletedActiveSingleGroup(
+          await buildCanonicalGroupsForTile(rentedActiveTile, rentedFilters),
+          rentedProperty.id,
+          'rented'
+        );
+        expect(
+          findGroupForProperty(
+            await buildCanonicalGroupsForTile(rentedActiveTile, soldFilters),
+            rentedProperty.id
+          )
+        ).toBeUndefined();
+
+        await expectPublicPropertyTile(soldActiveTile, '?marketState=sold', 200);
+        await expectPublicPropertyTile(soldActiveTile, '?marketState=rented', 204);
+        await expectPublicPropertyTile(rentedActiveTile, '?marketState=rented', 200);
+        await expectPublicPropertyTile(rentedActiveTile, '?marketState=sold', 204);
+      } finally {
+        await db.execute(
+          sql`DELETE FROM listings WHERE property_id IN (${soldProperty.id}, ${rentedProperty.id})`
+        );
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${soldProperty.id}, ${rentedProperty.id})`
+        );
+        resetPropertyTileCacheForTests();
+        resetCanonicalGroupCacheForTests();
+      }
+    });
+
     it('should reject invalid zoom level', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -997,16 +1177,16 @@ describe('Tile routes', () => {
         houseNumber: 1,
         city: 'Readtile',
         postalCode: '9302AA',
-        lon: 6.202,
-        lat: 52.202,
+        lon: -40.202,
+        lat: -32.202,
       });
       const second = await createIntegrationProperty({
         street: 'Read Overlay Cluster B',
         houseNumber: 2,
         city: 'Readtile',
         postalCode: '9302AB',
-        lon: 6.20201,
-        lat: 52.20201,
+        lon: -40.20199,
+        lat: -32.20199,
       });
       const tile = tileCoordinatesForPoint(first.lon, first.lat, 14);
 

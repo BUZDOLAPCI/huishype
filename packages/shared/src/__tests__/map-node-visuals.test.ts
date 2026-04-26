@@ -4,6 +4,7 @@ import {
   interpolateColorStops,
   interpolateNumericStops,
   MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+  MAP_NODE_COMPLETED_LISTING_CORE_COLOR,
   resolveActiveClusterNodeVisual,
   resolveActiveSingleNodeVisual,
   resolveGhostClusterNodeVisual,
@@ -77,6 +78,39 @@ describe('map-node-visuals', () => {
     expect(visual.pulseOpacity).toBe(0);
   });
 
+  it('resolves completed listing-backed active singles as muted but opaque active nodes', () => {
+    const visual = resolveActiveSingleNodeVisual({
+      activityScore: 0,
+      socialCount: 0,
+      activeListingCount: 0,
+      completedListingCount: 1,
+      recentSocialCount: 0,
+      recentSocialScoreTotal: 0,
+    });
+
+    expect(visual.diameter).toBe(20);
+    expect(visual.borderWidth).toBeGreaterThan(0);
+    expect(visual.borderColor).toBe('#94A3B8');
+    expect(visual.borderOpacity).toBeGreaterThan(0.8);
+    expect(visual.coreColor).toBe(MAP_NODE_COMPLETED_LISTING_CORE_COLOR);
+    expect(visual.coreOpacity).toBeGreaterThan(0.8);
+    expect(visual.backgroundOpacity).toBe(0);
+  });
+
+  it('does not let completed listing styling downgrade an active listing single', () => {
+    const visual = resolveActiveSingleNodeVisual({
+      activityScore: 0,
+      socialCount: 0,
+      activeListingCount: 1,
+      completedListingCount: 1,
+      recentSocialCount: 0,
+      recentSocialScoreTotal: 0,
+    });
+
+    expect(visual.borderColor).toBe('#2563EB');
+    expect(visual.coreColor).not.toBe(MAP_NODE_COMPLETED_LISTING_CORE_COLOR);
+  });
+
   it('resolves active clusters with label-ready styling', () => {
     const smallCluster = resolveActiveClusterNodeVisual({
       pointCount: 2,
@@ -122,6 +156,30 @@ describe('map-node-visuals', () => {
     expect(visual.borderColor).toBe('#FFFFFF');
     expect(visual.borderOpacity).toBe(0.9);
     expect(visual.coreDiameter).toBe(visual.diameter);
+  });
+
+  it('keeps active listing and social cluster visuals ahead of completed listing styling', () => {
+    const completedOnly = resolveActiveClusterNodeVisual({
+      pointCount: 3,
+      listingShare: 0,
+      completedListingShare: 1,
+      socialCount: 0,
+      recentSocialCount: 0,
+      recentSocialScoreTotal: 0,
+    });
+    const mixed = resolveActiveClusterNodeVisual({
+      pointCount: 3,
+      listingShare: 1 / 3,
+      completedListingShare: 1 / 3,
+      socialCount: 1,
+      recentSocialCount: 0,
+      recentSocialScoreTotal: 0,
+    });
+
+    expect(completedOnly.borderColor).toBe('#94A3B8');
+    expect(completedOnly.coreColor).toBe(MAP_NODE_COMPLETED_LISTING_CORE_COLOR);
+    expect(mixed.borderColor).toBe('#2563EB');
+    expect(mixed.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
   });
 
   it('resolves ghost visuals as low-emphasis dots and clusters', () => {

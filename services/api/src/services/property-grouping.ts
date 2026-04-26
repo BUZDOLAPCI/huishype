@@ -63,6 +63,7 @@ type WorldBBox = {
 type GroupingCandidateRow = {
   id: string;
   has_active_listing: boolean;
+  has_completed_listing: boolean;
   social_score: number;
   recent_social_score: number;
   comment_count: number;
@@ -88,6 +89,7 @@ type SinglePropertyDetailRow = {
 export type GroupingCandidate = {
   id: string;
   hasActiveListing: boolean;
+  hasCompletedListing: boolean;
   socialScore: number;
   recentSocialScore: number;
   commentCount: number;
@@ -110,6 +112,7 @@ export type CanonicalPropertyGroup = {
   coordinate: [number, number];
   bbox: SerializedBbox | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -188,6 +191,7 @@ export type TileTransportFeature = {
   bbox_east: number | null;
   bbox_north: number | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -352,13 +356,18 @@ function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): n
   return (
     b.socialScore - a.socialScore ||
     Number(b.hasActiveListing) - Number(a.hasActiveListing) ||
+    Number(b.hasCompletedListing) - Number(a.hasCompletedListing) ||
     b.commentCount - a.commentCount ||
     a.id.localeCompare(b.id)
   );
 }
 
 function isGhostCandidate(candidate: GroupingCandidate): boolean {
-  return !candidate.hasActiveListing && candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD;
+  return (
+    !candidate.hasActiveListing &&
+    !candidate.hasCompletedListing &&
+    candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD
+  );
 }
 
 function hasActiveSocialSignal(candidate: GroupingCandidate): boolean {
@@ -750,6 +759,7 @@ function buildCanonicalGroup(
     coordinate: [anchor.lon, anchor.lat],
     bbox,
     activeListingCount: members.filter((member) => member.hasActiveListing).length,
+    completedListingCount: members.filter((member) => member.hasCompletedListing).length,
     socialCount: members.filter(hasActiveSocialSignal).length,
     recentSocialCount: members.filter(hasRecentActiveSocialSignal).length,
     socialScoreTotal: members.reduce((sum, member) => sum + member.socialScore, 0),
@@ -760,8 +770,8 @@ function buildCanonicalGroup(
     city: null,
     askingPrice: null,
     thumbnailUrl: null,
-    hasActiveListing: null,
-    marketState: null,
+    hasActiveListing: primaryProperty.hasActiveListing,
+    marketState: primaryProperty.marketState,
     ownerTile,
     anchorWorldX: anchor.worldX,
     anchorWorldY: anchor.worldY,
@@ -793,7 +803,8 @@ function toCandidate(row: GroupingCandidateRow, zoom: number): GroupingCandidate
   const [worldX, worldY] = lngLatToWorldUnits(row.lon, row.lat, zoom);
   return {
     id: row.id,
-    hasActiveListing: row.has_active_listing,
+    hasActiveListing: Boolean(row.has_active_listing),
+    hasCompletedListing: Boolean(row.has_completed_listing),
     socialScore: Number(row.social_score),
     commentCount: Number(row.comment_count),
     recentSocialScore: Number(row.recent_social_score),
@@ -845,6 +856,7 @@ async function fetchGroupingCandidatesInBBoxes(
     ? sql`TRUE`
     : sql`(
         COALESCE(lf.has_active_listing, FALSE)
+        OR COALESCE(lf.has_completed_listing, FALSE)
         OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
       )`;
   const marketStatePredicate = buildBulkMarketStatePredicate(filters, 'lf');
@@ -886,6 +898,12 @@ async function fetchGroupingCandidatesInBBoxes(
           FROM v_canonical_listing_facts l
           INNER JOIN bounded_properties bp ON bp.id = l.property_id
           WHERE l.status = 'active'
+        ),
+        completed_listing_candidate_ids AS MATERIALIZED (
+          SELECT DISTINCT l.property_id
+          FROM v_canonical_listing_facts l
+          INNER JOIN bounded_properties bp ON bp.id = l.property_id
+          WHERE l.status IN ('sold', 'rented')
         ),
         social_activity_candidate_ids AS MATERIALIZED (
           SELECT property_id
@@ -943,6 +961,9 @@ async function fetchGroupingCandidatesInBBoxes(
         candidate_property_ids AS MATERIALIZED (
           SELECT property_id
           FROM active_listing_candidate_ids
+          UNION
+          SELECT property_id
+          FROM completed_listing_candidate_ids
           UNION
           SELECT property_id
           FROM social_activity_candidate_ids
@@ -1042,6 +1063,10 @@ async function fetchGroupingCandidatesInBBoxes(
           SELECT
             cp.id AS property_id,
             active_listing.property_id IS NOT NULL AS has_active_listing,
+            (
+              active_listing.property_id IS NULL
+              AND latest_listing.status IN ('sold', 'rented')
+            ) AS has_completed_listing,
             CASE
               WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
                 THEN 'for-rent'
@@ -1104,6 +1129,10 @@ async function fetchGroupingCandidatesInBBoxes(
             SELECT
               cp.id AS property_id,
               active_listing.property_id IS NOT NULL AS has_active_listing,
+              (
+                active_listing.property_id IS NULL
+                AND latest_listing.status IN ('sold', 'rented')
+              ) AS has_completed_listing,
               CASE
                 WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
                   THEN 'for-rent'
@@ -1123,6 +1152,14 @@ async function fetchGroupingCandidatesInBBoxes(
           )
         `
       : sql`
+        latest_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.status
+          FROM v_canonical_listing_facts l
+          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+        ),
         active_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
@@ -1136,16 +1173,25 @@ async function fetchGroupingCandidatesInBBoxes(
           SELECT
             cp.id AS property_id,
             active_listing.property_id IS NOT NULL AS has_active_listing,
+            (
+              active_listing.property_id IS NULL
+              AND latest_listing.status IN ('sold', 'rented')
+            ) AS has_completed_listing,
             CASE
               WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
                 THEN 'for-rent'
               WHEN active_listing.property_id IS NOT NULL
                 THEN 'for-sale'
+              WHEN latest_listing.status = 'sold'
+                THEN 'sold'
+              WHEN latest_listing.status = 'rented'
+                THEN 'rented'
               ELSE 'not-listed'
             END AS market_state,
             NULL::bigint AS sale_effective_price,
             NULL::bigint AS rent_effective_price
           FROM candidate_properties cp
+          LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
           LEFT JOIN active_listing ON active_listing.property_id = cp.id
         )
       `;
@@ -1308,6 +1354,7 @@ async function fetchGroupingCandidatesInBBoxes(
       ST_X(cp.geometry) AS lon,
       ST_Y(cp.geometry) AS lat,
       COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
+      COALESCE(lf.has_completed_listing, FALSE) AS has_completed_listing,
       COALESCE(sf.social_score, 0)::double precision AS social_score,
       COALESCE(sf.recent_social_score, 0)::double precision AS recent_social_score,
       (
@@ -1362,6 +1409,10 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
         ST_X(p.geometry) AS lon,
         ST_Y(p.geometry) AS lat,
         COALESCE(lf.has_active_listing, FALSE) AS has_active_listing,
+        (
+          COALESCE(lf.has_active_listing, FALSE) = FALSE
+          AND lf.market_state IN ('sold', 'rented')
+        ) AS has_completed_listing,
         COALESCE(fsf.social_score, 0)::double precision AS social_score,
         COALESCE(fsf.recent_social_score, 0)::double precision AS recent_social_score,
         (
@@ -1772,6 +1823,7 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     bbox_east: bbox?.[2] ?? null,
     bbox_north: bbox?.[3] ?? null,
     activeListingCount: group.activeListingCount,
+    completedListingCount: group.completedListingCount,
     socialCount: group.socialCount,
     recentSocialCount: group.recentSocialCount,
     socialScoreTotal: group.socialScoreTotal,
@@ -1810,6 +1862,7 @@ async function buildMvtForGroups(tile: TileId, groups: CanonicalPropertyGroup[])
         NULLIF(feature->>'bbox_east', 'null')::double precision AS bbox_east,
         NULLIF(feature->>'bbox_north', 'null')::double precision AS bbox_north,
         (feature->>'activeListingCount')::integer AS "activeListingCount",
+        (feature->>'completedListingCount')::integer AS "completedListingCount",
         (feature->>'socialCount')::integer AS "socialCount",
         (feature->>'recentSocialCount')::integer AS "recentSocialCount",
         (feature->>'socialScoreTotal')::double precision AS "socialScoreTotal",
@@ -1851,6 +1904,7 @@ async function buildMvtForGroups(tile: TileId, groups: CanonicalPropertyGroup[])
         bbox_east,
         bbox_north,
         "activeListingCount",
+        "completedListingCount",
         "socialCount",
         "recentSocialCount",
         "socialScoreTotal",

@@ -7,6 +7,7 @@ export interface ActiveSingleNodeVisualInput {
   activityScore: number;
   socialCount: number;
   activeListingCount: number;
+  completedListingCount?: number;
   recentSocialCount?: number;
   recentSocialScoreTotal?: number;
 }
@@ -14,6 +15,7 @@ export interface ActiveSingleNodeVisualInput {
 export interface ActiveClusterNodeVisualInput {
   pointCount: number;
   listingShare: number;
+  completedListingShare?: number;
   socialCount: number;
   recentSocialCount?: number;
   recentSocialScoreTotal?: number;
@@ -47,6 +49,9 @@ const GHOST_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStops
 const MAP_NODE_LISTING_RING_ON_WIDTH = 1.8;
 const MAP_NODE_LISTING_RING_ON_COLOR = '#2563EB';
 const MAP_NODE_LISTING_RING_ON_OPACITY = 0.96;
+export const MAP_NODE_COMPLETED_LISTING_RING_WIDTH = 1.5;
+export const MAP_NODE_COMPLETED_LISTING_RING_COLOR = '#94A3B8';
+export const MAP_NODE_COMPLETED_LISTING_RING_OPACITY = 0.9;
 
 export const MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS = [
   [0, 0],
@@ -85,6 +90,8 @@ export const MAP_NODE_SOCIAL_IDLE_CORE_OPACITY = 0.8;
 export const MAP_NODE_NON_LISTING_OUTLINE_WIDTH = 1;
 export const MAP_NODE_NON_LISTING_OUTLINE_COLOR = '#FFFFFF';
 export const MAP_NODE_NON_LISTING_OUTLINE_OPACITY = 0.9;
+export const MAP_NODE_COMPLETED_LISTING_CORE_COLOR = '#CBD5E1';
+export const MAP_NODE_COMPLETED_LISTING_CORE_OPACITY = 0.86;
 
 export const MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD = 0.5;
 
@@ -253,6 +260,70 @@ export function withAlpha(color: string, opacity: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${clamp(opacity, 0, 1).toFixed(3)})`;
 }
 
+function resolveListingBorder(input: {
+  activeMetric: number;
+  completedMetric: number;
+  activeWidthStops: readonly NumericStop[];
+  activeColorStops: readonly ColorStop[];
+  activeOpacityStops: readonly NumericStop[];
+}): Pick<MapNodeVisual, 'borderWidth' | 'borderColor' | 'borderOpacity'> {
+  const activeBorderWidth = interpolateNumericStops(input.activeWidthStops, input.activeMetric);
+
+  if (activeBorderWidth > 0) {
+    return {
+      borderWidth: activeBorderWidth,
+      borderColor: interpolateColorStops(input.activeColorStops, input.activeMetric),
+      borderOpacity: interpolateNumericStops(input.activeOpacityStops, input.activeMetric),
+    };
+  }
+
+  if (input.completedMetric > 0) {
+    return {
+      borderWidth: MAP_NODE_COMPLETED_LISTING_RING_WIDTH,
+      borderColor: MAP_NODE_COMPLETED_LISTING_RING_COLOR,
+      borderOpacity: MAP_NODE_COMPLETED_LISTING_RING_OPACITY,
+    };
+  }
+
+  return {
+    borderWidth: MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+    borderColor: MAP_NODE_NON_LISTING_OUTLINE_COLOR,
+    borderOpacity: MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+  };
+}
+
+function resolveActiveCore(input: {
+  hasSocial: boolean;
+  hasActiveListing: boolean;
+  hasCompletedListing: boolean;
+}): Pick<MapNodeVisual, 'coreColor' | 'coreOpacity'> {
+  if (input.hasSocial) {
+    return {
+      coreColor: MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
+      coreOpacity: MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY,
+    };
+  }
+
+  if (input.hasActiveListing) {
+    return {
+      coreColor: MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+      coreOpacity: MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+    };
+  }
+
+  if (input.hasCompletedListing) {
+    return {
+      coreColor: MAP_NODE_COMPLETED_LISTING_CORE_COLOR,
+      coreOpacity: MAP_NODE_COMPLETED_LISTING_CORE_OPACITY,
+    };
+  }
+
+  return {
+    coreColor: MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
+    coreOpacity: MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+  };
+}
+
 function shouldShowRecentPulse(
   recentSocialCount: number,
   recentSocialScoreTotal: number,
@@ -269,11 +340,19 @@ export function resolveActiveSingleNodeVisual(
   const radius = ACTIVE_SINGLE_RADIUS;
   const recentSocialScoreTotal = input.recentSocialScoreTotal ?? 0;
   const hasSocial = input.socialCount > 0;
-  const listingBorderWidth = interpolateNumericStops(
-    MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
-    input.activeListingCount,
-  );
-  const borderWidth = listingBorderWidth > 0 ? listingBorderWidth : MAP_NODE_NON_LISTING_OUTLINE_WIDTH;
+  const completedListingCount = input.completedListingCount ?? 0;
+  const border = resolveListingBorder({
+    activeMetric: input.activeListingCount,
+    completedMetric: completedListingCount,
+    activeWidthStops: MAP_NODE_LISTING_RING_SINGLE_WIDTH_STOPS,
+    activeColorStops: MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
+    activeOpacityStops: MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
+  });
+  const core = resolveActiveCore({
+    hasSocial,
+    hasActiveListing: input.activeListingCount > 0,
+    hasCompletedListing: completedListingCount > 0,
+  });
   const pulseVisible = shouldShowRecentPulse(
     input.recentSocialCount ?? 0,
     recentSocialScoreTotal,
@@ -287,26 +366,12 @@ export function resolveActiveSingleNodeVisual(
     diameter: radius * 2,
     backgroundColor: '#FFFFFF',
     backgroundOpacity: 0,
-    borderWidth,
-    borderColor: listingBorderWidth > 0
-      ? interpolateColorStops(
-        MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS,
-        input.activeListingCount,
-      )
-      : MAP_NODE_NON_LISTING_OUTLINE_COLOR,
-    borderOpacity: listingBorderWidth > 0
-      ? interpolateNumericStops(
-        MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS,
-        input.activeListingCount,
-      )
-      : MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+    borderWidth: border.borderWidth,
+    borderColor: border.borderColor,
+    borderOpacity: border.borderOpacity,
     coreDiameter: radius * 2,
-    coreColor: hasSocial
-      ? MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR
-      : MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
-    coreOpacity: hasSocial
-      ? MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY
-      : MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+    coreColor: core.coreColor,
+    coreOpacity: core.coreOpacity,
     pulseColor: interpolateColorStops(
       MAP_NODE_RECENT_PULSE_SINGLE_COLOR_STOPS,
       input.recentSocialCount ?? 0,
@@ -327,11 +392,19 @@ export function resolveActiveClusterNodeVisual(
   const radius = ACTIVE_CLUSTER_RADIUS;
   const recentSocialScoreTotal = input.recentSocialScoreTotal ?? 0;
   const hasSocial = input.socialCount > 0;
-  const listingBorderWidth = interpolateNumericStops(
-    MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
-    input.listingShare,
-  );
-  const borderWidth = listingBorderWidth > 0 ? listingBorderWidth : MAP_NODE_NON_LISTING_OUTLINE_WIDTH;
+  const completedListingShare = input.completedListingShare ?? 0;
+  const border = resolveListingBorder({
+    activeMetric: input.listingShare,
+    completedMetric: completedListingShare,
+    activeWidthStops: MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
+    activeColorStops: MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
+    activeOpacityStops: MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
+  });
+  const core = resolveActiveCore({
+    hasSocial,
+    hasActiveListing: input.listingShare > 0,
+    hasCompletedListing: completedListingShare > 0,
+  });
   const pulseVisible = shouldShowRecentPulse(
     input.recentSocialCount ?? 0,
     recentSocialScoreTotal,
@@ -345,26 +418,12 @@ export function resolveActiveClusterNodeVisual(
     diameter: radius * 2,
     backgroundColor: '#FFFFFF',
     backgroundOpacity: 0,
-    borderWidth,
-    borderColor: listingBorderWidth > 0
-      ? interpolateColorStops(
-        MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
-        input.listingShare,
-      )
-      : MAP_NODE_NON_LISTING_OUTLINE_COLOR,
-    borderOpacity: listingBorderWidth > 0
-      ? interpolateNumericStops(
-        MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
-        input.listingShare,
-      )
-      : MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
+    borderWidth: border.borderWidth,
+    borderColor: border.borderColor,
+    borderOpacity: border.borderOpacity,
     coreDiameter: radius * 2,
-    coreColor: hasSocial
-      ? MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR
-      : MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
-    coreOpacity: hasSocial
-      ? MAP_NODE_SOCIAL_ACTIVE_CORE_OPACITY
-      : MAP_NODE_SOCIAL_IDLE_CORE_OPACITY,
+    coreColor: core.coreColor,
+    coreOpacity: core.coreOpacity,
     pulseColor: interpolateColorStops(
       MAP_NODE_RECENT_PULSE_CLUSTER_COLOR_STOPS,
       input.recentSocialCount ?? 0,

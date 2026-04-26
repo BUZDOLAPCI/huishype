@@ -50,12 +50,16 @@ function makeCandidate(
 ): GroupingCandidate {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const hasActiveListing = overrides.hasActiveListing ?? true;
+  const hasCompletedListing =
+    overrides.hasCompletedListing ??
+    (!hasActiveListing && (overrides.marketState === 'sold' || overrides.marketState === 'rented'));
   const socialScore = overrides.socialScore ?? 10;
   const recentSocialScore = overrides.recentSocialScore ?? socialScore;
   const commentCount = overrides.commentCount ?? 0;
   return {
     id,
     hasActiveListing,
+    hasCompletedListing,
     socialScore,
     recentSocialScore,
     commentCount,
@@ -338,8 +342,137 @@ describe('property-grouping', () => {
     expect(groups[0].primaryPropertyId).toBe(listed.id);
     expect(groups[0].propertyIds).toEqual([listed.id]);
     expect(groups[0].activeListingCount).toBe(1);
+    expect(groups[0].completedListingCount).toBe(0);
     expect(groups[0].socialCount).toBe(0);
     expect(groups[0].socialScoreTotal).toBe(0);
+  });
+
+  it('keeps completed listing-backed zero-social candidates active below ghost reveal zoom', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const sold = makeCandidate(
+      '00000000-0000-0000-0000-000000000018',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'sold',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [sold]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('single');
+    expect(groups[0].primaryPropertyId).toBe(sold.id);
+    expect(groups[0].activeListingCount).toBe(0);
+    expect(groups[0].completedListingCount).toBe(1);
+    expect(groups[0].socialCount).toBe(0);
+    expect(groups[0].marketState).toBe('sold');
+  });
+
+  it('keeps completed listing-only groups active and counts them separately from active listings', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const originX = tile.x * PROPERTY_TILE_EXTENT + 1600;
+    const originY = tile.y * PROPERTY_TILE_EXTENT + 1600;
+    const sold = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000019',
+      originX,
+      originY,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'sold',
+      },
+    );
+    const rented = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000020',
+      originX + 24,
+      originY,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'rented',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [sold, rented]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].groupKind).toBe('cluster');
+    expect(groups[0].activeListingCount).toBe(0);
+    expect(groups[0].completedListingCount).toBe(2);
+    expect(groups[0].socialCount).toBe(0);
+  });
+
+  it('keeps active listing and social visuals additive when grouped with completed listings', () => {
+    const zoom = 18;
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const originX = tile.x * PROPERTY_TILE_EXTENT + 1800;
+    const originY = tile.y * PROPERTY_TILE_EXTENT + 1800;
+    const completed = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000023',
+      originX,
+      originY,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'sold',
+      },
+    );
+    const activeListing = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000024',
+      originX + 18,
+      originY,
+      zoom,
+      {
+        hasActiveListing: true,
+        hasCompletedListing: false,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'for-sale',
+      },
+    );
+    const social = makeCandidateAtWorld(
+      '00000000-0000-0000-0000-000000000025',
+      originX + 36,
+      originY,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: false,
+        socialScore: 4,
+        recentSocialScore: 4,
+        marketState: 'not-listed',
+      },
+    );
+
+    const groups = groupCandidatesForTile(tile, [completed, activeListing, social]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].nodeClass).toBe('active');
+    expect(groups[0].activeListingCount).toBe(1);
+    expect(groups[0].completedListingCount).toBe(1);
+    expect(groups[0].socialCount).toBe(1);
+    expect(groups[0].recentSocialCount).toBe(1);
   });
 
   it('keeps a single unique view below active-node semantics', () => {
@@ -635,6 +768,7 @@ describe('property-grouping', () => {
       coordinate: [5.47, 51.44],
       bbox: null,
       activeListingCount: 1,
+      completedListingCount: 0,
       socialCount: 1,
       recentSocialCount: 1,
       socialScoreTotal: 3,
