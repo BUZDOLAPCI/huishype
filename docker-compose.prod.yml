@@ -44,6 +44,9 @@ services:
       PARARIUS_SOURCE_SERVICE_API_KEY: ${PARARIUS_SOURCE_SERVICE_API_KEY:?PARARIUS_SOURCE_SERVICE_API_KEY is required for production listing source resolution}
     ports:
       - "3100:3100"
+    labels:
+      traefik.docker.network: ${COOLIFY_RESOURCE_UUID}
+      traefik.http.services.api.loadbalancer.server.port: "3100"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/health || exit 1"]
       interval: 30s
@@ -111,6 +114,9 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    labels:
+      traefik.docker.network: ${COOLIFY_RESOURCE_UUID}
+      traefik.http.services.web.loadbalancer.server.port: "80"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ || exit 1"]
       interval: 30s
