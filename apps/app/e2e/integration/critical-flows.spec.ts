@@ -24,6 +24,15 @@ import {
  */
 
 const API_BASE_URL = getPlaywrightApiUrl();
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
+
+async function dismissWelcomeModalIfVisible(page: import('@playwright/test').Page): Promise<void> {
+  const dismissButton = page.getByTestId('welcome-modal-dismiss-button');
+  if (await dismissButton.isVisible().catch(() => false)) {
+    await dismissButton.click();
+    await expect(page.getByTestId('welcome-modal-card')).toBeHidden();
+  }
+}
 
 test.describe('Critical Flows - Full Stack Integration', () => {
   test.describe('API Health & Connectivity', () => {
@@ -251,8 +260,12 @@ test.describe('Critical Flows - Full Stack Integration', () => {
     });
 
     test('Feed view loads properties from real API', async ({ page }) => {
+      await page.addInitScript((storageKey) => {
+        window.localStorage.setItem(storageKey, '1');
+      }, WELCOME_MODAL_DISMISSED_KEY);
       await page.goto('/', { waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle').catch(() => {});
+      await dismissWelcomeModalIfVisible(page);
 
       // Try to navigate to feed tab
       const feedTab = page

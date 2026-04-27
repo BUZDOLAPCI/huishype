@@ -21,6 +21,7 @@ LogManager.setLogLevel('warn');
 import {
   PropertyBottomSheet,
   AuthModal,
+  WelcomeModal,
   SearchBar,
   BottomSheetErrorBoundary,
   GroupPreviewCard,
@@ -47,6 +48,7 @@ import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
 import { useReadTileSource } from '@/src/hooks/useReadTileSource';
 import { usePropertyView } from '@/src/hooks/usePropertyView';
+import { useWelcomeModal } from '@/src/hooks/useWelcomeModal';
 import {
   fetchNearbyGroup,
   fetchFollowingNearbyGroup,
@@ -73,6 +75,7 @@ import {
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
@@ -221,6 +224,7 @@ const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const welcomeModal = useWelcomeModal();
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [hasLayout, setHasLayout] = useState(false);
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
@@ -1473,6 +1477,11 @@ export default function MapScreen() {
         )}
 
         {/* Floating controls — lighter circular treatment to match the pen */}
+        <MapWelcomeInfoButton
+          onPress={welcomeModal.open}
+          style={styles.welcomeInfoButton}
+        />
+
         <View style={styles.controlRail}>
           <Pressable
             testID="zoom-in-button"
@@ -1539,6 +1548,11 @@ export default function MapScreen() {
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
       />
+
+      <WelcomeModal
+        visible={welcomeModal.visible && !interaction.showAuthModal}
+        onClose={welcomeModal.dismiss}
+      />
     </ScreenBackground>
   );
 }
@@ -1556,6 +1570,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
     alignItems: 'center',
     gap: 10,
+  },
+  welcomeInfoButton: {
+    position: 'absolute',
+    left: 16,
+    bottom: 108,
+    zIndex: 10,
   },
   nativePreviewOverlay: {
     position: 'absolute',

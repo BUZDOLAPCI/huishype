@@ -5,6 +5,7 @@ import { router, type Href } from 'expo-router';
 import * as maplibregl from 'maplibre-gl';
 import {
   AuthModal,
+  WelcomeModal,
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
@@ -24,6 +25,7 @@ import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
 import { usePropertyView } from '@/src/hooks/usePropertyView';
 import { useReadTileSource } from '@/src/hooks/useReadTileSource';
+import { useWelcomeModal } from '@/src/hooks/useWelcomeModal';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
@@ -79,6 +81,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
@@ -300,6 +303,13 @@ const MAP_LOCATION_BUTTON_STYLE: WebViewStyle = {
   position: 'absolute',
   bottom: 108,
   right: 18,
+  zIndex: 10,
+};
+
+const MAP_WELCOME_INFO_BUTTON_STYLE: WebViewStyle = {
+  position: 'absolute',
+  bottom: 108,
+  left: 18,
   zIndex: 10,
 };
 
@@ -849,6 +859,7 @@ const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   useBenchmarkRenderProbe('map-screen');
 
+  const welcomeModal = useWelcomeModal();
   const isFocused = useIsFocused();
   const initialAppliedFilters = useMemo(
     () =>
@@ -2884,6 +2895,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         )}
 
         {/* Location button — bottom-right of map, above tab bar */}
+        <MapWelcomeInfoButton
+          onPress={welcomeModal.open}
+          style={MAP_WELCOME_INFO_BUTTON_STYLE}
+        />
+
         <View
           style={MAP_LOCATION_BUTTON_STYLE}
         >
@@ -2942,6 +2958,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         copy={interaction.authCopy}
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
+      />
+
+      <WelcomeModal
+        visible={welcomeModal.visible && !interaction.showAuthModal}
+        onClose={welcomeModal.dismiss}
       />
     </ScreenBackground>
   );

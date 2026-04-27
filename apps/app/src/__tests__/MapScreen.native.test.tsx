@@ -35,6 +35,9 @@ const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
 const mockFetchFollowingNearbyGroup = jest.fn();
+const mockWelcomeOpen = jest.fn();
+const mockWelcomeDismiss = jest.fn();
+let mockWelcomeVisible = false;
 
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
@@ -120,6 +123,8 @@ jest.mock('@/src/components', () => {
   return {
     PropertyBottomSheet: ReactModule.forwardRef(() => null),
     AuthModal: () => null,
+    WelcomeModal: ({ visible }: { visible: boolean }) =>
+      visible ? ReactModule.createElement(View, { testID: 'welcome-modal' }) : null,
     SearchBar: () => null,
     BottomSheetErrorBoundary: ({ children }: { children: React.ReactNode }) =>
       ReactModule.createElement(ReactModule.Fragment, null, children),
@@ -149,6 +154,17 @@ jest.mock('@/src/components/navigation/LocationButton', () => ({
   LocationButton: () => null,
 }));
 
+jest.mock('@/src/components/map/MapWelcomeInfoButton', () => ({
+  MapWelcomeInfoButton: ({ onPress }: { onPress: () => void }) => {
+    const ReactModule = require('react') as typeof import('react');
+    const { Pressable } = require('react-native') as typeof import('react-native');
+    return ReactModule.createElement(Pressable, {
+      onPress,
+      testID: 'map-welcome-info-button',
+    });
+  },
+}));
+
 jest.mock('@/src/components/ui/Icon', () => ({
   Icon: () => null,
 }));
@@ -170,6 +186,15 @@ jest.mock('@/src/components/map/FollowingMapStateCard', () => ({
 
 jest.mock('@/src/hooks/useMapInteraction', () => ({
   useMapInteraction: jest.fn(() => mockInteraction),
+}));
+
+jest.mock('@/src/hooks/useWelcomeModal', () => ({
+  useWelcomeModal: jest.fn(() => ({
+    visible: mockWelcomeVisible,
+    open: mockWelcomeOpen,
+    dismiss: mockWelcomeDismiss,
+    isHydrated: true,
+  })),
 }));
 
 jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
@@ -344,6 +369,7 @@ describe('MapScreen native grouped Following mode', () => {
     mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
+    mockWelcomeVisible = false;
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
@@ -510,6 +536,22 @@ describe('MapScreen native grouped Following mode', () => {
     await renderMapScreen();
 
     expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
+  });
+
+  it('renders the welcome info button and opens the welcome modal from it', async () => {
+    const screen = await renderMapScreen();
+
+    fireEvent.press(screen.getByTestId('map-welcome-info-button'));
+
+    expect(mockWelcomeOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the welcome modal when first-run state is visible', async () => {
+    mockWelcomeVisible = true;
+
+    const screen = await renderMapScreen();
+
+    expect(screen.getByTestId('welcome-modal')).toBeTruthy();
   });
 
   it('does not record ghost preview properties as read', async () => {

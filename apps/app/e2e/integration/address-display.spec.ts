@@ -30,6 +30,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 const EXPECTATION_NAME = '0019-real-address-routing';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const API_BASE_URL = getPlaywrightApiUrl();
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 // Stable bbox used by this non-mocked integration test. The environment is
 // expected to contain real addresses here.
@@ -43,6 +44,14 @@ const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
 // Real Dutch addresses look like: "Straatnaam 123" or similar
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+
+async function dismissWelcomeModalIfVisible(page: import('@playwright/test').Page): Promise<void> {
+  const dismissButton = page.getByTestId('welcome-modal-dismiss-button');
+  if (await dismissButton.isVisible().catch(() => false)) {
+    await dismissButton.click();
+    await expect(page.getByTestId('welcome-modal-card')).toBeHidden();
+  }
+}
 
 test.describe('Address Display - Non-Mocked Integration Tests', () => {
   test.setTimeout(60_000);
@@ -243,8 +252,12 @@ test.describe('Address Display - Non-Mocked Integration Tests', () => {
     // when querying the correct geographic area.
 
     // Navigate to feed tab if available
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await dismissWelcomeModalIfVisible(page);
 
     // Click feed tab - the app has a "Feed" tab in the bottom tab bar
     const feedTab = page

@@ -1,6 +1,7 @@
 export { ActivityFeedCard } from './ActivityFeedCard';
 export type { ActivityFeedCardProps } from './ActivityFeedCard';
 export { AuthModal } from './AuthModal';
+export { WelcomeModal } from './WelcomeModal';
 export { BottomSheetErrorBoundary } from './BottomSheetErrorBoundary';
 export { BottomSheet } from './BottomSheet';
 export { ConsensusAlignment } from './ConsensusAlignment';

@@ -76,6 +76,9 @@ let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
 let mockReadHeaderValue = 'session-123';
 const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
+const mockWelcomeOpen = jest.fn();
+const mockWelcomeDismiss = jest.fn();
+let mockWelcomeVisible = false;
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
@@ -194,6 +197,8 @@ jest.mock('@/src/components', () => {
   const ReactModule = require('react');
   return {
     AuthModal: () => null,
+    WelcomeModal: ({ visible }: { visible: boolean }) =>
+      visible ? ReactModule.createElement('div', { 'data-testid': 'welcome-modal' }) : null,
     SearchBar: () => null,
     PropertyBottomSheet: ReactModule.forwardRef(() => null),
   };
@@ -235,8 +240,27 @@ jest.mock('@/src/components/navigation/LocationButton', () => ({
   LocationButton: () => null,
 }));
 
+jest.mock('@/src/components/map/MapWelcomeInfoButton', () => ({
+  MapWelcomeInfoButton: ({ onPress }: { onPress: () => void }) => {
+    const ReactModule = require('react');
+    return ReactModule.createElement('button', {
+      onClick: onPress,
+      'data-testid': 'map-welcome-info-button',
+    });
+  },
+}));
+
 jest.mock('@/src/hooks/useMapInteraction', () => ({
   useMapInteraction: jest.fn(() => mockInteraction),
+}));
+
+jest.mock('@/src/hooks/useWelcomeModal', () => ({
+  useWelcomeModal: jest.fn(() => ({
+    visible: mockWelcomeVisible,
+    open: mockWelcomeOpen,
+    dismiss: mockWelcomeDismiss,
+    isHydrated: true,
+  })),
 }));
 
 jest.mock('@/src/hooks/useAmbientCommentBubbles', () => ({
@@ -544,6 +568,7 @@ describe('MapScreen web grouped Following mode', () => {
     mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
+    mockWelcomeVisible = false;
     mockResolvedMapRouteState = {
       isLoading: true,
       pathname: '/',
@@ -1211,5 +1236,30 @@ describe('MapScreen web grouped Following mode', () => {
 
     expect(container.querySelector('[data-testid="map-following-state-error"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).toBeNull();
+  });
+
+  it('renders the welcome info button and opens the welcome modal from it', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const infoButton = container.querySelector('[data-testid="map-welcome-info-button"]') as HTMLButtonElement | null;
+    expect(infoButton).not.toBeNull();
+
+    infoButton?.click();
+
+    expect(mockWelcomeOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the welcome modal when first-run state is visible', async () => {
+    mockWelcomeVisible = true;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="welcome-modal"]')).not.toBeNull();
   });
 });
