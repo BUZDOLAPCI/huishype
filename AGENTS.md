@@ -14,6 +14,18 @@ sudo password for the machine is "123123" if you need it
 | MXroute Email | `.env.mxroute` | `MXROUTE_API_KEY`, `MXROUTE_SERVER` (heracles.mxrouting.net), `MXROUTE_USERNAME` (caslanco) |
 | Google Cloud | `.env.google` | `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_SECRET_WEB` |
 | Resend Email | `.env.resend` | `RESEND_API_KEY` (full access) |
+| Scraper deployment | `.env.scraper-deploy` | `HETZNER_API_TOKEN`, `COOLIFY_API_TOKEN`, scraper VM SSH/infra facts, `HUISHYPE_INGEST_API_KEY`, Funda/Pararius source-service API keys, mirrored VM stack passwords |
+
+## Scraper Deployment
+
+Production Funda and Pararius scraper/source services run on a separate Hetzner
+CX23 VM, not on the app/prod VM. The current runbook is
+[`docs/runbooks/scraper-deployment.md`](/home/caslan/dev/git_repos/hh/huishype/docs/runbooks/scraper-deployment.md).
+
+Secrets and operator facts for that deployment are in the gitignored root file
+`.env.scraper-deploy`. Keep actual values out of tracked docs; update the
+runbook when VM paths, service names, private IPs, firewall rules, or deploy
+commands change.
 
 ## Email
 

@@ -60,6 +60,12 @@ network `huishype-private`; the scraper VM is `10.42.0.2`. The scraper VM
 firewall allows source-service API ports `8100` and `8101` only from
 `10.42.0.10`.
 
+Operational details, live VM paths, service names, health checks, queue checks,
+and deploy commands are tracked in
+[`docs/runbooks/scraper-deployment.md`](runbooks/scraper-deployment.md). Scraper
+deployment/operator secrets are stored in the gitignored root file
+`.env.scraper-deploy`.
+
 ## Disk Sizing
 
 CPX32 (150GB) is too small. Photon planet DB (~88GB) + PostgreSQL (~51GB) + Docker overhead exceeds it. **CPX42 (240GB) is the minimum.** Disk-full corrupts Photon's OpenSearch index irreparably — requires full re-download.

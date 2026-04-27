@@ -110,6 +110,7 @@ shader-progress-screenshots/
 .env.mxroute
 .env.google
 .env.resend
+.env.scraper-deploy
 
 # Google OAuth credentials (contain secrets)
 GoogleService-Info.plist
