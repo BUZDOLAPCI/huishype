@@ -5,6 +5,7 @@ import { useLocalSearchParams, Stack } from 'expo-router';
 import { AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   emitSocialFollowAnalyticsEvent,
@@ -94,10 +95,10 @@ export default function PublicProfileScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Profile' }} />
-        <View className="flex-1 items-center justify-center bg-warm-50">
+        <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="User" size={32} color="#DE911D" />
           <Text className="text-warm-500 mt-4">Loading profile...</Text>
-        </View>
+        </ScreenBackground>
       </>
     );
   }
@@ -106,10 +107,10 @@ export default function PublicProfileScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Profile' }} />
-        <View className="flex-1 items-center justify-center bg-warm-50 px-6">
+        <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
           <Icon name="WarningCircle" size={48} color="#C7BFB3" />
           <Text className="text-lg font-semibold text-warm-900 mt-4">User not found</Text>
-        </View>
+        </ScreenBackground>
       </>
     );
   }
@@ -117,60 +118,62 @@ export default function PublicProfileScreen() {
   return (
     <>
       <Stack.Screen options={{ title: profile.displayName }} />
-      <ScrollView className="flex-1 bg-warm-50" testID="public-profile-screen">
-        {/* Profile Header */}
-        <View className="bg-surface-card px-6 py-6 items-center border-b border-warm-100">
-          <View className="w-20 h-20 rounded-full bg-primary-100 items-center justify-center mb-3">
-            <Icon name="User" size={32} color="#DE911D" />
+      <ScreenBackground>
+        <ScrollView className="flex-1" testID="public-profile-screen">
+          {/* Profile Header */}
+          <View className="bg-surface-card px-6 py-6 items-center border-b border-warm-100">
+            <View className="w-20 h-20 rounded-full bg-primary-100 items-center justify-center mb-3">
+              <Icon name="User" size={32} color="#DE911D" />
+            </View>
+
+            <Text className="text-xl font-bold text-warm-900 mb-1">{profile.displayName}</Text>
+            <Text className="text-sm text-warm-400 mb-2">@{profile.handle}</Text>
+
+            <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
+
+            <Text className="text-sm text-warm-500 mt-2">{profile.karma} karma</Text>
+            {!isOwnProfile ? (
+              <Button
+                label={isFollowing ? 'Following' : 'Follow'}
+                onPress={() => void handleFollowPress()}
+                variant={isFollowing ? 'secondary' : 'primary'}
+                disabled={isFollowPending}
+                style={{ alignSelf: 'stretch', marginTop: 16 }}
+                testID="public-profile-follow-button"
+              />
+            ) : (
+              <Text className="text-xs text-warm-500 mt-4">This is your public profile</Text>
+            )}
           </View>
 
-          <Text className="text-xl font-bold text-warm-900 mb-1">{profile.displayName}</Text>
-          <Text className="text-sm text-warm-400 mb-2">@{profile.handle}</Text>
-
-          <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
-
-          <Text className="text-sm text-warm-500 mt-2">{profile.karma} karma</Text>
-          {!isOwnProfile ? (
-            <Button
-              label={isFollowing ? 'Following' : 'Follow'}
-              onPress={() => void handleFollowPress()}
-              variant={isFollowing ? 'secondary' : 'primary'}
-              disabled={isFollowPending}
-              style={{ alignSelf: 'stretch', marginTop: 16 }}
-              testID="public-profile-follow-button"
-            />
-          ) : (
-            <Text className="text-xs text-warm-500 mt-4">This is your public profile</Text>
-          )}
-        </View>
-
-        {/* Stats */}
-        <View className="bg-surface-card mt-2 px-6 py-5 flex-row border-b border-warm-100">
-          <StatItem label="Guesses" value={profile.guessCount} iconName="Crosshair" />
-          <StatItem label="Comments" value={profile.commentCount} iconName="ChatCircle" />
-        </View>
-
-        <View className="bg-surface-card mt-2 px-6 py-4 flex-row justify-between border-b border-warm-100">
-          <View className="items-center flex-1">
-            <Text className="text-lg font-bold text-warm-900">{profile.followerCount}</Text>
-            <Text className="text-xs text-warm-500">Followers</Text>
+          {/* Stats */}
+          <View className="bg-surface-card mt-2 px-6 py-5 flex-row border-b border-warm-100">
+            <StatItem label="Guesses" value={profile.guessCount} iconName="Crosshair" />
+            <StatItem label="Comments" value={profile.commentCount} iconName="ChatCircle" />
           </View>
-          <View className="items-center flex-1">
-            <Text className="text-lg font-bold text-warm-900">{profile.followingCount}</Text>
-            <Text className="text-xs text-warm-500">Following</Text>
-          </View>
-        </View>
 
-        {/* Member since */}
-        <View className="bg-surface-card mt-2 px-6 py-4">
-          <Text className="text-sm text-warm-500">
-            Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
-              month: 'long',
-              year: 'numeric',
-            })}
-          </Text>
-        </View>
-      </ScrollView>
+          <View className="bg-surface-card mt-2 px-6 py-4 flex-row justify-between border-b border-warm-100">
+            <View className="items-center flex-1">
+              <Text className="text-lg font-bold text-warm-900">{profile.followerCount}</Text>
+              <Text className="text-xs text-warm-500">Followers</Text>
+            </View>
+            <View className="items-center flex-1">
+              <Text className="text-lg font-bold text-warm-900">{profile.followingCount}</Text>
+              <Text className="text-xs text-warm-500">Following</Text>
+            </View>
+          </View>
+
+          {/* Member since */}
+          <View className="bg-surface-card mt-2 px-6 py-4">
+            <Text className="text-sm text-warm-500">
+              Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
+                month: 'long',
+                year: 'numeric',
+              })}
+            </Text>
+          </View>
+        </ScrollView>
+      </ScreenBackground>
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}

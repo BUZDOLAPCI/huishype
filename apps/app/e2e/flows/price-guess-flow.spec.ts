@@ -141,7 +141,7 @@ test.describe('Price Guess Flow', () => {
     // Verify submit button
     const submitBtn = page.locator('[data-testid="submit-guess-button"]');
     await expect(submitBtn).toBeVisible();
-    await expect(submitBtn.locator('text=Submit Guess')).toBeVisible();
+    await expect(submitBtn.locator('text=Drag Slider to Adjust Guess')).toBeVisible();
     const submitBackground = await submitBtn.evaluate((element) =>
       window.getComputedStyle(element).backgroundColor
     );

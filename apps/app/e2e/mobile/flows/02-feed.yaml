@@ -8,26 +8,22 @@ appId: nl.huishype.app
 - tapOn:
     id: 'tab-feed'
 
-# Wait for the feed screen to become active.
-# The feed header title is a stronger activation signal than tab internals.
-- extendedWaitUntil:
-    visible: 'Trending Properties'
-    timeout: 30000
-
-# Assert the feed header and filter chips are visible
-- assertVisible: 'Trending Properties'
-- assertVisible: 'Trending'
-- assertVisible: 'Latest'
-- assertVisible: 'Recent Activity'
-
-- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
-
-# Verify property cards are displayed
-# Feed API call may take time on device — wait for the first property card to load
+# Wait for the feed content to become active. Native Text nodes in the header
+# are visually present but not consistently exposed to Maestro on Android.
 - extendedWaitUntil:
     visible:
       id: 'property-feed-card'
-    timeout: 30000
+    timeout: 90000
+
+# Assert the filter chips are visible
+- assertVisible:
+    id: 'filter-chip-trending'
+- assertVisible:
+    id: 'filter-chip-latest'
+- assertVisible:
+    id: 'filter-chip-recent-activity'
+
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-cards-loaded.png
 

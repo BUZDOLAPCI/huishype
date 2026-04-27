@@ -73,6 +73,7 @@ import {
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
@@ -1182,7 +1183,7 @@ export default function MapScreen() {
   ]);
 
   return (
-    <View style={{ flex: 1 }} className="bg-warm-100">
+    <ScreenBackground>
       {/* Map View */}
       <View testID="map-viewport" style={{ flex: 1 }} onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
@@ -1385,7 +1386,7 @@ export default function MapScreen() {
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gray100 }}
+            style={styles.mapLoadingIndicator}
             testID="map-loading-indicator"
           >
             <ActivityIndicator size="large" color={COLORS.blue500} />
@@ -1538,11 +1539,16 @@ export default function MapScreen() {
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
       />
-    </View>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  mapLoadingIndicator: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   controlRail: {
     position: 'absolute',
     right: 16,

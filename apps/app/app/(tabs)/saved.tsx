@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { PropertyFeedCard, FeedLoadingMore, AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { FeedProperty } from '@/src/hooks';
@@ -96,8 +97,7 @@ export default function SavedScreen() {
   // --- Not logged in state ---
   if (!user) {
     return (
-      <View
-        className="flex-1 bg-warm-50"
+      <ScreenBackground
         testID="saved-auth-required"
         pointerEvents="box-none"
       >
@@ -125,14 +125,14 @@ export default function SavedScreen() {
             onSuccess={() => setShowAuth(false)}
           />
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   // --- Loading state ---
   if (isLoading && !isRefreshing) {
     return (
-      <View className="flex-1 bg-warm-50" testID="saved-loading">
+      <ScreenBackground testID="saved-loading">
         <ScreenHeader title="Saved Properties" />
         <View className="flex-1 items-center justify-center">
           <View className="items-center">
@@ -142,14 +142,14 @@ export default function SavedScreen() {
             </Text>
           </View>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   // --- Error state ---
   if (isError) {
     return (
-      <View className="flex-1 bg-warm-50" testID="saved-error">
+      <ScreenBackground testID="saved-error">
         <ScreenHeader title="Saved Properties" />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-error-red-50 p-4 rounded-full mb-4">
@@ -168,14 +168,14 @@ export default function SavedScreen() {
             testID="saved-retry-button"
           />
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   // --- Empty state ---
   if (properties.length === 0) {
     return (
-      <View className="flex-1 bg-warm-50" testID="saved-empty">
+      <ScreenBackground testID="saved-empty">
         <ScreenHeader title="Saved Properties" />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-warm-200 p-5 rounded-full mb-4">
@@ -189,13 +189,13 @@ export default function SavedScreen() {
             interested in.
           </Text>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   // --- Main list ---
   return (
-    <View className="flex-1 bg-warm-50 items-center" testID="saved-screen">
+    <ScreenBackground style={{ alignItems: 'center' }} testID="saved-screen">
       <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
         <ScreenHeader title="Saved Properties" />
 
@@ -226,6 +226,6 @@ export default function SavedScreen() {
           testID="saved-list"
         />
       </View>
-    </View>
+    </ScreenBackground>
   );
 }

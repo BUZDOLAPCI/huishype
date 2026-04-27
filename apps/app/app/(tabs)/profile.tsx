@@ -26,6 +26,7 @@ import {
 import { router } from 'expo-router';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
@@ -220,8 +221,7 @@ export default function ProfileScreen() {
   // --- Not logged in ---
   if (!user) {
     return (
-      <View
-        className="flex-1 bg-warm-50"
+      <ScreenBackground
         testID="profile-auth-required"
         pointerEvents="box-none"
       >
@@ -249,27 +249,27 @@ export default function ProfileScreen() {
             onSuccess={() => setShowAuth(false)}
           />
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   // --- Loading ---
   if (isLoading && !profile) {
     return (
-      <View className="flex-1 bg-warm-50" testID="profile-loading">
+      <ScreenBackground testID="profile-loading">
         <ScreenHeader title="Profile" />
         <View className="flex-1 items-center justify-center">
           <Icon name="User" size="xl" color="#DE911D" />
           <Text className="text-warm-600 mt-4">Loading profile...</Text>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   if (!profile) return null;
 
   return (
-    <View className="flex-1 bg-warm-50 items-center" testID="profile-screen">
+    <ScreenBackground style={{ alignItems: 'center' }} testID="profile-screen">
       <ScrollView
         style={{ width: '100%', maxWidth: 768 }}
         className="flex-1"
@@ -282,8 +282,8 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Profile Header Card */}
-        <View style={[styles.profileCard, shadows.card]}>
+        {/* Profile Header */}
+        <View style={styles.profileHeader}>
           {/* Header actions row */}
           <View style={styles.headerActions}>
             <Pressable
@@ -396,17 +396,17 @@ export default function ProfileScreen() {
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
-          <View style={[styles.statItem, shadows.card]}>
+          <View style={[styles.statItem, styles.statItemPrimary, shadows.card]}>
             <Text style={styles.statValue}>{profile.guessCount}</Text>
             <Text style={styles.statLabel}>GUESSES</Text>
           </View>
-          <View style={[styles.statItem, shadows.card]}>
+          <View style={[styles.statItem, styles.statItemGold, shadows.card]}>
             <Text style={[styles.statValue, { color: '#F5A623' }]}>
               {profile.karma}
             </Text>
             <Text style={styles.statLabel}>KARMA</Text>
           </View>
-          <View style={[styles.statItem, shadows.card]}>
+          <View style={[styles.statItem, styles.statItemGreen, shadows.card]}>
             <Text style={[styles.statValue, { color: '#4CAF50' }]}>
               {profile.averageAccuracy != null
                 ? `${Math.round(profile.averageAccuracy)}%`
@@ -440,7 +440,7 @@ export default function ProfileScreen() {
         )}
 
         {/* Recent Activity Section */}
-        <View style={styles.section}>
+        <View style={[styles.section, styles.activitySection]}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
 
           {recentActivities.length === 0 ? (
@@ -465,13 +465,15 @@ export default function ProfileScreen() {
                     )
                   }
                 >
-                  <Icon
-                    name={config.icon}
-                    size={16}
-                    weight="fill"
-                    color={config.color}
-                  />
-                  <Text style={styles.activityText} numberOfLines={1}>
+                  <View style={styles.activityIconWell}>
+                    <Icon
+                      name={config.icon}
+                      size={15}
+                      weight="fill"
+                      color={config.color}
+                    />
+                  </View>
+                  <Text style={styles.activityText} numberOfLines={2}>
                     {label} {item.property.address}
                   </Text>
                   <View style={styles.activityMeta}>
@@ -488,19 +490,18 @@ export default function ProfileScreen() {
 
         <View style={{ height: PROFILE_TAB_BAR_SPACER }} />
       </ScrollView>
-    </View>
+    </ScreenBackground>
   );
 }
 
 // --- Styles ---
 
 const styles = StyleSheet.create({
-  profileCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    margin: 16,
+  profileHeader: {
+    marginHorizontal: 16,
     marginTop: 0,
-    paddingBottom: 24,
+    paddingTop: 6,
+    paddingBottom: 20,
     alignItems: 'center',
     overflow: 'visible',
   },
@@ -508,8 +509,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
     width: '100%',
   },
   dropdownBackdrop: {
@@ -518,10 +517,12 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     position: 'absolute',
-    top: 48,
-    right: 16,
-    backgroundColor: '#FFFFFF',
+    top: 42,
+    right: 0,
+    backgroundColor: 'rgba(255, 251, 245, 0.96)',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8E0D4',
     padding: 8,
     minWidth: 150,
     zIndex: 20,
@@ -585,10 +586,10 @@ const styles = StyleSheet.create({
   },
   followCountCard: {
     flex: 1,
-    backgroundColor: '#FFF8F0',
+    backgroundColor: 'rgba(255, 248, 240, 0.84)',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E8E0D4',
+    borderColor: 'rgba(222, 198, 166, 0.58)',
     paddingVertical: 12,
     paddingHorizontal: 14,
     alignItems: 'center',
@@ -621,26 +622,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   statItem: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 251, 245, 0.76)',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(232, 224, 212, 0.72)',
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  statItemPrimary: {
+    backgroundColor: 'rgba(255, 251, 245, 0.82)',
+  },
+  statItemGold: {
+    backgroundColor: 'rgba(255, 248, 226, 0.78)',
+    borderColor: 'rgba(245, 166, 35, 0.2)',
+  },
+  statItemGreen: {
+    backgroundColor: 'rgba(244, 252, 243, 0.76)',
+    borderColor: 'rgba(76, 175, 80, 0.18)',
   },
   statValue: {
     fontSize: 24,
     fontWeight: '700',
     color: '#2D2926',
-    letterSpacing: -0.3,
+    letterSpacing: 0,
     lineHeight: 30,
   },
   statLabel: {
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.8,
+    letterSpacing: 0,
     color: '#9C958A',
     marginTop: 4,
     textTransform: 'uppercase',
@@ -665,6 +679,15 @@ const styles = StyleSheet.create({
   },
 
   // Recent activity
+  activitySection: {
+    marginHorizontal: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 251, 245, 0.78)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(232, 224, 212, 0.72)',
+  },
   emptyActivity: {
     paddingVertical: 24,
     alignItems: 'center',
@@ -677,20 +700,33 @@ const styles = StyleSheet.create({
   activityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    minHeight: 46,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#F5F0E8',
+    borderBottomColor: 'rgba(232, 224, 212, 0.6)',
     gap: 10,
+  },
+  activityIconWell: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.48)',
   },
   activityText: {
     flex: 1,
     fontSize: 14,
+    lineHeight: 19,
     color: '#504A42',
   },
   activityMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 4,
+    minWidth: 40,
   },
   activityTime: {
     fontSize: 13,

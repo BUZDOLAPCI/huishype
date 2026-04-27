@@ -28,7 +28,7 @@ interface ScreenHeaderProps {
 }
 
 const COLORS = {
-  warm50: '#FFFBF5',
+  headerBackground: 'rgba(255, 251, 245, 0.24)',
   warm900: '#2D2926',
 } as const;
 
@@ -48,11 +48,16 @@ export function ScreenHeader({
         styles.container,
         {
           paddingTop: Platform.OS === 'web' ? 16 : insets.top + 8,
-          backgroundColor: COLORS.warm50,
+          backgroundColor: COLORS.headerBackground,
         },
       ]}
     >
-      <Text style={styles.title} numberOfLines={1}>
+      <Text
+        style={styles.title}
+        numberOfLines={1}
+        testID="screen-header-title"
+        accessibilityRole="header"
+      >
         {title}
       </Text>
 

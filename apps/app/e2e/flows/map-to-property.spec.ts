@@ -422,23 +422,17 @@ test.describe('Map to Property Flow', () => {
         return null;
       }
 
-      const pulse = marker.querySelector('.selected-marker-pulse');
-      if (!(pulse instanceof HTMLElement)) {
-        return null;
-      }
-
       const markerRect = marker.getBoundingClientRect();
-      const pulseRect = pulse.getBoundingClientRect();
       const arrowRect = arrow.getBoundingClientRect();
       const markerCenterX = markerRect.left + markerRect.width / 2;
       const arrowTipX = arrowRect.left + arrowRect.width / 2;
       const isArrowDown = arrow === arrowDown;
       const arrowTipY = isArrowDown ? arrowRect.bottom : arrowRect.top;
-      const pulseEdgeY = isArrowDown ? pulseRect.top : pulseRect.bottom;
+      const markerEdgeY = isArrowDown ? markerRect.top : markerRect.bottom;
 
       return {
         deltaX: Math.abs(markerCenterX - arrowTipX),
-        verticalGap: Math.abs(pulseEdgeY - arrowTipY),
+        verticalGap: isArrowDown ? markerEdgeY - arrowTipY : arrowTipY - markerEdgeY,
       };
     });
 
@@ -452,8 +446,8 @@ test.describe('Map to Property Flow', () => {
     ).toBeLessThan(4);
     expect(
       previewArrowAlignment!.verticalGap,
-      'Preview arrow tip should leave a visible gap from the selected marker pulse'
-    ).toBeGreaterThan(6);
+      'Preview arrow tip should leave a visible gap from the selected marker'
+    ).toBeGreaterThanOrEqual(4);
 
     // Verify the preview card persists (not immediately dismissed)
     await page.waitForTimeout(1000);

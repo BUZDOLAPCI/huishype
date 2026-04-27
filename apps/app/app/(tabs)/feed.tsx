@@ -38,6 +38,7 @@ import {
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
@@ -330,7 +331,7 @@ export default function FeedScreen() {
   // Loading state
   if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
@@ -338,14 +339,14 @@ export default function FeedScreen() {
         />
         <FeedLoadingState />
         {authModal}
-      </View>
+      </ScreenBackground>
     );
   }
 
   // Error state
   if (activeQuery.isError) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
@@ -356,7 +357,7 @@ export default function FeedScreen() {
           onRetry={activeQuery.refetch}
         />
         {authModal}
-      </View>
+      </ScreenBackground>
     );
   }
 
@@ -368,7 +369,7 @@ export default function FeedScreen() {
   if (isEmpty) {
     const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
@@ -391,12 +392,12 @@ export default function FeedScreen() {
           }
         />
         {authModal}
-      </View>
+      </ScreenBackground>
     );
   }
 
   return (
-    <View className="flex-1 bg-warm-50 items-center" testID="feed-screen">
+    <ScreenBackground style={{ alignItems: 'center' }} testID="feed-screen">
       <View style={FEED_LIST_CONTAINER_STYLE}>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
@@ -443,6 +444,6 @@ export default function FeedScreen() {
         )}
       </View>
       {authModal}
-    </View>
+    </ScreenBackground>
   );
 }

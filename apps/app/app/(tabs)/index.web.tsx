@@ -79,6 +79,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import {
@@ -2762,7 +2763,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   ]);
 
   return (
-    <View className="flex-1 bg-warm-100">
+    <ScreenBackground>
       {/* Map View */}
       <View className="flex-1" style={{ position: 'relative' }}>
         <div
@@ -2788,7 +2789,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         {/* Map Loading Indicator */}
         {!mapLoaded && (
           <View
-            className="absolute inset-0 items-center justify-center bg-warm-100"
+            className="absolute inset-0 items-center justify-center"
             style={MAP_LOADING_STYLE}
             testID="map-loading-indicator"
           >
@@ -2942,6 +2943,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onSuccess={interaction.handleAuthSuccess}
         onAuthStarting={interaction.handleAuthStarting}
       />
-    </View>
+    </ScreenBackground>
   );
 }

@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
@@ -199,7 +200,7 @@ export function UserSearchScreen() {
     results.length === 0;
 
   return (
-    <View style={styles.screen} testID="user-search-screen">
+    <ScreenBackground style={styles.screen} testID="user-search-screen">
       <View style={styles.searchBox}>
         <Icon name="MagnifyingGlass" size="md" color="#9C958A" />
         <TextInput
@@ -261,14 +262,13 @@ export function UserSearchScreen() {
         message="Sign in to follow people"
         onSuccess={() => setShowAuth(false)}
       />
-    </View>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F8F5EF',
   },
   searchBox: {
     minHeight: 48,

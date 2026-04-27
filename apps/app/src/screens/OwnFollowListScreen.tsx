@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { AuthModal } from '@/src/components';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Button } from '@/src/components/ui/Button';
+import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useFollowers, useFollowing, type FollowListResponse } from '@/src/hooks/useUserProfile';
@@ -31,7 +32,7 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
 
   if (!user) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={title} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
@@ -55,24 +56,24 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
           message={`Sign in to see your ${title.toLowerCase()}`}
           onSuccess={() => setShowAuth(false)}
         />
-      </View>
+      </ScreenBackground>
     );
   }
 
   if (query.isLoading) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={title} />
         <View className="flex-1 items-center justify-center">
           <Text className="text-warm-500">Loading {title.toLowerCase()}...</Text>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   if (query.isError) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={title} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
@@ -82,13 +83,13 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
             {query.error instanceof Error ? query.error.message : 'Please try again.'}
           </Text>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   if (items.length === 0) {
     return (
-      <View className="flex-1 bg-warm-50">
+      <ScreenBackground>
         <ScreenHeader title={title} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
@@ -97,15 +98,15 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
           <Text className="text-sm text-warm-500 text-center mt-2">
             {kind === 'followers'
               ? 'When people follow you, they will appear here.'
-              : 'People you follow will appear here.'}
+            : 'People you follow will appear here.'}
           </Text>
         </View>
-      </View>
+      </ScreenBackground>
     );
   }
 
   return (
-    <View className="flex-1 bg-warm-50">
+    <ScreenBackground>
       <ScreenHeader title={title} />
       <FlatList
         data={items}
@@ -147,6 +148,6 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
           </Pressable>
         )}
       />
-    </View>
+    </ScreenBackground>
   );
 }
