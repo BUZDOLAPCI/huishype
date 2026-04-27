@@ -35,12 +35,12 @@ const INTRO_ITEMS: Array<{
 }> = [
   {
     icon: 'MapTrifold',
-    title: 'Browse homes as a map',
-    body: 'Explore addresses, listings, and active neighborhoods without needing an account.',
+    title: 'Browse the map',
+    body: 'Explore homes, listings, and neighborhood activity.',
   },
   {
     icon: 'CurrencyEur',
-    title: 'Guess the fair price',
+    title: "Guess what it's worth",
     body: 'Submit what you think a place is worth and compare it with the crowd estimate.',
   },
   {
@@ -137,7 +137,7 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
               <View style={styles.heroCopy}>
                 <Text style={styles.title}>Welcome to HuisHype</Text>
                 <Text style={styles.subtitle}>
-                  The social real estate map for exploring homes, testing your price instinct,
+                  The social real estate map for exploring homes, testing your instincts,
                   and seeing what the crowd thinks.
                 </Text>
               </View>
@@ -159,8 +159,8 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
               <View style={styles.note}>
                 <Icon name="ShieldCheck" size={18} color={GOLD_700} weight="duotone" />
                 <Text style={styles.noteText}>
-                  Browsing is open. Sign in only when you want to save, comment,
-                  like, or submit a price guess.
+                  You can browse freely. Sign in only when you want to save, comment,
+                  like, or submit guesses.
                 </Text>
               </View>
 

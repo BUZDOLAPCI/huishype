@@ -10,10 +10,10 @@ describe('WelcomeModal', () => {
 
     expect(getByTestId('welcome-modal-card')).toBeTruthy();
     expect(getByText('Welcome to HuisHype')).toBeTruthy();
-    expect(getByText('Browse homes as a map')).toBeTruthy();
-    expect(getByText('Guess the fair price')).toBeTruthy();
+    expect(getByText('Browse the map')).toBeTruthy();
+    expect(getByText("Guess what it's worth")).toBeTruthy();
     expect(getByText('See what people notice')).toBeTruthy();
-    expect(getByText(/Browsing is open/)).toBeTruthy();
+    expect(getByText(/You can browse freely/)).toBeTruthy();
   });
 
   it('dismisses from the primary action', () => {
@@ -46,4 +46,3 @@ describe('WelcomeModal', () => {
     expect(queryByText('Welcome to HuisHype')).toBeNull();
   });
 });
-
