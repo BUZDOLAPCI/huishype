@@ -18,6 +18,15 @@ export interface CanonicalAddress {
   city: string;
 }
 
+export type CanonicalizeAddressFailureReason =
+  | 'missing_postal_code'
+  | 'invalid_postal_code'
+  | 'invalid_house_number';
+
+export type CanonicalizeAddressResult =
+  | { canonical: CanonicalAddress; failureReason: null }
+  | { canonical: null; failureReason: CanonicalizeAddressFailureReason };
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -140,14 +149,27 @@ export function canonicalizeAddress(input: {
   city?: string;
   countryCode?: CountryCode;
 }): CanonicalAddress | null {
+  return canonicalizeAddressWithDiagnostics(input).canonical;
+}
+
+export function canonicalizeAddressWithDiagnostics(input: {
+  street?: string;
+  houseNumber: string | number;
+  houseNumberAddition?: string | null;
+  postalCode: string;
+  city?: string;
+  countryCode?: CountryCode;
+}): CanonicalizeAddressResult {
   // -- Postal code ----------------------------------------------------------
-  if (!input.postalCode) return null;
+  if (!input.postalCode) {
+    return { canonical: null, failureReason: 'missing_postal_code' };
+  }
 
   let postalCode: string;
   try {
     postalCode = normalizePostalCode(input.postalCode, input.countryCode ?? 'NL');
   } catch {
-    return null;
+    return { canonical: null, failureReason: 'invalid_postal_code' };
   }
 
   // -- House number (with possible composite parsing) -----------------------
@@ -155,7 +177,7 @@ export function canonicalizeAddress(input: {
   try {
     parsed = parseCompositeHouseNumber(input.houseNumber);
   } catch {
-    return null;
+    return { canonical: null, failureReason: 'invalid_house_number' };
   }
 
   // If the caller *also* provided an explicit addition, it takes precedence
@@ -171,11 +193,14 @@ export function canonicalizeAddress(input: {
   const city = collapseWhitespace(input.city);
 
   return {
-    street,
-    houseNumber: parsed.num,
-    houseNumberAddition,
-    postalCode,
-    city,
+    canonical: {
+      street,
+      houseNumber: parsed.num,
+      houseNumberAddition,
+      postalCode,
+      city,
+    },
+    failureReason: null,
   };
 }
 

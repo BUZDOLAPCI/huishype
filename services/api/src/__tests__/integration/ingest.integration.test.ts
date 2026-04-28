@@ -2164,6 +2164,7 @@ describe('Durable ingest API contract', () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = 'Invalid House Numberweg';
+    const debugLogs: Array<{ payload: Record<string, unknown>; message: string }> = [];
     const cursorEnd = encodeOpaqueIngestCursor({
       changedAt: '2026-04-06T18:30:00.000Z',
       listingKey: `fotocasa-invalid-house-number-${stamp}`,
@@ -2253,6 +2254,12 @@ describe('Durable ingest API contract', () => {
       processIngestBatch({
         batchId: accepted.batchId,
         maxAttempts: 1,
+        logger: {
+          info: () => {},
+          debug: (payload, message) => debugLogs.push({ payload, message }),
+          warn: () => {},
+          error: () => {},
+        },
         enqueueMaintenanceRefresh: async () => {},
       }),
     ).resolves.toEqual({
@@ -2274,6 +2281,27 @@ describe('Durable ingest API contract', () => {
     expect(batchState?.skippedCount).toBe(2);
     expect(batchState?.errorJson).toBeNull();
     expect(batchState?.lastErrorAt).toBeNull();
+    expect(debugLogs).toContainEqual({
+      message: 'Ingest batch skipped listing diagnostics',
+      payload: expect.objectContaining({
+        batchId: accepted.batchId,
+        sourceName,
+        skippedCount: 2,
+        skipReasons: {
+          invalid_house_number_without_spatial_candidate: 2,
+        },
+        skippedListings: expect.arrayContaining([
+          expect.objectContaining({
+            reason: 'invalid_house_number_without_spatial_candidate',
+            mirrorListingId: `fotocasa-invalid-house-number-none-${stamp}`,
+          }),
+          expect.objectContaining({
+            reason: 'invalid_house_number_without_spatial_candidate',
+            mirrorListingId: `fotocasa-invalid-house-number-empty-${stamp}`,
+          }),
+        ]),
+      }),
+    });
 
     const canonicalRows = await db
       .select()
@@ -2296,6 +2324,205 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastCommittedCursor).toBe(cursorEnd);
     expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-invalid-house-number-${stamp}`);
     expect(sourceState?.lastBatchId).toBe(accepted.batchId);
+  });
+
+  it('spatially matches listings with an empty source house number when coordinates are present', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = 'Pararius Coordinateweg';
+    const longitude = 5.223456;
+    const latitude = 51.223456;
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T18:45:00.000Z',
+      listingKey: `fotocasa-empty-house-number-spatial-${stamp}`,
+    });
+    const propertySeed = await db
+      .insert(properties)
+      .values({
+        countryCode: 'NL',
+        street,
+        houseNumber: 88,
+        houseNumberAddition: null,
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        geometry: { type: 'Point', coordinates: [longitude, latitude] },
+        status: 'active',
+      })
+      .returning({ id: properties.id });
+
+    const propertyId = propertySeed[0]?.id;
+    expect(propertyId).toBeTruthy();
+    cleanupPropertyIds.push(propertyId as string);
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-empty-house-number-spatial-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `fotocasa-empty-house-number-spatial-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/empty-spatial-${stamp}`,
+          mirrorListingId: `fotocasa-empty-house-number-spatial-${stamp}`,
+          askingPrice: 480000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: '',
+            city: 'Eindhoven',
+            latitude,
+            longitude,
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        maxAttempts: 1,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.sourceName, sourceName));
+
+    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows[0]?.propertyId).toBe(propertyId);
+    expect(canonicalRows[0]?.primarySourceListingId).toBe(`fotocasa-empty-house-number-spatial-${stamp}`);
+  });
+
+  it('keeps malformed unit-shaped source house numbers skipped until the source sends corrected fields', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = 'Funda Unitvormweg';
+    const longitude = 5.323456;
+    const latitude = 51.323456;
+    const firstCursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T19:00:00.000Z',
+      listingKey: `idealista-malformed-unit-${stamp}-1`,
+    });
+    const secondCursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T19:05:00.000Z',
+      listingKey: `idealista-malformed-unit-${stamp}-2`,
+    });
+    const propertySeed = await db
+      .insert(properties)
+      .values({
+        countryCode: 'NL',
+        street,
+        houseNumber: 32,
+        houseNumberAddition: '327',
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        geometry: { type: 'Point', coordinates: [longitude, latitude] },
+        status: 'active',
+      })
+      .returning({ id: properties.id });
+
+    const propertyId = propertySeed[0]?.id;
+    expect(propertyId).toBeTruthy();
+    cleanupPropertyIds.push(propertyId as string);
+
+    const malformed = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-malformed-unit-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursorEnd,
+      upstreamRunKey: `idealista-malformed-unit-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/malformed-unit-${stamp}/`,
+          mirrorListingId: `idealista-malformed-unit-${stamp}`,
+          askingPrice: 1500,
+          priceType: 'rent' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 'Appartement 32-327',
+            city: 'Eindhoven',
+            latitude,
+            longitude,
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: malformed.batchId,
+        maxAttempts: 1,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 1,
+    });
+
+    const corrected = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-corrected-unit-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursorEnd,
+      cursorEnd: secondCursorEnd,
+      upstreamRunKey: `idealista-malformed-unit-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/corrected-unit-${stamp}/`,
+          mirrorListingId: `idealista-corrected-unit-${stamp}`,
+          askingPrice: 1500,
+          priceType: 'rent' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 32,
+            houseNumberAddition: '327',
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: corrected.batchId,
+        maxAttempts: 1,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.sourceName, sourceName));
+
+    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows[0]?.propertyId).toBe(propertyId);
+    expect(canonicalRows[0]?.primarySourceListingId).toBe(`idealista-corrected-unit-${stamp}`);
   });
 
   it('defers out-of-order batches until their predecessor commits', async () => {

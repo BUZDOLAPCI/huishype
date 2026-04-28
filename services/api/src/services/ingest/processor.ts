@@ -7,7 +7,11 @@ import {
   listingObservations,
 } from '../../db/index.js';
 import type { CountryCode } from '@huishype/shared';
-import { canonicalizeAddress, normalizeSourceUrl } from '../../utils/address.js';
+import {
+  canonicalizeAddressWithDiagnostics,
+  type CanonicalizeAddressFailureReason,
+  normalizeSourceUrl,
+} from '../../utils/address.js';
 import type { IngestBatchRequest, IngestListing } from './contracts.js';
 import { ingestBatchRequestSchema } from './contracts.js';
 import { decodeOpaqueIngestCursor } from './cursor.js';
@@ -36,7 +40,12 @@ interface CanonicalizedListing {
     houseNumber: number;
     houseNumberAddition: string | null;
     city: string;
-  };
+  } | null;
+  spatialCandidate: {
+    countryCode: string;
+    latitude: number;
+    longitude: number;
+  } | null;
 }
 
 interface MatchedListing {
@@ -72,6 +81,7 @@ export interface IngestProcessResult {
 }
 
 export interface IngestLogger {
+  debug?(payload: Record<string, unknown>, message: string): void;
   info(payload: Record<string, unknown>, message: string): void;
   warn(payload: Record<string, unknown>, message: string): void;
   error(payload: Record<string, unknown>, message: string): void;
@@ -119,6 +129,142 @@ function defaultLogger(): IngestLogger {
       console.error(message, payload);
     },
   };
+}
+
+type IngestSkipReason =
+  | CanonicalizeAddressFailureReason
+  | `${CanonicalizeAddressFailureReason}_without_spatial_candidate`
+  | 'empty_street_without_spatial_candidate'
+  | 'unmatched_property';
+
+interface IngestSkipDiagnostic {
+  reason: IngestSkipReason;
+  mirrorListingId: string;
+  sourceListingId: string | null;
+  sourceUrl: string;
+  canonicalUrl: string | null;
+  address: {
+    countryCode: string;
+    street: string;
+    postalCode: string;
+    houseNumber: string | number;
+    houseNumberAddition: string | null;
+    city: string | null;
+    hasCoordinates: boolean;
+  };
+}
+
+function isValidCoordinate(latitude: number | null | undefined, longitude: number | null | undefined): boolean {
+  return (
+    typeof latitude === 'number'
+    && typeof longitude === 'number'
+    && Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180
+  );
+}
+
+function getSpatialCandidate(item: IngestListing): CanonicalizedListing['spatialCandidate'] {
+  if (!isValidCoordinate(item.address.latitude, item.address.longitude)) {
+    return null;
+  }
+
+  const countryCode = item.address.countryCode.trim().toUpperCase();
+  if (countryCode.length !== 2) {
+    return null;
+  }
+
+  return {
+    countryCode,
+    latitude: item.address.latitude as number,
+    longitude: item.address.longitude as number,
+  };
+}
+
+function hasBlankHouseNumber(item: IngestListing): boolean {
+  return typeof item.address.houseNumber === 'string' && item.address.houseNumber.trim() === '';
+}
+
+function canUseSpatialOnlyForCanonicalizationFailure(
+  item: IngestListing,
+  failureReason: CanonicalizeAddressFailureReason | null,
+  spatialCandidate: CanonicalizedListing['spatialCandidate'],
+): boolean {
+  return (
+    failureReason === 'invalid_house_number'
+    && hasBlankHouseNumber(item)
+    && item.address.street.trim().length > 0
+    && spatialCandidate !== null
+  );
+}
+
+function toSkipDiagnostic(item: IngestListing, reason: IngestSkipReason): IngestSkipDiagnostic {
+  return {
+    reason,
+    mirrorListingId: item.mirrorListingId,
+    sourceListingId: item.sourceListingId ?? null,
+    sourceUrl: item.sourceUrl,
+    canonicalUrl: item.canonicalUrl ?? null,
+    address: {
+      countryCode: item.address.countryCode,
+      street: item.address.street,
+      postalCode: item.address.postalCode,
+      houseNumber: item.address.houseNumber,
+      houseNumberAddition: item.address.houseNumberAddition ?? null,
+      city: item.address.city ?? null,
+      hasCoordinates: isValidCoordinate(item.address.latitude, item.address.longitude),
+    },
+  };
+}
+
+function summarizeSkipDiagnostics(diagnostics: IngestSkipDiagnostic[]): Record<string, number> {
+  const summary: Record<string, number> = {};
+  for (const diagnostic of diagnostics) {
+    summary[diagnostic.reason] = (summary[diagnostic.reason] ?? 0) + 1;
+  }
+  return summary;
+}
+
+function logSkipDiagnostics(
+  logger: IngestLogger,
+  context: { batchId: string; sourceName: string },
+  diagnostics: IngestSkipDiagnostic[],
+): void {
+  if (diagnostics.length === 0) {
+    return;
+  }
+
+  try {
+    logger.debug?.(
+      {
+        ...context,
+        skippedCount: diagnostics.length,
+        skipReasons: summarizeSkipDiagnostics(diagnostics),
+        skippedListings: diagnostics.slice(0, 100),
+        omittedSkippedListingCount: Math.max(0, diagnostics.length - 100),
+      },
+      'Ingest batch skipped listing diagnostics',
+    );
+  } catch {
+    // Ingest logging is diagnostic only; it must not affect batch commits.
+  }
+}
+
+function getCanonicalizationSkipReason(
+  failureReason: CanonicalizeAddressFailureReason | null,
+): IngestSkipReason {
+  if (failureReason === null) {
+    return 'empty_street_without_spatial_candidate';
+  }
+
+  if (failureReason === 'invalid_house_number') {
+    return 'invalid_house_number_without_spatial_candidate';
+  }
+
+  return failureReason;
 }
 
 function serializeError(error: unknown): Record<string, unknown> {
@@ -209,12 +355,14 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
 function canonicalizeListings(listings: IngestListing[]): {
   canonicalized: CanonicalizedListing[];
   skippedCount: number;
+  skipDiagnostics: IngestSkipDiagnostic[];
 } {
   const canonicalized: CanonicalizedListing[] = [];
+  const skipDiagnostics: IngestSkipDiagnostic[] = [];
   let skippedCount = 0;
 
   for (const item of listings) {
-    const canonical = canonicalizeAddress({
+    const canonicalResult = canonicalizeAddressWithDiagnostics({
       countryCode: item.address.countryCode as CountryCode,
       street: item.address.street,
       postalCode: item.address.postalCode,
@@ -222,27 +370,45 @@ function canonicalizeListings(listings: IngestListing[]): {
       houseNumberAddition: item.address.houseNumberAddition ?? null,
       city: item.address.city,
     });
+    const spatialCandidate = getSpatialCandidate(item);
+    const canonical = canonicalResult.canonical;
+    const canUseSpatialOnly = canUseSpatialOnlyForCanonicalizationFailure(
+      item,
+      canonicalResult.failureReason,
+      spatialCandidate,
+    );
 
-    if (!canonical || canonical.street.length === 0) {
+    if (!canonical && !canUseSpatialOnly) {
       skippedCount += 1;
+      skipDiagnostics.push(toSkipDiagnostic(item, getCanonicalizationSkipReason(canonicalResult.failureReason)));
+      continue;
+    }
+
+    if (canonical && canonical.street.length === 0) {
+      skippedCount += 1;
+      skipDiagnostics.push(toSkipDiagnostic(item, 'empty_street_without_spatial_candidate'));
       continue;
     }
 
     canonicalized.push({
       item,
-      canonical: {
-        countryCode: item.address.countryCode,
-        street: canonical.street,
-        streetNorm: normalizeStreetForMatch(canonical.street),
-        postalCode: normalizePostalCodeForMatch(canonical.postalCode),
-        houseNumber: canonical.houseNumber,
-        houseNumberAddition: canonical.houseNumberAddition,
-        city: canonical.city,
-      },
+      canonical:
+        canonical && canonical.street.length > 0
+          ? {
+              countryCode: item.address.countryCode,
+              street: canonical.street,
+              streetNorm: normalizeStreetForMatch(canonical.street),
+              postalCode: normalizePostalCodeForMatch(canonical.postalCode),
+              houseNumber: canonical.houseNumber,
+              houseNumberAddition: canonical.houseNumberAddition,
+              city: canonical.city,
+            }
+          : null,
+      spatialCandidate,
     });
   }
 
-  return { canonicalized, skippedCount };
+  return { canonicalized, skippedCount, skipDiagnostics };
 }
 
 async function exactMatchProperties(
@@ -262,6 +428,10 @@ async function exactMatchProperties(
   >();
 
   for (const entry of canonicalized) {
+    if (!entry.canonical) {
+      continue;
+    }
+
     const key = buildAddressMatchKey(
       entry.canonical.countryCode,
       entry.canonical.streetNorm,
@@ -283,6 +453,9 @@ async function exactMatchProperties(
 
   const addressChunks = Array.from(uniqueAddresses.entries());
   const chunkSize = 10_000;
+  if (addressChunks.length === 0) {
+    return matchMap;
+  }
 
   for (let offset = 0; offset < addressChunks.length; offset += chunkSize) {
     const chunk = addressChunks.slice(offset, offset + chunkSize);
@@ -338,20 +511,11 @@ async function exactMatchProperties(
 async function spatialMatchProperties(
   tx: DbTransaction,
   canonicalized: CanonicalizedListing[],
-  exactMatches: Map<string, string>,
+  propertyIdsByListingIndex: Map<number, string>,
 ): Promise<void> {
   const candidates = canonicalized
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => {
-      const key = buildAddressMatchKey(
-        entry.canonical.countryCode,
-        entry.canonical.streetNorm,
-        entry.canonical.postalCode,
-        entry.canonical.houseNumber,
-        entry.canonical.houseNumberAddition,
-      );
-      return !exactMatches.has(key) && entry.item.address.latitude != null && entry.item.address.longitude != null;
-    });
+    .filter(({ entry, index }) => entry.spatialCandidate !== null && !propertyIdsByListingIndex.has(index));
 
   const chunkSize = 5_000;
 
@@ -359,9 +523,9 @@ async function spatialMatchProperties(
     const chunk = candidates.slice(offset, offset + chunkSize);
     const valueFragments = chunk.map(({ entry, index }) => sql`(
       ${index}::int,
-      ${entry.canonical.countryCode}::text,
-      ${entry.item.address.longitude!}::float8,
-      ${entry.item.address.latitude!}::float8
+      ${entry.spatialCandidate!.countryCode}::text,
+      ${entry.spatialCandidate!.longitude}::float8,
+      ${entry.spatialCandidate!.latitude}::float8
     )`);
 
     const rows = await tx.execute<{ idx: number; id: string }>(sql`
@@ -391,26 +555,27 @@ async function spatialMatchProperties(
         continue;
       }
 
-      const key = buildAddressMatchKey(
-        candidate.entry.canonical.countryCode,
-        candidate.entry.canonical.streetNorm,
-        candidate.entry.canonical.postalCode,
-        candidate.entry.canonical.houseNumber,
-        candidate.entry.canonical.houseNumberAddition,
-      );
-      exactMatches.set(key, row.id);
+      propertyIdsByListingIndex.set(candidate.index, row.id);
     }
   }
 }
 
-function dedupeMatchedListings(
+function mapExactMatchesToListings(
   canonicalized: CanonicalizedListing[],
   propertyIdByAddress: Map<string, string>,
-): { matched: MatchedListing[]; skippedCount: number } {
-  const deduped = new Map<string, MatchedListing>();
-  let skippedCount = 0;
+): Map<number, string> {
+  const propertyIdsByListingIndex = new Map<number, string>();
 
-  for (const entry of canonicalized) {
+  for (let index = 0; index < canonicalized.length; index += 1) {
+    const entry = canonicalized[index];
+    if (!entry) {
+      continue;
+    }
+
+    if (!entry.canonical) {
+      continue;
+    }
+
     const key = buildAddressMatchKey(
       entry.canonical.countryCode,
       entry.canonical.streetNorm,
@@ -418,10 +583,33 @@ function dedupeMatchedListings(
       entry.canonical.houseNumber,
       entry.canonical.houseNumberAddition,
     );
-
     const propertyId = propertyIdByAddress.get(key);
+    if (propertyId) {
+      propertyIdsByListingIndex.set(index, propertyId);
+    }
+  }
+
+  return propertyIdsByListingIndex;
+}
+
+function dedupeMatchedListings(
+  canonicalized: CanonicalizedListing[],
+  propertyIdsByListingIndex: Map<number, string>,
+): { matched: MatchedListing[]; skippedCount: number; skipDiagnostics: IngestSkipDiagnostic[] } {
+  const deduped = new Map<string, MatchedListing>();
+  const skipDiagnostics: IngestSkipDiagnostic[] = [];
+  let skippedCount = 0;
+
+  for (let index = 0; index < canonicalized.length; index += 1) {
+    const entry = canonicalized[index];
+    if (!entry) {
+      continue;
+    }
+
+    const propertyId = propertyIdsByListingIndex.get(index);
     if (!propertyId) {
       skippedCount += 1;
+      skipDiagnostics.push(toSkipDiagnostic(entry.item, 'unmatched_property'));
       continue;
     }
 
@@ -434,6 +622,7 @@ function dedupeMatchedListings(
   return {
     matched: Array.from(deduped.values()),
     skippedCount,
+    skipDiagnostics,
   };
 }
 
@@ -693,11 +882,18 @@ async function recoverSkippedCompletedBatch(
 
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
 
-    const { canonicalized, skippedCount: canonicalizationSkips } = canonicalizeListings(claimed.payload.listings);
+    const {
+      canonicalized,
+      skippedCount: canonicalizationSkips,
+    } = canonicalizeListings(claimed.payload.listings);
     const exactMatches = await exactMatchProperties(tx, canonicalized);
-    await spatialMatchProperties(tx, canonicalized, exactMatches);
+    const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
+    await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
 
-    const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(canonicalized, exactMatches);
+    const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(
+      canonicalized,
+      propertyIdsByListingIndex,
+    );
     const { unresolved, resolvedCount } = await classifyRecoveredMatchedListings(
       tx,
       claimed.sourceName,
@@ -898,11 +1094,25 @@ export async function processIngestBatch(
         ON CONFLICT (source_name) DO NOTHING
       `);
 
-      const { canonicalized, skippedCount: canonicalizationSkips } = canonicalizeListings(claimed.payload.listings);
+      const {
+        canonicalized,
+        skippedCount: canonicalizationSkips,
+        skipDiagnostics: canonicalizationSkipDiagnostics,
+      } = canonicalizeListings(claimed.payload.listings);
       const exactMatches = await exactMatchProperties(tx, canonicalized);
-      await spatialMatchProperties(tx, canonicalized, exactMatches);
+      const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
+      await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
 
-      const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(canonicalized, exactMatches);
+      const {
+        matched,
+        skippedCount: unmatchedSkips,
+        skipDiagnostics: unmatchedSkipDiagnostics,
+      } = dedupeMatchedListings(canonicalized, propertyIdsByListingIndex);
+      logSkipDiagnostics(
+        logger,
+        { batchId: claimed.id, sourceName: claimed.sourceName },
+        [...canonicalizationSkipDiagnostics, ...unmatchedSkipDiagnostics],
+      );
       const listingWrites = await persistMatchedListingObservations(
         tx,
         claimed.sourceName,
