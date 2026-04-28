@@ -51,6 +51,18 @@ export interface SkippedBatchRecoveryCandidate {
   maintenanceCompletedAt: string | null;
 }
 
+export interface BlockedSourceBatchAtWatermark {
+  id: string;
+  sourceName: string;
+  previousStatus: BatchStatus;
+  status: BatchStatus;
+  cursorStart: string | null;
+  cursorEnd: string;
+  runId: string | null;
+  batchSequence: number;
+  receivedAt: string;
+}
+
 interface SupersededBatchCandidate {
   [key: string]: unknown;
   id: string;
@@ -77,6 +89,19 @@ interface SkippedBatchRecoveryCandidateRow {
   skipped_count: number;
   maintenance_requested_at: Date | string | null;
   maintenance_completed_at: Date | string | null;
+}
+
+interface BlockedSourceBatchAtWatermarkRow {
+  [key: string]: unknown;
+  id: string;
+  source_name: string;
+  previous_status: BatchStatus;
+  status: BatchStatus;
+  cursor_start: string | null;
+  cursor_end: string;
+  run_id: string | null;
+  batch_sequence: number;
+  received_at: Date | string;
 }
 
 export const SKIPPED_BATCH_RECOVERY_COOLDOWN_MS = 15 * 60 * 1000;
@@ -118,6 +143,33 @@ function serializeError(error: unknown): Record<string, unknown> {
 
   return {
     message: typeof error === 'string' ? error : 'Unknown ingest run failure',
+  };
+}
+
+function mapSkippedBatchRecoveryCandidate(row: SkippedBatchRecoveryCandidateRow): SkippedBatchRecoveryCandidate {
+  return {
+    id: row.id,
+    sourceName: row.source_name,
+    payload: ingestBatchRequestSchema.parse(row.payload_json),
+    ingestedCount: row.ingested_count,
+    updatedCount: row.updated_count,
+    skippedCount: row.skipped_count,
+    maintenanceRequestedAt: toIsoString(row.maintenance_requested_at),
+    maintenanceCompletedAt: toIsoString(row.maintenance_completed_at),
+  };
+}
+
+function mapBlockedSourceBatchAtWatermark(row: BlockedSourceBatchAtWatermarkRow): BlockedSourceBatchAtWatermark {
+  return {
+    id: row.id,
+    sourceName: row.source_name,
+    previousStatus: row.previous_status,
+    status: row.status,
+    cursorStart: row.cursor_start,
+    cursorEnd: row.cursor_end,
+    runId: row.run_id,
+    batchSequence: row.batch_sequence,
+    receivedAt: toIsoString(row.received_at) as string,
   };
 }
 
@@ -699,16 +751,182 @@ export async function listSkippedBatchRecoveryCandidates(
     LIMIT ${limit}
   `);
 
-  return Array.from(rows, (row) => ({
-    id: row.id,
-    sourceName: row.source_name,
-    payload: ingestBatchRequestSchema.parse(row.payload_json),
-    ingestedCount: row.ingested_count,
-    updatedCount: row.updated_count,
-    skippedCount: row.skipped_count,
-    maintenanceRequestedAt: toIsoString(row.maintenance_requested_at),
-    maintenanceCompletedAt: toIsoString(row.maintenance_completed_at),
-  }));
+  return Array.from(rows, mapSkippedBatchRecoveryCandidate);
+}
+
+export async function listForceSkippedBatchRecoveryCandidates(
+  sourceName: string,
+  limit = 100,
+): Promise<SkippedBatchRecoveryCandidate[]> {
+  const rows = await db.execute<SkippedBatchRecoveryCandidateRow>(sql`
+    SELECT
+      id,
+      source_name,
+      payload_json,
+      ingested_count,
+      updated_count,
+      skipped_count,
+      maintenance_requested_at,
+      maintenance_completed_at
+    FROM ingest_batches
+    WHERE status = 'completed'
+      AND source_name = ${sourceName}
+      AND jsonb_typeof(payload_json->'listings') = 'array'
+      AND jsonb_array_length(payload_json->'listings') > 0
+      AND (
+        SELECT count(*)
+        FROM jsonb_array_elements(payload_json->'listings') AS payload_listing(listing)
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM listing_observations observation
+          WHERE (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_listing_id = COALESCE(
+                NULLIF(payload_listing.listing->>'sourceListingId', ''),
+                payload_listing.listing->>'mirrorListingId'
+              )
+            )
+            OR (
+              observation.ingest_batch_id = ingest_batches.id
+              AND observation.source_name = ingest_batches.source_name
+              AND observation.origin = 'mirror'
+              AND observation.source_url_canonical = regexp_replace(
+                regexp_replace(
+                  COALESCE(
+                    NULLIF(payload_listing.listing->>'canonicalUrl', ''),
+                    payload_listing.listing->>'sourceUrl'
+                  ),
+                  '[?#].*$',
+                  ''
+                ),
+                '/+$',
+                ''
+              )
+            )
+        )
+      ) > 0
+    ORDER BY
+      COALESCE(completed_at, received_at),
+      received_at,
+      batch_sequence,
+      id
+    LIMIT ${limit}
+  `);
+
+  return Array.from(rows, mapSkippedBatchRecoveryCandidate);
+}
+
+export async function listBlockedSourceBatchesAtWatermark(
+  sourceName: string,
+  limit = 100,
+): Promise<BlockedSourceBatchAtWatermark[]> {
+  const rows = await db.execute<BlockedSourceBatchAtWatermarkRow>(sql`
+    SELECT
+      b.id,
+      b.source_name,
+      b.status AS previous_status,
+      b.status AS status,
+      b.cursor_start,
+      b.cursor_end,
+      b.run_id,
+      b.batch_sequence,
+      b.received_at
+    FROM ingest_batches b
+    LEFT JOIN ingest_sources s ON s.source_name = b.source_name
+    WHERE b.source_name = ${sourceName}
+      AND b.cursor_start IS NOT DISTINCT FROM s.last_committed_cursor
+      AND b.status IN ('accepted', 'queued', 'retryable', 'failed')
+    ORDER BY b.received_at, b.batch_sequence, b.id
+    LIMIT ${limit}
+  `);
+
+  return Array.from(rows, mapBlockedSourceBatchAtWatermark);
+}
+
+export async function requeueBlockedSourceBatchesAtWatermark(
+  sourceName: string,
+  limit = 100,
+): Promise<BlockedSourceBatchAtWatermark[]> {
+  const rows = await db.execute<BlockedSourceBatchAtWatermarkRow>(sql`
+    WITH ranked AS (
+      SELECT
+        b.id,
+        b.status AS previous_status,
+        row_number() OVER (
+          ORDER BY b.received_at DESC, b.batch_sequence DESC, b.id DESC
+        ) AS recovery_rank
+      FROM ingest_batches b
+      LEFT JOIN ingest_sources s ON s.source_name = b.source_name
+      WHERE b.source_name = ${sourceName}
+        AND b.cursor_start IS NOT DISTINCT FROM s.last_committed_cursor
+        AND b.status IN ('accepted', 'queued', 'retryable', 'failed')
+      LIMIT ${limit}
+    ),
+    superseded AS (
+      UPDATE ingest_batches b
+      SET
+        status = 'superseded'::ingest_batch_status,
+        completed_at = COALESCE(b.completed_at, NOW()),
+        error_json = jsonb_build_object(
+          'message',
+          'Superseded by newer overlapping batch during operator recovery at current watermark',
+          'previousStatus',
+          ranked.previous_status
+        ),
+        last_error_at = CASE
+          WHEN b.status = 'failed' THEN NOW()
+          ELSE b.last_error_at
+        END
+      FROM ranked
+      WHERE b.id = ranked.id
+        AND ranked.recovery_rank > 1
+      RETURNING b.id
+    ),
+    candidate AS (
+      SELECT id, previous_status
+      FROM ranked
+      WHERE recovery_rank = 1
+    )
+    UPDATE ingest_batches b
+    SET
+      status = CASE
+        WHEN b.status = 'failed' THEN 'retryable'::ingest_batch_status
+        ELSE 'queued'::ingest_batch_status
+      END,
+      started_at = NULL,
+      completed_at = NULL,
+      error_json = CASE
+        WHEN b.status = 'failed' THEN jsonb_build_object(
+          'message',
+          'Requeued by operator recovery at current watermark',
+          'previousStatus',
+          candidate.previous_status,
+          'previousError',
+          b.error_json
+        )
+        ELSE b.error_json
+      END,
+      last_error_at = CASE
+        WHEN b.status = 'failed' THEN NOW()
+        ELSE b.last_error_at
+      END
+    FROM candidate
+    WHERE b.id = candidate.id
+    RETURNING
+      b.id,
+      b.source_name,
+      candidate.previous_status,
+      b.status AS status,
+      b.cursor_start,
+      b.cursor_end,
+      b.run_id,
+      b.batch_sequence,
+      b.received_at
+  `);
+
+  return Array.from(rows, mapBlockedSourceBatchAtWatermark);
 }
 
 export async function collectRecoveryDispatchWork(
@@ -744,7 +962,7 @@ export async function collectRecoveryDispatchWork(
           OR (b.status = 'processing' AND b.started_at IS NULL)
         )
         AND b.cursor_start IS NOT DISTINCT FROM s.last_committed_cursor
-      ORDER BY b.source_name, b.received_at, b.batch_sequence, b.id
+      ORDER BY b.source_name, b.received_at DESC, b.batch_sequence DESC, b.id DESC
     )
     SELECT id
     FROM next_recoverable_per_source

@@ -19,6 +19,7 @@ import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
 import {
   finalizeIngestRunLifecycle,
+  listForceSkippedBatchRecoveryCandidates,
   listSkippedBatchRecoveryCandidates,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
   type SkippedBatchRecoveryCandidate,
@@ -78,6 +79,13 @@ export interface IngestProcessResult {
   ingested: number;
   updated: number;
   skipped: number;
+}
+
+export interface ForcedSkippedBatchRecoveryResult {
+  sourceName: string;
+  candidateCount: number;
+  recoveredObservationCount: number;
+  recoveredBatchIds: string[];
 }
 
 export interface IngestLogger {
@@ -784,8 +792,16 @@ async function lockSkippedBatchRecoveryCandidate(
   tx: DbTransaction,
   batchId: string,
   recoveryStartedAt: Date,
+  options: { force?: boolean } = {},
 ): Promise<SkippedBatchRecoveryCandidate | null> {
   const dueBefore = new Date(recoveryStartedAt.getTime() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS).toISOString();
+  const missingObservationPredicate = options.force
+    ? sql`) > 0`
+    : sql`) > GREATEST(skipped_count, 0)
+      AND (
+        maintenance_completed_at IS NULL
+        OR maintenance_completed_at <= ${dueBefore}
+      )`;
   const rows = await tx.execute<{
     id: string;
     source_name: string;
@@ -843,11 +859,7 @@ async function lockSkippedBatchRecoveryCandidate(
               )
             )
         )
-      ) > GREATEST(skipped_count, 0)
-      AND (
-        maintenance_completed_at IS NULL
-        OR maintenance_completed_at <= ${dueBefore}
-      )
+      ${missingObservationPredicate}
     FOR UPDATE SKIP LOCKED
   `);
 
@@ -873,9 +885,10 @@ async function lockSkippedBatchRecoveryCandidate(
 async function recoverSkippedCompletedBatch(
   candidateId: string,
   recoveryStartedAt: Date,
+  options: { force?: boolean } = {},
 ): Promise<number> {
   return db.transaction(async (tx) => {
-    const claimed = await lockSkippedBatchRecoveryCandidate(tx, candidateId, recoveryStartedAt);
+    const claimed = await lockSkippedBatchRecoveryCandidate(tx, candidateId, recoveryStartedAt, options);
     if (!claimed) {
       return 0;
     }
@@ -964,6 +977,31 @@ async function recoverSkippedCompletedIngestBatches(
   }
 
   return recoveredCount;
+}
+
+export async function forceRecoverSkippedCompletedIngestBatches(
+  sourceName: string,
+  limit = 100,
+): Promise<ForcedSkippedBatchRecoveryResult> {
+  const recoveryStartedAt = new Date();
+  const candidates = await listForceSkippedBatchRecoveryCandidates(sourceName, limit);
+  const recoveredBatchIds: string[] = [];
+  let recoveredObservationCount = 0;
+
+  for (const candidate of candidates) {
+    const recoveredCount = await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt, { force: true });
+    if (recoveredCount > 0) {
+      recoveredBatchIds.push(candidate.id);
+      recoveredObservationCount += recoveredCount;
+    }
+  }
+
+  return {
+    sourceName,
+    candidateCount: candidates.length,
+    recoveredObservationCount,
+    recoveredBatchIds,
+  };
 }
 
 async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: string): Promise<void> {

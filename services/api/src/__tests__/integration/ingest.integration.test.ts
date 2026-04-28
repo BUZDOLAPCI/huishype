@@ -20,7 +20,9 @@ import {
   encodeOpaqueIngestCursor,
   processIngestBatch,
   createMaintenanceRefreshRequest,
+  forceRecoverSkippedCompletedIngestBatches,
   refreshLatestListingsMaintenance,
+  requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
 
@@ -342,6 +344,117 @@ describe('Durable ingest API contract', () => {
     expect(updatedBatch?.status).toBe('retryable');
     expect(updatedBatch?.errorJson).toMatchObject({
       message: 'Requeued by recovery sweep after stale processing window',
+    });
+  });
+
+  it('operator recovery requeues only the newest failed batch at the current source watermark', async () => {
+    const stamp = Date.now();
+    const olderCursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T03:40:00.000Z',
+      listingKey: `idealista-operator-requeue-older-${stamp}`,
+    });
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T03:50:00.000Z',
+      listingKey: `idealista-operator-requeue-${stamp}`,
+    });
+    const olderAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-operator-requeue-older-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: olderCursorEnd,
+      upstreamRunKey: `idealista-operator-requeue-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/operator-requeue-older-${stamp}/`,
+          mirrorListingId: `idealista-operator-requeue-older-listing-${stamp}`,
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Operator',
+            postalCode: '28013',
+            houseNumber: 7,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+    const accepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-operator-requeue-${stamp}`,
+      batchSequence: 1,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `idealista-operator-requeue-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/operator-requeue-${stamp}/`,
+          mirrorListingId: `idealista-operator-requeue-listing-${stamp}`,
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Operator',
+            postalCode: '28013',
+            houseNumber: 8,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    await db
+      .update(ingestBatches)
+      .set({
+        status: 'failed',
+        errorJson: {
+          message: 'fixed production failure',
+        },
+        lastErrorAt: new Date('2026-04-09T03:55:00.000Z'),
+      })
+      .where(inArray(ingestBatches.id, [olderAccepted.batchId, accepted.batchId]));
+
+    const result = await requeueBlockedSourceBatchesAtWatermark('idealista', 10);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: accepted.batchId,
+      previousStatus: 'failed',
+      status: 'retryable',
+      cursorStart: null,
+    });
+
+    const batchRows = await db
+      .select({
+        id: ingestBatches.id,
+        status: ingestBatches.status,
+        startedAt: ingestBatches.startedAt,
+        completedAt: ingestBatches.completedAt,
+        errorJson: ingestBatches.errorJson,
+      })
+      .from(ingestBatches)
+      .where(inArray(ingestBatches.id, [olderAccepted.batchId, accepted.batchId]));
+    const updatedBatch = batchRows.find((row) => row.id === accepted.batchId);
+    const olderBatch = batchRows.find((row) => row.id === olderAccepted.batchId);
+
+    expect(updatedBatch?.status).toBe('retryable');
+    expect(updatedBatch?.startedAt).toBeNull();
+    expect(updatedBatch?.completedAt).toBeNull();
+    expect(updatedBatch?.errorJson).toMatchObject({
+      message: 'Requeued by operator recovery at current watermark',
+      previousStatus: 'failed',
+      previousError: {
+        message: 'fixed production failure',
+      },
+    });
+    expect(olderBatch?.status).toBe('superseded');
+    expect(olderBatch?.completedAt).not.toBeNull();
+    expect(olderBatch?.errorJson).toMatchObject({
+      message: 'Superseded by newer overlapping batch during operator recovery at current watermark',
+      previousStatus: 'failed',
     });
   });
 
@@ -1471,6 +1584,63 @@ describe('Durable ingest API contract', () => {
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
   });
 
+  it('force-recovers a completed batch with missing observations even when skipped accounting is fully counted', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Forceherstel-${stamp}`;
+    const mirrorListingId = `fotocasa-force-recovery-${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/force-recovery-${stamp}`;
+    const { batchId } = await createSkippedCompletedBatch({
+      sourceName,
+      stamp,
+      street,
+      houseNumber: 74,
+      mirrorListingId,
+      sourceUrl,
+    });
+
+    const propertyId = await seedProperty({ street, houseNumber: 74 });
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+
+    const result = await forceRecoverSkippedCompletedIngestBatches(sourceName, 10);
+
+    expect(result.sourceName).toBe(sourceName);
+    expect(result.candidateCount).toBeGreaterThanOrEqual(1);
+    expect(result.recoveredObservationCount).toBe(1);
+    expect(result.recoveredBatchIds).toContain(batchId);
+    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(true);
+
+    const observations = await db
+      .select({
+        propertyId: listingObservations.propertyId,
+        ingestBatchId: listingObservations.ingestBatchId,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.sourceListingId, mirrorListingId),
+          eq(listingObservations.origin, 'mirror'),
+        ),
+      );
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.propertyId).toBe(propertyId);
+    expect(observations[0]?.ingestBatchId).toBe(batchId);
+
+    const [batchState] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, batchId))
+      .limit(1);
+
+    expect(batchState?.ingestedCount).toBe(1);
+    expect(batchState?.updatedCount).toBe(0);
+    expect(batchState?.skippedCount).toBe(0);
+    expect(batchState?.maintenanceRequestedAt).not.toBeNull();
+    expect(batchState?.maintenanceCompletedAt).toBeNull();
+  });
+
   it('marks an under-accounted unmatched skipped batch and stops recurring', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
@@ -1768,7 +1938,7 @@ describe('Durable ingest API contract', () => {
             sourceStatus: terminalSourceStatus,
             mirrorFirstSeenAt: '2026-04-05T17:00:00.000Z',
             mirrorLastChangedAt: '2026-04-06T18:00:00.000Z',
-            mirrorLastSeenAt: '2026-04-06T18:10:00.000Z',
+            mirrorLastSeenAt: '2026-04-06T17:10:00.000Z',
             address: {
               countryCode: 'NL',
               street,
@@ -1810,6 +1980,7 @@ describe('Durable ingest API contract', () => {
       const observations = await db
         .select({
           sourceStatus: listingObservations.sourceStatus,
+          observedAt: listingObservations.observedAt,
           ingestBatchId: listingObservations.ingestBatchId,
         })
         .from(listingObservations)
@@ -1824,10 +1995,12 @@ describe('Durable ingest API contract', () => {
         expect.arrayContaining([
           expect.objectContaining({
             sourceStatus: 'available',
+            observedAt: new Date('2026-04-06T17:00:00.000Z'),
             ingestBatchId: firstAccepted.batchId,
           }),
           expect.objectContaining({
             sourceStatus: terminalSourceStatus,
+            observedAt: new Date('2026-04-06T18:00:00.000Z'),
             ingestBatchId: secondAccepted.batchId,
           }),
         ]),

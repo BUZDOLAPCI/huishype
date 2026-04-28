@@ -1113,6 +1113,11 @@ export async function persistMirrorObservationForIngest(
     await upsertListingSourceAliases(input.sourceName, input.sourceListingId, normalizeSourceAliases(input.aliases), executor);
   }
 
+  const sourceUpdatedAt = toOptionalDate(input.sourceUpdatedAt);
+  const lastSeenAt = toOptionalDate(input.lastSeenAt);
+  const firstSeenAt = toOptionalDate(input.firstSeenAt);
+  const observedAt = sourceUpdatedAt ?? lastSeenAt ?? firstSeenAt ?? new Date();
+
   const observation = await insertListingObservation(
     {
       sourceName: input.sourceName,
@@ -1142,10 +1147,10 @@ export async function persistMirrorObservationForIngest(
         ? input.address.houseNumber
         : Number.parseInt(String(input.address?.houseNumber ?? ''), 10) || null,
       houseNumberAddition: input.address?.houseNumberAddition ?? null,
-      firstSeenAt: toOptionalDate(input.firstSeenAt),
-      lastSeenAt: toOptionalDate(input.lastSeenAt),
-      sourceUpdatedAt: toOptionalDate(input.sourceUpdatedAt),
-      observedAt: toOptionalDate(input.lastSeenAt) ?? new Date(),
+      firstSeenAt,
+      lastSeenAt,
+      sourceUpdatedAt,
+      observedAt,
       ingestBatchId: input.batchId,
       payload: {
         ...input.payload,
