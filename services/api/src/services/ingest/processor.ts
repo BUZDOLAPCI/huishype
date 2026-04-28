@@ -495,10 +495,10 @@ async function exactMatchProperties(
         VALUES ${sql.join(valueFragments, sql`, `)}
       ) AS v(country_code, street_norm, postal_code, house_number, addition)
         ON p.country_code = v.country_code
-       AND LOWER(REGEXP_REPLACE(BTRIM(p.street), '\\s+', ' ', 'g')) = v.street_norm
-       AND UPPER(REGEXP_REPLACE(p.postal_code, '\\s+', '', 'g')) = v.postal_code
+       AND p.postal_code = v.postal_code
        AND p.house_number = v.house_number
        AND COALESCE(p.house_number_addition, '') = v.addition
+       AND LOWER(REGEXP_REPLACE(BTRIM(p.street), '\\s+', ' ', 'g')) = v.street_norm
     `);
 
     for (const row of rows) {
