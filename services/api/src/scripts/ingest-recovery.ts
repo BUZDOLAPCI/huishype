@@ -1,5 +1,6 @@
 import { getAllListingSourceNames } from '@huishype/shared/config';
 import { closeConnection } from '../db/index.js';
+import { closeRedisConnection } from '../lib/redis.js';
 import {
   closeIngestQueues,
   enqueueIngestBatch,
@@ -181,5 +182,6 @@ main()
   })
   .finally(async () => {
     await closeIngestQueues();
+    await closeRedisConnection();
     await closeConnection();
   });
