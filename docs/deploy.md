@@ -72,6 +72,13 @@ CPX32 (150GB) is too small. Photon planet DB (~88GB) + PostgreSQL (~51GB) + Dock
 
 ## Gotchas
 
+**Postgres shared memory for tile queries**: Production Postgres sets
+`shm_size: "1gb"` in `docker-compose.prod.yml` so PostGIS parallel tile queries
+have enough Docker `/dev/shm` headroom. Do not work around shared-memory
+outages by disabling Postgres parallelism; the intended production architecture
+keeps parallel query execution enabled and gives the database container enough
+shared memory.
+
 **Alpine IPv6 healthchecks**: Alpine resolves `localhost` to `::1` but services bind `0.0.0.0` (IPv4). Healthchecks must use `127.0.0.1`. Exception: Photon's JRE image handles both (healthcheck uses `localhost`).
 
 **Traefik routing loss after deploys**: Coolify recreates containers on each deploy. Traefik can miss the replacement containers, which causes public gateway failures while the app containers themselves remain healthy.
