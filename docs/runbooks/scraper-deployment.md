@@ -171,10 +171,11 @@ Main app ingest state:
 ssh root@94.130.105.129 '
   postgres_container="$(docker ps --format "{{.Names}}" | grep -m1 postgres)"
   docker exec "$postgres_container" psql -U huishype -d huishype -c "
-    SELECT source_name, status, COUNT(*), MAX(updated_at)
-    FROM listings
-    GROUP BY source_name, status
-    ORDER BY source_name, status;
+    SELECT source_name, status, verification_state, COUNT(*), MAX(updated_at)
+    FROM canonical_listings
+    WHERE source_name IN ('funda', 'pararius')
+    GROUP BY source_name, status, verification_state
+    ORDER BY source_name, status, verification_state;
   "
 '
 ```
