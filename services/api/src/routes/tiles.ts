@@ -174,6 +174,7 @@ const PROPERTY_TILE_CACHE_TTL_SECONDS = 300;
 const PROPERTY_TILE_CACHE_TTL_MS = PROPERTY_TILE_CACHE_TTL_SECONDS * 1_000;
 const PROPERTY_TILE_CACHE_MAX_ENTRIES = 1_024;
 const PROPERTY_TILE_CACHE_CONTROL = `public, max-age=${PROPERTY_TILE_CACHE_TTL_SECONDS}, stale-while-revalidate=300`;
+export const PUBLIC_PROPERTY_TILE_MIN_ZOOM = 10;
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 
@@ -1370,7 +1371,7 @@ export async function tileRoutes(app: FastifyInstance) {
         sources['properties-source'] = {
           type: 'vector',
           tiles: [tileUrl],
-          minzoom: 0,
+          minzoom: PUBLIC_PROPERTY_TILE_MIN_ZOOM,
           maxzoom: 22,
         };
 
@@ -1525,7 +1526,7 @@ export async function tileRoutes(app: FastifyInstance) {
         name: 'HuisHype Properties',
         description: 'Property data with clustering',
         tiles: [tileUrl],
-        minzoom: 0,
+        minzoom: PUBLIC_PROPERTY_TILE_MIN_ZOOM,
         maxzoom: 22,
         bounds: [-180, -85, 180, 85],
       });
@@ -1681,6 +1682,24 @@ export async function tileRoutes(app: FastifyInstance) {
 
       if (cachedTile) {
         propertyTileCache.delete(cacheKey);
+      }
+
+      if (z < PUBLIC_PROPERTY_TILE_MIN_ZOOM) {
+        const entry: PropertyTileCacheEntry = {
+          expiresAt: now + PROPERTY_TILE_CACHE_TTL_MS,
+          payload: null,
+          statusCode: 204,
+          etag: buildPropertyTileEtag(cacheKey, null),
+        };
+        setPropertyTileCache(cacheKey, entry, now);
+
+        return reply
+          .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+          .header('ETag', entry.etag)
+          .header('X-Tile-Generation-Time', '0ms')
+          .header('X-Tile-Cache', 'miss')
+          .status(204)
+          .send();
       }
 
       const pendingBuild = pendingPropertyTileBuilds.get(cacheKey);

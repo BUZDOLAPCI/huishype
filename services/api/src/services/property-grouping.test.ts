@@ -804,6 +804,51 @@ describe('property-grouping', () => {
     expect(feature).not.toHaveProperty('floorAreaM2');
   });
 
+  it('omits full cluster member ids from tile transport while preserving preview ids', () => {
+    const previewPropertyIds = [
+      '00000000-0000-4000-a000-0000000000c1',
+      '00000000-0000-4000-a000-0000000000c2',
+      '00000000-0000-4000-a000-0000000000c3',
+    ];
+    const propertyIds = [
+      ...previewPropertyIds,
+      '00000000-0000-4000-a000-0000000000c4',
+      '00000000-0000-4000-a000-0000000000c5',
+    ];
+
+    const feature = serializeGroupForTile({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: propertyIds[0],
+      pointCount: propertyIds.length,
+      propertyIds,
+      previewPropertyIds,
+      coordinate: [5.47, 51.44],
+      bbox: [5.46, 51.43, 5.48, 51.45],
+      activeListingCount: 5,
+      completedListingCount: 0,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      address: null,
+      city: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      hasActiveListing: null,
+      marketState: null,
+      ownerTile: { z: 10, x: 527, y: 340 },
+      anchorWorldX: 0,
+      anchorWorldY: 0,
+    });
+
+    expect(feature.property_ids).toBeNull();
+    expect(feature.preview_property_ids).toBe(previewPropertyIds.join(','));
+    expect(feature.point_count).toBe(propertyIds.length);
+  });
+
   it('applies map filters before grouping clustered active sale candidates', async () => {
     const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
     const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
