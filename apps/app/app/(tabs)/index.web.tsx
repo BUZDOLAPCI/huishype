@@ -134,37 +134,6 @@ type InternalMapStyle = {
   _updateSources?: (transform: unknown) => void;
 };
 
-type SourceLoadAwareMap = Pick<maplibregl.Map, 'getSource'> &
-  Partial<Pick<maplibregl.Map, 'areTilesLoaded' | 'isSourceLoaded' | 'isStyleLoaded'>>;
-
-export function isPropertyVectorSourceLoaded(map: SourceLoadAwareMap): boolean {
-  if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) {
-    return false;
-  }
-
-  if (!map.getSource(PROPERTY_VECTOR_SOURCE_ID)) {
-    return false;
-  }
-
-  if (typeof map.isSourceLoaded === 'function') {
-    try {
-      return map.isSourceLoaded(PROPERTY_VECTOR_SOURCE_ID) === true;
-    } catch {
-      return false;
-    }
-  }
-
-  if (typeof map.areTilesLoaded === 'function') {
-    try {
-      return map.areTilesLoaded() === true;
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
-}
-
 function usesFollowingTiles(tiles: readonly string[]): boolean {
   return tiles.some((tileUrl) => tileUrl.includes('/following/'));
 }
@@ -1235,15 +1204,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    if (!isPropertyVectorSourceLoaded(map)) {
-      setFollowingRenderCheckComplete(false);
-      followingRenderedFeatureTimeoutRef.current = setTimeout(() => {
-        followingRenderedFeatureTimeoutRef.current = null;
-        refreshFollowingRenderedFeatureCount();
-      }, FOLLOWING_RENDERED_FEATURE_SETTLE_MS);
-      return;
-    }
-
     const canvas = map.getCanvas();
     const renderedFeatures = map.queryRenderedFeatures(
       [[0, 0], [canvas.width, canvas.height]],
@@ -1565,13 +1525,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    const map = mapRef.current;
-    if (map && !isPropertyVectorSourceLoaded(map)) {
-      return;
-    }
-
     const visibleNodes = await collectVisibleAmbientBubbleNodes();
     const placementViewportSize = (() => {
+      const map = mapRef.current;
       if (map) {
         const container = map.getContainer();
         return {
@@ -1806,10 +1762,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         if (map.getZoom() < ACTIVITY_PULSE_DOM_MIN_ZOOM) {
           activityPulseElements.forEach((element) => element.frame.remove());
           activityPulseElements.clear();
-          return;
-        }
-
-        if (!isPropertyVectorSourceLoaded(map)) {
           return;
         }
 
@@ -2199,7 +2151,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           sourceDataEvent.isSourceLoaded
         ) {
           scheduleFollowingRenderedFeatureRefreshRef.current();
-          scheduleAmbientCommentBubbleRefreshRef.current();
         }
 
         PROPERTY_LAYER_IDS.forEach((layerId) => {
@@ -2694,11 +2645,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
 
     const syncReadFeatureStates = () => {
-      if (
-        !map.isStyleLoaded() ||
-        !isPropertyVectorSourceLoaded(map) ||
-        !map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID)
-      ) {
+      if (!map.isStyleLoaded() || !map.getSource(READ_PROPERTY_VECTOR_SOURCE_ID)) {
         return;
       }
 

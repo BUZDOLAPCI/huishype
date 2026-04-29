@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
-import { PUBLIC_PROPERTY_TILE_MIN_ZOOM, resetPropertyTileCacheForTests } from '../../routes/tiles.js';
+import { resetPropertyTileCacheForTests } from '../../routes/tiles.js';
 import {
   buildCanonicalGroupsForTile,
   resetCanonicalGroupCacheForTests,
@@ -185,7 +185,6 @@ describe('Tile routes', () => {
       expect(style.sources).toHaveProperty('properties-source');
       expect(propertiesSource.type).toBe('vector');
       expect(propertiesTiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
-      expect(propertiesSource.minzoom).toBe(PUBLIC_PROPERTY_TILE_MIN_ZOOM);
     });
 
     it('should keep style.json base-style oriented even when filter params are present', async () => {
@@ -521,7 +520,7 @@ describe('Tile routes', () => {
       expect(body).toHaveProperty('tiles');
       expect(Array.isArray(body.tiles)).toBe(true);
       expect(body.tiles[0]).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
-      expect(body).toHaveProperty('minzoom', PUBLIC_PROPERTY_TILE_MIN_ZOOM);
+      expect(body).toHaveProperty('minzoom', 0);
       expect(body).toHaveProperty('maxzoom', 22);
     });
 
@@ -663,38 +662,6 @@ describe('Tile routes', () => {
   describe('GET /tiles/properties/:z/:x/:y.pbf', () => {
     // Eindhoven area tile coordinates at various zoom levels
     // Eindhoven center ≈ 51.44, 5.47
-
-    it('returns a cached empty tile below the public property minzoom', async () => {
-      const belowMinZoom = PUBLIC_PROPERTY_TILE_MIN_ZOOM - 1;
-      const tileUrl = `/tiles/properties/${belowMinZoom}/0/0.pbf?marketState=for-sale`;
-
-      const firstResponse = await app.inject({ method: 'GET', url: tileUrl });
-      const secondResponse = await app.inject({ method: 'GET', url: tileUrl });
-      const etag = firstResponse.headers.etag;
-      const notModifiedResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-        headers: { 'if-none-match': String(etag) },
-      });
-
-      expect(firstResponse.statusCode).toBe(204);
-      expect(firstResponse.headers['cache-control']).toBe(
-        'public, max-age=300, stale-while-revalidate=300'
-      );
-      expect(firstResponse.headers.etag).toBeDefined();
-      expect(firstResponse.headers['x-tile-generation-time']).toBe('0ms');
-      expect(firstResponse.headers['x-tile-cache']).toBe('miss');
-
-      expect(secondResponse.statusCode).toBe(204);
-      expect(secondResponse.headers.etag).toBe(etag);
-      expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
-      expect(secondResponse.headers['x-tile-cache']).toBe('hit');
-
-      expect(notModifiedResponse.statusCode).toBe(304);
-      expect(notModifiedResponse.headers.etag).toBe(etag);
-      expect(notModifiedResponse.headers['x-tile-generation-time']).toBe('0ms');
-      expect(notModifiedResponse.headers['x-tile-cache']).toBe('hit');
-    });
 
     it('should return 204 for an empty ocean tile', async () => {
       // Tile in the middle of the Atlantic ocean at zoom 10

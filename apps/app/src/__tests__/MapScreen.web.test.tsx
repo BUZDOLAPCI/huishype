@@ -534,7 +534,7 @@ jest.mock('maplibre-gl', () => {
   };
 });
 
-import MapScreen, { isPropertyVectorSourceLoaded } from '@/app/(tabs)/index.web';
+import MapScreen from '@/app/(tabs)/index.web';
 
 const { Map: mockMapConstructor } = jest.requireMock('maplibre-gl') as {
   Map: jest.Mock;
@@ -1031,7 +1031,7 @@ describe('MapScreen web grouped Following mode', () => {
     );
   });
 
-  it('defers the empty Following scan until the property source is loaded', async () => {
+  it('shows the empty Following state even when empty Following tiles never report as fully loaded', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -1058,20 +1058,6 @@ describe('MapScreen web grouped Following mode', () => {
       await new Promise((resolve) => setTimeout(resolve, 1700));
     });
 
-    expect(map.queryRenderedFeatures).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="map-following-state-empty"]')).toBeNull();
-
-    map.isSourceLoaded.mockReturnValue(true);
-    map.areTilesLoaded.mockReturnValue(true);
-    act(() => {
-      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
-    });
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1700));
-    });
-
-    expect(map.queryRenderedFeatures).toHaveBeenCalled();
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
   });
 
@@ -1127,80 +1113,6 @@ describe('MapScreen web grouped Following mode', () => {
     });
 
     expect(map.queryRenderedFeatures.mock.calls.length).toBe(callsAfterLoad);
-  });
-
-  it('does not run read overlay viewport scans before the property source is loaded', async () => {
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    map.getLayer.mockImplementation((layerId: string) => String(layerId).startsWith('read-'));
-    map.isSourceLoaded.mockReturnValue(false);
-    map.areTilesLoaded.mockReturnValue(false);
-    map.queryRenderedFeatures.mockReturnValue([
-      {
-        properties: {
-          primary_property_id: 'read-property',
-        },
-      },
-    ]);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await flushMicrotasks();
-    map.queryRenderedFeatures.mockClear();
-
-    act(() => {
-      map.trigger('idle');
-    });
-
-    expect(map.queryRenderedFeatures).not.toHaveBeenCalled();
-    expect(map.setFeatureState).not.toHaveBeenCalled();
-
-    map.isSourceLoaded.mockReturnValue(true);
-    map.areTilesLoaded.mockReturnValue(true);
-    act(() => {
-      map.trigger('idle');
-    });
-
-    expect(map.queryRenderedFeatures).toHaveBeenCalled();
-    expect(map.setFeatureState).toHaveBeenCalledWith(
-      {
-        source: 'properties-source',
-        sourceLayer: 'properties',
-        id: 'read-property',
-      },
-      { read: true },
-    );
-  });
-
-  it('keeps source readiness conservative when MapLibre source APIs are unavailable', () => {
-    expect(
-      isPropertyVectorSourceLoaded({
-        getSource: jest.fn(() => undefined),
-        isStyleLoaded: jest.fn(() => true),
-        isSourceLoaded: jest.fn(() => true),
-      } as unknown as Parameters<typeof isPropertyVectorSourceLoaded>[0]),
-    ).toBe(false);
-
-    expect(
-      isPropertyVectorSourceLoaded({
-        getSource: jest.fn(() => ({})),
-        isStyleLoaded: jest.fn(() => true),
-        isSourceLoaded: jest.fn(() => false),
-      } as unknown as Parameters<typeof isPropertyVectorSourceLoaded>[0]),
-    ).toBe(false);
-
-    expect(
-      isPropertyVectorSourceLoaded({
-        getSource: jest.fn(() => ({})),
-        isStyleLoaded: jest.fn(() => true),
-        areTilesLoaded: jest.fn(() => true),
-      } as unknown as Parameters<typeof isPropertyVectorSourceLoaded>[0]),
-    ).toBe(true);
   });
 
   it('does not rebind property layer listeners on repeated source updates', async () => {

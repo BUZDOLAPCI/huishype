@@ -184,7 +184,7 @@ export type TileTransportFeature = {
   group_kind: GroupKind;
   primary_property_id: string;
   point_count: number;
-  property_ids: string | null;
+  property_ids: string;
   preview_property_ids: string;
   bbox_west: number | null;
   bbox_south: number | null;
@@ -1816,7 +1816,7 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     group_kind: group.groupKind,
     primary_property_id: group.primaryPropertyId,
     point_count: group.pointCount,
-    property_ids: group.groupKind === 'single' ? group.propertyIds.join(',') : null,
+    property_ids: group.propertyIds.join(','),
     preview_property_ids: group.previewPropertyIds.join(','),
     bbox_west: bbox?.[0] ?? null,
     bbox_south: bbox?.[1] ?? null,
