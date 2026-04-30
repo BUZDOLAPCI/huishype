@@ -31,8 +31,6 @@ const PUBLIC_PROPERTY_TILE_MIN_ZOOM = 7;
 const PROPERTY_TILE_MAX_ZOOM = 22;
 const BUILDING_TILE_MIN_ZOOM = 15;
 const BUILDING_TILE_MAX_ZOOM = 17;
-const TREE_TILE_MIN_ZOOM = 15;
-const TREE_TILE_MAX_ZOOM = 17;
 const TRUSTED_TILE_PARAMS = new Set([
   'userId',
   'user_id',
@@ -124,6 +122,7 @@ const martinTileJsonResponseSchema = tileJsonResponseSchema
     description: z.string().optional(),
   })
   .catchall(z.unknown());
+const gatewayTileJsonResponseSchema = tileJsonResponseSchema.catchall(z.unknown());
 
 const styleResourceParamsSchema = z.object({
   styleId: z.enum(['huishype', 'huishype-native']),
@@ -777,7 +776,8 @@ async function sendMartinTileJsonResource(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
-  sourcePath: string
+  sourcePath: string,
+  defaults?: Partial<z.infer<typeof tileJsonResponseSchema>>
 ): Promise<FastifyReply> {
   const targetUrl = new URL(sourcePath, config.martin.url);
   let martinResponse: Response;
@@ -801,6 +801,10 @@ async function sendMartinTileJsonResource(
   const tileJson = (await martinResponse.json()) as z.infer<typeof martinTileJsonResponseSchema> & {
     [key: string]: unknown;
   };
+  Object.assign(tileJson, {
+    ...defaults,
+    ...tileJson,
+  });
   const baseUrl = getRequestBaseUrl(request);
   if (Array.isArray(tileJson.tiles)) {
     tileJson.tiles = tileJson.tiles.map(
@@ -1058,22 +1062,16 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get tree tile source metadata',
         response: {
-          200: tileJsonResponseSchema,
+          200: gatewayTileJsonResponseSchema,
+          502: errorResponseSchema,
         },
       },
     },
     async (request, reply) =>
-      reply
-        .header('Cache-Control', STYLE_RESOURCE_CACHE_CONTROL)
-        .send(
-          buildTileJson(
-            'HuisHype Trees',
-            'Procedural tree tiles',
-            [buildTileTemplate(getRequestBaseUrl(request), '/tiles/trees')],
-            TREE_TILE_MIN_ZOOM,
-            TREE_TILE_MAX_ZOOM
-          )
-        )
+      sendMartinTileJsonResource(app, request, reply, '/tiles/trees', {
+        name: 'HuisHype Trees',
+        description: 'Procedural tree tiles',
+      })
   );
 
   typedApp.get(

@@ -2785,6 +2785,20 @@ export interface paths {
                                 number,
                                 number
                             ];
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
                         };
                     };
                 };

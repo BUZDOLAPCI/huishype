@@ -295,6 +295,10 @@ describe('Tile gateway control plane', () => {
           minzoom: 15,
           maxzoom: 17,
         },
+        'tree-source': {
+          minzoom: 15,
+          maxzoom: 20,
+        },
       },
     });
     expect(style.sprite).toBe('http://127.0.0.1:3201/tiles/sprite/huishype');
@@ -433,6 +437,39 @@ describe('Tile gateway control plane', () => {
 
     const proxiedUrl = new URL(String(fetchSpy.mock.calls[0][0]));
     expect(proxiedUrl.pathname).toBe('/tiles/base');
+  });
+
+  it('proxies tree TileJSON through Martin and preserves Martin maxzoom', async () => {
+    mockMartinJsonResponse({
+      tilejson: '3.0.0',
+      name: 'trees',
+      tiles: ['http://martin.internal:3111/tiles/trees/{z}/{x}/{y}'],
+      minzoom: 15,
+      maxzoom: 20,
+      bounds: [-180, -85.0511, 180, 85.0511],
+      vector_layers: [{ id: 'scattered-trees', fields: { tree_variant: 'Number' } }],
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/tiles/trees',
+      headers: { host: '127.0.0.1:3201' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toMatchObject({
+      description: 'Procedural tree tiles',
+      minzoom: 15,
+      maxzoom: 20,
+    });
+    expect(body.tiles).toEqual(['http://127.0.0.1:3201/tiles/trees/{z}/{x}/{y}']);
+    expect(body.vector_layers).toEqual([
+      { id: 'scattered-trees', fields: { tree_variant: 'Number' } },
+    ]);
+
+    const proxiedUrl = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(proxiedUrl.pathname).toBe('/tiles/trees');
   });
 
   it('does not serve the legacy style alias', async () => {
