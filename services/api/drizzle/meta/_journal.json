@@ -134,6 +134,13 @@
       "when": 1777507200002,
       "tag": "0018_martin_tile_session_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777507200003,
+      "tag": "0019_martin_quiet_ghost_tile_contract",
+      "breakpoints": true
     }
   ]
 }

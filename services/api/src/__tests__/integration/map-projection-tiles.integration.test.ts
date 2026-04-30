@@ -20,6 +20,186 @@ const FIXTURE_LON = -29.712345;
 const FIXTURE_LAT = 0.123456;
 const TILE_ZOOM = 17;
 
+type DecodedMvtFeature = {
+  properties: Record<string, unknown>;
+};
+
+class MvtReader {
+  private offset = 0;
+
+  constructor(private readonly data: Buffer) {}
+
+  get done() {
+    return this.offset >= this.data.length;
+  }
+
+  readTag() {
+    const tag = this.readVarint();
+    return { field: tag >> 3, wire: tag & 7 };
+  }
+
+  readVarint(): number {
+    let result = 0;
+    let shift = 0;
+    while (this.offset < this.data.length) {
+      const byte = this.data[this.offset++];
+      result += (byte & 0x7f) * 2 ** shift;
+      if ((byte & 0x80) === 0) {
+        return result;
+      }
+      shift += 7;
+    }
+    throw new Error('Unexpected end of MVT varint');
+  }
+
+  readBytes(): Buffer {
+    const length = this.readVarint();
+    const end = this.offset + length;
+    const value = this.data.subarray(this.offset, end);
+    this.offset = end;
+    return value;
+  }
+
+  readString(): string {
+    return this.readBytes().toString('utf8');
+  }
+
+  readFloat(): number {
+    const value = this.data.readFloatLE(this.offset);
+    this.offset += 4;
+    return value;
+  }
+
+  readDouble(): number {
+    const value = this.data.readDoubleLE(this.offset);
+    this.offset += 8;
+    return value;
+  }
+
+  skip(wire: number): void {
+    if (wire === 0) {
+      this.readVarint();
+      return;
+    }
+    if (wire === 1) {
+      this.offset += 8;
+      return;
+    }
+    if (wire === 2) {
+      this.offset += this.readVarint();
+      return;
+    }
+    if (wire === 5) {
+      this.offset += 4;
+      return;
+    }
+    throw new Error(`Unsupported MVT wire type ${wire}`);
+  }
+}
+
+function decodeSInt(value: number): number {
+  return value % 2 === 0 ? value / 2 : -(value + 1) / 2;
+}
+
+function decodeMvtValue(data: Buffer): unknown {
+  const reader = new MvtReader(data);
+  while (!reader.done) {
+    const { field, wire } = reader.readTag();
+    if (field === 1 && wire === 2) return reader.readString();
+    if (field === 2 && wire === 5) return reader.readFloat();
+    if (field === 3 && wire === 1) return reader.readDouble();
+    if (field === 4 && wire === 0) return reader.readVarint();
+    if (field === 5 && wire === 0) return reader.readVarint();
+    if (field === 6 && wire === 0) return decodeSInt(reader.readVarint());
+    if (field === 7 && wire === 0) return reader.readVarint() !== 0;
+    reader.skip(wire);
+  }
+  return null;
+}
+
+function decodeFeatureTags(data: Buffer): number[] {
+  const reader = new MvtReader(data);
+  const tags: number[] = [];
+  while (!reader.done) {
+    tags.push(reader.readVarint());
+  }
+  return tags;
+}
+
+function decodeMvtLayer(data: Buffer): {
+  name: string | null;
+  keys: string[];
+  values: unknown[];
+  features: Buffer[];
+} {
+  const reader = new MvtReader(data);
+  const keys: string[] = [];
+  const values: unknown[] = [];
+  const features: Buffer[] = [];
+  let name: string | null = null;
+
+  while (!reader.done) {
+    const { field, wire } = reader.readTag();
+    if (field === 1 && wire === 2) {
+      name = reader.readString();
+    } else if (field === 2 && wire === 2) {
+      features.push(reader.readBytes());
+    } else if (field === 3 && wire === 2) {
+      keys.push(reader.readString());
+    } else if (field === 4 && wire === 2) {
+      values.push(decodeMvtValue(reader.readBytes()));
+    } else {
+      reader.skip(wire);
+    }
+  }
+
+  return { name, keys, values, features };
+}
+
+function decodeMvtFeatures(tile: Buffer, layerName: string): DecodedMvtFeature[] {
+  const reader = new MvtReader(tile);
+  const decodedFeatures: DecodedMvtFeature[] = [];
+
+  while (!reader.done) {
+    const { field, wire } = reader.readTag();
+    if (field !== 3 || wire !== 2) {
+      reader.skip(wire);
+      continue;
+    }
+
+    const layer = decodeMvtLayer(reader.readBytes());
+    if (layer.name !== layerName) {
+      continue;
+    }
+
+    for (const featureData of layer.features) {
+      const featureReader = new MvtReader(featureData);
+      const tagIndexes: number[] = [];
+      while (!featureReader.done) {
+        const featureTag = featureReader.readTag();
+        if (featureTag.field === 2 && featureTag.wire === 2) {
+          tagIndexes.push(...decodeFeatureTags(featureReader.readBytes()));
+        } else if (featureTag.field > 2 && tagIndexes.length > 0) {
+          break;
+        } else {
+          featureReader.skip(featureTag.wire);
+        }
+      }
+
+      const properties: Record<string, unknown> = {};
+      for (let index = 0; index < tagIndexes.length; index += 2) {
+        const key = layer.keys[tagIndexes[index]];
+        if (key) {
+          properties[key] = layer.values[tagIndexes[index + 1]];
+        }
+      }
+      decodedFeatures.push({ properties });
+    }
+  }
+
+  return decodedFeatures;
+}
+
 describe('Martin map projection tile filters', () => {
   let app: FastifyInstance;
 
@@ -44,6 +224,21 @@ describe('Martin map projection tile filters', () => {
     `);
 
     return Number(Array.from(rows)[0]?.byte_length ?? 0);
+  }
+
+  async function propertyTileFeatures(queryParams: Record<string, string | number>) {
+    const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, TILE_ZOOM);
+    const paramsJson = JSON.stringify(queryParams);
+    const rows = await db.execute<{ mvt: Buffer | string }>(sql`
+      SELECT martin_tiles.property_nodes(${tile.z}, ${tile.x}, ${tile.y}, ${paramsJson}::json) AS mvt
+    `);
+    const rawMvt = Array.from(rows)[0]?.mvt;
+    const mvt =
+      typeof rawMvt === 'string'
+        ? Buffer.from(rawMvt.replace(/^\\x/, ''), 'hex')
+        : Buffer.from(rawMvt ?? []);
+
+    return decodeMvtFeatures(mvt, 'properties');
   }
 
   async function createPricedProperty(priceType: ListingPriceType, askingPrice: number) {
@@ -305,4 +500,66 @@ describe('Martin map projection tile filters', () => {
       }
     }
   );
+
+  it('property_nodes emits close-zoom ghost singles and clusters with the web style fields', async () => {
+    const clusterA = await createIntegrationProperty({
+      street: 'Martin Ghost Cluster Street',
+      houseNumber: 1,
+      lon: FIXTURE_LON,
+      lat: FIXTURE_LAT,
+      officialValuation: 350000,
+    });
+    const clusterB = await createIntegrationProperty({
+      street: 'Martin Ghost Cluster Street',
+      houseNumber: 2,
+      lon: FIXTURE_LON + 0.00002,
+      lat: FIXTURE_LAT,
+      officialValuation: 360000,
+    });
+    const single = await createIntegrationProperty({
+      street: 'Martin Ghost Single Street',
+      houseNumber: 3,
+      lon: FIXTURE_LON + 0.001,
+      lat: FIXTURE_LAT,
+      officialValuation: 370000,
+    });
+    const propertyIds = [clusterA.id, clusterB.id, single.id];
+
+    try {
+      await refreshIntegrationMapProjection(propertyIds);
+
+      const features = await propertyTileFeatures({});
+      const ghostFeatures = features
+        .map((feature) => feature.properties)
+        .filter((properties) => properties.node_class === 'ghost');
+      const ghostCluster = ghostFeatures.find((properties) => properties.group_kind === 'cluster');
+      const ghostSingle = ghostFeatures.find(
+        (properties) =>
+          properties.group_kind === 'single' && properties.primary_property_id === single.id
+      );
+
+      expect(ghostCluster).toMatchObject({
+        node_class: 'ghost',
+        group_kind: 'cluster',
+        point_count: 2,
+        activeListingCount: 0,
+        completedListingCount: 0,
+        socialCount: 0,
+        recentSocialCount: 0,
+      });
+      expect(String(ghostCluster?.property_ids)).toContain(clusterA.id);
+      expect(String(ghostCluster?.property_ids)).toContain(clusterB.id);
+      expect(ghostCluster).toHaveProperty('primary_property_id');
+      expect(ghostSingle).toMatchObject({
+        node_class: 'ghost',
+        group_kind: 'single',
+        point_count: 1,
+        primary_property_id: single.id,
+        property_ids: single.id,
+        preview_property_ids: single.id,
+      });
+    } finally {
+      await cleanup(propertyIds);
+    }
+  });
 });

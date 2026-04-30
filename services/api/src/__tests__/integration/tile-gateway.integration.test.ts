@@ -285,6 +285,49 @@ describe('Tile gateway control plane', () => {
     expect(style.sprite).toContain('/tiles/sprite/huishype');
     expect(style.sources['base-source'].url).toContain('/tiles/base');
     expect(style.sources['properties-source'].url).toContain('/tiles/public_property_nodes');
+    const layerIds = style.layers.map((layer: { id: string }) => layer.id);
+    expect(layerIds).toEqual(
+      expect.arrayContaining([
+        'park',
+        'water',
+        '3d-buildings',
+        'paper-trees',
+        'property-cluster-pulse',
+        'property-clusters',
+        'property-cluster-fill',
+        'active-node-pulse',
+        'active-nodes',
+        'active-node-fill',
+        'ghost-clusters',
+        'ghost-cluster-count',
+        'ghost-nodes',
+      ])
+    );
+
+    const waterLayer = style.layers.find((layer: { id: string }) => layer.id === 'water');
+    expect(waterLayer.paint).toMatchObject({
+      'fill-color': '#aad0e6',
+      'fill-pattern': 'water-pattern',
+    });
+
+    const propertyClusterPulse = style.layers.find(
+      (layer: { id: string }) => layer.id === 'property-cluster-pulse'
+    );
+    expect(JSON.stringify(propertyClusterPulse)).toContain('recentSocialScoreTotal');
+
+    const activeNodeLayer = style.layers.find(
+      (layer: { id: string }) => layer.id === 'active-nodes'
+    );
+    expect(JSON.stringify(activeNodeLayer)).toContain('completedListingCount');
+
+    const ghostClusterLayer = style.layers.find(
+      (layer: { id: string }) => layer.id === 'ghost-clusters'
+    );
+    expect(ghostClusterLayer).toMatchObject({
+      source: 'properties-source',
+      'source-layer': 'properties',
+      minzoom: 17,
+    });
 
     const baseTileJsonResponse = await app.inject({
       method: 'GET',
@@ -338,7 +381,10 @@ describe('Tile gateway control plane', () => {
       url: '/tiles/sprite/huishype.json',
     });
     expect(metadata.statusCode).toBe(200);
-    expect(JSON.parse(metadata.body)).toHaveProperty('tree');
+    expect(JSON.parse(metadata.body)).toMatchObject({
+      'tree-0': expect.any(Object),
+      'water-pattern': expect.any(Object),
+    });
 
     const image = await app.inject({
       method: 'GET',
