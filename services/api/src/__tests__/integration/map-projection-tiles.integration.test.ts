@@ -22,8 +22,15 @@ type ListingPriceType = 'sale' | 'rent';
 
 const FIXTURE_LON = -29.712345;
 const FIXTURE_LAT = 0.123456;
+const PROPERTY_TILE_EXTENT = 4096;
 const TILE_ZOOM = 17;
 const TREE_LANDCOVER_TYPE = `fixture-tree-scatter-${process.pid}`;
+
+type TileCoordinate = {
+  z: number;
+  x: number;
+  y: number;
+};
 
 type DecodedMvtFeature = {
   properties: Record<string, unknown>;
@@ -213,6 +220,36 @@ function mvtBuffer(rawMvt: Buffer | string | null | undefined) {
   return Buffer.from(rawMvt ?? []);
 }
 
+function lonLatForTilePoint(tile: TileCoordinate, offsetX: number, offsetY: number) {
+  const tileCount = Math.pow(2, tile.z);
+  const worldX = (tile.x * PROPERTY_TILE_EXTENT + offsetX) / (PROPERTY_TILE_EXTENT * tileCount);
+  const worldY = (tile.y * PROPERTY_TILE_EXTENT + offsetY) / (PROPERTY_TILE_EXTENT * tileCount);
+  const lon = worldX * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - 2 * worldY))) * 180) / Math.PI;
+
+  return { lon, lat };
+}
+
+function splitPropertyIds(value: unknown) {
+  return String(value ?? '')
+    .split(',')
+    .filter(Boolean);
+}
+
+function duplicates(values: string[]) {
+  const seen = new Set<string>();
+  const duplicateValues = new Set<string>();
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicateValues.add(value);
+    }
+    seen.add(value);
+  }
+
+  return [...duplicateValues].sort();
+}
+
 describe('Martin map projection tile filters', () => {
   let app: FastifyInstance;
 
@@ -247,6 +284,13 @@ describe('Martin map projection tile filters', () => {
     lat = FIXTURE_LAT
   ) {
     const tile = tileCoordinatesForPoint(lon, lat, z);
+    return propertyTileFeaturesForTile(tile, queryParams);
+  }
+
+  async function propertyTileFeaturesForTile(
+    tile: TileCoordinate,
+    queryParams: Record<string, string | number> = {}
+  ) {
     const paramsJson = JSON.stringify(queryParams);
     const rows = await db.execute<{ mvt: Buffer | string }>(sql`
       SELECT martin_tiles.property_nodes(${tile.z}, ${tile.x}, ${tile.y}, ${paramsJson}::json) AS mvt
@@ -631,6 +675,155 @@ describe('Martin map projection tile filters', () => {
       }
     } finally {
       await cleanup(property.id);
+    }
+  });
+
+  it('returns an empty public property tile below the z8 minzoom contract', async () => {
+    const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, 7);
+    const rows = await db.execute<{ byte_length: number }>(sql`
+      SELECT octet_length(martin_tiles.property_nodes(${tile.z}, ${tile.x}, ${tile.y}, '{}'::json)) AS byte_length
+    `);
+
+    expect(Number(Array.from(rows)[0]?.byte_length ?? 0)).toBe(0);
+  });
+
+  it.each([11, 15])(
+    'emits buffered public property groups only from their owner tile at z%s',
+    async (z) => {
+      const ownerTile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
+      const neighborTile = { z, x: ownerTile.x + 1, y: ownerTile.y };
+      const left = lonLatForTilePoint(
+        ownerTile,
+        PROPERTY_TILE_EXTENT - 96,
+        PROPERTY_TILE_EXTENT / 2
+      );
+      const right = lonLatForTilePoint(
+        ownerTile,
+        PROPERTY_TILE_EXTENT - 32,
+        PROPERTY_TILE_EXTENT / 2
+      );
+      const askingPrice = 912_345 + z;
+      const first = await createIntegrationProperty({
+        street: `Martin Owner Tile ${z} Street`,
+        houseNumber: 1,
+        lon: left.lon,
+        lat: left.lat,
+        officialValuation: askingPrice,
+      });
+      const second = await createIntegrationProperty({
+        street: `Martin Owner Tile ${z} Street`,
+        houseNumber: 2,
+        lon: right.lon,
+        lat: right.lat,
+        officialValuation: askingPrice,
+      });
+      const propertyIds = [first.id, second.id];
+
+      try {
+        await Promise.all(
+          propertyIds.map((propertyId) =>
+            createIntegrationListing({
+              propertyId,
+              askingPrice,
+              priceType: 'sale',
+              thumbnailUrl: `https://cdn.example.com/martin-owner-tile-${z}.jpg`,
+            })
+          )
+        );
+        await refreshIntegrationMapProjection(propertyIds);
+
+        const queryParams = {
+          marketState: 'for-sale',
+          salePriceFrom: askingPrice,
+          salePriceTo: askingPrice,
+        };
+        const features = (
+          await Promise.all([
+            propertyTileFeaturesForTile(ownerTile, queryParams),
+            propertyTileFeaturesForTile(neighborTile, queryParams),
+          ])
+        ).flat();
+        const properties = features.map((feature) => feature.properties);
+        const primaryIds = properties
+          .map((property) => property.primary_property_id)
+          .filter((value): value is string => typeof value === 'string');
+        const memberIds = properties.flatMap((property) => splitPropertyIds(property.property_ids));
+
+        expect(duplicates(primaryIds)).toEqual([]);
+        expect(duplicates(memberIds)).toEqual([]);
+        expect(memberIds.sort()).toEqual(propertyIds.sort());
+        expect(
+          properties.filter((property) =>
+            splitPropertyIds(property.property_ids).some((propertyId) =>
+              propertyIds.includes(propertyId)
+            )
+          )
+        ).toHaveLength(1);
+      } finally {
+        await cleanup(propertyIds);
+      }
+    }
+  );
+
+  it('uses a stable representative member as the public bucket primary id', async () => {
+    const z = 15;
+    const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
+    const bucketCenterX = PROPERTY_TILE_EXTENT - 128;
+    const bucketCenterY = PROPERTY_TILE_EXTENT / 2;
+    const firstPoint = lonLatForTilePoint(tile, bucketCenterX - 24, bucketCenterY);
+    const representativePoint = lonLatForTilePoint(tile, bucketCenterX + 24, bucketCenterY);
+    const askingPrice = 923_456;
+    const actor = await createIntegrationUser(app, { label: 'martin-representative' });
+    const first = await createIntegrationProperty({
+      street: 'Martin Representative Street',
+      houseNumber: 1,
+      lon: firstPoint.lon,
+      lat: firstPoint.lat,
+      officialValuation: askingPrice,
+    });
+    const representative = await createIntegrationProperty({
+      street: 'Martin Representative Street',
+      houseNumber: 2,
+      lon: representativePoint.lon,
+      lat: representativePoint.lat,
+      officialValuation: askingPrice,
+    });
+    const propertyIds = [first.id, representative.id];
+
+    try {
+      await Promise.all(
+        propertyIds.map((propertyId) =>
+          createIntegrationListing({
+            propertyId,
+            askingPrice,
+            priceType: 'sale',
+            thumbnailUrl: 'https://cdn.example.com/martin-representative.jpg',
+          })
+        )
+      );
+      await db.execute(sql`
+        INSERT INTO comments (property_id, user_id, content, created_at, updated_at)
+        VALUES (${representative.id}, ${actor.userId}, 'Representative priority fixture', NOW(), NOW())
+      `);
+      await refreshIntegrationMapProjection(propertyIds);
+
+      const features = await propertyTileFeaturesForTile(tile, {
+        marketState: 'for-sale',
+        salePriceFrom: askingPrice,
+        salePriceTo: askingPrice,
+      });
+      const cluster = features
+        .map((feature) => feature.properties)
+        .find((properties) => splitPropertyIds(properties.property_ids).includes(representative.id));
+
+      expect(cluster).toMatchObject({
+        group_kind: 'cluster',
+        primary_property_id: representative.id,
+        point_count: 2,
+      });
+      expect(splitPropertyIds(cluster?.preview_property_ids)[0]).toBe(representative.id);
+    } finally {
+      await cleanup(propertyIds);
     }
   });
 

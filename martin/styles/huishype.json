@@ -11,7 +11,7 @@
     "properties-source": {
       "type": "vector",
       "url": "/tiles/public_property_nodes",
-      "minzoom": 7,
+      "minzoom": 8,
       "maxzoom": 22,
       "promoteId": "primary_property_id"
     },

@@ -40,10 +40,22 @@ test('readonly Martin role settings match the URL session options', () => {
   }
 });
 
-test('Martin low-zoom guard still preserves z7 and z8 public property tiles', () => {
-  const text = readRepoFile('services/api/drizzle/0017_martin_public_tile_min_zoom_guard.sql');
-  assert.match(text, /IF z < 7 THEN/);
+test('Martin public property minzoom starts at z8 to match the legacy lowZoom795 contract', () => {
+  const text = readRepoFile('services/api/drizzle/0022_martin_property_owner_tile_parity.sql');
+  assert.match(text, /WHERE z >= 8/);
   assert.doesNotMatch(text, /IF z < 9 THEN/);
+
+  const config = readRepoFile('martin/config.yaml');
+  assert.match(
+    config,
+    /public_property_nodes:\n\s+schema: martin_tiles\n\s+function: property_nodes\n\s+minzoom: 8\n\s+maxzoom: 22/,
+    'Martin config should not publish z7 public property tiles',
+  );
+
+  for (const relativePath of ['martin/styles/huishype.json', 'martin/styles/huishype-native.json']) {
+    const style = JSON.parse(readRepoFile(relativePath));
+    assert.equal(style.sources['properties-source'].minzoom, 8, `${relativePath} property source minzoom`);
+  }
 });
 
 test('Martin styles keep the visual parity light and tree source contract', () => {

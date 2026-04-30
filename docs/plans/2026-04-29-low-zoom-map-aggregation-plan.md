@@ -970,10 +970,10 @@ postgres:
     public_property_nodes:
       schema: martin_tiles
       function: property_nodes
-      minzoom: 0
+      minzoom: 8
       maxzoom: 22
       bounds: [-180, -85.0511, 180, 85.0511]
-      cache: { minzoom: 0, maxzoom: 14 }
+      cache: { minzoom: 8, maxzoom: 14 }
     private_read_property_nodes:
       schema: martin_tiles
       function: read_property_nodes
@@ -1016,6 +1016,11 @@ pmtiles:
     base:
       path: /data/tiles/base.pmtiles
 ```
+
+Public property source publication starts at z8 to preserve the legacy
+no-overlay visual behavior for the `lowZoom795` benchmark route. The low-zoom
+aggregation path still covers z8 through z16, and the SQL function keeps the
+same z8 guard so direct function calls cannot emit z7 public property overlays.
 
 Validate `martin/config.yaml` against
 `/home/caslan/dev/git_repos/martin/schemas/config.json`, then start Martin in a

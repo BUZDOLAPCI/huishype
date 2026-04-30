@@ -30,11 +30,11 @@ postgres:
     public_property_nodes:
       schema: martin_tiles
       function: property_nodes
-      minzoom: 7
+      minzoom: 8
       maxzoom: 22
       bounds: [-180, -85.0511, 180, 85.0511]
       cache:
-        minzoom: 7
+        minzoom: 8
         maxzoom: 14
     private_read_property_nodes:
       schema: martin_tiles

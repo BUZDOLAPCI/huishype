@@ -249,7 +249,7 @@ function buildPropertyPointFixtures(allPropertyIds) {
     {
     lon: 5.4697,
     lat: 51.4416,
-    minZoom: 0,
+    minZoom: 8,
     maxZoom: 16,
     properties: {
       node_class: 'active',
@@ -670,11 +670,12 @@ async function vectorTileForPath(url, propertyPointFixtures, sql) {
 }
 
 function tileJson(sourceId, baseUrl) {
+  const minzoom = sourceId === 'public_property_nodes' ? 8 : 0;
   return {
     tilejson: '3.0.0',
     name: sourceId,
     tiles: [`${baseUrl}/tiles/${sourceId}/{z}/{x}/{y}`],
-    minzoom: 0,
+    minzoom,
     maxzoom: 22,
     bounds: [-180, -85.0511, 180, 85.0511],
   };

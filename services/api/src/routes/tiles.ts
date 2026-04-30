@@ -27,7 +27,7 @@ const PUBLIC_PROXY_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=
 const STYLE_RESOURCE_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=300';
 const MARTIN_RESOURCE_ROOT = new URL('../../../../martin/', import.meta.url);
 const FONT_RESOURCE_ROOT = new URL('../../fonts/', import.meta.url);
-const PUBLIC_PROPERTY_TILE_MIN_ZOOM = 7;
+const PUBLIC_PROPERTY_TILE_MIN_ZOOM = 8;
 const PROPERTY_TILE_MAX_ZOOM = 22;
 const BUILDING_TILE_MIN_ZOOM = 15;
 const BUILDING_TILE_MAX_ZOOM = 17;

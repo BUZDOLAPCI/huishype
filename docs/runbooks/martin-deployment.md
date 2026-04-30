@@ -41,7 +41,7 @@ client-facing docs. External basemap providers may use their own URL contract.
 
 Configured source endpoints:
 
-- `/tiles/public_property_nodes`
+- `/tiles/public_property_nodes` (public property source starts at z8; z7 stays base-map only for visual parity with legacy low-zoom scenes)
 - `/tiles/private_read_property_nodes`
 - `/tiles/private_following_property_nodes`
 - `/tiles/buildings`

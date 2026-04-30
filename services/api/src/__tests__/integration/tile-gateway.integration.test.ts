@@ -287,7 +287,7 @@ describe('Tile gateway control plane', () => {
           url: 'https://tiles.openfreemap.org/planet',
         },
         'properties-source': {
-          minzoom: 7,
+          minzoom: 8,
           maxzoom: 22,
           promoteId: 'primary_property_id',
         },
@@ -363,7 +363,7 @@ describe('Tile gateway control plane', () => {
       'http://127.0.0.1:3201/tiles/public_property_nodes/{z}/{x}/{y}'
     );
     expect(tileJson.tiles[0]).toContain('salePriceFrom=300000');
-    expect(tileJson.minzoom).toBe(7);
+    expect(tileJson.minzoom).toBe(8);
     expect(tileJson.maxzoom).toBe(22);
 
     const buildingTileJsonResponse = await app.inject({

@@ -191,7 +191,7 @@ function useMergedMapStyle(
                 'properties-source': {
                   type: 'vector',
                   tiles: propertyTiles,
-                  minzoom: 7,
+                  minzoom: 8,
                   maxzoom: 22,
                 },
               },

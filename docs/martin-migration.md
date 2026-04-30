@@ -24,3 +24,6 @@ HuisHype keeps dynamic property/read/following tiles on Martin-served MVT:
 - MLT-only dynamic clustering is unavailable from PostGIS, so dynamic
   property/read/following tiles use Martin-served MVT.
 - MapLibre Native can't decode FastPFOR-compressed MLT yet (maplibre-native PR #4146, open)
+- Public property tiles are published from z8 upward. This keeps the
+  `lowZoom795` visual scene aligned with the legacy no-overlay behavior while
+  preserving the Martin low-zoom aggregation path from z8 through z16.
