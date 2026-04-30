@@ -45,3 +45,28 @@ test('Martin low-zoom guard still preserves z7 and z8 public property tiles', ()
   assert.match(text, /IF z < 7 THEN/);
   assert.doesNotMatch(text, /IF z < 9 THEN/);
 });
+
+test('Martin styles keep the visual parity light and tree source contract', () => {
+  for (const relativePath of ['martin/styles/huishype.json', 'martin/styles/huishype-native.json']) {
+    const style = JSON.parse(readRepoFile(relativePath));
+    assert.deepEqual(
+      style.light,
+      {
+        anchor: 'map',
+        color: '#FFF6EA',
+        intensity: 0.2,
+        position: [1.15, 240, 45],
+      },
+      `${relativePath} should match the shared MapLibre light contract`,
+    );
+    assert.equal(style.sources['tree-source'].minzoom, 15, `${relativePath} tree source minzoom`);
+    assert.equal(style.sources['tree-source'].maxzoom, 20, `${relativePath} tree source maxzoom`);
+  }
+
+  const config = readRepoFile('martin/config.yaml');
+  assert.match(
+    config,
+    /trees:\n\s+schema: martin_tiles\n\s+function: trees\n\s+minzoom: 15\n\s+maxzoom: 20/,
+    'Martin config should publish tree function tiles through z20',
+  );
+});

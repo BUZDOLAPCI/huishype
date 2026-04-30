@@ -19,7 +19,7 @@
       "type": "vector",
       "tiles": ["/tiles/trees/{z}/{x}/{y}"],
       "minzoom": 15,
-      "maxzoom": 17
+      "maxzoom": 20
     },
     "buildings-source": {
       "type": "vector",
@@ -1944,7 +1944,7 @@
   "light": {
     "anchor": "map",
     "color": "#FFF6EA",
-    "intensity": 0.52,
-    "position": [1.1, 150, 58]
+    "intensity": 0.2,
+    "position": [1.15, 240, 45]
   }
 }

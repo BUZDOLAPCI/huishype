@@ -12,6 +12,10 @@ import {
   tileCoordinatesForPoint,
 } from './helpers/fixtures.js';
 import { markPropertyRead } from '../../services/property-read-state.js';
+import {
+  TREE_CANDIDATES_LEVEL1,
+  TREE_CANDIDATES_LEVEL2,
+} from '../../services/tree-scatter.js';
 
 type TileFunctionName = 'property_nodes' | 'read_property_nodes' | 'following_property_nodes';
 type ListingPriceType = 'sale' | 'rent';
@@ -19,6 +23,7 @@ type ListingPriceType = 'sale' | 'rent';
 const FIXTURE_LON = -29.712345;
 const FIXTURE_LAT = 0.123456;
 const TILE_ZOOM = 17;
+const TREE_LANDCOVER_TYPE = `fixture-tree-scatter-${process.pid}`;
 
 type DecodedMvtFeature = {
   properties: Record<string, unknown>;
@@ -200,6 +205,14 @@ function decodeMvtFeatures(tile: Buffer, layerName: string): DecodedMvtFeature[]
   return decodedFeatures;
 }
 
+function mvtBuffer(rawMvt: Buffer | string | null | undefined) {
+  if (typeof rawMvt === 'string') {
+    return Buffer.from(rawMvt.replace(/^\\x/, ''), 'hex');
+  }
+
+  return Buffer.from(rawMvt ?? []);
+}
+
 describe('Martin map projection tile filters', () => {
   let app: FastifyInstance;
 
@@ -208,6 +221,7 @@ describe('Martin map projection tile filters', () => {
   });
 
   afterAll(async () => {
+    await db.execute(sql`DELETE FROM landcover WHERE type = ${TREE_LANDCOVER_TYPE}`);
     await app.close();
   });
 
@@ -226,19 +240,42 @@ describe('Martin map projection tile filters', () => {
     return Number(Array.from(rows)[0]?.byte_length ?? 0);
   }
 
-  async function propertyTileFeatures(queryParams: Record<string, string | number>) {
-    const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, TILE_ZOOM);
+  async function propertyTileFeaturesAt(
+    z: number,
+    queryParams: Record<string, string | number> = {},
+    lon = FIXTURE_LON,
+    lat = FIXTURE_LAT
+  ) {
+    const tile = tileCoordinatesForPoint(lon, lat, z);
     const paramsJson = JSON.stringify(queryParams);
     const rows = await db.execute<{ mvt: Buffer | string }>(sql`
       SELECT martin_tiles.property_nodes(${tile.z}, ${tile.x}, ${tile.y}, ${paramsJson}::json) AS mvt
     `);
-    const rawMvt = Array.from(rows)[0]?.mvt;
-    const mvt =
-      typeof rawMvt === 'string'
-        ? Buffer.from(rawMvt.replace(/^\\x/, ''), 'hex')
-        : Buffer.from(rawMvt ?? []);
 
-    return decodeMvtFeatures(mvt, 'properties');
+    return decodeMvtFeatures(mvtBuffer(Array.from(rows)[0]?.mvt), 'properties');
+  }
+
+  async function propertyTileFeatures(queryParams: Record<string, string | number>) {
+    return propertyTileFeaturesAt(TILE_ZOOM, queryParams);
+  }
+
+  async function treeTileFeatures(z: number, x: number, y: number) {
+    const rows = await db.execute<{ mvt: Buffer | string }>(sql`
+      SELECT martin_tiles.trees(${z}, ${x}, ${y}, '{}'::json) AS mvt
+    `);
+
+    return decodeMvtFeatures(mvtBuffer(Array.from(rows)[0]?.mvt), 'scattered-trees');
+  }
+
+  async function seedFullTileLandcover(z: number, x: number, y: number) {
+    await db.execute(sql`DELETE FROM landcover WHERE type = ${TREE_LANDCOVER_TYPE}`);
+    await db.execute(sql`
+      INSERT INTO landcover (type, geometry)
+      VALUES (
+        ${TREE_LANDCOVER_TYPE},
+        ST_Buffer(ST_Transform(ST_TileEnvelope(${z}, ${x}, ${y}), 4326), 0.000001)
+      )
+    `);
   }
 
   async function createPricedProperty(priceType: ListingPriceType, askingPrice: number) {
@@ -568,6 +605,99 @@ describe('Martin map projection tile filters', () => {
     } finally {
       await cleanup(propertyIds);
     }
+  });
+
+  it('preflights representative public property tiles so low and mid zooms are not empty', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Martin Public Tile Preflight Street',
+      houseNumber: 11,
+      lon: FIXTURE_LON,
+      lat: FIXTURE_LAT,
+      officialValuation: 375000,
+    });
+    await createIntegrationListing({
+      propertyId: property.id,
+      askingPrice: 385000,
+      priceType: 'sale',
+      thumbnailUrl: 'https://cdn.example.com/martin-public-preflight.jpg',
+    });
+
+    try {
+      await refreshIntegrationMapProjection(property.id);
+
+      for (const z of [11, 15]) {
+        const features = await propertyTileFeaturesAt(z);
+        expect(features.length).toBeGreaterThan(0);
+      }
+    } finally {
+      await cleanup(property.id);
+    }
+  });
+
+  it('anchors Martin tree scatter candidates at the z15 ancestor across child tiles', async () => {
+    const parent = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, 15);
+    const z16Children = [
+      [parent.x * 2, parent.y * 2],
+      [parent.x * 2 + 1, parent.y * 2],
+      [parent.x * 2, parent.y * 2 + 1],
+      [parent.x * 2 + 1, parent.y * 2 + 1],
+    ];
+
+    await seedFullTileLandcover(parent.z, parent.x, parent.y);
+
+    const parentFeatures = await treeTileFeatures(parent.z, parent.x, parent.y);
+    const childFeatures = (
+      await Promise.all(z16Children.map(([x, y]) => treeTileFeatures(16, x, y)))
+    ).flat();
+
+    expect(parentFeatures).toHaveLength(TREE_CANDIDATES_LEVEL1);
+    expect(childFeatures).toHaveLength(TREE_CANDIDATES_LEVEL1 + TREE_CANDIDATES_LEVEL2);
+
+    const childLevel1 = new Set(
+      childFeatures
+        .map((feature) => feature.properties)
+        .filter((properties) => Number(properties.id) <= TREE_CANDIDATES_LEVEL1)
+        .map((properties) => `${properties.id}:${properties.tree_variant}`)
+    );
+
+    expect(childLevel1.size).toBe(TREE_CANDIDATES_LEVEL1);
+    for (const feature of parentFeatures) {
+      expect(childLevel1.has(`${feature.properties.id}:${feature.properties.tree_variant}`)).toBe(
+        true
+      );
+    }
+  });
+
+  it('keeps anchored z15 tree candidates stable through z17 grandchildren', async () => {
+    const parent = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, 15);
+    const z16Child = { z: 16, x: parent.x * 2, y: parent.y * 2 };
+    const z17Grandchildren = [
+      [z16Child.x * 2, z16Child.y * 2],
+      [z16Child.x * 2 + 1, z16Child.y * 2],
+      [z16Child.x * 2, z16Child.y * 2 + 1],
+      [z16Child.x * 2 + 1, z16Child.y * 2 + 1],
+    ];
+
+    await seedFullTileLandcover(parent.z, parent.x, parent.y);
+
+    const z16Features = await treeTileFeatures(z16Child.z, z16Child.x, z16Child.y);
+    const z16Level1 = new Set(
+      z16Features
+        .map((feature) => feature.properties)
+        .filter((properties) => Number(properties.id) <= TREE_CANDIDATES_LEVEL1)
+        .map((properties) => `${properties.id}:${properties.tree_variant}`)
+    );
+    const z17Features = (
+      await Promise.all(z17Grandchildren.map(([x, y]) => treeTileFeatures(17, x, y)))
+    ).flat();
+    const z17Level1 = new Set(
+      z17Features
+        .map((feature) => feature.properties)
+        .filter((properties) => Number(properties.id) <= TREE_CANDIDATES_LEVEL1)
+        .map((properties) => `${properties.id}:${properties.tree_variant}`)
+    );
+
+    expect(z17Level1).toEqual(z16Level1);
   });
 
   it('validates that public quiet ghosts stay tile-derived instead of rebuild-materialized', async () => {

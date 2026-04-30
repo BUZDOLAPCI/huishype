@@ -54,7 +54,7 @@ postgres:
       schema: martin_tiles
       function: trees
       minzoom: 15
-      maxzoom: 17
+      maxzoom: 20
       bounds: [-180, -85.0511, 180, 85.0511]
     buildings:
       schema: martin_tiles
