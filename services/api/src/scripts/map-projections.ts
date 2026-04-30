@@ -39,6 +39,9 @@ function parseArgs(argv: string[], defaultCommand: ProjectionCommand): CliOption
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);

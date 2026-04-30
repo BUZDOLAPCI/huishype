@@ -415,10 +415,6 @@ export async function refreshIntegrationMapProjection(propertyIds: string | stri
     WHERE property_id IN (${requestedSubquery})
   `);
   await db.execute(sql`
-    DELETE FROM map_quiet_property_points
-    WHERE property_id IN (${requestedSubquery})
-  `);
-  await db.execute(sql`
     DELETE FROM map_public_property_facts
     WHERE property_id IN (${requestedSubquery})
   `);
@@ -621,37 +617,6 @@ export async function refreshIntegrationMapProjection(propertyIds: string | stri
     WHERE active_listing_count > 0
       OR completed_listing_count > 0
       OR social_score_total >= 0.75
-  `);
-
-  await db.execute(sql`
-    WITH requested(property_id) AS (
-      VALUES ${requestedValues}
-    )
-    INSERT INTO map_quiet_property_points (
-      property_id,
-      country_code,
-      geom_3857,
-      lon,
-      lat,
-      market_state,
-      sale_effective_price,
-      updated_at
-    )
-    SELECT
-      p.id,
-      p.country_code,
-      ST_Transform(p.geometry, 3857),
-      ST_X(p.geometry),
-      ST_Y(p.geometry),
-      'not-listed',
-      p.official_valuation,
-      NOW()
-    FROM properties p
-    INNER JOIN requested r ON r.property_id = p.id
-    LEFT JOIN map_public_property_facts f ON f.property_id = p.id
-    WHERE p.status = 'active'
-      AND p.geometry IS NOT NULL
-      AND f.property_id IS NULL
   `);
 
   await db.execute(sql`

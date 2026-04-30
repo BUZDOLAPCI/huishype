@@ -527,6 +527,13 @@ describe('Martin map projection tile filters', () => {
 
     try {
       await refreshIntegrationMapProjection(propertyIds);
+      const quietRows = await db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text AS count
+        FROM map_quiet_property_points
+        WHERE property_id IN (${sql.join(propertyIds, sql`, `)})
+      `);
+
+      expect(Array.from(quietRows)[0]?.count).toBe('0');
 
       const features = await propertyTileFeatures({});
       const ghostFeatures = features
@@ -561,5 +568,21 @@ describe('Martin map projection tile filters', () => {
     } finally {
       await cleanup(propertyIds);
     }
+  });
+
+  it('validates that public quiet ghosts stay tile-derived instead of rebuild-materialized', async () => {
+    const rows = await db.execute<{ check_name: string; ok: boolean; detail: string }>(sql`
+      SELECT check_name, ok, detail
+      FROM martin_tiles.validate_map_projections()
+      WHERE check_name = 'quiet_ghosts_are_tile_derived'
+    `);
+
+    expect(Array.from(rows)).toEqual([
+      {
+        check_name: 'quiet_ghosts_are_tile_derived',
+        ok: true,
+        detail: 'public ghost nodes are derived from indexed properties at z17+',
+      },
+    ]);
   });
 });
