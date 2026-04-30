@@ -40,6 +40,20 @@ describe('Tile gateway control plane', () => {
     );
   }
 
+  function mockMartinJsonResponse(body: unknown, headers: Record<string, string> = {}) {
+    fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'cache-control': 'public, max-age=60',
+            ...headers,
+          },
+        })
+    );
+  }
+
   it('issues signed read tile sessions for anonymous sessions', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -260,6 +274,7 @@ describe('Tile gateway control plane', () => {
     const styleResponse = await app.inject({
       method: 'GET',
       url: '/tiles/style/huishype',
+      headers: { host: '127.0.0.1:3201' },
     });
     expect(styleResponse.statusCode).toBe(200);
     expect(styleResponse.headers['content-type']).toContain('application/json');
@@ -268,8 +283,8 @@ describe('Tile gateway control plane', () => {
       version: 8,
       sources: {
         'base-source': {
-          minzoom: 0,
-          maxzoom: 14,
+          type: 'vector',
+          url: 'http://127.0.0.1:3201/tiles/base',
         },
         'properties-source': {
           minzoom: 7,
@@ -282,9 +297,13 @@ describe('Tile gateway control plane', () => {
         },
       },
     });
-    expect(style.sprite).toContain('/tiles/sprite/huishype');
-    expect(style.sources['base-source'].url).toContain('/tiles/base');
-    expect(style.sources['properties-source'].url).toContain('/tiles/public_property_nodes');
+    expect(style.sprite).toBe('http://127.0.0.1:3201/tiles/sprite/huishype');
+    expect(style.glyphs).toBe('http://127.0.0.1:3201/tiles/font/{fontstack}/{range}');
+    expect(style.sources['base-source'].tiles).toBeUndefined();
+    expect(style.sources['base-source'].maxzoom).toBeUndefined();
+    expect(style.sources['properties-source'].url).toBe(
+      'http://127.0.0.1:3201/tiles/public_property_nodes'
+    );
     const layerIds = style.layers.map((layer: { id: string }) => layer.id);
     expect(layerIds).toEqual(
       expect.arrayContaining([
@@ -329,23 +348,16 @@ describe('Tile gateway control plane', () => {
       minzoom: 17,
     });
 
-    const baseTileJsonResponse = await app.inject({
-      method: 'GET',
-      url: '/tiles/base',
-    });
-    expect(baseTileJsonResponse.statusCode).toBe(200);
-    const baseTileJson = JSON.parse(baseTileJsonResponse.body);
-    expect(baseTileJson.tiles[0]).toContain('/tiles/base/{z}/{x}/{y}');
-    expect(baseTileJson.minzoom).toBe(0);
-    expect(baseTileJson.maxzoom).toBe(14);
-
     const tileJsonResponse = await app.inject({
       method: 'GET',
       url: '/tiles/public_property_nodes?salePriceFrom=300000',
+      headers: { host: '127.0.0.1:3201' },
     });
     expect(tileJsonResponse.statusCode).toBe(200);
     const tileJson = JSON.parse(tileJsonResponse.body);
-    expect(tileJson.tiles[0]).toContain('/tiles/public_property_nodes/{z}/{x}/{y}');
+    expect(tileJson.tiles[0]).toContain(
+      'http://127.0.0.1:3201/tiles/public_property_nodes/{z}/{x}/{y}'
+    );
     expect(tileJson.tiles[0]).toContain('salePriceFrom=300000');
     expect(tileJson.minzoom).toBe(7);
     expect(tileJson.maxzoom).toBe(22);
@@ -359,6 +371,56 @@ describe('Tile gateway control plane', () => {
     expect(buildingTileJson.minzoom).toBe(15);
     expect(buildingTileJson.maxzoom).toBe(17);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('serves native style with API-origin base TileJSON URL', async () => {
+    fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+    const styleResponse = await app.inject({
+      method: 'GET',
+      url: '/tiles/style/huishype-native',
+      headers: { host: '127.0.0.1:3201' },
+    });
+
+    expect(styleResponse.statusCode).toBe(200);
+    const style = JSON.parse(styleResponse.body);
+    expect(style.sources['base-source']).toMatchObject({
+      type: 'vector',
+      url: 'http://127.0.0.1:3201/tiles/base',
+    });
+    expect(style.sources['base-source'].tiles).toBeUndefined();
+    expect(style.sources['base-source'].maxzoom).toBeUndefined();
+    expect(style.sources['properties-source'].tiles).toEqual([
+      'http://127.0.0.1:3201/tiles/public_property_nodes/{z}/{x}/{y}',
+    ]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('proxies base TileJSON through Martin and rewrites tile URLs to the API origin', async () => {
+    mockMartinJsonResponse({
+      tilejson: '3.0.0',
+      name: 'base',
+      tiles: ['http://martin.internal:3111/tiles/base/{z}/{x}/{y}'],
+      minzoom: 0,
+      maxzoom: 1,
+      bounds: [-180, -85.0511, 180, 85.0511],
+      vector_layers: [{ id: 'water', fields: {} }],
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/tiles/base',
+      headers: { host: '127.0.0.1:3201' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.tiles).toEqual(['http://127.0.0.1:3201/tiles/base/{z}/{x}/{y}']);
+    expect(body.maxzoom).toBe(1);
+    expect(body.vector_layers).toEqual([{ id: 'water', fields: {} }]);
+
+    const proxiedUrl = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(proxiedUrl.pathname).toBe('/tiles/base');
   });
 
   it('does not serve the legacy style alias', async () => {
@@ -411,6 +473,34 @@ describe('Tile gateway control plane', () => {
     expect(proxiedUrl.pathname).toBe('/tiles/public_property_nodes/12/1/1');
     expect(proxiedUrl.searchParams.get('salePriceTo')).toBe('10');
     expect(proxiedUrl.searchParams.get('viewer_id')).toBeNull();
+  });
+
+  it('proxies base tile bytes through the public Martin gateway path', async () => {
+    mockMartinResponse('base-tile');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/tiles/base/13/4207/2692?viewer_id=spoof',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toBe('base-tile');
+
+    const proxiedUrl = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(proxiedUrl.pathname).toBe('/tiles/base/13/4207/2692');
+    expect(proxiedUrl.searchParams.get('viewer_id')).toBeNull();
+  });
+
+  it('validates base tile coordinates before proxying to Martin', async () => {
+    fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/tiles/base/12/4096/1',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('returns 404 for legacy property tile routes without proxying to Martin', async () => {

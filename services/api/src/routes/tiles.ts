@@ -27,7 +27,6 @@ const PUBLIC_PROXY_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=
 const STYLE_RESOURCE_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=300';
 const MARTIN_RESOURCE_ROOT = new URL('../../../../martin/', import.meta.url);
 const FONT_RESOURCE_ROOT = new URL('../../fonts/', import.meta.url);
-const BASE_TILE_MAX_ZOOM = 14;
 const PUBLIC_PROPERTY_TILE_MIN_ZOOM = 7;
 const PROPERTY_TILE_MAX_ZOOM = 22;
 const BUILDING_TILE_MIN_ZOOM = 15;
@@ -119,6 +118,12 @@ const tileJsonResponseSchema = z.object({
   maxzoom: z.number(),
   bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
 });
+
+const martinTileJsonResponseSchema = tileJsonResponseSchema
+  .extend({
+    description: z.string().optional(),
+  })
+  .catchall(z.unknown());
 
 const styleResourceParamsSchema = z.object({
   styleId: z.enum(['huishype', 'huishype-native']),
@@ -685,11 +690,71 @@ async function sendMartinTextResource(
   return reply.header('Cache-Control', STYLE_RESOURCE_CACHE_CONTROL).type(contentType).send(body);
 }
 
-function absolutizeStyleUrl(baseUrl: string, value: string | undefined): string | undefined {
-  if (!value || !value.startsWith('/tiles/')) {
+function absolutizeTileGatewayUrl(baseUrl: string, value: string | undefined): string | undefined {
+  if (!value) {
     return value;
   }
-  return `${baseUrl}${value}`;
+
+  if (value.startsWith('/tiles/')) {
+    return `${baseUrl}${value}`;
+  }
+
+  const absoluteTilePath = value.match(/^https?:\/\/[^/]+(\/tiles\/.*)$/);
+  if (absoluteTilePath) {
+    return `${baseUrl}${absoluteTilePath[1]}`;
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.pathname.startsWith('/tiles/')) {
+      return `${baseUrl}${url.pathname}${url.search}${url.hash}`;
+    }
+  } catch {
+    return value;
+  }
+
+  return value;
+}
+
+async function sendMartinTileJsonResource(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  sourcePath: string
+): Promise<FastifyReply> {
+  const targetUrl = new URL(sourcePath, config.martin.url);
+  let martinResponse: Response;
+
+  try {
+    martinResponse = await fetchMartin(targetUrl, request);
+  } catch (err) {
+    app.log.warn({ err, targetUrl: targetUrl.toString() }, 'Martin TileJSON request failed');
+    return reply.status(502).send({
+      error: 'MARTIN_UNAVAILABLE',
+      message: 'Tile service is unavailable',
+    });
+  }
+
+  if (!martinResponse.ok) {
+    reply.status(martinResponse.status);
+    const body = await martinResponse.text().catch(() => '');
+    return reply.type('text/plain; charset=utf-8').send(body);
+  }
+
+  const tileJson = (await martinResponse.json()) as z.infer<typeof martinTileJsonResponseSchema> & {
+    [key: string]: unknown;
+  };
+  const baseUrl = getRequestBaseUrl(request);
+  if (Array.isArray(tileJson.tiles)) {
+    tileJson.tiles = tileJson.tiles.map(
+      (tileUrl) => absolutizeTileGatewayUrl(baseUrl, tileUrl) ?? tileUrl
+    );
+  }
+
+  return reply
+    .header('Cache-Control', STYLE_RESOURCE_CACHE_CONTROL)
+    .type('application/json; charset=utf-8')
+    .send(tileJson);
 }
 
 async function sendMartinStyleResource(
@@ -701,13 +766,15 @@ async function sendMartinStyleResource(
   const style = JSON.parse(body) as MartinStyleDocument;
   const baseUrl = getRequestBaseUrl(request);
 
-  style.sprite = absolutizeStyleUrl(baseUrl, style.sprite);
-  style.glyphs = absolutizeStyleUrl(baseUrl, style.glyphs);
+  style.sprite = absolutizeTileGatewayUrl(baseUrl, style.sprite);
+  style.glyphs = absolutizeTileGatewayUrl(baseUrl, style.glyphs);
 
   for (const source of Object.values(style.sources ?? {})) {
-    source.url = absolutizeStyleUrl(baseUrl, source.url);
+    source.url = absolutizeTileGatewayUrl(baseUrl, source.url);
     if (Array.isArray(source.tiles)) {
-      source.tiles = source.tiles.map((tileUrl) => absolutizeStyleUrl(baseUrl, tileUrl) ?? tileUrl);
+      source.tiles = source.tiles.map(
+        (tileUrl) => absolutizeTileGatewayUrl(baseUrl, tileUrl) ?? tileUrl
+      );
     }
   }
 
@@ -874,22 +941,23 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get base tile source metadata',
         response: {
-          200: tileJsonResponseSchema,
+          200: martinTileJsonResponseSchema,
         },
       },
     },
-    async (request, reply) =>
-      reply
-        .header('Cache-Control', STYLE_RESOURCE_CACHE_CONTROL)
-        .send(
-          buildTileJson(
-            'HuisHype Base',
-            'Base map tiles',
-            [buildTileTemplate(getRequestBaseUrl(request), '/tiles/base')],
-            0,
-            BASE_TILE_MAX_ZOOM
-          )
-        )
+    async (request, reply) => sendMartinTileJsonResource(app, request, reply, '/tiles/base')
+  );
+
+  typedApp.get(
+    '/tiles/base/:z/:x/:y',
+    {
+      schema: {
+        tags: ['tiles'],
+        summary: 'Proxy base tile',
+        params: tileParamsSchema,
+      },
+    },
+    async (request, reply) => proxyMartinResponse(app, request, reply)
   );
 
   typedApp.get(

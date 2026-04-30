@@ -2637,7 +2637,7 @@ export interface paths {
                         "application/json": {
                             tilejson: string;
                             name: string;
-                            description: string;
+                            description?: string;
                             tiles: string[];
                             minzoom: number;
                             maxzoom: number;
@@ -2647,8 +2647,48 @@ export interface paths {
                                 number,
                                 number
                             ];
+                        } & {
+                            [key: string]: unknown;
                         };
                     };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/base/{z}/{x}/{y}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Proxy base tile */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    z: number;
+                    x: number;
+                    y: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };

@@ -531,6 +531,7 @@ describe('Generated OpenAPI types', () => {
       '/listings/preview',
       '/listings/submit',
       '/tiles/base',
+      '/tiles/base/{z}/{x}/{y}',
       '/tiles/style/{styleId}',
       '/tiles/public_property_nodes',
       '/tiles/private_read_property_nodes/{z}/{x}/{y}',

@@ -6664,16 +6664,60 @@
                   "required": [
                     "tilejson",
                     "name",
-                    "description",
                     "tiles",
                     "minzoom",
                     "maxzoom",
                     "bounds"
                   ],
-                  "additionalProperties": false
+                  "additionalProperties": {}
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/tiles/base/{z}/{x}/{y}": {
+      "get": {
+        "summary": "Proxy base tile",
+        "tags": [
+          "tiles"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 22
+            },
+            "in": "path",
+            "name": "z",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "x",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "path",
+            "name": "y",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

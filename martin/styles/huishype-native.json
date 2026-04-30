@@ -6,9 +6,7 @@
   "sources": {
     "base-source": {
       "type": "vector",
-      "tiles": ["/tiles/base/{z}/{x}/{y}"],
-      "minzoom": 0,
-      "maxzoom": 14
+      "url": "/tiles/base"
     },
     "properties-source": {
       "type": "vector",
