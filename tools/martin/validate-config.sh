@@ -12,7 +12,8 @@ usage() {
 Usage: tools/martin/validate-config.sh [--startup]
 
 Validates martin/config.yaml against the local Martin JSON schema and checks
-that checked-in Martin config/style files do not use .pbf tile URL templates.
+that checked-in Martin config/style files do not use .pbf URL templates for
+local HuisHype/Martin tile routes.
 
 Options:
   --startup   Also start the Martin container briefly and fail on warnings,
@@ -120,8 +121,8 @@ uvx --from check-jsonschema check-jsonschema \
   --schemafile "$SCHEMA_PATH" \
   "$CONFIG_PATH"
 
-if rg -n --glob 'config.yaml' --glob '*.json' '\.pbf(\b|[/?#"])' "$ROOT_DIR/martin"; then
-  echo "Martin config/styles must not contain .pbf tile URL templates." >&2
+if rg -n --glob 'config.yaml' --glob '*.json' '(/tiles/[^"]*|https?://[^"]+/tiles/[^"]*)\.pbf(\b|[/?#"])' "$ROOT_DIR/martin"; then
+  echo "Martin config/styles must not contain .pbf URL templates for local /tiles routes." >&2
   exit 1
 fi
 

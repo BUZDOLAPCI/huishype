@@ -6,7 +6,7 @@
   "sources": {
     "base-source": {
       "type": "vector",
-      "url": "/tiles/base"
+      "url": "https://tiles.openfreemap.org/planet"
     },
     "properties-source": {
       "type": "vector",

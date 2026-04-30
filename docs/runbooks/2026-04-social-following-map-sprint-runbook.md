@@ -5,17 +5,20 @@
 This sprint is shipped. This runbook records the completed architecture, runtime
 contracts, and verification points for the social-following map cutover.
 
-Normal app tile usage is Martin-backed through the Fastify `/tiles` gateway.
-Public property tiles, private read-state tiles, private following tiles, base
-tiles, styles, sprites, fonts, buildings, and trees are all served through that
-gateway so app clients keep a single tile origin and cache policy boundary.
+Normal HuisHype-owned tile usage is Martin-backed through the Fastify `/tiles`
+gateway. Public property tiles, private read-state tiles, private following
+tiles, styles, sprites, fonts, buildings, and trees are served through that
+gateway. The production/parity basemap uses the external
+OpenFreeMap/OpenMapTiles source until a real full base archive is provisioned.
 
 ## Architecture
 
 The shipped map stack has four separate surfaces:
 
-- Public base tiles: `/tiles/base` TileJSON and `/tiles/base/{z}/{x}/{y}` tile
-  bytes, backed by the Natural Earth/base PMTiles archive.
+- Public base fixture tiles: `/tiles/base` TileJSON and
+  `/tiles/base/{z}/{x}/{y}` tile bytes, backed by the Martin base PMTiles
+  archive. The checked-in archive is a tiny z0-z1 smoke/local fixture, not the
+  visual-parity basemap.
 - Public property tiles: `/tiles/public_property_nodes` TileJSON and
   `/tiles/public_property_nodes/{z}/{x}/{y}` Martin function tiles.
 - Private read-state tiles: signed `/tiles/sessions` templates for
@@ -37,7 +40,8 @@ and tile URLs to the request origin.
 
 ## Base Tiles
 
-Base map metadata is fixed to the base archive contract:
+The `/tiles/base` smoke/local fixture metadata is fixed to the base archive
+contract:
 
 - source: `base`
 - TileJSON: `/tiles/base`
@@ -46,10 +50,12 @@ Base map metadata is fixed to the base archive contract:
 - max zoom: `14`
 - bounds: `[-180, -85, 180, 85]`
 
-The API TileJSON, web style source metadata, and native style source metadata
-all advertise max zoom 14. Higher zoom map views rely on MapLibre overzooming
-the z14 base archive, while property, building, and tree sources keep their own
-zoom contracts.
+The API TileJSON advertises the archive zoom contract. The tracked web style
+uses `https://tiles.openfreemap.org/planet` for parity with main's Positron
+basemap source. The tracked native style uses the same stable source URL, and
+Fastify inlines that TileJSON into concrete external OpenFreeMap/OpenMapTiles
+tile templates when serving `/tiles/style/huishype-native` because MapLibre
+Native has been unreliable with style-defined TileJSON `url` sources.
 
 ## Public Property Tiles
 

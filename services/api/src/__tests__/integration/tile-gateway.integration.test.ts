@@ -284,7 +284,7 @@ describe('Tile gateway control plane', () => {
       sources: {
         'base-source': {
           type: 'vector',
-          url: 'http://127.0.0.1:3201/tiles/base',
+          url: 'https://tiles.openfreemap.org/planet',
         },
         'properties-source': {
           minzoom: 7,
@@ -373,8 +373,15 @@ describe('Tile gateway control plane', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('serves native style with API-origin base TileJSON URL', async () => {
-    fetchSpy = jest.spyOn(globalThis, 'fetch');
+  it('serves native style with external OpenFreeMap base tiles inlined', async () => {
+    mockMartinJsonResponse({
+      tilejson: '3.0.0',
+      tiles: ['https://tiles.openfreemap.org/planet/current/{z}/{x}/{y}.pbf'],
+      minzoom: 0,
+      maxzoom: 14,
+      bounds: [-180, -85.05113, 180, 85.05113],
+      attribution: 'OpenFreeMap',
+    });
 
     const styleResponse = await app.inject({
       method: 'GET',
@@ -386,14 +393,19 @@ describe('Tile gateway control plane', () => {
     const style = JSON.parse(styleResponse.body);
     expect(style.sources['base-source']).toMatchObject({
       type: 'vector',
-      url: 'http://127.0.0.1:3201/tiles/base',
+      tiles: ['https://tiles.openfreemap.org/planet/current/{z}/{x}/{y}.pbf'],
+      minzoom: 0,
+      maxzoom: 14,
+      attribution: 'OpenFreeMap',
     });
-    expect(style.sources['base-source'].tiles).toBeUndefined();
-    expect(style.sources['base-source'].maxzoom).toBeUndefined();
+    expect(style.sources['base-source'].url).toBeUndefined();
     expect(style.sources['properties-source'].tiles).toEqual([
       'http://127.0.0.1:3201/tiles/public_property_nodes/{z}/{x}/{y}',
     ]);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(style.sources['properties-source'].tiles[0]).not.toContain('.pbf');
+
+    const fetchedUrl = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(fetchedUrl.href).toBe('https://tiles.openfreemap.org/planet');
   });
 
   it('proxies base TileJSON through Martin and rewrites tile URLs to the API origin', async () => {

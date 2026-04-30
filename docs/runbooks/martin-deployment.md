@@ -35,8 +35,9 @@ Martin preserves `/tiles` end-to-end:
 - `route_prefix: /tiles`
 - `base_path: /tiles`
 
-Tile URLs are extensionless. Do not add `.pbf` tile templates to styles,
-TileJSON fixtures, smoke tests, or client-facing docs.
+HuisHype/Martin tile URLs are extensionless. Do not add `.pbf` tile templates to
+local `/tiles` routes in styles, TileJSON fixtures, smoke tests, or
+client-facing docs. External basemap providers may use their own URL contract.
 
 Configured source endpoints:
 
@@ -90,7 +91,15 @@ Required before local startup:
 - rebuild/validate the projection tables:
   `pnpm --filter @huishype/api db:rebuild-map-projections` and
   `pnpm --filter @huishype/api db:validate-map-projections`
-- place the base archive at `martin/tiles/base.pmtiles`
+- keep the checked-in smoke fixture or place a replacement archive at
+  `martin/tiles/base.pmtiles`
+
+The checked-in `martin/tiles/base.pmtiles` is only a z0-z1 smoke/local fixture.
+The tracked web style uses OpenFreeMap/OpenMapTiles as the visual-parity
+basemap. The tracked native style uses the same stable OpenFreeMap source URL;
+Fastify inlines that TileJSON into concrete external tile templates when serving
+`/tiles/style/huishype-native` because MapLibre Native has been unreliable with
+style-defined TileJSON `url` sources.
 
 ## Production Use
 

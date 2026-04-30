@@ -156,8 +156,10 @@ type MartinProxyOptions = {
 };
 
 type MartinStyleSource = {
+  type?: string;
   url?: string;
   tiles?: string[];
+  [key: string]: unknown;
 };
 
 type MartinStyleDocument = {
@@ -165,6 +167,14 @@ type MartinStyleDocument = {
   glyphs?: string;
   sources?: Record<string, MartinStyleSource>;
   [key: string]: unknown;
+};
+
+type ExternalTileJsonSource = {
+  tiles?: unknown;
+  minzoom?: unknown;
+  maxzoom?: unknown;
+  bounds?: unknown;
+  attribution?: unknown;
 };
 
 type TileSessionIssueContext = {
@@ -716,6 +726,53 @@ function absolutizeTileGatewayUrl(baseUrl: string, value: string | undefined): s
   return value;
 }
 
+async function inlineNativeExternalTileJsonSource(
+  app: FastifyInstance,
+  source: MartinStyleSource
+): Promise<void> {
+  if (
+    source.type !== 'vector' ||
+    source.tiles ||
+    typeof source.url !== 'string' ||
+    !source.url.startsWith('https://tiles.openfreemap.org/')
+  ) {
+    return;
+  }
+
+  try {
+    const response = await fetch(source.url);
+    if (!response.ok) {
+      throw new Error(`OpenFreeMap TileJSON request failed with ${response.status}`);
+    }
+
+    const tileJson = (await response.json()) as ExternalTileJsonSource;
+    if (!Array.isArray(tileJson.tiles)) {
+      throw new Error('OpenFreeMap TileJSON response did not include tiles');
+    }
+
+    source.tiles = tileJson.tiles.filter((tile): tile is string => typeof tile === 'string');
+    if (source.tiles.length === 0) {
+      throw new Error('OpenFreeMap TileJSON response did not include string tile templates');
+    }
+
+    delete source.url;
+    if (tileJson.minzoom != null) {
+      source.minzoom = tileJson.minzoom;
+    }
+    if (tileJson.maxzoom != null) {
+      source.maxzoom = tileJson.maxzoom;
+    }
+    if (tileJson.bounds != null) {
+      source.bounds = tileJson.bounds;
+    }
+    if (tileJson.attribution != null) {
+      source.attribution = tileJson.attribution;
+    }
+  } catch (err) {
+    app.log.warn({ err, sourceUrl: source.url }, 'Failed to inline native external TileJSON');
+  }
+}
+
 async function sendMartinTileJsonResource(
   app: FastifyInstance,
   request: FastifyRequest,
@@ -758,6 +815,7 @@ async function sendMartinTileJsonResource(
 }
 
 async function sendMartinStyleResource(
+  app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
   styleId: 'huishype' | 'huishype-native'
@@ -776,6 +834,10 @@ async function sendMartinStyleResource(
         (tileUrl) => absolutizeTileGatewayUrl(baseUrl, tileUrl) ?? tileUrl
       );
     }
+  }
+
+  if (styleId === 'huishype-native') {
+    await inlineNativeExternalTileJsonSource(app, style.sources?.['base-source'] ?? {});
   }
 
   return reply
@@ -862,7 +924,7 @@ export async function tileRoutes(app: FastifyInstance) {
         params: styleResourceParamsSchema,
       },
     },
-    async (request, reply) => sendMartinStyleResource(request, reply, request.params.styleId)
+    async (request, reply) => sendMartinStyleResource(app, request, reply, request.params.styleId)
   );
 
   typedApp.get(
