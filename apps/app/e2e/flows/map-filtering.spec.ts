@@ -72,7 +72,7 @@ test.describe('Map Filtering', () => {
     await waitForMapReady(page, 60_000);
 
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
-    expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+    expect(initialTileUrl).toContain('/tiles/public_property_nodes/{z}/{x}/{y}');
 
     await page.getByTestId('map-filter-pill-price').click();
     await page.getByTestId('map-filter-input-price-sale-from').click();

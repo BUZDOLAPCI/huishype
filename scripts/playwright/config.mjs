@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { devices } from '@playwright/test';
 import {
@@ -11,9 +12,43 @@ import {
 
 /** @typedef {import('@playwright/test').PlaywrightTestConfig} PlaywrightTestConfig */
 
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
+const WELCOME_MODAL_DISMISSED_VALUE = '1';
+
+export function ensureDefaultStorageState(runtime) {
+  const storageDir = path.join(runtime.artifactRoot, 'storage');
+  const storageStatePath = path.join(storageDir, 'default-state.json');
+
+  fs.mkdirSync(storageDir, { recursive: true });
+  fs.writeFileSync(
+    storageStatePath,
+    JSON.stringify(
+      {
+        cookies: [],
+        origins: [
+          {
+            origin: runtime.webOrigin,
+            localStorage: [
+              {
+                name: WELCOME_MODAL_DISMISSED_KEY,
+                value: WELCOME_MODAL_DISMISSED_VALUE,
+              },
+            ],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+
+  return storageStatePath;
+}
+
 /** @returns {PlaywrightTestConfig} */
 export function createPlaywrightConfig() {
   const runtime = applyPlaywrightRuntimeEnvironment();
+  const storageState = ensureDefaultStorageState(runtime);
   const disableWebServer = process.env.PLAYWRIGHT_DISABLE_WEBSERVER === '1';
   const isCi = !!process.env.CI;
   const benchmarkTestDir = path.join(PLAYWRIGHT_TEST_DIR, 'benchmark');
@@ -75,6 +110,7 @@ export function createPlaywrightConfig() {
       video: 'on-first-retry',
       navigationTimeout: 45_000,
       actionTimeout: 15_000,
+      storageState,
     },
     timeout: 60_000,
     projects,

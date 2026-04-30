@@ -26,6 +26,8 @@
     "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts",
     "db:import-buildings": "tsx src/scripts/import-osm-buildings.ts",
     "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts",
+    "db:rebuild-map-projections": "tsx src/scripts/map-projections.ts rebuild",
+    "db:validate-map-projections": "tsx src/scripts/map-projections.ts validate",
     "ingest:recover": "tsx src/scripts/ingest-recovery.ts"
   },
   "dependencies": {

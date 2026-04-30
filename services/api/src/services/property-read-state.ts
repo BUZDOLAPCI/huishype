@@ -210,6 +210,60 @@ export async function hasCurrentReadStateForViewer(
   return Array.from(rows)[0]?.has_read_state === true;
 }
 
+export async function getReadTileSessionVersion(
+  viewer: PropertyReadViewer,
+  executor?: SqlExecutor | DbTransaction,
+): Promise<string> {
+  const rows = await executorOrDb(executor).execute<{ version: string }>(sql`
+    SELECT COALESCE(
+      md5(string_agg(
+        prs.property_id::text || ':' ||
+        prs.seen_change_version::text || ':' ||
+        COALESCE(pcs.change_version, 0)::text,
+        ',' ORDER BY prs.property_id::text
+      )),
+      'empty'
+    ) AS version
+    FROM property_read_state prs
+    LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
+    WHERE ${readStateIdentityPredicate(viewer)}
+      AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+  `);
+
+  return Array.from(rows)[0]?.version ?? 'empty';
+}
+
+export async function getFollowingTileSessionVersion(
+  viewerId: string,
+  executor?: SqlExecutor | DbTransaction,
+): Promise<string> {
+  const rows = await executorOrDb(executor).execute<{ version: string }>(sql`
+    WITH followed AS (
+      SELECT uf.followed_user_id, uf.created_at
+      FROM user_follows uf
+      WHERE uf.follower_user_id = ${viewerId}
+    ),
+    follow_fingerprint AS (
+      SELECT COALESCE(
+        string_agg(f.followed_user_id::text || ':' || EXTRACT(EPOCH FROM f.created_at)::text, ',' ORDER BY f.followed_user_id::text),
+        ''
+      ) AS value
+      FROM followed f
+    ),
+    activity_fingerprint AS (
+      SELECT
+        COUNT(a.property_id)::text || ':' ||
+        COALESCE(EXTRACT(EPOCH FROM MAX(a.activity_at))::text, '0') AS value
+      FROM followed f
+      LEFT JOIN map_property_actor_activity a ON a.actor_user_id = f.followed_user_id
+    )
+    SELECT md5(follow_fingerprint.value || '|' || activity_fingerprint.value) AS version
+    FROM follow_fingerprint, activity_fingerprint
+  `);
+
+  return Array.from(rows)[0]?.version ?? 'empty';
+}
+
 export async function filterReadCanonicalGroups<TGroup extends PropertyGroupLike>(
   groups: readonly TGroup[],
   viewer: PropertyReadViewer,

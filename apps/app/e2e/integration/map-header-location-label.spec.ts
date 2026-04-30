@@ -4,7 +4,9 @@ import type { WindowWithMapInstance } from '../helpers/map-instance';
 
 const AMSTERDAM_CENTER: [number, number] = [4.8952, 52.3702];
 
-const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+const KNOWN_ACCEPTABLE_ERRORS = [
+  ...NETWORK_ALLOWED_CONSOLE_PATTERNS,
+];
 
 async function waitForMapReady(page: Page, timeout = 60_000) {
   await page.waitForSelector('canvas', { timeout });

@@ -249,8 +249,10 @@ test.describe('HuisHype Visual E2E Tests', () => {
       ctx.start();
 
       const styleCalls: { url: string; status: number | null; error?: string }[] = [];
+      const isMergedStyleRequest = (url: string) => url.includes('/tiles/style/huishype');
+
       page.on('response', (response) => {
-        if (response.url().includes('/tiles/style.json')) {
+        if (isMergedStyleRequest(response.url())) {
           styleCalls.push({
             url: response.url(),
             status: response.status(),
@@ -259,7 +261,7 @@ test.describe('HuisHype Visual E2E Tests', () => {
       });
 
       page.on('requestfailed', (request) => {
-        if (request.url().includes('/tiles/style.json')) {
+        if (isMergedStyleRequest(request.url())) {
           styleCalls.push({
             url: request.url(),
             status: null,

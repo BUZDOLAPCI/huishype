@@ -29,15 +29,12 @@ Ship the same product codebase to:
 - **Map rendering engine:** **MapLibre GL** (open-source fork of Mapbox GL) — free, industry standard, compatible with vector tiles
 - **Preview UI:**  Use React Three Fiber (standard for React ecosystem) instead of raw Expo Three.
 
-- **Tile sources (priority order):**
-  1. **PDOK Dutch Government Vector Tiles** (free, official, incredibly detailed for Netherlands)
-  2. **PMTiles on Cloudflare R2** — Cloud-optimized single-file tile archives
-     - **Why PMTiles:** Drastically simplifies deployment and file management for agents
-     - No complex tile server infrastructure needed
-     - Single file per tileset, served directly from R2
-     - Standard format, compatible with MapLibre GL
+- **Tile serving:** **Martin behind the Fastify `/tiles` gateway**
+  - Martin is the internal data plane for map tiles, styles, sprites, fonts, base archives, buildings, trees, and property-node tiles.
+  - Fastify is the public control plane: it issues signed tile sessions for private read/following sources, injects trusted viewer/version params, and streams Martin bytes without generating MVT itself.
+  - Dynamic property/read/following tiles are MVT from PostGIS functions over projection tables. Base/static archives can still use PMTiles mounted into Martin.
 - **Why not Mapbox SaaS:** Mapbox-the-company charges pay-per-load pricing. For a social browsing app where users pan/zoom constantly, unit economics would break at scale. MapLibre + self-hosted tiles on Cloudflare R2 costs pennies (storage + bandwidth only, zero egress fees).
-- **Clustering:** Server-side clustering via **PostGIS** for 10k+ nodes — client-side clustering does not scale
+- **Clustering:** Server-side aggregation via **PostGIS projection tables + Martin SQL tile functions** for 10k+ nodes — client-side clustering does not scale
 - **Design assumption:** map interactions and visual identity are first-class
 
 ### Backend (product anchor)
@@ -60,7 +57,7 @@ Ship the same product codebase to:
 ### Storage & delivery
 - **Object storage:** **Cloudflare R2** (zero egress fees)
   - Images, thumbnails, exports
-  - Map tile hosting (PMTiles archives — cloud-optimized single-file format)
+  - Static map archive hosting when used (PMTiles archives — cloud-optimized single-file format)
   - **3D cosmetic assets** (Virtual House models for HuisHype Plus)
 - **CDN:** Cloudflare CDN for media + static assets + map tiles + 3D model assets
 
@@ -125,7 +122,7 @@ Ship the same product codebase to:
 8. **NativeWind** as the styling system (Tailwind for RN)
 9. **TanStack Query** as the data fetching/caching layer
 10. **Redis** for caching, rate limiting, and real-time aggregations
-11. **Cloudflare R2** for object storage and map tile hosting
+11. **Martin + Cloudflare R2/static archives** for map resources, with R2 also serving object storage
 12. **Turborepo + pnpm workspaces** for monorepo management
 13. **RevenueCat** for unified subscription management across platforms
 

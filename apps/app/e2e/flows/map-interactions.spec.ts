@@ -168,7 +168,7 @@ async function waitForPointFeatures(
       const canvas = map.getCanvas();
       if (!canvas) return false;
 
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      const layers = ['property-clusters', 'property-cluster-fill', 'active-nodes', 'active-node-fill', 'ghost-clusters', 'ghost-nodes']
         .filter((layer) => map.getLayer(layer));
       if (layers.length === 0) return false;
 
@@ -651,7 +651,7 @@ test.describe('Map Interactions', () => {
       if (!map) return { count: 0, hasCluster: false };
       const canvas = map.getCanvas();
       if (!canvas) return { count: 0, hasCluster: false };
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      const layers = ['property-clusters', 'property-cluster-fill', 'active-nodes', 'active-node-fill', 'ghost-clusters', 'ghost-nodes']
         .filter((layer) => map.getLayer(layer));
       const features = layers.length > 0
         ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
@@ -675,7 +675,7 @@ test.describe('Map Interactions', () => {
       if (!map) return { count: 0, hasGhost: false };
       const canvas = map.getCanvas();
       if (!canvas) return { count: 0, hasGhost: false };
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      const layers = ['property-clusters', 'property-cluster-fill', 'active-nodes', 'active-node-fill', 'ghost-clusters', 'ghost-nodes']
         .filter((layer) => map.getLayer(layer));
       const features = layers.length > 0
         ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
@@ -765,7 +765,7 @@ test.describe('Map Interactions', () => {
     await waitForPointFeatures(page, { timeout: 30_000 });
 
     expect(
-      tileRequests.some((url) => url.includes('/tiles/properties/')),
+      tileRequests.some((url) => url.includes('/tiles/public_property_nodes/')),
       `Expected property tile requests after panning, saw: ${tileRequests.join(', ')}`
     ).toBe(true);
   });
@@ -847,7 +847,7 @@ test.describe('Map Interactions', () => {
     const x = 16881;
     const y = 10905;
 
-    const response = await request.get(`${API_BASE_URL}/tiles/properties/${z}/${x}/${y}.pbf`);
+    const response = await request.get(`${API_BASE_URL}/tiles/public_property_nodes/${z}/${x}/${y}`);
 
     // Should return 200 with data or 204 with no content
     expect([200, 204]).toContain(response.status());

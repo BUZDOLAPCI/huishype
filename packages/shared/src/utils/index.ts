@@ -123,7 +123,6 @@ export {
   getPropertyMarketFilterSearchString,
   appendSearchToPath,
   buildPropertyTileTemplateUrl,
-  buildFollowingPropertyTileTemplateUrl,
   buildNearbyGroupPath,
   buildFollowingNearbyGroupPath,
   getSaleEffectivePrice,

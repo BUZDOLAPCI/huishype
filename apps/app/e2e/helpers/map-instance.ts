@@ -120,7 +120,7 @@ export async function clickRenderedPropertyMarkerById(
           return null;
         }
 
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
+        const layerNames = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'];
         const rect = canvas.getBoundingClientRect();
 
         for (const layerName of layerNames) {

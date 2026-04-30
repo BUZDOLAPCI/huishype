@@ -111,7 +111,7 @@ function PropertyFeedCardComponent({
       accessibilityHint="Opens property details"
       testID="property-feed-card"
     >
-      <Card shadow="card">
+      <Card shadow="card" testID="property-feed-card-visible">
         {/* Image section */}
         <View style={styles.imageWrapper}>
           <PropertyImageSurface

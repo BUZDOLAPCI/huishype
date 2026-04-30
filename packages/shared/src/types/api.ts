@@ -557,14 +557,35 @@ export interface PropertyTileJson {
   bounds: [number, number, number, number];
 }
 
+export type PropertyTileSessionScope = 'read' | 'following';
+
+export interface PropertyTileSessionRequest extends FollowingPropertyTileRequest {
+  scope: PropertyTileSessionScope;
+}
+
+export interface PropertyTileSessionResponse {
+  token: string;
+  tokenType: 'HuisHypeTileSession';
+  scope: PropertyTileSessionScope;
+  audience: 'read-properties' | 'following-properties';
+  expiresAt: string;
+  ttlSeconds: number;
+  tileTemplate: string;
+  cacheBustedTileTemplate: string;
+  tiles: {
+    template: string;
+    replacementTemplate: string;
+  };
+}
+
 export interface FollowingPropertyTileRequest extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
   activity?: MapActivityFilter;
 }
 
-export type GetFollowingPropertyTilesRequest = FollowingPropertyTileRequest;
+export type CreatePropertyTileSessionRequest = PropertyTileSessionRequest;
 
-export type GetFollowingPropertyTilesResponse = PropertyTileJson;
+export type CreatePropertyTileSessionResponse = PropertyTileSessionResponse;
 
 export interface GetFollowingNearbyPropertyRequest extends FollowingPropertyTileRequest {
   lon: number;
@@ -582,12 +603,14 @@ export type FollowingNearbyPropertyGroupBase = {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
 };
 
 export type FollowingNearbySinglePropertyResponse = {
@@ -600,12 +623,14 @@ export type FollowingNearbySinglePropertyResponse = {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'single';
   address: string;
   city: string;
@@ -625,12 +650,14 @@ export type FollowingNearbyClusterPropertyResponse = {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'cluster';
 };
 

@@ -7,8 +7,6 @@
 
 import { http, HttpResponse } from 'msw';
 import {
-  buildFollowingPropertyTileTemplateUrl,
-  getMapFilterSearchString,
   isMapActivityFilter,
   parseMapFiltersFromSearchParams,
 } from '@huishype/shared';
@@ -113,9 +111,37 @@ function areAllMockPropertiesRead(propertyIds: string[], viewerKey: string | nul
   );
 }
 
-function buildReadPropertyTileTemplateUrl(baseUrl: string, searchParams: URLSearchParams): string {
-  const filters = parseMapFiltersFromSearchParams(searchParams);
-  return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
+function appendTileSessionParam(template: string, token: string): string {
+  const separator = template.includes('?') ? '&' : '?';
+  return `${template}${separator}tile_session=${encodeURIComponent(token)}`;
+}
+
+function getTileSessionSearchParams(body: Record<string, unknown>): URLSearchParams {
+  const params = new URLSearchParams();
+  const keys = ['salePriceFrom', 'salePriceTo', 'rentPriceFrom', 'rentPriceTo'] as const;
+
+  for (const key of keys) {
+    const value = body[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      params.set(key, String(value));
+    }
+  }
+
+  const marketState = body.marketState;
+  if (Array.isArray(marketState)) {
+    const values = marketState.filter((value): value is string => typeof value === 'string');
+    if (values.length > 0) {
+      params.set('marketState', values.join(','));
+    }
+  } else if (typeof marketState === 'string' && marketState.length > 0) {
+    params.set('marketState', marketState);
+  }
+
+  if (isMapActivityFilter(String(body.activity))) {
+    params.set('activity', String(body.activity));
+  }
+
+  return params;
 }
 
 function getMockMarketState(
@@ -461,6 +487,7 @@ function buildNearbySingleResponse({
     address: property.address,
     city: property.city,
     activeListingCount: hasActiveListing ? 1 : 0,
+    completedListingCount: 0,
     socialCount,
     recentSocialCount,
     socialScoreTotal,
@@ -624,6 +651,7 @@ export const propertyHandlers = [
         coordinate: [4.884, 52.3752] as [number, number],
         bbox: [4.8836, 52.3748, 4.8844, 52.3756] as [number, number, number, number],
         activeListingCount: 3,
+        completedListingCount: 0,
         socialCount: 4,
         recentSocialCount: 2,
         socialScoreTotal: 210,
@@ -677,73 +705,90 @@ export const propertyHandlers = [
   }),
 
   /**
-   * GET /tiles/properties/read.json - Viewer-specific read-state TileJSON
+   * POST /tiles/sessions - Signed private tile template issuance
    */
-  http.get('*/tiles/properties/read.json', ({ request }) => {
-    const viewerKey = getMockReadViewerKey(request);
-    if (!viewerKey) {
-      return HttpResponse.json(
-        {
-          error: 'BAD_REQUEST',
-          message: 'Authenticated user or x-session-id header is required.',
-        },
-        { status: 400 }
-      );
+  http.post('*/tiles/sessions', async ({ request }) => {
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const scope = body.scope;
+    const url = new URL(request.url);
+    const params = getTileSessionSearchParams(body);
+    const query = params.toString();
+    const suffix = query ? `?${query}` : '';
+
+    if (scope === 'following') {
+      const authUser = getMockAuthUser(request.headers.get('Authorization'));
+      if (!authUser) {
+        return HttpResponse.json(
+          { error: 'UNAUTHORIZED', message: 'Authentication required' },
+          { status: 401 }
+        );
+      }
+
+      const unsignedTemplate = `${url.origin}/tiles/private_following_property_nodes/{z}/{x}/{y}${suffix}`;
+      const template = appendTileSessionParam(unsignedTemplate, 'mock-following-tile-session');
+
+      return HttpResponse.json({
+        scope: 'following',
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        tileTemplate: template,
+        cacheBustedTileTemplate: appendTileSessionParam(
+          unsignedTemplate,
+          'mock-following-tile-session-v2'
+        ),
+      });
     }
 
-    const url = new URL(request.url);
-    return HttpResponse.json({
-      tilejson: '2.1.0',
-      name: 'HuisHype Read Properties',
-      description: 'Viewer-specific read property overlay data with clustering',
-      tiles: [buildReadPropertyTileTemplateUrl(url.origin, url.searchParams)],
-      minzoom: 0,
-      maxzoom: 22,
-      bounds: [-180, -85, 180, 85] as [number, number, number, number],
-    });
+    if (scope === 'read') {
+      const viewerKey = getMockReadViewerKey(request);
+      if (!viewerKey) {
+        return HttpResponse.json(
+          {
+            error: 'BAD_REQUEST',
+            message: 'Authenticated user or x-session-id header is required.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const unsignedTemplate = `${url.origin}/tiles/private_read_property_nodes/{z}/{x}/{y}${suffix}`;
+      const template = appendTileSessionParam(unsignedTemplate, 'mock-read-tile-session');
+
+      return HttpResponse.json({
+        scope: 'read',
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        tileTemplate: template,
+        cacheBustedTileTemplate: appendTileSessionParam(unsignedTemplate, 'mock-read-tile-session-v2'),
+      });
+    }
+
+    return HttpResponse.json(
+      { error: 'VALIDATION_ERROR', message: 'Request validation failed' },
+      { status: 400 }
+    );
   }),
 
-  /**
-   * GET /tiles/properties/read/:z/:x/:y.pbf - Viewer-specific read-state vector tile
-   */
-  http.get('*/tiles/properties/read/:z/:x/:y.pbf', ({ request }) => {
-    const viewerKey = getMockReadViewerKey(request);
-    if (!viewerKey) {
+  http.get('*/tiles/private_read_property_nodes/:z/:x/:y', ({ request }) => {
+    const url = new URL(request.url);
+    if (!url.searchParams.get('tile_session')) {
       return HttpResponse.json(
-        {
-          error: 'BAD_REQUEST',
-          message: 'Authenticated user or x-session-id header is required.',
-        },
-        { status: 400 }
+        { error: 'UNAUTHORIZED', message: 'Valid tile session is required' },
+        { status: 401 }
       );
     }
 
     return new HttpResponse(null, { status: 204 });
   }),
 
-  /**
-   * GET /tiles/following/properties.json - Authenticated Following TileJSON
-   */
-  http.get('*/tiles/following/properties.json', ({ request }) => {
-    const authUser = getMockAuthUser(request.headers.get('Authorization'));
-    if (!authUser) {
+  http.get('*/tiles/private_following_property_nodes/:z/:x/:y', ({ request }) => {
+    const url = new URL(request.url);
+    if (!url.searchParams.get('tile_session')) {
       return HttpResponse.json(
-        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'UNAUTHORIZED', message: 'Valid tile session is required' },
         { status: 401 }
       );
     }
 
-    const url = new URL(request.url);
-    const filters = parseFollowingMapFiltersFromSearchParams(url.searchParams);
-    return HttpResponse.json({
-      tilejson: '2.1.0',
-      name: 'HuisHype Following Properties',
-      description: 'Personalized grouped property data from followed-user qualifying activity',
-      tiles: [buildFollowingPropertyTileTemplateUrl(url.origin, filters)],
-      minzoom: 0,
-      maxzoom: 22,
-      bounds: [-180, -85, 180, 85] as [number, number, number, number],
-    });
+    return new HttpResponse(null, { status: 204 });
   }),
 
   /**
@@ -799,6 +844,7 @@ export const propertyHandlers = [
           Math.max(...clustered.map(({ property }) => property.coordinates.lat)),
         ] as [number, number, number, number],
         activeListingCount: clustered.filter(({ property }) => property.activeListing).length,
+        completedListingCount: 0,
         socialCount: clustered.length,
         recentSocialCount: clustered.length,
         socialScoreTotal: clustered.reduce(

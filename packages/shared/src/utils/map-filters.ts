@@ -586,7 +586,7 @@ export function appendSearchToPath(pathname: string, search: string): string {
 }
 
 export function buildPropertyTileTemplateUrl(apiUrl: string, filters: MapFilters): string {
-  return `${apiUrl}/tiles/properties/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
+  return `${apiUrl}/tiles/public_property_nodes/{z}/{x}/{y}${getMapFilterSearchString(filters)}`;
 }
 
 export function getPropertyMarketFilterSearchString(
@@ -599,15 +599,6 @@ export function getPropertyMarketFilterSearchString(
   );
   const query = params.toString();
   return query ? `?${query}` : '';
-}
-
-export function buildFollowingPropertyTileTemplateUrl(
-  apiUrl: string,
-  filters: FollowingPropertyFilters
-): string {
-  const params = updateFollowingPropertyFilterSearchParams(new URLSearchParams(), filters);
-  const query = params.toString();
-  return `${apiUrl}/tiles/following/properties/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
 }
 
 export function buildNearbyGroupPath(

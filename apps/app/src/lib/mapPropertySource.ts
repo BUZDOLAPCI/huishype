@@ -1,8 +1,4 @@
-import {
-  getMapFilterSearchString,
-  type MapActivityFilter,
-  type MapFilters,
-} from './sharedMapFilters';
+import type { MapActivityFilter, MapFilters } from './sharedMapFilters';
 import {
   MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK,
@@ -29,8 +25,7 @@ export const PROPERTY_VECTOR_SOURCE_ID = 'properties-source';
 export const READ_PROPERTY_VECTOR_SOURCE_ID = 'read-properties-source';
 export const PROPERTY_VECTOR_SOURCE_PROMOTE_ID = 'primary_property_id';
 export const READ_PROPERTY_FEATURE_STATE_KEY = 'read';
-export const FOLLOWING_TILEJSON_PATH = '/tiles/following/properties.json';
-export const READ_TILEJSON_PATH = '/tiles/properties/read.json';
+export const TILE_SESSION_PATH = '/tiles/sessions';
 
 export const READ_OVERLAY_LAYER_IDS = [
   'read-property-clusters',
@@ -61,7 +56,9 @@ export interface TileJsonLike {
 export interface ResolvedFollowingTileSource {
   tileJsonUrl: string;
   tileUrl: string;
+  cacheBustedTileUrl: string;
   tileJson: TileJsonLike;
+  expiresAt: string | null;
 }
 
 export interface ReadTileCredential {
@@ -69,16 +66,18 @@ export interface ReadTileCredential {
   headerValue: string;
 }
 
-export interface ResolvedReadTileSource extends ReadTileCredential {
+export interface ResolvedReadTileSource {
   tileJsonUrl: string;
   tileUrl: string | null;
   cacheBustedTileUrl: string | null;
   tileJson: TileJsonLike;
   version: number;
+  expiresAt: string | null;
 }
 
 type SourceLike = {
   tiles?: string[];
+  url?: string | null;
   [key: string]: unknown;
 };
 
@@ -109,14 +108,24 @@ function buildStepExpression(
   stops: readonly NumericStop[]
 ): [string, unknown, number, ...(number | string)[]] {
   const [firstStop, ...restStops] = stops;
-  return ['step', input, firstStop[1], ...restStops.flatMap(([threshold, value]) => [threshold, value])];
+  return [
+    'step',
+    input,
+    firstStop[1],
+    ...restStops.flatMap(([threshold, value]) => [threshold, value]),
+  ];
 }
 
 function buildInterpolateExpression<TValue extends number | string>(
   input: unknown,
   stops: ReadonlyArray<readonly [threshold: number, value: TValue]>
 ): [string, string[], unknown, ...(number | string)[]] {
-  return ['interpolate', ['linear'], input, ...stops.flatMap(([threshold, value]) => [threshold, value])];
+  return [
+    'interpolate',
+    ['linear'],
+    input,
+    ...stops.flatMap(([threshold, value]) => [threshold, value]),
+  ];
 }
 
 function buildPropertyFieldExpression(field: string, fallback = 0): unknown[] {
@@ -138,12 +147,7 @@ function buildReadStateExpression(): unknown[] {
 }
 
 function buildReadFeatureStateOpacityExpression(baseOpacity: unknown): unknown[] {
-  return [
-    'case',
-    buildReadStateExpression(),
-    ['*', baseOpacity, READ_NODE_OPACITY],
-    baseOpacity,
-  ];
+  return ['case', buildReadStateExpression(), ['*', baseOpacity, READ_NODE_OPACITY], baseOpacity];
 }
 
 function buildReadListingCondition(listingMetric: unknown): unknown[] {
@@ -192,7 +196,9 @@ function applyReadListingStrokeStyle(
   };
 }
 
-function applyProbeOpacity(layer: CircleLayerLike | SymbolLayerLike): CircleLayerLike | SymbolLayerLike {
+function applyProbeOpacity(
+  layer: CircleLayerLike | SymbolLayerLike
+): CircleLayerLike | SymbolLayerLike {
   if (layer.type === 'circle') {
     return {
       ...layer,
@@ -241,36 +247,75 @@ function buildFollowingTileSearchParams(
   return params;
 }
 
-export function buildFollowingTileJsonCandidateUrls(
-  apiUrl: string,
+function buildTileSessionUrl(apiUrl: string): string {
+  return `${apiUrl.replace(/\/$/, '')}${TILE_SESSION_PATH}`;
+}
+
+function optionalNumber(value: number | null | undefined): number | undefined {
+  return value ?? undefined;
+}
+
+function buildFollowingTileSessionBody(
   filters: MapFilters,
-  followingActivity: MapActivityFilter = 'all-time'
-): string[] {
-  const normalizedApiUrl = apiUrl.replace(/\/$/, '');
-  const search = buildFollowingTileSearchParams(filters, followingActivity).toString();
-  const suffix = search.length > 0 ? `?${search}` : '';
+  followingActivity: MapActivityFilter
+): Record<string, unknown> {
+  const params = buildFollowingTileSearchParams(filters, followingActivity);
+  const marketState = params.get('marketState');
 
-  return [`${normalizedApiUrl}${FOLLOWING_TILEJSON_PATH}${suffix}`];
+  return {
+    scope: 'following',
+    salePriceFrom: optionalNumber(filters.salePriceFrom),
+    salePriceTo: optionalNumber(filters.salePriceTo),
+    rentPriceFrom: optionalNumber(filters.rentPriceFrom),
+    rentPriceTo: optionalNumber(filters.rentPriceTo),
+    marketState: marketState ? marketState.split(',') : undefined,
+    activity: params.get('activity') ?? 'all-time',
+  };
 }
 
-function appendSearchParam(url: string, key: string, value: string): string {
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+function buildReadTileSessionBody(filters: MapFilters): Record<string, unknown> {
+  return {
+    scope: 'read',
+    salePriceFrom: optionalNumber(filters.salePriceFrom),
+    salePriceTo: optionalNumber(filters.salePriceTo),
+    rentPriceFrom: optionalNumber(filters.rentPriceFrom),
+    rentPriceTo: optionalNumber(filters.rentPriceTo),
+    marketState:
+      filters.marketState.length > 0 && filters.marketState.length < 5
+        ? filters.marketState
+        : undefined,
+    activity: filters.activity,
+  };
 }
 
-function withReadVersion(url: string, version: number): string {
-  return version > 0 ? appendSearchParam(url, 'readVersion', String(version)) : url;
+function getFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
-export function buildReadTileJsonUrl(
-  apiUrl: string,
-  filters: MapFilters,
-  version = 0
-): string {
-  const normalizedApiUrl = apiUrl.replace(/\/$/, '');
-  const baseUrl = `${normalizedApiUrl}${READ_TILEJSON_PATH}${getMapFilterSearchString(filters)}`;
+function normalizeTileSessionResponse(tileSession: TileJsonLike): {
+  tileUrl: string | null;
+  cacheBustedTileUrl: string | null;
+  expiresAt: string | null;
+} {
+  const tiles =
+    tileSession.tiles && typeof tileSession.tiles === 'object'
+      ? (tileSession.tiles as Record<string, unknown>)
+      : {};
+  const tileUrl = getFirstString(tileSession.tileTemplate, tiles.template);
+  const cacheBustedTileUrl =
+    getFirstString(tileSession.cacheBustedTileTemplate, tiles.replacementTemplate) ?? tileUrl;
 
-  return withReadVersion(baseUrl, version);
+  return {
+    tileUrl,
+    cacheBustedTileUrl,
+    expiresAt: typeof tileSession.expiresAt === 'string' ? tileSession.expiresAt : null,
+  };
 }
 
 async function createApiError(response: Response) {
@@ -290,44 +335,36 @@ export async function fetchFollowingTileSource(
   followingActivity: MapActivityFilter,
   accessToken: string
 ): Promise<ResolvedFollowingTileSource> {
-  const candidateUrls = buildFollowingTileJsonCandidateUrls(apiUrl, filters, followingActivity);
+  const tileSessionUrl = buildTileSessionUrl(apiUrl);
+  const response = await fetch(tileSessionUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(buildFollowingTileSessionBody(filters, followingActivity)),
+  });
 
-  for (const candidateUrl of candidateUrls) {
-    const response = await fetch(candidateUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (response.status === 404) {
-      continue;
-    }
-
-    if (!response.ok) {
-      throw await createApiError(response);
-    }
-
-    const tileJson = (await response.json()) as TileJsonLike;
-    const tileUrl = Array.isArray(tileJson.tiles)
-      ? (tileJson.tiles.find(
-          (value): value is string => typeof value === 'string' && value.length > 0
-        ) ?? null)
-      : null;
-
-    if (!tileUrl) {
-      throw new Error(
-        `Following TileJSON at ${candidateUrl} did not include a usable tile template.`
-      );
-    }
-
-    return {
-      tileJsonUrl: candidateUrl,
-      tileUrl,
-      tileJson,
-    };
+  if (!response.ok) {
+    throw await createApiError(response);
   }
 
-  throw new Error(`Following TileJSON route unavailable. Tried ${candidateUrls.join(', ')}`);
+  const tileSession = (await response.json()) as TileJsonLike;
+  const { tileUrl, cacheBustedTileUrl, expiresAt } = normalizeTileSessionResponse(tileSession);
+
+  if (!tileUrl) {
+    throw new Error(
+      `Following tile session at ${tileSessionUrl} did not include a usable tile template.`
+    );
+  }
+
+  return {
+    tileJsonUrl: tileSessionUrl,
+    tileUrl,
+    cacheBustedTileUrl: cacheBustedTileUrl ?? tileUrl,
+    tileJson: tileSession,
+    expiresAt,
+  };
 }
 
 export async function fetchReadTileSource(
@@ -336,31 +373,30 @@ export async function fetchReadTileSource(
   credential: ReadTileCredential,
   version = 0
 ): Promise<ResolvedReadTileSource> {
-  const tileJsonUrl = buildReadTileJsonUrl(apiUrl, filters, version);
-  const response = await fetch(tileJsonUrl, {
+  const tileSessionUrl = buildTileSessionUrl(apiUrl);
+  const response = await fetch(tileSessionUrl, {
+    method: 'POST',
     headers: {
       [credential.headerName]: credential.headerValue,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify(buildReadTileSessionBody(filters)),
   });
 
   if (!response.ok) {
     throw await createApiError(response);
   }
 
-  const tileJson = (await response.json()) as TileJsonLike;
-  const rawTileUrl = Array.isArray(tileJson.tiles)
-    ? (tileJson.tiles.find(
-        (value): value is string => typeof value === 'string' && value.length > 0
-      ) ?? null)
-    : null;
+  const tileSession = (await response.json()) as TileJsonLike;
+  const { tileUrl, cacheBustedTileUrl, expiresAt } = normalizeTileSessionResponse(tileSession);
 
   return {
-    ...credential,
-    tileJsonUrl,
-    tileUrl: rawTileUrl,
-    cacheBustedTileUrl: rawTileUrl ? withReadVersion(rawTileUrl, version) : null,
-    tileJson,
+    tileJsonUrl: tileSessionUrl,
+    tileUrl,
+    cacheBustedTileUrl: cacheBustedTileUrl ?? tileUrl,
+    tileJson: tileSession,
     version,
+    expiresAt,
   };
 }
 
@@ -432,7 +468,12 @@ export function getReadPropertyOverlayLayers(
           MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': READ_NODE_OPACITY,
-        'circle-stroke-width': ['case', ['>', listingShare, 0], 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-width': [
+          'case',
+          ['>', listingShare, 0],
+          0,
+          MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+        ],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
         'circle-stroke-opacity': ['case', ['>', listingShare, 0], 0, READ_NODE_OPACITY],
       },
@@ -500,7 +541,12 @@ export function getReadPropertyOverlayLayers(
           MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
         ],
         'circle-opacity': READ_NODE_OPACITY,
-        'circle-stroke-width': ['case', ['>', activeListingCount, 0], 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
+        'circle-stroke-width': [
+          'case',
+          ['>', activeListingCount, 0],
+          0,
+          MAP_NODE_NON_LISTING_OUTLINE_WIDTH,
+        ],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
         'circle-stroke-opacity': ['case', ['>', activeListingCount, 0], 0, READ_NODE_OPACITY],
       },
@@ -635,18 +681,9 @@ export function applyReadPropertyFeatureStateStyles<T extends StyleLike | null>(
             paint: applyReadListingStrokeStyle(
               paint,
               listingShare,
-              buildInterpolateExpression(
-                listingShare,
-                MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS
-              ),
-              buildInterpolateExpression(
-                listingShare,
-                MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS
-              ),
-              buildInterpolateExpression(
-                listingShare,
-                MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS
-              )
+              buildInterpolateExpression(listingShare, MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS),
+              buildInterpolateExpression(listingShare, MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS),
+              buildInterpolateExpression(listingShare, MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS)
             ),
           };
         }
@@ -681,9 +718,7 @@ export function applyReadPropertyFeatureStateStyles<T extends StyleLike | null>(
 
       if (layer.type === 'symbol') {
         const paint = { ...((layer.paint as Record<string, unknown> | undefined) ?? {}) };
-        paint['text-opacity'] = buildReadFeatureStateOpacityExpression(
-          paint['text-opacity'] ?? 1
-        );
+        paint['text-opacity'] = buildReadFeatureStateOpacityExpression(paint['text-opacity'] ?? 1);
         return { ...layer, paint };
       }
 
@@ -751,20 +786,24 @@ export function replacePropertySourceTiles<T extends StyleLike | null>(
     Array.isArray(currentSource.tiles) &&
     currentSource.tiles.length === nextTiles.length &&
     currentSource.tiles.every((value, index) => value === nextTiles[index]) &&
-    currentSource.promoteId === PROPERTY_VECTOR_SOURCE_PROMOTE_ID
+    currentSource.promoteId === PROPERTY_VECTOR_SOURCE_PROMOTE_ID &&
+    currentSource.url == null
   ) {
     return style;
   }
+
+  const { url: _url, ...sourceWithoutUrl } = currentSource;
+  const nextSource = {
+    ...sourceWithoutUrl,
+    tiles: nextTiles,
+    promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+  };
 
   return {
     ...style,
     sources: {
       ...style.sources,
-      [PROPERTY_VECTOR_SOURCE_ID]: {
-        ...currentSource,
-        tiles: nextTiles,
-        promoteId: PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
-      },
+      [PROPERTY_VECTOR_SOURCE_ID]: nextSource,
     },
   };
 }

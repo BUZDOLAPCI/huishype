@@ -22,6 +22,7 @@ test.use({ trace: 'off', video: 'off' });
 // Configuration
 const EXPECTATION_NAME = '0027-map-loading-indicator';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const MAP_TILE_REQUEST_PATTERN = /(?:\/tiles(?:\/|$)|tiles\.openfreemap\.org)/;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -89,7 +90,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       releaseTiles = resolve;
     });
 
-    await page.route('**/tiles.openfreemap.org/**', async (route) => {
+    await page.route(MAP_TILE_REQUEST_PATTERN, async (route) => {
       // Hold the first style/tile request until we've verified the loading indicator
       await tilesBlocked;
       await route.continue();
@@ -134,52 +135,45 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log(`Final screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-current.png`);
 
     // Unroute to clean up
-    await page.unroute('**/tiles.openfreemap.org/**');
+    await page.unroute(MAP_TILE_REQUEST_PATTERN);
   });
 
   test('verify loading indicator styling matches app design', async ({ page }) => {
-    // Navigate to app with network throttling to slow down loading
-    // This gives us time to inspect the loading indicator
+    let releaseTiles: (() => void) | null = null;
+    const tilesBlocked = new Promise<void>((resolve) => {
+      releaseTiles = resolve;
+    });
 
-    // Navigate to the app without any route interception
-    // The loading indicator appears immediately and hides once the map fires 'load'
+    await page.route(MAP_TILE_REQUEST_PATTERN, async (route) => {
+      await tilesBlocked;
+      await route.continue();
+    });
+
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    // Wait briefly for the loading indicator to appear
-    await page.waitForTimeout(500);
-
-    // Check if loading indicator is present
     const loadingIndicator = page.locator('[data-testid="map-loading-indicator"]');
     const loadingText = page.locator('text=Loading map...');
 
-    const indicatorVisible = await loadingIndicator.isVisible().catch(() => false);
-    const textVisible = await loadingText.isVisible().catch(() => false);
+    await expect(loadingIndicator).toBeVisible({ timeout: 10000 });
+    await expect(loadingText).toBeVisible({ timeout: 5000 });
 
-    if (indicatorVisible || textVisible) {
-      console.log('Loading indicator is visible for inspection');
+    console.log('Loading indicator is visible for inspection');
 
-      // Take screenshot
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-styling.png`,
-        fullPage: false,
-      });
-      console.log(`Styling screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-styling.png`);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-styling.png`,
+      fullPage: false,
+    });
+    console.log(`Styling screenshot saved: ${SCREENSHOT_DIR}/${EXPECTATION_NAME}-styling.png`);
 
-      // Verify styling elements
-      if (indicatorVisible) {
-        // Check that it has proper centering and styling
-        const box = await loadingIndicator.boundingBox();
-        if (box) {
-          console.log(`Loading indicator position: x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}`);
-          // Should be roughly centered and cover the map area
-          expect(box.width).toBeGreaterThan(100);
-          expect(box.height).toBeGreaterThan(100);
-        }
-      }
-    } else {
-      console.log('Loading indicator not visible - map may have loaded too quickly');
-      console.log('This is acceptable if the implementation exists');
+    const box = await loadingIndicator.boundingBox();
+    if (box) {
+      console.log(`Loading indicator position: x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}`);
+      // Should be roughly centered and cover the map area
+      expect(box.width).toBeGreaterThan(100);
+      expect(box.height).toBeGreaterThan(100);
     }
+
+    releaseTiles!();
 
     // Wait for map canvas to appear (indicates map's load event fired and mapLoaded=true)
     const canvas = page.locator('canvas').first();
@@ -197,6 +191,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Loading indicator should be gone
     const loadingStillVisible = await loadingIndicator.isVisible().catch(() => false);
     expect(loadingStillVisible).toBe(false);
+
+    await page.unroute(MAP_TILE_REQUEST_PATTERN);
   });
 
   test('verify smooth transition from loading to loaded state', async ({ page }) => {

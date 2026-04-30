@@ -224,23 +224,31 @@ test.describe('Critical Flows - Full Stack Integration', () => {
       }
 
       expect(isErrorVisible).toBe(false);
+      expect(
+        consoleErrors.filter((error) => /MARTIN_UNAVAILABLE|502|Bad Gateway/i.test(error)),
+        'Martin gateway errors must fail the integration run',
+      ).toHaveLength(0);
+      expect(
+        failedRequests.filter((request) => request.includes('/tiles/')),
+        'Tile gateway requests must not fail in the integration runtime',
+      ).toHaveLength(0);
     });
 
-    test('Map view loads properties from real API', async ({ page }) => {
-      // Intercept API calls to verify they go to the real API
+    test('Map view configures Martin-backed tile sources from real API', async ({ page }) => {
+      // Intercept API calls to verify map boot talks to the real API gateway.
       const apiCalls: string[] = [];
 
       page.on('request', (request) => {
-        if (request.url().includes('/properties')) {
+        if (request.url().startsWith(`${API_BASE_URL}/`)) {
           apiCalls.push(request.url());
         }
       });
 
-      const firstPropertiesRequest = page.waitForRequest((request) =>
-        request.url().includes('/properties')
+      const styleRequest = page.waitForRequest((request) =>
+        request.url().startsWith(`${API_BASE_URL}/tiles/style/`)
       );
       await page.goto('/');
-      await firstPropertiesRequest;
+      await styleRequest;
 
       // Take screenshot
       await page.screenshot({
@@ -248,13 +256,10 @@ test.describe('Critical Flows - Full Stack Integration', () => {
         fullPage: true,
       });
 
-      // Verify API calls were made
-      expect(apiCalls.length).toBeGreaterThan(0);
-
-      // Verify API calls went to a real API (not a mock)
-      // Match any host on port 3100 (localhost, LAN IP, etc.)
-      const validApiCalls = apiCalls.filter(
-        (url) => url.includes(':3100/') || url.includes(API_BASE_URL)
+      // Verify the map style came from the real Fastify tile gateway. Property
+      // data is no longer bootstrapped through /properties in the map path.
+      const validApiCalls = apiCalls.filter((url) =>
+        url.startsWith(`${API_BASE_URL}/tiles/style/`)
       );
       expect(validApiCalls.length).toBeGreaterThan(0);
     });

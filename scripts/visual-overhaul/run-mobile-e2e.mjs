@@ -13,12 +13,17 @@ const LOCK_PATH = '/tmp/huishype-mobile-e2e.lock';
 const LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_MAESTRO_ATTEMPTS = 5;
 const EXPO_SERVICE_NAME = 'huishype-expo.service';
+const API_SERVICE_NAME = 'huishype-api.service';
 const EXPO_DEV_CLIENT_URL =
   'exp+huishype://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081';
 const METRO_STATUS_URL = 'http://127.0.0.1:8081/status';
 const METRO_ANDROID_BUNDLE_URL = 'http://127.0.0.1:8081/index.bundle?platform=android&dev=true&minify=false';
+const MARTIN_HEALTH_URL = 'http://127.0.0.1:3111/tiles/health';
+const API_READY_URL = 'http://127.0.0.1:3100/health/ready';
 const METRO_STATUS_TIMEOUT_MS = 45_000;
 const METRO_BUNDLE_WARMUP_TIMEOUT_MS = 180_000;
+const MARTIN_READY_TIMEOUT_MS = 120_000;
+const API_READY_TIMEOUT_MS = 120_000;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const POST_LAUNCH_SETTLE_MS = 5_000;
 const MAESTRO_MAX_BUFFER_BYTES = 50 * 1024 * 1024;
@@ -161,6 +166,24 @@ async function fetchTextWithTimeout(url, timeoutMs) {
   return text;
 }
 
+async function waitForHttpReady(url, label, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = `${label} did not respond`;
+
+  while (Date.now() < deadline) {
+    try {
+      await fetchTextWithTimeout(url, HTTP_REQUEST_TIMEOUT_MS);
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+
+    sleep(1000);
+  }
+
+  throw new Error(`${label} never became ready at ${url}. Last error: ${lastError}`);
+}
+
 async function waitForMetroStatus(timeoutMs = METRO_STATUS_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   let lastError = 'Metro status endpoint did not respond';
@@ -229,6 +252,45 @@ function restartExpoService(reason) {
     runCapture('systemctl', ['--user', 'restart', EXPO_SERVICE_NAME]),
     `Failed to restart ${EXPO_SERVICE_NAME}`,
   );
+}
+
+function restartApiService(reason) {
+  console.warn(`Restarting ${API_SERVICE_NAME}: ${reason}`);
+  requireCommandSuccess(
+    runCapture('systemctl', ['--user', 'restart', API_SERVICE_NAME]),
+    `Failed to restart ${API_SERVICE_NAME}`,
+  );
+}
+
+function ensureMartinContainerRunning() {
+  requireCommandSuccess(
+    runCapture('docker', ['compose', '--profile', 'martin', 'up', '-d', 'martin']),
+    'Failed to start local Martin container for mobile E2E',
+  );
+}
+
+function rebuildMapProjections() {
+  requireCommandSuccess(
+    run('pnpm', ['--filter', '@huishype/api', 'db:rebuild-map-projections']),
+    'Failed to rebuild map projections before mobile E2E',
+  );
+}
+
+async function prepareMartinAndApiForAndroidLaunch({ allowApiRestart } = { allowApiRestart: true }) {
+  ensureMartinContainerRunning();
+  await waitForHttpReady(MARTIN_HEALTH_URL, 'Martin', MARTIN_READY_TIMEOUT_MS);
+  rebuildMapProjections();
+
+  try {
+    await waitForHttpReady(API_READY_URL, 'API readiness', API_READY_TIMEOUT_MS);
+  } catch (error) {
+    if (!allowApiRestart) {
+      throw error;
+    }
+
+    restartApiService(error instanceof Error ? error.message : String(error));
+    await waitForHttpReady(API_READY_URL, 'API readiness', API_READY_TIMEOUT_MS);
+  }
 }
 
 async function prepareMetroForAndroidLaunch({ allowRestart } = { allowRestart: true }) {
@@ -300,7 +362,7 @@ function createFlowForAttempt(flowPath) {
   return composedFlowPath;
 }
 
-async function bootstrapApp({ allowMetroRestart = true } = {}) {
+async function bootstrapApp({ allowMetroRestart = true, allowApiRestart = true } = {}) {
   try {
     requireCommandSuccess(
       runCapture('adb', ['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']),
@@ -311,6 +373,7 @@ async function bootstrapApp({ allowMetroRestart = true } = {}) {
       ensureAdbReverse(rule);
     }
 
+    await prepareMartinAndApiForAndroidLaunch({ allowApiRestart });
     await prepareMetroForAndroidLaunch({ allowRestart: allowMetroRestart });
 
     requireCommandSuccess(
@@ -364,7 +427,7 @@ async function main() {
     lockFd = acquireLock();
 
     for (let attempt = 1; attempt <= MAX_MAESTRO_ATTEMPTS; attempt += 1) {
-      if (!(await bootstrapApp({ allowMetroRestart: attempt === 1 }))) {
+      if (!(await bootstrapApp({ allowMetroRestart: attempt === 1, allowApiRestart: attempt === 1 }))) {
         return;
       }
 

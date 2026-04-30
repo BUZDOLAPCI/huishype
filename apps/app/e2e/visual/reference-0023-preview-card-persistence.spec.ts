@@ -257,7 +257,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -341,7 +341,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -418,7 +418,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -493,7 +493,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -567,7 +567,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -631,7 +631,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       window.__mapClickFired = false;
       window.__mapClickDebug = {};
       const debugHandler = (e: VisualMapClickEventLike) => {
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
+        const layerNames = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'];
         const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
         const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
         window.__mapClickFired = true;
@@ -662,7 +662,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
       const canvas = mapInstance.getCanvas();
       const rect = canvas.getBoundingClientRect();
-      const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
+      const layerNames = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'];
       const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
       const width = canvas.width;
       const height = canvas.height;
@@ -739,7 +739,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       window.__mapClickFired = false;
       window.__mapClickDebug = {};
       const debugHandler = (e: VisualMapClickEventLike) => {
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
+        const layerNames = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'];
         const existingLayers = layerNames.filter(l => mapInstance.getLayer(l));
         const features = existingLayers.length > 0 ? mapInstance.queryRenderedFeatures(e.point, { layers: existingLayers }) : [];
         window.__mapClickFired = true;
@@ -827,7 +827,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -936,7 +936,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -1052,7 +1052,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'property-cluster-fill', 'ghost-clusters', 'active-nodes', 'active-node-fill', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(

@@ -65,13 +65,16 @@ describe('useReadTileSource', () => {
     mockGetAccessToken.mockResolvedValue('fresh-token');
     mockGetAnonymousSessionId.mockResolvedValue('session-123');
     mockFetchReadTileSource.mockResolvedValue({
-      tileJsonUrl: 'http://api.test/tiles/properties/read.json',
-      tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
-      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
-      tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf'] },
-      headerName: 'Authorization',
-      headerValue: 'Bearer fresh-token',
+      tileJsonUrl: 'http://api.test/tiles/sessions',
+      tileUrl: 'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+      cacheBustedTileUrl:
+        'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache',
+      tileJson: {
+        tileTemplate:
+          'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+      },
       version: 0,
+      expiresAt: '2026-04-29T12:00:00.000Z',
     });
   });
 
@@ -91,7 +94,7 @@ describe('useReadTileSource', () => {
     expect(mockGetAnonymousSessionId).not.toHaveBeenCalled();
   });
 
-  it('uses fresh Authorization credentials for signed-in read TileJSON requests', async () => {
+  it('uses fresh Authorization credentials for signed-in read tile-session requests', async () => {
     const queryClient = createQueryClient();
     act(() => {
       bumpReadTileSourceVersion(queryClient);
@@ -116,7 +119,7 @@ describe('useReadTileSource', () => {
     expect(mockGetAnonymousSessionId).not.toHaveBeenCalled();
   });
 
-  it('uses the anonymous session ID for signed-out read TileJSON requests', async () => {
+  it('uses the anonymous session ID for signed-out read tile-session requests', async () => {
     mockIsAuthenticated = false;
     const queryClient = createQueryClient();
     act(() => {
@@ -146,20 +149,26 @@ describe('useReadTileSource', () => {
   it('keeps the previous read tile source while a bumped version is loading', async () => {
     const queryClient = createQueryClient();
     const initialTileSource = {
-      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=1',
-      tileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf',
-      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
-      tileJson: { tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1'] },
-      headerName: 'Authorization',
-      headerValue: 'Bearer fresh-token',
+      tileJsonUrl: 'http://api.test/tiles/sessions',
+      tileUrl: 'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+      cacheBustedTileUrl:
+        'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache-v1',
+      tileJson: {
+        tileTemplate:
+          'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+      },
       version: 1,
+      expiresAt: '2026-04-29T12:00:00.000Z',
     };
     const refreshedTileSource = {
       ...initialTileSource,
-      tileJsonUrl: 'http://api.test/tiles/properties/read.json?readVersion=2',
-      cacheBustedTileUrl: 'http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2',
+      cacheBustedTileUrl:
+        'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache-v2',
       tileJson: {
-        tiles: ['http://api.test/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2'],
+        tileTemplate:
+          'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+        cacheBustedTileTemplate:
+          'http://api.test/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache-v2',
       },
       version: 2,
     };

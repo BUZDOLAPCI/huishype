@@ -20,8 +20,6 @@ import type {
   GetFollowingNearbyPropertyRequest,
   GetFollowingNearbyPropertyResponse,
   GetFollowersResponse,
-  GetFollowingPropertyTilesRequest,
-  GetFollowingPropertyTilesResponse,
   GetFollowingResponse,
   GetMyProfileResponse,
   GetPropertyResponse,
@@ -29,6 +27,8 @@ import type {
   GetUserProfileResponse,
   PropertyResolveRequest,
   PropertyResolveResponse,
+  CreatePropertyTileSessionRequest,
+  CreatePropertyTileSessionResponse,
   SearchUsersRequest,
   SearchUsersResponse,
 } from '@huishype/shared';
@@ -170,9 +170,7 @@ type SavedPropertiesQueryFromOpenApi = NonNullable<
 >;
 type SavedPropertiesResponseFromOpenApi =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
-type UserSearchQueryFromOpenApi = NonNullable<
-  paths['/users/search']['get']['parameters']['query']
->;
+type UserSearchQueryFromOpenApi = NonNullable<paths['/users/search']['get']['parameters']['query']>;
 type UserSearchResponseFromOpenApi =
   paths['/users/search']['get']['responses'][200]['content']['application/json'];
 type UserSearchErrorFromOpenApi =
@@ -215,16 +213,10 @@ type ResolvePropertyResponseFromOpenApi =
   paths['/properties/resolve']['get']['responses'][200]['content']['application/json'];
 type ResolvePropertyBodyFromOpenApi = Expand<Exclude<ResolvePropertyResponseFromOpenApi, null>>;
 type CanonicalResolvePropertyBody = Expand<Exclude<PropertyResolveResponse, null>>;
-type FollowingPropertyTilesQueryFromOpenApi = NonNullable<
-  paths['/tiles/following/properties.json']['get']['parameters']['query']
->;
-type FollowingPropertyTilesResponseFromOpenApi =
-  paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
-type ReadPropertyTilesQueryFromOpenApi = NonNullable<
-  paths['/tiles/properties/read.json']['get']['parameters']['query']
->;
-type ReadPropertyTilesResponseFromOpenApi =
-  paths['/tiles/properties/read.json']['get']['responses'][200]['content']['application/json'];
+type TileSessionRequestFromOpenApi =
+  paths['/tiles/sessions']['post']['requestBody']['content']['application/json'];
+type TileSessionResponseFromOpenApi =
+  paths['/tiles/sessions']['post']['responses'][200]['content']['application/json'];
 type FollowingNearbyQueryFromOpenApi = NonNullable<
   paths['/properties/following-nearby']['get']['parameters']['query']
 >;
@@ -257,6 +249,7 @@ type CanonicalNearbySingle = {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -282,6 +275,7 @@ type CanonicalNearbyCluster = {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -292,7 +286,22 @@ type CanonicalNearbyCluster = {
 };
 type CanonicalNearbyGroupedResponse = CanonicalNearbySingle | CanonicalNearbyCluster | null;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
+type HasLegacyFollowingTilesMethod = 'getFollowingPropertyTiles' extends keyof HuisHypeApiClient
+  ? true
+  : false;
 type HasGeneratedUserSearchPath = Extract<PathKeys, '/users/search'>;
+type LegacyTilePaths = Extract<
+  PathKeys,
+  | '/tiles/properties.json'
+  | '/tiles/properties/read.json'
+  | '/tiles/following/properties.json'
+  | '/tiles/properties/{z}/{x}/{y}.pbf'
+  | '/tiles/properties/read/{z}/{x}/{y}.pbf'
+  | '/tiles/following/properties/{z}/{x}/{y}.pbf'
+  | '/tiles/private_read_property_nodes/{z}/{x}/{y}.pbf'
+  | '/tiles/private_following_property_nodes/{z}/{x}/{y}.pbf'
+  | '/tiles/style.json'
+>;
 type ResolvePropertyMethodRequest = Parameters<HuisHypeApiClient['resolveProperty']>[0];
 type SearchUsersMethodRequest = Parameters<HuisHypeApiClient['searchUsers']>[0];
 type SearchUsersMethodResponse = Awaited<ReturnType<HuisHypeApiClient['searchUsers']>>;
@@ -320,6 +329,8 @@ const feedContractAssertions = [
     Equal<FeedResponseFromOpenApi['items'][number]['activityLevel'], 'hot' | 'warm' | 'cold'>
   >,
   true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
+  true as Expect<Equal<LegacyTilePaths, never>>,
+  true as Expect<Equal<HasLegacyFollowingTilesMethod, false>>,
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,
   true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, CanonicalSavedPropertiesResponse>>,
   true as Assert<IsExact<PropertyResponseFromOpenApi, CanonicalPropertyResponse>>,
@@ -374,7 +385,10 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<
-    Equal<GroupedPropertyActivityResponseFromOpenApi['items'][number]['preview']['kind'], 'comment' | 'summary'>
+    Equal<
+      GroupedPropertyActivityResponseFromOpenApi['items'][number]['preview']['kind'],
+      'comment' | 'summary'
+    >
   >,
   true as Expect<
     Equal<
@@ -426,30 +440,15 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<
-    Equal<keyof FollowingPropertyTilesQueryFromOpenApi, keyof GetFollowingPropertyTilesRequest>
+    Equal<TileSessionRequestFromOpenApi['scope'], CreatePropertyTileSessionRequest['scope']>
   >,
   true as Expect<
-    Equal<Extract<keyof FollowingPropertyTilesQueryFromOpenApi, 'bbox' | 'socialScope'>, never>
+    Equal<Extract<keyof TileSessionRequestFromOpenApi, 'readVersion' | 'followVersion'>, never>
   >,
   true as Expect<
-    Equal<
-      FollowingPropertyTilesQueryFromOpenApi['activity'],
-      GetFollowingPropertyTilesRequest['activity']
-    >
+    Equal<Extract<keyof TileSessionRequestFromOpenApi, 'bbox' | 'socialScope'>, never>
   >,
-  true as Assert<
-    IsExact<FollowingPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>
-  >,
-  true as Expect<
-    Equal<keyof ReadPropertyTilesQueryFromOpenApi, keyof FollowingPropertyTilesQueryFromOpenApi>
-  >,
-  true as Expect<
-    Equal<
-      ReadPropertyTilesQueryFromOpenApi['activity'],
-      FollowingPropertyTilesQueryFromOpenApi['activity']
-    >
-  >,
-  true as Assert<IsExact<ReadPropertyTilesResponseFromOpenApi, GetFollowingPropertyTilesResponse>>,
+  true as Assert<IsExact<TileSessionResponseFromOpenApi, CreatePropertyTileSessionResponse>>,
   true as Expect<
     Equal<keyof FollowingNearbyQueryFromOpenApi, keyof GetFollowingNearbyPropertyRequest>
   >,
@@ -465,12 +464,8 @@ const feedContractAssertions = [
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
   true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedSingle, Exclude<keyof CanonicalNearbySingle, 'isRead'>>
-  >,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedCluster, Exclude<keyof CanonicalNearbyCluster, 'isRead'>>
-  >,
+  true as Expect<Equal<keyof FollowingNearbySharedSingle, keyof CanonicalNearbySingle>>,
+  true as Expect<Equal<keyof FollowingNearbySharedCluster, keyof CanonicalNearbyCluster>>,
   true as Expect<Equal<FollowingNearbySharedSingle['bbox'], CanonicalNearbySingle['bbox']>>,
   true as Expect<Equal<FollowingNearbySharedCluster['bbox'], CanonicalNearbyCluster['bbox']>>,
   true as Expect<
@@ -535,9 +530,12 @@ describe('Generated OpenAPI types', () => {
       '/push-tokens',
       '/listings/preview',
       '/listings/submit',
-      '/tiles/following/properties.json',
-      '/tiles/properties/read.json',
-      '/tiles/properties/read/{z}/{x}/{y}.pbf',
+      '/tiles/base',
+      '/tiles/style/{styleId}',
+      '/tiles/public_property_nodes',
+      '/tiles/private_read_property_nodes/{z}/{x}/{y}',
+      '/tiles/private_following_property_nodes/{z}/{x}/{y}',
+      '/tiles/sessions',
     ];
 
     // Runtime: verify each path key is valid
@@ -589,7 +587,7 @@ describe('HuisHypeApiClient', () => {
     // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
-    expect(typeof client.getFollowingPropertyTiles).toBe('function');
+    expect('getFollowingPropertyTiles' in client).toBe(false);
     expect(typeof client.getFollowingNearbyProperty).toBe('function');
     expect('getMapProperties' in client).toBe(false);
 
@@ -724,23 +722,21 @@ describe('HuisHypeApiClient', () => {
     }
   });
 
-  it('serializes Following TileJSON market filters against the canonical authenticated route', async () => {
+  it('serializes signed tile-session requests for private map sources', async () => {
     const client = createApiClient({
       baseUrl: 'http://localhost:3100',
       accessToken: 'mock-token',
+      sessionIdResolver: async () => 'mock-session',
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          tilejson: '2.1.0',
-          name: 'HuisHype Following Properties',
-          description: 'Personalized grouped property data from followed-user qualifying activity',
-          tiles: [
-            'http://localhost:3100/tiles/following/properties/{z}/{x}/{y}.pbf?marketState=for-sale%2Csold',
-          ],
-          minzoom: 0,
-          maxzoom: 22,
-          bounds: [-180, -85, 180, 85],
+          scope: 'following',
+          expiresAt: '2026-04-29T12:00:00.000Z',
+          tileTemplate:
+            'http://localhost:3100/tiles/private_following_property_nodes/{z}/{x}/{y}?tile_session=stable',
+          cacheBustedTileTemplate:
+            'http://localhost:3100/tiles/private_following_property_nodes/{z}/{x}/{y}?tile_session=cache',
         }),
         {
           status: 200,
@@ -751,19 +747,28 @@ describe('HuisHypeApiClient', () => {
 
     try {
       await expect(
-        client.getFollowingPropertyTiles({
+        client.createPropertyTileSession({
+          scope: 'following',
           marketState: ['for-sale', 'sold'],
           activity: '30d',
         })
-      ).resolves.toHaveProperty('tilejson', '2.1.0');
+      ).resolves.toHaveProperty(
+        'tileTemplate',
+        'http://localhost:3100/tiles/private_following_property_nodes/{z}/{x}/{y}?tile_session=stable'
+      );
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/tiles/following/properties.json?marketState=for-sale%2Csold&activity=30d',
+        'http://localhost:3100/tiles/sessions',
         expect.objectContaining({
-          method: 'GET',
+          method: 'POST',
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             Authorization: 'Bearer mock-token',
+          }),
+          body: JSON.stringify({
+            scope: 'following',
+            marketState: ['for-sale', 'sold'],
+            activity: '30d',
           }),
         })
       );

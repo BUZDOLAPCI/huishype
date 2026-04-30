@@ -4,7 +4,11 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
+import {
+  createIntegrationProperty,
+  createIntegrationUser,
+  refreshIntegrationMapProjection,
+} from './helpers/fixtures.js';
 import {
   advancePropertyChangeVersion,
   ensurePropertyChangeState,
@@ -57,6 +61,7 @@ describe('Property view routes', () => {
     await db.execute(sql`DELETE FROM property_read_state WHERE property_id = ${propertyId}`);
     await db.execute(sql`DELETE FROM property_change_state WHERE property_id = ${propertyId}`);
     await db.execute(sql`DELETE FROM property_views WHERE property_id = ${propertyId}`);
+    await refreshIntegrationMapProjection(propertyId);
   });
 
   afterAll(async () => {

@@ -296,7 +296,31 @@ export async function likeRoutes(app: FastifyInstance) {
           WITH inserted AS (
             INSERT INTO reactions (target_type, target_id, user_id, reaction_type)
             VALUES ('property', ${propertyId}, ${userId}, 'like')
-            RETURNING id
+            RETURNING id, created_at
+          ),
+          actor_activity AS (
+            INSERT INTO map_property_actor_activity (
+              property_id,
+              actor_user_id,
+              activity_kind,
+              activity_at,
+              score,
+              geom_3857
+            )
+            SELECT
+              ${propertyId}::uuid,
+              ${userId}::uuid,
+              'property_like',
+              inserted.created_at::timestamptz,
+              1.0::real,
+              ST_Transform(p.geometry, 3857)
+            FROM inserted
+            CROSS JOIN properties p
+            WHERE p.id = ${propertyId}
+              AND p.status = 'active'
+              AND p.geometry IS NOT NULL
+            ON CONFLICT DO NOTHING
+            RETURNING 1
           )
           SELECT (count(*)::int + (SELECT count(*)::int FROM inserted)) AS like_count
           FROM reactions
@@ -349,7 +373,16 @@ export async function likeRoutes(app: FastifyInstance) {
         WITH deleted AS (
           DELETE FROM reactions
           WHERE target_type = 'property' AND target_id = ${propertyId} AND user_id = ${userId} AND reaction_type = 'like'
-          RETURNING id
+          RETURNING id, created_at
+        ),
+        deleted_activity AS (
+          DELETE FROM map_property_actor_activity a
+          USING deleted
+          WHERE a.property_id = ${propertyId}::uuid
+            AND a.actor_user_id = ${userId}::uuid
+            AND a.activity_kind = 'property_like'
+            AND a.activity_at = deleted.created_at
+          RETURNING 1
         )
         SELECT
           (SELECT count(*)::int FROM deleted) AS deleted_count,

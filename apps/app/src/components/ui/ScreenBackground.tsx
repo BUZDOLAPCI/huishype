@@ -42,7 +42,7 @@ export function ScreenBackground({
   const backgroundTestID = isLandscape ? 'screen-background-landscape' : 'screen-background-portrait';
 
   return (
-    <View {...props} style={[styles.root, style]}>
+    <View {...props} collapsable={false} style={[styles.root, style]}>
       <View
         pointerEvents="none"
         style={styles.backgroundLayer}

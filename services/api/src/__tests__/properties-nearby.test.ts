@@ -7,11 +7,10 @@ import type { FastifyInstance } from 'fastify';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
   GHOST_NODE_REVEAL_ZOOM,
-  PROPERTY_TILE_EXTENT,
   buildCanonicalGroupsForTile,
-  lngLatToWorldUnits,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
+import { refreshIntegrationMapProjection } from './integration/helpers/fixtures.js';
 
 const SEEDED_GHOST_CLUSTER_FIXTURE = {
   lon: 5.47123505671892,
@@ -127,6 +126,8 @@ async function withHermeticNearbyActiveCluster(
       (${viewIds[1]}, ${propertyIds[1]}, NULL, ${`nearby-fixture-session-${viewIds[1]}`}, NOW())
   `);
 
+  await refreshIntegrationMapProjection(propertyIds);
+
   try {
     await run({ lon, lat, propertyIds });
   } finally {
@@ -205,41 +206,13 @@ async function withHermeticNearbyListingOnlyProperty(
     )
   `);
 
+  await refreshIntegrationMapProjection(propertyId);
+
   try {
     await run({ lon, lat, propertyId });
   } finally {
     await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
   }
-}
-
-function tileForCoordinate(lon: number, lat: number, zoom: number) {
-  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
-  return {
-    z: zoom,
-    x: Math.floor(worldX / PROPERTY_TILE_EXTENT),
-    y: Math.floor(worldY / PROPERTY_TILE_EXTENT),
-  };
-}
-
-function getTileNeighborhood(tile: { z: number; x: number; y: number }) {
-  const tileCount = Math.pow(2, tile.z);
-  const tiles: Array<{ z: number; x: number; y: number }> = [];
-  const seen = new Set<string>();
-
-  for (let dx = -1; dx <= 1; dx += 1) {
-    for (let dy = -1; dy <= 1; dy += 1) {
-      const x = (tile.x + dx + tileCount) % tileCount;
-      const y = tile.y + dy;
-      if (y < 0 || y >= tileCount) continue;
-
-      const key = `${x}:${y}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      tiles.push({ z: tile.z, x, y });
-    }
-  }
-
-  return tiles;
 }
 
 /**
@@ -519,7 +492,7 @@ describe('GET /properties/nearby', () => {
       }
     });
 
-    it('matches the canonical tile grouping emitted across the tap tile neighborhood', async () => {
+    it('does not expose the old broad quiet ghost grouping through the normal nearby endpoint', async () => {
       const direct = await resolveNearbyGroupedFeature(
         SEEDED_GHOST_CLUSTER_FIXTURE.lon,
         SEEDED_GHOST_CLUSTER_FIXTURE.lat,
@@ -537,37 +510,7 @@ describe('GET /properties/nearby', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(direct).not.toBeNull();
-      const tapTile = tileForCoordinate(
-        SEEDED_GHOST_CLUSTER_FIXTURE.lon,
-        SEEDED_GHOST_CLUSTER_FIXTURE.lat,
-        SEEDED_GHOST_CLUSTER_FIXTURE.zoom,
-      );
-      const nearbyGroups = (
-        await Promise.all(
-          getTileNeighborhood(tapTile).map((tile) => buildCanonicalGroupsForTile(tile)),
-        )
-      ).flat();
-      const matchingGroup = nearbyGroups.find(
-        (group) => group.primaryPropertyId === direct?.primaryPropertyId,
-      );
-
-      expect(matchingGroup).toBeDefined();
-      expect(body).not.toBeNull();
-      expect(body.nodeClass).toBe('ghost');
-      expect(body.groupKind).toBe('cluster');
-      expect(body.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
-      expect(body.pointCount).toBe(matchingGroup?.pointCount);
-      expect(body.propertyIds).toEqual(matchingGroup?.propertyIds);
-      expect(body.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
-      expect(body.bbox).toEqual(matchingGroup?.bbox);
-      expect(body.activeListingCount).toBe(0);
-      expect(body.socialCount).toBe(0);
-      expect(body.recentSocialCount).toBe(0);
-      expect(body.socialScoreTotal).toBe(0);
-      expect(body.socialScoreMax).toBe(0);
-      expect(body.recentSocialScoreTotal).toBe(0);
-      expect(body).not.toHaveProperty('address');
-      expect(body).not.toHaveProperty('city');
+      expect(body).toBeNull();
     });
 
     it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {
@@ -628,10 +571,19 @@ describe('GET /properties/nearby', () => {
         )
       `);
 
+      const sessionId = `nearby-read-ghost-${propertyId}`;
+      const viewResponse = await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/view`,
+        headers: { 'x-session-id': sessionId },
+      });
+      expect(viewResponse.statusCode).toBe(200);
+
       try {
         const response = await app.inject({
           method: 'GET',
           url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}`,
+          headers: { 'x-session-id': sessionId },
         });
 
         expect(response.statusCode).toBe(200);
@@ -780,6 +732,8 @@ describe('GET /properties/nearby', () => {
             NOW() - INTERVAL '1 day'
           )
       `);
+
+      await refreshIntegrationMapProjection(propertyIds);
 
       try {
         const response = await app.inject({

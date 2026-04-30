@@ -376,6 +376,7 @@ export interface NearbyGroupedResult {
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
   activeListingCount: number;
+  completedListingCount?: number | null;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -414,6 +415,7 @@ export interface NormalizedPropertyNodeGroup {
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;
@@ -1009,6 +1011,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     result.activeListingCount,
     result.hasActiveListing ? 1 : 0,
   );
+  const completedListingCount = toNumber(result.completedListingCount);
   const socialScoreTotal = toNumber(result.socialScoreTotal);
   const socialScoreMax = toNumber(result.socialScoreMax, socialScoreTotal);
   const recentSocialScoreTotal = toNumber(result.recentSocialScoreTotal);
@@ -1030,6 +1033,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     coordinate: result.coordinate,
     bbox: normalizeBbox(result.bbox),
     activeListingCount,
+    completedListingCount,
     socialCount,
     recentSocialCount,
     socialScoreTotal,
@@ -1102,6 +1106,9 @@ export function normalizeRenderedPropertyGroup(
       ? 1
       : 0,
   );
+  const completedListingCount = toNumber(
+    getTransportValue(properties, 'completedListingCount', 'completed_listing_count'),
+  );
   const socialScoreTotal = toNumber(
     getTransportValue(properties, 'socialScoreTotal', 'social_score_total'),
   );
@@ -1145,6 +1152,7 @@ export function normalizeRenderedPropertyGroup(
           }
         : null,
     activeListingCount,
+    completedListingCount,
     socialCount,
     recentSocialCount,
     socialScoreTotal,

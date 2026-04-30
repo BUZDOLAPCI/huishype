@@ -14,6 +14,7 @@ import {
   applyPlaywrightRuntimeEnvironment,
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
+import { startMockMartinServer } from './mock-martin-server.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
 
 const READY_TIMEOUT_MS = 120_000;
@@ -185,8 +186,35 @@ async function resolveRuntimePort(port, { strict = false, host = '127.0.0.1' } =
   }
 }
 
-async function waitForHttp(url, label) {
+function trimDiagnosticBody(body) {
+  const trimmed = body.trim();
+  if (trimmed.length <= 1000) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 1000)}...`;
+}
+
+function formatLastHttpFailure(lastFailure) {
+  if (!lastFailure) {
+    return 'Last failure: no response was received.';
+  }
+
+  if (lastFailure.type === 'response') {
+    const body = lastFailure.body ? ` Body: ${lastFailure.body}` : '';
+    return `Last response: HTTP ${lastFailure.status} ${lastFailure.statusText}.${body}`;
+  }
+
+  return `Last failure: ${lastFailure.message}`;
+}
+
+async function waitForHttp(
+  url,
+  label,
+  { timeoutMs = READY_TIMEOUT_MS, intervalMs = 1000 } = {},
+) {
   const startedAt = Date.now();
+  let lastFailure = null;
 
   while (true) {
     try {
@@ -194,16 +222,40 @@ async function waitForHttp(url, label) {
       if (response.ok) {
         return;
       }
-    } catch {
-      // Keep waiting until the service responds.
+      lastFailure = {
+        type: 'response',
+        status: response.status,
+        statusText: response.statusText,
+        body: trimDiagnosticBody(await response.text().catch(() => '')),
+      };
+    } catch (error) {
+      lastFailure = {
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
 
-    if (Date.now() - startedAt > READY_TIMEOUT_MS) {
-      throw new Error(`${label} did not become ready at ${url} within ${READY_TIMEOUT_MS}ms`);
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(
+        `${label} did not become ready at ${url} within ${timeoutMs}ms. ${formatLastHttpFailure(lastFailure)}`,
+      );
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+function rebuildMapProjections(env) {
+  console.log('Rebuilding map projections before API readiness check ...');
+  execFileSync(
+    'pnpm',
+    ['--filter', '@huishype/api', 'db:rebuild-map-projections'],
+    {
+      cwd: repoRoot,
+      env,
+      stdio: 'inherit',
+    },
+  );
 }
 
 function waitForExit(child, name, stopping) {
@@ -327,6 +379,7 @@ async function startServiceWithRetry({
   env,
   cwd,
   port,
+  startupUrl,
   readyUrl,
   stopping,
   attempts = 2,
@@ -345,7 +398,14 @@ async function startServiceWithRetry({
     const exitPromise = waitForExitImpl(child, label, stopping);
 
     try {
-      await Promise.race([waitForHttpImpl(readyUrl, label), exitPromise]);
+      const startupCheckUrl = startupUrl ?? readyUrl;
+      await Promise.race([waitForHttpImpl(startupCheckUrl, label), exitPromise]);
+      if (readyUrl !== startupCheckUrl) {
+        await Promise.race([
+          waitForHttpImpl(readyUrl, `${label} readiness`),
+          exitPromise,
+        ]);
+      }
       return { child, exitPromise };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -428,6 +488,7 @@ async function main() {
   let apiExitPromise = Promise.resolve();
   let webRuntime = null;
   let staticWebRoot = null;
+  let martinRuntime = null;
   let playwrightChild = null;
   let playwrightExitPromise = Promise.resolve(0);
   const stopping = { current: false };
@@ -440,6 +501,9 @@ async function main() {
     stopping.current = true;
     stopService(playwrightChild, signal);
     stopService(apiChild, signal);
+    if (martinRuntime) {
+      await martinRuntime.stop().catch(() => {});
+    }
     await Promise.all([
       waitForChildExit(playwrightChild, 'Playwright process').catch(() => {}),
       waitForChildExit(apiChild, 'API server').catch(() => {}),
@@ -468,18 +532,33 @@ async function main() {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
+  martinRuntime = await startMockMartinServer();
+  process.env.MARTIN_URL = martinRuntime.url;
+  process.env.MARTIN_INTERNAL_URL = martinRuntime.url;
+  childEnv = {
+    ...childEnv,
+    MARTIN_URL: martinRuntime.url,
+    MARTIN_INTERNAL_URL: martinRuntime.url,
+  };
+  console.log(`Mock Martin runtime ready at ${martinRuntime.url}`);
+
+  const apiEnv = {
+    ...childEnv,
+    PORT: String(apiPort),
+    HOST: '127.0.0.1',
+  };
+  rebuildMapProjections(apiEnv);
+
   console.log(`Starting API server on ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
     label: 'API server',
     command: process.execPath,
     args: ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
-    env: {
-      ...childEnv,
-      PORT: String(apiPort),
-    },
+    env: apiEnv,
     cwd: apiCwd,
     port: apiPort,
-    readyUrl: `${apiUrl}/health`,
+    startupUrl: `${apiUrl}/health`,
+    readyUrl: `${apiUrl}/health/ready`,
     stopping,
     spawnServiceImpl: (command, args, env, cwd) =>
       spawnService(command, args, env, cwd, ['ignore', 'ignore', 'ignore']),

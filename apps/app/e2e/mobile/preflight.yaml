@@ -8,6 +8,14 @@ appId: nl.huishype.app
     text: 'Continue'
     optional: true
 - waitForAnimationToEnd
+- tapOn:
+    id: 'welcome-modal-dismiss-button'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'welcome-modal-close'
+    optional: true
+- waitForAnimationToEnd
 - pressKey: Back
 - waitForAnimationToEnd
 - tapOn:

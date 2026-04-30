@@ -413,6 +413,32 @@ export async function commentRoutes(app: FastifyInstance) {
           })
           .returning();
 
+        const created = inserted[0];
+        if (created) {
+          await tx.execute(sql`
+            INSERT INTO map_property_actor_activity (
+              property_id,
+              actor_user_id,
+              activity_kind,
+              activity_at,
+              score,
+              geom_3857
+            )
+            SELECT
+              ${propertyId}::uuid,
+              ${userId}::uuid,
+              'comment',
+              ${created.createdAt.toISOString()}::timestamptz,
+              1.0::real,
+              ST_Transform(p.geometry, 3857)
+            FROM properties p
+            WHERE p.id = ${propertyId}
+              AND p.status = 'active'
+              AND p.geometry IS NOT NULL
+            ON CONFLICT DO NOTHING
+          `);
+        }
+
         await advancePropertyChangeVersion(propertyId, tx);
         return inserted;
       });

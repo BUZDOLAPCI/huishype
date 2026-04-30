@@ -499,6 +499,7 @@ describe('grouped property normalization', () => {
         distanceMeters: 12,
         bbox: null,
         activeListingCount: 1,
+        completedListingCount: 2,
         socialCount: 2,
         recentSocialCount: 1,
         socialScoreTotal: 14,
@@ -523,6 +524,7 @@ describe('grouped property normalization', () => {
       })
     ).toMatchObject({
       activeListingCount: 1,
+      completedListingCount: 2,
       socialCount: 2,
       recentSocialCount: 1,
       socialScoreTotal: 14,
@@ -549,6 +551,7 @@ describe('grouped property normalization', () => {
         property_ids: '11111111-1111-4111-8111-111111111111',
         preview_property_ids: '11111111-1111-4111-8111-111111111111',
         activeListingCount: 1,
+        completedListingCount: 2,
         socialCount: 4,
         recentSocialCount: 2,
         socialScoreTotal: 18,
@@ -563,6 +566,7 @@ describe('grouped property normalization', () => {
 
     expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
       activeListingCount: 1,
+      completedListingCount: 2,
       socialCount: 4,
       recentSocialCount: 2,
       socialScoreTotal: 18,
@@ -587,6 +591,7 @@ describe('grouped property normalization', () => {
         distanceMeters: 12,
         bbox: null,
         activeListingCount: 0,
+        completedListingCount: 0,
         socialCount: 0,
         recentSocialCount: 0,
         socialScoreTotal: 0,
@@ -613,6 +618,7 @@ describe('grouped property normalization', () => {
       })
     ).toMatchObject({
       activeListingCount: 0,
+      completedListingCount: 0,
       socialCount: 0,
       recentSocialCount: 0,
       socialScoreTotal: 0,
@@ -641,6 +647,7 @@ describe('grouped property normalization', () => {
         property_ids: '11111111-1111-4111-8111-111111111111',
         preview_property_ids: '11111111-1111-4111-8111-111111111111',
         activeListingCount: 0,
+        completed_listing_count: 3,
         socialCount: 0,
         recentSocialCount: 0,
         socialScoreTotal: 0,
@@ -657,6 +664,7 @@ describe('grouped property normalization', () => {
 
     expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
       activeListingCount: 0,
+      completedListingCount: 3,
       socialCount: 0,
       recentSocialCount: 0,
       socialScoreTotal: 0,

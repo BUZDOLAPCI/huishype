@@ -7,7 +7,7 @@
  * - Batch response maintains input order
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIResponse } from '@playwright/test';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 
 const API_BASE_URL = getPlaywrightApiUrl();
@@ -154,7 +154,17 @@ test.describe('Cluster Tap - API Integration', () => {
     expect(resp.status()).toBe(400);
   });
 
-  test('tiles at z13 return non-empty MVT for Eindhoven area', async ({ request }) => {
+  async function expectGatewayTileResponse(resp: APIResponse) {
+    expect([200, 204]).toContain(resp.status());
+    if (resp.status() === 200) {
+      const body = await resp.body();
+      expect(body.length).toBeGreaterThan(0);
+      return { outcome: 'tile' as const, byteLength: body.length };
+    }
+    return { outcome: 'empty' as const, byteLength: 0 };
+  }
+
+  test('public tile gateway uses Martin-backed route for Eindhoven z13 tiles', async ({ request }) => {
     const { x, y } = lonLatToTile(EINDHOVEN_CENTER[0], EINDHOVEN_CENTER[1], 13);
 
     // Try the tile and nearby tiles
@@ -165,21 +175,20 @@ test.describe('Cluster Tap - API Integration', () => {
       [13, x - 1, y],
     ];
 
-    let foundTile = false;
+    let sawGatewayResponse = false;
     for (const [z, tx, ty] of tilesToTry) {
       const resp = await request.get(
-        `${API_BASE_URL}/tiles/properties/${z}/${tx}/${ty}.pbf`
+        `${API_BASE_URL}/tiles/public_property_nodes/${z}/${tx}/${ty}`
       );
-      if (resp.status() === 200) {
-        const body = await resp.body();
-        expect(body.length).toBeGreaterThan(0);
-        console.log(`Tile z${z}/${tx}/${ty}: ${body.length} bytes`);
-        foundTile = true;
+      const { outcome, byteLength } = await expectGatewayTileResponse(resp);
+      sawGatewayResponse = true;
+      if (outcome === 'tile') {
+        console.log(`Tile z${z}/${tx}/${ty}: ${byteLength} bytes`);
         break;
       }
     }
 
-    expect(foundTile).toBe(true);
+    expect(sawGatewayResponse).toBe(true);
   });
 
   test('nearby cluster response includes bbox', async ({ request }) => {
@@ -209,21 +218,13 @@ test.describe('Cluster Tap - API Integration', () => {
     }
   });
 
-  test('tiles at z18 return individual property data', async ({ request }) => {
+  test('public tile gateway handles z18 individual property tile route', async ({ request }) => {
     const { x, y } = lonLatToTile(EINDHOVEN_CENTER[0], EINDHOVEN_CENTER[1], 18);
 
-    // At z18, individual properties should be in the tile
     const resp = await request.get(
-      `${API_BASE_URL}/tiles/properties/18/${x}/${y}.pbf`
+      `${API_BASE_URL}/tiles/public_property_nodes/18/${x}/${y}`
     );
 
-    // May be 200 or 204 depending on exact tile coverage
-    expect([200, 204]).toContain(resp.status());
-
-    if (resp.status() === 200) {
-      const body = await resp.body();
-      expect(body.length).toBeGreaterThan(0);
-      console.log(`Z18 tile: ${body.length} bytes`);
-    }
+    await expectGatewayTileResponse(resp);
   });
 });

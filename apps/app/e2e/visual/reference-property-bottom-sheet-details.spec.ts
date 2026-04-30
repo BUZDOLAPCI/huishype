@@ -522,7 +522,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
     await panel.getByText('Price Snapshot', { exact: true }).scrollIntoViewIfNeeded();
-    await expect(panel.getByText('Crowd Estimate', { exact: true })).toBeVisible();
+    await expect(
+      page.getByTestId('price-snapshot-crowd-card').getByText('Crowd Estimate', { exact: true })
+    ).toBeVisible();
     await expect(panel.getByText('High confidence (7 guesses)', { exact: true })).toBeVisible();
     await expect(panel.getByText('WOZ Value', { exact: true })).toBeVisible();
     await expect(panel.getByText('Asking Price', { exact: true })).toBeVisible();

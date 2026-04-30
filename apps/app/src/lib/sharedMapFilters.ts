@@ -637,7 +637,7 @@ export function appendSearchToPath(pathname: string, search: string): string {
 }
 
 export function buildPropertyTileTemplateUrl(apiUrl: string, filters: MapFilters): string {
-  return `${apiUrl}/tiles/properties/{z}/{x}/{y}.pbf${getMapFilterSearchString(filters)}`;
+  return `${apiUrl}/tiles/public_property_nodes/{z}/{x}/{y}${getMapFilterSearchString(filters)}`;
 }
 
 export function buildNearbyGroupPath(

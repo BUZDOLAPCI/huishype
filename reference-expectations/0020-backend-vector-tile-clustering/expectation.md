@@ -1,22 +1,26 @@
 # Backend Vector Tile Clustering & Filtering
 
 ## Overview
+
 Implement a high-performance Dynamic Vector Tile (MVT) service that efficiently renders properties based on zoom level and activity.
+
 - **Zoomed Out:** Show ONLY "Active" properties (listings, comments, guesses) to highlight non-empty interacted listings.
 - **Zoomed In:** Show ALL properties (including "Ghost Nodes") so users can tap any specific building to start a new discussion.
 
 ## Context
+
 - **Ghost Nodes:** Addresses from BAG with no current listing and no social history.
 - **Active Nodes:** Addresses with a listing, photos, or user activity (comments/guesses).
-- **User Intent:** Users browse wide for *activity*, but zoom in to *explore specific streets*.
+- **User Intent:** Users browse wide for _activity_, but zoom in to _explore specific streets_.
 
 ## The "Activity Filter" Business Logic
+
 The map must change behavior based on zoom level to manage density and noise:
 
-| Zoom Level | Filter Logic | Goal |
-| :--- | :--- | :--- |
-| **Z0 - Z14** | `WHERE has_listing = TRUE OR activity_score > 0` | **Signal only.** Show clusters of activity. Hide empty "Ghost" addresses. |
-| **Z15+** | `WHERE TRUE` (All BAG addresses) | **Full Detail.** Show every house (Ghost + Active) so users can tap and interact. |
+| Zoom Level   | Filter Logic                                     | Goal                                                                              |
+| :----------- | :----------------------------------------------- | :-------------------------------------------------------------------------------- |
+| **Z0 - Z14** | `WHERE has_listing = TRUE OR activity_score > 0` | **Signal only.** Show clusters of activity. Hide empty "Ghost" addresses.         |
+| **Z15+**     | `WHERE TRUE` (All BAG addresses)                 | **Full Detail.** Show every house (Ghost + Active) so users can tap and interact. |
 
 ## Technical Requirements
 
@@ -27,6 +31,7 @@ Do NOT use `ST_ClusterDBSCAN` on dynamic tile requests (too slow). Use **`ST_Sna
 
 **Query Logic (The MVT Function):**
 Create a Fastify route or Drizzle helper that executes a SQL query structured like this:
+
 1. **Filter:** Select properties strictly within the Tile Bounding Box (`ST_MakeEnvelope`).
 2. **Apply Business Logic:** Filter out "Ghost Nodes" if Zoom < 15.
 3. **Cluster (Low Zoom 0-14):** Group by `ST_SnapToGrid`.
@@ -36,12 +41,14 @@ Create a Fastify route or Drizzle helper that executes a SQL query structured li
 5. **Format:** Return `ST_AsMVT`.
 
 ### 2. API Endpoint
-`GET /api/tiles/properties/{z}/{x}/{y}.pbf`
+
+`GET /tiles/public_property_nodes/{z}/{x}/{y}`
 
 **Headers:**
+
 - `Content-Type: application/x-protobuf`
 - `Cache-Control: public, max-age=30, stale-while-revalidate=60`
-  *(Short cache ensures social activity like new "Hot" statuses propagate quickly)*.
+  _(Short cache ensures social activity like new "Hot" statuses propagate quickly)_.
 
 ### 3. Frontend Implementation (React Native)
 
@@ -49,48 +56,48 @@ Create a Fastify route or Drizzle helper that executes a SQL query structured li
 Use `@rnmapbox/maps` components (`VectorSource`, `CircleLayer`, `SymbolLayer`), **NOT** vanilla JS or `react-map-gl`.
 
 **Layering Strategy:**
+
 ```tsx
-<VectorSource 
-  id="properties-source"
-  url="/api/tiles/properties/{z}/{x}/{y}.pbf" 
->
+<VectorSource id="properties-source" url="/tiles/public_property_nodes/{z}/{x}/{y}">
   {/* Layer 1: Clusters (Z0-Z14) */}
   {/* Only formed from Active Nodes due to backend filter */}
-  <CircleLayer 
-    id="clusters" 
-    minZoomLevel={0} 
-    maxZoomLevel={15} 
+  <CircleLayer
+    id="clusters"
+    minZoomLevel={0}
+    maxZoomLevel={15}
     style={{
       circleColor: [
         'case',
-        ['get', 'has_active_children'], '#FF5A5F', // Hot cluster
-        '#51bbd6' // Standard cluster
+        ['get', 'has_active_children'],
+        '#FF5A5F', // Hot cluster
+        '#51bbd6', // Standard cluster
       ],
-      circleRadius: 18
-    }} 
+      circleRadius: 18,
+    }}
   />
 
   {/* Layer 2: Active Nodes (Z15+) */}
   {/* Full opacity, larger, pulsing if hot */}
-  <CircleLayer 
-    id="active-nodes" 
-    minZoomLevel={15} 
+  <CircleLayer
+    id="active-nodes"
+    minZoomLevel={15}
     filter={['==', 'is_ghost', false]}
-    style={{ circleRadius: 6, circleColor: '#FF5A5F' }} 
+    style={{ circleRadius: 6, circleColor: '#FF5A5F' }}
   />
 
   {/* Layer 3: Ghost Nodes (Z15+) */}
   {/* Low opacity, small, unobtrusive */}
-  <CircleLayer 
-    id="ghost-nodes" 
-    minZoomLevel={15} 
+  <CircleLayer
+    id="ghost-nodes"
+    minZoomLevel={15}
     filter={['==', 'is_ghost', true]}
-    style={{ circleRadius: 3, circleColor: '#999', circleOpacity: 0.4 }} 
+    style={{ circleRadius: 3, circleColor: '#999', circleOpacity: 0.4 }}
   />
 </VectorSource>
 ```
 
 ### Acceptance Criteria (SUFFICIENT)
+
 - Zoom Out Test: At Zoom Level 10 (City view), the map shows only clusters of active/listed properties. No gray "noise" from empty addresses.
 - Zoom In Test: At Zoom Level 16 (Street view), every house on the street is visible as a node (Ghost or Active).
 - Performance: Tile generation takes < 100ms for a dense area (e.g., Amsterdam center).
@@ -102,6 +109,7 @@ Use `@rnmapbox/maps` components (`VectorSource`, `CircleLayer`, `SymbolLayer`), 
 - Performance: Tiles generate in <100ms.
 
 ### Acceptance Criteria (NEEDS_WORK)
+
 - Using ST_ClusterDBSCAN (performance risk).
 - Map is covered in gray dots at Zoom Level 8 (Backend failed to filter Ghost Nodes).
 - Clusters all look the same (ignoring the "Social" aspect).

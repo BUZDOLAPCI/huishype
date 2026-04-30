@@ -43,7 +43,9 @@ const PROPERTY_PLACEHOLDER_PATTERN = /Property\s*#\d+/i;
 // Pattern that indicates real addresses (GOOD - should appear)
 // Real Dutch addresses look like: "Straatnaam 123" or similar
 // Known acceptable console errors - MINIMAL list
-const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+const KNOWN_ACCEPTABLE_ERRORS = [
+  ...NETWORK_ALLOWED_CONSOLE_PATTERNS,
+];
 
 async function dismissWelcomeModalIfVisible(page: import('@playwright/test').Page): Promise<void> {
   const dismissButton = page.getByTestId('welcome-modal-dismiss-button');

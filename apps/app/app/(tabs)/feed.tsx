@@ -12,7 +12,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { FlatList, Platform, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
 import { isValidCountryCode } from '@huishype/shared/config';
 
@@ -65,6 +65,7 @@ const FEED_LIST_WINDOW_SIZE = 5;
 const FEED_LIST_INITIAL_NUM_TO_RENDER = 6;
 const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 4;
 const FEED_LIST_BATCHING_PERIOD_MS = 50;
+const FEED_LIST_REMOVE_CLIPPED_SUBVIEWS = Platform.OS === 'web';
 
 // --- Header title per filter ---
 
@@ -365,6 +366,11 @@ export default function FeedScreen() {
   const isEmpty = isPropertyFeed
     ? properties.length === 0
     : activities.length === 0;
+  const feedReadyTestID = isPropertyFeed && properties.length > 0
+    ? 'property-feed-loaded'
+    : !isPropertyFeed && activities.length > 0
+      ? 'activity-feed-loaded'
+      : undefined;
 
   if (isEmpty) {
     const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
@@ -398,7 +404,11 @@ export default function FeedScreen() {
 
   return (
     <ScreenBackground style={{ alignItems: 'center' }} testID="feed-screen">
-      <View style={FEED_LIST_CONTAINER_STYLE}>
+      <View
+        collapsable={false}
+        style={FEED_LIST_CONTAINER_STYLE}
+        testID={feedReadyTestID}
+      >
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
         <FeedFilterChips
           activeFilter={activeFilter}
@@ -420,7 +430,7 @@ export default function FeedScreen() {
             maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
             updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
             windowSize={FEED_LIST_WINDOW_SIZE}
-            removeClippedSubviews
+            removeClippedSubviews={FEED_LIST_REMOVE_CLIPPED_SUBVIEWS}
             testID="feed-list"
           />
         ) : (
@@ -438,7 +448,7 @@ export default function FeedScreen() {
             maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
             updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
             windowSize={FEED_LIST_WINDOW_SIZE}
-            removeClippedSubviews
+            removeClippedSubviews={FEED_LIST_REMOVE_CLIPPED_SUBVIEWS}
             testID="activity-feed-list"
           />
         )}

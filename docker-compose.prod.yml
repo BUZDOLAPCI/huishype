@@ -31,6 +31,7 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       COOKIE_SECRET: ${COOKIE_SECRET}
       PHOTON_URL: http://photon:2322
+      MARTIN_URL: http://martin:3111
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -58,6 +59,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      martin:
+        condition: service_healthy
     networks:
       - internal
 
@@ -77,6 +80,7 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       COOKIE_SECRET: ${COOKIE_SECRET}
       PHOTON_URL: http://photon:2322
+      MARTIN_URL: http://martin:3111
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -99,6 +103,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      martin:
         condition: service_healthy
     networks:
       - internal
@@ -161,6 +167,31 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    networks:
+      - internal
+
+  # ---------- Martin tile server (internal data plane) ----------
+  martin:
+    image: ghcr.io/maplibre/martin:1.8.0
+    restart: unless-stopped
+    command: ["--config", "/config/config.yaml"]
+    environment:
+      MARTIN_DATABASE_URL: ${MARTIN_DATABASE_URL:?MARTIN_DATABASE_URL must use the read-only martin_tile role}
+    volumes:
+      - ./martin/config.yaml:/config/config.yaml:ro
+      - ./martin/styles:/config/styles:ro
+      - ./martin/sprites:/config/sprites:ro
+      - ./martin/fonts:/config/fonts:ro
+      - ./martin/tiles:/data/tiles:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3111/tiles/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - internal
 

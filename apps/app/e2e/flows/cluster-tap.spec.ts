@@ -296,7 +296,10 @@ async function openPreviewableCluster(page: Page): Promise<{
   candidatesTried?: number;
 }> {
   const filters: RenderedClusterFilters = {
-    layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+    layerIds: [
+      PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,
+      PROPERTY_MAP_LAYERS.ACTIVE_CLUSTER_FILL,
+    ],
     minPointCount: 2,
     maxPointCount: PROPERTY_PREVIEW_MEMBER_LIMIT,
     requireMultipleProperties: true,
@@ -342,7 +345,10 @@ async function getLargestRenderedCluster(page: Page): Promise<
   | { success: false }
 > {
   const filters: RenderedClusterFilters = {
-    layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+    layerIds: [
+      PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS,
+      PROPERTY_MAP_LAYERS.ACTIVE_CLUSTER_FILL,
+    ],
     minPointCount: 2,
   };
 
@@ -406,7 +412,7 @@ test.describe('Cluster Tap Flow', () => {
 
     for (const [tz, tx, ty] of tilesToTry) {
       const resp = await request.get(
-        `${API_BASE_URL}/tiles/properties/${tz}/${tx}/${ty}.pbf`
+        `${API_BASE_URL}/tiles/public_property_nodes/${tz}/${tx}/${ty}`
       );
       if (resp.status() === 200) {
         console.log(`Found tile with data at z${tz}/${tx}/${ty}`);
@@ -620,7 +626,7 @@ test.describe('Cluster Tap Flow', () => {
       if (!map) return [];
 
       const features = map.queryRenderedFeatures(undefined, {
-        layers: ['property-clusters'].filter((layer: string) => map.getLayer(layer)),
+        layers: ['property-clusters', 'property-cluster-fill'].filter((layer: string) => map.getLayer(layer)),
       });
 
       return features.slice(0, 5).map((feature: MapFeature) => ({

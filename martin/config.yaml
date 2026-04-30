@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=/home/caslan/dev/git_repos/martin/schemas/config.json
+listen_addresses: '0.0.0.0:3111'
+route_prefix: /tiles
+base_path: /tiles
+preferred_encoding: gzip
+on_invalid: abort
+
+cache:
+  size_mb: 512
+  tile_size_mb: 384
+  expiry: 10m
+  tile_expiry: 5m
+  minzoom: 0
+  maxzoom: 16
+
+observability:
+  metrics:
+    add_labels:
+      service: martin
+      app: huishype
+
+postgres:
+  connection_string: ${MARTIN_DATABASE_URL}
+  default_srid: 4326
+  pool_size: 10
+  auto_publish: false
+  auto_bounds: skip
+  tables: {}
+  functions:
+    public_property_nodes:
+      schema: martin_tiles
+      function: property_nodes
+      minzoom: 7
+      maxzoom: 22
+      bounds: [-180, -85.0511, 180, 85.0511]
+      cache:
+        minzoom: 7
+        maxzoom: 14
+    private_read_property_nodes:
+      schema: martin_tiles
+      function: read_property_nodes
+      minzoom: 0
+      maxzoom: 22
+      bounds: [-180, -85.0511, 180, 85.0511]
+      cache: disable
+    private_following_property_nodes:
+      schema: martin_tiles
+      function: following_property_nodes
+      minzoom: 0
+      maxzoom: 22
+      bounds: [-180, -85.0511, 180, 85.0511]
+      cache: disable
+    trees:
+      schema: martin_tiles
+      function: trees
+      minzoom: 15
+      maxzoom: 17
+      bounds: [-180, -85.0511, 180, 85.0511]
+    buildings:
+      schema: martin_tiles
+      function: buildings
+      minzoom: 15
+      maxzoom: 17
+      bounds: [-180, -85.0511, 180, 85.0511]
+
+styles: /config/styles
+
+sprites: /config/sprites/huishype
+
+fonts:
+  - /config/fonts
+
+pmtiles:
+  allow_http: false
+  sources:
+    base:
+      path: /data/tiles/base.pmtiles
+
+mbtiles:
+  sources: {}

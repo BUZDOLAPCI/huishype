@@ -40,6 +40,8 @@ export function validateProductionSecrets(env: Record<string, string | undefined
   if (!env.RESEND_API_KEY) missing.push('RESEND_API_KEY');
   if (!env.EMAIL_FROM) missing.push('EMAIL_FROM');
   if (!env.EMAIL_REPLY_TO) missing.push('EMAIL_REPLY_TO');
+  if (!env.TILE_SESSION_SECRET) missing.push('TILE_SESSION_SECRET');
+  if (!env.MARTIN_URL && !env.MARTIN_INTERNAL_URL) missing.push('MARTIN_URL');
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in production: ${missing.join(', ')}`);
   }
@@ -81,6 +83,14 @@ export const config = {
   },
   photon: {
     url: process.env.PHOTON_URL || 'http://localhost:2322',
+  },
+  martin: {
+    url: process.env.MARTIN_INTERNAL_URL || process.env.MARTIN_URL || 'http://localhost:3111',
+    proxyTimeoutMs: parseInt(process.env.MARTIN_PROXY_TIMEOUT_MS || '5000', 10),
+    readinessTimeoutMs: parseInt(process.env.MARTIN_READINESS_TIMEOUT_MS || '2000', 10),
+  },
+  tileSession: {
+    secret: process.env.TILE_SESSION_SECRET || process.env.JWT_SECRET || 'huishype-dev-tile-session-secret-change-in-production',
   },
   sourceServices: {
     fundaBaseUrl: process.env.FUNDA_SOURCE_SERVICE_URL || 'http://localhost:8100',

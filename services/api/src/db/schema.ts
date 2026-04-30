@@ -14,6 +14,7 @@ import {
   customType,
   serial,
   real,
+  doublePrecision,
   jsonb,
   primaryKey,
   check,
@@ -123,18 +124,37 @@ const multiPolygonGeometry = customType<{
   },
 });
 
+const pointGeometry3857 = customType<{
+  data: string;
+  driverData: string;
+}>({
+  dataType() {
+    return 'geometry(Point, 3857)';
+  },
+  toDriver(value) {
+    return value;
+  },
+  fromDriver(value) {
+    return typeof value === 'string' ? value : String(value);
+  },
+});
+
 // OSM Buildings table (imported from OSM PBF via import-osm-buildings.ts)
 export const osmBuildings = pgTable(
   'osm_buildings',
   {
     id: serial('id').primaryKey(),
+    countryCode: varchar('country_code', { length: 2 }).notNull().default('NL'),
     osmId: bigint('osm_id', { mode: 'number' }),
     renderHeight: real('render_height').notNull().default(6.0),
     renderMinHeight: real('render_min_height').notNull().default(0.0),
     geometry: multiPolygonGeometry('geometry').notNull(),
   },
   (table) => [
-    uniqueIndex('osm_buildings_osm_id_idx').on(table.osmId).where(sql`osm_id IS NOT NULL`),
+    index('osm_buildings_country_osm_id_idx')
+      .on(table.countryCode, table.osmId)
+      .where(sql`osm_id IS NOT NULL`),
+    index('idx_osm_buildings_country').on(table.countryCode),
     index('idx_osm_buildings_geometry').using('gist', table.geometry),
   ]
 );
@@ -335,6 +355,105 @@ export const properties = pgTable(
     index('properties_created_at_idx').on(table.createdAt),
     index('properties_country_code_idx').on(table.countryCode),
     index('properties_geometry_gist_idx').using('gist', table.geometry),
+  ]
+);
+
+export const mapPublicPropertyFacts = pgTable(
+  'map_public_property_facts',
+  {
+    propertyId: uuid('property_id')
+      .primaryKey()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    countryCode: varchar('country_code', { length: 2 }).notNull(),
+    geom3857: pointGeometry3857('geom_3857').notNull(),
+    lon: doublePrecision('lon').notNull(),
+    lat: doublePrecision('lat').notNull(),
+    address: text('address'),
+    city: varchar('city', { length: 100 }),
+    activeListingCount: integer('active_listing_count').notNull().default(0),
+    completedListingCount: integer('completed_listing_count').notNull().default(0),
+    socialCount: integer('social_count').notNull().default(0),
+    recentSocialCount: integer('recent_social_count').notNull().default(0),
+    socialScoreTotal: real('social_score_total').notNull().default(0),
+    socialScoreMax: real('social_score_max').notNull().default(0),
+    recentSocialScoreTotal: real('recent_social_score_total').notNull().default(0),
+    commentCount: integer('comment_count').notNull().default(0),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    saleEffectivePrice: bigint('sale_effective_price', { mode: 'number' }),
+    rentEffectivePrice: bigint('rent_effective_price', { mode: 'number' }),
+    thumbnailUrl: text('thumbnail_url'),
+    hasActiveListing: boolean('has_active_listing').notNull().default(false),
+    marketState: varchar('market_state', { length: 20 }).notNull().default('not-listed'),
+    lastSocialAt: timestamp('last_social_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('map_public_property_facts_country_idx').on(table.countryCode),
+    index('map_public_property_facts_market_idx').on(table.marketState),
+    index('map_public_property_facts_geom_3857_idx').using('gist', table.geom3857),
+    index('map_public_property_facts_last_social_idx').on(table.lastSocialAt),
+  ]
+);
+
+export const mapQuietPropertyPoints = pgTable(
+  'map_quiet_property_points',
+  {
+    propertyId: uuid('property_id')
+      .primaryKey()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    countryCode: varchar('country_code', { length: 2 }).notNull(),
+    geom3857: pointGeometry3857('geom_3857').notNull(),
+    lon: doublePrecision('lon').notNull(),
+    lat: doublePrecision('lat').notNull(),
+    marketState: varchar('market_state', { length: 20 }).notNull().default('not-listed'),
+    saleEffectivePrice: bigint('sale_effective_price', { mode: 'number' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('map_quiet_property_points_country_idx').on(table.countryCode),
+    index('map_quiet_property_points_market_idx').on(table.marketState),
+    index('map_quiet_property_points_geom_3857_idx').using('gist', table.geom3857),
+  ]
+);
+
+export const mapPublicPropertyBucketMembers = pgTable(
+  'map_public_property_bucket_members',
+  {
+    zoom: integer('zoom').notNull(),
+    bucketX: integer('bucket_x').notNull(),
+    bucketY: integer('bucket_y').notNull(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.zoom, table.bucketX, table.bucketY, table.propertyId] }),
+    index('map_public_property_bucket_lookup_idx').on(table.zoom, table.bucketX, table.bucketY),
+    index('map_public_property_bucket_property_idx').on(table.propertyId),
+  ]
+);
+
+export const mapPropertyActorActivity = pgTable(
+  'map_property_actor_activity',
+  {
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    activityKind: varchar('activity_kind', { length: 30 }).notNull(),
+    activityAt: timestamp('activity_at', { withTimezone: true }).notNull(),
+    score: real('score').notNull(),
+    geom3857: pointGeometry3857('geom_3857').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.propertyId, table.actorUserId, table.activityKind, table.activityAt],
+    }),
+    index('map_property_actor_activity_actor_idx').on(table.actorUserId, table.activityAt),
+    index('map_property_actor_activity_property_idx').on(table.propertyId),
+    index('map_property_actor_activity_geom_3857_idx').using('gist', table.geom3857),
   ]
 );
 

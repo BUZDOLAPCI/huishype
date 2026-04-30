@@ -267,6 +267,7 @@ interface PropertyNodeGroupBase {
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
   activeListingCount: number;
+  completedListingCount: number;
   socialCount: number;
   recentSocialCount: number;
   socialScoreTotal: number;

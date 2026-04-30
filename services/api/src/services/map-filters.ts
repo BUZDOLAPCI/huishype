@@ -233,7 +233,7 @@ export function getMapFilterSignature(filters: MapFilters): string {
 
 export function buildPropertyTileTemplateUrl(baseUrl: string, filters: MapFilters): string {
   const query = serializeMapFilterQuery(filters);
-  return `${baseUrl}/tiles/properties/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
+  return `${baseUrl}/tiles/public_property_nodes/{z}/{x}/{y}${query ? `?${query}` : ''}`;
 }
 
 function buildStateList(states: readonly MapMarketState[]): SQL {

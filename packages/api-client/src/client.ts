@@ -23,8 +23,9 @@ import type {
   GetFeedRequest,
   GetGroupedPropertyActivityRequest,
   GetGroupedPropertyActivityResponse,
+  CreatePropertyTileSessionRequest,
+  CreatePropertyTileSessionResponse,
   GetFollowingNearbyPropertyRequest,
-  GetFollowingPropertyTilesRequest,
   GetSavedPropertiesRequest,
   PropertyResolveRequest,
   PropertyResolveResponse,
@@ -50,8 +51,9 @@ type FollowActionResponse =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
 type ActivityQuery = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponse = paths['/activity']['get']['responses'][200]['content']['application/json'];
-type GroupedPropertyActivityQuery =
-  NonNullable<paths['/activity/properties']['get']['parameters']['query']>;
+type GroupedPropertyActivityQuery = NonNullable<
+  paths['/activity/properties']['get']['parameters']['query']
+>;
 type GroupedPropertyActivityResponseFromOpenApi =
   paths['/activity/properties']['get']['responses'][200]['content']['application/json'];
 type MyActivityQuery = NonNullable<paths['/users/me/activity']['get']['parameters']['query']>;
@@ -71,12 +73,9 @@ type TrackViewResponse =
 type ResolvePropertyQuery = paths['/properties/resolve']['get']['parameters']['query'];
 type PropertyResponse =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
-type SavedPropertiesQuery =
-  NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
+type SavedPropertiesQuery = NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
 type SavedPropertiesResponse =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
-type FollowingPropertyTilesResponse =
-  paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
 type FollowingNearbyPropertyResponse =
   paths['/properties/following-nearby']['get']['responses'][200]['content']['application/json'];
 
@@ -388,30 +387,25 @@ export class HuisHypeApiClient {
     return this.request<PropertyResponse>('GET', `/properties/${propertyId}`);
   }
 
-  async getFollowingPropertyTiles(
-    request: GetFollowingPropertyTilesRequest
-  ): Promise<FollowingPropertyTilesResponse> {
-    const marketState =
-      Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
+  async createPropertyTileSession(
+    request: CreatePropertyTileSessionRequest
+  ): Promise<CreatePropertyTileSessionResponse> {
+    const includeSessionId = request.scope === 'read';
+    const requiresAuth = request.scope === 'following';
 
-    return this.request<FollowingPropertyTilesResponse>('GET', '/tiles/following/properties.json', {
-      query: {
-        salePriceFrom: request.salePriceFrom ?? undefined,
-        salePriceTo: request.salePriceTo ?? undefined,
-        rentPriceFrom: request.rentPriceFrom ?? undefined,
-        rentPriceTo: request.rentPriceTo ?? undefined,
-        marketState,
-        activity: request.activity,
-      },
-      requiresAuth: true,
+    return this.request<CreatePropertyTileSessionResponse>('POST', '/tiles/sessions', {
+      body: request,
+      requiresAuth,
+      includeSessionId,
     });
   }
 
   async getFollowingNearbyProperty(
     request: GetFollowingNearbyPropertyRequest
   ): Promise<FollowingNearbyPropertyResponse> {
-    const marketState =
-      Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
+    const marketState = Array.isArray(request.marketState)
+      ? request.marketState.join(',')
+      : request.marketState;
 
     return this.request<FollowingNearbyPropertyResponse>('GET', '/properties/following-nearby', {
       query: {
@@ -532,7 +526,7 @@ export class HuisHypeApiClient {
   }
 
   async getGroupedPropertyActivity(
-    params: GetGroupedPropertyActivityRequest = {},
+    params: GetGroupedPropertyActivityRequest = {}
   ): Promise<GetGroupedPropertyActivityResponse> {
     const query = {
       scope: params.scope,

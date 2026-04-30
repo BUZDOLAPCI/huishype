@@ -3,7 +3,7 @@
  *
  * This test verifies the backend vector tile clustering implementation:
  *
- * 1. Backend serves MVT/PBF tiles at /tiles/properties/{z}/{x}/{y}.pbf
+ * 1. Backend serves MVT tiles at /tiles/public_property_nodes/{z}/{x}/{y}
  * 2. Below ghost reveal: active nodes and active clusters render without ghost layers
  * 3. At/above ghost reveal: ghost clusters, ghost counts, and ghost nodes can render
  * 4. Grouping remains density-aware instead of a hard high-zoom de-cluster split
@@ -100,7 +100,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const x = 4208; // Approximate tile for Eindhoven at z13
     const y = 2686;
 
-    const tileUrl = `${API_URL}/tiles/properties/${z}/${x}/${y}.pbf`;
+    const tileUrl = `${API_URL}/tiles/public_property_nodes/${z}/${x}/${y}`;
     const responses = [
       await request.get(tileUrl, { timeout: 5000 }),
       await request.get(tileUrl, { timeout: 5000 }),

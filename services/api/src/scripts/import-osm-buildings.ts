@@ -72,11 +72,15 @@ function importCountry(code: CountryCode): void {
   //   - Explicit height tag: use as-is (just ensure > 0), e.g. garage with height=2
   //   - Levels-derived or default: enforce minimum floor height of 3.02m
   //
-  // Dedup: ON CONFLICT (osm_id) DO UPDATE for idempotent re-runs
+  // Replace the requested country for idempotent re-runs. OSM can contain
+  // duplicate osm_id values for valid multipart/source edge cases, so the
+  // render table intentionally keeps a non-unique lookup index.
   const insertStart = Date.now();
+  psql(`DELETE FROM osm_buildings WHERE country_code = '${code}';`);
   psql(`
-    INSERT INTO osm_buildings (osm_id, render_height, render_min_height, geometry)
+    INSERT INTO osm_buildings (country_code, osm_id, render_height, render_min_height, geometry)
     SELECT
+      '${code}',
       COALESCE(
         NULLIF(osm_id, '')::bigint,
         NULLIF(osm_way_id, '')::bigint
@@ -94,12 +98,7 @@ function importCountry(code: CountryCode): void {
       ))::real,
       geometry
     FROM osm_buildings_staging
-    WHERE geometry IS NOT NULL
-    ON CONFLICT (osm_id) WHERE osm_id IS NOT NULL
-    DO UPDATE SET
-      render_height = EXCLUDED.render_height,
-      render_min_height = EXCLUDED.render_min_height,
-      geometry = EXCLUDED.geometry;
+    WHERE geometry IS NOT NULL;
   `);
   console.log(`  Insert completed in ${formatTime(Date.now() - insertStart)}`);
 

@@ -60,6 +60,7 @@ describe('Mock handler runtime parity', () => {
     'coordinate',
     'bbox',
     'activeListingCount',
+    'completedListingCount',
     'socialCount',
     'recentSocialCount',
     'socialScoreTotal',
@@ -585,8 +586,12 @@ describe('Mock handler runtime parity', () => {
     expect(await mismatchedAdditionResponse.json()).toBeNull();
   });
 
-  it('matches Following TileJSON auth split and personalized nearby grouped payloads', async () => {
-    const unauthorizedResponse = await fetch('http://localhost/tiles/following/properties.json');
+  it('matches Following tile-session auth split and personalized nearby grouped payloads', async () => {
+    const unauthorizedResponse = await fetch('http://localhost/tiles/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'following' }),
+    });
     expect(unauthorizedResponse.status).toBe(401);
 
     const loginResponse = await fetch('http://localhost/auth/google', {
@@ -597,44 +602,26 @@ describe('Mock handler runtime parity', () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.session.accessToken as string;
 
-    const omittedActivityTileJsonResponse = await fetch(
-      'http://localhost/tiles/following/properties.json',
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-    const omittedActivityTileJsonBody = await omittedActivityTileJsonResponse.json();
+    const tileSessionResponse = await fetch('http://localhost/tiles/sessions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'following',
+        marketState: ['for-sale', 'sold'],
+        activity: '10d',
+      }),
+    });
+    const tileSessionBody = await tileSessionResponse.json();
 
-    expect(omittedActivityTileJsonResponse.status).toBe(200);
-    expect(omittedActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
-
-    const legacyAllActivityTileJsonResponse = await fetch(
-      'http://localhost/tiles/following/properties.json?activity=all',
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-    const legacyAllActivityTileJsonBody = await legacyAllActivityTileJsonResponse.json();
-
-    expect(legacyAllActivityTileJsonResponse.status).toBe(200);
-    expect(legacyAllActivityTileJsonBody.tiles[0]).toContain('activity=all-time');
-    expect(legacyAllActivityTileJsonBody.tiles[0]).not.toContain('activity=all&');
-
-    const tileJsonResponse = await fetch(
-      'http://localhost/tiles/following/properties.json?marketState=for-sale,sold&activity=10d',
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-    const tileJsonBody = await tileJsonResponse.json();
-
-    expect(tileJsonResponse.status).toBe(200);
-    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
-    expect(tileJsonBody).toHaveProperty('tiles');
-    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
-    expect(tileJsonBody.tiles[0]).toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
-    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
-    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
+    expect(tileSessionResponse.status).toBe(200);
+    expect(tileSessionBody).toHaveProperty('scope', 'following');
+    expect(tileSessionBody).toHaveProperty('expiresAt');
+    expect(tileSessionBody.tileTemplate).toContain('/tiles/private_following_property_nodes/{z}/{x}/{y}');
+    expect(tileSessionBody.tileTemplate).not.toContain('.pbf');
+    expect(tileSessionBody.tileTemplate).toContain('marketState=for-sale%2Csold');
+    expect(tileSessionBody.tileTemplate).toContain('activity=10d');
+    expect(tileSessionBody.tileTemplate).toContain('tile_session=');
+    expect(tileSessionBody.cacheBustedTileTemplate).toContain('tile_session=');
 
     const nearbyResponse = await fetch(
       'http://localhost/properties/following-nearby?lon=4.8952&lat=52.3702&zoom=17&marketState=for-sale',
@@ -731,39 +718,43 @@ describe('Mock handler runtime parity', () => {
     expect(await sessionDetailResponse.json()).toHaveProperty('isRead', true);
   });
 
-  it('matches read-state TileJSON identity requirements and envelope', async () => {
-    const missingIdentityResponse = await fetch('http://localhost/tiles/properties/read.json');
+  it('matches read-state tile-session identity requirements and envelope', async () => {
+    const missingIdentityResponse = await fetch('http://localhost/tiles/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'read' }),
+    });
     expect(missingIdentityResponse.status).toBe(400);
     expect(await missingIdentityResponse.json()).toEqual({
       error: 'BAD_REQUEST',
       message: 'Authenticated user or x-session-id header is required.',
     });
 
-    const tileJsonResponse = await fetch(
-      'http://localhost/tiles/properties/read.json?marketState=for-sale,sold&activity=10d',
-      {
-        headers: { 'x-session-id': 'mock-session-tiles' },
-      }
-    );
-    const tileJsonBody = await tileJsonResponse.json();
-
-    expect(tileJsonResponse.status).toBe(200);
-    expect(tileJsonBody).toHaveProperty('tilejson', '2.1.0');
-    expect(tileJsonBody).toHaveProperty('name', 'HuisHype Read Properties');
-    expect(tileJsonBody).toHaveProperty('tiles');
-    expect(Array.isArray(tileJsonBody.tiles)).toBe(true);
-    expect(tileJsonBody.tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
-    expect(tileJsonBody.tiles[0]).toContain('marketState=for-sale%2Csold');
-    expect(tileJsonBody.tiles[0]).toContain('activity=10d');
-
-    const missingIdentityTileResponse = await fetch(
-      'http://localhost/tiles/properties/read/12/2048/1363.pbf'
-    );
-    expect(missingIdentityTileResponse.status).toBe(400);
-
-    const tileResponse = await fetch('http://localhost/tiles/properties/read/12/2048/1363.pbf', {
-      headers: { 'x-session-id': 'mock-session-tiles' },
+    const tileSessionResponse = await fetch('http://localhost/tiles/sessions', {
+      method: 'POST',
+      headers: { 'x-session-id': 'mock-session-tiles', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'read',
+        marketState: ['for-sale', 'sold'],
+        activity: '10d',
+      }),
     });
+    const tileSessionBody = await tileSessionResponse.json();
+
+    expect(tileSessionResponse.status).toBe(200);
+    expect(tileSessionBody).toHaveProperty('scope', 'read');
+    expect(tileSessionBody).toHaveProperty('expiresAt');
+    expect(tileSessionBody.tileTemplate).toContain('/tiles/private_read_property_nodes/{z}/{x}/{y}');
+    expect(tileSessionBody.tileTemplate).not.toContain('.pbf');
+    expect(tileSessionBody.tileTemplate).toContain('marketState=for-sale%2Csold');
+    expect(tileSessionBody.tileTemplate).toContain('activity=10d');
+
+    const missingSessionTileResponse = await fetch(
+      'http://localhost/tiles/private_read_property_nodes/12/2048/1363'
+    );
+    expect(missingSessionTileResponse.status).toBe(401);
+
+    const tileResponse = await fetch(tileSessionBody.tileTemplate.replace('{z}/{x}/{y}', '12/2048/1363'));
     expect(tileResponse.status).toBe(204);
   });
 

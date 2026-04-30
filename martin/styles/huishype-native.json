@@ -1,0 +1,367 @@
+{
+  "version": 8,
+  "name": "HuisHype Martin Native",
+  "sprite": "/tiles/sprite/huishype",
+  "glyphs": "/tiles/font/{fontstack}/{range}",
+  "sources": {
+    "base-source": {
+      "type": "vector",
+      "tiles": ["/tiles/base/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 14
+    },
+    "properties-source": {
+      "type": "vector",
+      "tiles": ["/tiles/public_property_nodes/{z}/{x}/{y}"],
+      "minzoom": 7,
+      "maxzoom": 22,
+      "promoteId": "primary_property_id"
+    },
+    "tree-source": {
+      "type": "vector",
+      "tiles": ["/tiles/trees/{z}/{x}/{y}"],
+      "minzoom": 15,
+      "maxzoom": 17
+    },
+    "buildings-source": {
+      "type": "vector",
+      "tiles": ["/tiles/buildings/{z}/{x}/{y}"],
+      "minzoom": 15,
+      "maxzoom": 17
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#eef2ee"
+      }
+    },
+    {
+      "id": "property-clusters",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "active"],
+        ["==", ["get", "group_kind"], "cluster"]
+      ],
+      "paint": {
+        "circle-radius": [
+          "+",
+          12,
+          [
+            "interpolate",
+            ["linear"],
+            [
+              "case",
+              [">", ["coalesce", ["get", "point_count"], 0], 0],
+              [
+                "/",
+                ["coalesce", ["get", "activeListingCount"], 0],
+                ["coalesce", ["get", "point_count"], 1]
+              ],
+              0
+            ],
+            0,
+            0,
+            0.000001,
+            1.8
+          ]
+        ],
+        "circle-color": [
+          "interpolate",
+          ["linear"],
+          [
+            "case",
+            [">", ["coalesce", ["get", "point_count"], 0], 0],
+            [
+              "/",
+              ["coalesce", ["get", "activeListingCount"], 0],
+              ["coalesce", ["get", "point_count"], 1]
+            ],
+            0
+          ],
+          0,
+          "#CBD5E1",
+          0.000001,
+          "#2563EB"
+        ],
+        "circle-opacity": [
+          "interpolate",
+          ["linear"],
+          [
+            "case",
+            [">", ["coalesce", ["get", "point_count"], 0], 0],
+            [
+              "/",
+              ["coalesce", ["get", "activeListingCount"], 0],
+              ["coalesce", ["get", "point_count"], 1]
+            ],
+            0
+          ],
+          0,
+          0,
+          0.000001,
+          0.96
+        ],
+        "circle-stroke-width": 0,
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": [
+          "interpolate",
+          ["linear"],
+          [
+            "case",
+            [">", ["coalesce", ["get", "point_count"], 0], 0],
+            [
+              "/",
+              ["coalesce", ["get", "activeListingCount"], 0],
+              ["coalesce", ["get", "point_count"], 1]
+            ],
+            0
+          ],
+          0,
+          0,
+          0.000001,
+          0.96
+        ]
+      }
+    },
+    {
+      "id": "property-cluster-fill",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "active"],
+        ["==", ["get", "group_kind"], "cluster"]
+      ],
+      "paint": {
+        "circle-radius": 12,
+        "circle-color": [
+          "case",
+          [">", ["coalesce", ["get", "socialCount"], 0], 0],
+          "#FDAE10",
+          "#DDE6F4"
+        ],
+        "circle-opacity": ["case", [">", ["coalesce", ["get", "socialCount"], 0], 0], 0.96, 0.8],
+        "circle-stroke-width": [
+          "case",
+          [">", ["coalesce", ["get", "activeListingCount"], 0], 0],
+          0,
+          1
+        ],
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": [
+          "case",
+          [">", ["coalesce", ["get", "activeListingCount"], 0], 0],
+          0,
+          0.9
+        ]
+      }
+    },
+    {
+      "id": "cluster-count",
+      "type": "symbol",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "active"],
+        ["==", ["get", "group_kind"], "cluster"]
+      ],
+      "layout": {
+        "text-field": ["case", ["has", "point_count"], ["to-string", ["get", "point_count"]], ""],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": 14
+      },
+      "paint": {
+        "text-color": "#FFFFFF",
+        "text-halo-color": "rgba(15, 23, 42, 0.72)",
+        "text-halo-width": 1
+      }
+    },
+    {
+      "id": "active-nodes",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "active"],
+        ["==", ["get", "group_kind"], "single"]
+      ],
+      "paint": {
+        "circle-radius": [
+          "+",
+          10,
+          ["interpolate", ["linear"], ["coalesce", ["get", "activeListingCount"], 0], 0, 0, 1, 1.8]
+        ],
+        "circle-color": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["get", "activeListingCount"], 0],
+          0,
+          "#CBD5E1",
+          1,
+          "#2563EB"
+        ],
+        "circle-opacity": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["get", "activeListingCount"], 0],
+          0,
+          0,
+          1,
+          0.96
+        ],
+        "circle-stroke-width": 0,
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["get", "activeListingCount"], 0],
+          0,
+          0,
+          1,
+          0.96
+        ]
+      }
+    },
+    {
+      "id": "active-node-fill",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "active"],
+        ["==", ["get", "group_kind"], "single"]
+      ],
+      "paint": {
+        "circle-radius": 10,
+        "circle-color": [
+          "case",
+          [">", ["coalesce", ["get", "socialCount"], 0], 0],
+          "#FDAE10",
+          "#DDE6F4"
+        ],
+        "circle-opacity": ["case", [">", ["coalesce", ["get", "socialCount"], 0], 0], 0.96, 0.8],
+        "circle-stroke-width": [
+          "case",
+          [">", ["coalesce", ["get", "activeListingCount"], 0], 0],
+          0,
+          1
+        ],
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": [
+          "case",
+          [">", ["coalesce", ["get", "activeListingCount"], 0], 0],
+          0,
+          0.9
+        ]
+      }
+    },
+    {
+      "id": "ghost-clusters",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "minzoom": 17,
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "ghost"],
+        ["==", ["get", "group_kind"], "cluster"]
+      ],
+      "paint": {
+        "circle-radius": ["step", ["coalesce", ["get", "point_count"], 2], 10, 10, 11, 30, 12],
+        "circle-color": "#D3DAE6",
+        "circle-opacity": 0.54,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": 0.72
+      }
+    },
+    {
+      "id": "ghost-cluster-count",
+      "type": "symbol",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "minzoom": 17,
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "ghost"],
+        ["==", ["get", "group_kind"], "cluster"]
+      ],
+      "layout": {
+        "text-field": ["case", ["has", "point_count"], ["to-string", ["get", "point_count"]], ""],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 9
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "rgba(255, 255, 255, 0.85)",
+        "text-halo-width": 1
+      }
+    },
+    {
+      "id": "ghost-nodes",
+      "type": "circle",
+      "source": "properties-source",
+      "source-layer": "properties",
+      "minzoom": 17,
+      "filter": [
+        "all",
+        ["==", ["get", "node_class"], "ghost"],
+        ["==", ["get", "group_kind"], "single"]
+      ],
+      "paint": {
+        "circle-radius": 3,
+        "circle-color": "#AEBBCC",
+        "circle-opacity": 0.38,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#FFFFFF",
+        "circle-stroke-opacity": 0.54
+      }
+    },
+    {
+      "id": "trees",
+      "type": "symbol",
+      "source": "tree-source",
+      "source-layer": "scattered-trees",
+      "layout": {
+        "icon-image": "tree",
+        "icon-size": 0.6,
+        "icon-allow-overlap": true
+      }
+    },
+    {
+      "id": "3d-buildings",
+      "type": "fill-extrusion",
+      "source": "buildings-source",
+      "source-layer": "buildings",
+      "minzoom": 15,
+      "paint": {
+        "fill-extrusion-color": "#eadfce",
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 3],
+        "fill-extrusion-base": ["coalesce", ["get", "render_base"], 0],
+        "fill-extrusion-opacity": 0.92
+      }
+    },
+    {
+      "id": "paper-trees",
+      "type": "symbol",
+      "source": "tree-source",
+      "source-layer": "scattered-trees",
+      "minzoom": 15,
+      "layout": {
+        "icon-image": "tree",
+        "icon-size": 0.6,
+        "icon-allow-overlap": true
+      }
+    }
+  ]
+}

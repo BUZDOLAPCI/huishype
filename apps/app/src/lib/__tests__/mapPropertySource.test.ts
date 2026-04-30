@@ -1,18 +1,15 @@
 import {
   applyReadPropertyFeatureStateStyles,
-  buildReadTileJsonUrl,
   buildReadTileRequestMatchPattern,
-  buildFollowingTileJsonCandidateUrls,
   buildFollowingTileRequestMatchPattern,
   fetchReadTileSource,
-  FOLLOWING_TILEJSON_PATH,
   getReadPropertyOverlayLayers,
   injectReadPropertyOverlay,
   PROPERTY_VECTOR_SOURCE_ID,
   PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
   READ_PROPERTY_FEATURE_STATE_KEY,
   READ_PROPERTY_VECTOR_SOURCE_ID,
-  READ_TILEJSON_PATH,
+  TILE_SESSION_PATH,
   replacePropertySourceTiles,
 } from '../mapPropertySource';
 import type { MapFilters } from '../sharedMapFilters';
@@ -24,35 +21,31 @@ describe('replacePropertySourceTiles', () => {
       sources: {
         [PROPERTY_VECTOR_SOURCE_ID]: {
           type: 'vector',
-          tiles: ['http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf'],
+          tiles: ['http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}'],
         },
         other: {
           type: 'vector',
-          tiles: ['http://example.com/other/{z}/{x}/{y}.pbf'],
+          tiles: ['http://example.com/other/{z}/{x}/{y}'],
         },
       },
     };
 
     const nextStyle = replacePropertySourceTiles(
       style,
-      'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf?salePriceFrom=500000',
+      'http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}?salePriceFrom=500000'
     );
 
     expect(nextStyle).not.toBe(style);
     expect(nextStyle?.sources?.[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
-      'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf?salePriceFrom=500000',
+      'http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}?salePriceFrom=500000',
     ]);
     const sources = nextStyle?.sources as Record<string, { promoteId?: string; tiles?: string[] }>;
-    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
-      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
-    );
-    expect(nextStyle?.sources?.other?.tiles).toEqual([
-      'http://example.com/other/{z}/{x}/{y}.pbf',
-    ]);
+    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(PROPERTY_VECTOR_SOURCE_PROMOTE_ID);
+    expect(nextStyle?.sources?.other?.tiles).toEqual(['http://example.com/other/{z}/{x}/{y}']);
   });
 
   it('adds the promoted feature id even when property vector tiles are unchanged', () => {
-    const tileUrl = 'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf';
+    const tileUrl = 'http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}';
     const style = {
       version: 8,
       sources: {
@@ -68,52 +61,45 @@ describe('replacePropertySourceTiles', () => {
 
     expect(nextStyle).not.toBe(style);
     expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([tileUrl]);
-    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
-      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
-    );
+    expect(sources[PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(PROPERTY_VECTOR_SOURCE_PROMOTE_ID);
+  });
+
+  it('replaces TileJSON url sources with explicit tiles for runtime filtering', () => {
+    const tileUrl =
+      'http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}?marketState=for-sale';
+    const style = {
+      version: 8,
+      sources: {
+        [PROPERTY_VECTOR_SOURCE_ID]: {
+          type: 'vector',
+          url: 'http://localhost:3100/tiles/public_property_nodes',
+          tiles: ['http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}'],
+        },
+      },
+    };
+
+    const nextStyle = replacePropertySourceTiles(style, tileUrl);
+    const source = nextStyle?.sources?.[PROPERTY_VECTOR_SOURCE_ID] as
+      | { promoteId?: string; tiles?: string[]; url?: string }
+      | undefined;
+
+    expect(nextStyle).not.toBe(style);
+    expect(source?.tiles).toEqual([tileUrl]);
+    expect(source?.url).toBeUndefined();
+    expect(source?.promoteId).toBe(PROPERTY_VECTOR_SOURCE_PROMOTE_ID);
   });
 });
 
 describe('Following tile source helpers', () => {
-  it('builds the authenticated Following TileJSON URL from the canonical backend route', () => {
-    expect(
-      buildFollowingTileJsonCandidateUrls('http://localhost:3100/', {
-        salePriceFrom: 500000,
-        salePriceTo: 800000,
-        rentPriceFrom: null,
-        rentPriceTo: null,
-        marketState: ['for-sale'],
-        activity: '30d',
-      }),
-    ).toEqual([
-      `http://localhost:3100${FOLLOWING_TILEJSON_PATH}?salePriceFrom=500000&salePriceTo=800000&marketState=for-sale&activity=all-time`,
-    ]);
-  });
-
-  it('uses independent Following activity instead of the public activity filter', () => {
-    expect(
-      buildFollowingTileJsonCandidateUrls(
-        'http://localhost:3100/',
-        {
-          salePriceFrom: null,
-          salePriceTo: null,
-          rentPriceFrom: null,
-          rentPriceTo: null,
-          marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
-          activity: '30d',
-        },
-        'today',
-      ),
-    ).toEqual([`http://localhost:3100${FOLLOWING_TILEJSON_PATH}?activity=today`]);
-  });
-
   it('matches Following tile requests using the tile template prefix', () => {
     const pattern = buildFollowingTileRequestMatchPattern(
-      'https://tiles.test/following/{z}/{x}/{y}.pbf?marketState=for-sale',
+      'https://tiles.test/tiles/private_following_property_nodes/{z}/{x}/{y}?marketState=for-sale'
     );
 
-    expect(pattern.test('https://tiles.test/following/12/2048/1363.pbf')).toBe(true);
-    expect(pattern.test('https://tiles.test/public/12/2048/1363.pbf')).toBe(false);
+    expect(
+      pattern.test('https://tiles.test/tiles/private_following_property_nodes/12/2048/1363')
+    ).toBe(true);
+    expect(pattern.test('https://tiles.test/tiles/public_property_nodes/12/2048/1363')).toBe(false);
   });
 });
 
@@ -127,19 +113,15 @@ describe('Read tile source helpers', () => {
     activity: 'today' as const,
   };
 
-  it('builds the private read TileJSON URL with map filters and read version', () => {
-    expect(buildReadTileJsonUrl('http://localhost:3100/', filters, 3)).toBe(
-      `http://localhost:3100${READ_TILEJSON_PATH}?salePriceFrom=500000&marketState=for-sale&activity=today&readVersion=3`,
-    );
-  });
-
   it('matches read tile requests using only the private read tile template prefix', () => {
     const pattern = buildReadTileRequestMatchPattern(
-      'https://tiles.test/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale&readVersion=2',
+      'https://tiles.test/tiles/private_read_property_nodes/{z}/{x}/{y}?marketState=for-sale&tile_session=abc'
     );
 
-    expect(pattern.test('https://tiles.test/tiles/properties/read/12/2048/1363.pbf')).toBe(true);
-    expect(pattern.test('https://tiles.test/tiles/properties/12/2048/1363.pbf')).toBe(false);
+    expect(pattern.test('https://tiles.test/tiles/private_read_property_nodes/12/2048/1363')).toBe(
+      true
+    );
+    expect(pattern.test('https://tiles.test/tiles/public_property_nodes/12/2048/1363')).toBe(false);
   });
 
   it('injects read overlay source and 60 percent opacity layers without changing the public source', () => {
@@ -148,7 +130,7 @@ describe('Read tile source helpers', () => {
       sources: {
         [PROPERTY_VECTOR_SOURCE_ID]: {
           type: 'vector',
-          tiles: ['http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf'],
+          tiles: ['http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}'],
         },
       },
       layers: [
@@ -162,19 +144,19 @@ describe('Read tile source helpers', () => {
 
     const nextStyle = injectReadPropertyOverlay(
       style,
-      'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=abc'
     );
 
     expect(nextStyle).not.toBe(style);
     expect(nextStyle?.sources?.[PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
-      'http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf',
+      'http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}',
     ]);
     const sources = nextStyle?.sources as Record<string, { promoteId?: string; tiles?: string[] }>;
     expect(sources[READ_PROPERTY_VECTOR_SOURCE_ID]?.tiles).toEqual([
-      'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=abc',
     ]);
     expect(sources[READ_PROPERTY_VECTOR_SOURCE_ID]?.promoteId).toBe(
-      PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
+      PROPERTY_VECTOR_SOURCE_PROMOTE_ID
     );
     expect(nextStyle?.layers?.map((layer) => layer.id)).toEqual(
       expect.arrayContaining([
@@ -183,7 +165,7 @@ describe('Read tile source helpers', () => {
         'read-active-node-fill',
         'read-property-clusters',
         'read-property-cluster-fill',
-      ]),
+      ])
     );
   });
 
@@ -203,7 +185,7 @@ describe('Read tile source helpers', () => {
 
     expect(readLayers.every((layer) => layer.type === 'circle')).toBe(true);
     expect(readLayers.map((layer) => layer.id)).not.toEqual(
-      expect.arrayContaining(['read-cluster-count', 'read-ghost-cluster-count']),
+      expect.arrayContaining(['read-cluster-count', 'read-ghost-cluster-count'])
     );
     expect(JSON.stringify(paintValues)).not.toContain('#8A8F98');
     expect(JSON.stringify(paintValues)).toContain('"circle-opacity":0');
@@ -216,7 +198,7 @@ describe('Read tile source helpers', () => {
       sources: {
         [PROPERTY_VECTOR_SOURCE_ID]: {
           type: 'vector',
-          tiles: ['http://localhost:3100/tiles/properties/{z}/{x}/{y}.pbf'],
+          tiles: ['http://localhost:3100/tiles/public_property_nodes/{z}/{x}/{y}'],
         },
       },
       layers: [
@@ -226,8 +208,24 @@ describe('Read tile source helpers', () => {
           source: PROPERTY_VECTOR_SOURCE_ID,
           'source-layer': 'properties',
           paint: {
-            'circle-opacity': ['interpolate', ['linear'], ['get', 'activeListingCount'], 0, 0, 1, 0.96],
-            'circle-stroke-opacity': ['interpolate', ['linear'], ['get', 'activeListingCount'], 0, 0, 1, 0.96],
+            'circle-opacity': [
+              'interpolate',
+              ['linear'],
+              ['get', 'activeListingCount'],
+              0,
+              0,
+              1,
+              0.96,
+            ],
+            'circle-stroke-opacity': [
+              'interpolate',
+              ['linear'],
+              ['get', 'activeListingCount'],
+              0,
+              0,
+              1,
+              0.96,
+            ],
           },
         },
         {
@@ -257,30 +255,31 @@ describe('Read tile source helpers', () => {
       ?.paint as Record<string, unknown> | undefined;
     const activeFillPaint = nextStyle?.layers?.find((layer) => layer.id === 'active-node-fill')
       ?.paint as Record<string, unknown> | undefined;
-    const clusterPaint = nextStyle?.layers?.find((layer) => layer.id === 'cluster-count')
-      ?.paint;
+    const clusterPaint = nextStyle?.layers?.find((layer) => layer.id === 'cluster-count')?.paint;
 
     expect(JSON.stringify(activeRingPaint?.['circle-opacity'])).toContain(
-      READ_PROPERTY_FEATURE_STATE_KEY,
+      READ_PROPERTY_FEATURE_STATE_KEY
     );
-    expect(activeRingPaint?.['circle-opacity']).toEqual(
-      expect.arrayContaining([0]),
-    );
+    expect(activeRingPaint?.['circle-opacity']).toEqual(expect.arrayContaining([0]));
     expect(JSON.stringify(activeFillPaint)).toContain(READ_PROPERTY_FEATURE_STATE_KEY);
     expect(JSON.stringify(activeFillPaint)).toContain('0.6');
     expect(JSON.stringify(activeFillPaint?.['circle-stroke-width'])).toContain(
-      'activeListingCount',
+      'activeListingCount'
     );
     expect(JSON.stringify(activeFillPaint?.['circle-stroke-color'])).toContain('#2563EB');
     expect(JSON.stringify(clusterPaint)).toContain(READ_PROPERTY_FEATURE_STATE_KEY);
     expect(JSON.stringify(clusterPaint)).toContain('"text-opacity"');
   });
 
-  it('fetches read TileJSON with the supplied private credential and exposes stable and cache-busted templates', async () => {
+  it('fetches a signed read tile session with the supplied private credential', async () => {
     const mockFetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        tiles: ['http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale'],
+        expiresAt: '2026-04-29T12:00:00.000Z',
+        tileTemplate:
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?marketState=for-sale&tile_session=stable',
+        cacheBustedTileTemplate:
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?marketState=for-sale&tile_session=cache',
       }),
     });
     global.fetch = mockFetch as unknown as typeof fetch;
@@ -292,31 +291,35 @@ describe('Read tile source helpers', () => {
         headerName: 'x-session-id',
         headerValue: 'session-123',
       },
-      4,
+      4
     );
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      `http://localhost:3100${READ_TILEJSON_PATH}?salePriceFrom=500000&marketState=for-sale&activity=today&readVersion=4`,
-      {
-        headers: {
-          'x-session-id': 'session-123',
-        },
+    expect(mockFetch).toHaveBeenCalledWith(`http://localhost:3100${TILE_SESSION_PATH}`, {
+      method: 'POST',
+      headers: {
+        'x-session-id': 'session-123',
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        scope: 'read',
+        salePriceFrom: 500000,
+        marketState: ['for-sale'],
+        activity: 'today',
+      }),
+    });
     expect(source.tileUrl).toBe(
-      'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale',
+      'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?marketState=for-sale&tile_session=stable'
     );
     expect(source.cacheBustedTileUrl).toBe(
-      'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?marketState=for-sale&readVersion=4',
+      'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?marketState=for-sale&tile_session=cache'
     );
-    expect(source.headerName).toBe('x-session-id');
-    expect(source.headerValue).toBe('session-123');
+    expect(source.expiresAt).toBe('2026-04-29T12:00:00.000Z');
   });
 
-  it('treats read TileJSON without tiles as no active overlay', async () => {
+  it('treats read tile sessions without templates as no active overlay', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ tiles: [] }),
+      json: async () => ({ tileTemplate: null, cacheBustedTileTemplate: null }),
     }) as unknown as typeof fetch;
 
     const source = await fetchReadTileSource(
@@ -326,19 +329,22 @@ describe('Read tile source helpers', () => {
         headerName: 'x-session-id',
         headerValue: 'session-empty',
       },
-      0,
+      0
     );
 
     expect(source.tileUrl).toBeNull();
     expect(source.cacheBustedTileUrl).toBeNull();
-    expect(source.tileJson).toEqual({ tiles: [] });
+    expect(source.tileJson).toEqual({ tileTemplate: null, cacheBustedTileTemplate: null });
   });
 
-  it('returns a stable tile template plus a cache-busted read template', async () => {
+  it('returns a stable tile template plus a cache-busted read template from the tile session response', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        tiles: ['http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf'],
+        tileTemplate:
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
+        cacheBustedTileTemplate:
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache',
       }),
     }) as jest.Mock;
 
@@ -350,17 +356,17 @@ describe('Read tile source helpers', () => {
           headerName: 'x-session-id',
           headerValue: 'session-123',
         },
-        2,
-      ),
+        2
+      )
     ).resolves.toEqual(
       expect.objectContaining({
-        tileJsonUrl:
-          'http://localhost:3100/tiles/properties/read.json?salePriceFrom=500000&marketState=for-sale&activity=today&readVersion=2',
-        tileUrl: 'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf',
+        tileJsonUrl: 'http://localhost:3100/tiles/sessions',
+        tileUrl:
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=stable',
         cacheBustedTileUrl:
-          'http://localhost:3100/tiles/properties/read/{z}/{x}/{y}.pbf?readVersion=2',
+          'http://localhost:3100/tiles/private_read_property_nodes/{z}/{x}/{y}?tile_session=cache',
         version: 2,
-      }),
+      })
     );
   });
 });

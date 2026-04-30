@@ -25,10 +25,6 @@ appId: nl.huishype.app
     optional: true
 - waitForAnimationToEnd
 - tapOn:
-    point: '50%,50%'
-    optional: true
-- waitForAnimationToEnd
-- tapOn:
     id: 'tab-index'
     optional: true
 - waitForAnimationToEnd

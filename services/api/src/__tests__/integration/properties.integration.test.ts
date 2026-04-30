@@ -9,6 +9,7 @@ import {
   createIntegrationListing,
   createIntegrationProperty,
   createIntegrationUser,
+  refreshIntegrationMapProjection,
 } from './helpers/fixtures.js';
 
 /**
@@ -93,10 +94,17 @@ describe('Property routes', () => {
       },
     ];
 
-    for (const property of fixtureProperties) {
+    for (const [index, property] of fixtureProperties.entries()) {
       const created = await createIntegrationProperty(property);
       seededPropertyIds.push(created.id);
+      await createIntegrationListing({
+        propertyId: created.id,
+        askingPrice: 400000 + index * 1000,
+        thumbnailUrl: `https://cdn.example.com/nearby-fixture-${index}.jpg`,
+      });
     }
+
+    await refreshIntegrationMapProjection(seededPropertyIds);
   });
 
   afterAll(async () => {
@@ -338,7 +346,6 @@ describe('Property routes', () => {
           NOW() - INTERVAL '1 day'
         )
       `);
-
       try {
         const response = await app.inject({
           method: 'GET',
@@ -414,7 +421,6 @@ describe('Property routes', () => {
             sql`, `
           )}
       `);
-
       try {
         const response = await app.inject({
           method: 'GET',
@@ -818,6 +824,8 @@ describe('Property routes', () => {
           )
       `);
 
+      await refreshIntegrationMapProjection(propertyId);
+
       try {
         const response = await app.inject({
           method: 'GET',
@@ -895,6 +903,7 @@ describe('Property routes', () => {
             NOW()
           )
         `);
+        await refreshIntegrationMapProjection([property.id, noActivityProperty.id]);
 
         const response = await app.inject({
           method: 'GET',

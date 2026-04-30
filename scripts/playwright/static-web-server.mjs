@@ -288,7 +288,16 @@ export function startStaticWebServer({
       }
 
       await new Promise((resolve) => {
-        server.close(() => resolve());
+        const forceCloseTimer = setTimeout(() => {
+          server.closeAllConnections?.();
+        }, 1_000);
+        forceCloseTimer.unref?.();
+
+        server.close(() => {
+          clearTimeout(forceCloseTimer);
+          resolve();
+        });
+        server.closeIdleConnections?.();
       });
     },
   };

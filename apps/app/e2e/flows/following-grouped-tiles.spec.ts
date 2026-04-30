@@ -271,7 +271,7 @@ test.describe('Following grouped tiles', () => {
     await waitForMapReady(page);
 
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
-    expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+    expect(initialTileUrl).toContain('/tiles/public_property_nodes/{z}/{x}/{y}');
     await expect(page.getByTestId('map-filter-pill-following')).toHaveText('Following');
     await page.getByTestId('map-filter-pill-following-arrow').click();
     await expect(page.getByTestId('map-filter-panel-following')).toBeVisible();
@@ -316,15 +316,16 @@ test.describe('Following grouped tiles', () => {
 
     await seedBrowserSession(page, viewer);
 
-    const followingTileJsonResponse = page.waitForResponse(
+    const followingTileSessionResponse = page.waitForResponse(
       (response) =>
-        response.url().includes('/tiles/following/properties.json') &&
-        response.request().method() === 'GET' &&
-        new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW
+        response.url().includes('/tiles/sessions') &&
+        response.request().method() === 'POST' &&
+        response.request().postDataJSON().scope === 'following' &&
+        response.request().postDataJSON().activity === FOLLOWING_TIME_WINDOW
     );
     const followingTileResponse = page.waitForResponse(
       (response) =>
-        /\/tiles\/following\/properties\/\d+\/\d+\/\d+\.pbf(?:\?|$)/.test(response.url()) &&
+        /\/tiles\/private_following_property_nodes\/\d+\/\d+\/\d+(?:\?|$)/.test(response.url()) &&
         new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW,
       { timeout: 30_000 }
     );
@@ -333,15 +334,17 @@ test.describe('Following grouped tiles', () => {
     await waitForMapReady(page);
 
     const initialTileUrl = await waitForPropertySourceTileUrl(page);
-    expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+    expect(initialTileUrl).toContain('/tiles/public_property_nodes/{z}/{x}/{y}');
 
     await page.getByTestId('map-filter-pill-following-arrow').click();
     await expect(page.getByTestId('map-filter-panel-following')).toBeVisible();
     await page.getByTestId(`map-filter-option-following-${FOLLOWING_TIME_WINDOW}`).click();
 
-    const tileJsonResponse = await followingTileJsonResponse;
-    expect(tileJsonResponse.ok()).toBe(true);
-    expect(new URL(tileJsonResponse.url()).searchParams.get('activity')).toBe(
+    const tileSessionResponse = await followingTileSessionResponse;
+    expect(tileSessionResponse.ok()).toBe(true);
+    const tileSession = await tileSessionResponse.json();
+    expect(tileSession.scope).toBe('following');
+    expect(new URL(tileSession.tileTemplate).searchParams.get('activity')).toBe(
       FOLLOWING_TIME_WINDOW
     );
 
@@ -349,7 +352,7 @@ test.describe('Following grouped tiles', () => {
       .poll(() => getPropertySourceTileUrl(page), {
         timeout: 30_000,
       })
-      .toContain('/tiles/following/properties/{z}/{x}/{y}.pbf');
+      .toContain('/tiles/private_following_property_nodes/{z}/{x}/{y}');
     await expect
       .poll(() => getPropertySourceTileUrl(page), {
         timeout: 30_000,
@@ -417,7 +420,7 @@ test.describe('Following grouped tiles', () => {
       const renderedFeatures = map && canvas
         ? map.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes'] }
+            { layers: ['property-clusters', 'property-cluster-fill', 'active-nodes', 'active-node-fill', 'ghost-clusters', 'ghost-nodes'] }
           )
         : [];
       const sourceFeatures = map?.querySourceFeatures?.('properties-source', {
@@ -450,7 +453,13 @@ test.describe('Following grouped tiles', () => {
       /Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)/
     );
 
-    await page.route(/\/tiles\/following\/properties\.json(?:\?|$)/, async (route) => {
+    await page.route(/\/tiles\/sessions(?:\?|$)/, async (route) => {
+      const body = route.request().postDataJSON();
+      if (body.scope !== 'following') {
+        await route.continue();
+        return;
+      }
+
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -464,16 +473,17 @@ test.describe('Following grouped tiles', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page);
 
-    const followingTileJsonResponse = page.waitForResponse(
+    const followingTileSessionResponse = page.waitForResponse(
       (response) =>
-        response.url().includes('/tiles/following/properties.json') &&
-        response.request().method() === 'GET'
+        response.url().includes('/tiles/sessions') &&
+        response.request().method() === 'POST' &&
+        response.request().postDataJSON().scope === 'following'
     );
 
     await toggleFollowing(page);
 
-    const tileJsonResponse = await followingTileJsonResponse;
-    expect(tileJsonResponse.status()).toBe(500);
+    const tileSessionResponse = await followingTileSessionResponse;
+    expect(tileSessionResponse.status()).toBe(500);
 
     await expect(page.getByTestId('map-following-state-error')).toBeVisible({
       timeout: 20_000,

@@ -51,6 +51,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aggregate readiness check
+         * @description Checks Martin reachability, core dependencies, projection presence, and Martin resource availability.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "degraded" | "error";
+                            /** Format: date-time */
+                            timestamp: string;
+                            checks: {
+                                martin: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                postgres: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                redis: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                projections: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                resources: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "degraded" | "error";
+                            /** Format: date-time */
+                            timestamp: string;
+                            checks: {
+                                martin: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                postgres: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                redis: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                projections: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                                resources: {
+                                    /** @enum {string} */
+                                    status: "ok" | "degraded" | "error";
+                                    latencyMs: number | null;
+                                    message?: string;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/google": {
         parameters: {
             query?: never;
@@ -669,6 +791,7 @@ export interface paths {
                                 number
                             ] | null;
                             activeListingCount: number;
+                            completedListingCount: number;
                             socialCount: number;
                             recentSocialCount: number;
                             socialScoreTotal: number;
@@ -707,6 +830,7 @@ export interface paths {
                                 number
                             ] | null;
                             activeListingCount: number;
+                            completedListingCount: number;
                             socialCount: number;
                             recentSocialCount: number;
                             socialScoreTotal: number;
@@ -899,6 +1023,7 @@ export interface paths {
                                 number
                             ] | null;
                             activeListingCount: number;
+                            completedListingCount: number;
                             socialCount: number;
                             recentSocialCount: number;
                             socialScoreTotal: number;
@@ -937,6 +1062,7 @@ export interface paths {
                                 number
                             ] | null;
                             activeListingCount: number;
+                            completedListingCount: number;
                             socialCount: number;
                             recentSocialCount: number;
                             socialScoreTotal: number;
@@ -2178,148 +2304,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/fonts/{fontstack}/{range}": {
+    "/tiles/sessions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get glyph PBF range for a font
-         * @description Returns a PBF file containing glyphs for the requested font and Unicode range.
-         */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    fontstack: string;
-                    range: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
+        get?: never;
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sprites/{filename}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
         /**
-         * Get sprite file
-         * @description Returns a sprite JSON manifest or PNG atlas.
+         * Create signed tile session
+         * @description Issues a short-lived signed session token for private Martin-backed tile templates.
          */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    filename: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/tiles/style.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get merged map style with property layers
-         * @description Returns MapLibre style JSON with base map + property vector tiles.
-         */
-        get: {
+        post: {
             parameters: {
                 query?: never;
                 header?: never;
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        scope: "read" | "following";
+                        salePriceFrom?: number;
+                        salePriceTo?: number;
+                        rentPriceFrom?: number;
+                        rentPriceTo?: number;
+                        marketState?: string | string[];
+                        activity?: string;
                     };
-                    content?: never;
                 };
             };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/tiles/properties.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get property tile metadata (TileJSON)
-         * @description Returns TileJSON 2.1.0 metadata for property vector tiles.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string;
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
             responses: {
                 /** @description Default Response */
                 200: {
@@ -2328,77 +2346,34 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            tilejson: string;
-                            name: string;
-                            description: string;
-                            tiles: string[];
-                            minzoom: number;
-                            maxzoom: number;
-                            bounds: [
-                                number,
-                                number,
-                                number,
-                                number
-                            ];
+                            token: string;
+                            /** @enum {string} */
+                            tokenType: "HuisHypeTileSession";
+                            /** @enum {string} */
+                            scope: "read" | "following";
+                            /** @enum {string} */
+                            audience: "read-properties" | "following-properties";
+                            /** Format: date-time */
+                            expiresAt: string;
+                            ttlSeconds: number;
+                            tileTemplate: string;
+                            cacheBustedTileTemplate: string;
+                            tiles: {
+                                template: string;
+                                replacementTemplate: string;
+                            };
                         };
                     };
                 };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/tiles/following/properties.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Following property tile metadata (TileJSON)
-         * @description Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string | string[];
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
                 /** @description Default Response */
-                200: {
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            tilejson: string;
-                            name: string;
-                            description: string;
-                            tiles: string[];
-                            minzoom: number;
-                            maxzoom: number;
-                            bounds: [
-                                number,
-                                number,
-                                number,
-                                number
-                            ];
+                            error: string;
+                            message: string;
                         };
                     };
                 };
@@ -2416,6 +2391,40 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/style/{styleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get HuisHype Martin style resource */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    styleId: "huishype" | "huishype-native";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         put?: never;
         post?: never;
         delete?: never;
@@ -2424,27 +2433,195 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/properties/read.json": {
+    "/tiles/sprite/huishype.json": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get read property tile metadata (TileJSON)
-         * @description Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.
-         */
+        /** Get HuisHype sprite metadata */
         get: {
             parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string;
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/sprite/huishype@2x.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get HuisHype 2x sprite metadata */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/sprite/huishype.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get HuisHype sprite image */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/sprite/huishype@2x.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get HuisHype 2x sprite image */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/font/{fontstack}/{range}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get HuisHype font glyph range */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    fontstack: string;
+                    range: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/base": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get base tile source metadata */
+        get: {
+            parameters: {
+                query?: never;
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2473,15 +2650,52 @@ export interface paths {
                         };
                     };
                 };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/public_property_nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get public property node tile source metadata */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
                 /** @description Default Response */
-                400: {
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            error: string;
-                            message: string;
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
                         };
                     };
                 };
@@ -2495,33 +2709,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/properties/{z}/{x}/{y}.pbf": {
+    "/tiles/trees": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get property vector tile
-         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.
-         */
+        /** Get tree tile source metadata */
         get: {
             parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string;
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
-                };
+                query?: never;
                 header?: never;
-                path: {
-                    z: number;
-                    x: number;
-                    y: number;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody?: never;
@@ -2531,7 +2731,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
+                        };
+                    };
                 };
             };
         };
@@ -2543,33 +2758,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/properties/read/{z}/{x}/{y}.pbf": {
+    "/tiles/buildings": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get read property vector tile
-         * @description Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.
-         */
+        /** Get building tile source metadata */
         get: {
             parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string;
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
-                };
+                query?: never;
                 header?: never;
-                path: {
-                    z: number;
-                    x: number;
-                    y: number;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody?: never;
@@ -2579,7 +2780,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            tilejson: string;
+                            name: string;
+                            description: string;
+                            tiles: string[];
+                            minzoom: number;
+                            maxzoom: number;
+                            bounds: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ];
+                        };
+                    };
                 };
             };
         };
@@ -2591,65 +2807,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/following/properties/{z}/{x}/{y}.pbf": {
+    "/tiles/private_read_property_nodes/{z}/{x}/{y}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Following property vector tile
-         * @description Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    salePriceFrom?: number;
-                    salePriceTo?: number;
-                    rentPriceFrom?: number;
-                    rentPriceTo?: number;
-                    marketState?: string | string[];
-                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
-                };
-                header?: never;
-                path: {
-                    z: number;
-                    x: number;
-                    y: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/tiles/trees/{z}/{x}/{y}.pbf": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get tree scatter vector tile
-         * @description Returns MVT with deterministically scattered tree points inside landcover polygons.
-         */
+        /** Proxy private read property tile */
         get: {
             parameters: {
                 query?: never;
@@ -2680,17 +2845,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/buildings/{z}/{x}/{y}.pbf": {
+    "/tiles/private_following_property_nodes/{z}/{x}/{y}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get OSM building vector tile
-         * @description Returns MVT with individual OSM building footprints and heights.
-         */
+        /** Proxy private Following property tile */
         get: {
             parameters: {
                 query?: never;
@@ -2699,6 +2861,45 @@ export interface paths {
                     z: number;
                     x: number;
                     y: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/{*}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proxy public Martin tile/resource path
+         * @description Streams public Martin tile, style, sprite, font, catalog, health, and resource responses.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    "*": string;
                 };
                 cookie?: never;
             };
@@ -3188,7 +3389,7 @@ export interface paths {
                             acceptedAt: string;
                             idempotencyKey: string;
                             /** @enum {string} */
-                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "failed";
+                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "superseded" | "failed";
                             duplicate: boolean;
                         };
                     };

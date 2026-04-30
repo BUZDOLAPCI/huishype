@@ -1,12 +1,20 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
-import { Alert, Text, View, ActivityIndicator, Pressable, Platform, StyleSheet, type NativeSyntheticEvent } from 'react-native';
+import {
+  Alert,
+  Text,
+  View,
+  ActivityIndicator,
+  Pressable,
+  Platform,
+  StyleSheet,
+  type NativeSyntheticEvent,
+} from 'react-native';
 import {
   Map,
   Camera,
   Marker,
   UserLocation,
   LogManager,
-  NetworkManager,
   type CameraRef,
   type MapRef,
   type PixelPointBounds,
@@ -60,12 +68,7 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefault
 import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
-import {
-  buildFollowingTileRequestMatchPattern,
-  buildReadTileRequestMatchPattern,
-  injectReadPropertyOverlay,
-  replacePropertySourceTiles,
-} from '@/src/lib/mapPropertySource';
+import { injectReadPropertyOverlay, replacePropertySourceTiles } from '@/src/lib/mapPropertySource';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import {
   buildPropertyTileTemplateUrl,
@@ -86,12 +89,12 @@ import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 const COLORS = {
   white: '#FFFFFF',
   whiteOverlay: 'rgba(255, 255, 255, 0.92)',
-  gray100: '#FFF8F0',    // warm-100
-  gray200: '#F5F0E8',    // warm-200
-  gray600: '#736C62',    // warm-600
-  gray700: '#504A42',    // warm-700
-  gray800: '#3D3832',    // warm-800
-  blue500: '#F5A623',    // primary-500 (gold)
+  gray100: '#FFF8F0', // warm-100
+  gray200: '#F5F0E8', // warm-200
+  gray600: '#736C62', // warm-600
+  gray700: '#504A42', // warm-700
+  gray800: '#3D3832', // warm-800
+  blue500: '#F5A623', // primary-500 (gold)
 } as const;
 
 // Fallback timeout for the touch guard ref. If the map's onPress doesn't fire
@@ -115,22 +118,14 @@ function countRenderedGroupedFeatures(features: GeoJSON.Feature[]): number {
     }
 
     dedupedKeys.add(
-      [
-        group.groupKind,
-        group.primaryPropertyId,
-        group.coordinate[0],
-        group.coordinate[1],
-      ].join(':'),
+      [group.groupKind, group.primaryPropertyId, group.coordinate[0], group.coordinate[1]].join(':')
     );
   }
 
   return dedupedKeys.size;
 }
 
-function emitFollowingFeatureClickAnalytics(
-  features: GeoJSON.Feature[],
-  platform: string,
-): void {
+function emitFollowingFeatureClickAnalytics(features: GeoJSON.Feature[], platform: string): void {
   const group = normalizeRenderedPropertyGroup(features[0]);
   if (!group) {
     return;
@@ -147,11 +142,11 @@ function emitFollowingFeatureClickAnalytics(
 // Style URL — served by our API, single source of truth for all map layers.
 // Native needs ?platform=native so the API can flatten expressions that don't
 // work on MapLibre Native (e.g. data-driven fill-extrusion-color).
-const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
+const STYLE_URL = `${API_URL}/tiles/style/huishype-native`;
 
 /**
  * Hook to fetch the merged MapLibre style from the API.
- * The API's /tiles/style.json already contains:
+ * The API's /tiles/style/huishype-native already contains:
  *   - OpenFreeMap base style
  *   - Property vector tile source + layers (with activity-score styling)
  *   - 3D buildings layer
@@ -163,7 +158,7 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
  */
 function useMergedMapStyle(
   propertyTiles: string[],
-  readPropertyTiles: string[],
+  readPropertyTiles: string[]
 ): InlineMapStyle | null {
   const [mergedStyle, setMergedStyle] = useState<InlineMapStyle | null>(null);
 
@@ -171,100 +166,112 @@ function useMergedMapStyle(
     let cancelled = false;
 
     fetch(STYLE_URL)
-      .then(r => r.json())
+      .then((r) => r.json())
       .then((styleJson: Record<string, unknown>) => {
         if (cancelled) return;
-        if (__DEV__) console.log('[HuisHype] Fetched merged style from API, layers=',
-          (styleJson.layers as Array<unknown>)?.length);
-        const propertyStyle = replacePropertySourceTiles(styleJson as InlineMapStyle, propertyTiles);
+        if (__DEV__)
+          console.log(
+            '[HuisHype] Fetched merged style from API, layers=',
+            (styleJson.layers as Array<unknown>)?.length
+          );
+        const propertyStyle = replacePropertySourceTiles(
+          styleJson as InlineMapStyle,
+          propertyTiles
+        );
         setMergedStyle(injectReadPropertyOverlay(propertyStyle, readPropertyTiles));
       })
-      .catch(e => {
+      .catch((e) => {
         console.error('[HuisHype] Failed to fetch merged style:', e.message);
         // Fallback: minimal style with just our tiles (no base map)
-        setMergedStyle(injectReadPropertyOverlay({
-          version: 8,
-          sources: {
-            'properties-source': {
-              type: 'vector',
-              tiles: propertyTiles,
-              minzoom: 0,
-              maxzoom: 22,
-            },
-          },
-          layers: [
-            { id: 'background', type: 'background', paint: { 'background-color': '#E0E0E0' } },
+        setMergedStyle(
+          injectReadPropertyOverlay(
             {
-              id: 'property-circles',
-              type: 'circle',
-              source: 'properties-source',
-              'source-layer': 'properties',
-              paint: { 'circle-radius': 10, 'circle-color': '#FF5A5F', 'circle-opacity': 0.9 },
-            },
-          ],
-        } as InlineMapStyle, readPropertyTiles));
+              version: 8,
+              sources: {
+                'properties-source': {
+                  type: 'vector',
+                  tiles: propertyTiles,
+                  minzoom: 7,
+                  maxzoom: 22,
+                },
+              },
+              layers: [
+                { id: 'background', type: 'background', paint: { 'background-color': '#E0E0E0' } },
+                {
+                  id: 'property-circles',
+                  type: 'circle',
+                  source: 'properties-source',
+                  'source-layer': 'properties',
+                  paint: { 'circle-radius': 10, 'circle-color': '#FF5A5F', 'circle-opacity': 0.9 },
+                },
+              ],
+            } as InlineMapStyle,
+            readPropertyTiles
+          )
+        );
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [propertyTiles, readPropertyTiles]);
 
   useEffect(() => {
-    setMergedStyle((current) => (
+    setMergedStyle((current) =>
       injectReadPropertyOverlay(
         replacePropertySourceTiles(current, propertyTiles),
-        readPropertyTiles,
+        readPropertyTiles
       )
-    ));
+    );
   }, [propertyTiles, readPropertyTiles]);
 
   return mergedStyle;
 }
 
-// Property layer IDs to query for features (matching server's /tiles/style.json)
+// Property layer IDs to query for features (matching server's Martin style)
 const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const welcomeModal = useWelcomeModal();
-  const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
+  const { isAuthenticated } = useAuthContext();
   const [hasLayout, setHasLayout] = useState(false);
   const [mapViewportSize, setMapViewportSize] = useState({ width: 0, height: 0 });
   const filterController = useMapFilterController();
   const [socialScope, setSocialScope] = useState<MapSocialScope>('all');
-  const [followingActivity, setFollowingActivity] =
-    useState<MapActivityTimeFilter>('all-time');
+  const [followingActivity, setFollowingActivity] = useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
   const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
-    [filterController.appliedFilters],
+    [filterController.appliedFilters]
   );
   const appliedFilterSignature = useMemo(
     () => getCanonicalMapFilterSignature(filterController.appliedFilters),
-    [filterController.appliedFilters],
+    [filterController.appliedFilters]
   );
   const followingTileSource = useFollowingTileSource(
     filterController.appliedFilters,
     followingActivity,
-    socialScope === 'following' && mapLoaded,
+    socialScope === 'following' && mapLoaded
   );
   const readTileSource = useReadTileSource(
     filterController.appliedFilters,
-    socialScope !== 'following' && mapLoaded,
+    socialScope !== 'following' && mapLoaded
   );
   const activePropertyTiles = useMemo(
-    () => (
+    () =>
       socialScope === 'following'
-        ? (followingTileSource.data?.tileUrl ? [followingTileSource.data.tileUrl] : [])
-        : [publicPropertyTileUrl]
-    ),
-    [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope],
+        ? followingTileSource.data?.tileUrl
+          ? [followingTileSource.data.tileUrl]
+          : []
+        : [publicPropertyTileUrl],
+    [followingTileSource.data?.tileUrl, publicPropertyTileUrl, socialScope]
   );
   const activeReadPropertyTiles = useMemo(
-    () => (
+    () =>
       socialScope === 'following' || !readTileSource.data?.tileUrl
         ? []
-        : [readTileSource.data.tileUrl]
-    ),
-    [readTileSource.data?.tileUrl, socialScope],
+        : [readTileSource.data.tileUrl],
+    [readTileSource.data?.tileUrl, socialScope]
   );
   // Merged style as JS object (base map + property vector tiles)
   const mergedStyle = useMergedMapStyle(activePropertyTiles, activeReadPropertyTiles);
@@ -272,8 +279,9 @@ export default function MapScreen() {
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
   const [showUserLocation, setShowUserLocation] = useState(false);
-  const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
-  const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
+  const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(
+    null
+  );
   const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
   const [nativePreviewPoint, setNativePreviewPoint] = useState<[number, number] | null>(null);
   const [nativePreviewSize, setNativePreviewSize] = useState({
@@ -318,25 +326,25 @@ export default function MapScreen() {
   >([]);
   const ambientCommentBubbleItemsRef = useRef(ambientCommentBubbleItems);
   ambientCommentBubbleItemsRef.current = ambientCommentBubbleItems;
-  const handleAmbientBubblePress = useCallback((bubble: {
-    property: GroupPreviewProperty;
-    coordinate: [number, number];
-  }) => {
-    const bubbleCoordinate = bubble.property.coordinate ?? bubble.coordinate;
-    const anchoredProperty = {
-      ...bubble.property,
-      coordinate: bubbleCoordinate,
-    };
+  const handleAmbientBubblePress = useCallback(
+    (bubble: { property: GroupPreviewProperty; coordinate: [number, number] }) => {
+      const bubbleCoordinate = bubble.property.coordinate ?? bubble.coordinate;
+      const anchoredProperty = {
+        ...bubble.property,
+        coordinate: bubbleCoordinate,
+      };
 
-    interaction.setHighlightedCoordinate(bubbleCoordinate);
-    interaction.setPreviewGroup({
-      properties: [anchoredProperty],
-      coordinate: bubbleCoordinate,
-    });
-    interaction.setCurrentPreviewIndex(0);
-    interaction.setSelectedPropertyId(anchoredProperty.id);
-    interaction.handleComment(anchoredProperty);
-  }, [interaction]);
+      interaction.setHighlightedCoordinate(bubbleCoordinate);
+      interaction.setPreviewGroup({
+        properties: [anchoredProperty],
+        coordinate: bubbleCoordinate,
+      });
+      interaction.setCurrentPreviewIndex(0);
+      interaction.setSelectedPropertyId(anchoredProperty.id);
+      interaction.handleComment(anchoredProperty);
+    },
+    [interaction]
+  );
 
   const clearFollowingRenderedFeatureRefresh = useCallback(() => {
     if (followingRenderRefreshTimeoutRef.current) {
@@ -366,20 +374,12 @@ export default function MapScreen() {
     } catch (error) {
       console.warn('[HuisHype] Failed to query rendered following features:', error);
     }
-  }, [
-    followingTileSource.data?.tileUrl,
-    isAuthenticated,
-    socialScope,
-  ]);
+  }, [followingTileSource.data?.tileUrl, isAuthenticated, socialScope]);
 
   const scheduleFollowingRenderedFeatureRefresh = useCallback(() => {
     clearFollowingRenderedFeatureRefresh();
 
-    if (
-      socialScope !== 'following' ||
-      !isAuthenticated ||
-      !followingTileSource.data?.tileUrl
-    ) {
+    if (socialScope !== 'following' || !isAuthenticated || !followingTileSource.data?.tileUrl) {
       setFollowingRenderedFeatureCount(null);
       setFollowingRenderCheckComplete(false);
       return;
@@ -415,7 +415,7 @@ export default function MapScreen() {
               authenticated: true,
               platform: Platform.OS,
             });
-          },
+          }
         );
         return currentScope;
       }
@@ -435,83 +435,11 @@ export default function MapScreen() {
     }
   }, [isAuthenticated, socialScope]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (
-      socialScope !== 'following' ||
-      !isAuthenticated ||
-      !followingTileSource.data?.tileUrl
-    ) {
-      setFollowingTileAuthToken(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void getAccessToken().then((token) => {
-      if (!cancelled) {
-        setFollowingTileAuthToken(token);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    accessToken,
-    followingTileSource.data?.tileUrl,
-    getAccessToken,
-    isAuthenticated,
-    socialScope,
-  ]);
-
-  useEffect(() => {
-    NetworkManager.removeRequestHeader('Authorization');
-    NetworkManager.removeRequestHeader('x-session-id');
-
-    if (
-      socialScope === 'following' &&
-      followingTileAuthToken &&
-      followingTileSource.data?.tileUrl
-    ) {
-      NetworkManager.addRequestHeader(
-        'Authorization',
-        `Bearer ${followingTileAuthToken}`,
-        buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl),
-      );
-    }
-
-    if (
-      socialScope !== 'following' &&
-      readTileSource.data?.tileUrl &&
-      readTileSource.data.headerValue
-    ) {
-      NetworkManager.addRequestHeader(
-        readTileSource.data.headerName,
-        readTileSource.data.headerValue,
-        buildReadTileRequestMatchPattern(readTileSource.data.tileUrl),
-      );
-    }
-
-    return () => {
-      NetworkManager.removeRequestHeader('Authorization');
-      NetworkManager.removeRequestHeader('x-session-id');
-    };
-  }, [
-    followingTileAuthToken,
-    followingTileSource.data?.tileUrl,
-    readTileSource.data?.headerName,
-    readTileSource.data?.headerValue,
-    readTileSource.data?.tileUrl,
-    socialScope,
-  ]);
-
   // Dynamic city name for the map header
   const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
   const currentPreviewProperty = useMemo(
     () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
-    [interaction.currentPreviewIndex, interaction.previewGroup],
+    [interaction.currentPreviewIndex, interaction.previewGroup]
   );
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
@@ -608,7 +536,7 @@ export default function MapScreen() {
             screenPoint: null,
           };
         }
-      }),
+      })
     );
 
     if (ambientCommentBubbleItemsRef.current !== currentBubbles) {
@@ -619,27 +547,35 @@ export default function MapScreen() {
   }, []);
 
   // Build a camera adapter for the shared hook
-  const cameraCommands: MapCameraCommands = useMemo(() => ({
-    flyTo: (opts) => {
-      const padding = opts.anchor
-        ? viewportAnchorToPadding(mapViewportSize, opts.anchor)
-        : undefined;
+  const cameraCommands: MapCameraCommands = useMemo(
+    () => ({
+      flyTo: (opts) => {
+        const padding = opts.anchor
+          ? viewportAnchorToPadding(mapViewportSize, opts.anchor)
+          : undefined;
 
-      cameraRef.current?.flyTo({
-        center: opts.center,
-        zoom: opts.zoom,
-        pitch: getPitchForZoom(opts.zoom),
-        padding,
-        duration: opts.duration,
-      });
-    },
-    fitBounds: (bounds, opts) => {
-      cameraRef.current?.fitBounds(
-        [bounds[0], bounds[1], bounds[2], bounds[3]],
-        { padding: { top: opts.padding, right: opts.padding, bottom: opts.padding, left: opts.padding }, duration: opts.duration },
-      );
-    },
-  }), [mapViewportSize]);
+        cameraRef.current?.flyTo({
+          center: opts.center,
+          zoom: opts.zoom,
+          pitch: getPitchForZoom(opts.zoom),
+          padding,
+          duration: opts.duration,
+        });
+      },
+      fitBounds: (bounds, opts) => {
+        cameraRef.current?.fitBounds([bounds[0], bounds[1], bounds[2], bounds[3]], {
+          padding: {
+            top: opts.padding,
+            right: opts.padding,
+            bottom: opts.padding,
+            left: opts.padding,
+          },
+          duration: opts.duration,
+        });
+      },
+    }),
+    [mapViewportSize]
+  );
 
   const syncPitchForZoom = useCallback((zoom?: number) => {
     if (zoom === undefined || !Number.isFinite(zoom)) return;
@@ -657,7 +593,7 @@ export default function MapScreen() {
       void refreshNativePreviewPoint();
       void syncAmbientCommentBubbleScreenPoints();
     },
-    [refreshNativePreviewPoint, syncAmbientCommentBubbleScreenPoints, syncPitchForZoom],
+    [refreshNativePreviewPoint, syncAmbientCommentBubbleScreenPoints, syncPitchForZoom]
   );
 
   // Handle map region change to track zoom level and update city name
@@ -691,12 +627,7 @@ export default function MapScreen() {
       topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
       viewportSize: mapViewportSize,
     });
-  }, [
-    insets.top,
-    mapViewportSize,
-    nativePreviewPoint,
-    nativePreviewSize,
-  ]);
+  }, [insets.top, mapViewportSize, nativePreviewPoint, nativePreviewSize]);
 
   const clearAmbientBubbleRefreshTimeout = useCallback(() => {
     if (ambientBubbleRefreshTimeoutRef.current) {
@@ -713,8 +644,11 @@ export default function MapScreen() {
     let features: GeoJSON.Feature[] = [];
     try {
       features = await mapRef.current.queryRenderedFeatures(
-        [[0, 0], [mapViewportSize.width, mapViewportSize.height]],
-        { layers: PROPERTY_LAYER_IDS },
+        [
+          [0, 0],
+          [mapViewportSize.width, mapViewportSize.height],
+        ],
+        { layers: PROPERTY_LAYER_IDS }
       );
     } catch (error) {
       if (__DEV__) {
@@ -723,7 +657,10 @@ export default function MapScreen() {
       return [];
     }
 
-    const visibleNodes = new globalThis.Map<string, ReturnType<typeof toAmbientBubbleVisibleNode>>();
+    const visibleNodes = new globalThis.Map<
+      string,
+      ReturnType<typeof toAmbientBubbleVisibleNode>
+    >();
 
     for (const feature of features) {
       const group = normalizeRenderedPropertyGroup(feature);
@@ -734,10 +671,12 @@ export default function MapScreen() {
       const candidatePropertyIds = Array.from(
         new Set(
           (group.groupKind === 'cluster'
-            ? (group.previewPropertyIds.length > 0 ? group.previewPropertyIds : group.propertyIds)
+            ? group.previewPropertyIds.length > 0
+              ? group.previewPropertyIds
+              : group.propertyIds
             : [group.primaryPropertyId]
-          ).filter(Boolean),
-        ),
+          ).filter(Boolean)
+        )
       );
       if (candidatePropertyIds.length === 0) {
         continue;
@@ -751,94 +690,103 @@ export default function MapScreen() {
         projectedPoint = null;
       }
 
-      const property = toGroupProperty({
-        id: group.primaryPropertyId,
-        address: group.address ?? '',
-        streetName: group.streetName ?? null,
-        houseNumber: group.houseNumber ?? null,
-        houseNumberAddition: group.houseNumberAddition ?? null,
-        city: group.city ?? '',
-        postalCode: group.postalCode ?? null,
-        countryCode: group.countryCode ?? undefined,
-        officialValuation: group.officialValuation ?? null,
-        askingPrice: group.askingPrice ?? null,
-        activityScore: group.activityScore,
-        geometry: { type: 'Point', coordinates: group.coordinate },
-        thumbnailUrl: group.thumbnailUrl ?? null,
-        yearBuilt: group.yearBuilt ?? null,
-        floorAreaM2: group.floorAreaM2 ?? null,
-        likeCount: group.likeCount ?? 0,
-        commentCount: group.commentCount ?? 0,
-        guessCount: group.guessCount ?? 0,
-      }, group.activityScore);
+      const property = toGroupProperty(
+        {
+          id: group.primaryPropertyId,
+          address: group.address ?? '',
+          streetName: group.streetName ?? null,
+          houseNumber: group.houseNumber ?? null,
+          houseNumberAddition: group.houseNumberAddition ?? null,
+          city: group.city ?? '',
+          postalCode: group.postalCode ?? null,
+          countryCode: group.countryCode ?? undefined,
+          officialValuation: group.officialValuation ?? null,
+          askingPrice: group.askingPrice ?? null,
+          activityScore: group.activityScore,
+          geometry: { type: 'Point', coordinates: group.coordinate },
+          thumbnailUrl: group.thumbnailUrl ?? null,
+          yearBuilt: group.yearBuilt ?? null,
+          floorAreaM2: group.floorAreaM2 ?? null,
+          likeCount: group.likeCount ?? 0,
+          commentCount: group.commentCount ?? 0,
+          guessCount: group.guessCount ?? 0,
+        },
+        group.activityScore
+      );
 
-      const nodeKey = group.groupKind === 'cluster'
-        ? `cluster:${group.primaryPropertyId}:${group.coordinate[0]}:${group.coordinate[1]}`
-        : `property:${group.primaryPropertyId}`;
+      const nodeKey =
+        group.groupKind === 'cluster'
+          ? `cluster:${group.primaryPropertyId}:${group.coordinate[0]}:${group.coordinate[1]}`
+          : `property:${group.primaryPropertyId}`;
 
-      visibleNodes.set(nodeKey, toAmbientBubbleVisibleNode({
+      visibleNodes.set(
         nodeKey,
-        property,
-        coordinate: group.coordinate,
-        screenPoint: projectedPoint,
-        commentCount: group.commentCount,
-        likeCount: group.likeCount,
-        activityScore: group.activityScore,
-        hasListing: group.hasListing,
-        nodeClass: group.nodeClass,
-        candidatePropertyIds,
-      }));
+        toAmbientBubbleVisibleNode({
+          nodeKey,
+          property,
+          coordinate: group.coordinate,
+          screenPoint: projectedPoint,
+          commentCount: group.commentCount,
+          likeCount: group.likeCount,
+          activityScore: group.activityScore,
+          hasListing: group.hasListing,
+          nodeClass: group.nodeClass,
+          candidatePropertyIds,
+        })
+      );
     }
 
     return Array.from(visibleNodes.values());
   }, [mapViewportSize.height, mapViewportSize.width, toGroupProperty]);
 
-  const refreshAmbientCommentBubbles = useCallback(async (
-    options?: RefreshAmbientCommentBubblesOptions,
-  ) => {
-    if (!ambientBubblesEnabled) {
-      clearAmbientCommentBubbles();
-      return;
-    }
+  const refreshAmbientCommentBubbles = useCallback(
+    async (options?: RefreshAmbientCommentBubblesOptions) => {
+      if (!ambientBubblesEnabled) {
+        clearAmbientCommentBubbles();
+        return;
+      }
 
-    const visibleNodes = await collectVisibleAmbientBubbleNodes();
-    await refreshAmbientCommentBubbleItems(visibleNodes, {
-      ...options,
-      placementContext: {
-        ...(options?.placementContext ?? {}),
-        viewportSize: mapViewportSize,
-        topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
-      },
-    });
-  }, [
-    ambientBubblesEnabled,
-    clearAmbientCommentBubbles,
-    collectVisibleAmbientBubbleNodes,
-    insets.top,
-    mapViewportSize,
-    refreshAmbientCommentBubbleItems,
-  ]);
+      const visibleNodes = await collectVisibleAmbientBubbleNodes();
+      await refreshAmbientCommentBubbleItems(visibleNodes, {
+        ...options,
+        placementContext: {
+          ...(options?.placementContext ?? {}),
+          viewportSize: mapViewportSize,
+          topBoundary: insets.top + NATIVE_PREVIEW_TOP_CHROME_CLEARANCE,
+        },
+      });
+    },
+    [
+      ambientBubblesEnabled,
+      clearAmbientCommentBubbles,
+      collectVisibleAmbientBubbleNodes,
+      insets.top,
+      mapViewportSize,
+      refreshAmbientCommentBubbleItems,
+    ]
+  );
 
-  const scheduleAmbientCommentBubbleRefresh = useCallback((
-    options?: RefreshAmbientCommentBubblesOptions,
-  ) => {
-    clearAmbientBubbleRefreshTimeout();
+  const scheduleAmbientCommentBubbleRefresh = useCallback(
+    (options?: RefreshAmbientCommentBubblesOptions) => {
+      clearAmbientBubbleRefreshTimeout();
 
-    if (!ambientBubblesEnabled) {
-      clearAmbientCommentBubbles();
-      return;
-    }
+      if (!ambientBubblesEnabled) {
+        clearAmbientCommentBubbles();
+        return;
+      }
 
-    ambientBubbleRefreshTimeoutRef.current = setTimeout(() => {
-      ambientBubbleRefreshTimeoutRef.current = null;
-      void refreshAmbientCommentBubbles(options);
-    }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
-  }, [
-    ambientBubblesEnabled,
-    clearAmbientCommentBubbles,
-    clearAmbientBubbleRefreshTimeout,
-    refreshAmbientCommentBubbles,
-  ]);
+      ambientBubbleRefreshTimeoutRef.current = setTimeout(() => {
+        ambientBubbleRefreshTimeoutRef.current = null;
+        void refreshAmbientCommentBubbles(options);
+      }, AMBIENT_BUBBLE_SETTLE_DELAY_MS);
+    },
+    [
+      ambientBubblesEnabled,
+      clearAmbientCommentBubbles,
+      clearAmbientBubbleRefreshTimeout,
+      refreshAmbientCommentBubbles,
+    ]
+  );
 
   // Handle map region change to track zoom level and update city name
   const handleRegionDidChange = useCallback(
@@ -870,7 +818,7 @@ export default function MapScreen() {
       scheduleFollowingRenderedFeatureRefresh,
       scheduleAmbientCommentBubbleRefresh,
       syncPitchForZoom,
-    ],
+    ]
   );
 
   useEffect(() => {
@@ -952,10 +900,13 @@ export default function MapScreen() {
     scheduleAmbientCommentBubbleRefresh,
   ]);
 
-  useEffect(() => () => {
-    clearAmbientBubbleRefreshTimeout();
-    clearFollowingRenderedFeatureRefresh();
-  }, [clearAmbientBubbleRefreshTimeout, clearFollowingRenderedFeatureRefresh]);
+  useEffect(
+    () => () => {
+      clearAmbientBubbleRefreshTimeout();
+      clearFollowingRenderedFeatureRefresh();
+    },
+    [clearAmbientBubbleRefreshTimeout, clearFollowingRenderedFeatureRefresh]
+  );
 
   // Handle map press - query features at tap point, or close preview if tapping empty area
   const handleMapPress = useCallback(
@@ -974,16 +925,19 @@ export default function MapScreen() {
       // vector sources — we still try it first since it's free (no API call).
       if (mapRef.current) {
         try {
-          const features = await mapRef.current.queryRenderedFeatures(
-            pixelPoint,
-            { layers: PROPERTY_LAYER_IDS }
-          );
+          const features = await mapRef.current.queryRenderedFeatures(pixelPoint, {
+            layers: PROPERTY_LAYER_IDS,
+          });
 
           if (features && features.length > 0) {
             if (socialScope === 'following') {
               emitFollowingFeatureClickAnalytics(features, Platform.OS);
             }
-            const handled = await interaction.handleFeaturePress(features, currentZoom, cameraCommands);
+            const handled = await interaction.handleFeaturePress(
+              features,
+              currentZoom,
+              cameraCommands
+            );
             if (handled) return;
           }
 
@@ -993,17 +947,16 @@ export default function MapScreen() {
               [pixelPoint[0] - hitSlop, pixelPoint[1] - hitSlop],
               [pixelPoint[0] + hitSlop, pixelPoint[1] + hitSlop],
             ];
-            const nearbyFeatures = await mapRef.current.queryRenderedFeatures(
-              hitSlopBounds,
-              { layers: PROPERTY_LAYER_IDS },
-            );
+            const nearbyFeatures = await mapRef.current.queryRenderedFeatures(hitSlopBounds, {
+              layers: PROPERTY_LAYER_IDS,
+            });
 
             if (nearbyFeatures.length > 0) {
               emitFollowingFeatureClickAnalytics(nearbyFeatures, Platform.OS);
               const handled = await interaction.handleFeaturePress(
                 nearbyFeatures,
                 currentZoom,
-                cameraCommands,
+                cameraCommands
               );
               if (handled) {
                 return;
@@ -1023,7 +976,7 @@ export default function MapScreen() {
             lat,
             currentZoom,
             filterController.appliedFilters,
-            followingActivity,
+            followingActivity
           );
           if (nearby) {
             handleNearbyResult(nearby, currentZoom, cameraCommands);
@@ -1046,7 +999,7 @@ export default function MapScreen() {
           lon,
           lat,
           currentZoom,
-          filterController.appliedFilters,
+          filterController.appliedFilters
         );
         if (nearby) {
           handleNearbyResult(nearby, currentZoom, cameraCommands);
@@ -1075,7 +1028,7 @@ export default function MapScreen() {
   const handlePropertyResolved = useCallback(
     (
       property: Parameters<typeof handleMapPropertyResolved>[0],
-      resolvedAddress?: ResolvedAddress,
+      resolvedAddress?: ResolvedAddress
     ) => {
       if (!property.coordinates) {
         return;
@@ -1088,23 +1041,22 @@ export default function MapScreen() {
         setSearchCity(city, [property.coordinates.lon, property.coordinates.lat]);
       }
     },
-    [handleMapPropertyResolved, cameraCommands, setSearchCity],
+    [handleMapPropertyResolved, cameraCommands, setSearchCity]
   );
 
   const handleLocationResolved = useCallback(
     (
       coordinates: { lon: number; lat: number },
       address: string,
-      resolvedAddress?: ResolvedAddress,
+      resolvedAddress?: ResolvedAddress
     ) => {
       handleMapLocationResolved(coordinates, address, cameraCommands);
-      const cityFromAddress =
-        resolvedAddress?.details.city || extractCityFromAddress(address);
+      const cityFromAddress = resolvedAddress?.details.city || extractCityFromAddress(address);
       if (cityFromAddress) {
         setSearchCity(cityFromAddress, [coordinates.lon, coordinates.lat]);
       }
     },
-    [handleMapLocationResolved, cameraCommands, setSearchCity],
+    [handleMapLocationResolved, cameraCommands, setSearchCity]
   );
 
   // Zoom control handlers
@@ -1180,158 +1132,158 @@ export default function MapScreen() {
 
     interaction.bottomSheetRef.current?.close();
     interaction.handleClosePreview();
-  }, [
-    currentPreviewProperty,
-    filterController.appliedFilters,
-    interaction,
-  ]);
+  }, [currentPreviewProperty, filterController.appliedFilters, interaction]);
 
   return (
     <ScreenBackground>
       {/* Map View */}
-      <View testID="map-viewport" style={{ flex: 1 }} onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout;
-        setMapViewportSize((current) => (
-          current.width === width && current.height === height
-            ? current
-            : { width, height }
-        ));
-        if (!hasLayout) setHasLayout(true);
-      }}>
+      <View
+        testID="map-viewport"
+        style={{ flex: 1 }}
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          setMapViewportSize((current) =>
+            current.width === width && current.height === height ? current : { width, height }
+          );
+          if (!hasLayout) setHasLayout(true);
+        }}
+      >
         {hasLayout && mergedStyle && (
-        <Map
-          ref={mapRef}
-          style={StyleSheet.absoluteFillObject}
-          mapStyle={mergedStyle}
-          compass
-          compassPosition={{ top: 160, right: 16 }}
-          compassHiddenFacingNorth
-          touchPitch={false}
-          onPress={handleMapPress}
-          onRegionIsChanging={handleRegionIsChanging}
-          onRegionDidChange={handleRegionDidChange}
-          onDidFinishLoadingMap={() => setMapLoaded(true)}
-          onDidFailLoadingMap={() => {
-            console.error('Map failed to load');
-            setMapLoaded(true); // Dismiss overlay so user can still see error state
-          }}
-          testID="map-view"
-        >
-          <Camera
-            ref={cameraRef}
-            initialViewState={{
-              center: DEFAULT_CENTER,
-              zoom: DEFAULT_ZOOM,
-              pitch: getPitchForZoom(DEFAULT_ZOOM),
+          <Map
+            ref={mapRef}
+            style={StyleSheet.absoluteFillObject}
+            mapStyle={mergedStyle}
+            compass
+            compassPosition={{ top: 160, right: 16 }}
+            compassHiddenFacingNorth
+            touchPitch={false}
+            onPress={handleMapPress}
+            onRegionIsChanging={handleRegionIsChanging}
+            onRegionDidChange={handleRegionDidChange}
+            onDidFinishLoadingMap={() => setMapLoaded(true)}
+            onDidFailLoadingMap={() => {
+              console.error('Map failed to load');
+              setMapLoaded(true); // Dismiss overlay so user can still see error state
             }}
-          />
+            testID="map-view"
+          >
+            <Camera
+              ref={cameraRef}
+              initialViewState={{
+                center: DEFAULT_CENTER,
+                zoom: DEFAULT_ZOOM,
+                pitch: getPitchForZoom(DEFAULT_ZOOM),
+              }}
+            />
 
-          {showUserLocation && <UserLocation heading />}
+            {showUserLocation && <UserLocation heading />}
 
-          {/* Paper Mario trees come from the server-side style.json as the shared
+            {/* Paper Mario trees come from the server-side style as the shared
               paper-trees symbol layer. Both web and native render the tree sprites
               directly from the sprite sheet. */}
 
-          {interaction.highlightedCoordinate && (
-            <Marker
-              lngLat={interaction.highlightedCoordinate}
-              anchor="center"
-            >
-              <View pointerEvents="none" testID="selected-marker" style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+            {interaction.highlightedCoordinate && (
+              <Marker lngLat={interaction.highlightedCoordinate} anchor="center">
                 <View
-                  style={{
-                    position: 'absolute',
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: 'rgba(245, 166, 35, 0.28)',
-                  }}
-                />
-                <View
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    backgroundColor: COLORS.blue500,
-                    borderWidth: 3,
-                    borderColor: COLORS.white,
-                  }}
-                />
-              </View>
-            </Marker>
-          )}
+                  pointerEvents="none"
+                  testID="selected-marker"
+                  style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <View
+                    style={{
+                      position: 'absolute',
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      backgroundColor: 'rgba(245, 166, 35, 0.28)',
+                    }}
+                  />
+                  <View
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: COLORS.blue500,
+                      borderWidth: 3,
+                      borderColor: COLORS.white,
+                    }}
+                  />
+                </View>
+              </Marker>
+            )}
 
-          {/* Geo-anchored GroupPreviewCard via native Marker.
+            {/* Geo-anchored GroupPreviewCard via native Marker.
               On Android, Marker renders real native Views (not GL textures),
               so it's accessible to Maestro/uiautomator. The native map engine
               handles projection at 60fps — no async JS roundtrip needed. */}
-          {Platform.OS === 'web' && interaction.previewGroup && interaction.previewGroup.properties.length > 0 && (
-            <Marker
-              lngLat={interaction.previewGroup.coordinate}
-              anchor="bottom"
-            >
-              <GroupPreviewCard
-                properties={interaction.previewGroup.properties}
-                currentIndex={interaction.currentPreviewIndex}
-                onIndexChange={interaction.setCurrentPreviewIndex}
-                onClose={interaction.handleClosePreview}
-                onPropertyTap={interaction.handlePreviewPropertyTap}
-                onLike={interaction.handleLike}
-                onComment={interaction.handleComment}
-                onGuess={interaction.handleGuess}
-                isLiked={interaction.isLiked}
-                showArrow
-                arrowDirection="down"
-                onTouchStart={() => {
-                  previewCardTouchedRef.current = true;
-                  // Auto-reset in case handleMapPress doesn't fire
-                  setTimeout(() => { previewCardTouchedRef.current = false; }, TOUCH_GUARD_RESET_MS);
-                }}
-              />
-            </Marker>
-          )}
-        </Map>
+            {Platform.OS === 'web' &&
+              interaction.previewGroup &&
+              interaction.previewGroup.properties.length > 0 && (
+                <Marker lngLat={interaction.previewGroup.coordinate} anchor="bottom">
+                  <GroupPreviewCard
+                    properties={interaction.previewGroup.properties}
+                    currentIndex={interaction.currentPreviewIndex}
+                    onIndexChange={interaction.setCurrentPreviewIndex}
+                    onClose={interaction.handleClosePreview}
+                    onPropertyTap={interaction.handlePreviewPropertyTap}
+                    onLike={interaction.handleLike}
+                    onComment={interaction.handleComment}
+                    onGuess={interaction.handleGuess}
+                    isLiked={interaction.isLiked}
+                    showArrow
+                    arrowDirection="down"
+                    onTouchStart={() => {
+                      previewCardTouchedRef.current = true;
+                      // Auto-reset in case handleMapPress doesn't fire
+                      setTimeout(() => {
+                        previewCardTouchedRef.current = false;
+                      }, TOUCH_GUARD_RESET_MS);
+                    }}
+                  />
+                </Marker>
+              )}
+          </Map>
         )}
 
-        {shouldRenderNativePreviewOverlay && nativePreviewPoint && nativePreviewGroup && nativePreviewLayout && (
-          <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
-            <View
-              style={[
-                styles.nativePreviewOverlay,
-                nativePreviewLayout,
-              ]}
-            >
-              <View
-                onLayout={(event) => {
-                  const { width, height } = event.nativeEvent.layout;
-                  setNativePreviewSize((current) => (
-                    current.width === width && current.height === height
-                      ? current
-                      : { width, height }
-                  ));
-                }}
-              >
-                <GroupPreviewCard
-                  properties={nativePreviewGroup.properties}
-                  currentIndex={interaction.currentPreviewIndex}
-                  onIndexChange={interaction.setCurrentPreviewIndex}
-                  onClose={interaction.handleClosePreview}
-                  onPropertyTap={interaction.handlePreviewPropertyTap}
-                  onLike={interaction.handleLike}
-                  onComment={interaction.handleComment}
-                  onGuess={interaction.handleGuess}
-                  isLiked={interaction.isLiked}
-                  showArrow
-                  arrowDirection={nativePreviewLayout.arrowDirection}
-                  onTouchStart={() => {
-                    previewCardTouchedRef.current = true;
-                    setTimeout(() => { previewCardTouchedRef.current = false; }, TOUCH_GUARD_RESET_MS);
+        {shouldRenderNativePreviewOverlay &&
+          nativePreviewPoint &&
+          nativePreviewGroup &&
+          nativePreviewLayout && (
+            <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
+              <View style={[styles.nativePreviewOverlay, nativePreviewLayout]}>
+                <View
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    setNativePreviewSize((current) =>
+                      current.width === width && current.height === height
+                        ? current
+                        : { width, height }
+                    );
                   }}
-                />
+                >
+                  <GroupPreviewCard
+                    properties={nativePreviewGroup.properties}
+                    currentIndex={interaction.currentPreviewIndex}
+                    onIndexChange={interaction.setCurrentPreviewIndex}
+                    onClose={interaction.handleClosePreview}
+                    onPropertyTap={interaction.handlePreviewPropertyTap}
+                    onLike={interaction.handleLike}
+                    onComment={interaction.handleComment}
+                    onGuess={interaction.handleGuess}
+                    isLiked={interaction.isLiked}
+                    showArrow
+                    arrowDirection={nativePreviewLayout.arrowDirection}
+                    onTouchStart={() => {
+                      previewCardTouchedRef.current = true;
+                      setTimeout(() => {
+                        previewCardTouchedRef.current = false;
+                      }, TOUCH_GUARD_RESET_MS);
+                    }}
+                  />
+                </View>
               </View>
             </View>
-          </View>
-        )}
+          )}
 
         {positionedAmbientCommentBubbleItems.length > 0 && (
           <View pointerEvents="box-none" style={StyleSheet.absoluteFillObject}>
@@ -1380,21 +1332,17 @@ export default function MapScreen() {
           </View>
         )}
 
-        <View
-          pointerEvents="none"
-          style={StyleSheet.absoluteFillObject}
-        >
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
           <View style={{ flex: 1, backgroundColor: 'rgba(255, 248, 240, 0.08)' }} />
         </View>
 
         {/* Map Loading Indicator */}
         {!mapLoaded && (
-          <View
-            style={styles.mapLoadingIndicator}
-            testID="map-loading-indicator"
-          >
+          <View style={styles.mapLoadingIndicator} testID="map-loading-indicator">
             <ActivityIndicator size="large" color={COLORS.blue500} />
-            <Text style={{ color: COLORS.gray600, marginTop: 12, fontSize: 16 }}>Loading map...</Text>
+            <Text style={{ color: COLORS.gray600, marginTop: 12, fontSize: 16 }}>
+              Loading map...
+            </Text>
           </View>
         )}
 
@@ -1436,7 +1384,7 @@ export default function MapScreen() {
                     authenticated: true,
                     platform: Platform.OS,
                   });
-                },
+                }
               )
             }
           />
@@ -1461,15 +1409,23 @@ export default function MapScreen() {
         !followingTileSource.isLoading &&
         followingRenderCheckComplete &&
         followingRenderedFeatureCount === 0 ? (
-          <FollowingMapStateCard
-            mode="empty"
-            onPrimaryPress={() => setSocialScope('all')}
-          />
+          <FollowingMapStateCard mode="empty" onPrimaryPress={() => setSocialScope('all')} />
         ) : null}
 
         {/* Zoom level indicator (debug camera only) */}
         {DEBUG_CAMERA && (
-          <View style={{ position: 'absolute', top: 120, left: 16, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, zIndex: 50 }}>
+          <View
+            style={{
+              position: 'absolute',
+              top: 120,
+              left: 16,
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 20,
+              zIndex: 50,
+            }}
+          >
             <Text style={{ fontSize: 12, color: COLORS.gray700 }}>
               Zoom: {currentZoom.toFixed(1)}
             </Text>
@@ -1477,10 +1433,7 @@ export default function MapScreen() {
         )}
 
         {/* Floating controls — lighter circular treatment to match the pen */}
-        <MapWelcomeInfoButton
-          onPress={welcomeModal.open}
-          style={styles.welcomeInfoButton}
-        />
+        <MapWelcomeInfoButton onPress={welcomeModal.open} style={styles.welcomeInfoButton} />
 
         <View style={styles.controlRail}>
           <Pressable

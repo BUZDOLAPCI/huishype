@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import {
   resolveRuntimePort,
   startServiceWithRetry,
+  waitForHttp,
   waitForChildExit,
   watchRuntimeDeaths,
 } from './run-playwright-project.mjs';
@@ -79,6 +81,36 @@ test('fails fast when the API child exits before readiness', async () => {
   assert.equal(stopping.current, false);
 });
 
+test('checks API process startup before aggregate readiness', async () => {
+  const child = new FakeChild();
+  const checkedUrls = [];
+  const stopping = { current: false };
+
+  const startup = await startServiceWithRetry({
+    label: 'API server',
+    command: 'node',
+    args: ['fake-api'],
+    env: {},
+    cwd: process.cwd(),
+    port: 31_011,
+    startupUrl: 'http://127.0.0.1:31_011/health',
+    readyUrl: 'http://127.0.0.1:31_011/health/ready',
+    stopping,
+    attempts: 1,
+    spawnServiceImpl: () => child,
+    waitForHttpImpl: async (url) => {
+      checkedUrls.push(url);
+    },
+    ensurePortAvailableImpl: async () => {},
+  });
+
+  assert.equal(startup.child, child);
+  assert.deepEqual(checkedUrls, [
+    'http://127.0.0.1:31_011/health',
+    'http://127.0.0.1:31_011/health/ready',
+  ]);
+});
+
 test('reports mid-run API death with a useful error', async () => {
   const child = new FakeChild();
   const stopping = { current: false };
@@ -139,7 +171,7 @@ test('waitForChildExit escalates to SIGKILL for a hung child process', async () 
 });
 
 test('resolveRuntimePort falls back to an ephemeral port when the default is busy', async () => {
-  const occupied = createServer();
+  const occupied = createNetServer();
   await new Promise((resolve) => {
     occupied.listen(0, '127.0.0.1', resolve);
   });
@@ -158,7 +190,7 @@ test('resolveRuntimePort falls back to an ephemeral port when the default is bus
 });
 
 test('resolveRuntimePort honors explicitly requested busy ports', async () => {
-  const occupied = createServer();
+  const occupied = createNetServer();
   await new Promise((resolve) => {
     occupied.listen(0, '127.0.0.1', resolve);
   });
@@ -174,5 +206,32 @@ test('resolveRuntimePort honors explicitly requested busy ports', async () => {
 
   await new Promise((resolve, reject) => {
     occupied.close((error) => (error ? reject(error) : resolve()));
+  });
+});
+
+test('waitForHttp reports the last non-OK status and body on timeout', async () => {
+  const server = createHttpServer((_request, response) => {
+    response.statusCode = 503;
+    response.statusMessage = 'Service Unavailable';
+    response.end('map projections are stale');
+  });
+
+  await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  await assert.rejects(
+    waitForHttp(`http://127.0.0.1:${address.port}/health/ready`, 'API server', {
+      timeoutMs: 20,
+      intervalMs: 1,
+    }),
+    /API server did not become ready.*Last response: HTTP 503 Service Unavailable\. Body: map projections are stale/s,
+  );
+
+  await new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
   });
 });

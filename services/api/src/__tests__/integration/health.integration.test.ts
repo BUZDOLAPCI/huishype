@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, afterEach, jest } from '@jest/globals';
+import { sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
+import { db } from '../../db/index.js';
 import type { FastifyInstance } from 'fastify';
+import { createIntegrationListing, createIntegrationProperty } from './helpers/fixtures.js';
 
 describe('GET /health', () => {
   let app: FastifyInstance | undefined;
+  let fetchSpy: jest.SpiedFunction<typeof fetch> | undefined;
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -13,6 +17,11 @@ describe('GET /health', () => {
     if (app) {
       await app.close();
     }
+  });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+    fetchSpy = undefined;
   });
 
   it('should return 200', async () => {
@@ -67,5 +76,38 @@ describe('GET /health', () => {
     });
     const body = JSON.parse(response.body);
     expect(body.uptime).toBeGreaterThan(0);
+  });
+
+  it('should fail readiness when map projections are stale for active property data', async () => {
+    fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    );
+    const property = await createIntegrationProperty({
+      street: 'Readiness Projection Stale Street',
+      lon: 5.61,
+      lat: 51.49,
+    });
+    await createIntegrationListing({
+      propertyId: property.id,
+      askingPrice: 525000,
+      thumbnailUrl: 'https://cdn.example.com/readiness-stale.jpg',
+    });
+
+    try {
+      const response = await app!.inject({
+        method: 'GET',
+        url: '/health/ready',
+      });
+
+      expect(response.statusCode).toBe(503);
+      const body = JSON.parse(response.body);
+      expect(body.checks.projections.status).toBe('error');
+      expect(body.checks.projections.message).toMatch(/Projection|projected|stale/i);
+    } finally {
+      await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+    }
   });
 });

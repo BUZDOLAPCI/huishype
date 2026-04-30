@@ -68,12 +68,13 @@ let mockIsFocused = true;
 let mockBrowserPathname = '/';
 const mockGetAccessToken = jest.fn<Promise<string | null>, []>(async () => 'viewer-token');
 let mockFollowingTileSourceIsError = false;
-let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+let mockFollowingTileUrl =
+  'https://tiles.test/private_following_property_nodes/{z}/{x}/{y}?tile_session=following';
 const mockFollowingTileRefetch = jest.fn();
-let mockReadTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-let mockReadCacheBustedTileUrl: string | null = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
-let mockReadHeaderValue = 'session-123';
+let mockReadTileUrl: string | null =
+  'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
+let mockReadCacheBustedTileUrl: string | null =
+  'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
 const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockWelcomeOpen = jest.fn();
@@ -272,9 +273,11 @@ const mockUseFollowingTileSource = jest.fn(
   (_filters: unknown, _followingActivity: unknown, _enabled: unknown) => ({
     data: mockFollowingTileUrl
       ? {
-          tileJsonUrl: 'http://api.test/tiles/following/properties.json',
+          tileJsonUrl: 'http://api.test/tiles/sessions',
           tileUrl: mockFollowingTileUrl,
+          cacheBustedTileUrl: mockFollowingTileUrl,
           tileJson: { tiles: [mockFollowingTileUrl] },
+          expiresAt: '2026-04-29T12:00:00.000Z',
         }
       : undefined,
     isLoading: false,
@@ -294,13 +297,12 @@ jest.mock('@/src/hooks/useFollowingTileSource', () => ({
 const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => ({
   data: mockReadTileUrl
     ? {
-        tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+        tileJsonUrl: 'http://api.test/tiles/sessions',
         tileUrl: mockReadTileUrl,
         cacheBustedTileUrl: mockReadCacheBustedTileUrl ?? mockReadTileUrl,
         tileJson: { tiles: [mockReadTileUrl] },
-        headerName: mockReadHeaderName,
-        headerValue: mockReadHeaderValue,
         version: 0,
+        expiresAt: '2026-04-29T12:00:00.000Z',
       }
     : undefined,
   isLoading: false,
@@ -563,11 +565,12 @@ describe('MapScreen web grouped Following mode', () => {
     mockGetAccessToken.mockReset();
     mockGetAccessToken.mockResolvedValue('viewer-token');
     mockFollowingTileSourceIsError = false;
-    mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
-    mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-    mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-    mockReadHeaderName = 'x-session-id';
-    mockReadHeaderValue = 'session-123';
+    mockFollowingTileUrl =
+      'https://tiles.test/private_following_property_nodes/{z}/{x}/{y}?tile_session=following';
+    mockReadTileUrl =
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
+    mockReadCacheBustedTileUrl =
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
     mockWelcomeVisible = false;
     mockResolvedMapRouteState = {
       isLoading: true,
@@ -766,17 +769,16 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockGetAccessToken).not.toHaveBeenCalled();
     expect(map.style._clearSource).toHaveBeenCalledWith('properties-source');
     expect(map.style._reloadSource).toHaveBeenCalledWith('properties-source');
-    expect(map.options.transformRequest?.('https://tiles.test/following/12/2048/1363.pbf')).toEqual(
-      {
-        url: 'https://tiles.test/following/12/2048/1363.pbf',
-        headers: {
-          Authorization: 'Bearer viewer-token',
-        },
-      }
-    );
+    expect(
+      map.options.transformRequest?.(
+        'https://tiles.test/private_following_property_nodes/12/2048/1363?tile_session=following',
+      ),
+    ).toEqual({
+      url: 'https://tiles.test/private_following_property_nodes/12/2048/1363?tile_session=following',
+    });
   });
 
-  it('adds private read overlay tiles and scopes signed-out session headers to read requests', async () => {
+  it('adds private read overlay tiles without adding private tile request headers', async () => {
     mockIsAuthenticated = false;
 
     await act(async () => {
@@ -795,7 +797,7 @@ describe('MapScreen web grouped Following mode', () => {
       'https://tiles.test/tile-a',
     ]);
     expect(map.options.style.sources?.['read-properties-source']?.tiles).toEqual([
-      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf',
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read',
     ]);
     const activeNodeFillLayer = (map.options.style as {
       layers?: Array<{ id?: string; paint?: Record<string, unknown> }>;
@@ -810,16 +812,15 @@ describe('MapScreen web grouped Following mode', () => {
     expect(readActiveNodeFillLayer?.paint?.['circle-opacity']).toBe(0);
     expect(readLayerIds).not.toContain('read-cluster-count');
     expect(readLayerIds).not.toContain('read-ghost-cluster-count');
-    expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
-      {
-        url: 'https://tiles.test/properties/read/12/2048/1363.pbf',
-        headers: {
-          'x-session-id': 'session-123',
-        },
-      }
-    );
-    expect(map.options.transformRequest?.('https://tiles.test/properties/12/2048/1363.pbf')).toEqual({
-      url: 'https://tiles.test/properties/12/2048/1363.pbf',
+    expect(
+      map.options.transformRequest?.(
+        'https://tiles.test/private_read_property_nodes/12/2048/1363?tile_session=read',
+      ),
+    ).toEqual({
+      url: 'https://tiles.test/private_read_property_nodes/12/2048/1363?tile_session=read',
+    });
+    expect(map.options.transformRequest?.('https://tiles.test/public_property_nodes/12/2048/1363')).toEqual({
+      url: 'https://tiles.test/public_property_nodes/12/2048/1363',
     });
   });
 
@@ -863,7 +864,7 @@ describe('MapScreen web grouped Following mode', () => {
     readSource.setTiles.mockClear();
 
     mockReadCacheBustedTileUrl =
-      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1';
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read-cache';
 
     await act(async () => {
       root.render(<MapScreen />);
@@ -871,21 +872,12 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     expect(readSource.setTiles).toHaveBeenCalledWith([
-      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1',
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read-cache',
     ]);
     expect(map.removeSource).not.toHaveBeenCalledWith('read-properties-source');
   });
 
-  it('waits for a resolved auth token before swapping to Following tiles', async () => {
-    mockAccessToken = null;
-    let resolveAccessToken: ((token: string | null) => void) | null = null;
-    mockGetAccessToken.mockImplementation(
-      () =>
-        new Promise<string | null>((resolve) => {
-          resolveAccessToken = resolve;
-        }),
-    );
-
+  it('swaps to signed Following tile-session templates without resolving a tile auth token', async () => {
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -905,19 +897,10 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     expect(capturedMapFilterBarProps?.socialScope).toBe('following');
-    expect(map.propertySource.setTiles).not.toHaveBeenCalledWith([
-      'https://tiles.test/following/{z}/{x}/{y}.pbf',
-    ]);
-
-    await act(async () => {
-      resolveAccessToken?.('viewer-token');
-      await Promise.resolve();
-    });
-    await flushMicrotasks();
-
     expect(map.propertySource.setTiles).toHaveBeenCalledWith([
-      'https://tiles.test/following/{z}/{x}/{y}.pbf',
+      'https://tiles.test/private_following_property_nodes/{z}/{x}/{y}?tile_session=following',
     ]);
+    expect(mockGetAccessToken).not.toHaveBeenCalled();
   });
 
   it('does not record ghost preview properties as read', async () => {

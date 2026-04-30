@@ -7,9 +7,10 @@ import { formatDisplayAddress } from '../utils/address.js';
 import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import {
-  resolveNearbyFollowingGroupedFeature,
-  resolveNearbyGroupedFeature,
-} from '../services/property-grouping.js';
+  resolveNearbyFollowingProjectedFeature,
+  resolveNearbyProjectedFeature,
+  type ProjectionNearbyResult,
+} from '../services/map-projection-nearby.js';
 import {
   areMapFiltersDefault,
   buildPropertyMarketFilterQuery,
@@ -258,6 +259,7 @@ const nearbyGroupedBaseSchema = z.object({
     .nullable()
     .describe('[west, south, east, north]'),
   activeListingCount: z.number(),
+  completedListingCount: z.number(),
   socialCount: z.number(),
   recentSocialCount: z.number(),
   socialScoreTotal: z.number(),
@@ -522,7 +524,7 @@ function mapPublicPropertyRow(row: PropertyRow) {
 }
 
 function mapNearbyGroupedResult(
-  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
+  result: ProjectionNearbyResult | null,
   isRead = false,
 ) {
   if (!result) {
@@ -539,6 +541,7 @@ function mapNearbyGroupedResult(
     distanceMeters: result.distanceMeters,
     bbox: result.bbox,
     activeListingCount: result.activeListingCount,
+    completedListingCount: result.completedListingCount,
     socialCount: result.socialCount,
     recentSocialCount: result.recentSocialCount,
     socialScoreTotal: result.socialScoreTotal,
@@ -923,11 +926,11 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
       const filters = parseMapFiltersQuery(request.query);
-      const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
       const viewer = resolvePropertyReadViewer(
         request.userId,
         request.headers['x-session-id'] as string | string[] | undefined,
       );
+      const result = await resolveNearbyProjectedFeature(lon, lat, zoom, filters, viewer);
       const readIds = result
         ? await getReadPropertyIdSet(result.propertyIds, viewer)
         : new Set<string>();
@@ -1015,7 +1018,7 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
       const filters = parseFollowingMapFiltersQuery(request.query);
-      const result = await resolveNearbyFollowingGroupedFeature(
+      const result = await resolveNearbyFollowingProjectedFeature(
         lon,
         lat,
         zoom,

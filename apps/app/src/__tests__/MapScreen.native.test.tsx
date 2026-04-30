@@ -25,12 +25,12 @@ const mockNativeStyleJson: Record<string, unknown> = {
 
 let mockIsAuthenticated = true;
 let mockFollowingTileSourceIsError = false;
-let mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
+let mockFollowingTileUrl =
+  'https://tiles.test/private_following_property_nodes/{z}/{x}/{y}?tile_session=following';
 const mockFollowingTileRefetch = jest.fn();
-let mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-let mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-let mockReadHeaderName: 'Authorization' | 'x-session-id' = 'x-session-id';
-let mockReadHeaderValue = 'session-123';
+let mockReadTileUrl = 'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
+let mockReadCacheBustedTileUrl =
+  'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
 const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
@@ -206,9 +206,11 @@ const mockUseFollowingTileSource = jest.fn(
   (_filters: unknown, _followingActivity: unknown, _enabled: unknown) => ({
     data: mockFollowingTileUrl
       ? {
-          tileJsonUrl: 'http://api.test/tiles/following/properties.json',
+          tileJsonUrl: 'http://api.test/tiles/sessions',
           tileUrl: mockFollowingTileUrl,
+          cacheBustedTileUrl: mockFollowingTileUrl,
           tileJson: { tiles: [mockFollowingTileUrl] },
+          expiresAt: '2026-04-29T12:00:00.000Z',
         }
       : undefined,
     isLoading: false,
@@ -228,13 +230,12 @@ jest.mock('@/src/hooks/useFollowingTileSource', () => ({
 const mockUseReadTileSource = jest.fn((_filters: unknown, _enabled: unknown) => ({
   data: mockReadTileUrl
     ? {
-        tileJsonUrl: 'http://api.test/tiles/properties/read.json',
+        tileJsonUrl: 'http://api.test/tiles/sessions',
         tileUrl: mockReadTileUrl,
         cacheBustedTileUrl: mockReadCacheBustedTileUrl,
         tileJson: { tiles: [mockReadTileUrl] },
-        headerName: mockReadHeaderName,
-        headerValue: mockReadHeaderValue,
         version: 0,
+        expiresAt: '2026-04-29T12:00:00.000Z',
       }
     : undefined,
   isLoading: false,
@@ -364,11 +365,12 @@ describe('MapScreen native grouped Following mode', () => {
     jest.useRealTimers();
     mockIsAuthenticated = true;
     mockFollowingTileSourceIsError = false;
-    mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
-    mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-    mockReadCacheBustedTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
-    mockReadHeaderName = 'x-session-id';
-    mockReadHeaderValue = 'session-123';
+    mockFollowingTileUrl =
+      'https://tiles.test/private_following_property_nodes/{z}/{x}/{y}?tile_session=following';
+    mockReadTileUrl =
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
+    mockReadCacheBustedTileUrl =
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read';
     mockWelcomeVisible = false;
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
@@ -437,7 +439,7 @@ describe('MapScreen native grouped Following mode', () => {
     }
   });
 
-  it('enables grouped Following tiles and configures native tile auth headers', async () => {
+  it('enables grouped Following tiles without configuring native tile auth headers', async () => {
     await renderMapScreen();
 
     act(() => {
@@ -462,14 +464,10 @@ describe('MapScreen native grouped Following mode', () => {
       'all-time',
       true
     );
-    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
-      'Authorization',
-      'Bearer viewer-token',
-      expect.any(RegExp)
-    );
+    expect(mockNetworkManagerAddRequestHeader).not.toHaveBeenCalled();
   });
 
-  it('configures native read overlay session headers only for the read tile pattern', async () => {
+  it('does not configure native read overlay session headers for tile requests', async () => {
     mockIsAuthenticated = false;
 
     await renderMapScreen();
@@ -488,18 +486,7 @@ describe('MapScreen native grouped Following mode', () => {
       );
     });
 
-    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
-      'x-session-id',
-      'session-123',
-      expect.any(RegExp)
-    );
-
-    const addCall = mockNetworkManagerAddRequestHeader.mock.calls.find(
-      ([headerName]) => headerName === 'x-session-id',
-    );
-    const pattern = addCall?.[2] as RegExp;
-    expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
-    expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
+    expect(mockNetworkManagerAddRequestHeader).not.toHaveBeenCalled();
   });
 
   it('does not refetch the merged native style when only the cache-busted read tile URL changes', async () => {
@@ -508,7 +495,7 @@ describe('MapScreen native grouped Following mode', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 
     mockReadCacheBustedTileUrl =
-      'https://tiles.test/properties/read/{z}/{x}/{y}.pbf?readVersion=1';
+      'https://tiles.test/private_read_property_nodes/{z}/{x}/{y}?tile_session=read-cache';
 
     await act(async () => {
       screen.rerender(<MapScreen />);

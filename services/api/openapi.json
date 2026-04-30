@@ -70,6 +70,415 @@
         }
       }
     },
+    "/health/ready": {
+      "get": {
+        "summary": "Aggregate readiness check",
+        "tags": [
+          "health"
+        ],
+        "description": "Checks Martin reachability, core dependencies, projection presence, and Martin resource availability.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded",
+                        "error"
+                      ]
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "martin": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "postgres": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "redis": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "projections": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "resources": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "martin",
+                        "postgres",
+                        "redis",
+                        "projections",
+                        "resources"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "timestamp",
+                    "checks"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded",
+                        "error"
+                      ]
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "martin": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "postgres": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "redis": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "projections": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "resources": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "ok",
+                                "degraded",
+                                "error"
+                              ]
+                            },
+                            "latencyMs": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "latencyMs"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "martin",
+                        "postgres",
+                        "redis",
+                        "projections",
+                        "resources"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "timestamp",
+                    "checks"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/google": {
       "post": {
         "summary": "Login with Google",
@@ -1653,6 +2062,9 @@
                             "activeListingCount": {
                               "type": "number"
                             },
+                            "completedListingCount": {
+                              "type": "number"
+                            },
                             "socialCount": {
                               "type": "number"
                             },
@@ -1730,6 +2142,7 @@
                             "distanceMeters",
                             "bbox",
                             "activeListingCount",
+                            "completedListingCount",
                             "socialCount",
                             "recentSocialCount",
                             "socialScoreTotal",
@@ -1824,6 +2237,9 @@
                             "activeListingCount": {
                               "type": "number"
                             },
+                            "completedListingCount": {
+                              "type": "number"
+                            },
                             "socialCount": {
                               "type": "number"
                             },
@@ -1862,6 +2278,7 @@
                             "distanceMeters",
                             "bbox",
                             "activeListingCount",
+                            "completedListingCount",
                             "socialCount",
                             "recentSocialCount",
                             "socialScoreTotal",
@@ -2506,6 +2923,9 @@
                             "activeListingCount": {
                               "type": "number"
                             },
+                            "completedListingCount": {
+                              "type": "number"
+                            },
                             "socialCount": {
                               "type": "number"
                             },
@@ -2583,6 +3003,7 @@
                             "distanceMeters",
                             "bbox",
                             "activeListingCount",
+                            "completedListingCount",
                             "socialCount",
                             "recentSocialCount",
                             "socialScoreTotal",
@@ -2677,6 +3098,9 @@
                             "activeListingCount": {
                               "type": "number"
                             },
+                            "completedListingCount": {
+                              "type": "number"
+                            },
                             "socialCount": {
                               "type": "number"
                             },
@@ -2715,6 +3139,7 @@
                             "distanceMeters",
                             "bbox",
                             "activeListingCount",
+                            "completedListingCount",
                             "socialCount",
                             "recentSocialCount",
                             "socialScoreTotal",
@@ -5856,151 +6281,71 @@
         }
       }
     },
-    "/fonts/{fontstack}/{range}": {
-      "get": {
-        "summary": "Get glyph PBF range for a font",
+    "/tiles/sessions": {
+      "post": {
+        "summary": "Create signed tile session",
         "tags": [
           "tiles"
         ],
-        "description": "Returns a PBF file containing glyphs for the requested font and Unicode range.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "path",
-            "name": "fontstack",
-            "required": true
+        "description": "Issues a short-lived signed session token for private Martin-backed tile templates.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "following"
+                    ]
+                  },
+                  "salePriceFrom": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "salePriceTo": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rentPriceFrom": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rentPriceTo": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "marketState": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "activity": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scope"
+                ]
+              }
+            }
           },
-          {
-            "schema": {
-              "type": "string",
-              "pattern": "^\\d+-\\d+\\.pbf$"
-            },
-            "in": "path",
-            "name": "range",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/sprites/{filename}": {
-      "get": {
-        "summary": "Get sprite file",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns a sprite JSON manifest or PNG atlas.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "pattern": "^ofm(@2x)?\\.(json|png)$"
-            },
-            "in": "path",
-            "name": "filename",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/tiles/style.json": {
-      "get": {
-        "summary": "Get merged map style with property layers",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns MapLibre style JSON with base map + property vector tiles.",
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/tiles/properties.json": {
-      "get": {
-        "summary": "Get property tile metadata (TileJSON)",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns TileJSON 2.1.0 metadata for property vector tiles.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all",
-              "type": "string",
-              "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
-              ]
-            },
-            "in": "query",
-            "name": "activity",
-            "required": false
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Default Response",
@@ -6009,192 +6354,95 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "tilejson": {
+                    "token": {
                       "type": "string"
                     },
-                    "name": {
+                    "tokenType": {
+                      "type": "string",
+                      "enum": [
+                        "HuisHypeTileSession"
+                      ]
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "following"
+                      ]
+                    },
+                    "audience": {
+                      "type": "string",
+                      "enum": [
+                        "read-properties",
+                        "following-properties"
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "ttlSeconds": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "tileTemplate": {
                       "type": "string"
                     },
-                    "description": {
+                    "cacheBustedTileTemplate": {
                       "type": "string"
                     },
                     "tiles": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "minzoom": {
-                      "type": "number"
-                    },
-                    "maxzoom": {
-                      "type": "number"
-                    },
-                    "bounds": {
-                      "type": "array",
-                      "prefixItems": [
-                        {
-                          "type": "number"
+                      "type": "object",
+                      "properties": {
+                        "template": {
+                          "type": "string"
                         },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "number"
+                        "replacementTemplate": {
+                          "type": "string"
                         }
-                      ]
+                      },
+                      "required": [
+                        "template",
+                        "replacementTemplate"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
-                    "tilejson",
-                    "name",
-                    "description",
-                    "tiles",
-                    "minzoom",
-                    "maxzoom",
-                    "bounds"
+                    "token",
+                    "tokenType",
+                    "scope",
+                    "audience",
+                    "expiresAt",
+                    "ttlSeconds",
+                    "tileTemplate",
+                    "cacheBustedTileTemplate",
+                    "tiles"
                   ],
                   "additionalProperties": false
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/tiles/following/properties.json": {
-      "get": {
-        "summary": "Get Following property tile metadata (TileJSON)",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns TileJSON 2.1.0 metadata for authenticated Following property vector tiles.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
           },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all-time",
-              "type": "string",
-              "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
-              ]
-            },
-            "in": "query",
-            "name": "activity",
-            "required": false
-          }
-        ],
-        "responses": {
-          "200": {
+          "400": {
             "description": "Default Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "tilejson": {
+                    "error": {
                       "type": "string"
                     },
-                    "name": {
+                    "message": {
                       "type": "string"
-                    },
-                    "description": {
-                      "type": "string"
-                    },
-                    "tiles": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "minzoom": {
-                      "type": "number"
-                    },
-                    "maxzoom": {
-                      "type": "number"
-                    },
-                    "bounds": {
-                      "type": "array",
-                      "prefixItems": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
                     }
                   },
                   "required": [
-                    "tilejson",
-                    "name",
-                    "description",
-                    "tiles",
-                    "minzoom",
-                    "maxzoom",
-                    "bounds"
+                    "error",
+                    "message"
                   ],
                   "additionalProperties": false
                 }
@@ -6227,78 +6475,144 @@
         }
       }
     },
-    "/tiles/properties/read.json": {
+    "/tiles/style/{styleId}": {
       "get": {
-        "summary": "Get read property tile metadata (TileJSON)",
+        "summary": "Get HuisHype Martin style resource",
         "tags": [
           "tiles"
         ],
-        "description": "Returns private TileJSON metadata for viewer-specific read-state property overlay tiles.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all",
               "type": "string",
               "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
+                "huishype",
+                "huishype-native"
               ]
             },
-            "in": "query",
-            "name": "activity",
-            "required": false
+            "in": "path",
+            "name": "styleId",
+            "required": true
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/sprite/huishype.json": {
+      "get": {
+        "summary": "Get HuisHype sprite metadata",
+        "tags": [
+          "tiles"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/sprite/huishype@2x.json": {
+      "get": {
+        "summary": "Get HuisHype 2x sprite metadata",
+        "tags": [
+          "tiles"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/sprite/huishype.png": {
+      "get": {
+        "summary": "Get HuisHype sprite image",
+        "tags": [
+          "tiles"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/sprite/huishype@2x.png": {
+      "get": {
+        "summary": "Get HuisHype 2x sprite image",
+        "tags": [
+          "tiles"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/font/{fontstack}/{range}": {
+      "get": {
+        "summary": "Get HuisHype font glyph range",
+        "tags": [
+          "tiles"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[\\w .,-]+$"
+            },
+            "in": "path",
+            "name": "fontstack",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d+-\\d+(?:\\.pbf)?$"
+            },
+            "in": "path",
+            "name": "range",
+            "required": true
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tiles/base": {
+      "get": {
+        "summary": "Get base tile source metadata",
+        "tags": [
+          "tiles"
         ],
         "responses": {
           "200": {
@@ -6360,24 +6674,71 @@
                 }
               }
             }
-          },
-          "400": {
+          }
+        }
+      }
+    },
+    "/tiles/public_property_nodes": {
+      "get": {
+        "summary": "Get public property node tile source metadata",
+        "tags": [
+          "tiles"
+        ],
+        "responses": {
+          "200": {
             "description": "Default Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "error": {
+                    "tilejson": {
                       "type": "string"
                     },
-                    "message": {
+                    "name": {
                       "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
                     }
                   },
                   "required": [
-                    "error",
-                    "message"
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
                   ],
                   "additionalProperties": false
                 }
@@ -6387,345 +6748,152 @@
         }
       }
     },
-    "/tiles/properties/{z}/{x}/{y}.pbf": {
+    "/tiles/trees": {
       "get": {
-        "summary": "Get property vector tile",
+        "summary": "Get tree tile source metadata",
         "tags": [
           "tiles"
-        ],
-        "description": "Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all",
-              "type": "string",
-              "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
-              ]
-            },
-            "in": "query",
-            "name": "activity",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 22
-            },
-            "in": "path",
-            "name": "z",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "x",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "y",
-            "required": true
-          }
         ],
         "responses": {
           "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/tiles/properties/read/{z}/{x}/{y}.pbf": {
-      "get": {
-        "summary": "Get read property vector tile",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns private MVT/PBF overlay tiles containing only grouped property nodes that are read for the current viewer.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all",
-              "type": "string",
-              "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
-              ]
-            },
-            "in": "query",
-            "name": "activity",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 22
-            },
-            "in": "path",
-            "name": "z",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "x",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "y",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
-          }
-        }
-      }
-    },
-    "/tiles/following/properties/{z}/{x}/{y}.pbf": {
-      "get": {
-        "summary": "Get Following property vector tile",
-        "tags": [
-          "tiles"
-        ],
-        "description": "Returns personalized MVT/PBF property tiles grouped from followed-user qualifying activity for the signed-in viewer.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "salePriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "salePriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "rentPriceFrom",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "number"
-            },
-            "in": "query",
-            "name": "rentPriceTo",
-            "required": false
-          },
-          {
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tilejson": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
                 }
-              ]
-            },
-            "in": "query",
-            "name": "marketState",
-            "required": false
-          },
-          {
-            "schema": {
-              "default": "all-time",
-              "type": "string",
-              "enum": [
-                "all",
-                "today",
-                "10d",
-                "30d",
-                "all-time"
-              ]
-            },
-            "in": "query",
-            "name": "activity",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 22
-            },
-            "in": "path",
-            "name": "z",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "x",
-            "required": true
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "in": "path",
-            "name": "y",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response"
+              }
+            }
           }
         }
       }
     },
-    "/tiles/trees/{z}/{x}/{y}.pbf": {
+    "/tiles/buildings": {
       "get": {
-        "summary": "Get tree scatter vector tile",
+        "summary": "Get building tile source metadata",
         "tags": [
           "tiles"
         ],
-        "description": "Returns MVT with deterministically scattered tree points inside landcover polygons.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tilejson": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "tiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "minzoom": {
+                      "type": "number"
+                    },
+                    "maxzoom": {
+                      "type": "number"
+                    },
+                    "bounds": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tilejson",
+                    "name",
+                    "description",
+                    "tiles",
+                    "minzoom",
+                    "maxzoom",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tiles/private_read_property_nodes/{z}/{x}/{y}": {
+      "get": {
+        "summary": "Proxy private read property tile",
+        "tags": [
+          "tiles"
+        ],
         "parameters": [
           {
             "schema": {
@@ -6765,13 +6933,12 @@
         }
       }
     },
-    "/tiles/buildings/{z}/{x}/{y}.pbf": {
+    "/tiles/private_following_property_nodes/{z}/{x}/{y}": {
       "get": {
-        "summary": "Get OSM building vector tile",
+        "summary": "Proxy private Following property tile",
         "tags": [
           "tiles"
         ],
-        "description": "Returns MVT with individual OSM building footprints and heights.",
         "parameters": [
           {
             "schema": {
@@ -6801,6 +6968,30 @@
             },
             "in": "path",
             "name": "y",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tiles/{*}": {
+      "get": {
+        "summary": "Proxy public Martin tile/resource path",
+        "tags": [
+          "tiles"
+        ],
+        "description": "Streams public Martin tile, style, sprite, font, catalog, health, and resource responses.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "*",
             "required": true
           }
         ],
@@ -8091,6 +8282,7 @@
                         "processing",
                         "completed",
                         "retryable",
+                        "superseded",
                         "failed"
                       ]
                     },

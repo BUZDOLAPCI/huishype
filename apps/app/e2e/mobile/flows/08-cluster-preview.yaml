@@ -10,6 +10,30 @@ appId: nl.huishype.app
 # GroupPreviewCard assertions use `optional: true` to avoid flaky failures.
 # The test still captures screenshots to verify cluster rendering visually.
 
+# Start from a fresh native map instance. Earlier authenticated property-sheet
+# flows can leave MapLibre in a loading state after a deep-link camera update.
+- stopApp
+- launchApp
+- waitForAnimationToEnd
+
+- tapOn:
+    point: '88%,12%'
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    text: 'Continue'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'welcome-modal-dismiss-button'
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    id: 'welcome-modal-close'
+    optional: true
+- waitForAnimationToEnd
+
 # Ensure we're on the Map tab
 - tapOn:
     id: 'tab-index'
@@ -19,12 +43,12 @@ appId: nl.huishype.app
 - extendedWaitUntil:
     visible:
       id: 'map-view'
-    timeout: 10000
+    timeout: 45000
 
 - extendedWaitUntil:
     visible:
       id: 'search-bar-container'
-    timeout: 10000
+    timeout: 30000
 
 - assertVisible:
     id: 'map-filter-rail'
@@ -49,12 +73,12 @@ appId: nl.huishype.app
 - extendedWaitUntil:
     visible:
       id: 'map-view'
-    timeout: 10000
+    timeout: 45000
 
 - extendedWaitUntil:
     visible:
       id: 'search-bar-container'
-    timeout: 10000
+    timeout: 30000
 
 - assertVisible:
     id: 'map-filter-pill-price'

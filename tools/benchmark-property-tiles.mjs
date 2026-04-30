@@ -74,8 +74,8 @@ function printHelp() {
   console.log(`Usage:
   node tools/benchmark-property-tiles.mjs \\
     --base-url http://127.0.0.1:3100 \\
-    --path /tiles/properties/13/4220/2726.pbf \\
-    --path /tiles/properties/read/13/4220/2726.pbf \\
+    --path /tiles/public_property_nodes/13/4220/2726 \\
+    --path /tiles/private_read_property_nodes/13/4220/2726?tile_session=TOKEN \\
     --header x-session-id:bench-viewer \\
     --runs 3
 `);
@@ -119,9 +119,7 @@ async function main() {
     const results = [];
 
     for (let run = 0; run < options.runs; run += 1) {
-      results.push(
-        await runRequest(options.baseUrl, path, options.method, options.headers)
-      );
+      results.push(await runRequest(options.baseUrl, path, options.method, options.headers));
     }
 
     const durations = results
@@ -129,19 +127,21 @@ async function main() {
       .sort((left, right) => left - right);
     const last = results[results.length - 1];
 
-    console.log(JSON.stringify({
-      path,
-      runs: options.runs,
-      status: last.status,
-      bytes: last.bytes,
-      minMs: Number(durations[0].toFixed(1)),
-      p50Ms: Number(percentile(durations, 50).toFixed(1)),
-      p95Ms: Number(percentile(durations, 95).toFixed(1)),
-      maxMs: Number(durations[durations.length - 1].toFixed(1)),
-      generationHeader: last.generationHeader,
-      cacheHeader: last.cacheHeader,
-      cacheControl: last.cacheControl,
-    }));
+    console.log(
+      JSON.stringify({
+        path,
+        runs: options.runs,
+        status: last.status,
+        bytes: last.bytes,
+        minMs: Number(durations[0].toFixed(1)),
+        p50Ms: Number(percentile(durations, 50).toFixed(1)),
+        p95Ms: Number(percentile(durations, 95).toFixed(1)),
+        maxMs: Number(durations[durations.length - 1].toFixed(1)),
+        generationHeader: last.generationHeader,
+        cacheHeader: last.cacheHeader,
+        cacheControl: last.cacheControl,
+      })
+    );
   }
 }
 

@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import benchmarkModule from './benchmark.ts';
-import type {
-  RequestMetric,
-  RouteBenchmarkSample,
-} from './benchmark.ts';
+import type { RequestMetric, RouteBenchmarkSample } from './benchmark.ts';
 
 const {
   aggregateRouteBenchmark,
@@ -91,9 +88,9 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
     },
   });
   const expectedTileAbort = requestMetric({
-    url: 'http://localhost:8081/tiles/properties/8/131/85.pbf',
-    normalizedUrl: '/tiles/properties/8/131/85.pbf',
-    normalizedEndpoint: '/tiles/properties/8/131/85.pbf',
+    url: 'http://localhost:8081/tiles/public_property_nodes/8/131/85',
+    normalizedUrl: '/tiles/public_property_nodes/8/131/85',
+    normalizedEndpoint: '/tiles/public_property_nodes/8/131/85',
     resourceType: 'fetch',
     status: null,
     ok: false,
@@ -211,7 +208,7 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
         xCache: 'MISS',
         startedAt: '2026-04-23T10:00:00.000Z',
       },
-    ],
+    ]
   );
 
   const tileSummary = summarizeTileRequests([
@@ -224,10 +221,7 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
   assert.equal(tileSummary.abortedRequestCount, 2);
   assert.equal(tileSummary.abortedRequestDetails[0]?.rawUrl, expectedTileAbort.url);
   assert.equal(tileSummary.abortedRequestDetails[0]?.failureText, 'net::ERR_ABORTED');
-  assert.equal(
-    tileSummary.abortedRequestDetails[1]?.rawUrl,
-    expectedTileAbortAfterHeaders.url,
-  );
+  assert.equal(tileSummary.abortedRequestDetails[1]?.rawUrl, expectedTileAbortAfterHeaders.url);
 });
 
 test('aggregateRouteBenchmark carries route key and failed details into result summary', () => {
@@ -290,7 +284,7 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
     'cold-cache',
     [sample],
     1,
-    1,
+    1
   );
 
   assert.equal(result.routeKey, 'lowZoom392');
@@ -306,8 +300,11 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
   assert.equal(result.summary.renderProbes['map-screen']?.commitCount.median, 3);
   const removedGapKey = 'maxCommit' + 'GapMs';
   assert.equal(
-    Object.prototype.hasOwnProperty.call(result.summary.renderProbes['map-screen'] || {}, removedGapKey),
-    false,
+    Object.prototype.hasOwnProperty.call(
+      result.summary.renderProbes['map-screen'] || {},
+      removedGapKey
+    ),
+    false
   );
 });
 
@@ -374,7 +371,7 @@ test('aggregateRouteBenchmark summarizes feed scroll settle before scripted scro
     'cold-cache',
     [sample],
     1,
-    1,
+    1
   );
 
   assert.equal(result.summary.feed?.scrollSettle?.elapsedMs.median, 425);

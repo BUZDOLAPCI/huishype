@@ -31,6 +31,8 @@ describe('validateProductionSecrets', () => {
     RESEND_API_KEY: 're_test_key',
     EMAIL_FROM: 'HuisHype <noreply@huishype.nl>',
     EMAIL_REPLY_TO: 'support@huishype.nl',
+    TILE_SESSION_SECRET: 'tile-session-secret',
+    MARTIN_URL: 'http://martin:3111',
   };
 
   it('should not throw in dev mode even if all secrets are missing', () => {
@@ -83,7 +85,7 @@ describe('validateProductionSecrets', () => {
 
   it('should list all missing secrets in the error message', () => {
     expect(() => validateProductionSecrets({}, false)).toThrow(
-      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO',
+      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, TILE_SESSION_SECRET, MARTIN_URL',
     );
   });
 
@@ -106,6 +108,29 @@ describe('validateProductionSecrets', () => {
     expect(() => validateProductionSecrets(env, false)).toThrow(
       'Missing required secrets in production: EMAIL_REPLY_TO',
     );
+  });
+
+  it('should throw in production when TILE_SESSION_SECRET is missing', () => {
+    const env = { ...fullSecrets, TILE_SESSION_SECRET: undefined };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'Missing required secrets in production: TILE_SESSION_SECRET',
+    );
+  });
+
+  it('should throw in production when Martin URL settings are missing', () => {
+    const env = { ...fullSecrets, MARTIN_URL: undefined, MARTIN_INTERNAL_URL: undefined };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'Missing required secrets in production: MARTIN_URL',
+    );
+  });
+
+  it('should accept MARTIN_INTERNAL_URL instead of MARTIN_URL', () => {
+    const env = {
+      ...fullSecrets,
+      MARTIN_URL: undefined,
+      MARTIN_INTERNAL_URL: 'http://martin-internal:3111',
+    };
+    expect(() => validateProductionSecrets(env, false)).not.toThrow();
   });
 
   it('should treat empty string as missing', () => {
