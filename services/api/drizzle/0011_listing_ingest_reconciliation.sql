@@ -482,21 +482,39 @@ INSERT INTO "listing_observation_links" (
 SELECT
   c."id",
   o."id",
+  'source_identity'::"listing_observation_link_reason"
+FROM "listing_observations" o
+JOIN "canonical_listings" c
+  ON c."source_name" = o."source_name"
+  AND c."primary_source_listing_id" = o."source_listing_id"
+WHERE o."source_listing_id" IS NOT NULL
+  AND c."primary_source_listing_id" IS NOT NULL
+ON CONFLICT ("listing_observation_id") DO NOTHING;--> statement-breakpoint
+
+INSERT INTO "listing_observation_links" (
+  "canonical_listing_id",
+  "listing_observation_id",
+  "link_reason"
+)
+SELECT
+  c."id",
+  o."id",
   CASE
-    WHEN o."source_listing_id" IS NOT NULL THEN 'source_identity'::"listing_observation_link_reason"
     WHEN o."origin" = 'user' THEN 'user_provisional'::"listing_observation_link_reason"
     ELSE 'canonical_url'::"listing_observation_link_reason"
   END
 FROM "listing_observations" o
 JOIN "canonical_listings" c
   ON c."source_name" = o."source_name"
-  AND (
-    (o."source_listing_id" IS NOT NULL AND c."primary_source_listing_id" = o."source_listing_id")
-    OR (
-      o."source_listing_id" IS NULL
-      AND c."canonical_url" = o."source_url_canonical"
-      AND c."property_id" = o."property_id"
-    )
+  AND c."canonical_url" = o."source_url_canonical"
+  AND c."property_id" = o."property_id"
+WHERE o."source_listing_id" IS NULL
+  AND o."source_url_canonical" IS NOT NULL
+  AND c."canonical_url" IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM "listing_observation_links" existing
+    WHERE existing."listing_observation_id" = o."id"
   )
 ON CONFLICT ("listing_observation_id") DO NOTHING;--> statement-breakpoint
 
