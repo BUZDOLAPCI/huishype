@@ -12,10 +12,7 @@ import {
   tileCoordinatesForPoint,
 } from './helpers/fixtures.js';
 import { markPropertyRead } from '../../services/property-read-state.js';
-import {
-  TREE_CANDIDATES_LEVEL1,
-  TREE_CANDIDATES_LEVEL2,
-} from '../../services/tree-scatter.js';
+import { TREE_CANDIDATES_LEVEL1, TREE_CANDIDATES_LEVEL2 } from '../../services/tree-scatter.js';
 
 type TileFunctionName = 'property_nodes' | 'read_property_nodes' | 'following_property_nodes';
 type ListingPriceType = 'sale' | 'rent';
@@ -843,6 +840,103 @@ describe('Martin map projection tile filters', () => {
     }
   );
 
+  it('keeps z11 active greedy roots after consumed higher-priority neighbors', async () => {
+    const z = 11;
+    const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
+    const askingPrice = 9_311_000 + (process.pid % 100);
+    const fixturePoints = [
+      { point: lonLatForTilePoint(tile, 1024, 1100), houseNumber: 1, commentCount: 8 },
+      { point: lonLatForTilePoint(tile, 1184, 1100), houseNumber: 2, commentCount: 7 },
+      { point: lonLatForTilePoint(tile, 1344, 1100), houseNumber: 3, commentCount: 6 },
+      { point: lonLatForTilePoint(tile, 1504, 1100), houseNumber: 4, commentCount: 5 },
+      { point: lonLatForTilePoint(tile, 1024, 1500), houseNumber: 5, commentCount: 4 },
+      { point: lonLatForTilePoint(tile, 1184, 1500), houseNumber: 6, commentCount: 3 },
+      { point: lonLatForTilePoint(tile, 1344, 1500), houseNumber: 7, commentCount: 2 },
+      { point: lonLatForTilePoint(tile, 1504, 1500), houseNumber: 8, commentCount: 1 },
+      { point: lonLatForTilePoint(tile, 2300, 1300), houseNumber: 9, commentCount: 0 },
+    ];
+    const actor = await createIntegrationUser(app, { label: 'martin-z11-greedy-root' });
+    const properties = await Promise.all(
+      fixturePoints.map(({ point, houseNumber }) =>
+        createIntegrationProperty({
+          street: 'Martin Z11 Greedy Root Street',
+          houseNumber,
+          lon: point.lon,
+          lat: point.lat,
+          officialValuation: askingPrice,
+        })
+      )
+    );
+    const propertyIds = properties.map((property) => property.id);
+
+    try {
+      await Promise.all(
+        propertyIds.map((propertyId) =>
+          createIntegrationListing({
+            propertyId,
+            askingPrice,
+            priceType: 'sale',
+            thumbnailUrl: 'https://cdn.example.com/martin-z11-greedy-root.jpg',
+          })
+        )
+      );
+      await db.execute(sql`
+        INSERT INTO comments (property_id, user_id, content, created_at, updated_at)
+        VALUES ${sql.join(
+          properties.flatMap((property, index) =>
+            Array.from({ length: fixturePoints[index]?.commentCount ?? 0 }, (_, commentIndex) => {
+              const secondsOffset = index * 10 + commentIndex;
+              return sql`
+                (
+                  ${property.id},
+                  ${actor.userId},
+                  ${`Z11 greedy root ${index}-${commentIndex}`},
+                  NOW() - (${secondsOffset}::int * INTERVAL '1 second'),
+                  NOW() - (${secondsOffset}::int * INTERVAL '1 second')
+                )
+              `;
+            })
+          ),
+          sql`, `
+        )}
+      `);
+      await refreshIntegrationMapProjection(propertyIds);
+
+      const features = await propertyTileFeaturesForTile(tile, {
+        marketState: 'for-sale',
+        salePriceFrom: askingPrice,
+        salePriceTo: askingPrice,
+      });
+      const groupedProperties = features
+        .map((feature) => feature.properties)
+        .filter((property) =>
+          splitPropertyIds(property.property_ids).some((propertyId) =>
+            propertyIds.includes(propertyId)
+          )
+        );
+      const memberIds = groupedProperties.flatMap((property) =>
+        splitPropertyIds(property.property_ids)
+      );
+      const clusterCount = groupedProperties.filter(
+        (property) => property.group_kind === 'cluster'
+      ).length;
+      const singleCount = groupedProperties.filter(
+        (property) => property.group_kind === 'single'
+      ).length;
+
+      expect(duplicates(memberIds)).toEqual([]);
+      expect(memberIds.sort()).toEqual(propertyIds.sort());
+      expect(clusterCount).toBe(4);
+      expect(singleCount).toBe(1);
+      expect(singleCount / clusterCount).toBeLessThanOrEqual(0.5);
+      expect(groupedProperties.map((property) => Number(property.point_count)).sort()).toEqual([
+        1, 2, 2, 2, 2,
+      ]);
+    } finally {
+      await cleanup(propertyIds);
+    }
+  });
+
   it('uses a stable representative member as the public group primary id', async () => {
     const z = 15;
     const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
@@ -892,7 +986,9 @@ describe('Martin map projection tile filters', () => {
       });
       const cluster = features
         .map((feature) => feature.properties)
-        .find((properties) => splitPropertyIds(properties.property_ids).includes(representative.id));
+        .find((properties) =>
+          splitPropertyIds(properties.property_ids).includes(representative.id)
+        );
 
       expect(cluster).toMatchObject({
         group_kind: 'cluster',
