@@ -37,7 +37,7 @@ services:
     container_name: huishype-martin
     command: ["--config", "/config/config.yaml"]
     environment:
-      MARTIN_DATABASE_URL: ${MARTIN_DATABASE_URL:-postgresql://martin_tile:martin_tile_dev@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D2000}
+      MARTIN_DATABASE_URL: ${MARTIN_DATABASE_URL:-postgresql://martin_tile:martin_tile_dev@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D5000%20-c%20work_mem%3D32MB}
     ports:
       - "3111:3111"
     volumes:

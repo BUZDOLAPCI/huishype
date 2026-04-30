@@ -11,7 +11,8 @@ BEGIN
 END
 $$;
 
-ALTER ROLE martin_tile SET statement_timeout = '2s';
+ALTER ROLE martin_tile SET statement_timeout = '5000ms';
+ALTER ROLE martin_tile SET work_mem = '32MB';
 ALTER ROLE martin_tile SET idle_in_transaction_session_timeout = '5s';
 ALTER ROLE martin_tile SET lock_timeout = '500ms';
 

@@ -127,6 +127,13 @@
       "when": 1777507200001,
       "tag": "0017_martin_public_tile_min_zoom_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777507200002,
+      "tag": "0018_martin_tile_session_settings",
+      "breakpoints": true
     }
   ]
 }

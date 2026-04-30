@@ -1040,11 +1040,13 @@ belong in benchmark tooling with `pg_stat_statements`, `EXPLAIN (ANALYZE,
 BUFFERS)`, response byte capture, and decoded MVT inspection.
 
 Martin does not expose a `statement_timeout` config key. Implement the timeout
-with a database role/database setting, for example `ALTER ROLE martin_tile
-SET statement_timeout = '2s'`, or with a verified connection-string
-`options=-c statement_timeout=...` value. Readiness tests must fetch a diagnostic
-query or tile-path assertion proving `current_user` is the read-only tile role
-and `SHOW statement_timeout` returns the configured value.
+and memory budget with database role/database settings, for example
+`ALTER ROLE martin_tile SET statement_timeout = '5000ms'` and
+`ALTER ROLE martin_tile SET work_mem = '32MB'`, or with verified
+connection-string `options=-c statement_timeout=5000 -c work_mem=32MB` values.
+Readiness tests must fetch a diagnostic query or tile-path assertion proving
+`current_user` is the read-only tile role and `SHOW statement_timeout` plus
+`SHOW work_mem` return the configured values.
 
 ## Style And Asset Ownership
 

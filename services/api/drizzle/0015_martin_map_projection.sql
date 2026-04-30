@@ -1485,7 +1485,8 @@ BEGIN
 END
 $$;--> statement-breakpoint
 
-ALTER ROLE martin_tile SET statement_timeout = '2s';--> statement-breakpoint
+ALTER ROLE martin_tile SET statement_timeout = '5000ms';--> statement-breakpoint
+ALTER ROLE martin_tile SET work_mem = '32MB';--> statement-breakpoint
 ALTER ROLE martin_tile SET idle_in_transaction_session_timeout = '5s';--> statement-breakpoint
 ALTER ROLE martin_tile SET lock_timeout = '500ms';--> statement-breakpoint
 DO $$

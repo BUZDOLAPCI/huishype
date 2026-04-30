@@ -65,11 +65,13 @@ before applying it in production.
 Connection string example:
 
 ```text
-postgresql://martin_tile:REPLACE_ME@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D2000
+postgresql://martin_tile:REPLACE_ME@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D5000%20-c%20work_mem%3D32MB
 ```
 
-The statement timeout belongs in the role settings or connection-string
-`options`. Martin does not have a `statement_timeout` config key.
+The statement timeout and work memory budget belong in the role settings or
+connection-string `options`. Use `statement_timeout=5000` and `work_mem=32MB`
+for Martin sessions. Martin does not have `statement_timeout` or `work_mem`
+config keys.
 
 ## Local Use
 
@@ -113,7 +115,7 @@ tools/martin/validate-config.sh
 Run the optional startup log gate only when dependencies are present:
 
 ```bash
-MARTIN_DATABASE_URL='postgresql://martin_tile:...@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D2000' \
+MARTIN_DATABASE_URL='postgresql://martin_tile:...@postgres:5432/huishype?sslmode=disable&options=-c%20statement_timeout%3D5000%20-c%20work_mem%3D32MB' \
   tools/martin/validate-config.sh --startup
 ```
 

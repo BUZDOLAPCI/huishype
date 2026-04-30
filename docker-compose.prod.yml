@@ -176,7 +176,7 @@ services:
     restart: unless-stopped
     command: ["--config", "/config/config.yaml"]
     environment:
-      MARTIN_DATABASE_URL: ${MARTIN_DATABASE_URL:?MARTIN_DATABASE_URL must use the read-only martin_tile role}
+      MARTIN_DATABASE_URL: ${MARTIN_DATABASE_URL:?MARTIN_DATABASE_URL must use the read-only martin_tile role with statement_timeout=5000 and work_mem=32MB}
     volumes:
       - ./martin/config.yaml:/config/config.yaml:ro
       - ./martin/styles:/config/styles:ro
