@@ -765,7 +765,85 @@ describe('Martin map projection tile filters', () => {
     }
   );
 
-  it('uses a stable representative member as the public bucket primary id', async () => {
+  it.each([11, 15])(
+    'uses legacy active grouping distance across bucket and tile boundaries at z%s',
+    async (z) => {
+      const ownerTile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
+      const neighborTile = { z, x: ownerTile.x + 1, y: ownerTile.y };
+      const bucketLeft = lonLatForTilePoint(ownerTile, 1536 - 64, PROPERTY_TILE_EXTENT / 2);
+      const bucketRight = lonLatForTilePoint(ownerTile, 1536 + 96, PROPERTY_TILE_EXTENT / 2);
+      const edgeLeft = lonLatForTilePoint(ownerTile, PROPERTY_TILE_EXTENT - 24, 2200);
+      const edgeRight = lonLatForTilePoint(ownerTile, PROPERTY_TILE_EXTENT + 32, 2200);
+      const isolated = lonLatForTilePoint(ownerTile, 2304, PROPERTY_TILE_EXTENT / 2);
+      const askingPrice = 9_100_000 + z * 100 + (process.pid % 100);
+      const properties = await Promise.all(
+        [
+          { point: bucketLeft, houseNumber: 1 },
+          { point: bucketRight, houseNumber: 2 },
+          { point: edgeLeft, houseNumber: 3 },
+          { point: edgeRight, houseNumber: 4 },
+          { point: isolated, houseNumber: 5 },
+        ].map(({ point, houseNumber }) =>
+          createIntegrationProperty({
+            street: `Martin Greedy Grouping ${z} Street`,
+            houseNumber,
+            lon: point.lon,
+            lat: point.lat,
+            officialValuation: askingPrice,
+          })
+        )
+      );
+      const propertyIds = properties.map((property) => property.id);
+
+      try {
+        await Promise.all(
+          propertyIds.map((propertyId) =>
+            createIntegrationListing({
+              propertyId,
+              askingPrice,
+              priceType: 'sale',
+              thumbnailUrl: `https://cdn.example.com/martin-greedy-grouping-${z}.jpg`,
+            })
+          )
+        );
+        await refreshIntegrationMapProjection(propertyIds);
+
+        const queryParams = {
+          marketState: 'for-sale',
+          salePriceFrom: askingPrice,
+          salePriceTo: askingPrice,
+        };
+        const features = (
+          await Promise.all([
+            propertyTileFeaturesForTile(ownerTile, queryParams),
+            propertyTileFeaturesForTile(neighborTile, queryParams),
+          ])
+        ).flat();
+        const groupedProperties = features.map((feature) => feature.properties);
+        const memberIds = groupedProperties.flatMap((property) =>
+          splitPropertyIds(property.property_ids)
+        );
+        const clusterCount = groupedProperties.filter(
+          (property) => property.group_kind === 'cluster'
+        ).length;
+        const activeNodeCount = groupedProperties.filter(
+          (property) => property.node_class === 'active'
+        ).length;
+
+        expect(activeNodeCount).toBe(3);
+        expect(clusterCount).toBe(2);
+        expect(duplicates(memberIds)).toEqual([]);
+        expect(memberIds.sort()).toEqual(propertyIds.sort());
+        expect(groupedProperties.map((property) => Number(property.point_count)).sort()).toEqual([
+          1, 2, 2,
+        ]);
+      } finally {
+        await cleanup(propertyIds);
+      }
+    }
+  );
+
+  it('uses a stable representative member as the public group primary id', async () => {
     const z = 15;
     const tile = tileCoordinatesForPoint(FIXTURE_LON, FIXTURE_LAT, z);
     const bucketCenterX = PROPERTY_TILE_EXTENT - 128;

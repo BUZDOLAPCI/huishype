@@ -41,7 +41,7 @@ test('readonly Martin role settings match the URL session options', () => {
 });
 
 test('Martin public property minzoom starts at z8 to match the legacy lowZoom795 contract', () => {
-  const text = readRepoFile('services/api/drizzle/0022_martin_property_owner_tile_parity.sql');
+  const text = readRepoFile('services/api/drizzle/0023_martin_property_greedy_grouping_parity.sql');
   assert.match(text, /WHERE z >= 8/);
   assert.doesNotMatch(text, /IF z < 9 THEN/);
 
