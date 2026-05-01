@@ -283,8 +283,7 @@ export class PropertyTileRuntime {
           state: 'aborted',
           coalesced: waiter.coalesced,
           queueTimeMs: taskQueueTime(task),
-          generationTimeMs:
-            task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
+          generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
           budgetMs: waiter.budgetMs,
         });
       }
@@ -380,16 +379,11 @@ export class PropertyTileRuntime {
         state: 'timeout',
         coalesced: waiter.coalesced,
         queueTimeMs: taskQueueTime(task),
-        generationTimeMs:
-          task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
+        generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
         budgetMs: waiter.budgetMs,
       });
 
-      if (
-        task.state === 'running' &&
-        task.waiters.size === 0 &&
-        !task.uncancellableStage
-      ) {
+      if (task.state === 'running' && task.waiters.size === 0 && !task.uncancellableStage) {
         task.controller.abort(new PropertyTileBudgetExceededError());
       }
     };
@@ -467,7 +461,7 @@ export class PropertyTileRuntime {
           coalesced: waiter.coalesced,
           queueTimeMs: Date.now() - dropped.createdAt,
           generationTimeMs: 0,
-          budgetMs: dropped.budgetMs,
+          budgetMs: waiter.budgetMs,
         });
       }
     }
@@ -519,7 +513,7 @@ export class PropertyTileRuntime {
           runtimeDeadlineMs: startedAt + task.budgetMs,
           signal: task.controller.signal,
           markUncancellableStage: (active) => {
-            task.uncancellableStage = active;
+            this.setUncancellableStage(task, active);
           },
         });
         const generationTimeMs = task.startedAt == null ? 0 : Date.now() - task.startedAt;
@@ -562,6 +556,19 @@ export class PropertyTileRuntime {
         this.drain();
       }
     })();
+  }
+
+  private setUncancellableStage<TResult>(task: RuntimeTask<TResult>, active: boolean): void {
+    task.uncancellableStage = active;
+
+    if (
+      !active &&
+      task.state === 'running' &&
+      task.waiters.size === 0 &&
+      !task.controller.signal.aborted
+    ) {
+      task.controller.abort(new PropertyTileBuildAbortedError());
+    }
   }
 }
 

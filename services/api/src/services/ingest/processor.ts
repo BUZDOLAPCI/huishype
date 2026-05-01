@@ -92,6 +92,11 @@ export interface ForcedSkippedBatchRecoveryResult {
   recoveredBatchIds: string[];
 }
 
+interface SkippedBatchRecoveryResult {
+  recoveredObservationCount: number;
+  propertyTileSnapshotInvalidated: boolean;
+}
+
 export interface IngestLogger {
   debug?(payload: Record<string, unknown>, message: string): void;
   info(payload: Record<string, unknown>, message: string): void;
@@ -890,11 +895,11 @@ async function recoverSkippedCompletedBatch(
   candidateId: string,
   recoveryStartedAt: Date,
   options: { force?: boolean } = {},
-): Promise<number> {
+): Promise<SkippedBatchRecoveryResult> {
   return db.transaction(async (tx) => {
     const claimed = await lockSkippedBatchRecoveryCandidate(tx, candidateId, recoveryStartedAt, options);
     if (!claimed) {
-      return 0;
+      return { recoveredObservationCount: 0, propertyTileSnapshotInvalidated: false };
     }
 
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
@@ -934,7 +939,7 @@ async function recoverSkippedCompletedBatch(
       }
 
       await tx.update(ingestBatches).set(update).where(eq(ingestBatches.id, claimed.id));
-      return 0;
+      return { recoveredObservationCount: 0, propertyTileSnapshotInvalidated: false };
     }
 
     const listingWrites = await persistMatchedListingObservations(
@@ -944,12 +949,13 @@ async function recoverSkippedCompletedBatch(
       unresolved,
     );
 
-    await advancePropertyChangeVersion(
-      listingWrites
-        .filter((row) => row.inserted || row.changed)
-        .map((row) => row.propertyId),
-      tx,
-    );
+    const changedPropertyIds = listingWrites
+      .filter((row) => row.inserted || row.changed)
+      .map((row) => row.propertyId);
+    await advancePropertyChangeVersion(changedPropertyIds, tx);
+    if (changedPropertyIds.length > 0) {
+      await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
+    }
 
     const insertedCount = listingWrites.filter((row) => row.inserted).length;
     const updatedCount = listingWrites.length - insertedCount;
@@ -965,22 +971,28 @@ async function recoverSkippedCompletedBatch(
       })
       .where(eq(ingestBatches.id, claimed.id));
 
-    return listingWrites.length;
+    return {
+      recoveredObservationCount: listingWrites.length,
+      propertyTileSnapshotInvalidated: changedPropertyIds.length > 0,
+    };
   });
 }
 
 async function recoverSkippedCompletedIngestBatches(
   recoveryStartedAt: Date,
   limit = 100,
-): Promise<number> {
+): Promise<SkippedBatchRecoveryResult> {
   const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit);
-  let recoveredCount = 0;
+  let recoveredObservationCount = 0;
+  let propertyTileSnapshotInvalidated = false;
 
   for (const candidate of candidates) {
-    recoveredCount += await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt);
+    const recovered = await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt);
+    recoveredObservationCount += recovered.recoveredObservationCount;
+    propertyTileSnapshotInvalidated ||= recovered.propertyTileSnapshotInvalidated;
   }
 
-  return recoveredCount;
+  return { recoveredObservationCount, propertyTileSnapshotInvalidated };
 }
 
 export async function forceRecoverSkippedCompletedIngestBatches(
@@ -993,10 +1005,10 @@ export async function forceRecoverSkippedCompletedIngestBatches(
   let recoveredObservationCount = 0;
 
   for (const candidate of candidates) {
-    const recoveredCount = await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt, { force: true });
-    if (recoveredCount > 0) {
+    const recovered = await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt, { force: true });
+    if (recovered.recoveredObservationCount > 0) {
       recoveredBatchIds.push(candidate.id);
-      recoveredObservationCount += recoveredCount;
+      recoveredObservationCount += recovered.recoveredObservationCount;
     }
   }
 
@@ -1256,7 +1268,20 @@ export async function refreshLatestListingsMaintenance(
   const refreshStartedAt = new Date();
   const skippedBatchRecoveryLimit = options.skippedBatchRecoveryLimit ?? 1;
 
-  await recoverSkippedCompletedIngestBatches(refreshStartedAt, skippedBatchRecoveryLimit);
+  const recovery = await recoverSkippedCompletedIngestBatches(
+    refreshStartedAt,
+    skippedBatchRecoveryLimit,
+  );
+  if (recovery.propertyTileSnapshotInvalidated) {
+    try {
+      await requestPropertyTileSnapshotRefresh({ reason: 'skipped-ingest-recovery' });
+    } catch (error) {
+      logger.warn(
+        { error: serializeError(error) },
+        'Property tile snapshot refresh enqueue failed after skipped ingest recovery',
+      );
+    }
+  }
 
   const pendingRows = await db
     .select({ id: ingestBatches.id })

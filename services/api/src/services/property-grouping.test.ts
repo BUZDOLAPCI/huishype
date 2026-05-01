@@ -25,6 +25,7 @@ import { PublicPropertyTileCache } from './property-tile-cache.js';
 import {
   isPropertyTileStatementTimeoutError,
   PropertyTileBudgetExceededError,
+  PropertyTileBuildAbortedError,
 } from './property-tile-runtime.js';
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
@@ -181,11 +182,25 @@ describe('property-grouping', () => {
     expect(cache.getStale('13/4208/2686:default', 1_000 + 301_000)).toBeNull();
   });
 
-  it('keeps shared canonical builds pending for caller budget misses and uses a shared budget', async () => {
+  it('does not loosen caller budgets for shared canonical builds', async () => {
     const originalSharedBudget = process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS;
     process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS = '5000';
 
     try {
+      const tile = { z: 18, x: 100000, y: 70000 };
+      const transactionSpy = jest.spyOn(db, 'transaction');
+      const startedAt = Date.now() - 10;
+
+      await expect(
+        buildCanonicalGroupsForTile(tile, createDefaultMapFilters(), {
+          runtimeBudgetMs: 1,
+          runtimeStartedAtMs: startedAt,
+          runtimeDeadlineMs: startedAt + 1,
+          statementTimeoutMs: 1,
+        })
+      ).rejects.toBeInstanceOf(PropertyTileBudgetExceededError);
+      expect(transactionSpy).not.toHaveBeenCalled();
+
       const rows = deferred<Iterable<never>>();
       let executeCalls = 0;
       const txExecuteMock = jest.fn(async () => {
@@ -195,34 +210,11 @@ describe('property-grouping', () => {
         }
         return rows.promise as Promise<never>;
       });
-      const transactionSpy = jest
-        .spyOn(db, 'transaction')
-        .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
-      const tile = { z: 18, x: 100000, y: 70000 };
-      const filters = createDefaultMapFilters();
-      let firstOutcome: unknown = null;
-      const startedAt = Date.now();
-      const first = buildCanonicalGroupsForTile(tile, filters, {
-        runtimeBudgetMs: 1,
-        runtimeStartedAtMs: startedAt,
-        runtimeDeadlineMs: startedAt + 1,
-        statementTimeoutMs: 1,
-      }).then(
-        (result) => {
-          firstOutcome = result;
-          return result;
-        },
-        (error) => {
-          firstOutcome = error;
-          return error;
-        }
+      transactionSpy.mockImplementation(async (callback) =>
+        callback({ execute: txExecuteMock } as never)
       );
-
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(firstOutcome).toBeNull();
-
       const secondStartedAt = Date.now();
-      const second = buildCanonicalGroupsForTile(tile, filters, {
+      const second = buildCanonicalGroupsForTile(tile, createDefaultMapFilters(), {
         runtimeBudgetMs: 5_000,
         runtimeStartedAtMs: secondStartedAt,
         runtimeDeadlineMs: secondStartedAt + 5_000,
@@ -230,8 +222,6 @@ describe('property-grouping', () => {
       });
 
       rows.resolve([] as never);
-
-      await expect(first).resolves.toBeInstanceOf(PropertyTileBudgetExceededError);
       await expect(second).resolves.toEqual([]);
       expect(transactionSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -241,6 +231,205 @@ describe('property-grouping', () => {
         process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS = originalSharedBudget;
       }
     }
+  });
+
+  it('keeps a shared canonical build available for callers with viable budgets', async () => {
+    const rows = deferred<Iterable<never>>();
+    let executeCalls = 0;
+    const txExecuteMock = jest.fn(async () => {
+      executeCalls += 1;
+      if (executeCalls < 3) {
+        return [] as never;
+      }
+      return rows.promise as Promise<never>;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+    const tile = { z: 18, x: 100000, y: 70000 };
+    const filters = createDefaultMapFilters();
+    const startedAt = Date.now();
+    const first = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: startedAt,
+      runtimeDeadlineMs: startedAt + 5_000,
+      statementTimeoutMs: 5_000,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const secondStartedAt = Date.now();
+    const second = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: secondStartedAt,
+      runtimeDeadlineMs: secondStartedAt + 5_000,
+      statementTimeoutMs: 5_000,
+    });
+
+    rows.resolve([] as never);
+
+    await expect(first).resolves.toEqual([]);
+    await expect(second).resolves.toEqual([]);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts shared canonical work when an old caller start still has deadline remaining', async () => {
+    const txExecuteMock = jest.fn(async () => [] as never);
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+    const tile = { z: 18, x: 100002, y: 70002 };
+    const now = Date.now();
+
+    await expect(
+      buildCanonicalGroupsForTile(tile, createDefaultMapFilters(), {
+        runtimeBudgetMs: 1_500,
+        runtimeStartedAtMs: now - 1_000,
+        runtimeDeadlineMs: now + 500,
+        statementTimeoutMs: 1_500,
+      })
+    ).resolves.toEqual([]);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let one shared canonical waiter's abort reject later viable waiters", async () => {
+    const rows = deferred<Iterable<never>>();
+    let executeCalls = 0;
+    const txExecuteMock = jest.fn(async () => {
+      executeCalls += 1;
+      if (executeCalls < 3) {
+        return [] as never;
+      }
+      return rows.promise as Promise<never>;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+    const tile = { z: 18, x: 100003, y: 70003 };
+    const filters = createDefaultMapFilters();
+    const firstController = new AbortController();
+    const firstStartedAt = Date.now();
+    const first = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: firstStartedAt,
+      runtimeDeadlineMs: firstStartedAt + 5_000,
+      statementTimeoutMs: 5_000,
+      signal: firstController.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const secondStartedAt = Date.now();
+    const second = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: secondStartedAt,
+      runtimeDeadlineMs: secondStartedAt + 5_000,
+      statementTimeoutMs: 5_000,
+    });
+
+    firstController.abort();
+    await expect(first).rejects.toBeInstanceOf(PropertyTileBuildAbortedError);
+
+    rows.resolve([] as never);
+    await expect(second).resolves.toEqual([]);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts shared canonical work after SQL when all waiters abort and skips cache publish', async () => {
+    const rows = deferred<Iterable<never>>();
+    let releaseFirstQuery!: () => void;
+    const firstQueryReturned = new Promise<void>((resolve) => {
+      releaseFirstQuery = resolve;
+    });
+    let executeCalls = 0;
+    const txExecuteMock = jest.fn(async () => {
+      executeCalls += 1;
+      if (executeCalls === 3) {
+        const result = await rows.promise;
+        releaseFirstQuery();
+        return result;
+      }
+      return [] as never;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+    const lon = 5.4697;
+    const lat = 51.4416;
+    const tile = tileForCoordinate(lon, lat, 18);
+    const filters = createDefaultMapFilters();
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const firstStartedAt = Date.now();
+    const first = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: firstStartedAt,
+      runtimeDeadlineMs: firstStartedAt + 5_000,
+      statementTimeoutMs: 5_000,
+      signal: firstController.signal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const secondStartedAt = Date.now();
+    const second = buildCanonicalGroupsForTile(tile, filters, {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: secondStartedAt,
+      runtimeDeadlineMs: secondStartedAt + 5_000,
+      statementTimeoutMs: 5_000,
+      signal: secondController.signal,
+    });
+
+    firstController.abort();
+    secondController.abort();
+
+    await expect(first).rejects.toBeInstanceOf(PropertyTileBuildAbortedError);
+    await expect(second).rejects.toBeInstanceOf(PropertyTileBuildAbortedError);
+
+    rows.resolve([
+      {
+        id: crypto.randomUUID(),
+        has_active_listing: false,
+        has_completed_listing: false,
+        social_score: 0,
+        recent_social_score: 0,
+        comment_count: 0,
+        market_state: 'not-listed',
+        lon,
+        lat,
+      },
+    ] as never);
+    await firstQueryReturned;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const thirdStartedAt = Date.now();
+    await expect(
+      buildCanonicalGroupsForTile(tile, filters, {
+        runtimeBudgetMs: 5_000,
+        runtimeStartedAtMs: thirdStartedAt,
+        runtimeDeadlineMs: thirdStartedAt + 5_000,
+        statementTimeoutMs: 5_000,
+      })
+    ).resolves.toEqual([]);
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves caller abort signals for shared canonical builds', async () => {
+    const transactionSpy = jest.spyOn(db, 'transaction');
+    const tile = { z: 18, x: 100001, y: 70001 };
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      buildCanonicalGroupsForTile(tile, createDefaultMapFilters(), {
+        runtimeBudgetMs: 5_000,
+        runtimeStartedAtMs: Date.now(),
+        runtimeDeadlineMs: Date.now() + 5_000,
+        statementTimeoutMs: 5_000,
+        signal: controller.signal,
+      })
+    ).rejects.toBeInstanceOf(PropertyTileBuildAbortedError);
+    expect(transactionSpy).not.toHaveBeenCalled();
   });
 
   it('keeps active grouping available at high zoom when points are still visually dense', () => {

@@ -92,6 +92,46 @@ const priceHistoryResponseSchema = z.object({
   source: z.string(),
 });
 
+type RouteRefreshLogger = {
+  warn(bindings: Record<string, unknown>, message: string): void;
+};
+
+async function requestListingWriteRefreshes(input: {
+  requestedBy: 'listing-submit' | 'validation-outcome';
+  maintenanceBatchId: string;
+  propertyTileReason: 'listing-submit' | 'listing-validation-outcome';
+  logger: RouteRefreshLogger;
+  context: Record<string, unknown>;
+}): Promise<void> {
+  const latestListingsRefresh = requestLatestListingsRefresh({
+    requestedBy: input.requestedBy,
+    batchId: input.maintenanceBatchId,
+  }).catch((err) =>
+    input.logger.warn(
+      {
+        err,
+        maintenanceBatchId: input.maintenanceBatchId,
+        ...input.context,
+      },
+      `Failed to enqueue latest listings refresh after ${
+        input.requestedBy === 'listing-submit' ? 'submit' : 'validation outcome'
+      }`,
+    ),
+  );
+
+  await Promise.all([
+    latestListingsRefresh,
+    safeRequestPropertyTileSnapshotRefresh(
+      { reason: input.propertyTileReason },
+      input.logger,
+      {
+        maintenanceBatchId: input.maintenanceBatchId,
+        ...input.context,
+      },
+    ),
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 // 3. POST /listings/preview
 // ---------------------------------------------------------------------------
@@ -659,24 +699,13 @@ export async function listingRoutes(app: FastifyInstance) {
           return { submission: createdSubmission, maintenanceRequest: maintenance };
         });
 
-        requestLatestListingsRefresh({
+        await requestListingWriteRefreshes({
           requestedBy: 'listing-submit',
-          batchId: maintenanceRequest.batchId,
-        }).catch((err) =>
-          request.log.warn(
-            {
-              err,
-              canonicalListingId: submission.canonicalListing.id,
-              maintenanceBatchId: maintenanceRequest.batchId,
-            },
-            'Failed to enqueue latest listings refresh after submit',
-          ),
-        );
-        void safeRequestPropertyTileSnapshotRefresh(
-          { reason: 'listing-submit' },
-          request.log,
-          { canonicalListingId: submission.canonicalListing.id },
-        );
+          maintenanceBatchId: maintenanceRequest.batchId,
+          propertyTileReason: 'listing-submit',
+          logger: request.log,
+          context: { canonicalListingId: submission.canonicalListing.id },
+        });
 
         return reply.status(201).send({
           id: submission.canonicalListing.id,
@@ -836,24 +865,13 @@ export async function listingRoutes(app: FastifyInstance) {
           return { outcome: applied, maintenanceRequest: maintenance };
         });
 
-        requestLatestListingsRefresh({
+        await requestListingWriteRefreshes({
           requestedBy: 'validation-outcome',
-          batchId: maintenanceRequest.batchId,
-        }).catch((err) =>
-          request.log.warn(
-            {
-              err,
-              watchId: request.body.watchId,
-              maintenanceBatchId: maintenanceRequest.batchId,
-            },
-            'Failed to enqueue latest listings refresh after validation outcome',
-          ),
-        );
-        void safeRequestPropertyTileSnapshotRefresh(
-          { reason: 'listing-validation-outcome' },
-          request.log,
-          { watchId: request.body.watchId },
-        );
+          maintenanceBatchId: maintenanceRequest.batchId,
+          propertyTileReason: 'listing-validation-outcome',
+          logger: request.log,
+          context: { watchId: request.body.watchId },
+        });
 
         return reply.status(202).send({
           canonicalListingId: outcome.canonicalListing.id,

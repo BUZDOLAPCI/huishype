@@ -24,7 +24,7 @@ export interface IngestQueueModule {
       | 'worker-sweep';
     batchId?: string;
   }): Promise<void>;
-  enqueuePropertyTileSnapshotRefresh(data: { reason: string }): Promise<void>;
+  enqueuePropertyTileSnapshotRefresh(data: { reason: string }): Promise<unknown>;
 }
 
 export interface PropertyTileSnapshotsModule {
@@ -35,7 +35,14 @@ export interface PropertyTileSnapshotsModule {
   requestPropertyTileSnapshotRefresh(input: {
     reason: string;
     throttleMs?: number;
-  }): Promise<{ enqueued: boolean; throttled: boolean }>;
+  }): Promise<{
+    enqueued: boolean;
+    throttled: boolean;
+    enqueueStatus?: 'enqueued' | 'retried' | 'coalesced' | 'skipped';
+    skippedReason?: 'throttled' | 'disabled';
+    queueJobId?: string;
+    queueJobState?: string | null;
+  }>;
   shouldRequestPropertyTileSnapshotRefresh(): Promise<{
     shouldEnqueue: boolean;
     reason: string;

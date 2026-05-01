@@ -277,6 +277,69 @@ describe('PropertyTileRuntime', () => {
     runtime.resetForTests();
   });
 
+  it('reports each waiter budget when a queued same-key task is dropped', async () => {
+    process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
+    process.env.PROPERTY_TILE_QUEUE_LIMIT = '1';
+    const runtime = new PropertyTileRuntime();
+    const releaseBlocker = deferred<string>();
+    let markBlockerStarted!: () => void;
+    const blockerStarted = new Promise<void>((resolve) => {
+      markBlockerStarted = resolve;
+    });
+
+    const blocker = runtime.run({
+      key: 'public:blocker',
+      zoom: 20,
+      budgetMs: 5_000,
+      builder: async () => {
+        markBlockerStarted();
+        return releaseBlocker.promise;
+      },
+    });
+    await blockerStarted;
+
+    const firstWaiter = runtime.run({
+      key: 'public:queued-same-key',
+      zoom: 3,
+      budgetMs: 5_000,
+      queueWaitMs: 5_000,
+      builder: async () => 'low',
+    });
+    const secondWaiter = runtime.run({
+      key: 'public:queued-same-key',
+      zoom: 3,
+      budgetMs: 123,
+      queueWaitMs: 5_000,
+      builder: async () => {
+        throw new Error('coalesced queued builder should not run');
+      },
+    });
+
+    const highPriority = runtime.run({
+      key: 'public:high-priority',
+      zoom: 15,
+      budgetMs: 5_000,
+      queueWaitMs: 5_000,
+      builder: async () => 'high',
+    });
+
+    await expect(firstWaiter).resolves.toMatchObject({
+      state: 'dropped',
+      coalesced: false,
+      budgetMs: 5_000,
+    });
+    await expect(secondWaiter).resolves.toMatchObject({
+      state: 'dropped',
+      coalesced: true,
+      budgetMs: 123,
+    });
+
+    releaseBlocker.resolve('done');
+    await blocker;
+    await expect(highPriority).resolves.toMatchObject({ state: 'completed', result: 'high' });
+    runtime.resetForTests();
+  });
+
   it('aborts the builder signal when the runtime budget expires', async () => {
     const runtime = new PropertyTileRuntime();
     const signalAborted = new Promise<void>((resolve) => {
@@ -306,6 +369,51 @@ describe('PropertyTileRuntime', () => {
       coalesced: true,
     });
     await signalAborted;
+    runtime.resetForTests();
+  });
+
+  it('aborts obsolete running work when an uncancellable stage ends with no waiters', async () => {
+    const runtime = new PropertyTileRuntime();
+    const controller = new AbortController();
+    let releaseSql!: () => void;
+    let markBuilderStarted!: () => void;
+    let markBuilderDone!: () => void;
+    let signalAbortedAfterSql = false;
+    const builderStarted = new Promise<void>((resolve) => {
+      markBuilderStarted = resolve;
+    });
+    const builderDone = new Promise<void>((resolve) => {
+      markBuilderDone = resolve;
+    });
+
+    const result = runtime.run({
+      key: 'public:obsolete-running-work',
+      zoom: 10,
+      budgetMs: 5_000,
+      signal: controller.signal,
+      builder: async ({ signal, markUncancellableStage }) => {
+        markBuilderStarted();
+        markUncancellableStage?.(true);
+        await new Promise<void>((resolve) => {
+          releaseSql = resolve;
+        });
+        markUncancellableStage?.(false);
+        signalAbortedAfterSql = Boolean(signal?.aborted);
+        markBuilderDone();
+        if (signal?.aborted) {
+          throw signal.reason;
+        }
+        return 'obsolete-result';
+      },
+    });
+
+    await builderStarted;
+    controller.abort();
+    await expect(result).resolves.toMatchObject({ state: 'aborted' });
+
+    releaseSql();
+    await builderDone;
+    expect(signalAbortedAfterSql).toBe(true);
     runtime.resetForTests();
   });
 
@@ -340,9 +448,7 @@ describe('PropertyTileRuntime', () => {
 
     await builderStarted;
 
-    const invalidated = runtime.invalidateMatching((key) =>
-      key.includes(':session:test-viewer:')
-    );
+    const invalidated = runtime.invalidateMatching((key) => key.includes(':session:test-viewer:'));
 
     expect(invalidated).toBe(1);
     await expect(firstResult).resolves.toMatchObject({
@@ -380,9 +486,7 @@ describe('PropertyTileRuntime', () => {
 
     await builderStarted;
 
-    const invalidated = runtime.invalidateMatching((key) =>
-      key.includes(':session:test-viewer:')
-    );
+    const invalidated = runtime.invalidateMatching((key) => key.includes(':session:test-viewer:'));
 
     expect(invalidated).toBe(1);
     releaseBuilder();

@@ -252,7 +252,7 @@ describe('ingest queue', () => {
   it('uses a singleton BullMQ job id for property tile snapshot refreshes', async () => {
     const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
 
-    await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+    const result = await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
 
     expect(getJobMock).toHaveBeenCalledWith('property-tile-snapshot-refresh-public-default-low-zoom');
     expect(addMock).toHaveBeenCalledWith(
@@ -260,6 +260,10 @@ describe('ingest queue', () => {
       { reason: 'unit-test' },
       { jobId: 'property-tile-snapshot-refresh-public-default-low-zoom' },
     );
+    expect(result).toEqual({
+      status: 'enqueued',
+      jobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+    });
   });
 
   it.each(['active', 'waiting', 'delayed'] as const)(
@@ -274,11 +278,16 @@ describe('ingest queue', () => {
       });
       const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
 
-      await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+      const result = await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
 
       expect(getStateMock).toHaveBeenCalled();
       expect(retryMock).not.toHaveBeenCalled();
       expect(addMock).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        status: 'coalesced',
+        jobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        existingState: state,
+      });
     },
   );
 
@@ -294,7 +303,7 @@ describe('ingest queue', () => {
       });
       const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
 
-      await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+      const result = await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
 
       expect(getStateMock).toHaveBeenCalled();
       expect(retryMock).toHaveBeenCalledWith(state, {
@@ -302,6 +311,30 @@ describe('ingest queue', () => {
         resetAttemptsStarted: true,
       });
       expect(addMock).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        status: 'retried',
+        jobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        previousState: state,
+      });
     },
   );
+
+  it('surfaces singleton retry failures for property tile snapshot refreshes', async () => {
+    const retryError = new Error('retry failed');
+    const getStateMock = jest.fn(async () => 'failed');
+    const retryMock = jest.fn(async () => {
+      throw retryError;
+    });
+    getJobMock.mockResolvedValueOnce({
+      id: 'property-tile-snapshot-refresh-public-default-low-zoom',
+      getState: getStateMock,
+      retry: retryMock,
+    });
+    const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
+
+    await expect(enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' }))
+      .rejects.toThrow(retryError);
+
+    expect(addMock).not.toHaveBeenCalled();
+  });
 });

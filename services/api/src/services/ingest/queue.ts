@@ -27,6 +27,22 @@ type ExistingJobLike = {
   ) => Promise<void>;
 };
 
+export type PropertyTileSnapshotRefreshEnqueueResult =
+  | {
+      status: 'enqueued';
+      jobId: string;
+    }
+  | {
+      status: 'retried';
+      jobId: string;
+      previousState: 'failed' | 'completed';
+    }
+  | {
+      status: 'coalesced';
+      jobId: string;
+      existingState: string | null;
+    };
+
 let ingestBatchQueue: QueueLike<IngestBatchJobData> | null = null;
 let maintenanceQueue: QueueLike<MaintenanceRefreshJobData> | null = null;
 let propertyTileSnapshotQueue: QueueLike<PropertyTileSnapshotRefreshJobData> | null = null;
@@ -177,12 +193,12 @@ export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobDa
 
 export async function enqueuePropertyTileSnapshotRefresh(
   data: PropertyTileSnapshotRefreshJobData,
-): Promise<void> {
+): Promise<PropertyTileSnapshotRefreshEnqueueResult> {
   const queue = await getPropertyTileSnapshotQueue();
   const existingJob = await queue.getJob(PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID) as ExistingJobLike | null;
 
   if (existingJob) {
-    const state = await existingJob.getState?.();
+    const state = await existingJob.getState?.() ?? null;
     if (state === 'failed' || state === 'completed') {
       if (!existingJob.retry) {
         throw new Error(
@@ -194,8 +210,17 @@ export async function enqueuePropertyTileSnapshotRefresh(
         resetAttemptsMade: true,
         resetAttemptsStarted: true,
       });
+      return {
+        status: 'retried',
+        jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+        previousState: state,
+      };
     }
-    return;
+    return {
+      status: 'coalesced',
+      jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+      existingState: state,
+    };
   }
 
   await queue.add(
@@ -203,6 +228,10 @@ export async function enqueuePropertyTileSnapshotRefresh(
     data,
     { jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID },
   );
+  return {
+    status: 'enqueued',
+    jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+  };
 }
 
 export async function closeIngestQueues(): Promise<void> {

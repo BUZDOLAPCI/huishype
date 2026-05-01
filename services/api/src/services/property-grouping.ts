@@ -175,14 +175,27 @@ type CanonicalGroupCacheEntry = {
   groups: CanonicalPropertyGroup[];
 };
 
+type SharedCanonicalBuild = {
+  promise: Promise<CanonicalPropertyGroup[]>;
+  controller: AbortController;
+  activeWaiters: number;
+  uncancellableStage: boolean;
+};
+
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
 const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
 const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
-const pendingCanonicalGroupBuilds = new Map<string, Promise<CanonicalPropertyGroup[]>>();
-const pendingUnhydratedCanonicalGroupBuilds = new Map<string, Promise<CanonicalPropertyGroup[]>>();
+const pendingCanonicalGroupBuilds = new Map<string, SharedCanonicalBuild>();
+const pendingUnhydratedCanonicalGroupBuilds = new Map<string, SharedCanonicalBuild>();
 
 export function resetCanonicalGroupCacheForTests(): void {
   canonicalGroupCache.clear();
+  for (const build of pendingCanonicalGroupBuilds.values()) {
+    build.controller.abort(new PropertyTileBuildAbortedError());
+  }
+  for (const build of pendingUnhydratedCanonicalGroupBuilds.values()) {
+    build.controller.abort(new PropertyTileBuildAbortedError());
+  }
   pendingCanonicalGroupBuilds.clear();
   pendingUnhydratedCanonicalGroupBuilds.clear();
 }
@@ -305,28 +318,148 @@ function getSharedCanonicalBudgetMs(): number {
 }
 
 function buildSharedCanonicalOptions(
-  options: PropertyTileBuildOptions | undefined
-): PropertyTileBuildOptions | undefined {
-  if (!options) return undefined;
-  const runtimeBudgetMs = getSharedCanonicalBudgetMs();
-  const runtimeStartedAtMs = Date.now();
+  options: PropertyTileBuildOptions | undefined,
+  sharedBuild: SharedCanonicalBuild
+): PropertyTileBuildOptions {
+  const now = Date.now();
+  if (!options) {
+    return {
+      signal: sharedBuild.controller.signal,
+      markUncancellableStage: (active) => {
+        markSharedCanonicalUncancellableStage(sharedBuild, active);
+      },
+    };
+  }
+
+  const sharedBudgetMs = getSharedCanonicalBudgetMs();
+  const callerStartedAtMs = options.runtimeStartedAtMs ?? now;
+  const callerDeadlineMs =
+    options.runtimeDeadlineMs ??
+    (options.runtimeBudgetMs == null ? undefined : callerStartedAtMs + options.runtimeBudgetMs);
+  const callerRemainingMs =
+    callerDeadlineMs == null ? undefined : Math.max(1, callerDeadlineMs - now);
+  const runtimeBudgetMs = Math.min(sharedBudgetMs, callerRemainingMs ?? sharedBudgetMs);
+  const statementTimeoutMs =
+    options.statementTimeoutMs == null
+      ? runtimeBudgetMs
+      : Math.min(runtimeBudgetMs, options.statementTimeoutMs);
+  const runtimeDeadlineMs =
+    callerDeadlineMs == null
+      ? now + runtimeBudgetMs
+      : Math.min(callerDeadlineMs, now + runtimeBudgetMs);
+
   return {
-    statementTimeoutMs: runtimeBudgetMs,
+    statementTimeoutMs,
     runtimeBudgetMs,
-    runtimeStartedAtMs,
-    runtimeDeadlineMs: runtimeStartedAtMs + runtimeBudgetMs,
-    markUncancellableStage: options.markUncancellableStage,
+    runtimeStartedAtMs: now,
+    runtimeDeadlineMs,
+    signal: sharedBuild.controller.signal,
+    markUncancellableStage: (active) => {
+      options.markUncancellableStage?.(active);
+      markSharedCanonicalUncancellableStage(sharedBuild, active);
+    },
   };
 }
 
+function createSharedCanonicalBuild(
+  options: PropertyTileBuildOptions | undefined,
+  build: (sharedOptions: PropertyTileBuildOptions) => Promise<CanonicalPropertyGroup[]>
+): SharedCanonicalBuild {
+  const sharedBuild: SharedCanonicalBuild = {
+    promise: Promise.resolve([]),
+    controller: new AbortController(),
+    activeWaiters: 0,
+    uncancellableStage: false,
+  };
+  sharedBuild.promise = build(buildSharedCanonicalOptions(options, sharedBuild));
+  return sharedBuild;
+}
+
+function markSharedCanonicalUncancellableStage(
+  sharedBuild: SharedCanonicalBuild,
+  active: boolean
+): void {
+  sharedBuild.uncancellableStage = active;
+  maybeAbortObsoleteSharedCanonicalBuild(sharedBuild);
+}
+
+function maybeAbortObsoleteSharedCanonicalBuild(sharedBuild: SharedCanonicalBuild): void {
+  if (
+    sharedBuild.activeWaiters === 0 &&
+    !sharedBuild.uncancellableStage &&
+    !sharedBuild.controller.signal.aborted
+  ) {
+    sharedBuild.controller.abort(new PropertyTileBuildAbortedError());
+  }
+}
+
 async function waitForSharedCanonicalBuild(
-  buildPromise: Promise<CanonicalPropertyGroup[]>,
+  sharedBuild: SharedCanonicalBuild,
   options: PropertyTileBuildOptions | undefined,
   stage: string
 ): Promise<CanonicalPropertyGroup[]> {
-  const groups = await buildPromise;
   assertTileBuildCanContinue(options, Date.now(), stage);
-  return groups;
+  sharedBuild.activeWaiters += 1;
+  try {
+    const groups = await waitForSharedCanonicalBuildOrCallerAbort(sharedBuild, options, stage);
+    assertTileBuildCanContinue(options, Date.now(), stage);
+    return groups;
+  } finally {
+    sharedBuild.activeWaiters = Math.max(0, sharedBuild.activeWaiters - 1);
+    maybeAbortObsoleteSharedCanonicalBuild(sharedBuild);
+  }
+}
+
+async function waitForSharedCanonicalBuildOrCallerAbort(
+  sharedBuild: SharedCanonicalBuild,
+  options: PropertyTileBuildOptions | undefined,
+  stage: string
+): Promise<CanonicalPropertyGroup[]> {
+  if (!options?.signal && options?.runtimeDeadlineMs == null) {
+    return sharedBuild.promise;
+  }
+
+  let timeout: NodeJS.Timeout | null = null;
+  let abortHandler: (() => void) | null = null;
+
+  const callerAbortPromise = new Promise<never>((_, reject) => {
+    if (options.signal) {
+      abortHandler = () => {
+        reject(new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`));
+      };
+      options.signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
+    if (options.runtimeDeadlineMs != null) {
+      const remainingMs = options.runtimeDeadlineMs - Date.now();
+      if (remainingMs <= 0) {
+        reject(
+          new PropertyTileBudgetExceededError(
+            `Property tile runtime budget exceeded during ${stage}`
+          )
+        );
+        return;
+      }
+      timeout = setTimeout(() => {
+        reject(
+          new PropertyTileBudgetExceededError(
+            `Property tile runtime budget exceeded during ${stage}`
+          )
+        );
+      }, remainingMs);
+    }
+  });
+
+  try {
+    return await Promise.race([sharedBuild.promise, callerAbortPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (abortHandler) {
+      options.signal?.removeEventListener('abort', abortHandler);
+    }
+  }
 }
 
 async function executeWithTileStatementTimeout<TRow>(
@@ -1905,6 +2038,7 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   filters: MapFilters,
   options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
+  assertTileBuildCanContinue(options, Date.now(), 'shared unhydrated canonical grouping');
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
   const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
@@ -1915,21 +2049,15 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
     );
   }
 
-  const buildPromise = buildUnhydratedCanonicalGroupsForTile(
-    tile,
-    filters,
-    buildSharedCanonicalOptions(options)
+  const sharedBuild = createSharedCanonicalBuild(options, (sharedOptions) =>
+    buildUnhydratedCanonicalGroupsForTile(tile, filters, sharedOptions)
   );
-  pendingUnhydratedCanonicalGroupBuilds.set(cacheKey, buildPromise);
-  buildPromise.then(
+  pendingUnhydratedCanonicalGroupBuilds.set(cacheKey, sharedBuild);
+  sharedBuild.promise.then(
     () => pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey),
     () => pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey)
   );
-  return waitForSharedCanonicalBuild(
-    buildPromise,
-    options,
-    'shared unhydrated canonical grouping'
-  );
+  return waitForSharedCanonicalBuild(sharedBuild, options, 'shared unhydrated canonical grouping');
 }
 
 export async function buildCanonicalGroupsForTile(
@@ -1937,6 +2065,7 @@ export async function buildCanonicalGroupsForTile(
   filters: MapFilters = createDefaultMapFilters(),
   options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
+  assertTileBuildCanContinue(options, Date.now(), 'shared canonical grouping');
   const cachedGroups = getCachedCanonicalGroups(tile, filters);
   if (cachedGroups) {
     return cachedGroups;
@@ -1948,22 +2077,22 @@ export async function buildCanonicalGroupsForTile(
     return waitForSharedCanonicalBuild(pendingBuild, options, 'shared canonical grouping');
   }
 
-  const sharedOptions = buildSharedCanonicalOptions(options);
-  const buildPromise = (async () => {
+  const sharedBuild = createSharedCanonicalBuild(options, async (sharedOptions) => {
     const groups = await hydrateSinglePropertyDetails(
       await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, sharedOptions),
       sharedOptions
     );
+    assertTileBuildCanContinue(sharedOptions, Date.now(), 'shared canonical cache publish');
     setCachedCanonicalGroups(tile, filters, groups);
     return groups;
-  })();
+  });
 
-  pendingCanonicalGroupBuilds.set(cacheKey, buildPromise);
-  buildPromise.then(
+  pendingCanonicalGroupBuilds.set(cacheKey, sharedBuild);
+  sharedBuild.promise.then(
     () => pendingCanonicalGroupBuilds.delete(cacheKey),
     () => pendingCanonicalGroupBuilds.delete(cacheKey)
   );
-  return waitForSharedCanonicalBuild(buildPromise, options, 'shared canonical grouping');
+  return waitForSharedCanonicalBuild(sharedBuild, options, 'shared canonical grouping');
 }
 
 export async function buildFollowingCanonicalGroupsForTile(

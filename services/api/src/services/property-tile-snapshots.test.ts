@@ -1,8 +1,10 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import {
+  buildPropertyTileSnapshotRefreshRequestResult,
   computePropertyTileSnapshotConfigHash,
   computePropertyTileSnapshotCoordinatesFromCoverage,
   getExpectedDefaultPropertyTileSnapshotCoverageDefinition,
+  getPropertyTilePrecomputeConcurrency,
   getPropertyTilePrecomputeMaxZoom,
   isPropertyViewSnapshotRecoveryThrottled,
   isSnapshotRefreshRequestThrottled,
@@ -78,6 +80,21 @@ describe('property tile snapshots', () => {
     }
   });
 
+  it('honors bounded snapshot precompute concurrency without crashing on non-1 config', () => {
+    const previous = process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY;
+    process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY = '4';
+
+    try {
+      expect(getPropertyTilePrecomputeConcurrency()).toBe(4);
+    } finally {
+      if (previous == null) {
+        delete process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY;
+      } else {
+        process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY = previous;
+      }
+    }
+  });
+
   it('treats quota-limited snapshot refreshes as progress, not failed placeholders', () => {
     const summary = summarizePropertyTileSnapshotRefreshRun({
       dueTileCount: 25,
@@ -110,6 +127,38 @@ describe('property tile snapshots', () => {
       now,
       throttleMs: 5 * 60_000,
     })).toBe(false);
+  });
+
+  it('reports coalesced singleton refresh requests as not newly enqueued', () => {
+    expect(buildPropertyTileSnapshotRefreshRequestResult({
+      enqueueResult: {
+        status: 'coalesced',
+        jobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        existingState: 'waiting',
+      },
+    })).toEqual({
+      enqueued: false,
+      throttled: false,
+      enqueueStatus: 'coalesced',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+      queueJobState: 'waiting',
+    });
+  });
+
+  it('reports retried singleton refresh requests as queued work', () => {
+    expect(buildPropertyTileSnapshotRefreshRequestResult({
+      enqueueResult: {
+        status: 'retried',
+        jobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        previousState: 'failed',
+      },
+    })).toEqual({
+      enqueued: true,
+      throttled: false,
+      enqueueStatus: 'retried',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+      queueJobState: 'failed',
+    });
   });
 
   it('throttles worker recovery only for property-view social lag inside the view interval', () => {

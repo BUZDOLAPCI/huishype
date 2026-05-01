@@ -554,8 +554,15 @@ export class WorkerRuntime {
           });
         }
         try {
-          await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
+          const snapshotRefreshRequest = await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
             reason: 'validation-outcome',
+          });
+          this.logger.info('Validation outcome property tile refresh request recorded', {
+            trigger,
+            watchId: result.watchId,
+            state: result.state,
+            maintenanceBatchId: result.maintenanceBatchId,
+            ...snapshotRefreshRequest,
           });
         } catch (error) {
           this.logger.error('Recovery sweep failed to request validation property tile refresh', {
@@ -602,10 +609,15 @@ export class WorkerRuntime {
       const snapshotCheck = await propertyTileSnapshots.shouldRequestPropertyTileSnapshotRefresh();
       propertyTileSnapshotRefreshReason = snapshotCheck.reason;
       if (snapshotCheck.shouldEnqueue) {
-        await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
+        const snapshotRefreshRequest = await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
           reason: `worker-recovery:${snapshotCheck.reason}`,
         });
-        propertyTileSnapshotRefreshRequested = true;
+        propertyTileSnapshotRefreshRequested = snapshotRefreshRequest.enqueueStatus !== 'skipped';
+        this.logger.info('Property tile snapshot recovery refresh request recorded', {
+          trigger,
+          reason: snapshotCheck.reason,
+          ...snapshotRefreshRequest,
+        });
       }
       this.logger.info('Property tile snapshot recovery check completed', {
         trigger,

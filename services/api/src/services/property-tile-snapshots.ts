@@ -19,7 +19,10 @@ import {
 import { buildPropertyTileEtag } from './property-tile-cache.js';
 import { buildMvtForTile, PROPERTY_TILE_EXTENT } from './property-grouping.js';
 import { createDefaultMapFilters, getMapFilterSignature, type MapFilters } from './map-filters.js';
-import { enqueuePropertyTileSnapshotRefresh } from './ingest/queue.js';
+import {
+  enqueuePropertyTileSnapshotRefresh,
+  type PropertyTileSnapshotRefreshEnqueueResult,
+} from './ingest/queue.js';
 import { ACTIVE_SOCIAL_SCORE_THRESHOLD } from './property-queries.js';
 
 export const PROPERTY_TILE_SNAPSHOT_KEY = 'public_default_low_zoom';
@@ -30,6 +33,7 @@ const DEFAULT_MAX_ZOOM = 10;
 const DEFAULT_MAX_TILES_PER_RUN = 1_000;
 const DEFAULT_MAX_SECONDS_PER_RUN = 60;
 const DEFAULT_PRECOMPUTE_CONCURRENCY = 1;
+const MAX_PRECOMPUTE_CONCURRENCY = 16;
 const DEFAULT_LEASE_SECONDS = 15 * 60;
 const DEFAULT_ROLLING_MAX_AGE_SECONDS = 60 * 60;
 const DEFAULT_PROPERTY_VIEW_REFRESH_THROTTLE_MS = 5 * 60_000;
@@ -91,12 +95,55 @@ export interface PropertyTileSnapshotRefreshResult {
   refreshedTileCount?: number;
   failedTileCount?: number;
   skippedTileCount?: number;
+  staleWriteSkippedTileCount?: number;
   durationMs?: number;
 }
 
 export interface PropertyTileSnapshotRefreshCheck {
   shouldEnqueue: boolean;
   reason: string;
+}
+
+export type PropertyTileSnapshotRefreshRequestResult = {
+  enqueued: boolean;
+  throttled: boolean;
+  enqueueStatus: 'enqueued' | 'retried' | 'coalesced' | 'skipped';
+  skippedReason?: 'throttled' | 'disabled';
+  queueJobId?: string;
+  queueJobState?: string | null;
+};
+
+export function buildPropertyTileSnapshotRefreshRequestResult(input: {
+  throttled?: boolean;
+  enqueueDisabled?: boolean;
+  enqueueResult?: PropertyTileSnapshotRefreshEnqueueResult;
+}): PropertyTileSnapshotRefreshRequestResult {
+  if (input.throttled || input.enqueueDisabled) {
+    return {
+      enqueued: false,
+      throttled: input.throttled === true,
+      enqueueStatus: 'skipped',
+      skippedReason: input.throttled ? 'throttled' : 'disabled',
+    };
+  }
+
+  if (!input.enqueueResult) {
+    throw new Error('Property tile snapshot enqueue result is required when request is not skipped');
+  }
+
+  const enqueueResult = input.enqueueResult;
+  const result: PropertyTileSnapshotRefreshRequestResult = {
+    enqueued: enqueueResult.status === 'enqueued' || enqueueResult.status === 'retried',
+    throttled: false,
+    enqueueStatus: enqueueResult.status,
+    queueJobId: enqueueResult.jobId,
+  };
+  if (enqueueResult.status === 'coalesced') {
+    result.queueJobState = enqueueResult.existingState;
+  } else if (enqueueResult.status === 'retried') {
+    result.queueJobState = enqueueResult.previousState;
+  }
+  return result;
 }
 
 export type PropertyTileSnapshotBuilder = (
@@ -138,9 +185,12 @@ export function getPropertyTilePrecomputeMaxSecondsPerRun(): number {
 }
 
 export function getPropertyTilePrecomputeConcurrency(): number {
-  return parsePositiveIntegerEnv(
-    'PROPERTY_TILE_PRECOMPUTE_CONCURRENCY',
-    DEFAULT_PRECOMPUTE_CONCURRENCY,
+  return Math.min(
+    MAX_PRECOMPUTE_CONCURRENCY,
+    parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PRECOMPUTE_CONCURRENCY',
+      DEFAULT_PRECOMPUTE_CONCURRENCY,
+    ),
   );
 }
 
@@ -487,7 +537,7 @@ export async function safeRequestPropertyTileSnapshotRefresh(
   logger: SnapshotRefreshLogger,
   context: Record<string, unknown> = {},
   requestRefresh: typeof requestPropertyTileSnapshotRefresh = requestPropertyTileSnapshotRefresh,
-): Promise<{ enqueued: boolean; throttled: boolean } | null> {
+): Promise<PropertyTileSnapshotRefreshRequestResult | null> {
   try {
     return await requestRefresh(input);
   } catch (error) {
@@ -600,7 +650,7 @@ export async function requestPropertyTileSnapshotRefresh(input: {
   reason: string;
   throttleMs?: number;
   enqueue?: boolean;
-}): Promise<{ enqueued: boolean; throttled: boolean }> {
+}): Promise<PropertyTileSnapshotRefreshRequestResult> {
   const previousRows = await db
     .select({
       requestedAt: propertyTileSnapshotRefreshState.requestedAt,
@@ -644,11 +694,14 @@ export async function requestPropertyTileSnapshotRefresh(input: {
     });
 
   if (throttled || input.enqueue === false) {
-    return { enqueued: false, throttled };
+    return buildPropertyTileSnapshotRefreshRequestResult({
+      throttled,
+      enqueueDisabled: input.enqueue === false,
+    });
   }
 
-  await enqueuePropertyTileSnapshotRefresh({ reason: input.reason });
-  return { enqueued: true, throttled: false };
+  const enqueueResult = await enqueuePropertyTileSnapshotRefresh({ reason: input.reason });
+  return buildPropertyTileSnapshotRefreshRequestResult({ enqueueResult });
 }
 
 export async function invalidatePropertyTileSnapshots(input: {
@@ -671,53 +724,76 @@ export async function upsertPropertyTileSnapshotRow(input: {
   payload: Buffer;
   watermarks: SnapshotWatermarks;
   generatedAt?: Date;
-}): Promise<void> {
+}): Promise<{ written: boolean; skippedAsStale: boolean }> {
   const statusCode = input.payload.byteLength > 0 ? 200 : 204;
   const payload = statusCode === 200 ? input.payload : null;
   const cacheKey = `${input.tile.z}/${input.tile.x}/${input.tile.y}:${input.filterSignature}`;
   const etag = buildPropertyTileEtag(cacheKey, payload);
   const generatedAt = input.generatedAt ?? new Date();
 
-  await db
-    .insert(propertyTileSnapshots)
-    .values({
-      z: input.tile.z,
-      x: input.tile.x,
-      y: input.tile.y,
-      filterSignature: input.filterSignature,
-      coverageId: input.coverage.coverageId,
+  const rows = await db.execute<{ z: number }>(sql`
+    INSERT INTO property_tile_snapshots (
+      z,
+      x,
+      y,
+      filter_signature,
+      coverage_id,
       payload,
-      statusCode,
+      status_code,
       etag,
-      generatedAt,
-      sourceListingWatermark: input.watermarks.listingWatermark,
-      sourceSocialWatermark: input.watermarks.socialWatermark,
-      sourcePropertyWatermark: input.watermarks.propertyWatermark,
-      sourceCoverageWatermark: input.watermarks.coverageWatermark,
-      snapshotConfigHash: input.coverage.snapshotConfigHash,
-      refreshedAt: generatedAt,
-    })
-    .onConflictDoUpdate({
-      target: [
-        propertyTileSnapshots.z,
-        propertyTileSnapshots.x,
-        propertyTileSnapshots.y,
-        propertyTileSnapshots.filterSignature,
-      ],
-      set: {
-        coverageId: input.coverage.coverageId,
-        payload,
-        statusCode,
-        etag,
-        generatedAt,
-        sourceListingWatermark: input.watermarks.listingWatermark,
-        sourceSocialWatermark: input.watermarks.socialWatermark,
-        sourcePropertyWatermark: input.watermarks.propertyWatermark,
-        sourceCoverageWatermark: input.watermarks.coverageWatermark,
-        snapshotConfigHash: input.coverage.snapshotConfigHash,
-        refreshedAt: generatedAt,
-      },
-    });
+      generated_at,
+      source_listing_watermark,
+      source_social_watermark,
+      source_property_watermark,
+      source_coverage_watermark,
+      snapshot_config_hash,
+      refreshed_at
+    )
+    VALUES (
+      ${input.tile.z},
+      ${input.tile.x},
+      ${input.tile.y},
+      ${input.filterSignature},
+      ${input.coverage.coverageId},
+      ${payload},
+      ${statusCode},
+      ${etag},
+      ${generatedAt.toISOString()}::timestamptz,
+      ${input.watermarks.listingWatermark},
+      ${input.watermarks.socialWatermark},
+      ${input.watermarks.propertyWatermark},
+      ${input.watermarks.coverageWatermark},
+      ${input.coverage.snapshotConfigHash},
+      ${generatedAt.toISOString()}::timestamptz
+    )
+    ON CONFLICT (z, x, y, filter_signature) DO UPDATE SET
+      coverage_id = EXCLUDED.coverage_id,
+      payload = EXCLUDED.payload,
+      status_code = EXCLUDED.status_code,
+      etag = EXCLUDED.etag,
+      generated_at = EXCLUDED.generated_at,
+      source_listing_watermark = EXCLUDED.source_listing_watermark,
+      source_social_watermark = EXCLUDED.source_social_watermark,
+      source_property_watermark = EXCLUDED.source_property_watermark,
+      source_coverage_watermark = EXCLUDED.source_coverage_watermark,
+      snapshot_config_hash = EXCLUDED.snapshot_config_hash,
+      refreshed_at = EXCLUDED.refreshed_at
+    WHERE
+      property_tile_snapshots.source_listing_watermark <= EXCLUDED.source_listing_watermark
+      AND property_tile_snapshots.source_social_watermark <= EXCLUDED.source_social_watermark
+      AND property_tile_snapshots.source_property_watermark <= EXCLUDED.source_property_watermark
+      AND property_tile_snapshots.source_coverage_watermark <= EXCLUDED.source_coverage_watermark
+      AND (
+        property_tile_snapshots.source_listing_watermark < EXCLUDED.source_listing_watermark
+        OR property_tile_snapshots.source_social_watermark < EXCLUDED.source_social_watermark
+        OR property_tile_snapshots.source_property_watermark < EXCLUDED.source_property_watermark
+        OR property_tile_snapshots.source_coverage_watermark < EXCLUDED.source_coverage_watermark
+        OR property_tile_snapshots.generated_at <= EXCLUDED.generated_at
+      )
+    RETURNING z
+  `);
+  const written = Array.from(rows).length > 0;
+  return { written, skippedAsStale: !written };
 }
 
 async function countCurrentSnapshots(coverage: PropertyTileSnapshotCoverageDefinition): Promise<number> {
@@ -865,18 +941,90 @@ async function finishRefresh(input: {
       lease_owner = NULL,
       lease_until = NULL,
       last_finished_at = now(),
-      last_success_at = CASE WHEN ${input.success} THEN now() ELSE last_success_at END,
-      last_error = ${errorMessage},
-      applied_listing_watermark = CASE WHEN ${input.success} THEN ${input.watermarks.listingWatermark} ELSE applied_listing_watermark END,
-      applied_social_watermark = CASE WHEN ${input.success} THEN ${input.watermarks.socialWatermark} ELSE applied_social_watermark END,
-      applied_property_watermark = CASE WHEN ${input.success} THEN ${input.watermarks.propertyWatermark} ELSE applied_property_watermark END,
-      applied_coverage_watermark = CASE WHEN ${input.success} THEN ${input.watermarks.coverageWatermark} ELSE applied_coverage_watermark END,
-      coverage_id = ${input.coverage.coverageId},
-      snapshot_config_hash = ${input.coverage.snapshotConfigHash},
-      expected_tile_count = ${input.expectedTileCount},
-      refreshed_tile_count = ${input.refreshedTileCount},
-      failed_tile_count = ${input.failedTileCount},
-      last_window_refresh_at = CASE WHEN ${input.success} THEN now() ELSE last_window_refresh_at END
+      last_success_at = CASE
+        WHEN ${input.success}
+          AND applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN now()
+        ELSE last_success_at
+      END,
+      last_error = CASE
+        WHEN applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${errorMessage}
+        ELSE last_error
+      END,
+      applied_listing_watermark = CASE
+        WHEN ${input.success} THEN GREATEST(applied_listing_watermark, ${input.watermarks.listingWatermark})
+        ELSE applied_listing_watermark
+      END,
+      applied_social_watermark = CASE
+        WHEN ${input.success} THEN GREATEST(applied_social_watermark, ${input.watermarks.socialWatermark})
+        ELSE applied_social_watermark
+      END,
+      applied_property_watermark = CASE
+        WHEN ${input.success} THEN GREATEST(applied_property_watermark, ${input.watermarks.propertyWatermark})
+        ELSE applied_property_watermark
+      END,
+      applied_coverage_watermark = CASE
+        WHEN ${input.success} THEN GREATEST(applied_coverage_watermark, ${input.watermarks.coverageWatermark})
+        ELSE applied_coverage_watermark
+      END,
+      coverage_id = CASE
+        WHEN ${input.success}
+          AND applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${input.coverage.coverageId}
+        ELSE coverage_id
+      END,
+      snapshot_config_hash = CASE
+        WHEN ${input.success}
+          AND applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${input.coverage.snapshotConfigHash}
+        ELSE snapshot_config_hash
+      END,
+      expected_tile_count = CASE
+        WHEN applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${input.expectedTileCount}
+        ELSE expected_tile_count
+      END,
+      refreshed_tile_count = CASE
+        WHEN applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${input.refreshedTileCount}
+        ELSE refreshed_tile_count
+      END,
+      failed_tile_count = CASE
+        WHEN applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN ${input.failedTileCount}
+        ELSE failed_tile_count
+      END,
+      last_window_refresh_at = CASE
+        WHEN ${input.success}
+          AND applied_listing_watermark <= ${input.watermarks.listingWatermark}
+          AND applied_social_watermark <= ${input.watermarks.socialWatermark}
+          AND applied_property_watermark <= ${input.watermarks.propertyWatermark}
+          AND applied_coverage_watermark <= ${input.watermarks.coverageWatermark}
+          THEN now()
+        ELSE last_window_refresh_at
+      END
     WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
       AND lease_owner = ${input.owner}
   `);
@@ -1016,10 +1164,6 @@ export async function executePropertyTileSnapshotRefresh(input: {
   leaseOwner?: string;
   builder?: PropertyTileSnapshotBuilder;
 } = {}): Promise<PropertyTileSnapshotRefreshResult> {
-  if (getPropertyTilePrecomputeConcurrency() !== 1) {
-    throw new Error('PROPERTY_TILE_PRECOMPUTE_CONCURRENCY currently supports only 1');
-  }
-
   const reason = input.reason ?? PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_REASON;
   const owner = input.leaseOwner ?? `${process.pid}:${randomUUID()}`;
   const startedAt = Date.now();
@@ -1033,36 +1177,57 @@ export async function executePropertyTileSnapshotRefresh(input: {
   const allTiles = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
   const maxTiles = getPropertyTilePrecomputeMaxTilesPerRun();
   const maxRunMs = getPropertyTilePrecomputeMaxSecondsPerRun() * 1000;
+  const concurrency = getPropertyTilePrecomputeConcurrency();
   const dueTiles = await selectDueSnapshotTiles(allTiles, coverage, watermarks);
   const builder = input.builder ?? buildMvtForTile;
   let refreshedTileCount = 0;
   let failedTileCount = 0;
+  let staleWriteSkippedTileCount = 0;
   let attemptedTileCount = 0;
+  let nextTileIndex = 0;
 
-  try {
-    for (const tile of dueTiles) {
-      if (attemptedTileCount >= maxTiles || Date.now() - startedAt >= maxRunMs) {
-        break;
+  async function refreshNextDueTile(): Promise<void> {
+    while (Date.now() - startedAt < maxRunMs) {
+      const tileIndex = nextTileIndex;
+      if (tileIndex >= dueTiles.length || attemptedTileCount >= maxTiles) {
+        return;
       }
+      nextTileIndex += 1;
       attemptedTileCount += 1;
 
+      const tile = dueTiles[tileIndex];
+      if (!tile) {
+        return;
+      }
+
       try {
+        const tileStartedAt = new Date();
         const payload = await builder(tile, createDefaultMapFilters(), {
           statementTimeoutMs: 1_500,
           runtimeBudgetMs: 2_000,
         });
-        await upsertPropertyTileSnapshotRow({
+        const writeResult = await upsertPropertyTileSnapshotRow({
           tile,
           filterSignature: coverage.filterSignature,
           coverage,
           payload,
           watermarks,
+          generatedAt: tileStartedAt,
         });
-        refreshedTileCount += 1;
+        if (writeResult.written) {
+          refreshedTileCount += 1;
+        } else {
+          staleWriteSkippedTileCount += 1;
+        }
       } catch {
         failedTileCount += 1;
       }
     }
+  }
+
+  try {
+    const workerCount = Math.min(concurrency, dueTiles.length, maxTiles);
+    await Promise.all(Array.from({ length: workerCount }, () => refreshNextDueTile()));
 
     const summary = summarizePropertyTileSnapshotRefreshRun({
       dueTileCount: dueTiles.length,
@@ -1088,6 +1253,7 @@ export async function executePropertyTileSnapshotRefresh(input: {
       refreshedTileCount,
       failedTileCount,
       skippedTileCount: summary.skippedTileCount,
+      staleWriteSkippedTileCount,
       durationMs: Date.now() - startedAt,
     };
   } catch (error) {

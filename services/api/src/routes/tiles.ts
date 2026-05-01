@@ -233,7 +233,45 @@ function tileHeaderValue(ms: number): string {
 }
 
 function isConditionalMatch(request: FastifyRequest, etag: string): boolean {
-  return request.headers['if-none-match'] === etag;
+  const header = request.headers['if-none-match'];
+  const rawValidators = Array.isArray(header) ? header : header == null ? [] : [header];
+  const current = normalizeEntityTag(etag);
+
+  for (const rawHeader of rawValidators) {
+    for (const validator of splitEntityTagHeader(rawHeader)) {
+      if (validator === '*') {
+        return true;
+      }
+      if (normalizeEntityTag(validator) === current) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function splitEntityTagHeader(header: string): string[] {
+  return header
+    .split(',')
+    .map((validator) => validator.trim())
+    .filter(Boolean);
+}
+
+function normalizeEntityTag(etag: string): string {
+  const trimmed = etag.trim();
+  return trimmed.replace(/^W\//i, '');
+}
+
+function assertRouteTileBuildCanContinue(options: PropertyTileBuildOptions, stage: string): void {
+  if (options.signal?.aborted) {
+    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
+  }
+  if (options.runtimeDeadlineMs != null && Date.now() > options.runtimeDeadlineMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
 }
 
 function buildPayloadResult(payloadBuffer: Buffer): PropertyTilePayloadBuildResult {
@@ -323,6 +361,34 @@ function sendPrivateTilePayload(
   return baseReply.header('Content-Type', 'application/x-protobuf').send(payloadResult.payload);
 }
 
+async function lookupCurrentPropertyTileSnapshotWithRuntime(
+  input: {
+    z: number;
+    x: number;
+    y: number;
+    filterSignature: string;
+  },
+  runtimeConfig: ReturnType<typeof getPropertyTileRuntimeConfig>,
+  signal: AbortSignal
+) {
+  return propertyTileRuntime.run<Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>>>({
+    key: `snapshot:public:${input.z}/${input.x}/${input.y}:${input.filterSignature}`,
+    zoom: input.z,
+    budgetMs: runtimeConfig.publicBudgetMs,
+    statementTimeoutMs: runtimeConfig.publicBudgetMs,
+    signal,
+    builder: async (options) => {
+      assertRouteTileBuildCanContinue(options, 'snapshot lookup preparation');
+      options.markUncancellableStage?.(true);
+      const snapshot = await lookupCurrentPropertyTileSnapshot(input).finally(() => {
+        options.markUncancellableStage?.(false);
+      });
+      assertRouteTileBuildCanContinue(options, 'snapshot lookup completion');
+      return snapshot;
+    },
+  });
+}
+
 function readStateIdentityPredicate(viewer: PropertyReadViewer) {
   if ('userId' in viewer) {
     return sql`prs.user_id = ${viewer.userId} AND prs.session_id IS NULL`;
@@ -368,17 +434,18 @@ async function getReadStateScopeForViewer(
   assertTileRouteBuildCanContinue(options, 'read-state scope lookup preparation');
   const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
   options?.markUncancellableStage?.(true);
-  const result = await db.transaction(async (tx) => {
-    if (timeoutMs) {
-      await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
-    }
-    return tx.execute<{
-      has_read_state: boolean;
-      read_count: number;
-      max_seen_at: string | null;
-      max_change_version: number | null;
-      scope_digest: string | null;
-    }>(sql`
+  const result = await db
+    .transaction(async (tx) => {
+      if (timeoutMs) {
+        await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+      }
+      return tx.execute<{
+        has_read_state: boolean;
+        read_count: number;
+        max_seen_at: string | null;
+        max_change_version: number | null;
+        scope_digest: string | null;
+      }>(sql`
       SELECT
         EXISTS (
           SELECT 1
@@ -412,9 +479,10 @@ async function getReadStateScopeForViewer(
       WHERE ${readStateIdentityPredicate(viewer)}
         AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
     `);
-  }).finally(() => {
-    options?.markUncancellableStage?.(false);
-  });
+    })
+    .finally(() => {
+      options?.markUncancellableStage?.(false);
+    });
 
   assertTileRouteBuildCanContinue(options, 'read-state scope lookup');
   const row = Array.from(result)[0];
@@ -1839,10 +1907,32 @@ export async function tileRoutes(app: FastifyInstance) {
         });
       }
 
+      const signal = createRequestAbortSignal(request, reply);
+
       if (filterSignature === 'default' && z <= getPropertyTilePrecomputeMaxZoom()) {
         let snapshot: Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>> = null;
         try {
-          snapshot = await lookupCurrentPropertyTileSnapshot({ z, x, y, filterSignature });
+          const snapshotRuntimeResult = await lookupCurrentPropertyTileSnapshotWithRuntime(
+            { z, x, y, filterSignature },
+            runtimeConfig,
+            signal
+          );
+
+          if (snapshotRuntimeResult.state === 'completed') {
+            snapshot = snapshotRuntimeResult.publishable ? snapshotRuntimeResult.result : null;
+          } else if (
+            snapshotRuntimeResult.state === 'error' &&
+            !isPropertyTileRecoverableError(snapshotRuntimeResult.error)
+          ) {
+            throw snapshotRuntimeResult.error;
+          } else if (cachedTile.state === 'stale') {
+            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
+              coalesced: snapshotRuntimeResult.coalesced,
+              queueTimeMs: snapshotRuntimeResult.queueTimeMs,
+              generationTimeMs: snapshotRuntimeResult.generationTimeMs,
+              budgetMs: snapshotRuntimeResult.budgetMs,
+            });
+          }
         } catch (error) {
           if (!isPropertyTileRecoverableError(error)) {
             throw error;
@@ -1872,7 +1962,6 @@ export async function tileRoutes(app: FastifyInstance) {
         }
       }
 
-      const signal = createRequestAbortSignal(request, reply);
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
         key: `public:${cacheKey}`,
         zoom: z,
@@ -1958,9 +2047,7 @@ export async function tileRoutes(app: FastifyInstance) {
         builder: async (options) => {
           const readScope = await getReadStateScopeForViewer(viewer, options);
           const payloadResult = readScope.hasReadState
-            ? buildPayloadResult(
-                await buildReadMvtForTile({ z, x, y }, viewer, filters, options)
-              )
+            ? buildPayloadResult(await buildReadMvtForTile({ z, x, y }, viewer, filters, options))
             : ({ payload: null, statusCode: 204 } satisfies PropertyTilePayloadBuildResult);
           const latestReadScope = await getReadStateScopeForViewer(viewer, options);
           if (latestReadScope.scope !== readScope.scope) {
