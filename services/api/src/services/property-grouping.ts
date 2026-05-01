@@ -273,10 +273,107 @@ function assertTileBuildCanContinue(
     throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
   }
 
-  if (options?.runtimeBudgetMs != null && Date.now() - startedAt > options.runtimeBudgetMs) {
+  const now = Date.now();
+  if (options?.runtimeDeadlineMs != null && now > options.runtimeDeadlineMs) {
     throw new PropertyTileBudgetExceededError(
       `Property tile runtime budget exceeded during ${stage}`
     );
+  }
+
+  const budgetStartedAt = options?.runtimeStartedAtMs ?? startedAt;
+  if (options?.runtimeBudgetMs != null && now - budgetStartedAt > options.runtimeBudgetMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
+}
+
+function getRemainingRuntimeBudgetMs(options: PropertyTileBuildOptions | undefined): number | null {
+  if (options?.runtimeDeadlineMs != null) {
+    return Math.max(0, options.runtimeDeadlineMs - Date.now());
+  }
+
+  if (options?.runtimeBudgetMs != null) {
+    const startedAt = options.runtimeStartedAtMs ?? Date.now();
+    return Math.max(0, options.runtimeBudgetMs - (Date.now() - startedAt));
+  }
+
+  return null;
+}
+
+function buildSharedCanonicalOptions(
+  options: PropertyTileBuildOptions | undefined
+): PropertyTileBuildOptions | undefined {
+  if (!options) return undefined;
+  return {
+    statementTimeoutMs: options.statementTimeoutMs,
+    runtimeBudgetMs: options.runtimeBudgetMs,
+    runtimeStartedAtMs: options.runtimeStartedAtMs,
+    runtimeDeadlineMs: options.runtimeDeadlineMs,
+    markUncancellableStage: options.markUncancellableStage,
+  };
+}
+
+async function waitForSharedCanonicalBuild(
+  buildPromise: Promise<CanonicalPropertyGroup[]>,
+  options: PropertyTileBuildOptions | undefined,
+  stage: string
+): Promise<CanonicalPropertyGroup[]> {
+  assertTileBuildCanContinue(options, Date.now(), stage);
+
+  const signal = options?.signal;
+  const abortPromise =
+    signal &&
+    new Promise<never>((_, reject) => {
+      if (signal.aborted) {
+        reject(new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`));
+        return;
+      }
+
+      const onAbort = () => {
+        reject(new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      buildPromise.then(
+        () => {
+          signal.removeEventListener('abort', onAbort);
+        },
+        () => {
+          signal.removeEventListener('abort', onAbort);
+        }
+      );
+    });
+
+  const remainingBudgetMs = getRemainingRuntimeBudgetMs(options);
+  let budgetTimer: NodeJS.Timeout | null = null;
+  const budgetPromise =
+    remainingBudgetMs != null &&
+    new Promise<never>((_, reject) => {
+      budgetTimer = setTimeout(() => {
+        reject(
+          new PropertyTileBudgetExceededError(
+            `Property tile runtime budget exceeded during ${stage}`
+          )
+        );
+      }, remainingBudgetMs);
+    });
+
+  const racePromises: Promise<CanonicalPropertyGroup[]>[] = [buildPromise];
+  if (abortPromise) {
+    racePromises.push(abortPromise);
+  }
+  if (budgetPromise) {
+    racePromises.push(budgetPromise);
+  }
+
+  try {
+    const groups = await Promise.race(racePromises);
+    assertTileBuildCanContinue(options, Date.now(), stage);
+    return groups;
+  } finally {
+    if (budgetTimer) {
+      clearTimeout(budgetTimer);
+    }
   }
 }
 
@@ -1827,16 +1924,28 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
   const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
-    return pendingBuild;
+    return waitForSharedCanonicalBuild(
+      pendingBuild,
+      options,
+      'shared unhydrated canonical grouping'
+    );
   }
 
-  const buildPromise = buildUnhydratedCanonicalGroupsForTile(tile, filters, options);
+  const buildPromise = buildUnhydratedCanonicalGroupsForTile(
+    tile,
+    filters,
+    buildSharedCanonicalOptions(options)
+  );
   pendingUnhydratedCanonicalGroupBuilds.set(cacheKey, buildPromise);
-  try {
-    return await buildPromise;
-  } finally {
-    pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey);
-  }
+  buildPromise.then(
+    () => pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey),
+    () => pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey)
+  );
+  return waitForSharedCanonicalBuild(
+    buildPromise,
+    options,
+    'shared unhydrated canonical grouping'
+  );
 }
 
 export async function buildCanonicalGroupsForTile(
@@ -1852,24 +1961,25 @@ export async function buildCanonicalGroupsForTile(
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
   const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
-    return pendingBuild;
+    return waitForSharedCanonicalBuild(pendingBuild, options, 'shared canonical grouping');
   }
 
+  const sharedOptions = buildSharedCanonicalOptions(options);
   const buildPromise = (async () => {
     const groups = await hydrateSinglePropertyDetails(
-      await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, options),
-      options
+      await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, sharedOptions),
+      sharedOptions
     );
     setCachedCanonicalGroups(tile, filters, groups);
     return groups;
   })();
 
   pendingCanonicalGroupBuilds.set(cacheKey, buildPromise);
-  try {
-    return await buildPromise;
-  } finally {
-    pendingCanonicalGroupBuilds.delete(cacheKey);
-  }
+  buildPromise.then(
+    () => pendingCanonicalGroupBuilds.delete(cacheKey),
+    () => pendingCanonicalGroupBuilds.delete(cacheKey)
+  );
+  return waitForSharedCanonicalBuild(buildPromise, options, 'shared canonical grouping');
 }
 
 export async function buildFollowingCanonicalGroupsForTile(

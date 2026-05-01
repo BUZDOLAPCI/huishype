@@ -79,7 +79,10 @@ import {
 import {
   getPropertyTileRuntimeConfig,
   isPropertyTileRecoverableError,
+  PropertyTileBudgetExceededError,
+  PropertyTileBuildAbortedError,
   propertyTileRuntime,
+  type PropertyTileBuildOptions,
   type PropertyTilePayloadBuildResult,
   type PropertyTileRuntimeResult,
 } from '../services/property-tile-runtime.js';
@@ -328,17 +331,53 @@ function readStateIdentityPredicate(viewer: PropertyReadViewer) {
   return sql`prs.session_id = ${viewer.sessionId} AND prs.user_id IS NULL`;
 }
 
+function validateStatementTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (timeoutMs == null) return null;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null;
+  return Math.floor(timeoutMs);
+}
+
+function assertTileRouteBuildCanContinue(
+  options: PropertyTileBuildOptions | undefined,
+  stage: string
+): void {
+  if (options?.signal?.aborted) {
+    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
+  }
+
+  const now = Date.now();
+  if (options?.runtimeDeadlineMs != null && now > options.runtimeDeadlineMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
+
+  if (options?.runtimeBudgetMs != null && options.runtimeStartedAtMs != null) {
+    if (now - options.runtimeStartedAtMs > options.runtimeBudgetMs) {
+      throw new PropertyTileBudgetExceededError(
+        `Property tile runtime budget exceeded during ${stage}`
+      );
+    }
+  }
+}
+
 async function getReadStateScopeForViewer(
   viewer: PropertyReadViewer,
-  budgetMs: number
+  options?: PropertyTileBuildOptions
 ): Promise<{ hasReadState: boolean; scope: string }> {
+  assertTileRouteBuildCanContinue(options, 'read-state scope lookup preparation');
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  options?.markUncancellableStage?.(true);
   const result = await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT set_config('statement_timeout', ${`${budgetMs}ms`}, true)`);
+    if (timeoutMs) {
+      await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+    }
     return tx.execute<{
       has_read_state: boolean;
       read_count: number;
       max_seen_at: string | null;
       max_change_version: number | null;
+      scope_digest: string | null;
     }>(sql`
       SELECT
         EXISTS (
@@ -351,14 +390,33 @@ async function getReadStateScopeForViewer(
         ) AS has_read_state,
         COUNT(*)::int AS read_count,
         MAX(prs.seen_at)::text AS max_seen_at,
-        MAX(COALESCE(pcs.change_version, 0))::bigint AS max_change_version
+        MAX(COALESCE(pcs.change_version, 0))::bigint AS max_change_version,
+        md5(
+          COALESCE(
+            string_agg(
+              concat_ws(
+                ':',
+                prs.property_id::text,
+                prs.seen_change_version::text,
+                COALESCE(pcs.change_version, 0)::text,
+                EXTRACT(EPOCH FROM prs.seen_at)::text
+              ),
+              '|'
+              ORDER BY prs.property_id::text
+            ),
+            ''
+          )
+        ) AS scope_digest
       FROM property_read_state prs
       LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
       WHERE ${readStateIdentityPredicate(viewer)}
         AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
     `);
+  }).finally(() => {
+    options?.markUncancellableStage?.(false);
   });
 
+  assertTileRouteBuildCanContinue(options, 'read-state scope lookup');
   const row = Array.from(result)[0];
   if (!row?.has_read_state) {
     return { hasReadState: false, scope: 'empty' };
@@ -366,7 +424,9 @@ async function getReadStateScopeForViewer(
 
   return {
     hasReadState: true,
-    scope: `${row.read_count}:${row.max_seen_at ?? 'none'}:${row.max_change_version ?? 0}`,
+    scope: `${row.read_count}:${row.max_seen_at ?? 'none'}:${row.max_change_version ?? 0}:${
+      row.scope_digest ?? 'none'
+    }`,
   };
 }
 
@@ -1710,7 +1770,13 @@ export async function tileRoutes(app: FastifyInstance) {
       const runtimeConfig = getPropertyTileRuntimeConfig();
       let readStateScope: { hasReadState: boolean; scope: string };
       try {
-        readStateScope = await getReadStateScopeForViewer(viewer, runtimeConfig.privateBudgetMs);
+        const startedAt = Date.now();
+        readStateScope = await getReadStateScopeForViewer(viewer, {
+          statementTimeoutMs: runtimeConfig.privateBudgetMs,
+          runtimeBudgetMs: runtimeConfig.privateBudgetMs,
+          runtimeStartedAtMs: startedAt,
+          runtimeDeadlineMs: startedAt + runtimeConfig.privateBudgetMs,
+        });
       } catch (error) {
         if (isPropertyTileRecoverableError(error)) {
           readStateScope = { hasReadState: false, scope: 'timeout' };
@@ -1774,7 +1840,23 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       if (filterSignature === 'default' && z <= getPropertyTilePrecomputeMaxZoom()) {
-        const snapshot = await lookupCurrentPropertyTileSnapshot({ z, x, y, filterSignature });
+        let snapshot: Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>> = null;
+        try {
+          snapshot = await lookupCurrentPropertyTileSnapshot({ z, x, y, filterSignature });
+        } catch (error) {
+          if (!isPropertyTileRecoverableError(error)) {
+            throw error;
+          }
+
+          if (cachedTile.state === 'stale') {
+            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
+              coalesced: false,
+              queueTimeMs: 0,
+              generationTimeMs: 0,
+              budgetMs: runtimeConfig.publicBudgetMs,
+            });
+          }
+        }
         if (snapshot) {
           const entry = publicPropertyTileCache.set(cacheKey, {
             payload: snapshot.payload,
@@ -1865,34 +1947,27 @@ export async function tileRoutes(app: FastifyInstance) {
 
       const filters = parseMapFiltersQuery(request.query);
       const runtimeConfig = getPropertyTileRuntimeConfig();
-      let readScope: { scope: string };
-      try {
-        readScope = await getReadStateScopeForViewer(viewer, runtimeConfig.privateBudgetMs);
-      } catch (error) {
-        if (isPropertyTileRecoverableError(error)) {
-          return sendTimeoutEmptyTile(
-            reply,
-            {
-              coalesced: false,
-              queueTimeMs: 0,
-              generationTimeMs: runtimeConfig.privateBudgetMs,
-              budgetMs: runtimeConfig.privateBudgetMs,
-            },
-            'Authorization, x-session-id'
-          );
-        }
-        throw error;
-      }
       const viewerScope = getPropertyReadViewerScope(viewer);
       const filterSignature = getMapFilterSignature(filters);
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
-        key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:${readScope.scope}`,
+        key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:live`,
         zoom: z,
         budgetMs: runtimeConfig.privateBudgetMs,
         statementTimeoutMs: runtimeConfig.privateBudgetMs,
         signal: createRequestAbortSignal(request, reply),
-        builder: async (options) =>
-          buildPayloadResult(await buildReadMvtForTile({ z, x, y }, viewer, filters, options)),
+        builder: async (options) => {
+          const readScope = await getReadStateScopeForViewer(viewer, options);
+          const payloadResult = readScope.hasReadState
+            ? buildPayloadResult(
+                await buildReadMvtForTile({ z, x, y }, viewer, filters, options)
+              )
+            : ({ payload: null, statusCode: 204 } satisfies PropertyTilePayloadBuildResult);
+          const latestReadScope = await getReadStateScopeForViewer(viewer, options);
+          if (latestReadScope.scope !== readScope.scope) {
+            throw new PropertyTileBuildAbortedError('Read-state scope changed during tile build');
+          }
+          return payloadResult;
+        },
       });
 
       if (runtimeResult.state !== 'completed') {
@@ -1907,19 +1982,6 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       if (!runtimeResult.publishable) {
-        return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
-      }
-
-      let latestReadScope: { scope: string };
-      try {
-        latestReadScope = await getReadStateScopeForViewer(viewer, runtimeConfig.privateBudgetMs);
-      } catch (error) {
-        if (isPropertyTileRecoverableError(error)) {
-          return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
-        }
-        throw error;
-      }
-      if (latestReadScope.scope !== readScope.scope) {
         return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
       }
 

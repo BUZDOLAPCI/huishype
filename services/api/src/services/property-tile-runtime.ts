@@ -1,6 +1,8 @@
 export type PropertyTileBuildOptions = {
   statementTimeoutMs?: number;
   runtimeBudgetMs?: number;
+  runtimeStartedAtMs?: number;
+  runtimeDeadlineMs?: number;
   signal?: AbortSignal;
   markUncancellableStage?: (active: boolean) => void;
 };
@@ -17,6 +19,8 @@ type RuntimeWaiter<TResult> = {
   signal?: AbortSignal;
   coalesced: boolean;
   queueTimer: NodeJS.Timeout;
+  budgetTimer: NodeJS.Timeout | null;
+  budgetMs: number;
   resolve: (result: PropertyTileRuntimeResult<TResult>) => void;
   settled: boolean;
   onAbort?: () => void;
@@ -191,7 +195,7 @@ export class PropertyTileRuntime {
           coalesced: waiter.coalesced,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: 0,
-          budgetMs: task.budgetMs,
+          budgetMs: waiter.budgetMs,
         });
       }
     }
@@ -212,10 +216,16 @@ export class PropertyTileRuntime {
           queueTimeMs: taskQueueTime(existing),
           generationTimeMs:
             existing.startedAt == null ? 0 : Math.max(0, Date.now() - existing.startedAt),
-          budgetMs: existing.budgetMs,
+          budgetMs: options.budgetMs,
         });
       }
-      return this.attachWaiter(existing, options.signal, true);
+      return this.attachWaiter(
+        existing,
+        options.signal,
+        true,
+        options.budgetMs,
+        options.queueWaitMs ?? getPropertyTileRuntimeConfig().queueWaitMs
+      );
     }
 
     const config = getPropertyTileRuntimeConfig();
@@ -239,7 +249,13 @@ export class PropertyTileRuntime {
     };
 
     this.tasks.set(task.key, task as RuntimeTask<unknown>);
-    const waiterPromise = this.attachWaiter(task, options.signal, false);
+    const waiterPromise = this.attachWaiter(
+      task,
+      options.signal,
+      false,
+      task.budgetMs,
+      task.queueWaitMs
+    );
     this.queue.push(task as RuntimeTask<unknown>);
     this.pruneQueueOverflow();
     this.drain();
@@ -269,7 +285,7 @@ export class PropertyTileRuntime {
           queueTimeMs: taskQueueTime(task),
           generationTimeMs:
             task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
-          budgetMs: task.budgetMs,
+          budgetMs: waiter.budgetMs,
         });
       }
     }
@@ -281,7 +297,9 @@ export class PropertyTileRuntime {
   private attachWaiter<TResult>(
     task: RuntimeTask<TResult>,
     signal: AbortSignal | undefined,
-    coalesced: boolean
+    coalesced: boolean,
+    budgetMs: number,
+    queueWaitMs: number
   ): Promise<PropertyTileRuntimeResult<TResult>> {
     return new Promise((resolve) => {
       const id = Symbol(task.key);
@@ -289,6 +307,8 @@ export class PropertyTileRuntime {
         id,
         signal,
         coalesced,
+        budgetMs,
+        budgetTimer: null,
         settled: false,
         resolve,
         queueTimer: setTimeout(() => {
@@ -299,10 +319,10 @@ export class PropertyTileRuntime {
             coalesced,
             queueTimeMs: Date.now() - task.createdAt,
             generationTimeMs: 0,
-            budgetMs: task.budgetMs,
+            budgetMs,
           });
           this.maybeRemoveUnstartedTask(task);
-        }, task.queueWaitMs),
+        }, queueWaitMs),
       };
 
       if (signal?.aborted) {
@@ -312,7 +332,7 @@ export class PropertyTileRuntime {
           coalesced,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: 0,
-          budgetMs: task.budgetMs,
+          budgetMs,
         });
         return;
       }
@@ -324,7 +344,7 @@ export class PropertyTileRuntime {
           coalesced,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
-          budgetMs: task.budgetMs,
+          budgetMs,
         });
 
         if (task.state === 'queued') {
@@ -340,7 +360,46 @@ export class PropertyTileRuntime {
       signal?.addEventListener('abort', waiter.onAbort, { once: true });
 
       task.waiters.set(id, waiter);
+      if (task.state === 'running') {
+        this.armWaiterBudgetTimer(task, waiter);
+      }
     });
+  }
+
+  private armWaiterBudgetTimer<TResult>(
+    task: RuntimeTask<TResult>,
+    waiter: RuntimeWaiter<TResult>
+  ): void {
+    if (waiter.settled || task.startedAt == null || waiter.budgetTimer) return;
+    const elapsedMs = Math.max(0, Date.now() - task.startedAt);
+    const remainingMs = waiter.budgetMs - elapsedMs;
+
+    const onBudgetExpired = () => {
+      this.removeWaiter(task, waiter);
+      this.resolveWaiter(task, waiter, {
+        state: 'timeout',
+        coalesced: waiter.coalesced,
+        queueTimeMs: taskQueueTime(task),
+        generationTimeMs:
+          task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
+        budgetMs: waiter.budgetMs,
+      });
+
+      if (
+        task.state === 'running' &&
+        task.waiters.size === 0 &&
+        !task.uncancellableStage
+      ) {
+        task.controller.abort(new PropertyTileBudgetExceededError());
+      }
+    };
+
+    if (remainingMs <= 0) {
+      onBudgetExpired();
+      return;
+    }
+
+    waiter.budgetTimer = setTimeout(onBudgetExpired, remainingMs);
   }
 
   private resolveWaiter<TResult>(
@@ -351,6 +410,9 @@ export class PropertyTileRuntime {
     if (waiter.settled) return;
     waiter.settled = true;
     clearTimeout(waiter.queueTimer);
+    if (waiter.budgetTimer) {
+      clearTimeout(waiter.budgetTimer);
+    }
     if (waiter.onAbort) {
       waiter.signal?.removeEventListener('abort', waiter.onAbort);
     }
@@ -360,6 +422,9 @@ export class PropertyTileRuntime {
 
   private removeWaiter<TResult>(task: RuntimeTask<TResult>, waiter: RuntimeWaiter<TResult>): void {
     clearTimeout(waiter.queueTimer);
+    if (waiter.budgetTimer) {
+      clearTimeout(waiter.budgetTimer);
+    }
     if (waiter.onAbort) {
       waiter.signal?.removeEventListener('abort', waiter.onAbort);
     }
@@ -425,7 +490,11 @@ export class PropertyTileRuntime {
   private startTask<TResult>(task: RuntimeTask<TResult>): void {
     task.state = 'running';
     task.startedAt = Date.now();
+    const startedAt = task.startedAt;
     this.activeCount += 1;
+    for (const waiter of task.waiters.values()) {
+      this.armWaiterBudgetTimer(task, waiter);
+    }
 
     const runtimeTimer = setTimeout(() => {
       task.timedOut = true;
@@ -436,7 +505,7 @@ export class PropertyTileRuntime {
           coalesced: waiter.coalesced,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: task.startedAt == null ? 0 : Date.now() - task.startedAt,
-          budgetMs: task.budgetMs,
+          budgetMs: waiter.budgetMs,
         });
       }
     }, task.budgetMs);
@@ -446,6 +515,8 @@ export class PropertyTileRuntime {
         const result = await task.builder({
           statementTimeoutMs: task.statementTimeoutMs,
           runtimeBudgetMs: task.budgetMs,
+          runtimeStartedAtMs: startedAt,
+          runtimeDeadlineMs: startedAt + task.budgetMs,
           signal: task.controller.signal,
           markUncancellableStage: (active) => {
             task.uncancellableStage = active;
@@ -461,7 +532,7 @@ export class PropertyTileRuntime {
             coalesced: waiter.coalesced,
             queueTimeMs: taskQueueTime(task),
             generationTimeMs,
-            budgetMs: task.budgetMs,
+            budgetMs: waiter.budgetMs,
           });
         }
       } catch (error) {
@@ -479,7 +550,7 @@ export class PropertyTileRuntime {
             coalesced: waiter.coalesced,
             queueTimeMs: taskQueueTime(task),
             generationTimeMs,
-            budgetMs: task.budgetMs,
+            budgetMs: waiter.budgetMs,
             error,
           } as PropertyTileRuntimeResult<TResult>);
         }

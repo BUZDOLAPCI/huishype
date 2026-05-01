@@ -3,7 +3,9 @@ import {
   computePropertyTileSnapshotConfigHash,
   computePropertyTileSnapshotCoordinatesFromCoverage,
   getExpectedDefaultPropertyTileSnapshotCoverageDefinition,
+  getPropertyTilePrecomputeMaxZoom,
   safeRequestPropertyTileSnapshotRefresh,
+  summarizePropertyTileSnapshotRefreshRun,
 } from './property-tile-snapshots.js';
 
 describe('property tile snapshots', () => {
@@ -24,6 +26,69 @@ describe('property tile snapshots', () => {
     });
 
     expect(second).toBe(first);
+  });
+
+  it('includes coverage identity and precompute zoom in the config hash', () => {
+    const base = {
+      coverageId: 'coverage-a',
+      boundsSource: 'env:test',
+      maxZoom: 10,
+      filterSignature: 'default',
+      bounds: { minLon: -1, minLat: 50, maxLon: 8, maxLat: 54 },
+      countries: ['NL'],
+      dataSources: ['funda'],
+    };
+
+    const first = computePropertyTileSnapshotConfigHash(base);
+    expect(computePropertyTileSnapshotConfigHash({ ...base, coverageId: 'coverage-b' }))
+      .not.toBe(first);
+    expect(computePropertyTileSnapshotConfigHash({ ...base, maxZoom: 9 }))
+      .not.toBe(first);
+  });
+
+  it('allows max zoom zero for z0-only precompute coverage', () => {
+    const previous = process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
+    process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM = '0';
+
+    try {
+      expect(getPropertyTilePrecomputeMaxZoom()).toBe(0);
+    } finally {
+      if (previous == null) {
+        delete process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
+      } else {
+        process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM = previous;
+      }
+    }
+  });
+
+  it('treats quota-limited snapshot refreshes as progress, not failed placeholders', () => {
+    const summary = summarizePropertyTileSnapshotRefreshRun({
+      dueTileCount: 25,
+      attemptedTileCount: 10,
+      refreshedTileCount: 10,
+      failedTileCount: 0,
+    });
+
+    expect(summary).toEqual({
+      completed: false,
+      skippedTileCount: 15,
+      status: 'quota_exhausted',
+      error: null,
+    });
+  });
+
+  it('reports tile build failures separately from quota spillover', () => {
+    const summary = summarizePropertyTileSnapshotRefreshRun({
+      dueTileCount: 25,
+      attemptedTileCount: 10,
+      refreshedTileCount: 9,
+      failedTileCount: 1,
+    });
+
+    expect(summary.completed).toBe(false);
+    expect(summary.status).toBe('failed');
+    expect(summary.skippedTileCount).toBe(15);
+    expect(summary.error).toContain('1 failed');
   });
 
   it('computes coordinates from explicit persisted coverage bounds', () => {

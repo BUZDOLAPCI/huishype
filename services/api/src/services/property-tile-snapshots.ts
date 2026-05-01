@@ -17,9 +17,10 @@ import {
   type DbTransaction,
 } from '../db/index.js';
 import { buildPropertyTileEtag } from './property-tile-cache.js';
-import { buildMvtForTile } from './property-grouping.js';
+import { buildMvtForTile, PROPERTY_TILE_EXTENT } from './property-grouping.js';
 import { createDefaultMapFilters, getMapFilterSignature, type MapFilters } from './map-filters.js';
 import { enqueuePropertyTileSnapshotRefresh } from './ingest/queue.js';
+import { ACTIVE_SOCIAL_SCORE_THRESHOLD } from './property-queries.js';
 
 export const PROPERTY_TILE_SNAPSHOT_KEY = 'public_default_low_zoom';
 export const PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_REASON = 'snapshot-refresh';
@@ -77,7 +78,7 @@ export interface CurrentPropertyTileSnapshot {
 }
 
 export interface PropertyTileSnapshotRefreshResult {
-  status: 'completed' | 'quota_exhausted' | 'skipped_locked' | 'skipped_current';
+  status: 'completed' | 'quota_exhausted' | 'failed' | 'skipped_locked' | 'skipped_current';
   reason: string;
   expectedTileCount?: number;
   refreshedTileCount?: number;
@@ -104,8 +105,15 @@ function parsePositiveIntegerEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseNonNegativeIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export function getPropertyTilePrecomputeMaxZoom(): number {
-  return Math.min(22, parsePositiveIntegerEnv('PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM', DEFAULT_MAX_ZOOM));
+  return Math.min(22, parseNonNegativeIntegerEnv('PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM', DEFAULT_MAX_ZOOM));
 }
 
 export function getPropertyTilePrecomputeMaxTilesPerRun(): number {
@@ -160,6 +168,8 @@ function stableJson(value: unknown): string {
 }
 
 export function computePropertyTileSnapshotConfigHash(input: {
+  coverageId?: string;
+  boundsSource?: string;
   maxZoom: number;
   filterSignature: string;
   bounds: {
@@ -171,7 +181,28 @@ export function computePropertyTileSnapshotConfigHash(input: {
   countries: readonly string[];
   dataSources: readonly string[];
 }): string {
+  const socialScoringConfig = {
+    activeSocialScoreThreshold: ACTIVE_SOCIAL_SCORE_THRESHOLD,
+    weights: {
+      topLevelComment: 1,
+      reply: 1,
+      propertyLike: 1,
+      commentLike: 0.8,
+      guess: 0.85,
+      uniqueViewer: 0.1,
+    },
+    rollingWindows: {
+      comments: '30 days',
+      propertyLikes: '30 days',
+      commentLikes: '30 days',
+      guesses: '30 days',
+      propertyViews: '7 days',
+    },
+  };
   const groupingConstants = {
+    propertyTileExtent: PROPERTY_TILE_EXTENT,
+    activeSocialScoreThreshold: ACTIVE_SOCIAL_SCORE_THRESHOLD,
+    socialScoringConfig,
     propertyMapFootprints: PROPERTY_MAP_FOOTPRINTS,
     propertyGhostRevealZoom: PROPERTY_GHOST_REVEAL_ZOOM,
     propertyPreviewMemberLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
@@ -179,6 +210,8 @@ export function computePropertyTileSnapshotConfigHash(input: {
 
   return createHash('sha256')
     .update(stableJson({
+      coverageId: input.coverageId ?? DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID,
+      boundsSource: input.boundsSource ?? 'env:europe-default',
       maxZoom: input.maxZoom,
       filterSignature: input.filterSignature,
       bounds: input.bounds,
@@ -214,6 +247,8 @@ function buildDefaultCoverageDefinition(): Omit<PropertyTileSnapshotCoverageDefi
     maxZoom,
     filterSignature,
     snapshotConfigHash: computePropertyTileSnapshotConfigHash({
+      coverageId: DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID,
+      boundsSource: 'env:europe-default',
       maxZoom,
       filterSignature,
       bounds,
@@ -669,6 +704,16 @@ async function countCurrentSnapshots(coverage: PropertyTileSnapshotCoverageDefin
   return rows[0]?.count ?? 0;
 }
 
+async function readSnapshotRefreshState() {
+  const rows = await db
+    .select()
+    .from(propertyTileSnapshotRefreshState)
+    .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export async function shouldRequestPropertyTileSnapshotRefresh(): Promise<PropertyTileSnapshotRefreshCheck> {
   const coverage = await getDefaultPropertyTileSnapshotCoverage();
   const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
@@ -676,12 +721,7 @@ export async function shouldRequestPropertyTileSnapshotRefresh(): Promise<Proper
     countCurrentSnapshots(coverage),
     readSnapshotWatermarks(),
   ]);
-  const rows = await db
-    .select()
-    .from(propertyTileSnapshotRefreshState)
-    .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
-    .limit(1);
-  const state = rows[0] ?? null;
+  const state = await readSnapshotRefreshState();
 
   if (snapshotCount === 0) {
     return { shouldEnqueue: true, reason: 'absent_snapshots' };
@@ -781,17 +821,47 @@ async function finishRefresh(input: {
   `);
 }
 
-function prioritizeSnapshotTiles(
+type ExistingSnapshotRefreshRow = {
+  z: number;
+  x: number;
+  y: number;
+  generatedAt: Date;
+  refreshedAt: Date;
+  sourceListingWatermark: number;
+  sourceSocialWatermark: number;
+  sourcePropertyWatermark: number;
+  sourceCoverageWatermark: number;
+};
+
+function isSnapshotRowBehindWatermarks(
+  row: ExistingSnapshotRefreshRow,
+  watermarks: Awaited<ReturnType<typeof readSnapshotWatermarks>>,
+): boolean {
+  return (
+    row.sourceListingWatermark < watermarks.listingWatermark ||
+    row.sourceSocialWatermark < watermarks.socialWatermark ||
+    row.sourcePropertyWatermark < watermarks.propertyWatermark ||
+    row.sourceCoverageWatermark < watermarks.coverageWatermark
+  );
+}
+
+async function selectDueSnapshotTiles(
   tiles: PropertyTileCoordinate[],
   coverage: PropertyTileSnapshotCoverageDefinition,
+  watermarks: Awaited<ReturnType<typeof readSnapshotWatermarks>>,
 ): Promise<PropertyTileCoordinate[]> {
-  return (async () => {
-    const existing = await db
+  const [existing, state] = await Promise.all([
+    db
       .select({
         z: propertyTileSnapshots.z,
         x: propertyTileSnapshots.x,
         y: propertyTileSnapshots.y,
         generatedAt: propertyTileSnapshots.generatedAt,
+        refreshedAt: propertyTileSnapshots.refreshedAt,
+        sourceListingWatermark: propertyTileSnapshots.sourceListingWatermark,
+        sourceSocialWatermark: propertyTileSnapshots.sourceSocialWatermark,
+        sourcePropertyWatermark: propertyTileSnapshots.sourcePropertyWatermark,
+        sourceCoverageWatermark: propertyTileSnapshots.sourceCoverageWatermark,
       })
       .from(propertyTileSnapshots)
       .where(
@@ -800,18 +870,65 @@ function prioritizeSnapshotTiles(
           eq(propertyTileSnapshots.filterSignature, coverage.filterSignature),
           eq(propertyTileSnapshots.snapshotConfigHash, coverage.snapshotConfigHash),
         ),
-      );
+      ),
+    readSnapshotRefreshState(),
+  ]);
 
-    const generatedAtByKey = new Map(
-      existing.map((row) => [`${row.z}/${row.x}/${row.y}`, row.generatedAt.getTime()]),
-    );
+  const existingByKey = new Map(
+    existing.map((row) => [`${row.z}/${row.x}/${row.y}`, row]),
+  );
+  const rollingWindowStale =
+    state?.lastWindowRefreshAt != null &&
+    Date.now() - state.lastWindowRefreshAt.getTime() >
+      getPropertyTileSnapshotRollingMaxAgeSeconds() * 1000;
+  const rollingRefreshCutoff = rollingWindowStale ? state.lastWindowRefreshAt : null;
 
-    return [...tiles].sort((a, b) => {
-      const aGeneratedAt = generatedAtByKey.get(`${a.z}/${a.x}/${a.y}`) ?? 0;
-      const bGeneratedAt = generatedAtByKey.get(`${b.z}/${b.x}/${b.y}`) ?? 0;
+  return tiles
+    .filter((tile) => {
+      const row = existingByKey.get(`${tile.z}/${tile.x}/${tile.y}`);
+      if (!row) {
+        return true;
+      }
+      if (isSnapshotRowBehindWatermarks(row, watermarks)) {
+        return true;
+      }
+      return rollingRefreshCutoff != null && row.refreshedAt <= rollingRefreshCutoff;
+    })
+    .sort((a, b) => {
+      const aGeneratedAt = existingByKey.get(`${a.z}/${a.x}/${a.y}`)?.generatedAt.getTime() ?? 0;
+      const bGeneratedAt = existingByKey.get(`${b.z}/${b.x}/${b.y}`)?.generatedAt.getTime() ?? 0;
       return aGeneratedAt - bGeneratedAt || a.z - b.z || a.x - b.x || a.y - b.y;
     });
-  })();
+}
+
+export function summarizePropertyTileSnapshotRefreshRun(input: {
+  dueTileCount: number;
+  attemptedTileCount: number;
+  refreshedTileCount: number;
+  failedTileCount: number;
+}): {
+  completed: boolean;
+  skippedTileCount: number;
+  status: PropertyTileSnapshotRefreshResult['status'];
+  error: string | null;
+} {
+  const skippedTileCount = Math.max(0, input.dueTileCount - input.attemptedTileCount);
+  const completed = input.failedTileCount === 0 && skippedTileCount === 0;
+  const status = completed
+    ? 'completed'
+    : input.failedTileCount > 0
+      ? 'failed'
+      : 'quota_exhausted';
+  const error = input.failedTileCount > 0
+    ? `Snapshot refresh incomplete: ${input.failedTileCount} failed, ${skippedTileCount} unattempted due tiles remain`
+    : null;
+
+  return {
+    completed,
+    skippedTileCount,
+    status,
+    error,
+  };
 }
 
 export async function executePropertyTileSnapshotRefresh(input: {
@@ -836,18 +953,18 @@ export async function executePropertyTileSnapshotRefresh(input: {
   const allTiles = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
   const maxTiles = getPropertyTilePrecomputeMaxTilesPerRun();
   const maxRunMs = getPropertyTilePrecomputeMaxSecondsPerRun() * 1000;
-  const orderedTiles = await prioritizeSnapshotTiles(allTiles, coverage);
+  const dueTiles = await selectDueSnapshotTiles(allTiles, coverage, watermarks);
   const builder = input.builder ?? buildMvtForTile;
   let refreshedTileCount = 0;
   let failedTileCount = 0;
-  let skippedTileCount = 0;
+  let attemptedTileCount = 0;
 
   try {
-    for (const tile of orderedTiles) {
-      if (refreshedTileCount >= maxTiles || Date.now() - startedAt >= maxRunMs) {
-        skippedTileCount += 1;
-        continue;
+    for (const tile of dueTiles) {
+      if (attemptedTileCount >= maxTiles || Date.now() - startedAt >= maxRunMs) {
+        break;
       }
+      attemptedTileCount += 1;
 
       try {
         const payload = await builder(tile, createDefaultMapFilters(), {
@@ -867,7 +984,12 @@ export async function executePropertyTileSnapshotRefresh(input: {
       }
     }
 
-    const completed = failedTileCount === 0 && skippedTileCount === 0;
+    const summary = summarizePropertyTileSnapshotRefreshRun({
+      dueTileCount: dueTiles.length,
+      attemptedTileCount,
+      refreshedTileCount,
+      failedTileCount,
+    });
     await finishRefresh({
       owner,
       coverage,
@@ -875,17 +997,17 @@ export async function executePropertyTileSnapshotRefresh(input: {
       refreshedTileCount,
       failedTileCount,
       watermarks,
-      success: completed,
-      error: completed ? null : `Snapshot refresh incomplete: ${failedTileCount} failed, ${skippedTileCount} skipped by quota`,
+      success: summary.completed,
+      error: summary.error,
     });
 
     return {
-      status: completed ? 'completed' : 'quota_exhausted',
+      status: summary.status,
       reason,
       expectedTileCount: allTiles.length,
       refreshedTileCount,
       failedTileCount,
-      skippedTileCount,
+      skippedTileCount: summary.skippedTileCount,
       durationMs: Date.now() - startedAt,
     };
   } catch (error) {

@@ -22,7 +22,10 @@ import {
 } from './property-grouping.js';
 import { normalizeMapFilters } from './map-filters.js';
 import { PublicPropertyTileCache } from './property-tile-cache.js';
-import { isPropertyTileStatementTimeoutError } from './property-tile-runtime.js';
+import {
+  isPropertyTileStatementTimeoutError,
+  PropertyTileBudgetExceededError,
+} from './property-tile-runtime.js';
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
   const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
@@ -112,6 +115,24 @@ describe('property-grouping', () => {
     expect(isPropertyTileStatementTimeoutError({ code: '40001', message: 'serialization' })).toBe(
       false
     );
+  });
+
+  it('checks CPU runtime budgets against the whole tile build deadline', () => {
+    const zoom = 18;
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const [lon, lat] = worldUnitsToLngLat(
+      tile.x * PROPERTY_TILE_EXTENT + 800,
+      tile.y * PROPERTY_TILE_EXTENT + 800,
+      zoom
+    );
+    const candidate = makeCandidate('00000000-0000-0000-0000-0000000000bd', lon, lat, zoom);
+
+    expect(() =>
+      groupCandidatesForTile(tile, [candidate], {
+        runtimeBudgetMs: 10,
+        runtimeStartedAtMs: Date.now() - 20,
+      })
+    ).toThrow(PropertyTileBudgetExceededError);
   });
 
   it('keeps public property tile cache entries stale after the fresh TTL expires', () => {

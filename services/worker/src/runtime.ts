@@ -42,6 +42,38 @@ interface RecoverySweepSummary {
   propertyTileSnapshotRefreshReason: string | null;
 }
 
+export type WorkerRuntimeModuleLoaders = {
+  loadApiDbModule: typeof loadApiDbModule;
+  loadApiRedisModule: typeof loadApiRedisModule;
+  loadIngestJobsModule: typeof loadIngestJobsModule;
+  loadIngestProcessorModule: typeof loadIngestProcessorModule;
+  loadIngestQueueModule: typeof loadIngestQueueModule;
+  loadIngestStoreModule: typeof loadIngestStoreModule;
+  loadListingReconciliationModule: typeof loadListingReconciliationModule;
+  loadListingsViewModule: typeof loadListingsViewModule;
+  loadOfficialValuationJobsModule: typeof loadOfficialValuationJobsModule;
+  loadOfficialValuationProcessorModule: typeof loadOfficialValuationProcessorModule;
+  loadOfficialValuationQueueModule: typeof loadOfficialValuationQueueModule;
+  loadOfficialValuationStoreModule: typeof loadOfficialValuationStoreModule;
+  loadPropertyTileSnapshotsModule: typeof loadPropertyTileSnapshotsModule;
+};
+
+const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
+  loadApiDbModule,
+  loadApiRedisModule,
+  loadIngestJobsModule,
+  loadIngestProcessorModule,
+  loadIngestQueueModule,
+  loadIngestStoreModule,
+  loadListingReconciliationModule,
+  loadListingsViewModule,
+  loadOfficialValuationJobsModule,
+  loadOfficialValuationProcessorModule,
+  loadOfficialValuationQueueModule,
+  loadOfficialValuationStoreModule,
+  loadPropertyTileSnapshotsModule,
+};
+
 function toIngestLogger(logger: WorkerLogger) {
   return {
     info(payload: Record<string, unknown>, message: string) {
@@ -124,6 +156,7 @@ export class WorkerRuntime {
   constructor(
     config: WorkerConfig = loadWorkerConfig(),
     logger: WorkerLogger = createWorkerLogger(),
+    private readonly moduleLoaders: WorkerRuntimeModuleLoaders = DEFAULT_MODULE_LOADERS,
   ) {
     this.config = config;
     this.logger = logger;
@@ -131,9 +164,9 @@ export class WorkerRuntime {
 
   async start(): Promise<void> {
     const [jobs, officialValuationJobs, apiRedis] = await Promise.all([
-      loadIngestJobsModule(),
-      loadOfficialValuationJobsModule(),
-      loadApiRedisModule(),
+      this.moduleLoaders.loadIngestJobsModule(),
+      this.moduleLoaders.loadOfficialValuationJobsModule(),
+      this.moduleLoaders.loadApiRedisModule(),
     ]);
 
     [
@@ -281,7 +314,7 @@ export class WorkerRuntime {
   }
 
   private async processIngestJob(job: Job<{ batchId: string }>): Promise<Record<string, unknown>> {
-    const processor = await loadIngestProcessorModule();
+    const processor = await this.moduleLoaders.loadIngestProcessorModule();
 
     this.logger.info('Processing ingest batch', {
       jobId: job.id,
@@ -306,8 +339,8 @@ export class WorkerRuntime {
     job: Job<{ requestedBy: string; batchId?: string }>,
   ): Promise<Record<string, unknown>> {
     const [processor, listingsView] = await Promise.all([
-      loadIngestProcessorModule(),
-      loadListingsViewModule(),
+      this.moduleLoaders.loadIngestProcessorModule(),
+      this.moduleLoaders.loadListingsViewModule(),
     ]);
 
     this.logger.info('Refreshing listing maintenance views', {
@@ -335,7 +368,7 @@ export class WorkerRuntime {
   private async processOfficialValuationHydrationJob(
     job: Job<OfficialValuationHydrationJobData>,
   ): Promise<Record<string, unknown>> {
-    const processor = await loadOfficialValuationProcessorModule();
+    const processor = await this.moduleLoaders.loadOfficialValuationProcessorModule();
 
     this.logger.info('Processing official valuation hydration', {
       jobId: job.id,
@@ -359,17 +392,25 @@ export class WorkerRuntime {
       throw new Error(`Unsupported property tile snapshot job: ${job.name}`);
     }
 
-    const snapshots = await loadPropertyTileSnapshotsModule();
+    const snapshots = await this.moduleLoaders.loadPropertyTileSnapshotsModule();
     this.logger.info('Refreshing property tile snapshots', {
       jobId: job.id,
       reason: job.data.reason,
       attempt: job.attemptsStarted,
     });
 
-    return snapshots.executePropertyTileSnapshotRefresh({
+    const result = await snapshots.executePropertyTileSnapshotRefresh({
       reason: job.data.reason,
       leaseOwner: `worker:${process.pid}:${job.id ?? 'unknown'}`,
     });
+
+    this.logger.info('Property tile snapshot refresh completed', {
+      jobId: job.id,
+      reason: job.data.reason,
+      ...result,
+    });
+
+    return result;
   }
 
   private attachWorkerLogging(name: string, worker: Worker): void {
@@ -431,12 +472,12 @@ export class WorkerRuntime {
       propertyTileSnapshots,
     ] =
       await Promise.all([
-        loadIngestStoreModule(),
-        loadIngestQueueModule(),
-        loadListingReconciliationModule(),
-        loadOfficialValuationStoreModule(),
-        loadOfficialValuationQueueModule(),
-        loadPropertyTileSnapshotsModule(),
+        this.moduleLoaders.loadIngestStoreModule(),
+        this.moduleLoaders.loadIngestQueueModule(),
+        this.moduleLoaders.loadListingReconciliationModule(),
+        this.moduleLoaders.loadOfficialValuationStoreModule(),
+        this.moduleLoaders.loadOfficialValuationQueueModule(),
+        this.moduleLoaders.loadPropertyTileSnapshotsModule(),
       ]);
 
     const staleProcessingBefore = new Date(Date.now() - this.config.staleProcessingAfterMs);
@@ -778,10 +819,10 @@ export class WorkerRuntime {
 
   private async closeApiResources(): Promise<void> {
     const [apiDb, apiRedis, ingestQueue, officialValuationQueue] = await Promise.all([
-      loadApiDbModule(),
-      loadApiRedisModule(),
-      loadIngestQueueModule(),
-      loadOfficialValuationQueueModule(),
+      this.moduleLoaders.loadApiDbModule(),
+      this.moduleLoaders.loadApiRedisModule(),
+      this.moduleLoaders.loadIngestQueueModule(),
+      this.moduleLoaders.loadOfficialValuationQueueModule(),
     ]);
 
     await Promise.allSettled([

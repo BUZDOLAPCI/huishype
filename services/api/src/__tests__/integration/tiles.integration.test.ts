@@ -12,7 +12,17 @@ import {
   resetCanonicalGroupCacheForTests,
   type CanonicalPropertyGroup,
 } from '../../services/property-grouping.js';
-import { DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID } from '../../services/property-tile-snapshots.js';
+import {
+  DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID,
+  ensureDefaultPropertyTileSnapshotCoverage,
+  upsertPropertyTileSnapshotRow,
+} from '../../services/property-tile-snapshots.js';
+import {
+  buildPropertyTileEtag,
+  PROPERTY_TILE_CACHE_TTL_SECONDS,
+  publicPropertyTileCache,
+} from '../../services/property-tile-cache.js';
+import { propertyTileRuntime } from '../../services/property-tile-runtime.js';
 import { createDefaultMapFilters, type MapFilters } from '../../services/map-filters.js';
 import {
   createIntegrationFollow,
@@ -136,12 +146,14 @@ function expectCompletedActiveSingleGroup(
 describe('Tile routes', () => {
   jest.setTimeout(30000);
   let app: FastifyInstance;
+  const originalEnv = { ...process.env };
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
   });
 
   beforeEach(() => {
+    process.env = { ...originalEnv };
     resetPropertyTileCacheForTests();
     resetCanonicalGroupCacheForTests();
   });
@@ -704,6 +716,159 @@ describe('Tile routes', () => {
         WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
       `);
       expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
+    });
+
+    it('serves current public default low-zoom tiles from precomputed snapshots with public headers', async () => {
+      const tile = { z: 0, x: 0, y: 0 };
+      const payload = Buffer.from([0x1a, 0x03, 0x68, 0x68, 0x70]);
+      let coverage: Awaited<ReturnType<typeof ensureDefaultPropertyTileSnapshotCoverage>> | null =
+        null;
+
+      try {
+        coverage = await ensureDefaultPropertyTileSnapshotCoverage();
+        await upsertPropertyTileSnapshotRow({
+          tile,
+          filterSignature: coverage.filterSignature,
+          coverage,
+          payload,
+          watermarks: {
+            listingWatermark: 0,
+            socialWatermark: 0,
+            propertyWatermark: 0,
+            coverageWatermark: coverage.coverageWatermark,
+          },
+          generatedAt: new Date(),
+        });
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.rawPayload).toEqual(payload);
+        expect(response.headers['content-type']).toBe('application/x-protobuf');
+        expect(response.headers['cache-control']).toBe(
+          'public, max-age=300, stale-while-revalidate=300'
+        );
+        expect(response.headers['x-tile-cache']).toBe('precomputed');
+        expect(response.headers['x-tile-coalesced']).toBe('false');
+        expect(response.headers['x-tile-generation-time']).toBe('0ms');
+        expect(response.headers['x-tile-queue-time']).toBe('0ms');
+        expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
+        expect(response.headers.etag).toBeDefined();
+      } finally {
+        await db.execute(sql`
+          DELETE FROM property_tile_snapshots
+          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+            AND z = ${tile.z}
+            AND x = ${tile.x}
+            AND y = ${tile.y}
+        `);
+        await db.execute(sql`
+          DELETE FROM property_tile_snapshot_coverage
+          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+        `);
+      }
+    });
+
+    it('serves stale public tiles when runtime queue budget is exhausted', async () => {
+      process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
+      process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
+      const tileUrl = '/tiles/properties/10/0/0.pbf';
+      const cacheKey = '10/0/0:default';
+      const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
+      const staleNow = Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000);
+      publicPropertyTileCache.set(
+        cacheKey,
+        {
+          payload,
+          statusCode: 200,
+          etag: buildPropertyTileEtag(cacheKey, payload),
+        },
+        staleNow,
+      );
+      let releaseBlocker!: () => void;
+      let markBlockerStarted!: () => void;
+      const blockerStarted = new Promise<void>((resolve) => {
+        markBlockerStarted = resolve;
+      });
+      const blocker = propertyTileRuntime.run({
+        key: `public:test-blocker:${crypto.randomUUID()}`,
+        zoom: 22,
+        budgetMs: 5_000,
+        builder: async () => {
+          markBlockerStarted();
+          await new Promise<void>((resolve) => {
+            releaseBlocker = resolve;
+          });
+          return { payload: null, statusCode: 204 as const };
+        },
+      });
+
+      await blockerStarted;
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.rawPayload).toEqual(payload);
+        expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+        expect(response.headers['x-tile-cache']).toBe('stale');
+        expect(response.headers['x-tile-generation-time']).toBe('0ms');
+        expect(response.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
+        expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
+      } finally {
+        releaseBlocker();
+        await blocker;
+        propertyTileRuntime.resetForTests();
+      }
+    });
+
+    it('returns timeout-empty public headers when runtime budget misses and no stale tile exists', async () => {
+      process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
+      process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
+      let releaseBlocker!: () => void;
+      let markBlockerStarted!: () => void;
+      const blockerStarted = new Promise<void>((resolve) => {
+        markBlockerStarted = resolve;
+      });
+      const blocker = propertyTileRuntime.run({
+        key: `public:test-blocker:${crypto.randomUUID()}`,
+        zoom: 22,
+        budgetMs: 5_000,
+        builder: async () => {
+          markBlockerStarted();
+          await new Promise<void>((resolve) => {
+            releaseBlocker = resolve;
+          });
+          return { payload: null, statusCode: 204 as const };
+        },
+      });
+
+      await blockerStarted;
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/11/0/0.pbf',
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['cache-control']).toBe('no-store, max-age=0');
+        expect(response.headers['x-tile-cache']).toBe('timeout-empty');
+        expect(response.headers['x-tile-generation-time']).toBe('0ms');
+        expect(response.headers['x-tile-coalesced']).toBe('false');
+        expect(response.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
+        expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
+      } finally {
+        releaseBlocker();
+        await blocker;
+        propertyTileRuntime.resetForTests();
+      }
     });
 
     it('should return MVT data for Eindhoven area at zoom 10 (clustered)', async () => {
